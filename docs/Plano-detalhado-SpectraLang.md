@@ -10,6 +10,7 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - Pasta `docs/decisions` ativa (ADR 0001 – Lexer, ADR 0002 – Parser, ADR 0003 – Roadmap Semântico); plano de trabalho alinhado com backlog por fases.
 - AST e parser atualizados para cobrir declarações `import` e expressões de chamada, com novos testes garantindo cobertura de casos positivos e diagnósticos.
 - Analisador semântico ampliado com registro de assinaturas, checagem de aridade/tipos em chamadas, e validação de imports (auto-import e módulos desconhecidos).
+- Suporte multi-módulo: CLI e analisador recebem múltiplos arquivos simultaneamente, compartilham assinaturas exportadas, detectam conflitos entre imports e reportam diagnósticos consistentes entre módulos.
 
 ## Linha do tempo da colaboração
 
@@ -23,6 +24,7 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - Registro do ADR 0003 detalhando o roadmap para resolução entre módulos e expansão do sistema de tipos.
 - Introdução da inferência e checagem básica de tipos (literais, unários, binários e `return`) com suíte de testes dedicada.
 - Extensão da AST/parser para `import` e chamadas de função, com análises semânticas que validam assinaturas e imports acompanhadas de testes automatizados.
+- Habilitação da análise multi-módulo na CLI/analisador, com compartilhamento de símbolos exportados, detecção de conflitos entre módulos e suporte a múltiplos arquivos por execução.
 
 ## 1. Características técnicas
 
@@ -267,7 +269,7 @@ Match     := "match" Expr MatchBody ;
 
 - **Epic F1 – Núcleo do Compilador:**
   - Feature: Lexer/Parser robustos ✅ (Mês 1 concluído) → Stories entregues: spans completos, parser com módulos/funções/blocos, testes automatizados.
-  - Feature: Analisador semântico básico (iteração 1.3 em andamento) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI, detecção de variáveis/parâmetros não utilizados com suporte a `_`, inferência/checagem de tipos primitivos em literais/operadores/`return`, registro de assinaturas de função com verificação de chamadas (aridade/tipos) e diagnósticos de imports desconhecidos/auto-referenciados. Próximas Stories: compartilhar símbolos importados no escopo consumidor, suportar múltiplos arquivos na CLI/analisador com visibilidade/`export`, propagar tipos compostos em controles de fluxo e preparar ganchos para geração de SIR.
+  - Feature: Analisador semântico básico (iteração 1.4 em andamento) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI, detecção de variáveis/parâmetros não utilizados com suporte a `_`, inferência/checagem de tipos primitivos em literais/operadores/`return`, registro de assinaturas de função com verificação de chamadas (aridade/tipos), diagnósticos de imports desconhecidos/auto-referenciados e resolução multi-módulo com compartilhamento automático de funções e detecção de conflitos entre módulos. Próximas Stories: introduzir visibilidade (`export`/`pub`) e controle de reexportações, ampliar a tabela de símbolos para outros itens top-level, propagar tipos compostos e fluxos condicionais, e conectar as informações de assinatura/tipo ao futuro gerador de SIR.
   - Feature: Tipagem básica + SIR (próximo) → Stories: resolver tipos primitivos, gerar SIR SSA inicial, validar round-trip SIR→JIT→execução em CLI.
 - **Epic F2 – Linguagem avançada:**
   - Feature: OO e generics → Stories: suportar `class/trait/impl`, herança simples com mixins, monomorfização de generics.

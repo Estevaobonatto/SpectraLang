@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
     BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath, Stmt,
@@ -7,6 +7,18 @@ use crate::ast::{
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
 
+
+#[derive(Clone)]
+struct FunctionExport {
+    signature: FunctionType,
+    span: Span,
+}
+
+#[derive(Clone, Default)]
+struct ModuleExport {
+    functions: HashMap<String, FunctionExport>,
+}
+
 pub fn analyze(module: &Module) -> SemanticResult<()> {
     analyze_modules(&[module])
 }
@@ -14,6 +26,7 @@ pub fn analyze(module: &Module) -> SemanticResult<()> {
 pub fn analyze_modules(modules: &[&Module]) -> SemanticResult<()> {
     let mut analyzer = Analyzer::new();
     analyzer.register_modules(modules);
+    analyzer.collect_exports(modules);
     for module in modules {
         analyzer.analyze_module(module);
     }
@@ -29,7 +42,9 @@ struct Analyzer<'a> {
     scopes: ScopeStack,
     current_function: Option<FunctionContext<'a>>,
     module_registry: HashMap<String, Span>,
-    function_signatures: HashMap<String, FunctionType>,
+    module_exports: HashMap<String, ModuleExport>,
+    current_module_key: Option<String>,
+    current_module_signatures: HashMap<String, FunctionType>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -39,7 +54,9 @@ impl<'a> Analyzer<'a> {
             scopes: ScopeStack::new(),
             current_function: None,
             module_registry: HashMap::new(),
-            function_signatures: HashMap::new(),
+            module_exports: HashMap::new(),
+            current_module_key: None,
+            current_module_signatures: HashMap::new(),
         }
     }
 
@@ -66,10 +83,49 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn collect_exports(&mut self, modules: &[&'a Module]) {
+        for module in modules {
+            let Some(path) = module.name.as_ref() else {
+                continue;
+            };
+            let key = module_path_key(path);
+            for item in &module.items {
+                if let Item::Function(function) = item {
+                    let signature = self.build_function_signature(function);
+                    let exports = self
+                        .module_exports
+                        .entry(key.clone())
+                        .or_insert_with(ModuleExport::default);
+                    match exports.functions.entry(function.name.clone()) {
+                        Entry::Vacant(entry) => {
+                            entry.insert(FunctionExport {
+                                signature: signature.clone(),
+                                span: function.span,
+                            });
+                        }
+                        Entry::Occupied(entry) => {
+                            let previous_location = entry.get().span.start_location;
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "function '{}' already defined in module '{}' (previous definition at {})",
+                                    function.name, key, previous_location
+                                ),
+                                function.span,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn analyze_module(&mut self, module: &'a Module) {
         self.scopes.push(ScopeKind::Module);
+        self.current_module_key = module.name.as_ref().map(|path| module_path_key(path));
+        self.current_module_signatures.clear();
         self.register_functions(module);
         self.validate_imports(module);
+        self.introduce_imports(module);
 
         for item in &module.items {
             match item {
@@ -82,12 +138,15 @@ impl<'a> Analyzer<'a> {
         if let Some(frame) = self.scopes.pop() {
             self.report_unused(frame);
         }
+
+        self.current_module_key = None;
+        self.current_module_signatures.clear();
     }
 
     fn register_functions(&mut self, module: &'a Module) {
         for item in &module.items {
             if let Item::Function(function) = item {
-                let signature = self.build_function_signature(function);
+                let signature = self.signature_for_function(module, function);
                 if let Err(previous_span) = self.scopes.define(
                     &function.name,
                     function.span,
@@ -103,8 +162,62 @@ impl<'a> Analyzer<'a> {
                         function.span,
                     ));
                 } else {
-                    self.function_signatures
+                    self.current_module_signatures
                         .insert(function.name.clone(), signature);
+                }
+            }
+        }
+    }
+
+    fn signature_for_function(
+        &mut self,
+        module: &'a Module,
+        function: &'a Function,
+    ) -> FunctionType {
+        if let Some(key) = module.name.as_ref().map(|path| module_path_key(path)) {
+            if let Some(exports) = self.module_exports.get(&key) {
+                if let Some(export) = exports.functions.get(&function.name) {
+                    return export.signature.clone();
+                }
+            }
+        }
+        self.build_function_signature(function)
+    }
+
+    fn introduce_imports(&mut self, module: &'a Module) {
+        let mut seen_modules = HashSet::new();
+        for item in &module.items {
+            if let Item::Import(import) = item {
+                let key = module_path_key(&import.path);
+
+                if !seen_modules.insert(key.clone()) {
+                    continue;
+                }
+
+                if self.current_module_key.as_deref() == Some(key.as_str()) {
+                    continue;
+                }
+
+                let Some(exports) = self.module_exports.get(&key) else {
+                    continue;
+                };
+
+                for (name, export) in &exports.functions {
+                    if let Err(previous_span) = self.scopes.define(
+                        name,
+                        export.span,
+                        SymbolKind::Function,
+                        Type::Function(export.signature.clone()),
+                    ) {
+                        let previous_location = previous_span.start_location;
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                                name, previous_location
+                            ),
+                            import.span,
+                        ));
+                    }
                 }
             }
         }
@@ -140,13 +253,10 @@ impl<'a> Analyzer<'a> {
     fn analyze_function(&mut self, function: &'a Function) {
         self.scopes.push(ScopeKind::Function);
         let signature = self
-            .function_signatures
+            .current_module_signatures
             .get(&function.name)
             .cloned()
-            .unwrap_or_else(|| FunctionType {
-                parameters: Vec::new(),
-                return_type: Box::new(Type::Void),
-            });
+            .unwrap_or_else(|| self.build_function_signature(function));
         let return_type = (*signature.return_type).clone();
         self.current_function = Some(FunctionContext {
             name: &function.name,
@@ -787,6 +897,17 @@ mod tests {
         analyze(&module)
     }
 
+    fn analyze_modules_from_sources(sources: &[&str]) -> SemanticResult<()> {
+        let mut modules = Vec::new();
+        for source in sources {
+            let tokens = Lexer::new(source).tokenize().expect("lex ok");
+            let module = Parser::new(&tokens).parse().expect("parse ok");
+            modules.push(module);
+        }
+        let refs: Vec<&Module> = modules.iter().collect();
+        analyze_modules(&refs)
+    }
+
     #[test]
     fn accepts_function_with_return_value() {
         analyze_source("fn main(): i32 { let x = 1; return x; }").expect("analysis ok");
@@ -948,5 +1069,26 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("module cannot import itself")));
+    }
+
+    #[test]
+    fn accepts_cross_module_call() {
+        analyze_modules_from_sources(&[
+            "module app.math; fn add(a: i32, b: i32): i32 { return a + b; }",
+            "module app.main; import app.math; fn main(): i32 { return add(1, 2); }",
+        ])
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_import_conflict_with_local_definition() {
+        let errors = analyze_modules_from_sources(&[
+            "module app.util; fn helper(): i32 { return 1; }",
+            "module app.main; import app.util; fn helper(): i32 { return 2; }",
+        ])
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("imported symbol 'helper' conflicts")));
     }
 }
