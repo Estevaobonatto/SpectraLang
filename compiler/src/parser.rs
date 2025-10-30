@@ -1,7 +1,8 @@
 use crate::{
     ast::{
         BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, MatchArm,
-        MatchPattern, Module, ModulePath, Parameter, Stmt, TypeName, UnaryOperator, Visibility,
+        MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl, StructField, TypeName,
+        UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -59,6 +60,12 @@ impl<'a> Parser<'a> {
                         Some(function) => items.push(Item::Function(function)),
                         None => self.synchronize(),
                     }
+                } else if self.check_keyword(Keyword::Struct) {
+                    let struct_token = self.advance().clone();
+                    match self.parse_struct(struct_token, visibility, Some(span)) {
+                        Some(struct_decl) => items.push(Item::Struct(struct_decl)),
+                        None => self.synchronize(),
+                    }
                 } else if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Var) {
                     let keyword = self.advance().clone();
                     match self.parse_constant(keyword, visibility, span) {
@@ -68,7 +75,7 @@ impl<'a> Parser<'a> {
                 } else {
                     let location = self.peek().span.start_location;
                     self.errors.push(ParseError::new(
-                        "expected 'fn' or binding after visibility modifier",
+                        "expected 'fn', 'struct' or binding after visibility modifier",
                         location,
                     ));
                     self.synchronize();
@@ -89,6 +96,15 @@ impl<'a> Parser<'a> {
                 let fn_token = self.advance().clone();
                 match self.parse_function(fn_token, Visibility::Private, None) {
                     Some(function) => items.push(Item::Function(function)),
+                    None => self.synchronize(),
+                }
+                continue;
+            }
+
+            if self.check_keyword(Keyword::Struct) {
+                let struct_token = self.advance().clone();
+                match self.parse_struct(struct_token, Visibility::Private, None) {
+                    Some(struct_decl) => items.push(Item::Struct(struct_decl)),
                     None => self.synchronize(),
                 }
                 continue;
@@ -219,8 +235,8 @@ impl<'a> Parser<'a> {
             .consume(TokenKind::RParen, "expected ')' after while condition")?
             .clone();
         let body = self.parse_statement()?;
-    let mut span = span_union(keyword_span, expr_span(&condition));
-    span = span_union(span, statement_span(&body));
+        let mut span = span_union(keyword_span, expr_span(&condition));
+        span = span_union(span, statement_span(&body));
         span = span_union(span, close_paren.span);
 
         Some(Stmt::While {
@@ -325,7 +341,11 @@ impl<'a> Parser<'a> {
             let body = self.parse_statement()?;
             let mut arm_span = match_pattern_span(&pattern);
             arm_span = span_union(arm_span, statement_span(&body));
-            arms.push(MatchArm { pattern, body, span: arm_span });
+            arms.push(MatchArm {
+                pattern,
+                body,
+                span: arm_span,
+            });
 
             if !self.match_token(TokenKind::Comma) {
                 break;
@@ -353,13 +373,16 @@ impl<'a> Parser<'a> {
     fn parse_match_pattern(&mut self) -> Option<MatchPattern> {
         if self.match_token(TokenKind::Integer) {
             let token = self.previous().clone();
-            let value = token.lexeme.parse::<i64>().map_err(|_| {
-                self.errors.push(ParseError::new(
-                    "invalid integer literal in match pattern",
-                    token.span.start_location,
-                ));
-            })
-            .ok()?;
+            let value = token
+                .lexeme
+                .parse::<i64>()
+                .map_err(|_| {
+                    self.errors.push(ParseError::new(
+                        "invalid integer literal in match pattern",
+                        token.span.start_location,
+                    ));
+                })
+                .ok()?;
             return Some(MatchPattern::Literal {
                 value: Literal::Integer(value),
                 span: token.span,
@@ -368,13 +391,16 @@ impl<'a> Parser<'a> {
 
         if self.match_token(TokenKind::Float) {
             let token = self.previous().clone();
-            let value = token.lexeme.parse::<f64>().map_err(|_| {
-                self.errors.push(ParseError::new(
-                    "invalid float literal in match pattern",
-                    token.span.start_location,
-                ));
-            })
-            .ok()?;
+            let value = token
+                .lexeme
+                .parse::<f64>()
+                .map_err(|_| {
+                    self.errors.push(ParseError::new(
+                        "invalid float literal in match pattern",
+                        token.span.start_location,
+                    ));
+                })
+                .ok()?;
             return Some(MatchPattern::Literal {
                 value: Literal::Float(value),
                 span: token.span,
@@ -588,6 +614,55 @@ impl<'a> Parser<'a> {
             parameters,
             return_type,
             body,
+            visibility,
+            span,
+        })
+    }
+
+    fn parse_struct(
+        &mut self,
+        struct_token: Token,
+        visibility: Visibility,
+        leading_span: Option<Span>,
+    ) -> Option<StructDecl> {
+        let name_token = self.consume_identifier("expected struct name")?.clone();
+
+        self.consume(TokenKind::LBrace, "expected '{' after struct name")?;
+        let mut fields = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            if self.match_token(TokenKind::Semicolon) || self.match_token(TokenKind::Comma) {
+                continue;
+            }
+
+            let field_name = self.consume_identifier("expected field name")?.clone();
+            self.consume(TokenKind::Colon, "expected ':' after field name")?;
+            let field_type = self.parse_type_name()?;
+            let field_span = span_union(field_name.span, field_type.span);
+
+            fields.push(StructField {
+                name: field_name.lexeme.clone(),
+                ty: field_type,
+                span: field_span,
+            });
+
+            if !self.match_token(TokenKind::Comma) && !self.check(TokenKind::RBrace) {
+                self.consume(TokenKind::Comma, "expected ',' or '}' after struct field")?;
+            }
+        }
+
+        let close_brace = self
+            .consume(TokenKind::RBrace, "expected '}' to close struct")?
+            .clone();
+
+        let mut span = span_union(struct_token.span, close_brace.span);
+        if let Some(leading) = leading_span {
+            span = span_union(leading, span);
+        }
+
+        Some(StructDecl {
+            name: name_token.lexeme.clone(),
+            fields,
             visibility,
             span,
         })
@@ -855,6 +930,16 @@ impl<'a> Parser<'a> {
             if self.match_token(TokenKind::LParen) {
                 let call = self.finish_call(expr)?;
                 expr = call;
+            } else if self.match_token(TokenKind::Dot) {
+                let field_token = self
+                    .consume_identifier("expected field name after '.'")?
+                    .clone();
+                let span = span_union(expr_span(&expr), field_token.span);
+                expr = Expr::FieldAccess {
+                    object: Box::new(expr),
+                    field: field_token.lexeme.clone(),
+                    span,
+                };
             } else {
                 break;
             }
@@ -1092,7 +1177,8 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Call { span, .. }
         | Expr::Unary { span, .. }
         | Expr::Binary { span, .. }
-        | Expr::Grouping { span, .. } => *span,
+        | Expr::Grouping { span, .. }
+        | Expr::FieldAccess { span, .. } => *span,
     }
 }
 

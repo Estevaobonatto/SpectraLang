@@ -51,6 +51,7 @@ struct Analyzer<'a> {
     module_exports: HashMap<String, ModuleExport>,
     current_module_key: Option<String>,
     current_module_signatures: HashMap<String, FunctionType>,
+    struct_registry: HashMap<String, Type>,
     loop_depth: usize,
 }
 
@@ -64,6 +65,7 @@ impl<'a> Analyzer<'a> {
             module_exports: HashMap::new(),
             current_module_key: None,
             current_module_signatures: HashMap::new(),
+            struct_registry: HashMap::new(),
             loop_depth: 0,
         }
     }
@@ -104,10 +106,7 @@ impl<'a> Analyzer<'a> {
                             continue;
                         }
                         let signature = self.build_function_signature(function);
-                        let exports = self
-                            .module_exports
-                            .entry(key.clone())
-                            .or_insert_with(ModuleExport::default);
+                        let exports = self.module_exports.entry(key.clone()).or_default();
                         if exports.constants.contains_key(&function.name) {
                             let previous_location = exports
                                 .constants
@@ -156,10 +155,7 @@ impl<'a> Analyzer<'a> {
                             ));
                             continue;
                         }
-                        let exports = self
-                            .module_exports
-                            .entry(key.clone())
-                            .or_insert_with(ModuleExport::default);
+                        let exports = self.module_exports.entry(key.clone()).or_default();
                         if exports.functions.contains_key(&constant.name) {
                             let previous_location = exports
                                 .functions
@@ -240,7 +236,7 @@ impl<'a> Analyzer<'a> {
         let exports = self
             .module_exports
             .entry(current_key.to_string())
-            .or_insert_with(ModuleExport::default);
+            .or_default();
 
         if let Some(function_export) = function_export {
             if exports.constants.contains_key(&export.symbol) {
@@ -329,7 +325,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_module(&mut self, module: &'a Module) {
         self.scopes.push(ScopeKind::Module);
-        self.current_module_key = module.name.as_ref().map(|path| module_path_key(path));
+        self.current_module_key = module.name.as_ref().map(module_path_key);
         self.current_module_signatures.clear();
         self.register_functions(module);
         self.register_constants(module);
@@ -340,6 +336,7 @@ impl<'a> Analyzer<'a> {
             match item {
                 Item::Function(function) => self.analyze_function(function),
                 Item::Constant(constant) => self.analyze_constant(constant),
+                Item::Struct(struct_decl) => self.analyze_struct(struct_decl),
                 Item::Stmt(statement) => self.analyze_statement(statement),
                 Item::Import(_) | Item::Export(_) => {}
             }
@@ -408,7 +405,7 @@ impl<'a> Analyzer<'a> {
         module: &'a Module,
         function: &'a Function,
     ) -> FunctionType {
-        if let Some(key) = module.name.as_ref().map(|path| module_path_key(path)) {
+        if let Some(key) = module.name.as_ref().map(module_path_key) {
             if let Some(exports) = self.module_exports.get(&key) {
                 if let Some(export) = exports.functions.get(&function.name) {
                     return export.signature.clone();
@@ -478,7 +475,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn validate_imports(&mut self, module: &'a Module) {
-        let current_key = module.name.as_ref().map(|path| module_path_key(path));
+        let current_key = module.name.as_ref().map(module_path_key);
         for item in &module.items {
             if let Item::Import(import) = item {
                 self.validate_import(import, current_key.as_deref());
@@ -608,6 +605,54 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn analyze_struct(&mut self, struct_decl: &'a crate::ast::StructDecl) {
+        let mut fields = HashMap::new();
+
+        for field in &struct_decl.fields {
+            let field_type = self.resolve_type_name(&field.ty);
+
+            if field_type == Type::Void {
+                self.errors.push(SemanticError::new(
+                    format!("field '{}' cannot have type void", field.name),
+                    field.span,
+                ));
+            }
+
+            if fields.contains_key(&field.name) {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "duplicate field '{}' in struct '{}'",
+                        field.name, struct_decl.name
+                    ),
+                    field.span,
+                ));
+            } else {
+                fields.insert(field.name.clone(), field_type);
+            }
+        }
+
+        let struct_type = Type::Struct(struct_decl.name.clone(), fields);
+        self.struct_registry
+            .insert(struct_decl.name.clone(), struct_type.clone());
+
+        if let Err(previous_span) = self.scopes.define(
+            &struct_decl.name,
+            struct_decl.span,
+            SymbolKind::Constant,
+            struct_type,
+            false,
+        ) {
+            let previous_location = previous_span.start_location;
+            self.errors.push(SemanticError::new(
+                format!(
+                    "struct '{}' already defined (previous definition at {})",
+                    struct_decl.name, previous_location
+                ),
+                struct_decl.span,
+            ));
+        }
+    }
+
     fn build_function_signature(&mut self, function: &'a Function) -> FunctionType {
         let parameters = function
             .parameters
@@ -707,6 +752,70 @@ impl<'a> Analyzer<'a> {
                 self.analyze_statement(body);
                 self.loop_depth -= 1;
             }
+            Stmt::For {
+                initializer,
+                condition,
+                increment,
+                body,
+                ..
+            } => {
+                self.scopes.push(ScopeKind::Block);
+
+                if let Some(init) = initializer.as_deref() {
+                    self.analyze_statement(init);
+                }
+
+                if let Some(cond) = condition.as_ref() {
+                    let condition_type = self.analyze_expr(cond);
+                    if condition_type != Type::Bool && condition_type != Type::Unknown {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "condition of 'for' must have type bool, found {}",
+                                condition_type.describe()
+                            ),
+                            expr_span(cond),
+                        ));
+                    }
+                }
+
+                if let Some(inc) = increment.as_ref() {
+                    self.analyze_expr(inc);
+                }
+
+                self.loop_depth += 1;
+                self.analyze_statement(body);
+                self.loop_depth -= 1;
+
+                if let Some(frame) = self.scopes.pop() {
+                    self.report_unused(frame);
+                }
+            }
+            Stmt::Match {
+                expression, arms, ..
+            } => {
+                let expr_type = self.analyze_expr(expression);
+                for arm in arms {
+                    match &arm.pattern {
+                        crate::ast::MatchPattern::Literal { value, span } => {
+                            let pattern_type = literal_type(value);
+                            if !types_compatible(&expr_type, &pattern_type) {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "match pattern type {} does not match expression type {}",
+                                        pattern_type.describe(),
+                                        expr_type.describe()
+                                    ),
+                                    *span,
+                                ));
+                            }
+                        }
+                        crate::ast::MatchPattern::Identifier { .. } => {
+                            // Pattern binding - could be validated more thoroughly in the future
+                        }
+                    }
+                    self.analyze_statement(&arm.body);
+                }
+            }
             Stmt::Break { span } => {
                 self.analyze_loop_control("break", *span);
             }
@@ -791,10 +900,8 @@ impl<'a> Analyzer<'a> {
                 }
                 SymbolKind::Variable | SymbolKind::Parameter | SymbolKind::Constant => {
                     if !symbol.mutable {
-                        diagnostics.push(format!(
-                            "cannot assign to immutable binding '{}'",
-                            target
-                        ));
+                        diagnostics
+                            .push(format!("cannot assign to immutable binding '{}'", target));
                     }
 
                     if !types_compatible(&symbol.ty, &value_type) {
@@ -1055,6 +1162,38 @@ impl<'a> Analyzer<'a> {
                 }
             }
             Expr::Grouping { expression, .. } => self.analyze_expr(expression),
+            Expr::FieldAccess {
+                object,
+                field,
+                span,
+            } => {
+                let object_type = self.analyze_expr(object);
+                match &object_type {
+                    Type::Struct(_, fields) => {
+                        if let Some(field_type) = fields.get(field) {
+                            field_type.clone()
+                        } else {
+                            self.errors.push(SemanticError::new(
+                                format!("struct has no field named '{}'", field),
+                                *span,
+                            ));
+                            Type::Unknown
+                        }
+                    }
+                    Type::Unknown => Type::Unknown,
+                    _ => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "cannot access field '{}' on non-struct type {}",
+                                field,
+                                object_type.describe()
+                            ),
+                            *span,
+                        ));
+                        Type::Unknown
+                    }
+                }
+            }
         }
     }
 
@@ -1165,6 +1304,7 @@ enum Type {
     Float,
     String,
     Function(FunctionType),
+    Struct(String, HashMap<String, Type>),
     Unknown,
 }
 
@@ -1177,6 +1317,7 @@ impl Type {
             Type::Float => "float".to_string(),
             Type::String => "string".to_string(),
             Type::Function(signature) => signature.describe(),
+            Type::Struct(name, _) => format!("struct {}", name),
             Type::Unknown => "unknown".to_string(),
         }
     }
@@ -1320,7 +1461,8 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Call { span, .. }
         | Expr::Unary { span, .. }
         | Expr::Binary { span, .. }
-        | Expr::Grouping { span, .. } => *span,
+        | Expr::Grouping { span, .. }
+        | Expr::FieldAccess { span, .. } => *span,
     }
 }
 
@@ -1668,5 +1810,43 @@ mod tests {
             "fn main(): i32 { var x = 0; while (x < 10) { x = x + 1; if (x == 5) { break; } } return x; }",
         )
         .expect("analysis ok");
+    }
+
+    #[test]
+    fn allows_for_loop_with_initializer_and_condition() {
+        analyze_source(
+            "fn main(): i32 { var sum = 0; for (let i = 0; i < 10; i + 1) { sum = sum + i; } return sum; }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_for_loop_condition_type_mismatch() {
+        let errors = analyze_source("fn main(): i32 { for (let i = 0; 42; i + 1) { } return 0; }")
+            .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("condition of 'for' must have type bool")));
+    }
+
+    #[test]
+    fn allows_struct_declaration() {
+        analyze_source("struct Point { x: i32, y: i32 }").expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_duplicate_struct_fields() {
+        let errors = analyze_source("struct Point { x: i32, x: f32 }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("duplicate field 'x'")));
+    }
+
+    #[test]
+    fn detects_void_struct_field() {
+        let errors = analyze_source("struct Data { value: void }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("field 'value' cannot have type void")));
     }
 }

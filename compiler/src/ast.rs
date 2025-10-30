@@ -38,6 +38,11 @@ pub enum Expr {
         expression: Box<Expr>,
         span: Span,
     },
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +153,7 @@ pub enum Item {
     Stmt(Stmt),
     Function(Function),
     Constant(Constant),
+    Struct(StructDecl),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,5 +218,20 @@ pub enum MatchPattern {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeName {
     pub segments: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDecl {
+    pub name: String,
+    pub fields: Vec<StructField>,
+    pub visibility: Visibility,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub ty: TypeName,
     pub span: Span,
 }
