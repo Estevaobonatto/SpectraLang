@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath,
+        BinaryOperator, Block, Export, Expr, Function, Import, Item, Literal, Module, ModulePath,
         Parameter, Stmt, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
@@ -40,6 +40,15 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
         while !self.is_at_end() {
             if self.match_token(TokenKind::Semicolon) {
+                continue;
+            }
+
+            if self.check_keyword(Keyword::Export) {
+                let export_token = self.advance().clone();
+                match self.parse_export(export_token) {
+                    Some(export) => items.push(Item::Export(export)),
+                    None => self.synchronize(),
+                }
                 continue;
             }
 
@@ -160,6 +169,58 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_export(&mut self, export_token: Token) -> Option<Export> {
+        let first = self
+            .consume_identifier("expected module path after 'export'")?
+            .clone();
+        let mut identifiers = vec![first.clone()];
+        let mut total_span = span_union(export_token.span, first.span);
+
+        while self.check(TokenKind::Dot) || self.check(TokenKind::Scope) {
+            self.advance();
+            let ident = self
+                .consume_identifier("expected identifier in export path")?
+                .clone();
+            total_span = span_union(total_span, ident.span);
+            identifiers.push(ident);
+        }
+
+        if identifiers.len() < 2 {
+            self.errors.push(ParseError::new(
+                "export path must include a module and symbol (e.g., module.path::name)",
+                identifiers[0].span.start_location,
+            ));
+            return None;
+        }
+
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after export statement")?
+            .clone();
+        total_span = span_union(total_span, semicolon.span);
+
+        let symbol_token = identifiers.pop().expect("export path length verified");
+        let module_span = identifiers
+            .iter()
+            .skip(1)
+            .fold(identifiers[0].span, |acc, token| {
+                span_union(acc, token.span)
+            });
+        let module_path = ModulePath {
+            segments: identifiers
+                .iter()
+                .map(|token| token.lexeme.clone())
+                .collect(),
+            span: module_span,
+        };
+
+        Some(Export {
+            module_path,
+            symbol: symbol_token.lexeme.clone(),
+            symbol_span: symbol_token.span,
+            span: total_span,
+        })
+    }
+
     fn parse_module_declaration(&mut self, module_token: Token) -> Option<ModulePath> {
         let first = self
             .consume_identifier("expected module name after 'module'")?
@@ -228,7 +289,7 @@ impl<'a> Parser<'a> {
     }
 
     fn try_parse_visibility(&mut self) -> Option<(Visibility, Span)> {
-        if self.check_keyword(Keyword::Pub) || self.check_keyword(Keyword::Export) {
+        if self.check_keyword(Keyword::Pub) {
             let token = self.advance().clone();
             Some((Visibility::Public, token.span))
         } else {
@@ -771,6 +832,12 @@ mod tests {
         assert_eq!(module.items.len(), 3);
         assert!(matches!(&module.items[0], Item::Import(_)));
         assert!(matches!(&module.items[1], Item::Import(_)));
+    }
+
+    #[test]
+    fn parse_export_statement() {
+        let module = parse_ok("export demo.core::value; fn main() { return; }");
+        assert!(matches!(&module.items[0], Item::Export(_)));
     }
 
     #[test]

@@ -110,6 +110,7 @@ pub struct ModulePath {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Import(Import),
+    Export(Export),
     Stmt(Stmt),
     Function(Function),
 }
@@ -117,6 +118,14 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Import {
     pub path: ModulePath,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Export {
+    pub module_path: ModulePath,
+    pub symbol: String,
+    pub symbol_span: Span,
     pub span: Span,
 }
 

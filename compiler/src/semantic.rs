@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
-    BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath, Stmt,
+    BinaryOperator, Block, Export, Expr, Function, Import, Item, Literal, Module, ModulePath, Stmt,
     TypeName, UnaryOperator, Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
@@ -119,6 +119,70 @@ impl<'a> Analyzer<'a> {
                 }
             }
         }
+
+        for module in modules {
+            let Some(path) = module.name.as_ref() else {
+                continue;
+            };
+            let key = module_path_key(path);
+            for item in &module.items {
+                if let Item::Export(export) = item {
+                    self.collect_reexport(&key, export);
+                }
+            }
+        }
+    }
+
+    fn collect_reexport(&mut self, current_key: &str, export: &'a Export) {
+        let target_key = module_path_key(&export.module_path);
+
+        if !self.module_registry.contains_key(&target_key) {
+            self.errors.push(SemanticError::new(
+                format!("cannot export from unknown module '{}'", target_key),
+                export.module_path.span,
+            ));
+            return;
+        }
+
+        let Some(signature) = self
+            .module_exports
+            .get(&target_key)
+            .and_then(|exports| exports.functions.get(&export.symbol))
+            .map(|exported| exported.signature.clone())
+        else {
+            self.errors.push(SemanticError::new(
+                format!(
+                    "module '{}' does not export function '{}'",
+                    target_key, export.symbol
+                ),
+                export.symbol_span,
+            ));
+            return;
+        };
+
+        let exports = self
+            .module_exports
+            .entry(current_key.to_string())
+            .or_insert_with(ModuleExport::default);
+
+        match exports.functions.entry(export.symbol.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(FunctionExport {
+                    signature,
+                    span: export.symbol_span,
+                });
+            }
+            Entry::Occupied(entry) => {
+                let previous_location = entry.get().span.start_location;
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "exported symbol '{}' already defined in module '{}' (previous definition at {})",
+                        export.symbol, current_key, previous_location
+                    ),
+                    export.symbol_span,
+                ));
+            }
+        }
     }
 
     fn analyze_module(&mut self, module: &'a Module) {
@@ -133,7 +197,7 @@ impl<'a> Analyzer<'a> {
             match item {
                 Item::Function(function) => self.analyze_function(function),
                 Item::Stmt(statement) => self.analyze_statement(statement),
-                Item::Import(_) => {}
+                Item::Import(_) | Item::Export(_) => {}
             }
         }
 
@@ -1092,6 +1156,50 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("imported symbol 'helper' conflicts")));
+    }
+
+    #[test]
+    fn reexported_function_is_available_to_dependents() {
+        analyze_modules_from_sources(&[
+            "module app.math; pub fn add(a: i32, b: i32): i32 { return a + b; }",
+            "module app.api; import app.math; export app.math::add;",
+            "module app.main; import app.api; fn main(): i32 { return add(3, 4); }",
+        ])
+        .expect("re-export should expose function");
+    }
+
+    #[test]
+    fn exporting_unknown_module_reports_error() {
+        let errors =
+            analyze_source("module app.api; export missing::helpers::symbol; fn main() { return; }")
+                .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("cannot export from unknown module 'missing::helpers'")));
+    }
+
+    #[test]
+    fn exporting_private_symbol_reports_error() {
+        let errors = analyze_modules_from_sources(&[
+            "module app.util; fn helper(): i32 { return 1; }",
+            "module app.api; export app.util::helper;",
+        ])
+        .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("module 'app::util' does not export function 'helper'")));
+    }
+
+    #[test]
+    fn reexport_conflict_reports_error() {
+        let errors = analyze_modules_from_sources(&[
+            "module app.math; pub fn add(a: i32, b: i32): i32 { return a + b; }",
+            "module app.api; import app.math; pub fn add(a: i32, b: i32): i32 { return a + b; } export app.math::add;",
+        ])
+        .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("exported symbol 'add' already defined")));
     }
 
     #[test]
