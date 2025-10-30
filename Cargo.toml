@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "compiler",
+    "runtime",
+    "tools/spectra-cli",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+authors = ["SpectraLang Team"]
+license = "Apache-2.0"
+
+[workspace.dependencies]
+thiserror = "1.0"
+clap = { version = "4.5", features = ["derive"] }

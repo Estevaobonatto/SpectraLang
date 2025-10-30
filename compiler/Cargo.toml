@@ -1,0 +1,10 @@
+[package]
+name = "spectra-compiler"
+version = "0.1.0"
+edition = "2021"
+authors = ["SpectraLang Team"]
+license = "Apache-2.0"
+description = "SpectraLang compiler front-end prototype"
+
+[dependencies]
+thiserror.workspace = true
