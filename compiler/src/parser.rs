@@ -1,8 +1,8 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, MatchArm,
-        MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl, StructField,
-        StructFieldInit, TypeName, UnaryOperator, Visibility,
+        BinaryOperator, Block, Constant, EnumDecl, EnumVariant, EnumVariantData, Export, Expr,
+        Function, Import, Item, Literal, MatchArm, MatchPattern, Module, ModulePath, Parameter,
+        Stmt, StructDecl, StructField, StructFieldInit, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -66,6 +66,12 @@ impl<'a> Parser<'a> {
                         Some(struct_decl) => items.push(Item::Struct(struct_decl)),
                         None => self.synchronize(),
                     }
+                } else if self.check_keyword(Keyword::Enum) {
+                    let enum_token = self.advance().clone();
+                    match self.parse_enum(enum_token, visibility, Some(span)) {
+                        Some(enum_decl) => items.push(Item::Enum(enum_decl)),
+                        None => self.synchronize(),
+                    }
                 } else if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Var) {
                     let keyword = self.advance().clone();
                     match self.parse_constant(keyword, visibility, span) {
@@ -105,6 +111,15 @@ impl<'a> Parser<'a> {
                 let struct_token = self.advance().clone();
                 match self.parse_struct(struct_token, Visibility::Private, None) {
                     Some(struct_decl) => items.push(Item::Struct(struct_decl)),
+                    None => self.synchronize(),
+                }
+                continue;
+            }
+
+            if self.check_keyword(Keyword::Enum) {
+                let enum_token = self.advance().clone();
+                match self.parse_enum(enum_token, Visibility::Private, None) {
+                    Some(enum_decl) => items.push(Item::Enum(enum_decl)),
                     None => self.synchronize(),
                 }
                 continue;
@@ -693,6 +708,109 @@ impl<'a> Parser<'a> {
         Some(StructDecl {
             name: name_token.lexeme.clone(),
             fields,
+            visibility,
+            span,
+        })
+    }
+
+    fn parse_enum(
+        &mut self,
+        enum_token: Token,
+        visibility: Visibility,
+        leading_span: Option<Span>,
+    ) -> Option<EnumDecl> {
+        let name_token = self.consume_identifier("expected enum name")?.clone();
+
+        self.consume(TokenKind::LBrace, "expected '{' after enum name")?;
+        let mut variants = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            if self.match_token(TokenKind::Semicolon) || self.match_token(TokenKind::Comma) {
+                continue;
+            }
+
+            let variant_name = self.consume_identifier("expected variant name")?.clone();
+            let variant_start = variant_name.span;
+
+            // Check for variant data
+            let data = if self.match_token(TokenKind::LParen) {
+                // Tuple variant: Color(i32, i32, i32)
+                let mut types = Vec::new();
+                
+                while !self.check(TokenKind::RParen) && !self.is_at_end() {
+                    types.push(self.parse_type_name()?);
+                    
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                
+                self.consume(TokenKind::RParen, "expected ')' after tuple variant")?;
+                Some(EnumVariantData::Tuple(types))
+            } else if self.match_token(TokenKind::LBrace) {
+                // Struct variant: Person { name: String, age: i32 }
+                let mut fields = Vec::new();
+                
+                while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                    if self.match_token(TokenKind::Semicolon) || self.match_token(TokenKind::Comma) {
+                        continue;
+                    }
+                    
+                    let field_name = self.consume_identifier("expected field name")?.clone();
+                    self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                    let field_type = self.parse_type_name()?;
+                    let field_span = span_union(field_name.span, field_type.span);
+                    
+                    fields.push(StructField {
+                        name: field_name.lexeme.clone(),
+                        ty: field_type,
+                        span: field_span,
+                    });
+                    
+                    if !self.match_token(TokenKind::Comma) && !self.check(TokenKind::RBrace) {
+                        self.consume(TokenKind::Comma, "expected ',' or '}' after variant field")?;
+                    }
+                }
+                
+                self.consume(TokenKind::RBrace, "expected '}' to close struct variant")?;
+                Some(EnumVariantData::Struct(fields))
+            } else {
+                // Unit variant: None
+                None
+            };
+
+            let variant_span = if let Some(ref data) = data {
+                match data {
+                    EnumVariantData::Tuple(_) => span_union(variant_start, self.previous().span),
+                    EnumVariantData::Struct(_) => span_union(variant_start, self.previous().span),
+                }
+            } else {
+                variant_start
+            };
+
+            variants.push(EnumVariant {
+                name: variant_name.lexeme.clone(),
+                data,
+                span: variant_span,
+            });
+
+            if !self.match_token(TokenKind::Comma) && !self.check(TokenKind::RBrace) {
+                self.consume(TokenKind::Comma, "expected ',' or '}' after enum variant")?;
+            }
+        }
+
+        let close_brace = self
+            .consume(TokenKind::RBrace, "expected '}' to close enum")?
+            .clone();
+
+        let mut span = span_union(enum_token.span, close_brace.span);
+        if let Some(leading) = leading_span {
+            span = span_union(leading, span);
+        }
+
+        Some(EnumDecl {
+            name: name_token.lexeme.clone(),
+            variants,
             visibility,
             span,
         })

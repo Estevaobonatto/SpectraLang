@@ -328,6 +328,7 @@ impl<'a> Analyzer<'a> {
         self.current_module_key = module.name.as_ref().map(module_path_key);
         self.current_module_signatures.clear();
         self.register_structs(module);
+        self.register_enums(module);
         self.register_functions(module);
         self.register_constants(module);
         self.validate_imports(module);
@@ -338,6 +339,7 @@ impl<'a> Analyzer<'a> {
                 Item::Function(function) => self.analyze_function(function),
                 Item::Constant(constant) => self.analyze_constant(constant),
                 Item::Struct(struct_decl) => self.analyze_struct(struct_decl),
+                Item::Enum(enum_decl) => self.analyze_enum(enum_decl),
                 Item::Stmt(statement) => self.analyze_statement(statement),
                 Item::Import(_) | Item::Export(_) => {}
             }
@@ -374,6 +376,33 @@ impl<'a> Analyzer<'a> {
                             struct_decl.name, previous_location
                         ),
                         struct_decl.span,
+                    ));
+                }
+            }
+        }
+    }
+
+    fn register_enums(&mut self, module: &'a Module) {
+        for item in &module.items {
+            if let Item::Enum(enum_decl) = item {
+                // Register enum name initially
+                // Variants will be validated later in analyze_enum
+                let enum_type = Type::Enum(enum_decl.name.clone());
+                
+                if let Err(previous_span) = self.scopes.define(
+                    &enum_decl.name,
+                    enum_decl.span,
+                    SymbolKind::Constant,
+                    enum_type,
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "enum '{}' already defined (previous definition at {})",
+                            enum_decl.name, previous_location
+                        ),
+                        enum_decl.span,
                     ));
                 }
             }
@@ -668,6 +697,76 @@ impl<'a> Analyzer<'a> {
 
         // Note: The struct was already registered in register_structs,
         // so we don't call define again to avoid duplicate definition errors
+    }
+
+    fn analyze_enum(&mut self, enum_decl: &'a crate::ast::EnumDecl) {
+        use std::collections::HashSet;
+        let mut variant_names = HashSet::new();
+
+        for variant in &enum_decl.variants {
+            // Check for duplicate variant names
+            if variant_names.contains(&variant.name) {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "duplicate variant '{}' in enum '{}'",
+                        variant.name, enum_decl.name
+                    ),
+                    variant.span,
+                ));
+            } else {
+                variant_names.insert(variant.name.clone());
+            }
+
+            // Validate variant data types
+            if let Some(ref data) = variant.data {
+                match data {
+                    crate::ast::EnumVariantData::Tuple(types) => {
+                        for ty in types {
+                            let resolved_type = self.resolve_type_name(ty);
+                            if resolved_type == Type::Void {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "enum variant '{}' cannot contain type void",
+                                        variant.name
+                                    ),
+                                    variant.span,
+                                ));
+                            }
+                        }
+                    }
+                    crate::ast::EnumVariantData::Struct(fields) => {
+                        let mut field_names = HashSet::new();
+                        for field in fields {
+                            let field_type = self.resolve_type_name(&field.ty);
+
+                            if field_type == Type::Void {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "field '{}' in variant '{}' cannot have type void",
+                                        field.name, variant.name
+                                    ),
+                                    field.span,
+                                ));
+                            }
+
+                            if field_names.contains(&field.name) {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "duplicate field '{}' in variant '{}' of enum '{}'",
+                                        field.name, variant.name, enum_decl.name
+                                    ),
+                                    field.span,
+                                ));
+                            } else {
+                                field_names.insert(field.name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The enum type was already registered in register_enums
     }
 
     fn build_function_signature(&mut self, function: &'a Function) -> FunctionType {
@@ -1527,6 +1626,7 @@ enum Type {
     String,
     Function(FunctionType),
     Struct(String, HashMap<String, Type>),
+    Enum(String),
     Unknown,
 }
 
@@ -1540,6 +1640,7 @@ impl Type {
             Type::String => "string".to_string(),
             Type::Function(signature) => signature.describe(),
             Type::Struct(name, _) => format!("struct {}", name),
+            Type::Enum(name) => format!("enum {}", name),
             Type::Unknown => "unknown".to_string(),
         }
     }
@@ -2285,5 +2386,89 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("array index must be integer")));
+    }
+
+    #[test]
+    fn enum_unit_variants() {
+        let result = analyze_source(
+            "enum Color { Red, Green, Blue } fn main(): void { }",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn enum_tuple_variants() {
+        let result = analyze_source(
+            "enum Point { TwoD(i32, i32), ThreeD(i32, i32, i32) } fn main(): void { }",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn enum_struct_variants() {
+        let result = analyze_source(
+            "enum Shape { Circle { radius: f32 }, Rectangle { width: f32, height: f32 } } fn main(): void { }",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn enum_mixed_variants() {
+        let result = analyze_source(
+            "enum Message { Quit, Move { x: i32, y: i32 }, Write(string), ChangeColor(i32, i32, i32) } fn main(): void { }",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn detects_duplicate_enum_variants() {
+        let errors = analyze_source(
+            "enum Color { Red, Green, Red } fn main(): void { }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("duplicate variant 'Red'")));
+    }
+
+    #[test]
+    fn detects_void_in_enum_tuple_variant() {
+        let errors = analyze_source(
+            "enum Bad { Variant(void) } fn main(): void { }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot contain type void")));
+    }
+
+    #[test]
+    fn detects_void_in_enum_struct_variant() {
+        let errors = analyze_source(
+            "enum Bad { Variant { field: void } } fn main(): void { }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot have type void")));
+    }
+
+    #[test]
+    fn detects_duplicate_fields_in_enum_struct_variant() {
+        let errors = analyze_source(
+            "enum Bad { Variant { x: i32, x: i32 } } fn main(): void { }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("duplicate field 'x'")));
+    }
+
+    #[test]
+    fn public_enum() {
+        let result = analyze_source(
+            "pub enum Color { Red, Green, Blue } fn main(): void { }",
+        );
+        assert!(result.is_ok());
     }
 }

@@ -183,6 +183,7 @@ pub enum Item {
     Function(Function),
     Constant(Constant),
     Struct(StructDecl),
+    Enum(EnumDecl),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -263,4 +264,25 @@ pub struct StructField {
     pub name: String,
     pub ty: TypeName,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+    pub visibility: Visibility,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub data: Option<EnumVariantData>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumVariantData {
+    Tuple(Vec<TypeName>),
+    Struct(Vec<StructField>),
 }
