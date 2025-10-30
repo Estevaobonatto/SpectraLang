@@ -122,9 +122,7 @@ impl<'a> Analyzer<'a> {
                 name, value, span, ..
             } => {
                 self.analyze_expr(value);
-                if let Err(previous_span) =
-                    self.scopes.define(name, *span, SymbolKind::Variable)
-                {
+                if let Err(previous_span) = self.scopes.define(name, *span, SymbolKind::Variable) {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
                         format!(
@@ -380,7 +378,28 @@ mod tests {
 
     #[test]
     fn allows_shadowing_in_inner_block() {
-        analyze_source("fn main(): i32 { let x = 1; { let x = 2; } return x; }")
+        analyze_source("fn main(): i32 { let x = 1; { let x = x + 1; return x; } }")
             .expect("analysis ok");
+    }
+
+    #[test]
+    fn reports_unused_variable() {
+        let errors = analyze_source("fn main(): i32 { let x = 1; return 0; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("variable 'x' is never used")));
+    }
+
+    #[test]
+    fn allows_underscore_prefixed_variable() {
+        analyze_source("fn main(): i32 { let _x = 1; return 0; }").expect("analysis ok");
+    }
+
+    #[test]
+    fn reports_unused_parameter() {
+        let errors = analyze_source("fn main(x: i32): i32 { return 0; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("parameter 'x' is never used")));
     }
 }

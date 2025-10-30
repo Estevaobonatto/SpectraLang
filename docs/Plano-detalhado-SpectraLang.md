@@ -17,6 +17,7 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - Atualização da CLI `spectra` para exibir estatísticas de parsing e refletir o estado atual do compilador.
 - Execução de `cargo fmt`, `cargo clippy` e `cargo test` garantindo base limpa antes de avançar para a análise semântica.
 - Implementação da primeira iteração do analisador semântico (escopos, retornos, identificadores) e integração da verificação na CLI.
+- Evolução da análise semântica com rastreamento de uso de símbolos (variáveis/parâmetros não utilizados) e cobertura de testes dedicada.
 
 ## 1. Características técnicas
 
@@ -261,7 +262,7 @@ Match     := "match" Expr MatchBody ;
 
 - **Epic F1 – Núcleo do Compilador:**
   - Feature: Lexer/Parser robustos ✅ (Mês 1 concluído) → Stories entregues: spans completos, parser com módulos/funções/blocos, testes automatizados.
-  - Feature: Analisador semântico básico (iteração 1 concluída) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI. Próximas Stories: resolução inter-módulo, uso antes da definição cruzando arquivos, base de tipagem primitiva.
+  - Feature: Analisador semântico básico (iteração 1.1 concluída) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI, detecção de variáveis/parâmetros não utilizados com suporte a `_`. Próximas Stories: resolução inter-módulo, uso antes da definição cruzando arquivos, base de tipagem primitiva e verificação de retorno/tipos literais.
   - Feature: Tipagem básica + SIR (próximo) → Stories: resolver tipos primitivos, gerar SIR SSA inicial, validar round-trip SIR→JIT→execução em CLI.
 - **Epic F2 – Linguagem avançada:**
   - Feature: OO e generics → Stories: suportar `class/trait/impl`, herança simples com mixins, monomorfização de generics.
