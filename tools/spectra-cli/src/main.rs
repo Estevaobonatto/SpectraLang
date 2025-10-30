@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, process::exit};
 
 use clap::Parser as ClapParser;
-use spectra_compiler::{ast::Item, lexer::Lexer, parser::Parser};
+use spectra_compiler::{ast::Item, lexer::Lexer, parser::Parser, semantic};
 
 #[derive(ClapParser, Debug)]
 #[command(name = "spectra", about = "SpectraLang CLI prototype", version)]
@@ -30,6 +30,14 @@ fn run(path: PathBuf) -> Result<(), i32> {
     match Lexer::new(&source).tokenize() {
         Ok(tokens) => match Parser::new(&tokens).parse() {
             Ok(module) => {
+                if let Err(errors) = semantic::analyze(&module) {
+                    eprintln!("semantic error(s):");
+                    for error in errors {
+                        eprintln!("  - {}", error);
+                    }
+                    return Err(4);
+                }
+
                 let module_name = module
                     .name
                     .as_ref()

@@ -2,6 +2,22 @@
 
 Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva que combina paradigmas orientado a objetos, procedural e funcional; oferece tipagem forte com modo fraco opt‑in via diretivas; compilação JIT multi‑alvo (x86, ARM, WASM); gerenciamento de memória com GC e controle manual; ferramentas e ecossistema completos.
 
+## Status atual (Out 2025)
+
+- Monorepo Rust configurado com crates `spectra-compiler`, `spectra-runtime` e `spectra-cli`, pipeline CI GitHub Actions (fmt, clippy, test) e documentação inicial (`README`, ADRs 0001–0002).
+- Lexer e parser entregues com rastreamento de spans, suporte a módulos, funções, blocos e `return`; suíte de testes cobrindo cenários básicos.
+- CLI `spectra` capaz de lex/parsing, executar análise semântica inicial (escopos, retornos, identificadores) e apresentar estatísticas do módulo.
+- Pasta `docs/decisions` ativa (ADR 0001 – Lexer, ADR 0002 – Parser); plano de trabalho alinhado com backlog por fases.
+
+## Linha do tempo da colaboração
+
+- Levantamento inicial das especificações e criação de plano detalhado, backlog e ADRs para decisões de lexer/parser.
+- Configuração do workspace Rust com crates separados, CI (fmt/clippy/test) e documentação base (`README`, ADRs, planos).
+- Implementação do lexer com spans e comentários, parser com suporte a módulos/funções/blocos e suíte de testes correspondente.
+- Atualização da CLI `spectra` para exibir estatísticas de parsing e refletir o estado atual do compilador.
+- Execução de `cargo fmt`, `cargo clippy` e `cargo test` garantindo base limpa antes de avançar para a análise semântica.
+- Implementação da primeira iteração do analisador semântico (escopos, retornos, identificadores) e integração da verificação na CLI.
+
 ## 1. Características técnicas
 
 - Paradigmas
@@ -244,8 +260,9 @@ Match     := "match" Expr MatchBody ;
 ### 2. Backlog priorizado (Epics → Features → Stories)
 
 - **Epic F1 – Núcleo do Compilador:**
-  - Feature: Lexer/Parser robustos → Stories: implementar gerador de tokens com posições, construir parser Pratt para expressões, criar suíte de testes de gramática.
-  - Feature: Tipagem básica + SIR → Stories: resolver tipos primitivos, gerar SIR SSA, validar round-trip SIR→JIT→execução em CLI.
+  - Feature: Lexer/Parser robustos ✅ (Mês 1 concluído) → Stories entregues: spans completos, parser com módulos/funções/blocos, testes automatizados.
+  - Feature: Analisador semântico básico (iteração 1 concluída) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI. Próximas Stories: resolução inter-módulo, uso antes da definição cruzando arquivos, base de tipagem primitiva.
+  - Feature: Tipagem básica + SIR (próximo) → Stories: resolver tipos primitivos, gerar SIR SSA inicial, validar round-trip SIR→JIT→execução em CLI.
 - **Epic F2 – Linguagem avançada:**
   - Feature: OO e generics → Stories: suportar `class/trait/impl`, herança simples com mixins, monomorfização de generics.
   - Feature: Módulos e pacotes → Stories: resolver imports canônicos, implementar manifesto `spectra.toml`, comando `spectra add`.

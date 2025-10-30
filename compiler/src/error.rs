@@ -35,3 +35,21 @@ impl ParseError {
 
 pub type LexResult<T> = Result<T, Vec<LexError>>;
 pub type ParseResult<T> = Result<T, Vec<ParseError>>;
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error("{message} at {span:?}")]
+pub struct SemanticError {
+    pub message: String,
+    pub span: Span,
+}
+
+impl SemanticError {
+    pub fn new(message: impl Into<String>, span: Span) -> Self {
+        Self {
+            message: message.into(),
+            span,
+        }
+    }
+}
+
+pub type SemanticResult<T> = Result<T, Vec<SemanticError>>;
