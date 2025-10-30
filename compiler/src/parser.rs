@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, Module,
-        ModulePath, Parameter, Stmt, TypeName, UnaryOperator, Visibility,
+        BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, MatchArm,
+        MatchPattern, Module, ModulePath, Parameter, Stmt, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -124,6 +124,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Option<Stmt> {
+        if self.check_keyword(Keyword::For) {
+            let keyword = self.advance().clone();
+            return self.parse_for_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Match) {
+            let keyword = self.advance().clone();
+            return self.parse_match_statement(keyword.span);
+        }
+
         if self.check_keyword(Keyword::If) {
             let keyword = self.advance().clone();
             return self.parse_if_statement(keyword.span);
@@ -188,9 +198,9 @@ impl<'a> Parser<'a> {
         };
 
         let mut span = span_union(keyword_span, expr_span(&condition));
-        span = span_union(span, then_branch_span(&then_branch));
+        span = span_union(span, statement_span(&then_branch));
         if let Some(branch) = else_branch.as_deref() {
-            span = span_union(span, then_branch_span(branch));
+            span = span_union(span, statement_span(branch));
         }
         span = span_union(span, close_paren.span);
 
@@ -209,8 +219,8 @@ impl<'a> Parser<'a> {
             .consume(TokenKind::RParen, "expected ')' after while condition")?
             .clone();
         let body = self.parse_statement()?;
-        let mut span = span_union(keyword_span, expr_span(&condition));
-        span = span_union(span, then_branch_span(&body));
+    let mut span = span_union(keyword_span, expr_span(&condition));
+    span = span_union(span, statement_span(&body));
         span = span_union(span, close_paren.span);
 
         Some(Stmt::While {
@@ -234,6 +244,186 @@ impl<'a> Parser<'a> {
             .clone();
         let span = span_union(keyword_span, semicolon.span);
         Some(Stmt::Continue { span })
+    }
+
+    fn parse_for_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        self.consume(TokenKind::LParen, "expected '(' after 'for'")?;
+
+        let initializer = if self.check(TokenKind::Semicolon) {
+            self.advance();
+            None
+        } else if self.check_keyword(Keyword::Let) {
+            let keyword = self.advance().clone();
+            Some(Box::new(self.parse_binding(false, keyword.span)?))
+        } else if self.check_keyword(Keyword::Var) {
+            let keyword = self.advance().clone();
+            Some(Box::new(self.parse_binding(true, keyword.span)?))
+        } else {
+            let expr = self.expression()?;
+            self.consume(
+                TokenKind::Semicolon,
+                "expected ';' after for-loop initializer",
+            )?;
+            Some(Box::new(Stmt::Expr(expr)))
+        };
+
+        let condition = if self.check(TokenKind::Semicolon) {
+            self.advance();
+            None
+        } else {
+            let expr = self.expression()?;
+            self.consume(
+                TokenKind::Semicolon,
+                "expected ';' after for-loop condition",
+            )?;
+            Some(expr)
+        };
+
+        let increment = if self.check(TokenKind::RParen) {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        let close_paren = self
+            .consume(TokenKind::RParen, "expected ')' after for-loop clauses")?
+            .clone();
+        let body = self.parse_statement()?;
+
+        let mut span = keyword_span;
+        if let Some(init) = initializer.as_deref() {
+            span = span_union(span, statement_span(init));
+        }
+        if let Some(cond) = condition.as_ref() {
+            span = span_union(span, expr_span(cond));
+        }
+        if let Some(inc) = increment.as_ref() {
+            span = span_union(span, expr_span(inc));
+        }
+        span = span_union(span, close_paren.span);
+        span = span_union(span, statement_span(&body));
+
+        Some(Stmt::For {
+            initializer,
+            condition,
+            increment,
+            body: Box::new(body),
+            span,
+        })
+    }
+
+    fn parse_match_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let expression = self.expression()?;
+        let open_brace = self
+            .consume(TokenKind::LBrace, "expected '{' after match expression")?
+            .clone();
+        let mut arms = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let pattern = self.parse_match_pattern()?;
+            self.consume(TokenKind::Arrow, "expected '=>' in match arm")?;
+            let body = self.parse_statement()?;
+            let mut arm_span = match_pattern_span(&pattern);
+            arm_span = span_union(arm_span, statement_span(&body));
+            arms.push(MatchArm { pattern, body, span: arm_span });
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let close_brace = self
+            .consume(TokenKind::RBrace, "expected '}' to close match")?
+            .clone();
+
+        let mut span = span_union(keyword_span, expr_span(&expression));
+        span = span_union(span, open_brace.span);
+        span = span_union(span, close_brace.span);
+        for arm in &arms {
+            span = span_union(span, arm.span);
+        }
+
+        Some(Stmt::Match {
+            expression,
+            arms,
+            span,
+        })
+    }
+
+    fn parse_match_pattern(&mut self) -> Option<MatchPattern> {
+        if self.match_token(TokenKind::Integer) {
+            let token = self.previous().clone();
+            let value = token.lexeme.parse::<i64>().map_err(|_| {
+                self.errors.push(ParseError::new(
+                    "invalid integer literal in match pattern",
+                    token.span.start_location,
+                ));
+            })
+            .ok()?;
+            return Some(MatchPattern::Literal {
+                value: Literal::Integer(value),
+                span: token.span,
+            });
+        }
+
+        if self.match_token(TokenKind::Float) {
+            let token = self.previous().clone();
+            let value = token.lexeme.parse::<f64>().map_err(|_| {
+                self.errors.push(ParseError::new(
+                    "invalid float literal in match pattern",
+                    token.span.start_location,
+                ));
+            })
+            .ok()?;
+            return Some(MatchPattern::Literal {
+                value: Literal::Float(value),
+                span: token.span,
+            });
+        }
+
+        if self.match_token(TokenKind::String) {
+            let token = self.previous().clone();
+            return Some(MatchPattern::Literal {
+                value: Literal::String(token.lexeme.clone()),
+                span: token.span,
+            });
+        }
+
+        if self.match_keyword(Keyword::True) {
+            let token = self.previous().clone();
+            return Some(MatchPattern::Literal {
+                value: Literal::Bool(true),
+                span: token.span,
+            });
+        }
+
+        if self.match_keyword(Keyword::False) {
+            let token = self.previous().clone();
+            return Some(MatchPattern::Literal {
+                value: Literal::Bool(false),
+                span: token.span,
+            });
+        }
+
+        if self.match_token(TokenKind::Identifier) {
+            let token = self.previous().clone();
+            if token.lexeme != "_" {
+                self.errors.push(ParseError::new(
+                    "only '_' wildcard identifier is supported in match patterns",
+                    token.span.start_location,
+                ));
+                return None;
+            }
+            return Some(MatchPattern::Identifier {
+                name: token.lexeme,
+                span: token.span,
+            });
+        }
+
+        let location = self.peek().span.start_location;
+        self.errors
+            .push(ParseError::new("expected match pattern", location));
+        None
     }
 
     fn parse_assignment_statement(&mut self) -> Option<Stmt> {
@@ -906,17 +1096,25 @@ fn expr_span(expr: &Expr) -> Span {
     }
 }
 
-fn then_branch_span(stmt: &Stmt) -> Span {
+fn statement_span(stmt: &Stmt) -> Span {
     match stmt {
         Stmt::Let { span, .. }
         | Stmt::Assignment { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::While { span, .. }
+        | Stmt::For { span, .. }
+        | Stmt::Match { span, .. }
         | Stmt::Break { span, .. }
         | Stmt::Continue { span, .. }
         | Stmt::Block(Block { span, .. }) => *span,
         Stmt::Expr(expr) => expr_span(expr),
+    }
+}
+
+fn match_pattern_span(pattern: &MatchPattern) -> Span {
+    match pattern {
+        MatchPattern::Literal { span, .. } | MatchPattern::Identifier { span, .. } => *span,
     }
 }
 

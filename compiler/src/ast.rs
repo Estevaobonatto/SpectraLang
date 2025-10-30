@@ -102,6 +102,18 @@ pub enum Stmt {
         body: Box<Stmt>,
         span: Span,
     },
+    For {
+        initializer: Option<Box<Stmt>>,
+        condition: Option<Expr>,
+        increment: Option<Expr>,
+        body: Box<Stmt>,
+        span: Span,
+    },
+    Match {
+        expression: Expr,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
     Break {
         span: Span,
     },
@@ -182,6 +194,19 @@ pub struct Parameter {
 pub struct Block {
     pub statements: Vec<Stmt>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: MatchPattern,
+    pub body: Stmt,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchPattern {
+    Literal { value: Literal, span: Span },
+    Identifier { name: String, span: Span },
 }
 
 #[derive(Debug, Clone, PartialEq)]
