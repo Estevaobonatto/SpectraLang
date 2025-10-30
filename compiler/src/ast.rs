@@ -43,6 +43,27 @@ pub enum Expr {
         field: String,
         span: Span,
     },
+    StructLiteral {
+        name: String,
+        fields: Vec<StructFieldInit>,
+        span: Span,
+    },
+    ArrayLiteral {
+        elements: Vec<Expr>,
+        span: Span,
+    },
+    Index {
+        array: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructFieldInit {
+    pub name: String,
+    pub value: Expr,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +79,8 @@ pub enum BinaryOperator {
     GreaterEqual,
     Less,
     LessEqual,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +111,12 @@ pub enum Stmt {
     },
     Assignment {
         target: String,
+        value: Expr,
+        span: Span,
+    },
+    FieldAssignment {
+        object: Expr,
+        field: String,
         value: Expr,
         span: Span,
     },

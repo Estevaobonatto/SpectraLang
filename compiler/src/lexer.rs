@@ -122,8 +122,20 @@ impl<'a> Lexer<'a> {
                     self.make_token(TokenKind::Greater, start_pos, start_loc)
                 }
             }
-            b'&' => self.make_token(TokenKind::Ampersand, start_pos, start_loc),
-            b'|' => self.make_token(TokenKind::Pipe, start_pos, start_loc),
+            b'&' => {
+                if self.match_byte(b'&') {
+                    self.make_token(TokenKind::AmpersandAmpersand, start_pos, start_loc)
+                } else {
+                    self.make_token(TokenKind::Ampersand, start_pos, start_loc)
+                }
+            }
+            b'|' => {
+                if self.match_byte(b'|') {
+                    self.make_token(TokenKind::PipePipe, start_pos, start_loc)
+                } else {
+                    self.make_token(TokenKind::Pipe, start_pos, start_loc)
+                }
+            }
             byte => {
                 let span = self.span_from(start_pos, start_loc);
                 self.errors.push(LexError::new(

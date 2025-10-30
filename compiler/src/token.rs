@@ -78,7 +78,9 @@ pub enum TokenKind {
     Greater,
     GreaterEqual,
     Ampersand,
+    AmpersandAmpersand,
     Pipe,
+    PipePipe,
     Unknown,
     Eof,
 }

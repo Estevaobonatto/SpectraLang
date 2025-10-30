@@ -327,6 +327,7 @@ impl<'a> Analyzer<'a> {
         self.scopes.push(ScopeKind::Module);
         self.current_module_key = module.name.as_ref().map(module_path_key);
         self.current_module_signatures.clear();
+        self.register_structs(module);
         self.register_functions(module);
         self.register_constants(module);
         self.validate_imports(module);
@@ -348,6 +349,35 @@ impl<'a> Analyzer<'a> {
 
         self.current_module_key = None;
         self.current_module_signatures.clear();
+    }
+
+    fn register_structs(&mut self, module: &'a Module) {
+        for item in &module.items {
+            if let Item::Struct(struct_decl) = item {
+                // Register struct with empty fields initially
+                // Fields will be validated later in analyze_struct
+                let struct_type = Type::Struct(struct_decl.name.clone(), HashMap::new());
+                self.struct_registry
+                    .insert(struct_decl.name.clone(), struct_type.clone());
+
+                if let Err(previous_span) = self.scopes.define(
+                    &struct_decl.name,
+                    struct_decl.span,
+                    SymbolKind::Constant,
+                    struct_type,
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "struct '{}' already defined (previous definition at {})",
+                            struct_decl.name, previous_location
+                        ),
+                        struct_decl.span,
+                    ));
+                }
+            }
+        }
     }
 
     fn register_functions(&mut self, module: &'a Module) {
@@ -631,26 +661,13 @@ impl<'a> Analyzer<'a> {
             }
         }
 
+        // Update the already-registered struct with actual field types
         let struct_type = Type::Struct(struct_decl.name.clone(), fields);
         self.struct_registry
-            .insert(struct_decl.name.clone(), struct_type.clone());
+            .insert(struct_decl.name.clone(), struct_type);
 
-        if let Err(previous_span) = self.scopes.define(
-            &struct_decl.name,
-            struct_decl.span,
-            SymbolKind::Constant,
-            struct_type,
-            false,
-        ) {
-            let previous_location = previous_span.start_location;
-            self.errors.push(SemanticError::new(
-                format!(
-                    "struct '{}' already defined (previous definition at {})",
-                    struct_decl.name, previous_location
-                ),
-                struct_decl.span,
-            ));
-        }
+        // Note: The struct was already registered in register_structs,
+        // so we don't call define again to avoid duplicate definition errors
     }
 
     fn build_function_signature(&mut self, function: &'a Function) -> FunctionType {
@@ -709,6 +726,54 @@ impl<'a> Analyzer<'a> {
                 span,
             } => {
                 self.analyze_assignment(target, value, *span);
+            }
+            Stmt::FieldAssignment {
+                object,
+                field,
+                value,
+                span,
+            } => {
+                // Check that object has the field
+                let object_type = self.analyze_expr(object);
+                match &object_type {
+                    Type::Struct(_, fields) => match fields.get(field) {
+                        Some(field_type) => {
+                            let value_type = self.analyze_expr(value);
+                            if !types_compatible(field_type, &value_type) {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "field '{}' expects type {}, got {}",
+                                        field,
+                                        field_type.describe(),
+                                        value_type.describe()
+                                    ),
+                                    *span,
+                                ));
+                            }
+                        }
+                        None => {
+                            self.errors.push(SemanticError::new(
+                                format!("struct has no field named '{}'", field),
+                                *span,
+                            ));
+                        }
+                    },
+                    Type::Unknown => {
+                        // Just analyze the value to find any errors in it
+                        self.analyze_expr(value);
+                    }
+                    _ => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "cannot assign to field '{}' on non-struct type {}",
+                                field,
+                                object_type.describe()
+                            ),
+                            *span,
+                        ));
+                        self.analyze_expr(value);
+                    }
+                }
             }
             Stmt::Expr(expr) => {
                 self.analyze_expr(expr);
@@ -1103,6 +1168,30 @@ impl<'a> Analyzer<'a> {
                         }
                         Type::Bool
                     }
+                    BinaryOperator::And | BinaryOperator::Or => {
+                        // Both operands must be boolean
+                        if left_type != Type::Bool && left_type != Type::Unknown {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "left operand of '{}' must be boolean, found {}",
+                                    binary_operator_symbol(*operator),
+                                    left_type.describe()
+                                ),
+                                *span,
+                            ));
+                        }
+                        if right_type != Type::Bool && right_type != Type::Unknown {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "right operand of '{}' must be boolean, found {}",
+                                    binary_operator_symbol(*operator),
+                                    right_type.describe()
+                                ),
+                                *span,
+                            ));
+                        }
+                        Type::Bool
+                    }
                 }
             }
             Expr::Call {
@@ -1194,6 +1283,131 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+            Expr::StructLiteral {
+                name,
+                fields: field_inits,
+                span,
+            } => {
+                // Look up struct type from the registry
+                match self.struct_registry.get(name).cloned() {
+                    Some(Type::Struct(struct_name, expected_fields)) => {
+                        let mut provided_fields = std::collections::HashSet::new();
+
+                        // Check each provided field
+                        for field_init in field_inits {
+                            if provided_fields.contains(&field_init.name) {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "duplicate field '{}' in struct literal",
+                                        field_init.name
+                                    ),
+                                    field_init.span,
+                                ));
+                            }
+                            provided_fields.insert(field_init.name.clone());
+
+                            match expected_fields.get(&field_init.name) {
+                                Some(expected_type) => {
+                                    let actual_type = self.analyze_expr(&field_init.value);
+                                    if !types_compatible(expected_type, &actual_type) {
+                                        self.errors.push(SemanticError::new(
+                                            format!(
+                                                "field '{}' expects type {}, got {}",
+                                                field_init.name,
+                                                expected_type.describe(),
+                                                actual_type.describe()
+                                            ),
+                                            field_init.span,
+                                        ));
+                                    }
+                                }
+                                None => {
+                                    self.errors.push(SemanticError::new(
+                                        format!(
+                                            "struct '{}' has no field '{}'",
+                                            struct_name, field_init.name
+                                        ),
+                                        field_init.span,
+                                    ));
+                                }
+                            }
+                        }
+
+                        // Check for missing fields
+                        for field_name in expected_fields.keys() {
+                            if !provided_fields.contains(field_name) {
+                                self.errors.push(SemanticError::new(
+                                    format!("missing field '{}' in struct literal", field_name),
+                                    *span,
+                                ));
+                            }
+                        }
+
+                        Type::Struct(struct_name, expected_fields)
+                    }
+                    Some(other) => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "'{}' is not a struct type, it is {}",
+                                name,
+                                other.describe()
+                            ),
+                            *span,
+                        ));
+                        Type::Unknown
+                    }
+                    None => {
+                        self.errors.push(SemanticError::new(
+                            format!("use of undeclared struct '{}'", name),
+                            *span,
+                        ));
+                        Type::Unknown
+                    }
+                }
+            }
+            Expr::ArrayLiteral { elements, span } => {
+                if elements.is_empty() {
+                    // Empty array - we'll use Unknown for now
+                    return Type::Unknown;
+                }
+
+                let first_type = self.analyze_expr(&elements[0]);
+
+                // Check all elements have compatible type
+                for (i, element) in elements.iter().enumerate().skip(1) {
+                    let element_type = self.analyze_expr(element);
+                    if !types_compatible(&first_type, &element_type) {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "array element {} has type {}, expected {}",
+                                i,
+                                element_type.describe(),
+                                first_type.describe()
+                            ),
+                            *span,
+                        ));
+                    }
+                }
+
+                // For now, return Unknown (arrays need proper type representation)
+                Type::Unknown
+            }
+            Expr::Index { array, index, span } => {
+                let _array_type = self.analyze_expr(array);
+                let index_type = self.analyze_expr(index);
+
+                // Check index is an integer
+                if !matches!(index_type, Type::Integer) {
+                    self.errors.push(SemanticError::new(
+                        format!("array index must be integer, got {}", index_type.describe()),
+                        *span,
+                    ));
+                }
+
+                // For now, return Unknown (arrays need proper type representation)
+                // In the future, we'd extract the element type from array_type
+                Type::Unknown
+            }
         }
     }
 
@@ -1234,7 +1448,15 @@ impl<'a> Analyzer<'a> {
             "string" | "str" => Type::String,
             "f32" | "f64" => Type::Float,
             "int" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" => Type::Integer,
-            _ => Type::Unknown,
+            _ => {
+                // Check if it's a user-defined struct type
+                if let Some(struct_type) = self.scopes.resolve(&raw) {
+                    if matches!(struct_type, Type::Struct(..)) {
+                        return struct_type;
+                    }
+                }
+                Type::Unknown
+            }
         };
 
         if ty == Type::Unknown {
@@ -1424,7 +1646,17 @@ fn literal_type(literal: &Literal) -> Type {
 }
 
 fn types_compatible(expected: &Type, actual: &Type) -> bool {
-    expected == actual || matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown)
+    if expected == actual {
+        return true;
+    }
+    if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
+        return true;
+    }
+    // For structs, compare names only (fields may differ during registration/resolution)
+    if let (Type::Struct(expected_name, _), Type::Struct(actual_name, _)) = (expected, actual) {
+        return expected_name == actual_name;
+    }
+    false
 }
 
 fn binary_operator_symbol(operator: BinaryOperator) -> &'static str {
@@ -1440,6 +1672,8 @@ fn binary_operator_symbol(operator: BinaryOperator) -> &'static str {
         BinaryOperator::GreaterEqual => ">=",
         BinaryOperator::Less => "<",
         BinaryOperator::LessEqual => "<=",
+        BinaryOperator::And => "&&",
+        BinaryOperator::Or => "||",
     }
 }
 
@@ -1462,7 +1696,10 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Unary { span, .. }
         | Expr::Binary { span, .. }
         | Expr::Grouping { span, .. }
-        | Expr::FieldAccess { span, .. } => *span,
+        | Expr::FieldAccess { span, .. }
+        | Expr::StructLiteral { span, .. }
+        | Expr::ArrayLiteral { span, .. }
+        | Expr::Index { span, .. } => *span,
     }
 }
 
@@ -1848,5 +2085,205 @@ mod tests {
         assert!(errors.iter().any(|error| error
             .message
             .contains("field 'value' cannot have type void")));
+    }
+
+    // ===== New Feature Tests =====
+
+    #[test]
+    fn accepts_struct_literal_with_all_fields() {
+        let result = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): Point { return Point { x: 10, y: 20 }; }",
+        );
+        if let Err(errors) = &result {
+            for error in errors {
+                eprintln!("Error: {}", error.message);
+            }
+        }
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn detects_struct_literal_missing_field() {
+        let errors = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): Point { return Point { x: 10 }; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("missing field 'y'")));
+    }
+
+    #[test]
+    fn detects_struct_literal_unknown_field() {
+        let errors = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): Point { return Point { x: 10, y: 20, z: 30 }; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("has no field 'z'")));
+    }
+
+    #[test]
+    fn detects_struct_literal_field_type_mismatch() {
+        let errors = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): Point { return Point { x: 10, y: true }; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("expects type integer")));
+    }
+
+    #[test]
+    fn detects_struct_literal_duplicate_field() {
+        let errors = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): Point { return Point { x: 10, x: 20, y: 30 }; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("duplicate field 'x'")));
+    }
+
+    #[test]
+    fn accepts_field_assignment() {
+        let result = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): void { var p = Point { x: 1, y: 2 }; p.x = 10; }",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn detects_field_assignment_type_mismatch() {
+        let errors = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): void { var p = Point { x: 1, y: 2 }; p.x = true; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("expects type integer")));
+    }
+
+    #[test]
+    fn detects_field_assignment_unknown_field() {
+        let errors = analyze_source(
+            "struct Point { x: i32, y: i32 } fn main(): void { var p = Point { x: 1, y: 2 }; p.z = 10; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("has no field named 'z'")));
+    }
+
+    #[test]
+    fn detects_field_assignment_on_non_struct() {
+        let errors = analyze_source("fn main(): void { var x = 10; x.field = 20; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("cannot assign to field 'field' on non-struct")));
+    }
+
+    #[test]
+    fn accepts_logical_and_operator() {
+        let result = analyze_source("fn main(): bool { return true && false; }");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accepts_logical_or_operator() {
+        let result = analyze_source("fn main(): bool { return true || false; }");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn detects_logical_and_with_non_bool_left() {
+        let errors = analyze_source("fn main(): bool { return 1 && true; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("left operand of '&&' must be boolean")));
+    }
+
+    #[test]
+    fn detects_logical_and_with_non_bool_right() {
+        let errors = analyze_source("fn main(): bool { return true && 1; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("right operand of '&&' must be boolean")));
+    }
+
+    #[test]
+    fn detects_logical_or_with_non_bool_left() {
+        let errors = analyze_source("fn main(): bool { return 1 || true; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("left operand of '||' must be boolean")));
+    }
+
+    #[test]
+    fn detects_logical_or_with_non_bool_right() {
+        let errors = analyze_source("fn main(): bool { return true || 1; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("right operand of '||' must be boolean")));
+    }
+
+    #[test]
+    fn accepts_array_literal() {
+        // Arrays parse successfully but type is Unknown (array types not fully implemented yet)
+        let result = analyze_source("fn main(): void { let arr = [1, 2, 3]; }");
+        // We expect a warning about unused variable, but no errors about the array itself
+        assert!(
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .iter()
+                    .all(|e| e.message.contains("never used"))
+        );
+    }
+
+    #[test]
+    fn accepts_empty_array_literal() {
+        // Empty arrays parse successfully but type is Unknown
+        let result = analyze_source("fn main(): void { let arr = []; }");
+        // We expect a warning about unused variable, but no errors about the array itself
+        assert!(
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .iter()
+                    .all(|e| e.message.contains("never used"))
+        );
+    }
+
+    #[test]
+    fn detects_array_element_type_mismatch() {
+        let errors = analyze_source("fn main(): void { var arr = [1, true, 3]; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("array element")));
+    }
+
+    #[test]
+    fn accepts_array_indexing() {
+        // Array indexing parses and type-checks the index, but element type is Unknown
+        let result = analyze_source("fn main(): void { let arr = [1, 2, 3]; let x = arr[0]; }");
+        // We expect warnings about unused variables, but no errors about indexing itself
+        assert!(
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .iter()
+                    .all(|e| e.message.contains("never used"))
+        );
+    }
+
+    #[test]
+    fn detects_array_index_non_integer() {
+        let errors = analyze_source("fn main(): void { var arr = [1, 2, 3]; var x = arr[true]; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("array index must be integer")));
     }
 }

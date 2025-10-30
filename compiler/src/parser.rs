@@ -1,8 +1,8 @@
 use crate::{
     ast::{
         BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, MatchArm,
-        MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl, StructField, TypeName,
-        UnaryOperator, Visibility,
+        MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl, StructField,
+        StructFieldInit, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -136,7 +136,37 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> Option<Expr> {
-        self.parse_equality()
+        self.parse_logical_or()
+    }
+
+    fn parse_logical_or(&mut self) -> Option<Expr> {
+        let mut expr = self.parse_logical_and()?;
+        while self.match_token(TokenKind::PipePipe) {
+            let right = self.parse_logical_and()?;
+            let span = span_union(expr_span(&expr), expr_span(&right));
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator: BinaryOperator::Or,
+                right: Box::new(right),
+                span,
+            };
+        }
+        Some(expr)
+    }
+
+    fn parse_logical_and(&mut self) -> Option<Expr> {
+        let mut expr = self.parse_equality()?;
+        while self.match_token(TokenKind::AmpersandAmpersand) {
+            let right = self.parse_equality()?;
+            let span = span_union(expr_span(&expr), expr_span(&right));
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator: BinaryOperator::And,
+                right: Box::new(right),
+                span,
+            };
+        }
+        Some(expr)
     }
 
     fn parse_statement(&mut self) -> Option<Stmt> {
@@ -768,6 +798,22 @@ impl<'a> Parser<'a> {
 
     fn parse_expression_statement(&mut self) -> Option<Stmt> {
         let expr = self.expression()?;
+
+        // Check if this is a field assignment: obj.field = value;
+        if let Expr::FieldAccess { object, field, .. } = &expr {
+            if self.match_token(TokenKind::Equal) {
+                let value = self.expression()?;
+                self.consume(TokenKind::Semicolon, "expected ';' after field assignment")?;
+                let span = span_union(expr_span(&expr), self.previous().span);
+                return Some(Stmt::FieldAssignment {
+                    object: *object.clone(),
+                    field: field.clone(),
+                    value,
+                    span,
+                });
+            }
+        }
+
         self.consume(
             TokenKind::Semicolon,
             "expected ';' after expression statement",
@@ -940,6 +986,15 @@ impl<'a> Parser<'a> {
                     field: field_token.lexeme.clone(),
                     span,
                 };
+            } else if self.match_token(TokenKind::LBracket) {
+                let index = self.expression()?;
+                self.consume(TokenKind::RBracket, "expected ']' after array index")?;
+                let span = span_union(expr_span(&expr), self.previous().span);
+                expr = Expr::Index {
+                    array: Box::new(expr),
+                    index: Box::new(index),
+                    span,
+                };
             } else {
                 break;
             }
@@ -1035,10 +1090,18 @@ impl<'a> Parser<'a> {
 
         if self.match_token(TokenKind::Identifier) {
             let token = self.previous().clone();
+            // Check if this is a struct literal
+            if self.check(TokenKind::LBrace) {
+                return self.parse_struct_literal(token);
+            }
             return Some(Expr::Identifier {
                 name: token.lexeme.clone(),
                 span: token.span,
             });
+        }
+
+        if self.match_token(TokenKind::LBracket) {
+            return self.parse_array_literal();
         }
 
         if self.match_token(TokenKind::LParen) {
@@ -1111,6 +1174,60 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_struct_literal(&mut self, type_token: Token) -> Option<Expr> {
+        let start_span = type_token.span;
+        self.consume(TokenKind::LBrace, "expected '{' for struct literal")?;
+
+        let mut fields = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let field_token = self.consume_identifier("expected field name")?;
+            let field_name = field_token.lexeme.clone();
+            let field_start = field_token.span;
+
+            self.consume(TokenKind::Colon, "expected ':' after field name")?;
+            let value = self.expression()?;
+            let field_span = span_union(field_start, expr_span(&value));
+
+            fields.push(StructFieldInit {
+                name: field_name,
+                value,
+                span: field_span,
+            });
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        self.consume(TokenKind::RBrace, "expected '}' after struct fields")?;
+        let span = span_union(start_span, self.previous().span);
+
+        Some(Expr::StructLiteral {
+            name: type_token.lexeme.clone(),
+            fields,
+            span,
+        })
+    }
+
+    fn parse_array_literal(&mut self) -> Option<Expr> {
+        let start_span = self.previous().span;
+        let mut elements = Vec::new();
+
+        while !self.check(TokenKind::RBracket) && !self.is_at_end() {
+            elements.push(self.expression()?);
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        self.consume(TokenKind::RBracket, "expected ']' after array elements")?;
+        let span = span_union(start_span, self.previous().span);
+
+        Some(Expr::ArrayLiteral { elements, span })
+    }
+
     fn consume_identifier(&mut self, message: &str) -> Option<&Token> {
         if self.check(TokenKind::Identifier) {
             Some(self.advance())
@@ -1178,7 +1295,10 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Unary { span, .. }
         | Expr::Binary { span, .. }
         | Expr::Grouping { span, .. }
-        | Expr::FieldAccess { span, .. } => *span,
+        | Expr::FieldAccess { span, .. }
+        | Expr::StructLiteral { span, .. }
+        | Expr::ArrayLiteral { span, .. }
+        | Expr::Index { span, .. } => *span,
     }
 }
 
@@ -1193,6 +1313,7 @@ fn statement_span(stmt: &Stmt) -> Span {
         | Stmt::Match { span, .. }
         | Stmt::Break { span, .. }
         | Stmt::Continue { span, .. }
+        | Stmt::FieldAssignment { span, .. }
         | Stmt::Block(Block { span, .. }) => *span,
         Stmt::Expr(expr) => expr_span(expr),
     }
