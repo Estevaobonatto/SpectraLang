@@ -880,10 +880,11 @@ impl<'a> Parser<'a> {
         visibility: Visibility,
         visibility_span: Span,
     ) -> Option<Constant> {
-        let (name, value, binding_span) = self.parse_binding_parts(keyword.span)?;
+        let (name, ty, value, binding_span) = self.parse_binding_parts(keyword.span)?;
         let span = span_union(visibility_span, binding_span);
         Some(Constant {
             name,
+            ty,
             value,
             mutable: matches!(keyword.kind, TokenKind::Keyword(Keyword::Var)),
             visibility,
@@ -892,26 +893,40 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_binding(&mut self, mutable: bool, keyword_span: Span) -> Option<Stmt> {
-        let (name, value, span) = self.parse_binding_parts(keyword_span)?;
+        let (name, ty, value, span) = self.parse_binding_parts(keyword_span)?;
         Some(Stmt::Let {
             mutable,
             name,
+            ty,
             value,
             span,
         })
     }
 
-    fn parse_binding_parts(&mut self, keyword_span: Span) -> Option<(String, Expr, Span)> {
+    fn parse_binding_parts(
+        &mut self,
+        keyword_span: Span,
+    ) -> Option<(String, Option<TypeName>, Expr, Span)> {
         let name_token = self
             .consume_identifier("expected identifier after binding keyword")?
             .clone();
-        self.consume(TokenKind::Equal, "expected '=' after identifier")?;
+        let mut span = span_union(keyword_span, name_token.span);
+
+        let ty = if self.match_token(TokenKind::Colon) {
+            let ty = self.parse_type_name()?;
+            span = span_union(span, ty.span);
+            Some(ty)
+        } else {
+            None
+        };
+
+        self.consume(TokenKind::Equal, "expected '=' after binding name")?;
         let value = self.expression()?;
         let semicolon = self
             .consume(TokenKind::Semicolon, "expected ';' after binding")?
             .clone();
-        let span = span_union(keyword_span, semicolon.span);
-        Some((name_token.lexeme.clone(), value, span))
+        span = span_union(span, semicolon.span);
+        Some((name_token.lexeme.clone(), ty, value, span))
     }
 
     fn parse_expression_statement(&mut self) -> Option<Stmt> {
@@ -1514,10 +1529,27 @@ mod tests {
         match &module.items[0] {
             Item::Constant(constant) => {
                 assert_eq!(constant.name, "ANSWER");
+                assert!(constant.ty.is_none());
                 assert!(!constant.mutable);
                 assert_eq!(constant.visibility, Visibility::Public);
             }
             _ => panic!("expected constant item"),
+        }
+    }
+
+    #[test]
+    fn parse_typed_binding_statement() {
+        let module = parse_ok("fn main() { let value: i32 = 10; return; }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::Let { name, ty, .. } => {
+                    assert_eq!(name, "value");
+                    let ty = ty.as_ref().expect("expected annotation");
+                    assert_eq!(ty.segments, vec!["i32".to_string()]);
+                }
+                _ => panic!("expected let statement"),
+            },
+            _ => panic!("expected function"),
         }
     }
 

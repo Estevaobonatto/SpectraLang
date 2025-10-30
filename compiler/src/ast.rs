@@ -106,6 +106,7 @@ pub enum Stmt {
     Let {
         mutable: bool,
         name: String,
+        ty: Option<TypeName>,
         value: Expr,
         span: Span,
     },
@@ -203,6 +204,7 @@ pub struct Export {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Constant {
     pub name: String,
+    pub ty: Option<TypeName>,
     pub value: Expr,
     pub mutable: bool,
     pub visibility: Visibility,

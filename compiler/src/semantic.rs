@@ -622,6 +622,10 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_constant(&mut self, constant: &'a Constant) {
         let value_type = self.analyze_expr(&constant.value);
+        let annotated_type = constant
+            .ty
+            .as_ref()
+            .map(|type_name| self.resolve_type_name(type_name));
 
         if constant.visibility == Visibility::Public && constant.mutable {
             self.errors.push(SemanticError::new(
@@ -633,15 +637,33 @@ impl<'a> Analyzer<'a> {
             ));
         }
 
+        if let Some(expected_type) = annotated_type.as_ref() {
+            if !types_compatible(expected_type, &value_type) {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "cannot assign value of type {} to binding '{}' annotated as {}",
+                        value_type.describe(),
+                        constant.name,
+                        expected_type.describe()
+                    ),
+                    expr_span(&constant.value),
+                ));
+            }
+        }
+
+        let resolved_type = annotated_type
+            .clone()
+            .unwrap_or_else(|| value_type.clone());
+
         if !self
             .scopes
-            .set_symbol_type(&constant.name, value_type.clone())
+            .set_symbol_type(&constant.name, resolved_type.clone())
         {
             if let Err(previous_span) = self.scopes.define(
                 &constant.name,
                 constant.span,
                 SymbolKind::Constant,
-                value_type.clone(),
+                resolved_type.clone(),
                 constant.mutable,
             ) {
                 let previous_location = previous_span.start_location;
@@ -658,7 +680,7 @@ impl<'a> Analyzer<'a> {
         if let Some(module_key) = self.current_module_key.as_ref() {
             if let Some(exports) = self.module_exports.get_mut(module_key) {
                 if let Some(entry) = exports.constants.get_mut(&constant.name) {
-                    entry.ty = value_type;
+                    entry.ty = resolved_type;
                 }
             }
         }
@@ -800,15 +822,39 @@ impl<'a> Analyzer<'a> {
         match stmt {
             Stmt::Let {
                 name,
+                ty,
                 value,
                 span,
                 mutable,
             } => {
                 let value_type = self.analyze_expr(value);
-                if let Err(previous_span) =
-                    self.scopes
-                        .define(name, *span, SymbolKind::Variable, value_type, *mutable)
-                {
+                let annotated_type = ty
+                    .as_ref()
+                    .map(|type_name| self.resolve_type_name(type_name));
+
+                if let Some(expected_type) = annotated_type.as_ref() {
+                    if !types_compatible(expected_type, &value_type) {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "cannot assign value of type {} to binding '{}' annotated as {}",
+                                value_type.describe(),
+                                name,
+                                expected_type.describe()
+                            ),
+                            expr_span(value),
+                        ));
+                    }
+                }
+
+                let binding_type = annotated_type.unwrap_or_else(|| value_type.clone());
+
+                if let Err(previous_span) = self.scopes.define(
+                    name,
+                    *span,
+                    SymbolKind::Variable,
+                    binding_type,
+                    *mutable,
+                ) {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
                         format!(
@@ -1464,35 +1510,47 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
-            Expr::ArrayLiteral { elements, span } => {
+            Expr::ArrayLiteral { elements, span: _span } => {
                 if elements.is_empty() {
-                    // Empty array - we'll use Unknown for now
-                    return Type::Unknown;
+                    // Empty array - element type is unknown for now
+                    return Type::Array(Box::new(Type::Unknown));
                 }
 
                 let first_type = self.analyze_expr(&elements[0]);
+                let mut element_type = first_type.clone();
+                let mut mismatched = false;
 
-                // Check all elements have compatible type
                 for (i, element) in elements.iter().enumerate().skip(1) {
-                    let element_type = self.analyze_expr(element);
-                    if !types_compatible(&first_type, &element_type) {
+                    let candidate_type = self.analyze_expr(element);
+
+                    if matches!(element_type, Type::Unknown)
+                        && !matches!(candidate_type, Type::Unknown)
+                    {
+                        element_type = candidate_type.clone();
+                    }
+
+                    if !types_compatible(&element_type, &candidate_type) {
                         self.errors.push(SemanticError::new(
                             format!(
                                 "array element {} has type {}, expected {}",
                                 i,
-                                element_type.describe(),
-                                first_type.describe()
+                                candidate_type.describe(),
+                                element_type.describe()
                             ),
-                            *span,
+                            expr_span(element),
                         ));
+                        mismatched = true;
                     }
                 }
 
-                // For now, return Unknown (arrays need proper type representation)
-                Type::Unknown
+                if mismatched {
+                    Type::Array(Box::new(Type::Unknown))
+                } else {
+                    Type::Array(Box::new(element_type))
+                }
             }
             Expr::Index { array, index, span } => {
-                let _array_type = self.analyze_expr(array);
+                let array_type = self.analyze_expr(array);
                 let index_type = self.analyze_expr(index);
 
                 // Check index is an integer
@@ -1503,9 +1561,17 @@ impl<'a> Analyzer<'a> {
                     ));
                 }
 
-                // For now, return Unknown (arrays need proper type representation)
-                // In the future, we'd extract the element type from array_type
-                Type::Unknown
+                match array_type {
+                    Type::Array(element_type) => *element_type,
+                    Type::Unknown => Type::Unknown,
+                    other => {
+                        self.errors.push(SemanticError::new(
+                            format!("cannot index into type {}", other.describe()),
+                            expr_span(array),
+                        ));
+                        Type::Unknown
+                    }
+                }
             }
         }
     }
@@ -1627,6 +1693,7 @@ enum Type {
     Function(FunctionType),
     Struct(String, HashMap<String, Type>),
     Enum(String),
+    Array(Box<Type>),
     Unknown,
 }
 
@@ -1641,6 +1708,7 @@ impl Type {
             Type::Function(signature) => signature.describe(),
             Type::Struct(name, _) => format!("struct {}", name),
             Type::Enum(name) => format!("enum {}", name),
+            Type::Array(element) => format!("array<{}>", element.describe()),
             Type::Unknown => "unknown".to_string(),
         }
     }
@@ -1752,6 +1820,9 @@ fn types_compatible(expected: &Type, actual: &Type) -> bool {
     }
     if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
         return true;
+    }
+    if let (Type::Array(expected_elem), Type::Array(actual_elem)) = (expected, actual) {
+        return types_compatible(expected_elem, actual_elem);
     }
     // For structs, compare names only (fields may differ during registration/resolution)
     if let (Type::Struct(expected_name, _), Type::Struct(actual_name, _)) = (expected, actual) {
@@ -1901,6 +1972,58 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("variable 'x' is never used")));
+    }
+
+    #[test]
+    fn accepts_typed_let_binding() {
+        analyze_source("fn main(): i32 { let value: i32 = 1; return value; }")
+            .expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_mismatched_binding_annotation() {
+        let errors = analyze_source("fn main(): i32 { let value: bool = 1; return 0; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("annotated as bool")));
+    }
+
+    #[test]
+    fn detects_mismatched_constant_annotation() {
+        let errors = analyze_source("pub let FLAG: bool = 1;").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("annotated as bool")));
+    }
+
+    #[test]
+    fn accepts_typed_constant_annotation() {
+        analyze_source("pub let VALUE: i32 = 1;").expect("analysis ok");
+    }
+
+    #[test]
+    fn accepts_array_literal_with_matching_types() {
+        analyze_source("fn main(): i32 { let numbers = [1, 2, 3]; return numbers[0]; }")
+            .expect("analysis ok");
+    }
+
+    #[test]
+    fn reports_array_element_type_mismatch() {
+        let errors = analyze_source("fn main(): i32 { let mix = [1, true]; return 0; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("array element 1 has type")));
+    }
+
+    #[test]
+    fn detects_indexing_non_array_type() {
+        let errors = analyze_source("fn main(): i32 { let value = 1; return value[0]; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot index into type integer")));
     }
 
     #[test]
@@ -2327,56 +2450,6 @@ mod tests {
         assert!(errors.iter().any(|error| error
             .message
             .contains("right operand of '||' must be boolean")));
-    }
-
-    #[test]
-    fn accepts_array_literal() {
-        // Arrays parse successfully but type is Unknown (array types not fully implemented yet)
-        let result = analyze_source("fn main(): void { let arr = [1, 2, 3]; }");
-        // We expect a warning about unused variable, but no errors about the array itself
-        assert!(
-            result.is_ok()
-                || result
-                    .unwrap_err()
-                    .iter()
-                    .all(|e| e.message.contains("never used"))
-        );
-    }
-
-    #[test]
-    fn accepts_empty_array_literal() {
-        // Empty arrays parse successfully but type is Unknown
-        let result = analyze_source("fn main(): void { let arr = []; }");
-        // We expect a warning about unused variable, but no errors about the array itself
-        assert!(
-            result.is_ok()
-                || result
-                    .unwrap_err()
-                    .iter()
-                    .all(|e| e.message.contains("never used"))
-        );
-    }
-
-    #[test]
-    fn detects_array_element_type_mismatch() {
-        let errors = analyze_source("fn main(): void { var arr = [1, true, 3]; }").unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|error| error.message.contains("array element")));
-    }
-
-    #[test]
-    fn accepts_array_indexing() {
-        // Array indexing parses and type-checks the index, but element type is Unknown
-        let result = analyze_source("fn main(): void { let arr = [1, 2, 3]; let x = arr[0]; }");
-        // We expect warnings about unused variables, but no errors about indexing itself
-        assert!(
-            result.is_ok()
-                || result
-                    .unwrap_err()
-                    .iter()
-                    .all(|e| e.message.contains("never used"))
-        );
     }
 
     #[test]
