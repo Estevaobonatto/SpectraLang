@@ -1,8 +1,8 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
-    BinaryOperator, Block, Export, Expr, Function, Import, Item, Literal, Module, ModulePath, Stmt,
-    TypeName, UnaryOperator, Visibility,
+    BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, Module,
+    ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
@@ -13,9 +13,16 @@ struct FunctionExport {
     span: Span,
 }
 
+#[derive(Clone)]
+struct ConstantExport {
+    ty: Type,
+    span: Span,
+}
+
 #[derive(Clone, Default)]
 struct ModuleExport {
     functions: HashMap<String, FunctionExport>,
+    constants: HashMap<String, ConstantExport>,
 }
 
 pub fn analyze(module: &Module) -> SemanticResult<()> {
@@ -89,33 +96,103 @@ impl<'a> Analyzer<'a> {
             };
             let key = module_path_key(path);
             for item in &module.items {
-                if let Item::Function(function) = item {
-                    if function.visibility != Visibility::Public {
-                        continue;
-                    }
-                    let signature = self.build_function_signature(function);
-                    let exports = self
-                        .module_exports
-                        .entry(key.clone())
-                        .or_insert_with(ModuleExport::default);
-                    match exports.functions.entry(function.name.clone()) {
-                        Entry::Vacant(entry) => {
-                            entry.insert(FunctionExport {
-                                signature: signature.clone(),
-                                span: function.span,
-                            });
+                match item {
+                    Item::Function(function) => {
+                        if function.visibility != Visibility::Public {
+                            continue;
                         }
-                        Entry::Occupied(entry) => {
-                            let previous_location = entry.get().span.start_location;
+                        let signature = self.build_function_signature(function);
+                        let exports = self
+                            .module_exports
+                            .entry(key.clone())
+                            .or_insert_with(ModuleExport::default);
+                        if exports.constants.contains_key(&function.name) {
+                            let previous_location = exports
+                                .constants
+                                .get(&function.name)
+                                .map(|entry| entry.span.start_location)
+                                .unwrap_or(function.span.start_location);
                             self.errors.push(SemanticError::new(
                                 format!(
-                                    "function '{}' already defined in module '{}' (previous definition at {})",
+                                    "function '{}' conflicts with existing exported constant in module '{}' (previous definition at {})",
                                     function.name, key, previous_location
                                 ),
                                 function.span,
                             ));
+                            continue;
+                        }
+                        match exports.functions.entry(function.name.clone()) {
+                            Entry::Vacant(entry) => {
+                                entry.insert(FunctionExport {
+                                    signature: signature.clone(),
+                                    span: function.span,
+                                });
+                            }
+                            Entry::Occupied(entry) => {
+                                let previous_location = entry.get().span.start_location;
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "function '{}' already defined in module '{}' (previous definition at {})",
+                                        function.name, key, previous_location
+                                    ),
+                                    function.span,
+                                ));
+                            }
                         }
                     }
+                    Item::Constant(constant) => {
+                        if constant.visibility != Visibility::Public {
+                            continue;
+                        }
+                        if constant.mutable {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "exported binding '{}' must be declared with 'let', mutable exports are not supported",
+                                    constant.name
+                                ),
+                                constant.span,
+                            ));
+                            continue;
+                        }
+                        let exports = self
+                            .module_exports
+                            .entry(key.clone())
+                            .or_insert_with(ModuleExport::default);
+                        if exports.functions.contains_key(&constant.name) {
+                            let previous_location = exports
+                                .functions
+                                .get(&constant.name)
+                                .map(|entry| entry.span.start_location)
+                                .unwrap_or(constant.span.start_location);
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "constant '{}' conflicts with existing exported function in module '{}' (previous definition at {})",
+                                    constant.name, key, previous_location
+                                ),
+                                constant.span,
+                            ));
+                            continue;
+                        }
+                        match exports.constants.entry(constant.name.clone()) {
+                            Entry::Vacant(entry) => {
+                                entry.insert(ConstantExport {
+                                    ty: Type::Unknown,
+                                    span: constant.span,
+                                });
+                            }
+                            Entry::Occupied(entry) => {
+                                let previous_location = entry.get().span.start_location;
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "constant '{}' already defined in module '{}' (previous definition at {})",
+                                        constant.name, key, previous_location
+                                    ),
+                                    constant.span,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -144,20 +221,18 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        let Some(signature) = self
-            .module_exports
-            .get(&target_key)
-            .and_then(|exports| exports.functions.get(&export.symbol))
-            .map(|exported| exported.signature.clone())
-        else {
-            self.errors.push(SemanticError::new(
-                format!(
-                    "module '{}' does not export function '{}'",
-                    target_key, export.symbol
-                ),
-                export.symbol_span,
-            ));
-            return;
+        let (function_export, constant_export) = match self.module_exports.get(&target_key) {
+            Some(exports) => (
+                exports.functions.get(&export.symbol).cloned(),
+                exports.constants.get(&export.symbol).cloned(),
+            ),
+            None => {
+                self.errors.push(SemanticError::new(
+                    format!("module '{}' has no exported symbols", target_key),
+                    export.module_path.span,
+                ));
+                return;
+            }
         };
 
         let exports = self
@@ -165,24 +240,89 @@ impl<'a> Analyzer<'a> {
             .entry(current_key.to_string())
             .or_insert_with(ModuleExport::default);
 
-        match exports.functions.entry(export.symbol.clone()) {
-            Entry::Vacant(entry) => {
-                entry.insert(FunctionExport {
-                    signature,
-                    span: export.symbol_span,
-                });
-            }
-            Entry::Occupied(entry) => {
-                let previous_location = entry.get().span.start_location;
+        if let Some(function_export) = function_export {
+            if exports.constants.contains_key(&export.symbol) {
+                let previous_location = exports
+                    .constants
+                    .get(&export.symbol)
+                    .map(|entry| entry.span.start_location)
+                    .unwrap_or(export.symbol_span.start_location);
                 self.errors.push(SemanticError::new(
                     format!(
-                        "exported symbol '{}' already defined in module '{}' (previous definition at {})",
+                        "exported symbol '{}' conflicts with existing constant in module '{}' (previous definition at {})",
                         export.symbol, current_key, previous_location
                     ),
                     export.symbol_span,
                 ));
+                return;
             }
+
+            match exports.functions.entry(export.symbol.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(FunctionExport {
+                        signature: function_export.signature.clone(),
+                        span: export.symbol_span,
+                    });
+                }
+                Entry::Occupied(entry) => {
+                    let previous_location = entry.get().span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "exported symbol '{}' already defined in module '{}' (previous definition at {})",
+                            export.symbol, current_key, previous_location
+                        ),
+                        export.symbol_span,
+                    ));
+                }
+            }
+            return;
         }
+
+        if let Some(constant_export) = constant_export {
+            if exports.functions.contains_key(&export.symbol) {
+                let previous_location = exports
+                    .functions
+                    .get(&export.symbol)
+                    .map(|entry| entry.span.start_location)
+                    .unwrap_or(export.symbol_span.start_location);
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "exported symbol '{}' conflicts with existing function in module '{}' (previous definition at {})",
+                        export.symbol, current_key, previous_location
+                    ),
+                    export.symbol_span,
+                ));
+                return;
+            }
+
+            match exports.constants.entry(export.symbol.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(ConstantExport {
+                        ty: constant_export.ty.clone(),
+                        span: export.symbol_span,
+                    });
+                }
+                Entry::Occupied(entry) => {
+                    let previous_location = entry.get().span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "exported symbol '{}' already defined in module '{}' (previous definition at {})",
+                            export.symbol, current_key, previous_location
+                        ),
+                        export.symbol_span,
+                    ));
+                }
+            }
+            return;
+        }
+
+        self.errors.push(SemanticError::new(
+            format!(
+                "module '{}' does not export symbol '{}'",
+                target_key, export.symbol
+            ),
+            export.symbol_span,
+        ));
     }
 
     fn analyze_module(&mut self, module: &'a Module) {
@@ -190,12 +330,14 @@ impl<'a> Analyzer<'a> {
         self.current_module_key = module.name.as_ref().map(|path| module_path_key(path));
         self.current_module_signatures.clear();
         self.register_functions(module);
+        self.register_constants(module);
         self.validate_imports(module);
         self.introduce_imports(module);
 
         for item in &module.items {
             match item {
                 Item::Function(function) => self.analyze_function(function),
+                Item::Constant(constant) => self.analyze_constant(constant),
                 Item::Stmt(statement) => self.analyze_statement(statement),
                 Item::Import(_) | Item::Export(_) => {}
             }
@@ -230,6 +372,28 @@ impl<'a> Analyzer<'a> {
                 } else {
                     self.current_module_signatures
                         .insert(function.name.clone(), signature);
+                }
+            }
+        }
+    }
+
+    fn register_constants(&mut self, module: &'a Module) {
+        for item in &module.items {
+            if let Item::Constant(constant) = item {
+                if let Err(previous_span) = self.scopes.define(
+                    &constant.name,
+                    constant.span,
+                    SymbolKind::Constant,
+                    Type::Unknown,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "binding '{}' already defined (previous definition at {})",
+                            constant.name, previous_location
+                        ),
+                        constant.span,
+                    ));
                 }
             }
         }
@@ -274,6 +438,24 @@ impl<'a> Analyzer<'a> {
                         export.span,
                         SymbolKind::Function,
                         Type::Function(export.signature.clone()),
+                    ) {
+                        let previous_location = previous_span.start_location;
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                                name, previous_location
+                            ),
+                            import.span,
+                        ));
+                    }
+                }
+
+                for (name, export) in &exports.constants {
+                    if let Err(previous_span) = self.scopes.define(
+                        name,
+                        export.span,
+                        SymbolKind::Constant,
+                        export.ty.clone(),
                     ) {
                         let previous_location = previous_span.start_location;
                         self.errors.push(SemanticError::new(
@@ -372,6 +554,49 @@ impl<'a> Analyzer<'a> {
 
         if let Some(frame) = self.scopes.pop() {
             self.report_unused(frame);
+        }
+    }
+
+    fn analyze_constant(&mut self, constant: &'a Constant) {
+        let value_type = self.analyze_expr(&constant.value);
+
+        if constant.visibility == Visibility::Public && constant.mutable {
+            self.errors.push(SemanticError::new(
+                format!(
+                    "exported binding '{}' cannot be mutable; use 'let' instead of 'var'",
+                    constant.name
+                ),
+                constant.span,
+            ));
+        }
+
+        if !self
+            .scopes
+            .set_symbol_type(&constant.name, value_type.clone())
+        {
+            if let Err(previous_span) = self.scopes.define(
+                &constant.name,
+                constant.span,
+                SymbolKind::Constant,
+                value_type.clone(),
+            ) {
+                let previous_location = previous_span.start_location;
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "binding '{}' already defined (previous definition at {})",
+                        constant.name, previous_location
+                    ),
+                    constant.span,
+                ));
+            }
+        }
+
+        if let Some(module_key) = self.current_module_key.as_ref() {
+            if let Some(exports) = self.module_exports.get_mut(module_key) {
+                if let Some(entry) = exports.constants.get_mut(&constant.name) {
+                    entry.ty = value_type;
+                }
+            }
         }
     }
 
@@ -731,6 +956,10 @@ impl<'a> Analyzer<'a> {
                     format!("variable '{}' is never used", name),
                     info.span,
                 )),
+                SymbolKind::Constant => self.errors.push(SemanticError::new(
+                    format!("binding '{}' is never used", name),
+                    info.span,
+                )),
                 SymbolKind::Parameter => self.errors.push(SemanticError::new(
                     format!("parameter '{}' is never used", name),
                     info.span,
@@ -782,6 +1011,7 @@ enum SymbolKind {
     Function,
     Variable,
     Parameter,
+    Constant,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -898,6 +1128,16 @@ impl ScopeStack {
             }
         }
         None
+    }
+
+    fn set_symbol_type(&mut self, name: &str, ty: Type) -> bool {
+        for frame in self.frames.iter_mut().rev() {
+            if let Some(info) = frame.symbols.get_mut(name) {
+                info.ty = ty;
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -1120,6 +1360,23 @@ mod tests {
     }
 
     #[test]
+    fn allows_import_of_public_constant() {
+        analyze_modules_from_sources(&[
+            "module demo.values; pub let ANSWER = 42;",
+            "module demo.app; import demo.values; fn main(): i32 { return ANSWER; }",
+        ])
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn rejects_mutable_public_binding() {
+        let errors = analyze_source("pub var counter = 0;").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot be mutable")));
+    }
+
+    #[test]
     fn detects_unknown_module_import() {
         let errors =
             analyze_source("module app.main; import util.math; fn main() { return; }").unwrap_err();
@@ -1170,9 +1427,10 @@ mod tests {
 
     #[test]
     fn exporting_unknown_module_reports_error() {
-        let errors =
-            analyze_source("module app.api; export missing::helpers::symbol; fn main() { return; }")
-                .unwrap_err();
+        let errors = analyze_source(
+            "module app.api; export missing::helpers::symbol; fn main() { return; }",
+        )
+        .unwrap_err();
         assert!(errors.iter().any(|error| error
             .message
             .contains("cannot export from unknown module 'missing::helpers'")));
@@ -1187,7 +1445,7 @@ mod tests {
         .unwrap_err();
         assert!(errors.iter().any(|error| error
             .message
-            .contains("module 'app::util' does not export function 'helper'")));
+            .contains("module 'app::util' has no exported symbols")));
     }
 
     #[test]

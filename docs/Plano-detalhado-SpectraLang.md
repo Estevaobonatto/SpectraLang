@@ -11,6 +11,7 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - AST e parser atualizados para cobrir declarações `import` e expressões de chamada, com novos testes garantindo cobertura de casos positivos e diagnósticos.
 - Analisador semântico ampliado com registro de assinaturas, checagem de aridade/tipos em chamadas, e validação de imports (auto-import e módulos desconhecidos).
 - Suporte multi-módulo: CLI e analisador recebem múltiplos arquivos simultaneamente, compartilham assinaturas exportadas, detectam conflitos entre imports e reportam diagnósticos consistentes entre módulos.
+- Visibilidade ampliada: constantes imutáveis declaradas com `pub let` podem ser exportadas/importadas entre módulos, com diagnósticos para conflitos e restrição a bindings mutáveis.
 
 ## Linha do tempo da colaboração
 

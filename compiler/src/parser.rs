@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Export, Expr, Function, Import, Item, Literal, Module, ModulePath,
-        Parameter, Stmt, TypeName, UnaryOperator, Visibility,
+        BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, Module,
+        ModulePath, Parameter, Stmt, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -59,10 +59,16 @@ impl<'a> Parser<'a> {
                         Some(function) => items.push(Item::Function(function)),
                         None => self.synchronize(),
                     }
+                } else if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Var) {
+                    let keyword = self.advance().clone();
+                    match self.parse_constant(keyword, visibility, span) {
+                        Some(constant) => items.push(Item::Constant(constant)),
+                        None => self.synchronize(),
+                    }
                 } else {
                     let location = self.peek().span.start_location;
                     self.errors.push(ParseError::new(
-                        "expected 'fn' after visibility modifier",
+                        "expected 'fn' or binding after visibility modifier",
                         location,
                     ));
                     self.synchronize();
@@ -346,7 +352,34 @@ impl<'a> Parser<'a> {
         Some(Block { statements, span })
     }
 
+    fn parse_constant(
+        &mut self,
+        keyword: Token,
+        visibility: Visibility,
+        visibility_span: Span,
+    ) -> Option<Constant> {
+        let (name, value, binding_span) = self.parse_binding_parts(keyword.span)?;
+        let span = span_union(visibility_span, binding_span);
+        Some(Constant {
+            name,
+            value,
+            mutable: matches!(keyword.kind, TokenKind::Keyword(Keyword::Var)),
+            visibility,
+            span,
+        })
+    }
+
     fn parse_binding(&mut self, mutable: bool, keyword_span: Span) -> Option<Stmt> {
+        let (name, value, span) = self.parse_binding_parts(keyword_span)?;
+        Some(Stmt::Let {
+            mutable,
+            name,
+            value,
+            span,
+        })
+    }
+
+    fn parse_binding_parts(&mut self, keyword_span: Span) -> Option<(String, Expr, Span)> {
         let name_token = self
             .consume_identifier("expected identifier after binding keyword")?
             .clone();
@@ -356,13 +389,7 @@ impl<'a> Parser<'a> {
             .consume(TokenKind::Semicolon, "expected ';' after binding")?
             .clone();
         let span = span_union(keyword_span, semicolon.span);
-
-        Some(Stmt::Let {
-            mutable,
-            name: name_token.lexeme.clone(),
-            value,
-            span,
-        })
+        Some((name_token.lexeme.clone(), value, span))
     }
 
     fn parse_expression_statement(&mut self) -> Option<Stmt> {
@@ -823,6 +850,20 @@ mod tests {
                 assert_eq!(func.visibility, Visibility::Public);
             }
             _ => panic!("expected function item"),
+        }
+    }
+
+    #[test]
+    fn parse_public_constant() {
+        let module = parse_ok("pub let ANSWER = 42;");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Constant(constant) => {
+                assert_eq!(constant.name, "ANSWER");
+                assert!(!constant.mutable);
+                assert_eq!(constant.visibility, Visibility::Public);
+            }
+            _ => panic!("expected constant item"),
         }
     }
 

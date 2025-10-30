@@ -113,6 +113,7 @@ pub enum Item {
     Export(Export),
     Stmt(Stmt),
     Function(Function),
+    Constant(Constant),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,6 +127,15 @@ pub struct Export {
     pub module_path: ModulePath,
     pub symbol: String,
     pub symbol_span: Span,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Constant {
+    pub name: String,
+    pub value: Expr,
+    pub mutable: bool,
+    pub visibility: Visibility,
     pub span: Span,
 }
 
