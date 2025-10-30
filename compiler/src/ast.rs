@@ -18,6 +18,11 @@ pub enum Expr {
         name: String,
         span: Span,
     },
+    Call {
+        callee: Box<Expr>,
+        arguments: Vec<Expr>,
+        span: Span,
+    },
     Unary {
         operator: UnaryOperator,
         operand: Box<Expr>,
@@ -92,8 +97,15 @@ pub struct ModulePath {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
+    Import(Import),
     Stmt(Stmt),
     Function(Function),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Import {
+    pub path: ModulePath,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

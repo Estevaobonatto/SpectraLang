@@ -4,7 +4,7 @@ Prototype implementation workspace for the SpectraLang programming language. Thi
 
 ## Workspace layout
 
-- `compiler/` – Rust crate containing the lexer, parser, and AST definitions.
+- `compiler/` – Rust crate containing the lexer, parser, AST definitions, and the evolving semantic analyzer.
 - `runtime/` – Placeholder crate for the future SpectraLang runtime and garbage collector integrations.
 - `tools/spectra-cli/` – Early command-line interface used to lex and parse SpectraLang source files.
 - `docs/` – Planning material, specifications, and architectural decision records.
@@ -19,7 +19,7 @@ Prototype implementation workspace for the SpectraLang programming language. Thi
 cargo run --package spectra-cli -- examples/hello.spc
 ```
 
-> Provide a SpectraLang source file as input; the CLI reports lexical or parsing errors and summarizes parsed modules/functions.
+> Provide a SpectraLang source file as input; the CLI now reports lexical, parsing, or semantic issues (including function call/`import` diagnostics) and summarizes parsed modules/functions.
 
 ## Continuous integration
 

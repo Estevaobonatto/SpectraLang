@@ -1,12 +1,22 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use crate::ast::{Block, Expr, Function, Item, Module, Stmt};
+use crate::ast::{
+    BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath, Stmt,
+    TypeName, UnaryOperator,
+};
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
 
 pub fn analyze(module: &Module) -> SemanticResult<()> {
+    analyze_modules(&[module])
+}
+
+pub fn analyze_modules(modules: &[&Module]) -> SemanticResult<()> {
     let mut analyzer = Analyzer::new();
-    analyzer.analyze_module(module);
+    analyzer.register_modules(modules);
+    for module in modules {
+        analyzer.analyze_module(module);
+    }
     if analyzer.errors.is_empty() {
         Ok(())
     } else {
@@ -18,6 +28,8 @@ struct Analyzer<'a> {
     errors: Vec<SemanticError>,
     scopes: ScopeStack,
     current_function: Option<FunctionContext<'a>>,
+    module_registry: HashMap<String, Span>,
+    function_signatures: HashMap<String, FunctionType>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -26,34 +38,44 @@ impl<'a> Analyzer<'a> {
             errors: Vec::new(),
             scopes: ScopeStack::new(),
             current_function: None,
+            module_registry: HashMap::new(),
+            function_signatures: HashMap::new(),
+        }
+    }
+
+    fn register_modules(&mut self, modules: &[&'a Module]) {
+        for module in modules {
+            if let Some(path) = module.name.as_ref() {
+                let key = module_path_key(path);
+                match self.module_registry.entry(key.clone()) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(path.span);
+                    }
+                    Entry::Occupied(entry) => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "module '{}' already defined (previous definition at {})",
+                                key,
+                                entry.get().start_location
+                            ),
+                            path.span,
+                        ));
+                    }
+                }
+            }
         }
     }
 
     fn analyze_module(&mut self, module: &'a Module) {
         self.scopes.push(ScopeKind::Module);
-
-        for item in &module.items {
-            if let Item::Function(function) = item {
-                if let Err(previous_span) =
-                    self.scopes
-                        .define(&function.name, function.span, SymbolKind::Function)
-                {
-                    let previous_location = previous_span.start_location;
-                    self.errors.push(SemanticError::new(
-                        format!(
-                            "function '{}' already defined (previous definition at {})",
-                            function.name, previous_location
-                        ),
-                        function.span,
-                    ));
-                }
-            }
-        }
+        self.register_functions(module);
+        self.validate_imports(module);
 
         for item in &module.items {
             match item {
                 Item::Function(function) => self.analyze_function(function),
                 Item::Stmt(statement) => self.analyze_statement(statement),
+                Item::Import(_) => {}
             }
         }
 
@@ -62,20 +84,90 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn register_functions(&mut self, module: &'a Module) {
+        for item in &module.items {
+            if let Item::Function(function) = item {
+                let signature = self.build_function_signature(function);
+                if let Err(previous_span) = self.scopes.define(
+                    &function.name,
+                    function.span,
+                    SymbolKind::Function,
+                    Type::Function(signature.clone()),
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "function '{}' already defined (previous definition at {})",
+                            function.name, previous_location
+                        ),
+                        function.span,
+                    ));
+                } else {
+                    self.function_signatures
+                        .insert(function.name.clone(), signature);
+                }
+            }
+        }
+    }
+
+    fn validate_imports(&mut self, module: &'a Module) {
+        let current_key = module.name.as_ref().map(|path| module_path_key(path));
+        for item in &module.items {
+            if let Item::Import(import) = item {
+                self.validate_import(import, current_key.as_deref());
+            }
+        }
+    }
+
+    fn validate_import(&mut self, import: &Import, current_module: Option<&str>) {
+        let key = module_path_key(&import.path);
+        if let Some(current) = current_module {
+            if current == key {
+                self.errors.push(SemanticError::new(
+                    "module cannot import itself",
+                    import.span,
+                ));
+            }
+        }
+        if !self.module_registry.contains_key(&key) {
+            self.errors.push(SemanticError::new(
+                format!("unknown module '{}'", key),
+                import.span,
+            ));
+        }
+    }
+
     fn analyze_function(&mut self, function: &'a Function) {
         self.scopes.push(ScopeKind::Function);
+        let signature = self
+            .function_signatures
+            .get(&function.name)
+            .cloned()
+            .unwrap_or_else(|| FunctionType {
+                parameters: Vec::new(),
+                return_type: Box::new(Type::Void),
+            });
+        let return_type = (*signature.return_type).clone();
         self.current_function = Some(FunctionContext {
             name: &function.name,
             span: function.span,
-            expects_value: function.return_type.is_some(),
-            has_return_with_value: false,
+            return_type: return_type.clone(),
+            saw_value_return: false,
         });
 
-        for parameter in &function.parameters {
-            if let Err(previous_span) =
-                self.scopes
-                    .define(&parameter.name, parameter.span, SymbolKind::Parameter)
-            {
+        for (parameter, param_type) in function.parameters.iter().zip(signature.parameters.iter()) {
+            if *param_type == Type::Void {
+                self.errors.push(SemanticError::new(
+                    format!("parameter '{}' cannot have type void", parameter.name),
+                    parameter.span,
+                ));
+            }
+            if let Err(previous_span) = self.scopes.define(
+                &parameter.name,
+                parameter.span,
+                SymbolKind::Parameter,
+                param_type.clone(),
+            ) {
                 let previous_location = previous_span.start_location;
                 self.errors.push(SemanticError::new(
                     format!(
@@ -90,11 +182,12 @@ impl<'a> Analyzer<'a> {
         self.analyze_block(&function.body);
 
         if let Some(context) = self.current_function.take() {
-            if context.expects_value && !context.has_return_with_value {
+            if context.return_type != Type::Void && !context.saw_value_return {
                 self.errors.push(SemanticError::new(
                     format!(
-                        "function '{}' must return a value in all paths",
-                        context.name
+                        "function '{}' must return a value of type {} in all paths",
+                        context.name,
+                        context.return_type.describe()
                     ),
                     context.span,
                 ));
@@ -103,6 +196,23 @@ impl<'a> Analyzer<'a> {
 
         if let Some(frame) = self.scopes.pop() {
             self.report_unused(frame);
+        }
+    }
+
+    fn build_function_signature(&mut self, function: &'a Function) -> FunctionType {
+        let parameters = function
+            .parameters
+            .iter()
+            .map(|parameter| self.resolve_type_name(&parameter.ty))
+            .collect();
+        let return_type = function
+            .return_type
+            .as_ref()
+            .map(|ty| self.resolve_type_name(ty))
+            .unwrap_or(Type::Void);
+        FunctionType {
+            parameters,
+            return_type: Box::new(return_type),
         }
     }
 
@@ -121,8 +231,11 @@ impl<'a> Analyzer<'a> {
             Stmt::Let {
                 name, value, span, ..
             } => {
-                self.analyze_expr(value);
-                if let Err(previous_span) = self.scopes.define(name, *span, SymbolKind::Variable) {
+                let value_type = self.analyze_expr(value);
+                if let Err(previous_span) =
+                    self.scopes
+                        .define(name, *span, SymbolKind::Variable, value_type)
+                {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
                         format!(
@@ -133,7 +246,9 @@ impl<'a> Analyzer<'a> {
                     ));
                 }
             }
-            Stmt::Expr(expr) => self.analyze_expr(expr),
+            Stmt::Expr(expr) => {
+                self.analyze_expr(expr);
+            }
             Stmt::Return { value, span } => self.analyze_return(value.as_ref(), *span),
             Stmt::Block(block) => self.analyze_block(block),
         }
@@ -141,28 +256,46 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
         if let Some(mut context) = self.current_function.take() {
-            if context.expects_value {
+            if context.return_type == Type::Void {
                 if let Some(expr) = value {
-                    self.analyze_expr(expr);
-                    context.has_return_with_value = true;
-                } else {
+                    let expr_type = self.analyze_expr(expr);
                     self.errors.push(SemanticError::new(
                         format!(
-                            "return statement in function '{}' requires a value",
-                            context.name
+                            "return statement in function '{}' cannot return a value (found {})",
+                            context.name,
+                            expr_type.describe()
                         ),
-                        span,
+                        expr_span(expr),
                     ));
                 }
-            } else if let Some(expr) = value {
-                self.analyze_expr(expr);
-                self.errors.push(SemanticError::new(
-                    format!(
-                        "return statement in function '{}' cannot return a value",
-                        context.name
-                    ),
-                    span,
-                ));
+            } else {
+                match value {
+                    Some(expr) => {
+                        let expr_type = self.analyze_expr(expr);
+                        if !types_compatible(&context.return_type, &expr_type) {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "return type mismatch in function '{}': expected {}, found {}",
+                                    context.name,
+                                    context.return_type.describe(),
+                                    expr_type.describe()
+                                ),
+                                expr_span(expr),
+                            ));
+                        }
+                        context.saw_value_return = true;
+                    }
+                    None => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "return statement in function '{}' requires a value of type {}",
+                                context.name,
+                                context.return_type.describe()
+                            ),
+                            span,
+                        ));
+                    }
+                }
             }
             self.current_function = Some(context);
         } else {
@@ -176,21 +309,232 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn analyze_expr(&mut self, expr: &Expr) {
+    fn analyze_expr(&mut self, expr: &Expr) -> Type {
         match expr {
-            Expr::Literal { .. } => {}
-            Expr::Identifier { name, span } => {
-                if self.scopes.resolve(name).is_none() {
+            Expr::Literal { value, .. } => literal_type(value),
+            Expr::Identifier { name, span } => match self.scopes.resolve(name) {
+                Some(symbol_type) => symbol_type,
+                None => {
                     self.errors.push(SemanticError::new(
                         format!("use of undeclared identifier '{}'", name),
                         *span,
                     ));
+                    Type::Unknown
+                }
+            },
+            Expr::Unary {
+                operator,
+                operand,
+                span,
+            } => {
+                let operand_type = self.analyze_expr(operand);
+                match operator {
+                    UnaryOperator::Not => {
+                        if operand_type != Type::Bool && operand_type != Type::Unknown {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "operator '{}' expects a bool operand but found {}",
+                                    unary_operator_symbol(*operator),
+                                    operand_type.describe()
+                                ),
+                                *span,
+                            ));
+                        }
+                        Type::Bool
+                    }
+                    UnaryOperator::Negate => {
+                        if !operand_type.is_numeric() && operand_type != Type::Unknown {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "operator '{}' expects a numeric operand but found {}",
+                                    unary_operator_symbol(*operator),
+                                    operand_type.describe()
+                                ),
+                                *span,
+                            ));
+                            Type::Unknown
+                        } else {
+                            operand_type
+                        }
+                    }
                 }
             }
-            Expr::Unary { operand, .. } => self.analyze_expr(operand),
-            Expr::Binary { left, right, .. } => {
-                self.analyze_expr(left);
-                self.analyze_expr(right);
+            Expr::Binary {
+                left,
+                operator,
+                right,
+                span,
+            } => {
+                let left_type = self.analyze_expr(left);
+                let right_type = self.analyze_expr(right);
+                match operator {
+                    BinaryOperator::Add
+                    | BinaryOperator::Sub
+                    | BinaryOperator::Mul
+                    | BinaryOperator::Div
+                    | BinaryOperator::Mod => {
+                        if (!left_type.is_numeric() && left_type != Type::Unknown)
+                            || (!right_type.is_numeric() && right_type != Type::Unknown)
+                        {
+                            if !left_type.is_numeric() && left_type != Type::Unknown {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "left operand of '{}' must be numeric, found {}",
+                                        binary_operator_symbol(*operator),
+                                        left_type.describe()
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            if !right_type.is_numeric() && right_type != Type::Unknown {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "right operand of '{}' must be numeric, found {}",
+                                        binary_operator_symbol(*operator),
+                                        right_type.describe()
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            Type::Unknown
+                        } else if left_type != right_type
+                            && left_type != Type::Unknown
+                            && right_type != Type::Unknown
+                        {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "operands of '{}' must have matching numeric types, found {} and {}",
+                                    binary_operator_symbol(*operator),
+                                        left_type.describe(),
+                                        right_type.describe()
+                                ),
+                                *span,
+                            ));
+                            Type::Unknown
+                        } else if left_type == Type::Unknown {
+                            right_type
+                        } else {
+                            left_type
+                        }
+                    }
+                    BinaryOperator::Equal | BinaryOperator::NotEqual => {
+                        if left_type != right_type
+                            && left_type != Type::Unknown
+                            && right_type != Type::Unknown
+                        {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "operands of '{}' must have the same type, found {} and {}",
+                                    binary_operator_symbol(*operator),
+                                    left_type.describe(),
+                                    right_type.describe()
+                                ),
+                                *span,
+                            ));
+                        }
+                        Type::Bool
+                    }
+                    BinaryOperator::Greater
+                    | BinaryOperator::GreaterEqual
+                    | BinaryOperator::Less
+                    | BinaryOperator::LessEqual => {
+                        if (!left_type.is_numeric() && left_type != Type::Unknown)
+                            || (!right_type.is_numeric() && right_type != Type::Unknown)
+                        {
+                            if !left_type.is_numeric() && left_type != Type::Unknown {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "left operand of '{}' must be numeric, found {}",
+                                        binary_operator_symbol(*operator),
+                                        left_type.describe()
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            if !right_type.is_numeric() && right_type != Type::Unknown {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "right operand of '{}' must be numeric, found {}",
+                                        binary_operator_symbol(*operator),
+                                        right_type.describe()
+                                    ),
+                                    *span,
+                                ));
+                            }
+                        }
+                        if left_type != right_type
+                            && left_type != Type::Unknown
+                            && right_type != Type::Unknown
+                        {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "operands of '{}' must have matching numeric types, found {} and {}",
+                                    binary_operator_symbol(*operator),
+                                        left_type.describe(),
+                                        right_type.describe()
+                                ),
+                                *span,
+                            ));
+                        }
+                        Type::Bool
+                    }
+                }
+            }
+            Expr::Call {
+                callee,
+                arguments,
+                span,
+            } => {
+                let callee_type = self.analyze_expr(callee);
+                let argument_info: Vec<(Type, Span)> = arguments
+                    .iter()
+                    .map(|argument| (self.analyze_expr(argument), expr_span(argument)))
+                    .collect();
+                match callee_type {
+                    Type::Function(signature) => {
+                        if signature.parameters.len() != argument_info.len() {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "function expects {} argument(s) but {} provided",
+                                    signature.parameters.len(),
+                                    argument_info.len()
+                                ),
+                                *span,
+                            ));
+                        }
+
+                        for (index, (expected, found)) in signature
+                            .parameters
+                            .iter()
+                            .zip(argument_info.iter())
+                            .enumerate()
+                        {
+                            let found_type = &found.0;
+                            let found_span = found.1;
+                            if !types_compatible(expected, found_type) {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "argument {} has type {}, expected {}",
+                                        index + 1,
+                                        found_type.describe(),
+                                        expected.describe()
+                                    ),
+                                    found_span,
+                                ));
+                            }
+                        }
+
+                        (*signature.return_type).clone()
+                    }
+                    Type::Unknown => Type::Unknown,
+                    other => {
+                        self.errors.push(SemanticError::new(
+                            format!("cannot call expression of type {}", other.describe()),
+                            expr_span(callee.as_ref()),
+                        ));
+                        Type::Unknown
+                    }
+                }
             }
             Expr::Grouping { expression, .. } => self.analyze_expr(expression),
         }
@@ -219,13 +563,35 @@ impl<'a> Analyzer<'a> {
             }
         }
     }
+
+    fn resolve_type_name(&mut self, type_name: &TypeName) -> Type {
+        let raw = type_name.segments.join("::");
+        let normalized = raw.to_ascii_lowercase();
+        let ty = match normalized.as_str() {
+            "void" => Type::Void,
+            "bool" => Type::Bool,
+            "string" | "str" => Type::String,
+            "f32" | "f64" => Type::Float,
+            "int" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" => Type::Integer,
+            _ => Type::Unknown,
+        };
+
+        if ty == Type::Unknown {
+            self.errors.push(SemanticError::new(
+                format!("unknown type '{}'", raw),
+                type_name.span,
+            ));
+        }
+
+        ty
+    }
 }
 
 struct FunctionContext<'a> {
     name: &'a str,
     span: Span,
-    expects_value: bool,
-    has_return_with_value: bool,
+    return_type: Type,
+    saw_value_return: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -242,9 +608,65 @@ enum SymbolKind {
     Parameter,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FunctionType {
+    parameters: Vec<Type>,
+    return_type: Box<Type>,
+}
+
+impl FunctionType {
+    fn describe(&self) -> String {
+        let params = if self.parameters.is_empty() {
+            String::new()
+        } else {
+            self.parameters
+                .iter()
+                .map(|ty| ty.describe())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let return_type = self.return_type.describe();
+        if params.is_empty() {
+            format!("fn() -> {}", return_type)
+        } else {
+            format!("fn({}) -> {}", params, return_type)
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Type {
+    Void,
+    Bool,
+    Integer,
+    Float,
+    String,
+    Function(FunctionType),
+    Unknown,
+}
+
+impl Type {
+    fn describe(&self) -> String {
+        match self {
+            Type::Void => "void".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::Integer => "integer".to_string(),
+            Type::Float => "float".to_string(),
+            Type::String => "string".to_string(),
+            Type::Function(signature) => signature.describe(),
+            Type::Unknown => "unknown".to_string(),
+        }
+    }
+
+    fn is_numeric(&self) -> bool {
+        matches!(self, Type::Integer | Type::Float)
+    }
+}
+
 struct SymbolInfo {
     span: Span,
     kind: SymbolKind,
+    ty: Type,
     used: bool,
 }
 
@@ -273,7 +695,7 @@ impl ScopeStack {
         self.frames.pop()
     }
 
-    fn define(&mut self, name: &str, span: Span, kind: SymbolKind) -> Result<(), Span> {
+    fn define(&mut self, name: &str, span: Span, kind: SymbolKind, ty: Type) -> Result<(), Span> {
         let frame = self
             .frames
             .last_mut()
@@ -283,6 +705,7 @@ impl ScopeStack {
                 entry.insert(SymbolInfo {
                     span,
                     kind,
+                    ty,
                     used: false,
                 });
                 Ok(())
@@ -291,14 +714,65 @@ impl ScopeStack {
         }
     }
 
-    fn resolve(&mut self, name: &str) -> Option<Span> {
+    fn resolve(&mut self, name: &str) -> Option<Type> {
         for frame in self.frames.iter_mut().rev() {
             if let Some(info) = frame.symbols.get_mut(name) {
                 info.used = true;
-                return Some(info.span);
+                return Some(info.ty.clone());
             }
         }
         None
+    }
+}
+
+fn literal_type(literal: &Literal) -> Type {
+    match literal {
+        Literal::Integer(_) => Type::Integer,
+        Literal::Float(_) => Type::Float,
+        Literal::String(_) => Type::String,
+        Literal::Bool(_) => Type::Bool,
+    }
+}
+
+fn types_compatible(expected: &Type, actual: &Type) -> bool {
+    expected == actual || matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown)
+}
+
+fn binary_operator_symbol(operator: BinaryOperator) -> &'static str {
+    match operator {
+        BinaryOperator::Add => "+",
+        BinaryOperator::Sub => "-",
+        BinaryOperator::Mul => "*",
+        BinaryOperator::Div => "/",
+        BinaryOperator::Mod => "%",
+        BinaryOperator::Equal => "==",
+        BinaryOperator::NotEqual => "!=",
+        BinaryOperator::Greater => ">",
+        BinaryOperator::GreaterEqual => ">=",
+        BinaryOperator::Less => "<",
+        BinaryOperator::LessEqual => "<=",
+    }
+}
+
+fn unary_operator_symbol(operator: UnaryOperator) -> &'static str {
+    match operator {
+        UnaryOperator::Not => "!",
+        UnaryOperator::Negate => "-",
+    }
+}
+
+fn module_path_key(path: &ModulePath) -> String {
+    path.segments.join("::")
+}
+
+fn expr_span(expr: &Expr) -> Span {
+    match expr {
+        Expr::Literal { span, .. }
+        | Expr::Identifier { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::Unary { span, .. }
+        | Expr::Binary { span, .. }
+        | Expr::Grouping { span, .. } => *span,
     }
 }
 
@@ -401,5 +875,78 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("parameter 'x' is never used")));
+    }
+
+    #[test]
+    fn detects_return_type_mismatch() {
+        let errors = analyze_source("fn main(): i32 { return true; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("return type mismatch")));
+    }
+
+    #[test]
+    fn detects_numeric_type_mismatch() {
+        let errors = analyze_source("fn main(): i32 { let x = 1; let y = x + true; return x; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("must be numeric")));
+    }
+
+    #[test]
+    fn detects_void_parameter_type() {
+        let errors = analyze_source("fn main(x: void): i32 { return 0; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot have type void")));
+    }
+
+    #[test]
+    fn accepts_function_call_with_matching_signature() {
+        analyze_source(
+            "fn add(a: i32, b: i32): i32 { return a + b; } fn main(): i32 { return add(1, 2); }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_call_with_wrong_argument_count() {
+        let errors = analyze_source(
+            "fn add(a: i32, b: i32): i32 { return a + b; } fn main(): i32 { return add(1); }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("expects 2 argument(s)")));
+    }
+
+    #[test]
+    fn detects_call_with_wrong_argument_type() {
+        let errors = analyze_source(
+            "fn add(a: i32, b: i32): i32 { return a + b; } fn main(): i32 { return add(1, true); }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("argument 2 has type bool")));
+    }
+
+    #[test]
+    fn detects_unknown_module_import() {
+        let errors =
+            analyze_source("module app.main; import util.math; fn main() { return; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("unknown module 'util::math'")));
+    }
+
+    #[test]
+    fn detects_self_import() {
+        let errors =
+            analyze_source("module app.core; import app.core; fn main() { return; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("module cannot import itself")));
     }
 }

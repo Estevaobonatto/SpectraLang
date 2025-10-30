@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Expr, Function, Item, Literal, Module, ModulePath, Parameter, Stmt,
-        TypeName, UnaryOperator,
+        BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath,
+        Parameter, Stmt, TypeName, UnaryOperator,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -40,6 +40,15 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
         while !self.is_at_end() {
             if self.match_token(TokenKind::Semicolon) {
+                continue;
+            }
+
+            if self.check_keyword(Keyword::Import) {
+                let import_token = self.advance().clone();
+                match self.parse_import(import_token) {
+                    Some(import) => items.push(Item::Import(import)),
+                    None => self.synchronize(),
+                }
                 continue;
             }
 
@@ -104,6 +113,33 @@ impl<'a> Parser<'a> {
         }
 
         self.parse_expression_statement()
+    }
+
+    fn parse_import(&mut self, import_token: Token) -> Option<Import> {
+        let first = self
+            .consume_identifier("expected module path after 'import'")?
+            .clone();
+        let mut segments = vec![first.lexeme.clone()];
+        let mut span = span_union(import_token.span, first.span);
+
+        while self.check(TokenKind::Dot) || self.check(TokenKind::Scope) {
+            self.advance();
+            let ident = self
+                .consume_identifier("expected identifier in import path")?
+                .clone();
+            span = span_union(span, ident.span);
+            segments.push(ident.lexeme.clone());
+        }
+
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after import statement")?
+            .clone();
+        span = span_union(span, semicolon.span);
+
+        Some(Import {
+            path: ModulePath { segments, span },
+            span,
+        })
     }
 
     fn parse_module_declaration(&mut self, module_token: Token) -> Option<ModulePath> {
@@ -385,7 +421,45 @@ impl<'a> Parser<'a> {
                 span,
             });
         }
-        self.parse_primary()
+        self.parse_postfix()
+    }
+
+    fn parse_postfix(&mut self) -> Option<Expr> {
+        let mut expr = self.parse_primary()?;
+
+        loop {
+            if self.match_token(TokenKind::LParen) {
+                let call = self.finish_call(expr)?;
+                expr = call;
+            } else {
+                break;
+            }
+        }
+
+        Some(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Option<Expr> {
+        let mut arguments = Vec::new();
+        if !self.check(TokenKind::RParen) {
+            loop {
+                arguments.push(self.expression()?);
+                if !self.match_token(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
+        let close = self
+            .consume(TokenKind::RParen, "expected ')' after arguments")?
+            .clone();
+        let span = span_union(expr_span(&callee), close.span);
+
+        Some(Expr::Call {
+            callee: Box::new(callee),
+            arguments,
+            span,
+        })
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {
@@ -581,6 +655,7 @@ fn expr_span(expr: &Expr) -> Span {
     match expr {
         Expr::Literal { span, .. }
         | Expr::Identifier { span, .. }
+        | Expr::Call { span, .. }
         | Expr::Unary { span, .. }
         | Expr::Binary { span, .. }
         | Expr::Grouping { span, .. } => *span,
@@ -634,6 +709,33 @@ mod tests {
                 assert!(func.return_type.is_some());
             }
             _ => panic!("expected function item"),
+        }
+    }
+
+    #[test]
+    fn parse_import_statement() {
+        let module = parse_ok("import demo.core; import utils.math; fn main() { return; }");
+        assert_eq!(module.items.len(), 3);
+        assert!(matches!(&module.items[0], Item::Import(_)));
+        assert!(matches!(&module.items[1], Item::Import(_)));
+    }
+
+    #[test]
+    fn parse_function_call_expression() {
+        let module = parse_ok("fn main(): i32 { return add(1, 2); }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::Return {
+                    value: Some(expr), ..
+                } => match expr {
+                    Expr::Call { arguments, .. } => {
+                        assert_eq!(arguments.len(), 2);
+                    }
+                    _ => panic!("expected call expression"),
+                },
+                _ => panic!("expected return statement"),
+            },
+            _ => panic!("expected function"),
         }
     }
 }

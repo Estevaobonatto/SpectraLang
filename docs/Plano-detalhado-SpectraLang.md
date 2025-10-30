@@ -6,8 +6,10 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 
 - Monorepo Rust configurado com crates `spectra-compiler`, `spectra-runtime` e `spectra-cli`, pipeline CI GitHub Actions (fmt, clippy, test) e documentação inicial (`README`, ADRs 0001–0002).
 - Lexer e parser entregues com rastreamento de spans, suporte a módulos, funções, blocos e `return`; suíte de testes cobrindo cenários básicos.
-- CLI `spectra` capaz de lex/parsing, executar análise semântica inicial (escopos, retornos, identificadores) e apresentar estatísticas do módulo.
-- Pasta `docs/decisions` ativa (ADR 0001 – Lexer, ADR 0002 – Parser); plano de trabalho alinhado com backlog por fases.
+- CLI `spectra` capaz de lex/parsing, executar análise semântica inicial (escopos, retornos, identificadores, uso de símbolos, tipos primitivos) com validação de chamadas de função e imports, além de apresentar estatísticas do módulo.
+- Pasta `docs/decisions` ativa (ADR 0001 – Lexer, ADR 0002 – Parser, ADR 0003 – Roadmap Semântico); plano de trabalho alinhado com backlog por fases.
+- AST e parser atualizados para cobrir declarações `import` e expressões de chamada, com novos testes garantindo cobertura de casos positivos e diagnósticos.
+- Analisador semântico ampliado com registro de assinaturas, checagem de aridade/tipos em chamadas, e validação de imports (auto-import e módulos desconhecidos).
 
 ## Linha do tempo da colaboração
 
@@ -18,6 +20,9 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - Execução de `cargo fmt`, `cargo clippy` e `cargo test` garantindo base limpa antes de avançar para a análise semântica.
 - Implementação da primeira iteração do analisador semântico (escopos, retornos, identificadores) e integração da verificação na CLI.
 - Evolução da análise semântica com rastreamento de uso de símbolos (variáveis/parâmetros não utilizados) e cobertura de testes dedicada.
+- Registro do ADR 0003 detalhando o roadmap para resolução entre módulos e expansão do sistema de tipos.
+- Introdução da inferência e checagem básica de tipos (literais, unários, binários e `return`) com suíte de testes dedicada.
+- Extensão da AST/parser para `import` e chamadas de função, com análises semânticas que validam assinaturas e imports acompanhadas de testes automatizados.
 
 ## 1. Características técnicas
 
@@ -262,7 +267,7 @@ Match     := "match" Expr MatchBody ;
 
 - **Epic F1 – Núcleo do Compilador:**
   - Feature: Lexer/Parser robustos ✅ (Mês 1 concluído) → Stories entregues: spans completos, parser com módulos/funções/blocos, testes automatizados.
-  - Feature: Analisador semântico básico (iteração 1.1 concluída) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI, detecção de variáveis/parâmetros não utilizados com suporte a `_`. Próximas Stories: resolução inter-módulo, uso antes da definição cruzando arquivos, base de tipagem primitiva e verificação de retorno/tipos literais.
+  - Feature: Analisador semântico básico (iteração 1.3 em andamento) → Stories entregues: escopos hierárquicos, detecção de redefinições, validação de `return`, integração na CLI, detecção de variáveis/parâmetros não utilizados com suporte a `_`, inferência/checagem de tipos primitivos em literais/operadores/`return`, registro de assinaturas de função com verificação de chamadas (aridade/tipos) e diagnósticos de imports desconhecidos/auto-referenciados. Próximas Stories: compartilhar símbolos importados no escopo consumidor, suportar múltiplos arquivos na CLI/analisador com visibilidade/`export`, propagar tipos compostos em controles de fluxo e preparar ganchos para geração de SIR.
   - Feature: Tipagem básica + SIR (próximo) → Stories: resolver tipos primitivos, gerar SIR SSA inicial, validar round-trip SIR→JIT→execução em CLI.
 - **Epic F2 – Linguagem avançada:**
   - Feature: OO e generics → Stories: suportar `class/trait/impl`, herança simples com mixins, monomorfização de generics.
