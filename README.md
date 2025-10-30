@@ -19,7 +19,7 @@ Prototype implementation workspace for the SpectraLang programming language. Thi
 cargo run --package spectra-cli -- examples/hello.spc
 ```
 
-> Provide a SpectraLang source file as input; the CLI will report lexical or parsing errors and emit high-level statistics.
+> Provide a SpectraLang source file as input; the CLI reports lexical or parsing errors and summarizes parsed modules/functions.
 
 ## Continuous integration
 

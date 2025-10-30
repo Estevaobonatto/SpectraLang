@@ -10,8 +10,14 @@ pub enum Literal {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal { value: Literal, span: Span },
-    Identifier { name: String, span: Span },
+    Literal {
+        value: Literal,
+        span: Span,
+    },
+    Identifier {
+        name: String,
+        span: Span,
+    },
     Unary {
         operator: UnaryOperator,
         operand: Box<Expr>,
@@ -23,7 +29,10 @@ pub enum Expr {
         right: Box<Expr>,
         span: Span,
     },
-    Grouping { expression: Box<Expr>, span: Span },
+    Grouping {
+        expression: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,15 +65,61 @@ pub enum Stmt {
         span: Span,
     },
     Expr(Expr),
+    Return {
+        value: Option<Expr>,
+        span: Span,
+    },
+    Block(Block),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
-    pub declarations: Vec<Stmt>,
+    pub name: Option<ModulePath>,
+    pub items: Vec<Item>,
 }
 
 impl Module {
-    pub fn new(declarations: Vec<Stmt>) -> Self {
-        Self { declarations }
+    pub fn new(name: Option<ModulePath>, items: Vec<Item>) -> Self {
+        Self { name, items }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModulePath {
+    pub segments: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    Stmt(Stmt),
+    Function(Function),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Function {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Option<TypeName>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Parameter {
+    pub name: String,
+    pub ty: TypeName,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub statements: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeName {
+    pub segments: Vec<String>,
+    pub span: Span,
 }

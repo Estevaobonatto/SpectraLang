@@ -38,9 +38,8 @@ impl<'a> Lexer<'a> {
             let start_pos = self.pos;
             let start_loc = self.location();
 
-            match self.next_token(start_pos, start_loc) {
-                Some(token) => self.tokens.push(token),
-                None => {}
+            if let Some(token) = self.next_token(start_pos, start_loc) {
+                self.tokens.push(token);
             }
         }
 
@@ -139,7 +138,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_identifier(&mut self, start_pos: usize, start_loc: Location) -> Token {
-        while matches!(self.peek(), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+        while matches!(
+            self.peek(),
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+        ) {
             self.advance();
         }
 

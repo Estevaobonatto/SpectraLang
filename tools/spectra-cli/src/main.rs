@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, process::exit};
 
 use clap::Parser as ClapParser;
-use spectra_compiler::{lexer::Lexer, parser::Parser};
+use spectra_compiler::{ast::Item, lexer::Lexer, parser::Parser};
 
 #[derive(ClapParser, Debug)]
 #[command(name = "spectra", about = "SpectraLang CLI prototype", version)]
@@ -30,9 +30,20 @@ fn run(path: PathBuf) -> Result<(), i32> {
     match Lexer::new(&source).tokenize() {
         Ok(tokens) => match Parser::new(&tokens).parse() {
             Ok(module) => {
+                let module_name = module
+                    .name
+                    .as_ref()
+                    .map(|path| path.segments.join("."))
+                    .unwrap_or_else(|| "<anonymous>".to_string());
+                let function_count = module
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item, Item::Function(_)))
+                    .count();
+                let item_count = module.items.len();
+                let statement_count = item_count - function_count;
                 println!(
-                    "Parsed {} top-level declaration(s) from {}",
-                    module.declarations.len(),
+                    "Parsed module '{module_name}' with {item_count} item(s) ({function_count} function(s), {statement_count} statement(s)) from {}",
                     path.display()
                 );
                 Ok(())

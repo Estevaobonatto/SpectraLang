@@ -1,7 +1,10 @@
 use crate::{
-    ast::{BinaryOperator, Expr, Literal, Module, Stmt, UnaryOperator},
+    ast::{
+        BinaryOperator, Block, Expr, Function, Item, Literal, Module, ModulePath, Parameter, Stmt,
+        TypeName, UnaryOperator,
+    },
     error::{ParseError, ParseResult},
-    span::{Location, Span},
+    span::Span,
     token::{Keyword, Token, TokenKind},
 };
 
@@ -21,51 +24,214 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParseResult<Module> {
-        let mut declarations = Vec::new();
+        let mut module_name = None;
+
+        if self.check_keyword(Keyword::Module) {
+            let module_token = self.advance().clone();
+            module_name = match self.parse_module_declaration(module_token) {
+                Some(path) => Some(path),
+                None => {
+                    self.synchronize();
+                    None
+                }
+            };
+        }
+
+        let mut items = Vec::new();
         while !self.is_at_end() {
-            match self.declaration() {
-                Some(stmt) => declarations.push(stmt),
+            if self.match_token(TokenKind::Semicolon) {
+                continue;
+            }
+
+            if self.check_keyword(Keyword::Fn) {
+                let fn_token = self.advance().clone();
+                match self.parse_function(fn_token) {
+                    Some(function) => items.push(Item::Function(function)),
+                    None => self.synchronize(),
+                }
+                continue;
+            }
+
+            if self.check_keyword(Keyword::Module) {
+                let token = self.advance().clone();
+                self.errors.push(ParseError::new(
+                    "module declaration must appear before other items",
+                    token.span.start_location,
+                ));
+                if self.parse_module_declaration(token).is_none() {
+                    self.synchronize();
+                }
+                continue;
+            }
+
+            match self.parse_statement() {
+                Some(stmt) => items.push(Item::Stmt(stmt)),
                 None => self.synchronize(),
             }
         }
 
         if self.errors.is_empty() {
-            Ok(Module::new(declarations))
+            Ok(Module::new(module_name, items))
         } else {
             Err(self.errors)
         }
     }
 
-    fn declaration(&mut self) -> Option<Stmt> {
-        if self.match_keyword(Keyword::Let) {
-            return self.parse_let(false);
-        }
-        if self.match_keyword(Keyword::Var) {
-            return self.parse_let(true);
-        }
-        self.statement()
+    fn expression(&mut self) -> Option<Expr> {
+        self.parse_equality()
     }
 
-    fn parse_let(&mut self, mutable: bool) -> Option<Stmt> {
-        let keyword_span = self.previous().span;
-        let name_token = self.consume_identifier("expected identifier after let")?;
+    fn parse_statement(&mut self) -> Option<Stmt> {
+        if self.check_keyword(Keyword::Return) {
+            let keyword = self.advance().clone();
+            return self.parse_return(keyword.span);
+        }
 
+        if self.check_keyword(Keyword::Let) {
+            let keyword = self.advance().clone();
+            return self.parse_binding(false, keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Var) {
+            let keyword = self.advance().clone();
+            return self.parse_binding(true, keyword.span);
+        }
+
+        if self.match_token(TokenKind::LBrace) {
+            let open = self.previous().clone();
+            let block = self.parse_block_from_open(open)?;
+            return Some(Stmt::Block(block));
+        }
+
+        self.parse_expression_statement()
+    }
+
+    fn parse_module_declaration(&mut self, module_token: Token) -> Option<ModulePath> {
+        let first = self
+            .consume_identifier("expected module name after 'module'")?
+            .clone();
+        let mut segments = vec![first.lexeme.clone()];
+        let mut span = span_union(module_token.span, first.span);
+
+        while self.check(TokenKind::Dot) || self.check(TokenKind::Scope) {
+            self.advance();
+            let ident = self
+                .consume_identifier("expected identifier in module path")?
+                .clone();
+            span = span_union(span, ident.span);
+            segments.push(ident.lexeme.clone());
+        }
+
+        let semicolon = self
+            .consume(
+                TokenKind::Semicolon,
+                "expected ';' after module declaration",
+            )?
+            .clone();
+        span = span_union(span, semicolon.span);
+
+        Some(ModulePath { segments, span })
+    }
+
+    fn parse_function(&mut self, fn_token: Token) -> Option<Function> {
+        let name_token = self.consume_identifier("expected function name")?.clone();
+
+        self.consume(TokenKind::LParen, "expected '(' after function name")?;
+        let parameters = self.parse_parameter_list()?;
+        let close_paren = self
+            .consume(TokenKind::RParen, "expected ')' after parameter list")?
+            .clone();
+
+        let return_type = if self.match_token(TokenKind::Colon) {
+            Some(self.parse_type_name()?)
+        } else {
+            None
+        };
+
+        let open_brace = self
+            .consume(TokenKind::LBrace, "expected '{' before function body")?
+            .clone();
+        let body = self.parse_block_from_open(open_brace.clone())?;
+        let span = span_union(fn_token.span, body.span);
+
+        Some(Function {
+            name: name_token.lexeme.clone(),
+            parameters,
+            return_type,
+            body,
+            span: span_union(span, close_paren.span),
+        })
+    }
+
+    fn parse_parameter_list(&mut self) -> Option<Vec<Parameter>> {
+        let mut params = Vec::new();
+        if self.check(TokenKind::RParen) {
+            return Some(params);
+        }
+
+        loop {
+            params.push(self.parse_parameter()?);
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        Some(params)
+    }
+
+    fn parse_parameter(&mut self) -> Option<Parameter> {
+        let name_token = self.consume_identifier("expected parameter name")?.clone();
+        self.consume(TokenKind::Colon, "expected ':' after parameter name")?;
+        let ty = self.parse_type_name()?;
+        let span = span_union(name_token.span, ty.span);
+        Some(Parameter {
+            name: name_token.lexeme.clone(),
+            ty,
+            span,
+        })
+    }
+
+    fn parse_block_from_open(&mut self, open: Token) -> Option<Block> {
+        let mut statements = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            if self.match_token(TokenKind::Semicolon) {
+                continue;
+            }
+
+            match self.parse_statement() {
+                Some(stmt) => statements.push(stmt),
+                None => self.synchronize(),
+            }
+        }
+
+        let close = self
+            .consume(TokenKind::RBrace, "expected '}' to close block")?
+            .clone();
+        let span = span_union(open.span, close.span);
+        Some(Block { statements, span })
+    }
+
+    fn parse_binding(&mut self, mutable: bool, keyword_span: Span) -> Option<Stmt> {
+        let name_token = self
+            .consume_identifier("expected identifier after binding keyword")?
+            .clone();
         self.consume(TokenKind::Equal, "expected '=' after identifier")?;
-
         let value = self.expression()?;
-
-        let semicolon = self.consume(TokenKind::Semicolon, "expected ';' after declaration")?;
-        let stmt_span = span_union(keyword_span, semicolon.span);
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after binding")?
+            .clone();
+        let span = span_union(keyword_span, semicolon.span);
 
         Some(Stmt::Let {
             mutable,
             name: name_token.lexeme.clone(),
             value,
-            span: stmt_span,
+            span,
         })
     }
 
-    fn statement(&mut self) -> Option<Stmt> {
+    fn parse_expression_statement(&mut self) -> Option<Stmt> {
         let expr = self.expression()?;
         self.consume(
             TokenKind::Semicolon,
@@ -74,8 +240,45 @@ impl<'a> Parser<'a> {
         Some(Stmt::Expr(expr))
     }
 
-    fn expression(&mut self) -> Option<Expr> {
-        self.parse_equality()
+    fn parse_return(&mut self, keyword_span: Span) -> Option<Stmt> {
+        if self.check(TokenKind::Semicolon) {
+            let semicolon = self
+                .consume(TokenKind::Semicolon, "expected ';' after return")?
+                .clone();
+            let span = span_union(keyword_span, semicolon.span);
+            return Some(Stmt::Return { value: None, span });
+        }
+
+        let value = self.expression()?;
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after return value")?
+            .clone();
+        let span = span_union(keyword_span, semicolon.span);
+        Some(Stmt::Return {
+            value: Some(value),
+            span,
+        })
+    }
+
+    fn parse_type_name(&mut self) -> Option<TypeName> {
+        let first = self.consume_identifier("expected type name")?.clone();
+        let mut segments = vec![first.lexeme.clone()];
+        let mut span = first.span;
+
+        while self.check(TokenKind::Dot) || self.check(TokenKind::Scope) {
+            self.advance();
+            let ident = self
+                .consume_identifier("expected identifier in type path")?
+                .clone();
+            span = span_union(span, ident.span);
+            segments.push(ident.lexeme.clone());
+        }
+
+        Some(TypeName { segments, span })
+    }
+
+    fn check_keyword(&self, keyword: Keyword) -> bool {
+        matches!(self.peek().kind, TokenKind::Keyword(current) if current == keyword)
     }
 
     fn parse_equality(&mut self) -> Option<Expr> {
@@ -411,12 +614,26 @@ mod tests {
     #[test]
     fn parse_let_and_expression() {
         let module = parse_ok("let x = 10; x + 2;");
-        assert_eq!(module.declarations.len(), 2);
+        assert_eq!(module.items.len(), 2);
     }
 
     #[test]
     fn parse_boolean_and_grouping() {
         let module = parse_ok("let flag = true; (flag);");
-        assert_eq!(module.declarations.len(), 2);
+        assert_eq!(module.items.len(), 2);
+    }
+
+    #[test]
+    fn parse_module_and_function() {
+        let module = parse_ok("module demo.core; fn main(): void { return; }");
+        assert!(module.name.is_some());
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.name, "main");
+                assert!(func.return_type.is_some());
+            }
+            _ => panic!("expected function item"),
+        }
     }
 }
