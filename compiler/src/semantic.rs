@@ -51,6 +51,7 @@ struct Analyzer<'a> {
     module_exports: HashMap<String, ModuleExport>,
     current_module_key: Option<String>,
     current_module_signatures: HashMap<String, FunctionType>,
+    loop_depth: usize,
 }
 
 impl<'a> Analyzer<'a> {
@@ -63,6 +64,7 @@ impl<'a> Analyzer<'a> {
             module_exports: HashMap::new(),
             current_module_key: None,
             current_module_signatures: HashMap::new(),
+            loop_depth: 0,
         }
     }
 
@@ -360,6 +362,7 @@ impl<'a> Analyzer<'a> {
                     function.span,
                     SymbolKind::Function,
                     Type::Function(signature.clone()),
+                    false,
                 ) {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
@@ -385,6 +388,7 @@ impl<'a> Analyzer<'a> {
                     constant.span,
                     SymbolKind::Constant,
                     Type::Unknown,
+                    constant.mutable,
                 ) {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
@@ -438,6 +442,7 @@ impl<'a> Analyzer<'a> {
                         export.span,
                         SymbolKind::Function,
                         Type::Function(export.signature.clone()),
+                        false,
                     ) {
                         let previous_location = previous_span.start_location;
                         self.errors.push(SemanticError::new(
@@ -456,6 +461,7 @@ impl<'a> Analyzer<'a> {
                         export.span,
                         SymbolKind::Constant,
                         export.ty.clone(),
+                        false,
                     ) {
                         let previous_location = previous_span.start_location;
                         self.errors.push(SemanticError::new(
@@ -525,6 +531,7 @@ impl<'a> Analyzer<'a> {
                 parameter.span,
                 SymbolKind::Parameter,
                 param_type.clone(),
+                false,
             ) {
                 let previous_location = previous_span.start_location;
                 self.errors.push(SemanticError::new(
@@ -579,6 +586,7 @@ impl<'a> Analyzer<'a> {
                 constant.span,
                 SymbolKind::Constant,
                 value_type.clone(),
+                constant.mutable,
             ) {
                 let previous_location = previous_span.start_location;
                 self.errors.push(SemanticError::new(
@@ -630,12 +638,15 @@ impl<'a> Analyzer<'a> {
     fn analyze_statement(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let {
-                name, value, span, ..
+                name,
+                value,
+                span,
+                mutable,
             } => {
                 let value_type = self.analyze_expr(value);
                 if let Err(previous_span) =
                     self.scopes
-                        .define(name, *span, SymbolKind::Variable, value_type)
+                        .define(name, *span, SymbolKind::Variable, value_type, *mutable)
                 {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
@@ -647,10 +658,61 @@ impl<'a> Analyzer<'a> {
                     ));
                 }
             }
+            Stmt::Assignment {
+                target,
+                value,
+                span,
+            } => {
+                self.analyze_assignment(target, value, *span);
+            }
             Stmt::Expr(expr) => {
                 self.analyze_expr(expr);
             }
             Stmt::Return { value, span } => self.analyze_return(value.as_ref(), *span),
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                let condition_type = self.analyze_expr(condition);
+                if condition_type != Type::Bool && condition_type != Type::Unknown {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "condition of 'if' must have type bool, found {}",
+                            condition_type.describe()
+                        ),
+                        expr_span(condition),
+                    ));
+                }
+                self.analyze_statement(then_branch);
+                if let Some(branch) = else_branch.as_ref() {
+                    self.analyze_statement(branch);
+                }
+            }
+            Stmt::While {
+                condition, body, ..
+            } => {
+                let condition_type = self.analyze_expr(condition);
+                if condition_type != Type::Bool && condition_type != Type::Unknown {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "condition of 'while' must have type bool, found {}",
+                            condition_type.describe()
+                        ),
+                        expr_span(condition),
+                    ));
+                }
+                self.loop_depth += 1;
+                self.analyze_statement(body);
+                self.loop_depth -= 1;
+            }
+            Stmt::Break { span } => {
+                self.analyze_loop_control("break", *span);
+            }
+            Stmt::Continue { span } => {
+                self.analyze_loop_control("continue", *span);
+            }
             Stmt::Block(block) => self.analyze_block(block),
         }
     }
@@ -705,6 +767,61 @@ impl<'a> Analyzer<'a> {
             }
             self.errors.push(SemanticError::new(
                 "return statement outside of function",
+                span,
+            ));
+        }
+    }
+
+    fn analyze_assignment(&mut self, target: &str, value: &Expr, span: Span) {
+        let value_type = self.analyze_expr(value);
+        let mut diagnostics = Vec::new();
+
+        {
+            let Some(symbol) = self.scopes.resolve_mut_internal(target, true) else {
+                self.errors.push(SemanticError::new(
+                    format!("use of undeclared identifier '{}'", target),
+                    span,
+                ));
+                return;
+            };
+
+            match symbol.kind {
+                SymbolKind::Function => {
+                    diagnostics.push(format!("cannot assign to function '{}'", target));
+                }
+                SymbolKind::Variable | SymbolKind::Parameter | SymbolKind::Constant => {
+                    if !symbol.mutable {
+                        diagnostics.push(format!(
+                            "cannot assign to immutable binding '{}'",
+                            target
+                        ));
+                    }
+
+                    if !types_compatible(&symbol.ty, &value_type) {
+                        diagnostics.push(format!(
+                            "cannot assign value of type {} to binding '{}' with type {}",
+                            value_type.describe(),
+                            target,
+                            symbol.ty.describe()
+                        ));
+                    }
+
+                    if symbol.ty == Type::Unknown && value_type != Type::Unknown {
+                        symbol.ty = value_type.clone();
+                    }
+                }
+            }
+        }
+
+        for message in diagnostics {
+            self.errors.push(SemanticError::new(message, span));
+        }
+    }
+
+    fn analyze_loop_control(&mut self, keyword: &str, span: Span) {
+        if self.loop_depth == 0 {
+            self.errors.push(SemanticError::new(
+                format!("{} statement outside of loop", keyword),
                 span,
             ));
         }
@@ -1074,6 +1191,7 @@ struct SymbolInfo {
     kind: SymbolKind,
     ty: Type,
     used: bool,
+    mutable: bool,
 }
 
 struct ScopeFrame {
@@ -1101,7 +1219,14 @@ impl ScopeStack {
         self.frames.pop()
     }
 
-    fn define(&mut self, name: &str, span: Span, kind: SymbolKind, ty: Type) -> Result<(), Span> {
+    fn define(
+        &mut self,
+        name: &str,
+        span: Span,
+        kind: SymbolKind,
+        ty: Type,
+        mutable: bool,
+    ) -> Result<(), Span> {
         let frame = self
             .frames
             .last_mut()
@@ -1113,6 +1238,7 @@ impl ScopeStack {
                     kind,
                     ty,
                     used: false,
+                    mutable,
                 });
                 Ok(())
             }
@@ -1121,23 +1247,29 @@ impl ScopeStack {
     }
 
     fn resolve(&mut self, name: &str) -> Option<Type> {
-        for frame in self.frames.iter_mut().rev() {
-            if let Some(info) = frame.symbols.get_mut(name) {
-                info.used = true;
-                return Some(info.ty.clone());
-            }
-        }
-        None
+        self.resolve_mut_internal(name, true)
+            .map(|info| info.ty.clone())
     }
 
     fn set_symbol_type(&mut self, name: &str, ty: Type) -> bool {
+        if let Some(info) = self.resolve_mut_internal(name, false) {
+            info.ty = ty;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn resolve_mut_internal(&mut self, name: &str, mark_used: bool) -> Option<&mut SymbolInfo> {
         for frame in self.frames.iter_mut().rev() {
             if let Some(info) = frame.symbols.get_mut(name) {
-                info.ty = ty;
-                return true;
+                if mark_used {
+                    info.used = true;
+                }
+                return Some(info);
             }
         }
-        false
+        None
     }
 }
 
@@ -1470,5 +1602,71 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("undeclared identifier 'hidden'")));
+    }
+
+    #[test]
+    fn allows_assignment_to_mutable_binding() {
+        analyze_source("fn main(): i32 { var x = 0; x = x + 1; return x; }").expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_assignment_to_immutable_binding() {
+        let errors = analyze_source("fn main(): i32 { let x = 0; x = 1; return x; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("cannot assign to immutable binding 'x'")));
+    }
+
+    #[test]
+    fn detects_assignment_type_mismatch() {
+        let errors =
+            analyze_source("fn main(): i32 { var flag = true; flag = 1; return 0; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("cannot assign value of type integer to binding 'flag'")));
+    }
+
+    #[test]
+    fn detects_if_condition_type_mismatch() {
+        let errors = analyze_source("fn main(): i32 { if (1) { return 1; } else { return 0; } }")
+            .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("condition of 'if' must have type bool")));
+    }
+
+    #[test]
+    fn detects_while_condition_type_mismatch() {
+        let errors = analyze_source(
+            "fn main(): i32 { var x = 0; while (1) { x = x + 1; break; } return x; }",
+        )
+        .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("condition of 'while' must have type bool")));
+    }
+
+    #[test]
+    fn detects_break_outside_loop() {
+        let errors = analyze_source("fn main(): i32 { break; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("break statement outside of loop")));
+    }
+
+    #[test]
+    fn detects_continue_outside_loop() {
+        let errors = analyze_source("fn main(): i32 { continue; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("continue statement outside of loop")));
+    }
+
+    #[test]
+    fn allows_break_inside_loop() {
+        analyze_source(
+            "fn main(): i32 { var x = 0; while (x < 10) { x = x + 1; if (x == 5) { break; } } return x; }",
+        )
+        .expect("analysis ok");
     }
 }

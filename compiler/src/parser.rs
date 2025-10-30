@@ -124,6 +124,26 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Option<Stmt> {
+        if self.check_keyword(Keyword::If) {
+            let keyword = self.advance().clone();
+            return self.parse_if_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::While) {
+            let keyword = self.advance().clone();
+            return self.parse_while_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Break) {
+            let keyword = self.advance().clone();
+            return self.parse_break_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Continue) {
+            let keyword = self.advance().clone();
+            return self.parse_continue_statement(keyword.span);
+        }
+
         if self.check_keyword(Keyword::Return) {
             let keyword = self.advance().clone();
             return self.parse_return(keyword.span);
@@ -145,7 +165,96 @@ impl<'a> Parser<'a> {
             return Some(Stmt::Block(block));
         }
 
+        if self.check(TokenKind::Identifier) && matches!(self.peek_next_kind(), TokenKind::Equal) {
+            return self.parse_assignment_statement();
+        }
+
         self.parse_expression_statement()
+    }
+
+    fn parse_if_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        self.consume(TokenKind::LParen, "expected '(' after 'if'")?;
+        let condition = self.expression()?;
+        let close_paren = self
+            .consume(TokenKind::RParen, "expected ')' after if condition")?
+            .clone();
+        let then_branch = self.parse_statement()?;
+
+        let else_branch = if self.check_keyword(Keyword::Else) {
+            self.advance();
+            Some(Box::new(self.parse_statement()?))
+        } else {
+            None
+        };
+
+        let mut span = span_union(keyword_span, expr_span(&condition));
+        span = span_union(span, then_branch_span(&then_branch));
+        if let Some(branch) = else_branch.as_deref() {
+            span = span_union(span, then_branch_span(branch));
+        }
+        span = span_union(span, close_paren.span);
+
+        Some(Stmt::If {
+            condition,
+            then_branch: Box::new(then_branch),
+            else_branch,
+            span,
+        })
+    }
+
+    fn parse_while_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        self.consume(TokenKind::LParen, "expected '(' after 'while'")?;
+        let condition = self.expression()?;
+        let close_paren = self
+            .consume(TokenKind::RParen, "expected ')' after while condition")?
+            .clone();
+        let body = self.parse_statement()?;
+        let mut span = span_union(keyword_span, expr_span(&condition));
+        span = span_union(span, then_branch_span(&body));
+        span = span_union(span, close_paren.span);
+
+        Some(Stmt::While {
+            condition,
+            body: Box::new(body),
+            span,
+        })
+    }
+
+    fn parse_break_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after 'break'")?
+            .clone();
+        let span = span_union(keyword_span, semicolon.span);
+        Some(Stmt::Break { span })
+    }
+
+    fn parse_continue_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after 'continue'")?
+            .clone();
+        let span = span_union(keyword_span, semicolon.span);
+        Some(Stmt::Continue { span })
+    }
+
+    fn parse_assignment_statement(&mut self) -> Option<Stmt> {
+        let name_token = self
+            .consume_identifier("expected identifier before assignment")?
+            .clone();
+        let equal = self
+            .consume(TokenKind::Equal, "expected '=' in assignment")?
+            .clone();
+        let value = self.expression()?;
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after assignment")?
+            .clone();
+        let span = span_union(name_token.span, semicolon.span);
+        let span = span_union(span, expr_span(&value));
+        let span = span_union(span, equal.span);
+        Some(Stmt::Assignment {
+            target: name_token.lexeme,
+            value,
+            span,
+        })
     }
 
     fn parse_import(&mut self, import_token: Token) -> Option<Import> {
@@ -683,6 +792,14 @@ impl<'a> Parser<'a> {
         false
     }
 
+    fn peek_next_kind(&self) -> TokenKind {
+        if self.current + 1 >= self.tokens.len() {
+            TokenKind::Eof
+        } else {
+            self.tokens[self.current + 1].kind
+        }
+    }
+
     fn match_token(&mut self, kind: TokenKind) -> bool {
         if self.check(kind) {
             self.advance();
@@ -786,6 +903,20 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Unary { span, .. }
         | Expr::Binary { span, .. }
         | Expr::Grouping { span, .. } => *span,
+    }
+}
+
+fn then_branch_span(stmt: &Stmt) -> Span {
+    match stmt {
+        Stmt::Let { span, .. }
+        | Stmt::Assignment { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::Break { span, .. }
+        | Stmt::Continue { span, .. }
+        | Stmt::Block(Block { span, .. }) => *span,
+        Stmt::Expr(expr) => expr_span(expr),
     }
 }
 
@@ -895,6 +1026,75 @@ mod tests {
                     _ => panic!("expected call expression"),
                 },
                 _ => panic!("expected return statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_if_else_statement() {
+        let module = parse_ok("fn main() { if (true) { return; } else { return; } }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    assert!(matches!(
+                        condition,
+                        Expr::Literal {
+                            value: Literal::Bool(true),
+                            ..
+                        }
+                    ));
+                    assert!(matches!(**then_branch, Stmt::Block(_)));
+                    assert!(else_branch.is_some());
+                }
+                _ => panic!("expected if statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_while_statement_with_assignment() {
+        let module = parse_ok("fn main() { var x = 0; while (x < 10) { x = x + 1; } }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => {
+                assert!(matches!(body.statements[0], Stmt::Let { .. }));
+                match &body.statements[1] {
+                    Stmt::While {
+                        body: loop_body, ..
+                    } => match &**loop_body {
+                        Stmt::Block(Block { statements, .. }) => {
+                            assert!(matches!(statements[0], Stmt::Assignment { .. }));
+                        }
+                        _ => panic!("expected loop block"),
+                    },
+                    _ => panic!("expected while statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_break_and_continue_in_loop() {
+        let module = parse_ok("fn main() { while (true) { break; continue; } return; }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::While {
+                    body: loop_body, ..
+                } => match &**loop_body {
+                    Stmt::Block(Block { statements, .. }) => {
+                        assert!(matches!(statements[0], Stmt::Break { .. }));
+                        assert!(matches!(statements[1], Stmt::Continue { .. }));
+                    }
+                    _ => panic!("expected block"),
+                },
+                _ => panic!("expected while statement"),
             },
             _ => panic!("expected function"),
         }

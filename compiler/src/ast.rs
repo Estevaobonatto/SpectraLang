@@ -81,9 +81,31 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    Assignment {
+        target: String,
+        value: Expr,
+        span: Span,
+    },
     Expr(Expr),
     Return {
         value: Option<Expr>,
+        span: Span,
+    },
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+        span: Span,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+        span: Span,
+    },
+    Break {
+        span: Span,
+    },
+    Continue {
         span: Span,
     },
     Block(Block),
