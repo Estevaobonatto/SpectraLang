@@ -736,42 +736,43 @@ impl<'a> Parser<'a> {
             let data = if self.match_token(TokenKind::LParen) {
                 // Tuple variant: Color(i32, i32, i32)
                 let mut types = Vec::new();
-                
+
                 while !self.check(TokenKind::RParen) && !self.is_at_end() {
                     types.push(self.parse_type_name()?);
-                    
+
                     if !self.match_token(TokenKind::Comma) {
                         break;
                     }
                 }
-                
+
                 self.consume(TokenKind::RParen, "expected ')' after tuple variant")?;
                 Some(EnumVariantData::Tuple(types))
             } else if self.match_token(TokenKind::LBrace) {
                 // Struct variant: Person { name: String, age: i32 }
                 let mut fields = Vec::new();
-                
+
                 while !self.check(TokenKind::RBrace) && !self.is_at_end() {
-                    if self.match_token(TokenKind::Semicolon) || self.match_token(TokenKind::Comma) {
+                    if self.match_token(TokenKind::Semicolon) || self.match_token(TokenKind::Comma)
+                    {
                         continue;
                     }
-                    
+
                     let field_name = self.consume_identifier("expected field name")?.clone();
                     self.consume(TokenKind::Colon, "expected ':' after field name")?;
                     let field_type = self.parse_type_name()?;
                     let field_span = span_union(field_name.span, field_type.span);
-                    
+
                     fields.push(StructField {
                         name: field_name.lexeme.clone(),
                         ty: field_type,
                         span: field_span,
                     });
-                    
+
                     if !self.match_token(TokenKind::Comma) && !self.check(TokenKind::RBrace) {
                         self.consume(TokenKind::Comma, "expected ',' or '}' after variant field")?;
                     }
                 }
-                
+
                 self.consume(TokenKind::RBrace, "expected '}' to close struct variant")?;
                 Some(EnumVariantData::Struct(fields))
             } else {
