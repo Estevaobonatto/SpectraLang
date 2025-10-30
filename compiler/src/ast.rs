@@ -61,6 +61,18 @@ pub enum UnaryOperator {
     Not,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Private,
+    Public,
+}
+
+impl Visibility {
+    pub fn is_public(self) -> bool {
+        matches!(self, Visibility::Public)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
@@ -114,6 +126,7 @@ pub struct Function {
     pub parameters: Vec<Parameter>,
     pub return_type: Option<TypeName>,
     pub body: Block,
+    pub visibility: Visibility,
     pub span: Span,
 }
 

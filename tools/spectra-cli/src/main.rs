@@ -1,7 +1,12 @@
 use std::{fs, path::PathBuf, process::exit};
 
 use clap::Parser as ClapParser;
-use spectra_compiler::{ast::{Item, Module}, lexer::Lexer, parser::Parser, semantic};
+use spectra_compiler::{
+    ast::{Item, Module},
+    lexer::Lexer,
+    parser::Parser,
+    semantic,
+};
 
 #[derive(ClapParser, Debug)]
 #[command(name = "spectra", about = "SpectraLang CLI prototype", version)]

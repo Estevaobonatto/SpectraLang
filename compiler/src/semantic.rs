@@ -2,11 +2,10 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
     BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath, Stmt,
-    TypeName, UnaryOperator,
+    TypeName, UnaryOperator, Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
-
 
 #[derive(Clone)]
 struct FunctionExport {
@@ -91,6 +90,9 @@ impl<'a> Analyzer<'a> {
             let key = module_path_key(path);
             for item in &module.items {
                 if let Item::Function(function) = item {
+                    if function.visibility != Visibility::Public {
+                        continue;
+                    }
                     let signature = self.build_function_signature(function);
                     let exports = self
                         .module_exports
@@ -1074,7 +1076,7 @@ mod tests {
     #[test]
     fn accepts_cross_module_call() {
         analyze_modules_from_sources(&[
-            "module app.math; fn add(a: i32, b: i32): i32 { return a + b; }",
+            "module app.math; pub fn add(a: i32, b: i32): i32 { return a + b; }",
             "module app.main; import app.math; fn main(): i32 { return add(1, 2); }",
         ])
         .expect("analysis ok");
@@ -1083,12 +1085,24 @@ mod tests {
     #[test]
     fn detects_import_conflict_with_local_definition() {
         let errors = analyze_modules_from_sources(&[
-            "module app.util; fn helper(): i32 { return 1; }",
+            "module app.util; pub fn helper(): i32 { return 1; }",
             "module app.main; import app.util; fn helper(): i32 { return 2; }",
         ])
         .unwrap_err();
         assert!(errors
             .iter()
             .any(|error| error.message.contains("imported symbol 'helper' conflicts")));
+    }
+
+    #[test]
+    fn private_functions_are_not_imported() {
+        let errors = analyze_modules_from_sources(&[
+            "module app.math; fn hidden(): i32 { return 42; }",
+            "module app.main; import app.math; fn main(): i32 { return hidden(); }",
+        ])
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("undeclared identifier 'hidden'")));
     }
 }

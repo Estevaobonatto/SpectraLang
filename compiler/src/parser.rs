@@ -1,7 +1,7 @@
 use crate::{
     ast::{
         BinaryOperator, Block, Expr, Function, Import, Item, Literal, Module, ModulePath,
-        Parameter, Stmt, TypeName, UnaryOperator,
+        Parameter, Stmt, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -43,6 +43,24 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if let Some((visibility, span)) = self.try_parse_visibility() {
+                if self.check_keyword(Keyword::Fn) {
+                    let fn_token = self.advance().clone();
+                    match self.parse_function(fn_token, visibility, Some(span)) {
+                        Some(function) => items.push(Item::Function(function)),
+                        None => self.synchronize(),
+                    }
+                } else {
+                    let location = self.peek().span.start_location;
+                    self.errors.push(ParseError::new(
+                        "expected 'fn' after visibility modifier",
+                        location,
+                    ));
+                    self.synchronize();
+                }
+                continue;
+            }
+
             if self.check_keyword(Keyword::Import) {
                 let import_token = self.advance().clone();
                 match self.parse_import(import_token) {
@@ -54,7 +72,7 @@ impl<'a> Parser<'a> {
 
             if self.check_keyword(Keyword::Fn) {
                 let fn_token = self.advance().clone();
-                match self.parse_function(fn_token) {
+                match self.parse_function(fn_token, Visibility::Private, None) {
                     Some(function) => items.push(Item::Function(function)),
                     None => self.synchronize(),
                 }
@@ -169,7 +187,12 @@ impl<'a> Parser<'a> {
         Some(ModulePath { segments, span })
     }
 
-    fn parse_function(&mut self, fn_token: Token) -> Option<Function> {
+    fn parse_function(
+        &mut self,
+        fn_token: Token,
+        visibility: Visibility,
+        leading_span: Option<Span>,
+    ) -> Option<Function> {
         let name_token = self.consume_identifier("expected function name")?.clone();
 
         self.consume(TokenKind::LParen, "expected '(' after function name")?;
@@ -188,15 +211,29 @@ impl<'a> Parser<'a> {
             .consume(TokenKind::LBrace, "expected '{' before function body")?
             .clone();
         let body = self.parse_block_from_open(open_brace.clone())?;
-        let span = span_union(fn_token.span, body.span);
+        let mut span = span_union(fn_token.span, body.span);
+        span = span_union(span, close_paren.span);
+        if let Some(leading) = leading_span {
+            span = span_union(leading, span);
+        }
 
         Some(Function {
             name: name_token.lexeme.clone(),
             parameters,
             return_type,
             body,
-            span: span_union(span, close_paren.span),
+            visibility,
+            span,
         })
+    }
+
+    fn try_parse_visibility(&mut self) -> Option<(Visibility, Span)> {
+        if self.check_keyword(Keyword::Pub) || self.check_keyword(Keyword::Export) {
+            let token = self.advance().clone();
+            Some((Visibility::Public, token.span))
+        } else {
+            None
+        }
     }
 
     fn parse_parameter_list(&mut self) -> Option<Vec<Parameter>> {
@@ -637,6 +674,8 @@ impl<'a> Parser<'a> {
                 TokenKind::Keyword(Keyword::Let)
                 | TokenKind::Keyword(Keyword::Var)
                 | TokenKind::Keyword(Keyword::Fn)
+                | TokenKind::Keyword(Keyword::Pub)
+                | TokenKind::Keyword(Keyword::Export)
                 | TokenKind::Keyword(Keyword::Class)
                 | TokenKind::Keyword(Keyword::Struct) => return,
                 _ => {
@@ -707,6 +746,20 @@ mod tests {
             Item::Function(func) => {
                 assert_eq!(func.name, "main");
                 assert!(func.return_type.is_some());
+                assert_eq!(func.visibility, Visibility::Private);
+            }
+            _ => panic!("expected function item"),
+        }
+    }
+
+    #[test]
+    fn parse_public_function() {
+        let module = parse_ok("pub fn exported(): void { return; }");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.name, "exported");
+                assert_eq!(func.visibility, Visibility::Public);
             }
             _ => panic!("expected function item"),
         }
