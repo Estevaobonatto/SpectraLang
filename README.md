@@ -49,10 +49,10 @@ Compila os arquivos em `src/` da pasta atual, reportando diagnósticos léxicos,
 
 ## Front-end capabilities (Oct 2025)
 
-- Lexing/parsing for modules, functions, structs, enums, arrays, typed bindings, and import/export declarations (with span-aware diagnostics).
-- Semantic analyzer with scope tracking, type checking for primitives, arrays, and struct literals, plus cross-module visibility for public functions, constants, structs, and enums.
-- Conflict detection for duplicate definitions and import collisions, including re-export propagation across modules.
-- Test suite (`cargo test --workspace`) covering happy paths and error reporting for recent features such as typed annotations, array inference, and multi-module imports.
+- Lexing/parsing for modules, functions, structs, enums, arrays, typed bindings, async/await, `try`/`catch`, `using`, and `defer`, all com diagnósticos sensíveis a spans.
+- Semantic analyzer com rastreamento de escopos, checagem de tipos para primitivos, arrays, structs e futuros (`Future<T>`), validação de contexto `async`/`await`, regras de RAII (`using`/`defer`) e visibilidade cross-module para funções, constantes, structs e enums públicos.
+- Detecção de conflitos para redefinições, colisões de import/export e reexportações encadeadas.
+- Suíte de testes (`cargo test --workspace`) cobrindo caminhos felizes e diagnósticos de erro para as capacidades recentes, incluindo async/await e gerenciamento automático de recursos.
 
 ## Continuous integration
 

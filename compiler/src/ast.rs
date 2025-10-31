@@ -68,6 +68,10 @@ pub enum Expr {
         kind: EnumLiteralKind,
         span: Span,
     },
+    Await {
+        expression: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -180,6 +184,21 @@ pub enum Stmt {
         span: Span,
     },
     Block(Block),
+    Using {
+        name: String,
+        ty: Option<TypeName>,
+        value: Expr,
+        span: Span,
+    },
+    Defer {
+        body: Block,
+        span: Span,
+    },
+    Try {
+        body: Block,
+        catch: CatchClause,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -257,6 +276,7 @@ pub struct Function {
     pub return_type: Option<TypeName>,
     pub body: Block,
     pub visibility: Visibility,
+    pub is_async: bool,
     pub span: Span,
 }
 
@@ -284,6 +304,14 @@ pub struct MatchArm {
 pub enum MatchPattern {
     Literal { value: Literal, span: Span },
     Identifier { name: String, span: Span },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchClause {
+    pub binding: Option<String>,
+    pub binding_span: Option<Span>,
+    pub body: Block,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

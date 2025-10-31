@@ -148,7 +148,13 @@ impl<'a> Analyzer<'a> {
                         }
                         let placeholder_signature = FunctionType {
                             parameters: vec![Type::Unknown; function.parameters.len()],
-                            return_type: Box::new(if function.return_type.is_some() {
+                            return_type: Box::new(if function.is_async {
+                                Type::Future(Box::new(if function.return_type.is_some() {
+                                    Type::Unknown
+                                } else {
+                                    Type::Void
+                                }))
+                            } else if function.return_type.is_some() {
                                 Type::Unknown
                             } else {
                                 Type::Void
@@ -1079,12 +1085,28 @@ impl<'a> Analyzer<'a> {
             .get(&function.name)
             .cloned()
             .unwrap_or_else(|| self.build_function_signature(function));
-        let return_type = (*signature.return_type).clone();
+        let mut value_return_type = (*signature.return_type).clone();
+        if function.is_async {
+            value_return_type = match value_return_type {
+                Type::Future(inner) => *inner,
+                other => {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "async function '{}' must return a future type",
+                            function.name
+                        ),
+                        function.span,
+                    ));
+                    other
+                }
+            };
+        }
         self.current_function = Some(FunctionContext {
             name: &function.name,
             span: function.span,
-            return_type: return_type.clone(),
+            return_type: value_return_type.clone(),
             saw_value_return: false,
+            is_async: function.is_async,
         });
 
         for (parameter, param_type) in function.parameters.iter().zip(signature.parameters.iter()) {
@@ -1335,11 +1357,19 @@ impl<'a> Analyzer<'a> {
             .iter()
             .map(|parameter| self.resolve_type_name(&parameter.ty))
             .collect();
-        let return_type = function
+        let resolved_return = function
             .return_type
             .as_ref()
             .map(|ty| self.resolve_type_name(ty))
             .unwrap_or(Type::Void);
+        let return_type = if function.is_async {
+            match resolved_return {
+                Type::Future(_) => resolved_return,
+                other => Type::Future(Box::new(other)),
+            }
+        } else {
+            resolved_return
+        };
         FunctionType {
             parameters,
             return_type: Box::new(return_type),
@@ -1463,6 +1493,93 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+            Stmt::Using {
+                name,
+                ty,
+                value,
+                span,
+            } => {
+                let value_type = self.analyze_expr(value);
+                let annotated_type = ty
+                    .as_ref()
+                    .map(|type_name| self.resolve_type_name(type_name));
+
+                if let Some(expected_type) = annotated_type.as_ref() {
+                    if !types_compatible(expected_type, &value_type) {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "cannot assign value of type {} to using binding '{}' annotated as {}",
+                                value_type.describe(),
+                                name,
+                                expected_type.describe()
+                            ),
+                            expr_span(value),
+                        ));
+                    }
+                }
+
+                let binding_type = annotated_type.unwrap_or_else(|| value_type.clone());
+
+                if binding_type == Type::Void {
+                    self.errors.push(SemanticError::new(
+                        format!("using binding '{}' cannot have type void", name),
+                        *span,
+                    ));
+                }
+
+                if let Err(previous_span) = self.scopes.define(
+                    name,
+                    *span,
+                    SymbolKind::Variable,
+                    binding_type,
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "binding '{}' already defined (previous definition at {})",
+                            name, previous_location
+                        ),
+                        *span,
+                    ));
+                }
+            }
+            Stmt::Defer { body, span } => {
+                if self.current_function.is_none() {
+                    self.errors.push(SemanticError::new(
+                        "defer statement outside of function",
+                        *span,
+                    ));
+                }
+                self.analyze_block(body);
+            }
+            Stmt::Try { body, catch, .. } => {
+                self.analyze_block(body);
+                self.scopes.push(ScopeKind::Block);
+                if let Some(binding) = catch.binding.as_ref() {
+                    let binding_span = catch.binding_span.unwrap_or(catch.span);
+                    if let Err(previous_span) = self.scopes.define(
+                        binding,
+                        binding_span,
+                        SymbolKind::Variable,
+                        Type::Unknown,
+                        false,
+                    ) {
+                        let previous_location = previous_span.start_location;
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "binding '{}' already defined (previous definition at {})",
+                                binding, previous_location
+                            ),
+                            binding_span,
+                        ));
+                    }
+                }
+                self.analyze_block(&catch.body);
+                if let Some(frame) = self.scopes.pop() {
+                    self.report_unused(frame);
+                }
+            }
             Stmt::Expr(expr) => {
                 self.analyze_expr(expr);
             }
@@ -1580,57 +1697,61 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
-        if let Some(mut context) = self.current_function.take() {
-            if context.return_type == Type::Void {
-                if let Some(expr) = value {
-                    let expr_type = self.analyze_expr(expr);
+        let Some(context_ref) = self.current_function.as_ref() else {
+            if let Some(expr) = value {
+                self.analyze_expr(expr);
+            }
+            self.errors
+                .push(SemanticError::new("return statement outside of function", span));
+            return;
+        };
+
+        let context_name = context_ref.name.to_string();
+        let return_type = context_ref.return_type.clone();
+
+        if return_type == Type::Void {
+            if let Some(expr) = value {
+                let expr_type = self.analyze_expr(expr);
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "return statement in function '{}' cannot return a value (found {})",
+                        context_name,
+                        expr_type.describe()
+                    ),
+                    expr_span(expr),
+                ));
+            }
+            return;
+        }
+
+        match value {
+            Some(expr) => {
+                let expr_type = self.analyze_expr(expr);
+                if !types_compatible(&return_type, &expr_type) {
                     self.errors.push(SemanticError::new(
                         format!(
-                            "return statement in function '{}' cannot return a value (found {})",
-                            context.name,
+                            "return type mismatch in function '{}': expected {}, found {}",
+                            context_name,
+                            return_type.describe(),
                             expr_type.describe()
                         ),
                         expr_span(expr),
                     ));
                 }
-            } else {
-                match value {
-                    Some(expr) => {
-                        let expr_type = self.analyze_expr(expr);
-                        if !types_compatible(&context.return_type, &expr_type) {
-                            self.errors.push(SemanticError::new(
-                                format!(
-                                    "return type mismatch in function '{}': expected {}, found {}",
-                                    context.name,
-                                    context.return_type.describe(),
-                                    expr_type.describe()
-                                ),
-                                expr_span(expr),
-                            ));
-                        }
-                        context.saw_value_return = true;
-                    }
-                    None => {
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "return statement in function '{}' requires a value of type {}",
-                                context.name,
-                                context.return_type.describe()
-                            ),
-                            span,
-                        ));
-                    }
+                if let Some(context) = self.current_function.as_mut() {
+                    context.saw_value_return = true;
                 }
             }
-            self.current_function = Some(context);
-        } else {
-            if let Some(expr) = value {
-                self.analyze_expr(expr);
+            None => {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "return statement in function '{}' requires a value of type {}",
+                        context_name,
+                        return_type.describe()
+                    ),
+                    span,
+                ));
             }
-            self.errors.push(SemanticError::new(
-                "return statement outside of function",
-                span,
-            ));
         }
     }
 
@@ -1840,6 +1961,35 @@ impl<'a> Analyzer<'a> {
                         } else {
                             operand_type
                         }
+                    }
+                }
+            }
+            Expr::Await { expression, span } => {
+                let value_type = self.analyze_expr(expression);
+                if let Some(context) = self.current_function.as_ref() {
+                    if !context.is_async {
+                        self.errors.push(SemanticError::new(
+                            "'await' used outside of async function",
+                            *span,
+                        ));
+                    }
+                } else {
+                    self.errors
+                        .push(SemanticError::new("'await' used outside of function", *span));
+                }
+
+                match value_type {
+                    Type::Future(inner) => *inner,
+                    Type::Unknown => Type::Unknown,
+                    other => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "'await' expects a future but found {}",
+                                other.describe()
+                            ),
+                            *span,
+                        ));
+                        Type::Unknown
                     }
                 }
             }
@@ -2584,6 +2734,7 @@ struct FunctionContext<'a> {
     span: Span,
     return_type: Type,
     saw_value_return: bool,
+    is_async: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2643,6 +2794,7 @@ enum Type {
         length: Option<usize>,
     },
     Module(ModuleAliasInfo),
+    Future(Box<Type>),
     Unknown,
 }
 
@@ -2665,6 +2817,7 @@ impl Type {
                 }
             }
             Type::Module(info) => format!("module alias '{}'", info.alias),
+            Type::Future(inner) => format!("future<{}>", inner.describe()),
             Type::Unknown => "unknown".to_string(),
         }
     }
@@ -2777,6 +2930,9 @@ fn types_compatible(expected: &Type, actual: &Type) -> bool {
     if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
         return true;
     }
+    if let (Type::Future(expected_inner), Type::Future(actual_inner)) = (expected, actual) {
+        return types_compatible(expected_inner, actual_inner);
+    }
     if let (
         Type::Array {
             element: expected_elem,
@@ -2852,8 +3008,9 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::StructLiteral { span, .. }
         | Expr::EnumLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
-        | Expr::ArrayRepeat { span, .. }
-        | Expr::Index { span, .. } => *span,
+    | Expr::ArrayRepeat { span, .. }
+    | Expr::Index { span, .. }
+    | Expr::Await { span, .. } => *span,
     }
 }
 
@@ -2932,6 +3089,33 @@ mod tests {
     }
 
     #[test]
+    fn async_function_allows_awaiting_async_call() {
+        analyze_source(
+            "async fn helper(): i32 { return 1; } async fn compute(): i32 { return await helper(); }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn await_requires_async_context() {
+        let errors = analyze_source(
+            "fn main(): i32 { return await helper(); } async fn helper(): i32 { return 1; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("'await' used outside of async function")));
+    }
+
+    #[test]
+    fn await_requires_future_value() {
+        let errors = analyze_source("async fn main(): i32 { return await 1; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("expects a future")));
+    }
+
+    #[test]
     fn array_index_reports_out_of_bounds_literal() {
         let errors =
             analyze_source("fn main() { let values = [1, 2]; let last = values[2]; }").unwrap_err();
@@ -2961,6 +3145,17 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("variable 'x' already defined")));
+    }
+
+    #[test]
+    fn using_binding_respects_type_annotation() {
+        let errors = analyze_source(
+            "fn open(): i32 { return 1; } fn main(): i32 { using handle: bool = open(); return 0; }",
+        )
+        .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("annotated as bool")));
     }
 
     #[test]
@@ -3337,6 +3532,20 @@ mod tests {
         assert!(errors.iter().any(|error| error
             .message
             .contains("cannot assign to immutable binding 'x'")));
+    }
+
+    #[test]
+    fn defer_outside_function_reports_error() {
+        let errors = analyze_source("defer { return; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("defer statement outside of function")));
+    }
+
+    #[test]
+    fn try_catch_introduces_binding_scope() {
+        analyze_source("fn main() { try { return; } catch (_err) { return; } }")
+            .expect("analysis ok");
     }
 
     #[test]

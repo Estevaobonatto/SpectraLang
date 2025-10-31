@@ -1,9 +1,9 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Constant, EnumDecl, EnumVariant, EnumVariantData, Export,
-        ExportItem, Expr, Function, Import, ImportItem, Item, Literal, MatchArm, MatchPattern,
-        Module, ModulePath, Parameter, Stmt, StructDecl, StructField, StructFieldInit, TypeName,
-        UnaryOperator, Visibility,
+    BinaryOperator, Block, CatchClause, Constant, EnumDecl, EnumVariant, EnumVariantData,
+    Export, ExportItem, Expr, Function, Import, ImportItem, Item, Literal, MatchArm,
+    MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl, StructField,
+    StructFieldInit, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -55,9 +55,25 @@ impl<'a> Parser<'a> {
             }
 
             if let Some((visibility, span)) = self.try_parse_visibility() {
-                if self.check_keyword(Keyword::Fn) {
+                if self.check_keyword(Keyword::Async) {
+                    let async_token = self.advance().clone();
+                    if self.check_keyword(Keyword::Fn) {
+                        let fn_token = self.advance().clone();
+                        let leading = span_union(span, async_token.span);
+                        match self.parse_function(fn_token, visibility, Some(leading), true) {
+                            Some(function) => items.push(Item::Function(function)),
+                            None => self.synchronize(),
+                        }
+                    } else {
+                        self.errors.push(ParseError::new(
+                            "expected 'fn' after 'async' modifier",
+                            async_token.span.start_location,
+                        ));
+                        self.synchronize();
+                    }
+                } else if self.check_keyword(Keyword::Fn) {
                     let fn_token = self.advance().clone();
-                    match self.parse_function(fn_token, visibility, Some(span)) {
+                    match self.parse_function(fn_token, visibility, Some(span), false) {
                         Some(function) => items.push(Item::Function(function)),
                         None => self.synchronize(),
                     }
@@ -99,9 +115,32 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if self.check_keyword(Keyword::Async) {
+                let async_token = self.advance().clone();
+                if self.check_keyword(Keyword::Fn) {
+                    let fn_token = self.advance().clone();
+                    match self.parse_function(
+                        fn_token,
+                        Visibility::Private,
+                        Some(async_token.span),
+                        true,
+                    ) {
+                        Some(function) => items.push(Item::Function(function)),
+                        None => self.synchronize(),
+                    }
+                } else {
+                    self.errors.push(ParseError::new(
+                        "expected 'fn' after 'async' modifier",
+                        async_token.span.start_location,
+                    ));
+                    self.synchronize();
+                }
+                continue;
+            }
+
             if self.check_keyword(Keyword::Fn) {
                 let fn_token = self.advance().clone();
-                match self.parse_function(fn_token, Visibility::Private, None) {
+                match self.parse_function(fn_token, Visibility::Private, None, false) {
                     Some(function) => items.push(Item::Function(function)),
                     None => self.synchronize(),
                 }
@@ -186,6 +225,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Option<Stmt> {
+        if self.check_keyword(Keyword::Using) {
+            let keyword = self.advance().clone();
+            return self.parse_using_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Defer) {
+            let keyword = self.advance().clone();
+            return self.parse_defer_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Try) {
+            let keyword = self.advance().clone();
+            return self.parse_try_statement(keyword.span);
+        }
+
         if self.check_keyword(Keyword::For) {
             let keyword = self.advance().clone();
             return self.parse_for_statement(keyword.span);
@@ -786,6 +840,7 @@ impl<'a> Parser<'a> {
         fn_token: Token,
         visibility: Visibility,
         leading_span: Option<Span>,
+        is_async: bool,
     ) -> Option<Function> {
         let name_token = self.consume_identifier("expected function name")?.clone();
 
@@ -817,6 +872,7 @@ impl<'a> Parser<'a> {
             return_type,
             body,
             visibility,
+            is_async,
             span,
         })
     }
@@ -1087,6 +1143,98 @@ impl<'a> Parser<'a> {
         Some((name_token.lexeme.clone(), ty, value, span))
     }
 
+    fn parse_using_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let name_token = self
+            .consume_identifier("expected identifier after 'using'")?
+            .clone();
+        let mut span = span_union(keyword_span, name_token.span);
+
+        let ty = if self.match_token(TokenKind::Colon) {
+            let ty = self.parse_type_name()?;
+            span = span_union(span, ty.span);
+            Some(ty)
+        } else {
+            None
+        };
+
+        self.consume(TokenKind::Equal, "expected '=' after 'using' binding name")?;
+        let value = self.expression()?;
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after using statement")?
+            .clone();
+        span = span_union(span, semicolon.span);
+
+        Some(Stmt::Using {
+            name: name_token.lexeme.clone(),
+            ty,
+            value,
+            span,
+        })
+    }
+
+    fn parse_defer_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let open = self
+            .consume(TokenKind::LBrace, "expected '{' after 'defer'")?
+            .clone();
+        let body = self.parse_block_from_open(open)?;
+        let span = span_union(keyword_span, body.span);
+        Some(Stmt::Defer { body, span })
+    }
+
+    fn parse_try_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let open = self
+            .consume(TokenKind::LBrace, "expected '{' after 'try'")?
+            .clone();
+        let body = self.parse_block_from_open(open.clone())?;
+
+        if !self.check_keyword(Keyword::Catch) {
+            self.errors.push(ParseError::new(
+                "expected 'catch' after 'try' block",
+                self.peek().span.start_location,
+            ));
+            return None;
+        }
+
+        let catch_token = self.advance().clone();
+        let mut binding = None;
+        let mut binding_span = None;
+
+        if self.match_token(TokenKind::LParen) {
+            if self.check(TokenKind::Identifier) {
+                let ident = self.advance().clone();
+                binding = Some(ident.lexeme.clone());
+                binding_span = Some(ident.span);
+            }
+            self.consume(TokenKind::RParen, "expected ')' after catch binding")?;
+        } else if self.check(TokenKind::Identifier) {
+            let ident = self.advance().clone();
+            binding = Some(ident.lexeme.clone());
+            binding_span = Some(ident.span);
+        }
+
+        let catch_open = self
+            .consume(TokenKind::LBrace, "expected '{' to start catch block")?
+            .clone();
+        let catch_body = self.parse_block_from_open(catch_open.clone())?;
+
+        let mut catch_span = span_union(catch_token.span, catch_body.span);
+        if let Some(binding_span) = binding_span {
+            catch_span = span_union(catch_span, binding_span);
+        }
+
+        let catch = CatchClause {
+            binding,
+            binding_span,
+            body: catch_body,
+            span: catch_span,
+        };
+
+        let mut span = span_union(keyword_span, body.span);
+        span = span_union(span, catch.span);
+
+        Some(Stmt::Try { body, catch, span })
+    }
+
     fn parse_expression_statement(&mut self) -> Option<Stmt> {
         let expr = self.expression()?;
 
@@ -1256,6 +1404,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unary(&mut self) -> Option<Expr> {
+        if self.match_keyword(Keyword::Await) {
+            let await_token = self.previous().clone();
+            let expression = self.parse_unary()?;
+            let span = span_union(await_token.span, expr_span(&expression));
+            return Some(Expr::Await {
+                expression: Box::new(expression),
+                span,
+            });
+        }
+
         if self.match_any(&[TokenKind::Bang, TokenKind::Minus]) {
             let operator_token = self.previous().clone();
             let operand = self.parse_unary()?;
@@ -1720,8 +1878,9 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::StructLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
         | Expr::ArrayRepeat { span, .. }
-        | Expr::Index { span, .. }
-        | Expr::EnumLiteral { span, .. } => *span,
+    | Expr::Index { span, .. }
+    | Expr::EnumLiteral { span, .. }
+    | Expr::Await { span, .. } => *span,
     }
 }
 
@@ -1738,6 +1897,9 @@ fn statement_span(stmt: &Stmt) -> Span {
         | Stmt::Break { span, .. }
         | Stmt::Continue { span, .. }
         | Stmt::FieldAssignment { span, .. }
+    | Stmt::Using { span, .. }
+    | Stmt::Defer { span, .. }
+    | Stmt::Try { span, .. }
         | Stmt::Block(Block { span, .. }) => *span,
         Stmt::Expr(expr) => expr_span(expr),
     }
@@ -1808,8 +1970,33 @@ mod tests {
             Item::Function(func) => {
                 assert_eq!(func.name, "exported");
                 assert_eq!(func.visibility, Visibility::Public);
+                assert!(!func.is_async);
             }
             _ => panic!("expected function item"),
+        }
+    }
+
+    #[test]
+    fn parse_async_function() {
+        let module = parse_ok("async fn worker(): void { return; }");
+        match &module.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.name, "worker");
+                assert!(func.is_async);
+            }
+            _ => panic!("expected async function"),
+        }
+    }
+
+    #[test]
+    fn parse_pub_async_function() {
+        let module = parse_ok("pub async fn task(): void { return; }");
+        match &module.items[0] {
+            Item::Function(func) => {
+                assert!(func.is_async);
+                assert_eq!(func.visibility, Visibility::Public);
+            }
+            _ => panic!("expected function"),
         }
     }
 
@@ -1953,6 +2140,59 @@ mod tests {
                     _ => panic!("expected block"),
                 },
                 _ => panic!("expected while statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_await_expression() {
+        let module = parse_ok("fn main(): i32 { return await load(); }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::Return { value: Some(expr), .. } => match expr {
+                    Expr::Await { .. } => {}
+                    _ => panic!("expected await expression"),
+                },
+                _ => panic!("expected return statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_using_statement() {
+        let module = parse_ok("fn main() { using file = open(); }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::Using { name, .. } => assert_eq!(name, "file"),
+                _ => panic!("expected using statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_defer_statement() {
+        let module = parse_ok("fn main() { defer { return; } }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::Defer { .. } => {}
+                _ => panic!("expected defer statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_try_catch_statement() {
+        let module = parse_ok("fn main() { try { return; } catch (err) { return; } }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => match &body.statements[0] {
+                Stmt::Try { catch, .. } => {
+                    assert_eq!(catch.binding.as_deref(), Some("err"));
+                }
+                _ => panic!("expected try statement"),
             },
             _ => panic!("expected function"),
         }

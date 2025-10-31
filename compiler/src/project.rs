@@ -42,6 +42,13 @@ pub fn collect_console_entry_points<'m>(
                 continue;
             }
 
+            if function.is_async {
+                errors.push(EntryPointError::new(
+                    "`main` cannot be async",
+                    Some(function.span),
+                ));
+            }
+
             if !function.parameters.is_empty() {
                 errors.push(EntryPointError::new(
                     "`main` must not accept parameters",
@@ -200,6 +207,16 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("must declare a return type")));
+    }
+
+    #[test]
+    fn rejects_async_main() {
+        let module = module_from_source("async fn main(): i32 { return 0; }");
+        let modules = vec![&module];
+        let errors = find_console_entry_point(&modules, None).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot be async")));
     }
 
     #[test]

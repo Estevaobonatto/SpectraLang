@@ -10,6 +10,7 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - Pasta `docs/decisions` ativa (ADR 0001 – Lexer, ADR 0002 – Parser, ADR 0003 – Roadmap Semântico); plano de trabalho alinhado com backlog por fases.
 - AST e parser atualizados para cobrir declarações `import` e expressões de chamada, com novos testes garantindo cobertura de casos positivos e diagnósticos.
 - Analisador semântico ampliado com registro de assinaturas, checagem de aridade/tipos em chamadas, validação de imports (auto-import e módulos desconhecidos) e rastreamento de structs/enums exportados.
+- Iteração recente introduziu `async/await`, `try/catch`, `using` e `defer`, adicionando suporte a `Function::is_async`, tipo `Future<T>` e regras semânticas específicas com cobertura de testes.
 - Suporte multi-módulo: CLI e analisador recebem múltiplos arquivos simultaneamente, compartilham assinaturas exportadas, detectam conflitos entre imports e reportam diagnósticos consistentes entre módulos (incluindo reexports).
 - Visibilidade ampliada: constantes imutáveis `pub let`, structs e enums públicos podem ser exportados/importados, com diagnósticos para conflitos, restrição a bindings mutáveis e atualização das assinaturas após análise local.
 - Tipagem enriquecida: suporte a anotações opcionais em `let`/constantes, inferência para literais de array, validação de acessos a campos de struct e regras de compatibilidade entre tipos compostos.
