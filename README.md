@@ -16,26 +16,26 @@ Prototype implementation workspace for the SpectraLang programming language. Thi
 ## Quick start
 
 ```powershell
-cargo run --package spectra-cli -- examples/hello.spc
+cargo run --package spectra-cli -- new hello_cli
+cargo run --package spectra-cli -- build hello_cli
 ```
 
-> Provide a SpectraLang source file as input; the CLI now reports lexical, parsing, or semantic issues (including function call/`import` diagnostics) and summarizes parsed modules/functions.
+> O comando `new` gera um esqueleto de projeto com `src/main.spc`. O `build` compila todo o diretório, valida a assinatura de `main` e gera um artefato em `target/<profile>/<bin>.build.txt` mapeando módulos e fontes.
 
-### Multi-module demo
+Selecione explicitamente o módulo de entrada quando houver múltiplos `fn main()`:
 
 ```powershell
-cargo run --package spectra-cli -- examples/lib_types.spc examples/types_demo.spc
+cargo run --package spectra-cli -- build hello_cli --main app.beta
 ```
 
-This pair of modules showcases public `struct`/`enum` exports, immutable `pub let` bindings, array literals, and typed imports resolved during semantic analysis.
-
-### Array mutation demo
+### Rodando builds dentro do projeto gerado
 
 ```powershell
-cargo run --package spectra-cli -- examples/fib.spc
+cd hello_cli
+cargo run --package spectra-cli -- build .
 ```
 
-Demonstrates indexed assignment inside a `while` loop to build a small Fibonacci lookup table using mutable arrays.
+Compila os arquivos em `src/` da pasta atual, reportando diagnósticos léxicos, sintáticos e semânticos antes de produzir o artefato do console app.
 
 ## Front-end capabilities (Oct 2025)
 
