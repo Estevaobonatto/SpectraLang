@@ -52,6 +52,11 @@ pub enum Expr {
         elements: Vec<Expr>,
         span: Span,
     },
+    ArrayRepeat {
+        value: Box<Expr>,
+        count: Box<Expr>,
+        span: Span,
+    },
     Index {
         array: Box<Expr>,
         index: Box<Expr>,

@@ -29,6 +29,14 @@ cargo run --package spectra-cli -- examples/lib_types.spc examples/types_demo.sp
 
 This pair of modules showcases public `struct`/`enum` exports, immutable `pub let` bindings, array literals, and typed imports resolved during semantic analysis.
 
+### Array mutation demo
+
+```powershell
+cargo run --package spectra-cli -- examples/fib.spc
+```
+
+Demonstrates indexed assignment inside a `while` loop to build a small Fibonacci lookup table using mutable arrays.
+
 ## Front-end capabilities (Oct 2025)
 
 - Lexing/parsing for modules, functions, structs, enums, arrays, typed bindings, and import/export declarations (with span-aware diagnostics).

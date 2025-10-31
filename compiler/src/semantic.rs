@@ -1,4 +1,5 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::convert::TryFrom;
 
 use crate::ast::{
     BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import, Item,
@@ -1642,8 +1643,8 @@ impl<'a> Analyzer<'a> {
         }
 
         match array_type {
-            Type::Array(element_type) => {
-                let element_type = *element_type;
+            Type::Array { element, length } => {
+                let element_type = (*element).clone();
                 if !types_compatible(&element_type, &value_type) {
                     self.errors.push(SemanticError::new(
                         format!(
@@ -1654,6 +1655,8 @@ impl<'a> Analyzer<'a> {
                         span,
                     ));
                 }
+
+                self.check_index_bounds(length, index, expr_span(index));
             }
             Type::Unknown => {}
             other => {
@@ -1664,7 +1667,7 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        if let Some(name) = binding_name_from_index_target(array) {
+        if let Some(name) = binding_name_from_expr(array) {
             if let Some(symbol) = self.scopes.resolve_mut_internal(name, true) {
                 match symbol.kind {
                     SymbolKind::Variable | SymbolKind::Parameter | SymbolKind::Constant => {
@@ -1689,6 +1692,44 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+        }
+    }
+
+    fn check_index_bounds(&mut self, length: Option<usize>, index_expr: &Expr, span: Span) {
+        let Some(length) = length else {
+            return;
+        };
+
+        let Some((value, literal_span)) = integer_constant(index_expr) else {
+            return;
+        };
+
+        if value < 0 {
+            self.errors.push(SemanticError::new(
+                "array index cannot be negative".to_string(),
+                literal_span,
+            ));
+            return;
+        }
+
+        let index_value = match usize::try_from(value) {
+            Ok(value) => value,
+            Err(_) => {
+                self.errors.push(SemanticError::new(
+                    "array index is too large".to_string(),
+                    literal_span,
+                ));
+                return;
+            }
+        };
+        if index_value >= length {
+            self.errors.push(SemanticError::new(
+                format!(
+                    "array index {} out of bounds for length {}",
+                    index_value, length
+                ),
+                span,
+            ));
         }
     }
 
@@ -2320,8 +2361,10 @@ impl<'a> Analyzer<'a> {
                 span: _span,
             } => {
                 if elements.is_empty() {
-                    // Empty array - element type is unknown for now
-                    return Type::Array(Box::new(Type::Unknown));
+                    return Type::Array {
+                        element: Box::new(Type::Unknown),
+                        length: Some(0),
+                    };
                 }
 
                 let first_type = self.analyze_expr(&elements[0]);
@@ -2351,10 +2394,49 @@ impl<'a> Analyzer<'a> {
                     }
                 }
 
+                let length = Some(elements.len());
+
                 if mismatched {
-                    Type::Array(Box::new(Type::Unknown))
+                    Type::Array {
+                        element: Box::new(Type::Unknown),
+                        length,
+                    }
                 } else {
-                    Type::Array(Box::new(element_type))
+                    Type::Array {
+                        element: Box::new(element_type),
+                        length,
+                    }
+                }
+            }
+            Expr::ArrayRepeat { value, count, .. } => {
+                let value_type = self.analyze_expr(value);
+                let count_type = self.analyze_expr(count);
+
+                if !matches!(count_type, Type::Integer | Type::Unknown) {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "array repeat count must be integer, got {}",
+                            count_type.describe()
+                        ),
+                        expr_span(count),
+                    ));
+                }
+
+                let resolved_length = match extract_array_length(count) {
+                    Some(ArrayLength::Exact(value)) => Some(value),
+                    Some(ArrayLength::Negative(span)) => {
+                        self.errors.push(SemanticError::new(
+                            "array repeat count must be non-negative".to_string(),
+                            span,
+                        ));
+                        None
+                    }
+                    None => None,
+                };
+
+                Type::Array {
+                    element: Box::new(value_type),
+                    length: resolved_length,
                 }
             }
             Expr::Index { array, index, span } => {
@@ -2370,7 +2452,10 @@ impl<'a> Analyzer<'a> {
                 }
 
                 match array_type {
-                    Type::Array(element_type) => *element_type,
+                    Type::Array { element, length } => {
+                        self.check_index_bounds(length, index, *span);
+                        *element
+                    }
                     Type::Unknown => Type::Unknown,
                     other => {
                         self.errors.push(SemanticError::new(
@@ -2502,7 +2587,10 @@ enum Type {
     Function(FunctionType),
     Struct(String, HashMap<String, Type>),
     Enum(String),
-    Array(Box<Type>),
+    Array {
+        element: Box<Type>,
+        length: Option<usize>,
+    },
     Module(ModuleAliasInfo),
     Unknown,
 }
@@ -2518,7 +2606,13 @@ impl Type {
             Type::Function(signature) => signature.describe(),
             Type::Struct(name, _) => format!("struct {}", name),
             Type::Enum(name) => format!("enum {}", name),
-            Type::Array(element) => format!("array<{}>", element.describe()),
+            Type::Array { element, length } => {
+                let base = element.describe();
+                match length {
+                    Some(len) => format!("array<{}; {}>", base, len),
+                    None => format!("array<{}>", base),
+                }
+            }
             Type::Module(info) => format!("module alias '{}'", info.alias),
             Type::Unknown => "unknown".to_string(),
         }
@@ -2632,7 +2726,22 @@ fn types_compatible(expected: &Type, actual: &Type) -> bool {
     if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
         return true;
     }
-    if let (Type::Array(expected_elem), Type::Array(actual_elem)) = (expected, actual) {
+    if let (
+        Type::Array {
+            element: expected_elem,
+            length: expected_len,
+        },
+        Type::Array {
+            element: actual_elem,
+            length: actual_len,
+        },
+    ) = (expected, actual)
+    {
+        if let (Some(expected_len), Some(actual_len)) = (expected_len, actual_len) {
+            if expected_len != actual_len {
+                return false;
+            }
+        }
         return types_compatible(expected_elem, actual_elem);
     }
     // For structs, compare names only (fields may differ during registration/resolution)
@@ -2671,10 +2780,11 @@ fn module_path_key(path: &ModulePath) -> String {
     path.segments.join("::")
 }
 
-fn binding_name_from_index_target(expr: &Expr) -> Option<&str> {
+fn binding_name_from_expr(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Identifier { name, .. } => Some(name.as_str()),
-        Expr::Index { array, .. } => binding_name_from_index_target(array),
+        Expr::Index { array, .. } => binding_name_from_expr(array),
+        Expr::FieldAccess { object, .. } => binding_name_from_expr(object),
         _ => None,
     }
 }
@@ -2691,7 +2801,39 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::StructLiteral { span, .. }
         | Expr::EnumLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
+        | Expr::ArrayRepeat { span, .. }
         | Expr::Index { span, .. } => *span,
+    }
+}
+
+enum ArrayLength {
+    Exact(usize),
+    Negative(Span),
+}
+
+fn extract_array_length(expr: &Expr) -> Option<ArrayLength> {
+    let (value, span) = integer_constant(expr)?;
+    if value < 0 {
+        Some(ArrayLength::Negative(span))
+    } else {
+        usize::try_from(value).ok().map(ArrayLength::Exact)
+    }
+}
+
+fn integer_constant(expr: &Expr) -> Option<(i64, Span)> {
+    match expr {
+        Expr::Literal {
+            value: Literal::Integer(value),
+            span,
+        } => Some((*value, *span)),
+        Expr::Unary {
+            operator: UnaryOperator::Negate,
+            operand,
+            span,
+        } => integer_constant(operand)
+            .and_then(|(value, _)| value.checked_neg().map(|negated| (negated, *span))),
+        Expr::Grouping { expression, .. } => integer_constant(expression),
+        _ => None,
     }
 }
 
@@ -2715,6 +2857,45 @@ mod tests {
         }
         let refs: Vec<&Module> = modules.iter().collect();
         analyze_modules(&refs)
+    }
+
+    #[test]
+    fn array_repeat_infers_length_and_allows_valid_index() {
+        analyze_source("fn main() { var values = [1; 4]; values[3] = 2; }").expect("analysis ok");
+    }
+
+    #[test]
+    fn array_repeat_rejects_negative_count() {
+        let errors = analyze_source("fn main() { let values = [0; -1]; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("must be non-negative")));
+    }
+
+    #[test]
+    fn array_repeat_requires_integer_count() {
+        let errors = analyze_source("fn main() { let values = [0; 1.5]; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("count must be integer")));
+    }
+
+    #[test]
+    fn array_index_reports_out_of_bounds_literal() {
+        let errors =
+            analyze_source("fn main() { let values = [1, 2]; let last = values[2]; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("out of bounds")));
+    }
+
+    #[test]
+    fn array_index_rejects_negative_literal() {
+        let errors = analyze_source("fn main() { let values = [1, 2]; let first = values[-1]; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot be negative")));
     }
 
     #[test]

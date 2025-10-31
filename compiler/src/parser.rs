@@ -1607,18 +1607,44 @@ impl<'a> Parser<'a> {
 
     fn parse_array_literal(&mut self) -> Option<Expr> {
         let start_span = self.previous().span;
-        let mut elements = Vec::new();
 
-        while !self.check(TokenKind::RBracket) && !self.is_at_end() {
-            elements.push(self.expression()?);
-
-            if !self.match_token(TokenKind::Comma) {
-                break;
-            }
+        if self.check(TokenKind::RBracket) {
+            let end = self.advance().span;
+            let span = span_union(start_span, end);
+            return Some(Expr::ArrayLiteral {
+                elements: Vec::new(),
+                span,
+            });
         }
 
-        self.consume(TokenKind::RBracket, "expected ']' after array elements")?;
-        let span = span_union(start_span, self.previous().span);
+        let first = self.expression()?;
+
+        if self.match_token(TokenKind::Semicolon) {
+            let count = self.expression()?;
+            let end = self
+                .consume(TokenKind::RBracket, "expected ']' after array repetition")?
+                .span;
+            let span = span_union(start_span, end);
+            return Some(Expr::ArrayRepeat {
+                value: Box::new(first),
+                count: Box::new(count),
+                span,
+            });
+        }
+
+        let mut elements = vec![first];
+
+        while self.match_token(TokenKind::Comma) {
+            if self.check(TokenKind::RBracket) {
+                break;
+            }
+            elements.push(self.expression()?);
+        }
+
+        let end = self
+            .consume(TokenKind::RBracket, "expected ']' after array elements")?
+            .span;
+        let span = span_union(start_span, end);
 
         Some(Expr::ArrayLiteral { elements, span })
     }
@@ -1693,6 +1719,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::FieldAccess { span, .. }
         | Expr::StructLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
+        | Expr::ArrayRepeat { span, .. }
         | Expr::Index { span, .. }
         | Expr::EnumLiteral { span, .. } => *span,
     }

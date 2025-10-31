@@ -16,8 +16,9 @@ fn mirror(point: Point): Point {
 fn main(): i32 {
     let start = Point { x: 0, y: 0 };
     let shifted = translate(start, 3, -2);
-    let mirrored = mirror(shifted);
-    let path = [start, shifted, mirrored];
-    let final_point = path[1];
+    var path = [start, start, start];
+    path[1] = shifted;
+    path[2] = mirror(shifted);
+    let final_point = path[2];
     return final_point.x + final_point.y;
 }
