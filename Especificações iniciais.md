@@ -2,6 +2,8 @@ Desenvolva um plano detalhado para a criação da linguagem de programação Spe
 
 # use rust ou c++/c para o desenvolvimento
 
+# evite arquivos longos demais, use uma arquitetura que possibilite maior escalabiliodade da linguagem mas mantendo a performance
+
 1. Definição de características técnicas:
    - Suporte a paradigmas: Orientação a Objetos (herança, polimorfismo, encapsulamento) + programação procedural + funcional
    - Sistema de tipos: Implementar tipagem forte com opção de modo fraco via diretivas especiais
