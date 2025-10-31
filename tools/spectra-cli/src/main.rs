@@ -183,7 +183,15 @@ fn new_command(args: NewArgs) -> Result<(), i32> {
     };
 
     let main_contents = format!(
-        "module {}.main;\n\nimport std.console;\n\nfn main(): i32 {{\n    std.console::println(\"Hello from SpectraLang!\");\n    return 0;\n}}\n",
+        r#"module {}.main;
+
+import std.console;
+
+fn main(): i32 {{
+    println("Hello from SpectraLang!");
+    return 0;
+}}
+"#,
         module_segment
     );
 
@@ -774,7 +782,7 @@ mod tests {
         let main_source =
             fs::read_to_string(project_root.join("src/main.spc")).expect("main.spc readable");
         assert!(main_source.contains("import std.console;"));
-        assert!(main_source.contains("std.console::println"));
+        assert!(main_source.contains("println(\"Hello from SpectraLang!\")"));
 
         let console_source = fs::read_to_string(project_root.join("src/std/console.spc"))
             .expect("console stub readable");
