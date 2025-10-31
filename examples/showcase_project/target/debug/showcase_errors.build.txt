@@ -1,0 +1,14 @@
+# SpectraLang build metadata
+binary = showcase_errors
+profile = debug
+main_module = showcase.errors
+binaries = {
+  showcase.async_demo = "showcase_async_demo"
+  showcase.errors = "showcase_errors"
+  showcase.resources = "showcase_resources"
+}
+sources = [
+  "src\async_workflow.spc",
+  "src\error_recovery.spc",
+  "src\resource_management.spc",
+]

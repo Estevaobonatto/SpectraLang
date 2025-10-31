@@ -1,4 +1,4 @@
-module examples.async_demo;
+module showcase.async_demo;
 
 async fn fetch_seed(): i32 {
     return 7;
