@@ -48,11 +48,11 @@
 
 ### Fase 1 — Fundamentos do Runtime
 - ✅ `std.console` (print/println/print_err/println_err/read_line) e `std.args` (all/len/is_empty) publicados no crate `runtime/`.
-- 🔜 Produzir amostras de uso simples (`hello_world`, `echo`) e orientar integração com o backend no futuro.
+- ✅ Exemplos de uso e receitas iniciais em `docs/console-io-recipes.md`, preparando terreno para integrar o backend no futuro.
 
 ### Fase 2 — Suporte a Entrypoints no Compilador
 - ✅ `compiler::project::find_console_entry_point` garante `fn main(): i32` sem parâmetros, com testes para cenários válidos e inválidos.
-- 🔜 Propagar validação para a fase semântica (erros ainda são reportados pelo CLI) e permitir metadados para múltiplos binários (ex.: associação módulo→bin no manifesto).
+- ✅ Validação semântica das assinaturas de `main` e manifestos com mapa módulo→binário disponíveis para a CLI.
 
 ### Fase 3 — Ampliação da CLI (`spectra-cli`)
 - ✅ `spectra new`, `spectra build` e `spectra run` implementados com scaffold básico, seleção de profile (`--release`) e captura de argumentos para uso futuro.
@@ -92,6 +92,6 @@
 - **Manutenção futura**: documentação clara e testes asseguram evolução sem regressões.
 
 ## Próximos Passos Imediatos
-- Criar exemplos e documentação prática para `std.console`/`read_line`, demonstrando padrões de entrada/saída simples.
-- Propagar a validação de entrypoints para a fase semântica e conectar o manifesto multi-binário com futuros passos de geração/execução.
 - Escrever ADR resumindo as decisões do suporte a console apps e alinhar backlog para execução incremental das próximas fases.
+- Conectar o comando `spectra run` a um backend de execução assim que o pipeline de geração estiver disponível, reaproveitando o manifesto multi-binário.
+- Definir exemplos gerados automaticamente (`spectra new`) que utilizem `std.console` para guiar desenvolvedores iniciantes.

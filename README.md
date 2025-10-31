@@ -34,6 +34,10 @@ Gere manifestos para todos os módulos com `main` de uma só vez:
 cargo run --package spectra-cli -- build hello_cli --all
 ```
 
+### Console I/O helpers
+
+The runtime crate already exposes minimal console helpers. Use `std.console::print/println/print_err/println_err/read_line` and the `std.args` helpers to prepare your source code for future execution support. Veja exemplos práticos em `docs/console-io-recipes.md`.
+
 ### Rodando builds dentro do projeto gerado
 
 ```powershell

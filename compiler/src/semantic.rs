@@ -838,6 +838,8 @@ impl<'a> Analyzer<'a> {
             }
         }
 
+        self.validate_entry_points(module);
+
         if let Some(frame) = self.scopes.pop() {
             self.report_unused(frame);
         }
@@ -963,6 +965,55 @@ impl<'a> Analyzer<'a> {
                             constant.name, previous_location
                         ),
                         constant.span,
+                    ));
+                }
+            }
+        }
+    }
+
+    fn validate_entry_points(&mut self, module: &'a Module) {
+        if module.name.is_none() {
+            return;
+        }
+
+        for item in &module.items {
+            let Item::Function(function) = item else {
+                continue;
+            };
+
+            if function.name != "main" {
+                continue;
+            }
+
+            if let Some(param) = function.parameters.first() {
+                self.errors.push(SemanticError::new(
+                    "entry point 'main' must not accept parameters",
+                    param.span,
+                ));
+            }
+
+            match function.return_type.as_ref() {
+                Some(ty) => {
+                    let signature = self
+                        .current_module_signatures
+                        .get(&function.name)
+                        .cloned()
+                        .unwrap_or_else(|| self.build_function_signature(function));
+                    if !matches!(signature.return_type.as_ref(), Type::Integer) {
+                        let declared = ty.segments.join("::");
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "entry point 'main' must return i32 but returns {}",
+                                declared
+                            ),
+                            ty.span,
+                        ));
+                    }
+                }
+                None => {
+                    self.errors.push(SemanticError::new(
+                        "entry point 'main' must declare a return type of i32",
+                        function.span,
                     ));
                 }
             }
@@ -3038,6 +3089,33 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("parameter 'x' is never used")));
+    }
+
+    #[test]
+    fn entry_point_main_must_not_accept_parameters() {
+        let errors = analyze_source("module app.main; fn main(x: i32): i32 { return x; }")
+            .expect_err("should error");
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("entry point 'main' must not accept parameters")));
+    }
+
+    #[test]
+    fn entry_point_main_must_return_i32() {
+        let errors = analyze_source("module app.main; fn main(): bool { return true; }")
+            .expect_err("should error");
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("entry point 'main' must return i32")));
+    }
+
+    #[test]
+    fn entry_point_main_must_declare_return_type() {
+        let errors =
+            analyze_source("module app.main; fn main() { return; }").expect_err("should error");
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("entry point 'main' must declare a return type")));
     }
 
     #[test]
