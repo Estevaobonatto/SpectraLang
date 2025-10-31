@@ -203,14 +203,29 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Import {
     pub path: ModulePath,
+    pub alias: Option<String>,
+    pub items: Option<Vec<ImportItem>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportItem {
+    pub name: String,
+    pub alias: Option<String>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Export {
     pub module_path: ModulePath,
-    pub symbol: String,
-    pub symbol_span: Span,
+    pub items: Vec<ExportItem>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportItem {
+    pub name: String,
+    pub alias: Option<String>,
     pub span: Span,
 }
 

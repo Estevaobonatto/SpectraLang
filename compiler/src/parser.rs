@@ -1,8 +1,9 @@
 use crate::{
     ast::{
-        BinaryOperator, Block, Constant, EnumDecl, EnumVariant, EnumVariantData, Export, Expr,
-        Function, Import, Item, Literal, MatchArm, MatchPattern, Module, ModulePath, Parameter,
-        Stmt, StructDecl, StructField, StructFieldInit, TypeName, UnaryOperator, Visibility,
+    BinaryOperator, Block, Constant, EnumDecl, EnumVariant, EnumVariantData, Export, ExportItem,
+    Expr, Function, Import, ImportItem, Item, Literal, MatchArm, MatchPattern, Module,
+    ModulePath, Parameter, Stmt, StructDecl, StructField, StructFieldInit, TypeName,
+    UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -523,25 +524,99 @@ impl<'a> Parser<'a> {
             .consume_identifier("expected module path after 'import'")?
             .clone();
         let mut segments = vec![first.lexeme.clone()];
-        let mut span = span_union(import_token.span, first.span);
+        let mut path_span = span_union(import_token.span, first.span);
 
         while self.check(TokenKind::Dot) || self.check(TokenKind::Scope) {
+            if self.check(TokenKind::Scope) && matches!(self.peek_next_kind(), TokenKind::LBrace) {
+                break;
+            }
             self.advance();
             let ident = self
                 .consume_identifier("expected identifier in import path")?
                 .clone();
-            span = span_union(span, ident.span);
+            path_span = span_union(path_span, ident.span);
             segments.push(ident.lexeme.clone());
+        }
+
+        let module_path = ModulePath {
+            segments,
+            span: path_span,
+        };
+
+        let mut total_span = path_span;
+        let mut alias = None;
+
+        if self.match_keyword(Keyword::As) {
+            let alias_token = self
+                .consume_identifier("expected alias after 'as' in import")?
+                .clone();
+            total_span = span_union(total_span, alias_token.span);
+            alias = Some(alias_token.lexeme.clone());
+        }
+
+        let mut items = None;
+        if self.check(TokenKind::Scope) && matches!(self.peek_next_kind(), TokenKind::LBrace) {
+            let scope_token = self.advance().clone();
+            total_span = span_union(total_span, scope_token.span);
+            let lbrace = self
+                .consume(TokenKind::LBrace, "expected '{' after '::' in import list")?
+                .clone();
+            total_span = span_union(total_span, lbrace.span);
+
+            if self.check(TokenKind::RBrace) {
+                self.errors.push(ParseError::new(
+                    "import list cannot be empty",
+                    lbrace.span.start_location,
+                ));
+                return None;
+            }
+
+            let mut members = Vec::new();
+            loop {
+                let name_token = self
+                    .consume_identifier("expected symbol in import list")?
+                    .clone();
+                let mut item_span = name_token.span;
+                let mut item_alias = None;
+
+                if self.match_keyword(Keyword::As) {
+                    let alias_token = self
+                        .consume_identifier("expected alias after 'as' in import list")?
+                        .clone();
+                    item_span = span_union(item_span, alias_token.span);
+                    item_alias = Some(alias_token.lexeme.clone());
+                }
+
+                members.push(ImportItem {
+                    name: name_token.lexeme.clone(),
+                    alias: item_alias,
+                    span: item_span,
+                });
+
+                if self.match_token(TokenKind::Comma) {
+                    total_span = span_union(total_span, self.previous().span);
+                    continue;
+                }
+                break;
+            }
+
+            let rbrace = self
+                .consume(TokenKind::RBrace, "expected '}' after import list")?
+                .clone();
+            total_span = span_union(total_span, rbrace.span);
+            items = Some(members);
         }
 
         let semicolon = self
             .consume(TokenKind::Semicolon, "expected ';' after import statement")?
             .clone();
-        span = span_union(span, semicolon.span);
+        total_span = span_union(total_span, semicolon.span);
 
         Some(Import {
-            path: ModulePath { segments, span },
-            span,
+            path: module_path,
+            alias,
+            items,
+            span: total_span,
         })
     }
 
@@ -549,50 +624,130 @@ impl<'a> Parser<'a> {
         let first = self
             .consume_identifier("expected module path after 'export'")?
             .clone();
-        let mut identifiers = vec![first.clone()];
+        let mut tokens = vec![first.clone()];
         let mut total_span = span_union(export_token.span, first.span);
 
         while self.check(TokenKind::Dot) || self.check(TokenKind::Scope) {
+            if self.check(TokenKind::Scope) && matches!(self.peek_next_kind(), TokenKind::LBrace) {
+                break;
+            }
             self.advance();
             let ident = self
                 .consume_identifier("expected identifier in export path")?
                 .clone();
             total_span = span_union(total_span, ident.span);
-            identifiers.push(ident);
+            tokens.push(ident);
         }
 
-        if identifiers.len() < 2 {
+        let mut module_tokens = tokens;
+        let mut items = Vec::new();
+
+        if self.check(TokenKind::Scope) && matches!(self.peek_next_kind(), TokenKind::LBrace) {
+            let scope_token = self.advance().clone();
+            total_span = span_union(total_span, scope_token.span);
+            let lbrace = self
+                .consume(TokenKind::LBrace, "expected '{' after '::' in export list")?
+                .clone();
+            total_span = span_union(total_span, lbrace.span);
+
+            if self.check(TokenKind::RBrace) {
+                self.errors.push(ParseError::new(
+                    "export list cannot be empty",
+                    lbrace.span.start_location,
+                ));
+                return None;
+            }
+
+            loop {
+                let name_token = self
+                    .consume_identifier("expected symbol in export list")?
+                    .clone();
+                let mut item_span = name_token.span;
+                let mut alias = None;
+
+                if self.match_keyword(Keyword::As) {
+                    let alias_token = self
+                        .consume_identifier("expected alias after 'as' in export list")?
+                        .clone();
+                    item_span = span_union(item_span, alias_token.span);
+                    alias = Some(alias_token.lexeme.clone());
+                }
+
+                items.push(ExportItem {
+                    name: name_token.lexeme.clone(),
+                    alias,
+                    span: item_span,
+                });
+
+                if self.match_token(TokenKind::Comma) {
+                    total_span = span_union(total_span, self.previous().span);
+                    continue;
+                }
+                break;
+            }
+
+            let rbrace = self
+                .consume(TokenKind::RBrace, "expected '}' after export list")?
+                .clone();
+            total_span = span_union(total_span, rbrace.span);
+        } else {
+            if module_tokens.len() < 2 {
+                self.errors.push(ParseError::new(
+                    "export path must include a module and symbol (e.g., module.path::name)",
+                    module_tokens[0].span.start_location,
+                ));
+                return None;
+            }
+
+            let symbol_token = module_tokens.pop().expect("verified length above");
+
+            let mut item_span = symbol_token.span;
+            let mut alias = None;
+            if self.match_keyword(Keyword::As) {
+                let alias_token = self
+                    .consume_identifier("expected alias after 'as' in export")?
+                    .clone();
+                item_span = span_union(item_span, alias_token.span);
+                alias = Some(alias_token.lexeme.clone());
+            }
+
+            items.push(ExportItem {
+                name: symbol_token.lexeme.clone(),
+                alias,
+                span: item_span,
+            });
+
+            total_span = span_union(total_span, symbol_token.span);
+        }
+
+        if module_tokens.is_empty() {
             self.errors.push(ParseError::new(
-                "export path must include a module and symbol (e.g., module.path::name)",
-                identifiers[0].span.start_location,
+                "export statement missing module path",
+                export_token.span.start_location,
             ));
             return None;
         }
 
-        let semicolon = self
-            .consume(TokenKind::Semicolon, "expected ';' after export statement")?
-            .clone();
-        total_span = span_union(total_span, semicolon.span);
-
-        let symbol_token = identifiers.pop().expect("export path length verified");
-        let module_span = identifiers
+        let module_span = module_tokens
             .iter()
             .skip(1)
-            .fold(identifiers[0].span, |acc, token| {
-                span_union(acc, token.span)
-            });
+            .fold(module_tokens[0].span, |acc, token| span_union(acc, token.span));
         let module_path = ModulePath {
-            segments: identifiers
+            segments: module_tokens
                 .iter()
                 .map(|token| token.lexeme.clone())
                 .collect(),
             span: module_span,
         };
 
+        let semicolon = self
+            .consume(TokenKind::Semicolon, "expected ';' after export statement")?
+            .clone();
+        total_span = span_union(total_span, semicolon.span);
+
         Some(Export {
             module_path,
-            symbol: symbol_token.lexeme.clone(),
-            symbol_span: symbol_token.span,
+            items,
             span: total_span,
         })
     }

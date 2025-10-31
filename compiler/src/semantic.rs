@@ -1,8 +1,8 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
-    BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import, Item,
-    Literal, Module, ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
+    BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import,
+    Item, Literal, Module, ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
@@ -52,6 +52,13 @@ struct ModuleExport {
     enums: HashMap<String, EnumExport>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ModuleAliasInfo {
+    alias: String,
+    module_key: String,
+    span: Span,
+}
+
 pub fn analyze(module: &Module) -> SemanticResult<()> {
     analyze_modules(&[module])
 }
@@ -81,6 +88,7 @@ struct Analyzer<'a> {
     struct_registry: HashMap<String, Type>,
     enum_registry: HashMap<String, EnumInfo>,
     current_module_imports: HashSet<String>,
+    module_aliases: HashMap<String, ModuleAliasInfo>,
     loop_depth: usize,
 }
 
@@ -97,6 +105,7 @@ impl<'a> Analyzer<'a> {
             struct_registry: HashMap::new(),
             enum_registry: HashMap::new(),
             current_module_imports: HashSet::new(),
+            module_aliases: HashMap::new(),
             loop_depth: 0,
         }
     }
@@ -278,246 +287,486 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        let (function_export, constant_export, struct_export, enum_export) =
-            match self.module_exports.get(&target_key) {
-                Some(exports) => (
-                    exports.functions.get(&export.symbol).cloned(),
-                    exports.constants.get(&export.symbol).cloned(),
-                    exports.structs.get(&export.symbol).cloned(),
-                    exports.enums.get(&export.symbol).cloned(),
-                ),
-                None => {
-                    self.errors.push(SemanticError::new(
-                        format!("module '{}' has no exported symbols", target_key),
-                        export.module_path.span,
-                    ));
-                    return;
-                }
-            };
+        // Clone the target exports to avoid borrow issues
+        let target_exports = match self.module_exports.get(&target_key).cloned() {
+            Some(exports) => exports,
+            None => {
+                self.errors.push(SemanticError::new(
+                    format!("module '{}' has no exported symbols", target_key),
+                    export.module_path.span,
+                ));
+                return;
+            }
+        };
 
-        let exports = self
+        let current_exports = self
             .module_exports
             .entry(current_key.to_string())
             .or_default();
 
-        if let Some(function_export) = function_export {
-            if exports.constants.contains_key(&export.symbol)
-                || exports.structs.contains_key(&export.symbol)
-                || exports.enums.contains_key(&export.symbol)
-            {
-                let previous_location = exports
-                    .constants
-                    .get(&export.symbol)
-                    .map(|entry| entry.span.start_location)
-                    .or_else(|| {
-                        exports
-                            .structs
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .or_else(|| {
-                        exports
-                            .enums
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .unwrap_or(export.symbol_span.start_location);
+        for item in &export.items {
+            let source_name = &item.name;
+            let local_name = item.alias.as_ref().unwrap_or(source_name);
+
+            if let Some(span) = Self::export_conflict_span(current_exports, local_name) {
                 self.errors.push(SemanticError::new(
                     format!(
                         "exported symbol '{}' conflicts with existing symbol in module '{}' (previous definition at {})",
-                        export.symbol, current_key, previous_location
+                        local_name, current_key, span.start_location
                     ),
-                    export.symbol_span,
+                    item.span,
                 ));
-                return;
+                continue;
             }
 
-            match exports.functions.entry(export.symbol.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(FunctionExport {
+            if let Some(function_export) = target_exports.functions.get(source_name) {
+                current_exports.functions.insert(
+                    local_name.clone(),
+                    FunctionExport {
                         signature: function_export.signature.clone(),
-                        span: export.symbol_span,
-                    });
-                }
-                Entry::Occupied(entry) => {
-                    let previous_location = entry.get().span.start_location;
-                    self.errors.push(SemanticError::new(
-                        format!(
-                            "exported symbol '{}' already defined in module '{}' (previous definition at {})",
-                            export.symbol, current_key, previous_location
-                        ),
-                        export.symbol_span,
-                    ));
-                }
-            }
-            return;
-        }
-
-        if let Some(constant_export) = constant_export {
-            if exports.functions.contains_key(&export.symbol)
-                || exports.structs.contains_key(&export.symbol)
-                || exports.enums.contains_key(&export.symbol)
-            {
-                let previous_location = exports
-                    .functions
-                    .get(&export.symbol)
-                    .map(|entry| entry.span.start_location)
-                    .or_else(|| {
-                        exports
-                            .structs
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .or_else(|| {
-                        exports
-                            .enums
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .unwrap_or(export.symbol_span.start_location);
-                self.errors.push(SemanticError::new(
-                    format!(
-                        "exported symbol '{}' conflicts with existing symbol in module '{}' (previous definition at {})",
-                        export.symbol, current_key, previous_location
-                    ),
-                    export.symbol_span,
-                ));
-                return;
+                        span: item.span,
+                    },
+                );
+                continue;
             }
 
-            match exports.constants.entry(export.symbol.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(ConstantExport {
+            if let Some(constant_export) = target_exports.constants.get(source_name) {
+                current_exports.constants.insert(
+                    local_name.clone(),
+                    ConstantExport {
                         ty: constant_export.ty.clone(),
-                        span: export.symbol_span,
-                    });
-                }
-                Entry::Occupied(entry) => {
-                    let previous_location = entry.get().span.start_location;
-                    self.errors.push(SemanticError::new(
-                        format!(
-                            "exported symbol '{}' already defined in module '{}' (previous definition at {})",
-                            export.symbol, current_key, previous_location
-                        ),
-                        export.symbol_span,
-                    ));
+                        span: item.span,
+                    },
+                );
+                continue;
+            }
+
+            if let Some(struct_export) = target_exports.structs.get(source_name) {
+                current_exports.structs.insert(
+                    local_name.clone(),
+                    StructExport {
+                        ty: struct_export.ty.clone(),
+                        span: item.span,
+                    },
+                );
+                continue;
+            }
+
+            if let Some(enum_export) = target_exports.enums.get(source_name) {
+                current_exports.enums.insert(
+                    local_name.clone(),
+                    EnumExport {
+                        ty: enum_export.ty.clone(),
+                        variants: enum_export.variants.clone(),
+                        span: item.span,
+                    },
+                );
+                continue;
+            }
+
+            self.errors.push(SemanticError::new(
+                format!(
+                    "module '{}' does not export symbol '{}'",
+                    target_key, source_name
+                ),
+                item.span,
+            ));
+        }
+    }
+
+    fn export_conflict_span(exports: &ModuleExport, name: &str) -> Option<Span> {
+        exports
+            .functions
+            .get(name)
+            .map(|entry| entry.span)
+            .or_else(|| exports.constants.get(name).map(|entry| entry.span))
+            .or_else(|| exports.structs.get(name).map(|entry| entry.span))
+            .or_else(|| exports.enums.get(name).map(|entry| entry.span))
+    }
+
+    fn introduce_imports(&mut self, module: &'a Module) {
+        let mut seen_full_imports = HashSet::new();
+
+        for item in &module.items {
+            let Item::Import(import) = item else {
+                continue;
+            };
+
+            let key = module_path_key(&import.path);
+
+            if let Some(alias) = import.alias.as_ref() {
+                let alias_info = ModuleAliasInfo {
+                    alias: alias.clone(),
+                    module_key: key.clone(),
+                    span: import.span,
+                };
+
+                match self.scopes.define(
+                    alias,
+                    import.span,
+                    SymbolKind::ModuleAlias,
+                    Type::Module(alias_info.clone()),
+                    false,
+                ) {
+                    Ok(()) => {
+                        self.module_aliases.insert(alias.clone(), alias_info);
+                    }
+                    Err(previous_span) => {
+                        let previous_location = previous_span.start_location;
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "import alias '{}' conflicts with existing symbol (previous definition at {})",
+                                alias, previous_location
+                            ),
+                            import.span,
+                        ));
+                    }
                 }
             }
-            return;
-        }
 
-        if let Some(struct_export) = struct_export {
-            if exports.functions.contains_key(&export.symbol)
-                || exports.constants.contains_key(&export.symbol)
-                || exports.enums.contains_key(&export.symbol)
-            {
-                let previous_location = exports
-                    .functions
-                    .get(&export.symbol)
-                    .map(|entry| entry.span.start_location)
-                    .or_else(|| {
-                        exports
-                            .constants
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .or_else(|| {
-                        exports
-                            .enums
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .unwrap_or(export.symbol_span.start_location);
+            if let Some(items) = import.items.as_ref() {
+                if !items.is_empty() {
+                    self.introduce_selective_import(import, &key);
+                }
+                continue;
+            }
+
+            if import.alias.is_some() {
+                continue;
+            }
+
+            if self.current_module_key.as_deref() == Some(key.as_str()) {
+                continue;
+            }
+
+            if !seen_full_imports.insert(key.clone()) {
+                continue;
+            }
+
+            self.introduce_full_import(import, &key);
+        }
+    }
+
+    fn introduce_full_import(&mut self, import: &'a Import, module_key: &str) {
+        let Some(exports) = self.module_exports.get(module_key) else {
+            return;
+        };
+
+        let function_exports = exports
+            .functions
+            .iter()
+            .map(|(name, export)| (name.clone(), export.clone()))
+            .collect::<Vec<_>>();
+        let constant_exports = exports
+            .constants
+            .iter()
+            .map(|(name, export)| (name.clone(), export.clone()))
+            .collect::<Vec<_>>();
+        let struct_exports = exports
+            .structs
+            .iter()
+            .map(|(name, export)| (name.clone(), export.clone()))
+            .collect::<Vec<_>>();
+        let enum_exports = exports
+            .enums
+            .iter()
+            .map(|(name, export)| (name.clone(), export.clone()))
+            .collect::<Vec<_>>();
+
+        let mut function_updates = Vec::new();
+        for (name, export) in &function_exports {
+            if let Err(previous_span) = self.scopes.define(
+                name,
+                export.span,
+                SymbolKind::Function,
+                Type::Function(export.signature.clone()),
+                false,
+            ) {
+                let previous_location = previous_span.start_location;
                 self.errors.push(SemanticError::new(
                     format!(
-                        "exported symbol '{}' conflicts with existing symbol in module '{}' (previous definition at {})",
-                        export.symbol, current_key, previous_location
+                        "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                        name, previous_location
                     ),
-                    export.symbol_span,
+                    import.span,
                 ));
-                return;
+            } else {
+                self.current_module_imports.insert(name.clone());
+                function_updates.push((
+                    name.clone(),
+                    export.signature.clone(),
+                    export.span,
+                ));
             }
-
-            match exports.structs.entry(export.symbol.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(struct_export);
-                }
-                Entry::Occupied(entry) => {
-                    let previous_location = entry.get().span.start_location;
-                    self.errors.push(SemanticError::new(
-                        format!(
-                            "exported symbol '{}' already defined in module '{}' (previous definition at {})",
-                            export.symbol, current_key, previous_location
-                        ),
-                        export.symbol_span,
-                    ));
+        }
+        if let Some(current_key) = self.current_module_key.as_ref() {
+            if let Some(exports) = self.module_exports.get_mut(current_key) {
+                for (name, signature, span) in function_updates {
+                    if let Some(entry) = exports.functions.get_mut(&name) {
+                        entry.signature = signature.clone();
+                        entry.span = span;
+                    }
                 }
             }
-            return;
         }
 
-        if let Some(enum_export) = enum_export {
-            if exports.functions.contains_key(&export.symbol)
-                || exports.constants.contains_key(&export.symbol)
-                || exports.structs.contains_key(&export.symbol)
-            {
-                let previous_location = exports
-                    .functions
-                    .get(&export.symbol)
-                    .map(|entry| entry.span.start_location)
-                    .or_else(|| {
-                        exports
-                            .constants
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .or_else(|| {
-                        exports
-                            .structs
-                            .get(&export.symbol)
-                            .map(|entry| entry.span.start_location)
-                    })
-                    .unwrap_or(export.symbol_span.start_location);
+        let mut constant_updates = Vec::new();
+        for (name, export) in &constant_exports {
+            if let Err(previous_span) = self.scopes.define(
+                name,
+                export.span,
+                SymbolKind::Constant,
+                export.ty.clone(),
+                false,
+            ) {
+                let previous_location = previous_span.start_location;
                 self.errors.push(SemanticError::new(
                     format!(
-                        "exported symbol '{}' conflicts with existing symbol in module '{}' (previous definition at {})",
-                        export.symbol, current_key, previous_location
+                        "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                        name, previous_location
                     ),
-                    export.symbol_span,
+                    import.span,
                 ));
-                return;
+            } else {
+                self.current_module_imports.insert(name.clone());
+                constant_updates.push((name.clone(), export.ty.clone(), export.span));
             }
-
-            match exports.enums.entry(export.symbol.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(enum_export);
-                }
-                Entry::Occupied(entry) => {
-                    let previous_location = entry.get().span.start_location;
-                    self.errors.push(SemanticError::new(
-                        format!(
-                            "exported symbol '{}' already defined in module '{}' (previous definition at {})",
-                            export.symbol, current_key, previous_location
-                        ),
-                        export.symbol_span,
-                    ));
+        }
+        if let Some(current_key) = self.current_module_key.as_ref() {
+            if let Some(exports) = self.module_exports.get_mut(current_key) {
+                for (name, ty, span) in constant_updates {
+                    if let Some(entry) = exports.constants.get_mut(&name) {
+                        entry.ty = ty.clone();
+                        entry.span = span;
+                    }
                 }
             }
-            return;
         }
 
-        self.errors.push(SemanticError::new(
-            format!(
-                "module '{}' does not export symbol '{}'",
-                target_key, export.symbol
-            ),
-            export.symbol_span,
-        ));
+        let mut struct_updates = Vec::new();
+        for (name, export) in &struct_exports {
+            if let Err(previous_span) = self.scopes.define(
+                name,
+                export.span,
+                SymbolKind::Constant,
+                export.ty.clone(),
+                false,
+            ) {
+                let previous_location = previous_span.start_location;
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                        name, previous_location
+                    ),
+                    import.span,
+                ));
+            } else {
+                self.struct_registry.insert(name.clone(), export.ty.clone());
+                self.current_module_imports.insert(name.clone());
+                struct_updates.push((name.clone(), export.ty.clone(), export.span));
+            }
+        }
+        if let Some(current_key) = self.current_module_key.as_ref() {
+            if let Some(exports) = self.module_exports.get_mut(current_key) {
+                for (name, ty, span) in struct_updates {
+                    if let Some(entry) = exports.structs.get_mut(&name) {
+                        entry.ty = ty.clone();
+                        entry.span = span;
+                    }
+                }
+            }
+        }
+
+        let mut enum_updates = Vec::new();
+        for (name, export) in &enum_exports {
+            if let Err(previous_span) = self.scopes.define(
+                name,
+                export.span,
+                SymbolKind::Constant,
+                export.ty.clone(),
+                false,
+            ) {
+                let previous_location = previous_span.start_location;
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                        name, previous_location
+                    ),
+                    import.span,
+                ));
+            } else {
+                self.current_module_imports.insert(name.clone());
+                enum_updates.push((name.clone(), export.ty.clone(), export.span));
+            }
+        }
+        if let Some(current_key) = self.current_module_key.as_ref() {
+            if let Some(exports) = self.module_exports.get_mut(current_key) {
+                for (name, ty, span) in enum_updates {
+                    if let Some(entry) = exports.enums.get_mut(&name) {
+                        entry.ty = ty.clone();
+                        entry.span = span;
+                    }
+                }
+            }
+        }
+    }
+
+    fn introduce_selective_import(&mut self, import: &'a Import, module_key: &str) {
+        let Some(items) = import.items.as_ref() else {
+            return;
+        };
+        let Some(exports) = self.module_exports.get(module_key) else {
+            return;
+        };
+
+        let mut function_updates = Vec::new();
+        let mut constant_updates = Vec::new();
+        let mut struct_updates = Vec::new();
+        let mut enum_updates = Vec::new();
+
+        for item in items {
+            let source_name = &item.name;
+            let local_name = item.alias.as_ref().unwrap_or(source_name);
+
+            if let Some(export) = exports.functions.get(source_name).cloned() {
+                if let Err(previous_span) = self.scopes.define(
+                    local_name,
+                    item.span,
+                    SymbolKind::Function,
+                    Type::Function(export.signature.clone()),
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                            local_name, previous_location
+                        ),
+                        item.span,
+                    ));
+                } else {
+                    self.current_module_imports.insert(local_name.clone());
+                    function_updates.push((
+                        local_name.to_string(),
+                        export.signature,
+                        export.span,
+                    ));
+                }
+                continue;
+            }
+
+            if let Some(export) = exports.constants.get(source_name).cloned() {
+                if let Err(previous_span) = self.scopes.define(
+                    local_name,
+                    item.span,
+                    SymbolKind::Constant,
+                    export.ty.clone(),
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                            local_name, previous_location
+                        ),
+                        item.span,
+                    ));
+                } else {
+                    self.current_module_imports.insert(local_name.clone());
+                    constant_updates.push((local_name.to_string(), export.ty, export.span));
+                }
+                continue;
+            }
+
+            if let Some(export) = exports.structs.get(source_name).cloned() {
+                if let Err(previous_span) = self.scopes.define(
+                    local_name,
+                    item.span,
+                    SymbolKind::Constant,
+                    export.ty.clone(),
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                            local_name, previous_location
+                        ),
+                        item.span,
+                    ));
+                } else {
+                    self.struct_registry
+                        .insert(local_name.clone(), export.ty.clone());
+                    self.current_module_imports.insert(local_name.clone());
+                    struct_updates.push((local_name.to_string(), export.ty, export.span));
+                }
+                continue;
+            }
+
+            if let Some(export) = exports.enums.get(source_name).cloned() {
+                if let Err(previous_span) = self.scopes.define(
+                    local_name,
+                    item.span,
+                    SymbolKind::Constant,
+                    export.ty.clone(),
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "imported symbol '{}' conflicts with existing definition (previous definition at {})",
+                            local_name, previous_location
+                        ),
+                        item.span,
+                    ));
+                } else {
+                    self.current_module_imports.insert(local_name.clone());
+                    enum_updates.push((local_name.to_string(), export.ty, export.span));
+                }
+                continue;
+            }
+
+            self.errors.push(SemanticError::new(
+                format!(
+                    "module '{}' does not export symbol '{}'",
+                    module_key, source_name
+                ),
+                item.span,
+            ));
+        }
+
+        if let Some(current_key) = self.current_module_key.as_ref() {
+            if let Some(exports) = self.module_exports.get_mut(current_key) {
+                for (name, signature, span) in function_updates {
+                    if let Some(entry) = exports.functions.get_mut(&name) {
+                        entry.signature = signature.clone();
+                        entry.span = span;
+                    }
+                }
+                for (name, ty, span) in constant_updates {
+                    if let Some(entry) = exports.constants.get_mut(&name) {
+                        entry.ty = ty.clone();
+                        entry.span = span;
+                    }
+                }
+                for (name, ty, span) in struct_updates {
+                    if let Some(entry) = exports.structs.get_mut(&name) {
+                        entry.ty = ty.clone();
+                        entry.span = span;
+                    }
+                }
+                for (name, ty, span) in enum_updates {
+                    if let Some(entry) = exports.enums.get_mut(&name) {
+                        entry.ty = ty.clone();
+                        entry.span = span;
+                    }
+                }
+            }
+        }
     }
 
     fn analyze_module(&mut self, module: &'a Module) {
         self.struct_registry.clear();
-        self.enum_registry.clear();
         self.current_module_imports.clear();
         self.scopes.push(ScopeKind::Module);
         self.current_module_key = module.name.as_ref().map(module_path_key);
@@ -531,18 +780,12 @@ impl<'a> Analyzer<'a> {
 
         for item in &module.items {
             match item {
-                Item::Struct(struct_decl) => self.analyze_struct(struct_decl),
-                Item::Enum(enum_decl) => self.analyze_enum(enum_decl),
-                _ => {}
-            }
-        }
-
-        for item in &module.items {
-            match item {
                 Item::Function(function) => self.analyze_function(function),
                 Item::Constant(constant) => self.analyze_constant(constant),
+                Item::Struct(struct_decl) => self.analyze_struct(struct_decl),
+                Item::Enum(enum_decl) => self.analyze_enum(enum_decl),
                 Item::Stmt(statement) => self.analyze_statement(statement),
-                Item::Import(_) | Item::Export(_) | Item::Struct(_) | Item::Enum(_) => {}
+                Item::Import(_) | Item::Export(_) => {}
             }
         }
 
@@ -557,8 +800,6 @@ impl<'a> Analyzer<'a> {
     fn register_structs(&mut self, module: &'a Module) {
         for item in &module.items {
             if let Item::Struct(struct_decl) = item {
-                // Register struct with empty fields initially
-                // Fields will be validated later in analyze_struct
                 let struct_type = Type::Struct(struct_decl.name.clone(), HashMap::new());
                 self.struct_registry
                     .insert(struct_decl.name.clone(), struct_type.clone());
@@ -586,13 +827,7 @@ impl<'a> Analyzer<'a> {
     fn register_enums(&mut self, module: &'a Module) {
         for item in &module.items {
             if let Item::Enum(enum_decl) = item {
-                // Register enum name initially
-                // Variants will be validated later in analyze_enum
                 let enum_type = Type::Enum(enum_decl.name.clone());
-
-                self.enum_registry
-                    .entry(enum_decl.name.clone())
-                    .or_insert_with(EnumInfo::default);
 
                 if let Err(previous_span) = self.scopes.define(
                     &enum_decl.name,
@@ -685,187 +920,6 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn introduce_imports(&mut self, module: &'a Module) {
-        let mut seen_modules = HashSet::new();
-        for item in &module.items {
-            if let Item::Import(import) = item {
-                let key = module_path_key(&import.path);
-
-                if !seen_modules.insert(key.clone()) {
-                    continue;
-                }
-
-                if self.current_module_key.as_deref() == Some(key.as_str()) {
-                    continue;
-                }
-
-                let (function_exports, constant_exports, struct_exports, enum_exports) =
-                    match self.module_exports.get(&key) {
-                        Some(exports) => (
-                            exports
-                                .functions
-                                .iter()
-                                .map(|(name, export)| (name.clone(), export.clone()))
-                                .collect::<Vec<_>>(),
-                            exports
-                                .constants
-                                .iter()
-                                .map(|(name, export)| (name.clone(), export.clone()))
-                                .collect::<Vec<_>>(),
-                            exports
-                                .structs
-                                .iter()
-                                .map(|(name, export)| (name.clone(), export.clone()))
-                                .collect::<Vec<_>>(),
-                            exports
-                                .enums
-                                .iter()
-                                .map(|(name, export)| (name.clone(), export.clone()))
-                                .collect::<Vec<_>>(),
-                        ),
-                        None => continue,
-                    };
-
-                let mut function_updates = Vec::new();
-                for (name, export) in &function_exports {
-                    if let Err(previous_span) = self.scopes.define(
-                        name,
-                        export.span,
-                        SymbolKind::Function,
-                        Type::Function(export.signature.clone()),
-                        false,
-                    ) {
-                        let previous_location = previous_span.start_location;
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "imported symbol '{}' conflicts with existing definition (previous definition at {})",
-                                name, previous_location
-                            ),
-                            import.span,
-                        ));
-                    } else {
-                        self.current_module_imports.insert(name.clone());
-                        function_updates.push((
-                            name.clone(),
-                            export.signature.clone(),
-                            export.span,
-                        ));
-                    }
-                }
-                if let Some(current_key) = self.current_module_key.as_ref() {
-                    if let Some(exports) = self.module_exports.get_mut(current_key) {
-                        for (name, signature, span) in function_updates {
-                            if let Some(entry) = exports.functions.get_mut(&name) {
-                                entry.signature = signature.clone();
-                                entry.span = span;
-                            }
-                        }
-                    }
-                }
-
-                let mut constant_updates = Vec::new();
-                for (name, export) in &constant_exports {
-                    if let Err(previous_span) = self.scopes.define(
-                        name,
-                        export.span,
-                        SymbolKind::Constant,
-                        export.ty.clone(),
-                        false,
-                    ) {
-                        let previous_location = previous_span.start_location;
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "imported symbol '{}' conflicts with existing definition (previous definition at {})",
-                                name, previous_location
-                            ),
-                            import.span,
-                        ));
-                    } else {
-                        self.current_module_imports.insert(name.clone());
-                        constant_updates.push((name.clone(), export.ty.clone(), export.span));
-                    }
-                }
-                if let Some(current_key) = self.current_module_key.as_ref() {
-                    if let Some(exports) = self.module_exports.get_mut(current_key) {
-                        for (name, ty, span) in constant_updates {
-                            if let Some(entry) = exports.constants.get_mut(&name) {
-                                entry.ty = ty.clone();
-                                entry.span = span;
-                            }
-                        }
-                    }
-                }
-
-                let mut struct_updates = Vec::new();
-                for (name, export) in &struct_exports {
-                    if let Err(previous_span) = self.scopes.define(
-                        name,
-                        export.span,
-                        SymbolKind::Constant,
-                        export.ty.clone(),
-                        false,
-                    ) {
-                        let previous_location = previous_span.start_location;
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "imported symbol '{}' conflicts with existing definition (previous definition at {})",
-                                name, previous_location
-                            ),
-                            import.span,
-                        ));
-                    } else {
-                        self.struct_registry.insert(name.clone(), export.ty.clone());
-                        self.current_module_imports.insert(name.clone());
-                        struct_updates.push((name.clone(), export.ty.clone(), export.span));
-                    }
-                }
-                if let Some(current_key) = self.current_module_key.as_ref() {
-                    if let Some(exports) = self.module_exports.get_mut(current_key) {
-                        for (name, ty, span) in struct_updates {
-                            if let Some(entry) = exports.structs.get_mut(&name) {
-                                entry.ty = ty.clone();
-                                entry.span = span;
-                            }
-                        }
-                    }
-                }
-
-                let mut enum_updates = Vec::new();
-                for (name, export) in &enum_exports {
-                    if let Err(previous_span) = self.scopes.define(
-                        name,
-                        export.span,
-                        SymbolKind::Constant,
-                        export.ty.clone(),
-                        false,
-                    ) {
-                        let previous_location = previous_span.start_location;
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "imported symbol '{}' conflicts with existing definition (previous definition at {})",
-                                name, previous_location
-                            ),
-                            import.span,
-                        ));
-                    } else {
-                        self.current_module_imports.insert(name.clone());
-                        enum_updates.push((name.clone(), export.ty.clone(), export.span));
-                    }
-                }
-                if let Some(current_key) = self.current_module_key.as_ref() {
-                    if let Some(exports) = self.module_exports.get_mut(current_key) {
-                        for (name, ty, span) in enum_updates {
-                            if let Some(entry) = exports.enums.get_mut(&name) {
-                                entry.ty = ty.clone();
-                                entry.span = span;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn validate_imports(&mut self, module: &'a Module) {
         let current_key = module.name.as_ref().map(module_path_key);
         for item in &module.items {
@@ -890,6 +944,31 @@ impl<'a> Analyzer<'a> {
                 format!("unknown module '{}'", key),
                 import.span,
             ));
+            return;
+        }
+
+        if let Some(items) = import.items.as_ref() {
+            let Some(exports) = self.module_exports.get(&key) else {
+                self.errors.push(SemanticError::new(
+                    format!("module '{}' has no exported symbols", key),
+                    import.span,
+                ));
+                return;
+            };
+
+            for item in items {
+                let name = &item.name;
+                let exists = exports.functions.contains_key(name)
+                    || exports.constants.contains_key(name)
+                    || exports.structs.contains_key(name)
+                    || exports.enums.contains_key(name);
+                if !exists {
+                    self.errors.push(SemanticError::new(
+                        format!("module '{}' does not export symbol '{}'", key, name),
+                        item.span,
+                    ));
+                }
+            }
         }
     }
 
@@ -1463,6 +1542,9 @@ impl<'a> Analyzer<'a> {
             match symbol.kind {
                 SymbolKind::Function => {
                     diagnostics.push(format!("cannot assign to function '{}'", target));
+                }
+                SymbolKind::ModuleAlias => {
+                    diagnostics.push(format!("cannot assign to module alias '{}'", target));
                 }
                 SymbolKind::Variable | SymbolKind::Parameter | SymbolKind::Constant => {
                     if !symbol.mutable {
@@ -2206,7 +2288,7 @@ impl<'a> Analyzer<'a> {
                     format!("parameter '{}' is never used", name),
                     info.span,
                 )),
-                SymbolKind::Function => {}
+                SymbolKind::Function | SymbolKind::ModuleAlias => {}
             }
         }
     }
@@ -2262,6 +2344,7 @@ enum SymbolKind {
     Variable,
     Parameter,
     Constant,
+    ModuleAlias,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2301,6 +2384,7 @@ enum Type {
     Struct(String, HashMap<String, Type>),
     Enum(String),
     Array(Box<Type>),
+    Module(ModuleAliasInfo),
     Unknown,
 }
 
@@ -2316,6 +2400,7 @@ impl Type {
             Type::Struct(name, _) => format!("struct {}", name),
             Type::Enum(name) => format!("enum {}", name),
             Type::Array(element) => format!("array<{}>", element.describe()),
+            Type::Module(info) => format!("module alias '{}'", info.alias),
             Type::Unknown => "unknown".to_string(),
         }
     }
