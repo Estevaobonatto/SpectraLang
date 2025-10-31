@@ -128,6 +128,12 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    IndexAssignment {
+        array: Expr,
+        index: Expr,
+        value: Expr,
+        span: Span,
+    },
     FieldAssignment {
         object: Expr,
         field: String,

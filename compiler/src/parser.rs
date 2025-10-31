@@ -1,9 +1,9 @@
 use crate::{
     ast::{
-    BinaryOperator, Block, Constant, EnumDecl, EnumVariant, EnumVariantData, Export, ExportItem,
-    Expr, Function, Import, ImportItem, Item, Literal, MatchArm, MatchPattern, Module,
-    ModulePath, Parameter, Stmt, StructDecl, StructField, StructFieldInit, TypeName,
-    UnaryOperator, Visibility,
+        BinaryOperator, Block, Constant, EnumDecl, EnumVariant, EnumVariantData, Export,
+        ExportItem, Expr, Function, Import, ImportItem, Item, Literal, MatchArm, MatchPattern,
+        Module, ModulePath, Parameter, Stmt, StructDecl, StructField, StructFieldInit, TypeName,
+        UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -731,7 +731,9 @@ impl<'a> Parser<'a> {
         let module_span = module_tokens
             .iter()
             .skip(1)
-            .fold(module_tokens[0].span, |acc, token| span_union(acc, token.span));
+            .fold(module_tokens[0].span, |acc, token| {
+                span_union(acc, token.span)
+            });
         let module_path = ModulePath {
             segments: module_tokens
                 .iter()
@@ -1097,6 +1099,20 @@ impl<'a> Parser<'a> {
                 return Some(Stmt::FieldAssignment {
                     object: *object.clone(),
                     field: field.clone(),
+                    value,
+                    span,
+                });
+            }
+        }
+
+        if let Expr::Index { array, index, .. } = &expr {
+            if self.match_token(TokenKind::Equal) {
+                let value = self.expression()?;
+                self.consume(TokenKind::Semicolon, "expected ';' after index assignment")?;
+                let span = span_union(expr_span(&expr), self.previous().span);
+                return Some(Stmt::IndexAssignment {
+                    array: *array.clone(),
+                    index: *index.clone(),
                     value,
                     span,
                 });
@@ -1686,6 +1702,7 @@ fn statement_span(stmt: &Stmt) -> Span {
     match stmt {
         Stmt::Let { span, .. }
         | Stmt::Assignment { span, .. }
+        | Stmt::IndexAssignment { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::While { span, .. }
@@ -1879,6 +1896,18 @@ mod tests {
                 }
             }
             _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_index_assignment_statement() {
+        let module = parse_ok("fn main() { var data = [1, 2, 3]; data[1] = 42; }");
+        match &module.items[0] {
+            Item::Function(Function { body, .. }) => {
+                assert!(matches!(body.statements[0], Stmt::Let { .. }));
+                assert!(matches!(body.statements[1], Stmt::IndexAssignment { .. }));
+            }
+            _ => panic!("expected function item"),
         }
     }
 

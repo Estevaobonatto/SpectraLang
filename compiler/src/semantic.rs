@@ -1,8 +1,8 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
-    BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import,
-    Item, Literal, Module, ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
+    BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import, Item,
+    Literal, Module, ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
@@ -203,6 +203,62 @@ impl<'a> Analyzer<'a> {
                             }
                         }
                     }
+                    Item::Struct(struct_decl) => {
+                        if struct_decl.visibility != Visibility::Public {
+                            continue;
+                        }
+
+                        let exports = self.module_exports.entry(key.clone()).or_default();
+                        if let Some(conflict_span) =
+                            Self::export_conflict_span(&*exports, &struct_decl.name)
+                        {
+                            let previous_location = conflict_span.start_location;
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "struct '{}' conflicts with existing exported symbol in module '{}' (previous definition at {})",
+                                    struct_decl.name, key, previous_location
+                                ),
+                                struct_decl.span,
+                            ));
+                            continue;
+                        }
+
+                        exports.structs.insert(
+                            struct_decl.name.clone(),
+                            StructExport {
+                                ty: Type::Struct(struct_decl.name.clone(), HashMap::new()),
+                                span: struct_decl.span,
+                            },
+                        );
+                    }
+                    Item::Constant(constant) => {
+                        if constant.visibility != Visibility::Public {
+                            continue;
+                        }
+
+                        let exports = self.module_exports.entry(key.clone()).or_default();
+                        if let Some(conflict_span) =
+                            Self::export_conflict_span(&*exports, &constant.name)
+                        {
+                            let previous_location = conflict_span.start_location;
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "constant '{}' conflicts with existing exported symbol in module '{}' (previous definition at {})",
+                                    constant.name, key, previous_location
+                                ),
+                                constant.span,
+                            ));
+                            continue;
+                        }
+
+                        exports.constants.insert(
+                            constant.name.clone(),
+                            ConstantExport {
+                                ty: Type::Unknown,
+                                span: constant.span,
+                            },
+                        );
+                    }
                     Item::Enum(enum_decl) => {
                         if enum_decl.visibility != Visibility::Public {
                             continue;
@@ -311,8 +367,8 @@ impl<'a> Analyzer<'a> {
             if let Some(span) = Self::export_conflict_span(current_exports, local_name) {
                 self.errors.push(SemanticError::new(
                     format!(
-                        "exported symbol '{}' conflicts with existing symbol in module '{}' (previous definition at {})",
-                        local_name, current_key, span.start_location
+                        "exported symbol '{}' already defined (previous definition at {})",
+                        local_name, span.start_location
                     ),
                     item.span,
                 ));
@@ -492,11 +548,7 @@ impl<'a> Analyzer<'a> {
                 ));
             } else {
                 self.current_module_imports.insert(name.clone());
-                function_updates.push((
-                    name.clone(),
-                    export.signature.clone(),
-                    export.span,
-                ));
+                function_updates.push((name.clone(), export.signature.clone(), export.span));
             }
         }
         if let Some(current_key) = self.current_module_key.as_ref() {
@@ -646,11 +698,7 @@ impl<'a> Analyzer<'a> {
                     ));
                 } else {
                     self.current_module_imports.insert(local_name.clone());
-                    function_updates.push((
-                        local_name.to_string(),
-                        export.signature,
-                        export.span,
-                    ));
+                    function_updates.push((local_name.to_string(), export.signature, export.span));
                 }
                 continue;
             }
@@ -1307,6 +1355,14 @@ impl<'a> Analyzer<'a> {
             } => {
                 self.analyze_assignment(target, value, *span);
             }
+            Stmt::IndexAssignment {
+                array,
+                index,
+                value,
+                span,
+            } => {
+                self.analyze_index_assignment(array, index, value, *span);
+            }
             Stmt::FieldAssignment {
                 object,
                 field,
@@ -1570,6 +1626,69 @@ impl<'a> Analyzer<'a> {
 
         for message in diagnostics {
             self.errors.push(SemanticError::new(message, span));
+        }
+    }
+
+    fn analyze_index_assignment(&mut self, array: &Expr, index: &Expr, value: &Expr, span: Span) {
+        let array_type = self.analyze_expr(array);
+        let index_type = self.analyze_expr(index);
+        let value_type = self.analyze_expr(value);
+
+        if !matches!(index_type, Type::Integer | Type::Unknown) {
+            self.errors.push(SemanticError::new(
+                format!("array index must be integer, got {}", index_type.describe()),
+                expr_span(index),
+            ));
+        }
+
+        match array_type {
+            Type::Array(element_type) => {
+                let element_type = *element_type;
+                if !types_compatible(&element_type, &value_type) {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "array element expects type {}, got {}",
+                            element_type.describe(),
+                            value_type.describe()
+                        ),
+                        span,
+                    ));
+                }
+            }
+            Type::Unknown => {}
+            other => {
+                self.errors.push(SemanticError::new(
+                    format!("cannot assign through index on type {}", other.describe()),
+                    expr_span(array),
+                ));
+            }
+        }
+
+        if let Some(name) = binding_name_from_index_target(array) {
+            if let Some(symbol) = self.scopes.resolve_mut_internal(name, true) {
+                match symbol.kind {
+                    SymbolKind::Variable | SymbolKind::Parameter | SymbolKind::Constant => {
+                        if !symbol.mutable {
+                            self.errors.push(SemanticError::new(
+                                format!("cannot assign to immutable binding '{}'", name),
+                                span,
+                            ));
+                        }
+                    }
+                    SymbolKind::Function => {
+                        self.errors.push(SemanticError::new(
+                            format!("cannot assign to function '{}'", name),
+                            span,
+                        ));
+                    }
+                    SymbolKind::ModuleAlias => {
+                        self.errors.push(SemanticError::new(
+                            format!("cannot assign to module alias '{}'", name),
+                            span,
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -2552,6 +2671,14 @@ fn module_path_key(path: &ModulePath) -> String {
     path.segments.join("::")
 }
 
+fn binding_name_from_index_target(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Identifier { name, .. } => Some(name.as_str()),
+        Expr::Index { array, .. } => binding_name_from_index_target(array),
+        _ => None,
+    }
+}
+
 fn expr_span(expr: &Expr) -> Span {
     match expr {
         Expr::Literal { span, .. }
@@ -3139,6 +3266,39 @@ mod tests {
         assert!(errors.iter().any(|error| error
             .message
             .contains("cannot assign to field 'field' on non-struct")));
+    }
+
+    #[test]
+    fn allows_index_assignment() {
+        analyze_source("fn main(): void { var data = [1, 2, 3]; data[1] = 42; }")
+            .expect("analysis ok");
+    }
+
+    #[test]
+    fn detects_index_assignment_type_mismatch() {
+        let errors = analyze_source("fn main(): void { var data = [1, 2, 3]; data[0] = true; }")
+            .unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("array element expects type integer")));
+    }
+
+    #[test]
+    fn detects_index_assignment_on_non_array() {
+        let errors =
+            analyze_source("fn main(): void { var value = 1; value[0] = 2; }").unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("cannot assign through index")));
+    }
+
+    #[test]
+    fn detects_index_assignment_to_immutable_binding() {
+        let errors =
+            analyze_source("fn main(): void { let data = [1, 2, 3]; data[0] = 5; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("cannot assign to immutable binding 'data'")));
     }
 
     #[test]
