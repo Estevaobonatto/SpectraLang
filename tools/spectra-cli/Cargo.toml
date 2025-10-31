@@ -9,3 +9,6 @@ description = "SpectraLang command-line interface"
 [dependencies]
 clap.workspace = true
 spectra-compiler = { path = "../../compiler" }
+
+[dev-dependencies]
+tempfile = "3"

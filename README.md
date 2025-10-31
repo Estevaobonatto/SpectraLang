@@ -20,12 +20,18 @@ cargo run --package spectra-cli -- new hello_cli
 cargo run --package spectra-cli -- build hello_cli
 ```
 
-> O comando `new` gera um esqueleto de projeto com `src/main.spc`. O `build` compila todo o diretório, valida a assinatura de `main` e gera um artefato em `target/<profile>/<bin>.build.txt` mapeando módulos e fontes.
+> O comando `new` gera um esqueleto de projeto com `src/main.spc`. O `build` compila todo o diretório, valida a assinatura de `main` e gera um artefato em `target/<profile>/<bin>.build.txt` mapeando módulos e fontes para binários.
 
 Selecione explicitamente o módulo de entrada quando houver múltiplos `fn main()`:
 
 ```powershell
 cargo run --package spectra-cli -- build hello_cli --main app.beta
+```
+
+Gere manifestos para todos os módulos com `main` de uma só vez:
+
+```powershell
+cargo run --package spectra-cli -- build hello_cli --all
 ```
 
 ### Rodando builds dentro do projeto gerado

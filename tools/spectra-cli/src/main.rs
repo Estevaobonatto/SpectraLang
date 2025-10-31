@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs, io,
     path::{Path, PathBuf},
     process::exit,
@@ -9,7 +10,7 @@ use spectra_compiler::{
     ast::Module,
     lexer::Lexer,
     parser::Parser,
-    project::{find_console_entry_point, EntryPointError},
+    project::{collect_console_entry_points, EntryPoint, EntryPointError},
     semantic,
 };
 
@@ -41,6 +42,9 @@ struct BuildArgs {
     /// Fully-qualified module name que contém `fn main()`.
     #[arg(long, value_name = "MODULE")]
     main: Option<String>,
+    /// Build all entry points found no projeto, gerando um artefato por módulo `main`.
+    #[arg(long)]
+    all: bool,
     /// Use release profile output directory (`target/release`).
     #[arg(long)]
     release: bool,
@@ -87,14 +91,32 @@ fn main() {
 
 fn build_command(args: BuildArgs) -> Result<(), i32> {
     let output = execute_build(&args)?;
-    println!(
-        "Built '{}' ({}) from {} source(s); entry module '{}'.\n  artifact: {}",
-        output.bin_name,
-        output.profile.dir_name(),
-        output.source_count,
-        output.main_module_name,
-        output.artifact_path.display()
-    );
+    if output.artifacts.len() == 1 {
+        let artifact = &output.artifacts[0];
+        println!(
+            "Built '{}' ({}) from {} source(s); entry module '{}'.\n  artifact: {}",
+            artifact.bin_name,
+            output.profile.dir_name(),
+            output.source_count,
+            artifact.main_module_name,
+            artifact.artifact_path.display()
+        );
+    } else {
+        println!(
+            "Built {} console binaries (profile {}) from {} source(s):",
+            output.artifacts.len(),
+            output.profile.dir_name(),
+            output.source_count
+        );
+        for artifact in &output.artifacts {
+            println!(
+                "  - module '{}' -> '{}' ({})",
+                artifact.main_module_name,
+                artifact.bin_name,
+                artifact.artifact_path.display()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -105,14 +127,26 @@ fn run_command(args: RunArgs) -> Result<(), i32> {
         project: args.project,
         bin: args.bin,
         main: args.main,
+        all: false,
         release: args.release,
     };
 
     let output = execute_build(&build_args)?;
+    let Some(artifact) = output.primary() else {
+        eprintln!("error: build produced no artifacts");
+        return Err(1);
+    };
+
+    if output.artifacts.len() != 1 {
+        eprintln!(
+            "error: `spectra run` requires a single entry point; use `--main <module>` to pick one."
+        );
+        return Err(1);
+    }
     println!(
         "Build ready at {} (binary '{}').",
-        output.artifact_path.display(),
-        output.bin_name
+        artifact.artifact_path.display(),
+        artifact.bin_name
     );
     if !forwarded_args.is_empty() {
         println!(
@@ -197,35 +231,115 @@ fn execute_build(args: &BuildArgs) -> Result<BuildOutput, i32> {
 
     let modules = compile_sources(&sources)?;
     let module_refs: Vec<&Module> = modules.iter().map(|(_, module)| module).collect();
-    let entry_point = match find_console_entry_point(&module_refs, args.main.as_deref()) {
-        Ok(entry) => entry,
+    let all_entry_points = match collect_console_entry_points(&module_refs) {
+        Ok(entries) => entries,
         Err(errors) => {
             report_entrypoint_errors(errors);
             return Err(4);
         }
     };
 
-    let bin_name = derive_bin_name(args.bin.as_deref(), &project_root);
+    if all_entry_points.is_empty() {
+        report_entrypoint_errors(vec![EntryPointError::new(
+            "no entry point found; define `fn main(): i32 { ... }`",
+            None,
+        )]);
+        return Err(4);
+    }
+
+    let module_matches = |entry: &EntryPoint, target: &str| {
+        entry
+            .module
+            .name
+            .as_ref()
+            .map(|path| path.segments.join("."))
+            .map(|name| name == target)
+            .unwrap_or(false)
+    };
+
+    let selected_entries: Vec<EntryPoint> = if args.all {
+        if let Some(target) = args.main.as_deref() {
+            let filtered: Vec<EntryPoint> = all_entry_points
+                .iter()
+                .copied()
+                .filter(|entry| module_matches(entry, target))
+                .collect();
+            if filtered.is_empty() {
+                report_entrypoint_errors(vec![EntryPointError::new(
+                    format!(
+                        "no entry point `fn main` found in module '{}' (available: {})",
+                        target,
+                        format_entry_point_list(&all_entry_points)
+                    ),
+                    None,
+                )]);
+                return Err(4);
+            }
+            filtered
+        } else {
+            all_entry_points.clone()
+        }
+    } else if let Some(target) = args.main.as_deref() {
+        if let Some(entry) = all_entry_points
+            .iter()
+            .copied()
+            .find(|entry| module_matches(entry, target))
+        {
+            vec![entry]
+        } else {
+            report_entrypoint_errors(vec![EntryPointError::new(
+                format!(
+                    "no entry point `fn main` found in module '{}' (available: {})",
+                    target,
+                    format_entry_point_list(&all_entry_points)
+                ),
+                None,
+            )]);
+            return Err(4);
+        }
+    } else if all_entry_points.len() == 1 {
+        vec![all_entry_points[0]]
+    } else {
+        eprintln!(
+            "error: multiple entry points found ({}). Use `--main <module>` or `--all`.",
+            format_entry_point_list(&all_entry_points)
+        );
+        return Err(4);
+    };
+
     let profile = if args.release {
         BuildProfile::Release
     } else {
         BuildProfile::Debug
     };
 
-    let artifact_path = write_manifest(
-        &project_root,
-        profile,
-        &bin_name,
-        entry_point.module,
-        &sources,
-    )?;
+    let bin_entries = assign_bin_names(&selected_entries, args, &project_root);
+    let module_bin_pairs: Vec<(String, String)> = bin_entries
+        .iter()
+        .map(|(entry, bin)| (module_name(entry.module), bin.clone()))
+        .collect();
+
+    let mut artifacts = Vec::new();
+    for (entry, bin_name) in bin_entries {
+        let artifact_path = write_manifest(
+            &project_root,
+            profile,
+            &bin_name,
+            entry,
+            &sources,
+            &module_bin_pairs,
+        )?;
+        artifacts.push(BinaryArtifact {
+            artifact_path,
+            bin_name,
+            main_module_name: module_name(entry.module),
+        });
+    }
 
     Ok(BuildOutput {
-        artifact_path,
+        artifacts,
         source_count: sources.len(),
-        bin_name,
         profile,
-        main_module_name: module_name(entry_point.module),
     })
 }
 
@@ -342,8 +456,9 @@ fn write_manifest(
     project_root: &Path,
     profile: BuildProfile,
     bin_name: &str,
-    main_module: &Module,
+    entry_point: EntryPoint<'_>,
     sources: &[PathBuf],
+    bin_map: &[(String, String)],
 ) -> Result<PathBuf, i32> {
     let target_dir = project_root.join("target").join(profile.dir_name());
     fs::create_dir_all(&target_dir).map_err(|err| {
@@ -361,7 +476,15 @@ fn write_manifest(
     contents.push_str("# SpectraLang build metadata\n");
     contents.push_str(&format!("binary = {bin_name}\n"));
     contents.push_str(&format!("profile = {}\n", profile.dir_name()));
-    contents.push_str(&format!("main_module = {}\n", module_name(main_module)));
+    contents.push_str(&format!(
+        "main_module = {}\n",
+        module_name(entry_point.module)
+    ));
+    contents.push_str("binaries = {\n");
+    for (module, mapped_bin) in bin_map {
+        contents.push_str(&format!("  {} = \"{}\"\n", module, mapped_bin));
+    }
+    contents.push_str("}\n");
     contents.push_str("sources = [\n");
     for path in sources {
         let relative = path.strip_prefix(project_root).unwrap_or(path);
@@ -403,6 +526,68 @@ fn module_name(module: &Module) -> String {
         .unwrap_or_else(|| "<anonymous>".to_string())
 }
 
+fn format_entry_point_list(entries: &[EntryPoint]) -> String {
+    if entries.is_empty() {
+        return "<nenhum>".to_string();
+    }
+
+    let mut names: Vec<String> = entries
+        .iter()
+        .map(|entry| module_name(entry.module))
+        .collect();
+    names.sort();
+    names.dedup();
+    names.join(", ")
+}
+
+fn assign_bin_names<'m>(
+    entries: &[EntryPoint<'m>],
+    args: &BuildArgs,
+    project_root: &Path,
+) -> Vec<(EntryPoint<'m>, String)> {
+    let mut bins = Vec::new();
+    if entries.is_empty() {
+        return bins;
+    }
+
+    if !args.all {
+        let bin_name = derive_bin_name(args.bin.as_deref(), project_root);
+        bins.push((entries[0], bin_name));
+        return bins;
+    }
+
+    let base_override = args
+        .bin
+        .as_deref()
+        .map(|name| sanitize_identifier(name))
+        .filter(|name| !name.is_empty());
+
+    let mut used = HashSet::new();
+    for (index, entry) in entries.iter().copied().enumerate() {
+        let mut candidate = sanitize_identifier(&module_name(entry.module));
+        if candidate.is_empty() {
+            candidate = format!("bin{}", index + 1);
+        }
+        if let Some(base) = &base_override {
+            candidate = format!("{}_{}", base, candidate);
+        }
+        if candidate.is_empty() {
+            candidate = format!("bin{}", index + 1);
+        }
+
+        let mut final_name = candidate.clone();
+        let mut attempt = 2;
+        while !used.insert(final_name.clone()) {
+            final_name = format!("{}_{}", candidate, attempt);
+            attempt += 1;
+        }
+
+        bins.push((entry, final_name));
+    }
+
+    bins
+}
+
 fn derive_bin_name(explicit: Option<&str>, project_root: &Path) -> String {
     if let Some(name) = explicit {
         let sanitized = sanitize_identifier(name);
@@ -441,10 +626,21 @@ fn sanitize_identifier(value: &str) -> String {
 
 #[derive(Debug)]
 struct BuildOutput {
-    artifact_path: PathBuf,
+    artifacts: Vec<BinaryArtifact>,
     source_count: usize,
-    bin_name: String,
     profile: BuildProfile,
+}
+
+impl BuildOutput {
+    fn primary(&self) -> Option<&BinaryArtifact> {
+        self.artifacts.first()
+    }
+}
+
+#[derive(Debug)]
+struct BinaryArtifact {
+    artifact_path: PathBuf,
+    bin_name: String,
     main_module_name: String,
 }
 
@@ -460,5 +656,82 @@ impl BuildProfile {
             BuildProfile::Debug => "debug",
             BuildProfile::Release => "release",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn build_single_entry_produces_manifest_with_mapping() {
+        let project = sample_project(&[(
+            "main.spc",
+            "module demo.main;\n\nfn main(): i32 {\n    return 0;\n}\n",
+        )]);
+
+        let args = BuildArgs {
+            project: project.path().to_path_buf(),
+            bin: None,
+            main: None,
+            all: false,
+            release: false,
+        };
+
+        let output = execute_build(&args).expect("build ok");
+        assert_eq!(output.artifacts.len(), 1);
+        let artifact = output.primary().expect("artifact present");
+        let manifest = fs::read_to_string(&artifact.artifact_path).expect("manifest readable");
+        assert!(manifest.contains("main_module = demo.main"));
+        assert!(manifest.contains("binaries = {"));
+        assert!(manifest.contains("demo.main"));
+    }
+
+    #[test]
+    fn build_all_generates_multiple_artifacts() {
+        let project = sample_project(&[
+            (
+                "alpha.spc",
+                "module demo.alpha;\n\nfn main(): i32 {\n    return 0;\n}\n",
+            ),
+            (
+                "beta.spc",
+                "module demo.beta;\n\nfn main(): i32 {\n    return 1;\n}\n",
+            ),
+        ]);
+
+        let args = BuildArgs {
+            project: project.path().to_path_buf(),
+            bin: None,
+            main: None,
+            all: true,
+            release: false,
+        };
+
+        let output = execute_build(&args).expect("build ok");
+        assert_eq!(output.artifacts.len(), 2);
+        for artifact in &output.artifacts {
+            let manifest = fs::read_to_string(&artifact.artifact_path).expect("manifest readable");
+            assert!(manifest.contains("demo.alpha"));
+            assert!(manifest.contains("demo.beta"));
+        }
+    }
+
+    fn sample_project(files: &[(&str, &str)]) -> TempDir {
+        let tmp = TempDir::new().expect("temp dir");
+        let src_dir = tmp.path().join("src");
+        fs::create_dir(&src_dir).expect("create src");
+
+        for (relative, contents) in files {
+            let path = src_dir.join(relative);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create parent");
+            }
+            fs::write(&path, contents).expect("write source");
+        }
+
+        tmp
     }
 }

@@ -6,10 +6,10 @@
 - Entregar uma experiência consistente para criação, compilação, execução e empacotamento de diversos binários dentro de um mesmo workspace SpectraLang.
 
 ## Status Atual (Out/2025)
-- `runtime::console` exposto com `print/println/print_err/println_err`; `runtime::args` provê `all/len/is_empty` para integração futura com CLI.
+- `runtime::console` expõe `print/println/print_err/println_err/read_line`; `runtime::args` provê `all/len/is_empty` para integração futura com CLI.
 - Novo módulo `compiler::project` coleta e valida entradas `fn main(): i32`, emitindo diagnósticos ricos quando a assinatura está incorreta ou ausente.
-- `spectra-cli` reestruturado em subcomandos `new`, `build` e `run`, com varredura automática de `src/**/*.spc`, geração de manifesto em `target/<profile>/<bin>.build.txt`, scaffold inicial de projetos e seleção explícita de entrypoint via `--main`.
-- README atualizado para refletir o fluxo baseado em projeto e os novos comandos.
+- `spectra-cli` reestruturado em subcomandos `new`, `build` e `run`, com varredura automática de `src/**/*.spc`, geração de manifestos com o mapa módulo→binário, scaffold inicial de projetos e seleção explícita de entrypoint via `--main` ou build completo via `--all`.
+- README atualizado para refletir o fluxo baseado em projeto, novas flags (`--main`, `--all`) e comandos atuais.
 
 > Pendências imediatas: entrada padrão (`read_line`) no runtime, suporte multi-binário (escolha de `main` por módulo), execução real no comando `run` quando o backend estiver disponível.
 
@@ -47,8 +47,8 @@
 - Definir métricas de sucesso (tempo de build, experiência de onboarding, bugs críticos).
 
 ### Fase 1 — Fundamentos do Runtime
-- ✅ `std.console` (print/println/print_err/println_err) e `std.args` (all/len/is_empty) publicados no crate `runtime/`.
-- 🔜 Completar `read_line`/entrada padrão e amostras de uso simples (`hello_world`, `echo`).
+- ✅ `std.console` (print/println/print_err/println_err/read_line) e `std.args` (all/len/is_empty) publicados no crate `runtime/`.
+- 🔜 Produzir amostras de uso simples (`hello_world`, `echo`) e orientar integração com o backend no futuro.
 
 ### Fase 2 — Suporte a Entrypoints no Compilador
 - ✅ `compiler::project::find_console_entry_point` garante `fn main(): i32` sem parâmetros, com testes para cenários válidos e inválidos.
@@ -56,8 +56,8 @@
 
 ### Fase 3 — Ampliação da CLI (`spectra-cli`)
 - ✅ `spectra new`, `spectra build` e `spectra run` implementados com scaffold básico, seleção de profile (`--release`) e captura de argumentos para uso futuro.
-- ✅ Seleção de `main` por módulo através da flag `--main`.
-- 🔜 Templates adicionais (console modular + testes), múltiplos artefatos por build e execução real no `run`.
+- ✅ Seleção de `main` por módulo através da flag `--main`, build completo com `--all` e manifestos contendo o mapa módulo→binário; testes básicos cobrindo os fluxos principais.
+- 🔜 Templates adicionais (console modular + testes) e execução real no `run`.
 
 ### Fase 4 — Infraestrutura de Build e Artefatos
 - Definir diretórios de saída (`target/debug/<bin>` e `target/release/<bin>`).
@@ -92,6 +92,6 @@
 - **Manutenção futura**: documentação clara e testes asseguram evolução sem regressões.
 
 ## Próximos Passos Imediatos
-- Implementar `std.console::read_line` e exemplos de uso que demonstrem entrada/saída simples.
-- Estender o manifesto/CLI para gerar múltiplos artefatos por build (mapa módulo → binário) e cobrir o fluxo com testes E2E.
+- Criar exemplos e documentação prática para `std.console`/`read_line`, demonstrando padrões de entrada/saída simples.
+- Propagar a validação de entrypoints para a fase semântica e conectar o manifesto multi-binário com futuros passos de geração/execução.
 - Escrever ADR resumindo as decisões do suporte a console apps e alinhar backlog para execução incremental das próximas fases.

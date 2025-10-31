@@ -3,7 +3,7 @@ use crate::{
     span::Span,
 };
 /// Represents the entry point discovered when scanning SpectraLang modules.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct EntryPoint<'m> {
     pub module: &'m Module,
     pub function: &'m Function,
@@ -25,13 +25,10 @@ impl EntryPointError {
     }
 }
 
-/// Searches the provided modules for `fn main(): i32` definitions sem parâmetros.
-/// Caso `preferred_main` seja informado, o módulo correspondente é selecionado.
-/// Quando não informado, exige um único candidato válido.
-pub fn find_console_entry_point<'m>(
+/// Collects all `fn main(): i32` definitions válidas nos módulos fornecidos.
+pub fn collect_console_entry_points<'m>(
     modules: &[&'m Module],
-    preferred_main: Option<&str>,
-) -> Result<EntryPoint<'m>, Vec<EntryPointError>> {
+) -> Result<Vec<EntryPoint<'m>>, Vec<EntryPointError>> {
     let mut candidates: Vec<EntryPoint<'m>> = Vec::new();
     let mut errors: Vec<EntryPointError> = Vec::new();
 
@@ -74,6 +71,18 @@ pub fn find_console_entry_point<'m>(
     if !errors.is_empty() {
         return Err(errors);
     }
+
+    Ok(candidates)
+}
+
+/// Searches the provided modules for `fn main(): i32` definitions sem parâmetros.
+/// Caso `preferred_main` seja informado, o módulo correspondente é selecionado.
+/// Quando não informado, exige um único candidato válido.
+pub fn find_console_entry_point<'m>(
+    modules: &[&'m Module],
+    preferred_main: Option<&str>,
+) -> Result<EntryPoint<'m>, Vec<EntryPointError>> {
+    let mut candidates = collect_console_entry_points(modules)?;
 
     if let Some(target) = preferred_main {
         if let Some(entry) = candidates.iter().find(|candidate| {
@@ -215,5 +224,20 @@ mod tests {
             module_qualified_name(entry.module).as_deref(),
             Some("app.beta")
         );
+    }
+
+    #[test]
+    fn collects_all_entry_points() {
+        let module_a = module_from_source("module app.alpha; fn main(): i32 { return 0; }");
+        let module_b = module_from_source("module app.beta; fn main(): i32 { return 1; }");
+        let modules = vec![&module_a, &module_b];
+
+        let entries = collect_console_entry_points(&modules).expect("collect ok");
+        let mut names: Vec<_> = entries
+            .iter()
+            .map(|entry| module_qualified_name(entry.module).unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["app.alpha".to_string(), "app.beta".to_string()]);
     }
 }

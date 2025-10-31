@@ -40,6 +40,15 @@ pub mod console {
         stderr.write_all(b"\n")?;
         stderr.flush()
     }
+
+    /// Reads a line from stdin, trimming the trailing newline if present.
+    pub fn read_line() -> io::Result<String> {
+        let mut buffer = String::new();
+        io::stdin().read_line(&mut buffer)?;
+        let trimmed_len = buffer.trim_end_matches(['\n', '\r']).len();
+        buffer.truncate(trimmed_len);
+        Ok(buffer)
+    }
 }
 
 /// Argument helpers for SpectraLang programs.
