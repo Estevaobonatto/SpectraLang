@@ -1,8 +1,8 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use crate::ast::{
-    BinaryOperator, Block, Constant, Export, Expr, Function, Import, Item, Literal, Module,
-    ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
+    BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import, Item,
+    Literal, Module, ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
@@ -26,9 +26,22 @@ struct StructExport {
 }
 
 #[derive(Clone)]
+enum EnumVariantInfo {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(HashMap<String, Type>),
+}
+
+#[derive(Clone)]
 struct EnumExport {
     ty: Type,
+    variants: HashMap<String, EnumVariantInfo>,
     span: Span,
+}
+
+#[derive(Clone, Default)]
+struct EnumInfo {
+    variants: HashMap<String, EnumVariantInfo>,
 }
 
 #[derive(Clone, Default)]
@@ -66,6 +79,7 @@ struct Analyzer<'a> {
     current_module_key: Option<String>,
     current_module_signatures: HashMap<String, FunctionType>,
     struct_registry: HashMap<String, Type>,
+    enum_registry: HashMap<String, EnumInfo>,
     current_module_imports: HashSet<String>,
     loop_depth: usize,
 }
@@ -81,6 +95,7 @@ impl<'a> Analyzer<'a> {
             current_module_key: None,
             current_module_signatures: HashMap::new(),
             struct_registry: HashMap::new(),
+            enum_registry: HashMap::new(),
             current_module_imports: HashSet::new(),
             loop_depth: 0,
         }
@@ -179,124 +194,6 @@ impl<'a> Analyzer<'a> {
                             }
                         }
                     }
-                    Item::Constant(constant) => {
-                        if constant.visibility != Visibility::Public {
-                            continue;
-                        }
-                        if constant.mutable {
-                            self.errors.push(SemanticError::new(
-                                format!(
-                                    "exported binding '{}' must be declared with 'let', mutable exports are not supported",
-                                    constant.name
-                                ),
-                                constant.span,
-                            ));
-                            continue;
-                        }
-                        let exports = self.module_exports.entry(key.clone()).or_default();
-                        if exports.functions.contains_key(&constant.name)
-                            || exports.structs.contains_key(&constant.name)
-                            || exports.enums.contains_key(&constant.name)
-                        {
-                            let previous_location = exports
-                                .functions
-                                .get(&constant.name)
-                                .map(|entry| entry.span.start_location)
-                                .or_else(|| {
-                                    exports
-                                        .structs
-                                        .get(&constant.name)
-                                        .map(|entry| entry.span.start_location)
-                                })
-                                .or_else(|| {
-                                    exports
-                                        .enums
-                                        .get(&constant.name)
-                                        .map(|entry| entry.span.start_location)
-                                })
-                                .unwrap_or(constant.span.start_location);
-                            self.errors.push(SemanticError::new(
-                                format!(
-                                    "constant '{}' conflicts with existing exported symbol in module '{}' (previous definition at {})",
-                                    constant.name, key, previous_location
-                                ),
-                                constant.span,
-                            ));
-                            continue;
-                        }
-                        match exports.constants.entry(constant.name.clone()) {
-                            Entry::Vacant(entry) => {
-                                entry.insert(ConstantExport {
-                                    ty: Type::Unknown,
-                                    span: constant.span,
-                                });
-                            }
-                            Entry::Occupied(entry) => {
-                                let previous_location = entry.get().span.start_location;
-                                self.errors.push(SemanticError::new(
-                                    format!(
-                                        "constant '{}' already defined in module '{}' (previous definition at {})",
-                                        constant.name, key, previous_location
-                                    ),
-                                    constant.span,
-                                ));
-                            }
-                        }
-                    }
-                    Item::Struct(struct_decl) => {
-                        if struct_decl.visibility != Visibility::Public {
-                            continue;
-                        }
-                        let exports = self.module_exports.entry(key.clone()).or_default();
-                        if exports.functions.contains_key(&struct_decl.name)
-                            || exports.constants.contains_key(&struct_decl.name)
-                            || exports.enums.contains_key(&struct_decl.name)
-                        {
-                            let previous_location = exports
-                                .functions
-                                .get(&struct_decl.name)
-                                .map(|entry| entry.span.start_location)
-                                .or_else(|| {
-                                    exports
-                                        .constants
-                                        .get(&struct_decl.name)
-                                        .map(|entry| entry.span.start_location)
-                                })
-                                .or_else(|| {
-                                    exports
-                                        .enums
-                                        .get(&struct_decl.name)
-                                        .map(|entry| entry.span.start_location)
-                                })
-                                .unwrap_or(struct_decl.span.start_location);
-                            self.errors.push(SemanticError::new(
-                                format!(
-                                    "struct '{}' conflicts with existing exported symbol in module '{}' (previous definition at {})",
-                                    struct_decl.name, key, previous_location
-                                ),
-                                struct_decl.span,
-                            ));
-                            continue;
-                        }
-                        match exports.structs.entry(struct_decl.name.clone()) {
-                            Entry::Vacant(entry) => {
-                                entry.insert(StructExport {
-                                    ty: Type::Struct(struct_decl.name.clone(), HashMap::new()),
-                                    span: struct_decl.span,
-                                });
-                            }
-                            Entry::Occupied(entry) => {
-                                let previous_location = entry.get().span.start_location;
-                                self.errors.push(SemanticError::new(
-                                    format!(
-                                        "struct '{}' already defined in module '{}' (previous definition at {})",
-                                        struct_decl.name, key, previous_location
-                                    ),
-                                    struct_decl.span,
-                                ));
-                            }
-                        }
-                    }
                     Item::Enum(enum_decl) => {
                         if enum_decl.visibility != Visibility::Public {
                             continue;
@@ -336,6 +233,7 @@ impl<'a> Analyzer<'a> {
                             Entry::Vacant(entry) => {
                                 entry.insert(EnumExport {
                                     ty: Type::Enum(enum_decl.name.clone()),
+                                    variants: HashMap::new(),
                                     span: enum_decl.span,
                                 });
                             }
@@ -619,6 +517,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_module(&mut self, module: &'a Module) {
         self.struct_registry.clear();
+        self.enum_registry.clear();
         self.current_module_imports.clear();
         self.scopes.push(ScopeKind::Module);
         self.current_module_key = module.name.as_ref().map(module_path_key);
@@ -632,12 +531,18 @@ impl<'a> Analyzer<'a> {
 
         for item in &module.items {
             match item {
-                Item::Function(function) => self.analyze_function(function),
-                Item::Constant(constant) => self.analyze_constant(constant),
                 Item::Struct(struct_decl) => self.analyze_struct(struct_decl),
                 Item::Enum(enum_decl) => self.analyze_enum(enum_decl),
+                _ => {}
+            }
+        }
+
+        for item in &module.items {
+            match item {
+                Item::Function(function) => self.analyze_function(function),
+                Item::Constant(constant) => self.analyze_constant(constant),
                 Item::Stmt(statement) => self.analyze_statement(statement),
-                Item::Import(_) | Item::Export(_) => {}
+                Item::Import(_) | Item::Export(_) | Item::Struct(_) | Item::Enum(_) => {}
             }
         }
 
@@ -684,6 +589,10 @@ impl<'a> Analyzer<'a> {
                 // Register enum name initially
                 // Variants will be validated later in analyze_enum
                 let enum_type = Type::Enum(enum_decl.name.clone());
+
+                self.enum_registry
+                    .entry(enum_decl.name.clone())
+                    .or_insert_with(EnumInfo::default);
 
                 if let Err(previous_span) = self.scopes.define(
                     &enum_decl.name,
@@ -1154,10 +1063,10 @@ impl<'a> Analyzer<'a> {
     fn analyze_enum(&mut self, enum_decl: &'a crate::ast::EnumDecl) {
         use std::collections::HashSet;
         let mut variant_names = HashSet::new();
+        let mut variants_info = HashMap::new();
 
         for variant in &enum_decl.variants {
-            // Check for duplicate variant names
-            if variant_names.contains(&variant.name) {
+            if !variant_names.insert(variant.name.clone()) {
                 self.errors.push(SemanticError::new(
                     format!(
                         "duplicate variant '{}' in enum '{}'",
@@ -1165,65 +1074,77 @@ impl<'a> Analyzer<'a> {
                     ),
                     variant.span,
                 ));
-            } else {
-                variant_names.insert(variant.name.clone());
             }
 
-            // Validate variant data types
-            if let Some(ref data) = variant.data {
-                match data {
-                    crate::ast::EnumVariantData::Tuple(types) => {
-                        for ty in types {
-                            let resolved_type = self.resolve_type_name(ty);
-                            if resolved_type == Type::Void {
-                                self.errors.push(SemanticError::new(
-                                    format!(
-                                        "enum variant '{}' cannot contain type void",
-                                        variant.name
-                                    ),
-                                    variant.span,
-                                ));
-                            }
+            let variant_info = match variant.data.as_ref() {
+                None => EnumVariantInfo::Unit,
+                Some(crate::ast::EnumVariantData::Tuple(types)) => {
+                    let mut resolved_types = Vec::new();
+                    for ty in types {
+                        let resolved_type = self.resolve_type_name(ty);
+                        if resolved_type == Type::Void {
+                            self.errors.push(SemanticError::new(
+                                format!("enum variant '{}' cannot contain type void", variant.name),
+                                variant.span,
+                            ));
                         }
+                        resolved_types.push(resolved_type);
                     }
-                    crate::ast::EnumVariantData::Struct(fields) => {
-                        let mut field_names = HashSet::new();
-                        for field in fields {
-                            let field_type = self.resolve_type_name(&field.ty);
-
-                            if field_type == Type::Void {
-                                self.errors.push(SemanticError::new(
-                                    format!(
-                                        "field '{}' in variant '{}' cannot have type void",
-                                        field.name, variant.name
-                                    ),
-                                    field.span,
-                                ));
-                            }
-
-                            if field_names.contains(&field.name) {
-                                self.errors.push(SemanticError::new(
-                                    format!(
-                                        "duplicate field '{}' in variant '{}' of enum '{}'",
-                                        field.name, variant.name, enum_decl.name
-                                    ),
-                                    field.span,
-                                ));
-                            } else {
-                                field_names.insert(field.name.clone());
-                            }
-                        }
-                    }
+                    EnumVariantInfo::Tuple(resolved_types)
                 }
-            }
+                Some(crate::ast::EnumVariantData::Struct(fields)) => {
+                    let mut field_names = HashSet::new();
+                    let mut field_types = HashMap::new();
+                    for field in fields {
+                        let field_type = self.resolve_type_name(&field.ty);
+                        if field_type == Type::Void {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "field '{}' in variant '{}' cannot have type void",
+                                    field.name, variant.name
+                                ),
+                                field.span,
+                            ));
+                        }
+
+                        if !field_names.insert(field.name.clone()) {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "duplicate field '{}' in variant '{}' of enum '{}'",
+                                    field.name, variant.name, enum_decl.name
+                                ),
+                                field.span,
+                            ));
+                            continue;
+                        }
+
+                        field_types.insert(field.name.clone(), field_type);
+                    }
+                    EnumVariantInfo::Struct(field_types)
+                }
+            };
+
+            variants_info
+                .entry(variant.name.clone())
+                .or_insert(variant_info);
         }
 
-        // The enum type was already registered in register_enums
+        if let Some(enum_info) = self.enum_registry.get_mut(&enum_decl.name) {
+            enum_info.variants = variants_info.clone();
+        } else {
+            self.enum_registry.insert(
+                enum_decl.name.clone(),
+                EnumInfo {
+                    variants: variants_info.clone(),
+                },
+            );
+        }
 
         if let Some(module_key) = self.current_module_key.as_ref() {
             if let Some(exports) = self.module_exports.get_mut(module_key) {
                 if let Some(entry) = exports.enums.get_mut(&enum_decl.name) {
                     entry.ty = Type::Enum(enum_decl.name.clone());
+                    entry.variants = variants_info;
                 }
             }
         }
@@ -1953,6 +1874,246 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+            Expr::EnumLiteral {
+                enum_path,
+                variant,
+                kind,
+                span,
+            } => {
+                if enum_path.len() != 1 {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "qualified enum paths are not supported yet: {}",
+                            enum_path.join("::")
+                        ),
+                        *span,
+                    ));
+                    return Type::Unknown;
+                }
+
+                let enum_name = &enum_path[0];
+                let Some(enum_info) = self.enum_registry.get(enum_name) else {
+                    self.errors.push(SemanticError::new(
+                        format!("use of undeclared enum '{}'", enum_name),
+                        *span,
+                    ));
+                    return Type::Unknown;
+                };
+
+                let Some(variant_info) = enum_info.variants.get(variant) else {
+                    self.errors.push(SemanticError::new(
+                        format!("enum '{}' has no variant '{}'", enum_name, variant),
+                        *span,
+                    ));
+                    return Type::Unknown;
+                };
+
+                let variant_info = variant_info.clone();
+
+                match variant_info {
+                    EnumVariantInfo::Unit => match kind {
+                        EnumLiteralKind::Unit => {}
+                        EnumLiteralKind::Tuple(arguments) => {
+                            for argument in arguments {
+                                self.analyze_expr(argument);
+                            }
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "enum variant '{}::{}' does not accept {} argument(s)",
+                                    enum_name,
+                                    variant,
+                                    arguments.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        EnumLiteralKind::Struct(fields) => {
+                            for field in fields {
+                                self.analyze_expr(&field.value);
+                            }
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "enum variant '{}::{}' does not accept struct fields ({} provided)",
+                                    enum_name,
+                                    variant,
+                                    fields.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                    },
+                    EnumVariantInfo::Tuple(expected_types) => match kind {
+                        EnumLiteralKind::Tuple(arguments) => {
+                            if expected_types.len() != arguments.len() {
+                                self.errors.push(SemanticError::new(
+                                    format!(
+                                        "enum variant '{}::{}' expects {} argument(s), got {}",
+                                        enum_name,
+                                        variant,
+                                        expected_types.len(),
+                                        arguments.len()
+                                    ),
+                                    *span,
+                                ));
+                            }
+
+                            for (index, argument) in arguments.iter().enumerate() {
+                                let actual = self.analyze_expr(argument);
+                                if let Some(expected) = expected_types.get(index) {
+                                    if !types_compatible(expected, &actual) {
+                                        self.errors.push(SemanticError::new(
+                                            format!(
+                                                "argument {} of '{}::{}' has type {}, expected {}",
+                                                index + 1,
+                                                enum_name,
+                                                variant,
+                                                actual.describe(),
+                                                expected.describe()
+                                            ),
+                                            expr_span(argument),
+                                        ));
+                                    }
+                                } else {
+                                    self.errors.push(SemanticError::new(
+                                        format!(
+                                            "enum variant '{}::{}' does not accept argument {}",
+                                            enum_name,
+                                            variant,
+                                            index + 1
+                                        ),
+                                        expr_span(argument),
+                                    ));
+                                }
+                            }
+
+                            if expected_types.len() > arguments.len() {
+                                for missing_index in arguments.len()..expected_types.len() {
+                                    self.errors.push(SemanticError::new(
+                                        format!(
+                                            "missing argument {} for enum variant '{}::{}'",
+                                            missing_index + 1,
+                                            enum_name,
+                                            variant
+                                        ),
+                                        *span,
+                                    ));
+                                }
+                            }
+                        }
+                        EnumLiteralKind::Unit => {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "enum variant '{}::{}' expects {} argument(s), but none were provided",
+                                    enum_name,
+                                    variant,
+                                    expected_types.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        EnumLiteralKind::Struct(fields) => {
+                            for field in fields {
+                                self.analyze_expr(&field.value);
+                            }
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "enum variant '{}::{}' expects {} positional argument(s), got struct literal",
+                                    enum_name,
+                                    variant,
+                                    expected_types.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                    },
+                    EnumVariantInfo::Struct(expected_fields) => match kind {
+                        EnumLiteralKind::Struct(field_inits) => {
+                            let mut provided_fields = HashSet::new();
+
+                            for field_init in field_inits {
+                                if !provided_fields.insert(field_init.name.clone()) {
+                                    self.errors.push(SemanticError::new(
+                                        format!(
+                                            "duplicate field '{}' in enum variant literal",
+                                            field_init.name
+                                        ),
+                                        field_init.span,
+                                    ));
+                                    continue;
+                                }
+
+                                match expected_fields.get(&field_init.name) {
+                                    Some(expected_type) => {
+                                        let actual_type = self.analyze_expr(&field_init.value);
+                                        if !types_compatible(expected_type, &actual_type) {
+                                            self.errors.push(SemanticError::new(
+                                                format!(
+                                                    "field '{}' in '{}::{}' expects type {}, got {}",
+                                                    field_init.name,
+                                                    enum_name,
+                                                    variant,
+                                                    expected_type.describe(),
+                                                    actual_type.describe()
+                                                ),
+                                                field_init.span,
+                                            ));
+                                        }
+                                    }
+                                    None => {
+                                        self.errors.push(SemanticError::new(
+                                            format!(
+                                                "enum variant '{}::{}' has no field '{}'",
+                                                enum_name, variant, field_init.name
+                                            ),
+                                            field_init.span,
+                                        ));
+                                    }
+                                }
+                            }
+
+                            for field_name in expected_fields.keys() {
+                                if !provided_fields.contains(field_name) {
+                                    self.errors.push(SemanticError::new(
+                                        format!(
+                                            "missing field '{}' in enum variant literal '{}::{}'",
+                                            field_name, enum_name, variant
+                                        ),
+                                        *span,
+                                    ));
+                                }
+                            }
+                        }
+                        EnumLiteralKind::Unit => {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "enum variant '{}::{}' expects {} field(s), but none were provided",
+                                    enum_name,
+                                    variant,
+                                    expected_fields.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        EnumLiteralKind::Tuple(arguments) => {
+                            for argument in arguments {
+                                self.analyze_expr(argument);
+                            }
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "enum variant '{}::{}' expects named fields ({} total), got {} positional argument(s)",
+                                    enum_name,
+                                    variant,
+                                    expected_fields.len(),
+                                    arguments.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                    },
+                }
+
+                Type::Enum(enum_name.clone())
+            }
             Expr::ArrayLiteral {
                 elements,
                 span: _span,
@@ -2316,6 +2477,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Grouping { span, .. }
         | Expr::FieldAccess { span, .. }
         | Expr::StructLiteral { span, .. }
+        | Expr::EnumLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
         | Expr::Index { span, .. } => *span,
     }

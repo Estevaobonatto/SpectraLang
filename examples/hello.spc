@@ -1,6 +1,5 @@
-module hello.world;
+module examples.hello;
 
 fn main() {
-	let message = "Hello, SpectraLang!";
-	message;
+    let _greeting = "Hello, SpectraLang!";
 }

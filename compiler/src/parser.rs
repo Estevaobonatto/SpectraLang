@@ -1223,14 +1223,33 @@ impl<'a> Parser<'a> {
         }
 
         if self.match_token(TokenKind::Identifier) {
-            let token = self.previous().clone();
-            // Check if this is a struct literal
-            if self.check(TokenKind::LBrace) {
-                return self.parse_struct_literal(token);
+            let first = self.previous().clone();
+            let mut segments = vec![first.lexeme.clone()];
+            let mut span = first.span;
+
+            while self.match_token(TokenKind::Scope) {
+                let ident = self
+                    .consume_identifier("expected identifier after '::' in path")?
+                    .clone();
+                span = span_union(span, ident.span);
+                segments.push(ident.lexeme.clone());
             }
+
+            if segments.len() == 1 && self.check(TokenKind::LBrace) {
+                return self.parse_struct_literal(first);
+            }
+
+            if segments.len() > 1 {
+                let variant = segments
+                    .pop()
+                    .expect("path length greater than one guarantees variant");
+                let enum_path = segments;
+                return self.parse_enum_literal(enum_path, variant, span);
+            }
+
             return Some(Expr::Identifier {
-                name: token.lexeme.clone(),
-                span: token.span,
+                name: first.lexeme.clone(),
+                span: first.span,
             });
         }
 
@@ -1344,6 +1363,77 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_enum_literal(
+        &mut self,
+        enum_path: Vec<String>,
+        variant: String,
+        start_span: Span,
+    ) -> Option<Expr> {
+        use crate::ast::EnumLiteralKind;
+
+        let mut span = start_span;
+
+        let kind = if self.match_token(TokenKind::LParen) {
+            let mut arguments = Vec::new();
+            if !self.check(TokenKind::RParen) {
+                loop {
+                    arguments.push(self.expression()?);
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+            let close = self
+                .consume(
+                    TokenKind::RParen,
+                    "expected ')' after enum variant arguments",
+                )?
+                .clone();
+            span = span_union(span, close.span);
+            EnumLiteralKind::Tuple(arguments)
+        } else if self.match_token(TokenKind::LBrace) {
+            let open = self.previous().span;
+            span = span_union(span, open);
+            let mut fields = Vec::new();
+
+            while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                let field_token =
+                    self.consume_identifier("expected field name in enum variant literal")?;
+                let field_name = field_token.lexeme.clone();
+                let field_start = field_token.span;
+
+                self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                let value = self.expression()?;
+                let field_span = span_union(field_start, expr_span(&value));
+
+                fields.push(StructFieldInit {
+                    name: field_name,
+                    value,
+                    span: field_span,
+                });
+
+                if !self.match_token(TokenKind::Comma) {
+                    break;
+                }
+            }
+
+            let close = self
+                .consume(TokenKind::RBrace, "expected '}' after enum variant fields")?
+                .clone();
+            span = span_union(span, close.span);
+            EnumLiteralKind::Struct(fields)
+        } else {
+            EnumLiteralKind::Unit
+        };
+
+        Some(Expr::EnumLiteral {
+            enum_path,
+            variant,
+            kind,
+            span,
+        })
+    }
+
     fn parse_array_literal(&mut self) -> Option<Expr> {
         let start_span = self.previous().span;
         let mut elements = Vec::new();
@@ -1432,7 +1522,8 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::FieldAccess { span, .. }
         | Expr::StructLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
-        | Expr::Index { span, .. } => *span,
+        | Expr::Index { span, .. }
+        | Expr::EnumLiteral { span, .. } => *span,
     }
 }
 

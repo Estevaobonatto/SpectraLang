@@ -9,9 +9,11 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - CLI `spectra` capaz de lex/parsing, executar análise semântica inicial (escopos, retornos, identificadores, uso de símbolos, tipos primitivos) com validação de chamadas de função e imports, além de apresentar estatísticas do módulo.
 - Pasta `docs/decisions` ativa (ADR 0001 – Lexer, ADR 0002 – Parser, ADR 0003 – Roadmap Semântico); plano de trabalho alinhado com backlog por fases.
 - AST e parser atualizados para cobrir declarações `import` e expressões de chamada, com novos testes garantindo cobertura de casos positivos e diagnósticos.
-- Analisador semântico ampliado com registro de assinaturas, checagem de aridade/tipos em chamadas, e validação de imports (auto-import e módulos desconhecidos).
-- Suporte multi-módulo: CLI e analisador recebem múltiplos arquivos simultaneamente, compartilham assinaturas exportadas, detectam conflitos entre imports e reportam diagnósticos consistentes entre módulos.
-- Visibilidade ampliada: constantes imutáveis declaradas com `pub let` podem ser exportadas/importadas entre módulos, com diagnósticos para conflitos e restrição a bindings mutáveis.
+- Analisador semântico ampliado com registro de assinaturas, checagem de aridade/tipos em chamadas, validação de imports (auto-import e módulos desconhecidos) e rastreamento de structs/enums exportados.
+- Suporte multi-módulo: CLI e analisador recebem múltiplos arquivos simultaneamente, compartilham assinaturas exportadas, detectam conflitos entre imports e reportam diagnósticos consistentes entre módulos (incluindo reexports).
+- Visibilidade ampliada: constantes imutáveis `pub let`, structs e enums públicos podem ser exportados/importados, com diagnósticos para conflitos, restrição a bindings mutáveis e atualização das assinaturas após análise local.
+- Tipagem enriquecida: suporte a anotações opcionais em `let`/constantes, inferência para literais de array, validação de acessos a campos de struct e regras de compatibilidade entre tipos compostos.
+- Exemplos atualizados (`examples/lib_types.spc`, `examples/types_demo.spc`) demonstram imports entre módulos, reuso de structs/enums públicos e checagem de arrays.
 
 ## Linha do tempo da colaboração
 
@@ -257,6 +259,13 @@ Match     := "match" Expr MatchBody ;
 - Performance dentro de 15% das linguagens estabelecidas em benchmarks comuns.
 
 ## Próximos passos imediatos
+
+### 0. Próximas funcionalidades de código (sprint atual)
+
+- **Construtores de enum e pattern matching parcial:** habilitar expressão `Flag::On`/`Flag::Value(… )`, validar cargas das variantes e preparar infraestrutura para `match`, reutilizando spans já disponíveis.
+- **Aliases e import seletivo:** permitir `import lib.types as types` e `import lib.types::{Point, Flag}`, reforçando o controle de visibilidade e reduzindo conflitos.
+- **Checagem de structs entre módulos:** propagar metadados de campos (spans/tipos) ao registrar exports para melhorar diagnósticos em acessos vindos de módulos consumidores.
+- **Anotações de tipo avançadas:** aceitar arrays tipados (`let values: i32[] = [...]`) e inicialização de constantes com tipos importados, consolidando o pipeline para futuros generics.
 
 ### 1. Validação de escopo e orçamento
 

@@ -21,6 +21,21 @@ cargo run --package spectra-cli -- examples/hello.spc
 
 > Provide a SpectraLang source file as input; the CLI now reports lexical, parsing, or semantic issues (including function call/`import` diagnostics) and summarizes parsed modules/functions.
 
+### Multi-module demo
+
+```powershell
+cargo run --package spectra-cli -- examples/lib_types.spc examples/types_demo.spc
+```
+
+This pair of modules showcases public `struct`/`enum` exports, immutable `pub let` bindings, array literals, and typed imports resolved during semantic analysis.
+
+## Front-end capabilities (Oct 2025)
+
+- Lexing/parsing for modules, functions, structs, enums, arrays, typed bindings, and import/export declarations (with span-aware diagnostics).
+- Semantic analyzer with scope tracking, type checking for primitives, arrays, and struct literals, plus cross-module visibility for public functions, constants, structs, and enums.
+- Conflict detection for duplicate definitions and import collisions, including re-export propagation across modules.
+- Test suite (`cargo test --workspace`) covering happy paths and error reporting for recent features such as typed annotations, array inference, and multi-module imports.
+
 ## Continuous integration
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs formatting, lint checks, tests, and builds on push and pull requests.

@@ -57,6 +57,12 @@ pub enum Expr {
         index: Box<Expr>,
         span: Span,
     },
+    EnumLiteral {
+        enum_path: Vec<String>,
+        variant: String,
+        kind: EnumLiteralKind,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -64,6 +70,13 @@ pub struct StructFieldInit {
     pub name: String,
     pub value: Expr,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumLiteralKind {
+    Unit,
+    Tuple(Vec<Expr>),
+    Struct(Vec<StructFieldInit>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

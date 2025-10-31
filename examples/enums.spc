@@ -1,33 +1,30 @@
-// Enum examples for SpectraLang
+module demo.enums;
 
-// Simple enum with unit variants
-enum Color {
-    Red,
-    Green,
-    Blue,
-}
-
-// Enum with tuple variants
-enum Point {
-    TwoD(i32, i32),
-    ThreeD(i32, i32, i32),
-}
-
-// Enum with struct variants
-enum Shape {
-    Circle { radius: f32 },
-    Rectangle { width: f32, height: f32 },
-    Triangle { base: f32, height: f32 },
-}
-
-// Mixed enum
 enum Message {
     Quit,
-    Move { x: i32, y: i32 },
     Write(string),
-    ChangeColor(i32, i32, i32),
+    Move(i32, i32),
+    Resize { width: i32, height: i32 }
 }
 
-fn main() -> i32 {
+fn send_default(): Message {
+    return Message::Quit;
+}
+
+fn build_move(x: i32, y: i32): Message {
+    return Message::Move(x, y);
+}
+
+fn build_resize(width: i32, height: i32): Message {
+    return Message::Resize { width: width, height: height };
+}
+
+fn main(): i32 {
+    let basic = send_default();
+    let action = build_move(4, 5);
+    let resize = build_resize(640, 480);
+    let _basic = basic;
+    let _action = action;
+    let _resize = resize;
     return 0;
 }

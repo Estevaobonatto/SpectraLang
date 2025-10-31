@@ -5,11 +5,13 @@ struct Point {
     y: i32
 }
 
+fn translate(point: Point, dx: i32, dy: i32): Point {
+    return Point { x: point.x + dx, y: point.y + dy };
+}
+
 fn main(): i32 {
-    var total = 0;
-    for (let i = 0; i < 5; i + 1) {
-        total = total + i;
-    }
-    
-    return total;
+    let start = Point { x: 1, y: 2 };
+    var current = translate(start, 2, 3);
+    current = translate(current, -1, 0);
+    return current.x + current.y;
 }
