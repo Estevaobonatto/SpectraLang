@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "compiler",
+    "runtime",
+    "tools/spectra-cli",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
