@@ -50,12 +50,12 @@ struct BuildArgs {
     release: bool,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct RunArgs {
     /// Project directory containing a `src/` tree.
     #[arg(value_name = "PATH", default_value = ".")]
     project: PathBuf,
-    /// Override the binary name (default: sanitized project folder name).
+    /// Override the binary name.
     #[arg(long, value_name = "NAME")]
     bin: Option<String>,
     /// Fully-qualified module name que contém `fn main()`.
@@ -64,12 +64,12 @@ struct RunArgs {
     /// Use release profile output directory (`target/release`).
     #[arg(long)]
     release: bool,
-    /// Arguments to pass to the SpectraLang program (reserved for future backend integration).
+    /// Arguments forwarded to the compiled binary (execution TBD).
     #[arg(trailing_var_arg = true, value_name = "ARGS")]
     args: Vec<String>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct NewArgs {
     /// Folder name for the new project.
     #[arg(value_name = "NAME")]
@@ -166,7 +166,8 @@ fn new_command(args: NewArgs) -> Result<(), i32> {
         return Err(1);
     }
 
-    fs::create_dir_all(root.join("src")).map_err(|err| {
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).map_err(|err| {
         eprintln!(
             "error: failed to create project directories for '{}': {}",
             args.name, err
@@ -182,11 +183,11 @@ fn new_command(args: NewArgs) -> Result<(), i32> {
     };
 
     let main_contents = format!(
-        "module {}.main;\n\nfn main(): i32 {{\n    return 0;\n}}\n",
+        "module {}.main;\n\nimport std.console;\n\nfn main(): i32 {{\n    std.console::println(\"Hello from SpectraLang!\");\n    return 0;\n}}\n",
         module_segment
     );
 
-    fs::write(root.join("src/main.spc"), main_contents).map_err(|err| {
+    fs::write(src_dir.join("main.spc"), main_contents).map_err(|err| {
         eprintln!(
             "error: failed to write main module for '{}': {}",
             args.name, err
@@ -194,8 +195,27 @@ fn new_command(args: NewArgs) -> Result<(), i32> {
         2
     })?;
 
+    let std_dir = src_dir.join("std");
+    fs::create_dir_all(&std_dir).map_err(|err| {
+        eprintln!(
+            "error: failed to create std module directory for '{}': {}",
+            args.name, err
+        );
+        2
+    })?;
+
+    let console_stub = "module std.console;\n\npub fn print(_message: string): void {\n    return;\n}\n\npub fn println(_message: string): void {\n    return;\n}\n\npub fn print_err(_message: string): void {\n    return;\n}\n\npub fn println_err(_message: string): void {\n    return;\n}\n\npub fn read_line(): string {\n    return \"\";\n}\n";
+
+    fs::write(std_dir.join("console.spc"), console_stub).map_err(|err| {
+        eprintln!(
+            "error: failed to write std.console stub for '{}': {}",
+            args.name, err
+        );
+        2
+    })?;
+
     let readme_contents = format!(
-        "# {}\n\nProjeto gerado com `spectra new {}`.\n\nComandos sugeridos:\n- `spectra build` — compila a aplicação de console.\n- `spectra run` — compila (e futuramente executa) a aplicação.\n",
+        "# {}\n\nProjeto gerado com `spectra new {}`.\n\nEste template importa `std.console` e inclui um stub em `src/std/console.spc` até que o runtime esteja conectado. Explore `docs/console-io-recipes.md` para padrões de entrada/saída.\n\nComandos sugeridos:\n- `spectra build` — compila a aplicação de console.\n- `spectra run` — compila (e futuramente executa) a aplicação.\n",
         args.name, args.name
     );
 
@@ -662,8 +682,29 @@ impl BuildProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
     use tempfile::TempDir;
+
+    struct DirGuard {
+        previous: PathBuf,
+    }
+
+    impl DirGuard {
+        fn change_to(path: &Path) -> Self {
+            let previous = std::env::current_dir().expect("cwd");
+            std::env::set_current_dir(path).expect("set cwd");
+            Self { previous }
+        }
+    }
+
+    impl Drop for DirGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.previous);
+        }
+    }
 
     #[test]
     fn build_single_entry_produces_manifest_with_mapping() {
@@ -717,6 +758,31 @@ mod tests {
             assert!(manifest.contains("demo.alpha"));
             assert!(manifest.contains("demo.beta"));
         }
+    }
+
+    #[test]
+    fn new_command_generates_console_template() {
+        let tmp = TempDir::new().expect("temp dir");
+        let _guard = DirGuard::change_to(tmp.path());
+
+        new_command(NewArgs {
+            name: "demo_app".to_string(),
+        })
+        .expect("new ok");
+
+        let project_root = tmp.path().join("demo_app");
+        let main_source =
+            fs::read_to_string(project_root.join("src/main.spc")).expect("main.spc readable");
+        assert!(main_source.contains("import std.console;"));
+        assert!(main_source.contains("std.console::println"));
+
+        let console_source = fs::read_to_string(project_root.join("src/std/console.spc"))
+            .expect("console stub readable");
+        assert!(console_source.contains("module std.console;"));
+        assert!(console_source.contains("pub fn println"));
+
+        let readme = fs::read_to_string(project_root.join("README.md")).expect("readme readable");
+        assert!(readme.contains("std.console"));
     }
 
     fn sample_project(files: &[(&str, &str)]) -> TempDir {
