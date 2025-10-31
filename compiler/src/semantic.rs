@@ -831,6 +831,8 @@ impl<'a> Analyzer<'a> {
         self.register_enums(module);
         self.validate_imports(module);
         self.introduce_imports(module);
+        self.process_struct_declarations(module);
+        self.process_enum_declarations(module);
         self.register_functions(module);
         self.register_constants(module);
 
@@ -838,8 +840,7 @@ impl<'a> Analyzer<'a> {
             match item {
                 Item::Function(function) => self.analyze_function(function),
                 Item::Constant(constant) => self.analyze_constant(constant),
-                Item::Struct(struct_decl) => self.analyze_struct(struct_decl),
-                Item::Enum(enum_decl) => self.analyze_enum(enum_decl),
+                Item::Struct(_) | Item::Enum(_) => {}
                 Item::Stmt(statement) => self.analyze_statement(statement),
                 Item::Import(_) | Item::Export(_) => {}
             }
@@ -903,6 +904,22 @@ impl<'a> Analyzer<'a> {
                         enum_decl.span,
                     ));
                 }
+            }
+        }
+    }
+
+    fn process_struct_declarations(&mut self, module: &'a Module) {
+        for item in &module.items {
+            if let Item::Struct(struct_decl) = item {
+                self.analyze_struct(struct_decl);
+            }
+        }
+    }
+
+    fn process_enum_declarations(&mut self, module: &'a Module) {
+        for item in &module.items {
+            if let Item::Enum(enum_decl) = item {
+                self.analyze_enum(enum_decl);
             }
         }
     }
@@ -1249,6 +1266,9 @@ impl<'a> Analyzer<'a> {
         let struct_type = Type::Struct(struct_decl.name.clone(), fields);
         self.struct_registry
             .insert(struct_decl.name.clone(), struct_type.clone());
+        let _ = self
+            .scopes
+            .set_symbol_type(&struct_decl.name, struct_type.clone());
 
         // Note: The struct was already registered in register_structs,
         // so we don't call define again to avoid duplicate definition errors
@@ -3957,6 +3977,14 @@ mod tests {
     }
 
     #[test]
+    fn allows_struct_use_before_declaration() {
+        analyze_source(
+            "fn make(): Point { return Point { x: 1, y: 2 }; } struct Point { x: i32, y: i32 }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
     fn detects_duplicate_struct_fields() {
         let errors = analyze_source("struct Point { x: i32, x: f32 }").unwrap_err();
         assert!(errors
@@ -4159,6 +4187,12 @@ mod tests {
     fn enum_unit_variants() {
         let result = analyze_source("enum Color { Red, Green, Blue } fn main(): void { }");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn allows_enum_use_before_declaration() {
+        analyze_source("fn make(): Color { return Color::Red; } enum Color { Red }")
+            .expect("analysis ok");
     }
 
     #[test]

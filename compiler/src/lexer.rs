@@ -251,15 +251,27 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some(b'/') if self.peek_next() == Some(b'*') => {
+                    let start_pos = self.pos;
+                    let start_loc = self.location();
                     self.advance();
                     self.advance();
+
+                    let mut terminated = false;
                     while let Some(ch) = self.peek() {
                         if ch == b'*' && self.peek_next() == Some(b'/') {
                             self.advance();
                             self.advance();
+                            terminated = true;
                             break;
                         }
                         self.advance();
+                    }
+
+                    if !terminated {
+                        let span = Span::new(start_pos, self.pos, start_loc, self.location());
+                        self.errors
+                            .push(LexError::new("unterminated block comment", span));
+                        break;
                     }
                 }
                 _ => break,
@@ -391,5 +403,15 @@ mod tests {
         let errors = result.err().unwrap();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("unterminated string"));
+    }
+
+    #[test]
+    fn report_unterminated_block_comment() {
+        let result = Lexer::new("/* comment").tokenize();
+        assert!(result.is_err());
+        let errors = result.err().unwrap();
+        assert!(errors
+            .iter()
+            .any(|error| error.message.contains("unterminated block comment")));
     }
 }
