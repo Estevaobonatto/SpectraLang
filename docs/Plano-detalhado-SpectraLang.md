@@ -70,7 +70,7 @@ Descrição breve: SpectraLang é uma linguagem moderna, simples e expressiva qu
 - Palavras‑chave núcleo
   - Módulos: `module`, `import`, `export`, `pub`, `use`.
   - Tipos e definição: `type`, `struct`, `enum`, `union`, `trait`, `impl`, `class`, `extends`, `new`.
-  - Controle: `if`, `else`, `match`, `for`, `while`, `break`, `continue`, `return`, `defer`, `using`.
+  - Controle: `if`, `elif`, `else`, `unless`, `match`, `switch`, `case`, `default`, `cond`, `for`, `while`, `break`, `continue`, `return`, `defer`, `using`.
   - Funções: `fn`, `async`, `await`, `yield`.
   - Erros: `try`, `catch`, `throw`.
   - Mutabilidade: `let` (imutável), `var` (mutável).
@@ -100,6 +100,26 @@ class Circle(radius: f64) implements Drawable {
 match value {
   Some(v) => io.print(v),
   None => io.print("empty")
+}
+
+switch (metric.kind) {
+  case MetricKind::Counter => io.print("counter"),
+  case MetricKind::Gauge => io.print("gauge"),
+  default => io.print("unknown"),
+}
+
+cond {
+  temperature > 80 => io.alert("Hot"),
+  temperature < 65 => io.alert("Cold"),
+  else => io.print("Comfortable"),
+}
+
+unless (user.is_admin()) {
+  deny_access();
+} elif (user.has_temp_access()) {
+  grant_limited_access();
+} else {
+  grant_read_access();
 }
 
 directive weak_types on

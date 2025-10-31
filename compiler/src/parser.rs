@@ -247,14 +247,29 @@ impl<'a> Parser<'a> {
             return self.parse_for_statement(keyword.span);
         }
 
+        if self.check_keyword(Keyword::Switch) {
+            let keyword = self.advance().clone();
+            return self.parse_switch_statement(keyword.span);
+        }
+
         if self.check_keyword(Keyword::Match) {
             let keyword = self.advance().clone();
             return self.parse_match_statement(keyword.span);
         }
 
+        if self.check_keyword(Keyword::Cond) {
+            let keyword = self.advance().clone();
+            return self.parse_cond_statement(keyword.span);
+        }
+
         if self.check_keyword(Keyword::If) {
             let keyword = self.advance().clone();
             return self.parse_if_statement(keyword.span);
+        }
+
+        if self.check_keyword(Keyword::Unless) {
+            let keyword = self.advance().clone();
+            return self.parse_unless_statement(keyword.span);
         }
 
         if self.check_keyword(Keyword::While) {
@@ -308,19 +323,35 @@ impl<'a> Parser<'a> {
             .clone();
         let then_branch = self.parse_statement()?;
 
-        let else_branch = if self.check_keyword(Keyword::Else) {
+        let mut span = span_union(keyword_span, expr_span(&condition));
+        span = span_union(span, close_paren.span);
+        span = span_union(span, statement_span(&then_branch));
+
+        let else_branch = if self.check_keyword(Keyword::Elif) {
+            let elif_token = self.advance().clone();
+            let stmt = self.parse_if_statement(elif_token.span)?;
+            span = span_union(span, statement_span(&stmt));
+            Some(Box::new(stmt))
+        } else if self.check_keyword(Keyword::Else) {
             self.advance();
-            Some(Box::new(self.parse_statement()?))
+            if self.check_keyword(Keyword::If) {
+                let if_token = self.advance().clone();
+                let stmt = self.parse_if_statement(if_token.span)?;
+                span = span_union(span, statement_span(&stmt));
+                Some(Box::new(stmt))
+            } else if self.check_keyword(Keyword::Elif) {
+                let elif_token = self.advance().clone();
+                let stmt = self.parse_if_statement(elif_token.span)?;
+                span = span_union(span, statement_span(&stmt));
+                Some(Box::new(stmt))
+            } else {
+                let stmt = self.parse_statement()?;
+                span = span_union(span, statement_span(&stmt));
+                Some(Box::new(stmt))
+            }
         } else {
             None
         };
-
-        let mut span = span_union(keyword_span, expr_span(&condition));
-        span = span_union(span, statement_span(&then_branch));
-        if let Some(branch) = else_branch.as_deref() {
-            span = span_union(span, statement_span(branch));
-        }
-        span = span_union(span, close_paren.span);
 
         Some(Stmt::If {
             condition,
@@ -501,6 +532,235 @@ impl<'a> Parser<'a> {
         Some(Stmt::Match {
             expression,
             arms,
+            span,
+        })
+    }
+
+    fn parse_switch_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        self.consume(TokenKind::LParen, "expected '(' after 'switch'")?;
+        let expression = self.expression()?;
+        let close_paren = self
+            .consume(TokenKind::RParen, "expected ')' after switch expression")?
+            .clone();
+
+        let open_brace = self
+            .consume(TokenKind::LBrace, "expected '{' after switch expression")?
+            .clone();
+
+        let mut arms = Vec::new();
+        let mut saw_default = false;
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            if self.check_keyword(Keyword::Case) {
+                let case_token = self.advance().clone();
+                let pattern = self.parse_match_pattern()?;
+                self.consume(TokenKind::Arrow, "expected '=>' after case pattern")?;
+                let body = self.parse_statement()?;
+                let mut arm_span = span_union(case_token.span, match_pattern_span(&pattern));
+                arm_span = span_union(arm_span, statement_span(&body));
+                arms.push(MatchArm {
+                    pattern,
+                    body,
+                    span: arm_span,
+                });
+            } else if self.check_keyword(Keyword::Default) || self.check_keyword(Keyword::Else) {
+                let default_token = self.advance().clone();
+                if saw_default {
+                    self.errors.push(ParseError::new(
+                        "duplicate 'default' clause in switch",
+                        default_token.span.start_location,
+                    ));
+                    self.synchronize();
+                    return None;
+                }
+                saw_default = true;
+                self.consume(TokenKind::Arrow, "expected '=>' after 'default' in switch")?;
+                let body = self.parse_statement()?;
+                let pattern = MatchPattern::Identifier {
+                    name: "_".to_string(),
+                    span: default_token.span,
+                };
+                let mut arm_span = span_union(default_token.span, match_pattern_span(&pattern));
+                arm_span = span_union(arm_span, statement_span(&body));
+                arms.push(MatchArm {
+                    pattern,
+                    body,
+                    span: arm_span,
+                });
+            } else {
+                let location = self.peek().span.start_location;
+                self.errors.push(ParseError::new(
+                    "expected 'case' or 'default' in switch",
+                    location,
+                ));
+                self.synchronize();
+                return None;
+            }
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let close_brace = self
+            .consume(TokenKind::RBrace, "expected '}' to close switch")?
+            .clone();
+
+        if arms.is_empty() {
+            self.errors.push(ParseError::new(
+                "switch statement requires at least one case",
+                close_brace.span.start_location,
+            ));
+            return None;
+        }
+
+        let mut span = span_union(keyword_span, expr_span(&expression));
+        span = span_union(span, close_paren.span);
+        span = span_union(span, open_brace.span);
+        span = span_union(span, close_brace.span);
+        for arm in &arms {
+            span = span_union(span, arm.span);
+        }
+
+        Some(Stmt::Match {
+            expression,
+            arms,
+            span,
+        })
+    }
+
+    fn parse_cond_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        let open_brace = self
+            .consume(TokenKind::LBrace, "expected '{' after 'cond'")?
+            .clone();
+
+        struct CondClause {
+            condition: Expr,
+            body: Stmt,
+        }
+
+        let mut clauses: Vec<CondClause> = Vec::new();
+        let mut else_clause: Option<Stmt> = None;
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            if self.check_keyword(Keyword::Else) {
+                let else_token = self.advance().clone();
+                if else_clause.is_some() {
+                    self.errors.push(ParseError::new(
+                        "duplicate 'else' clause in cond",
+                        else_token.span.start_location,
+                    ));
+                    self.synchronize();
+                    return None;
+                }
+                self.consume(TokenKind::Arrow, "expected '=>' after 'else' in cond")?;
+                let body = self.parse_statement()?;
+                else_clause = Some(body);
+                if self.match_token(TokenKind::Comma) && !self.check(TokenKind::RBrace) {
+                    self.errors.push(ParseError::new(
+                        "no clauses allowed after 'else' in cond",
+                        else_token.span.start_location,
+                    ));
+                    self.synchronize();
+                    return None;
+                }
+                continue;
+            }
+
+            let condition = self.expression()?;
+            self.consume(TokenKind::Arrow, "expected '=>' after cond condition")?;
+            let body = self.parse_statement()?;
+            clauses.push(CondClause { condition, body });
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let close_brace = self
+            .consume(TokenKind::RBrace, "expected '}' to close cond")?
+            .clone();
+
+        if clauses.is_empty() {
+            self.errors.push(ParseError::new(
+                "cond must have at least one conditional clause",
+                close_brace.span.start_location,
+            ));
+            return None;
+        }
+
+        let mut base_span = span_union(keyword_span, open_brace.span);
+        base_span = span_union(base_span, close_brace.span);
+
+        let mut current_else = else_clause.map(Box::new);
+
+        for clause in clauses.into_iter().rev() {
+            let mut if_span = base_span;
+            if_span = span_union(if_span, expr_span(&clause.condition));
+            if_span = span_union(if_span, statement_span(&clause.body));
+            if let Some(ref else_stmt) = current_else {
+                if_span = span_union(if_span, statement_span(else_stmt));
+            }
+
+            let stmt = Stmt::If {
+                condition: clause.condition,
+                then_branch: Box::new(clause.body),
+                else_branch: current_else.take(),
+                span: if_span,
+            };
+            current_else = Some(Box::new(stmt));
+        }
+
+        current_else.map(|stmt| *stmt)
+    }
+
+    fn parse_unless_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
+        self.consume(TokenKind::LParen, "expected '(' after 'unless'")?;
+        let condition = self.expression()?;
+        let close_paren = self
+            .consume(TokenKind::RParen, "expected ')' after unless condition")?
+            .clone();
+        let then_branch = self.parse_statement()?;
+
+        let negated_span = span_union(keyword_span, close_paren.span);
+        let negated_condition = Expr::Unary {
+            operator: UnaryOperator::Not,
+            operand: Box::new(condition),
+            span: negated_span,
+        };
+
+        let mut span = span_union(negated_span, statement_span(&then_branch));
+
+        let else_branch = if self.check_keyword(Keyword::Elif) {
+            let elif_token = self.advance().clone();
+            let stmt = self.parse_if_statement(elif_token.span)?;
+            span = span_union(span, statement_span(&stmt));
+            Some(Box::new(stmt))
+        } else if self.check_keyword(Keyword::Else) {
+            self.advance();
+            if self.check_keyword(Keyword::If) {
+                let if_token = self.advance().clone();
+                let stmt = self.parse_if_statement(if_token.span)?;
+                span = span_union(span, statement_span(&stmt));
+                Some(Box::new(stmt))
+            } else if self.check_keyword(Keyword::Elif) {
+                let elif_token = self.advance().clone();
+                let stmt = self.parse_if_statement(elif_token.span)?;
+                span = span_union(span, statement_span(&stmt));
+                Some(Box::new(stmt))
+            } else {
+                let stmt = self.parse_statement()?;
+                span = span_union(span, statement_span(&stmt));
+                Some(Box::new(stmt))
+            }
+        } else {
+            None
+        };
+
+        Some(Stmt::If {
+            condition: negated_condition,
+            then_branch: Box::new(then_branch),
+            else_branch,
             span,
         })
     }
@@ -2100,6 +2360,59 @@ mod tests {
                 assert_eq!(func.visibility, Visibility::Private);
             }
             _ => panic!("expected function item"),
+        }
+    }
+
+    #[test]
+    fn parse_if_with_elif_chain() {
+        let module = parse_ok("if (true) { } elif (false) { } else { }");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Stmt(Stmt::If { else_branch, .. }) => {
+                let nested = else_branch.as_deref().expect("elif lowered to nested if");
+                match nested {
+                    Stmt::If { .. } => {}
+                    _ => panic!("expected elif to produce nested if"),
+                }
+            }
+            _ => panic!("expected if statement"),
+        }
+    }
+
+    #[test]
+    fn parse_switch_statement_lowered_to_match() {
+        let module = parse_ok("switch (value) { case 1 => break;, default => break;, }");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Stmt(Stmt::Match { arms, .. }) => {
+                assert_eq!(arms.len(), 2);
+            }
+            _ => panic!("expected switch to lower to match"),
+        }
+    }
+
+    #[test]
+    fn parse_cond_lowering_to_if_chain() {
+        let module = parse_ok("cond { true => break;, false => break;, else => break;, }");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Stmt(Stmt::If { else_branch, .. }) => {
+                assert!(else_branch.is_some(), "cond should produce else chain");
+            }
+            _ => panic!("expected cond to lower to if"),
+        }
+    }
+
+    #[test]
+    fn parse_unless_lowering_to_if_negated_condition() {
+        let module = parse_ok("unless (false) { } else { }");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Stmt(Stmt::If { condition, .. }) => match condition {
+                Expr::Unary { operator, .. } => assert_eq!(*operator, UnaryOperator::Not),
+                _ => panic!("expected unary negation for unless condition"),
+            },
+            _ => panic!("expected unless to lower to if"),
         }
     }
 

@@ -3871,6 +3871,35 @@ mod tests {
     }
 
     #[test]
+    fn cond_requires_boolean_conditions() {
+        let errors = analyze_source("fn main(): i32 { cond { 1 => return 1;, } }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("condition of 'if' must have type bool")));
+    }
+
+    #[test]
+    fn cond_with_else_clause_is_allowed() {
+        analyze_source("fn main(): i32 { cond { false => return 0;, else => return 1;, } }")
+            .expect("analysis ok");
+    }
+
+    #[test]
+    fn unless_requires_boolean_condition() {
+        let errors =
+            analyze_source("fn main(): i32 { unless (1) { return 0; } return 1; }").unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("operator '!' expects a bool operand")));
+    }
+
+    #[test]
+    fn unless_with_optional_else_is_allowed() {
+        analyze_source("fn main(): i32 { unless (false) { return 1; } else { return 0; } }")
+            .expect("analysis ok");
+    }
+
+    #[test]
     fn detects_while_condition_type_mismatch() {
         let errors = analyze_source(
             "fn main(): i32 { var x = 0; while (1) { x = x + 1; break; } return x; }",
