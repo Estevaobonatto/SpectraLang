@@ -302,8 +302,34 @@ pub struct MatchArm {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchPattern {
-    Literal { value: Literal, span: Span },
-    Identifier { name: String, span: Span },
+    Literal {
+        value: Literal,
+        span: Span,
+    },
+    Identifier {
+        name: String,
+        span: Span,
+    },
+    EnumVariant {
+        enum_path: Vec<String>,
+        variant: String,
+        kind: EnumPatternKind,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumPatternField {
+    pub name: String,
+    pub pattern: MatchPattern,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumPatternKind {
+    Unit,
+    Tuple(Vec<MatchPattern>),
+    Struct(Vec<EnumPatternField>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

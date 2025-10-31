@@ -95,7 +95,9 @@ impl<'a> Lexer<'a> {
             b'[' => self.make_token(TokenKind::LBracket, start_pos, start_loc),
             b']' => self.make_token(TokenKind::RBracket, start_pos, start_loc),
             b'=' => {
-                if self.match_byte(b'=') {
+                if self.match_byte(b'>') {
+                    self.make_token(TokenKind::Arrow, start_pos, start_loc)
+                } else if self.match_byte(b'=') {
                     self.make_token(TokenKind::EqualEqual, start_pos, start_loc)
                 } else {
                     self.make_token(TokenKind::Equal, start_pos, start_loc)

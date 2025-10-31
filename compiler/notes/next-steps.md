@@ -1,9 +1,9 @@
 # SpectraLang – Próximos Passos Imediatos
 
-1. **Construtores de enum e pattern matching parcial**
-   - Extender a AST e o parser para permitir o uso direto de variantes (`Flag::On`, `Flag::Value(42)`), incluindo spans completos.
-   - Atualizar o analisador semântico para validar cargas das variantes e preparar o terreno para `match` exaustivo.
-   - Adicionar testes cobrindo tanto caminhos válidos quanto diagnósticos de assinatura incorreta.
+1. **Match exaustivo e refinamentos de enum**
+   - ✅ Construtores de enum e pattern matching parcial entregues (ver testes `match_accepts_enum_variant_patterns`, `match_binds_enum_tuple_payload`, `match_struct_variant_binding`).
+   - Implementar verificação de exaustividade/duplicidades em `match`, incluindo recomendações para `_` quando necessário.
+   - Estender padrões para suportar guardas e alias nomeados, mantendo diagnósticos precisos.
 
 2. **Aliases e import seletivo**
    - Introduzir suporte sintático a `import lib.types as types` e `import lib.types::{Point, Flag}`.

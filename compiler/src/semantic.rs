@@ -2,8 +2,9 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::convert::TryFrom;
 
 use crate::ast::{
-    BinaryOperator, Block, Constant, EnumLiteralKind, Export, Expr, Function, Import, Item,
-    Literal, Module, ModulePath, Stmt, TypeName, UnaryOperator, Visibility,
+    BinaryOperator, Block, Constant, EnumLiteralKind, EnumPatternKind, Export, Expr, Function,
+    Import, Item, Literal, MatchPattern, Module, ModulePath, Stmt, TypeName, UnaryOperator,
+    Visibility,
 };
 use crate::error::{SemanticError, SemanticResult};
 use crate::span::Span;
@@ -1527,13 +1528,10 @@ impl<'a> Analyzer<'a> {
                     ));
                 }
 
-                if let Err(previous_span) = self.scopes.define(
-                    name,
-                    *span,
-                    SymbolKind::Variable,
-                    binding_type,
-                    false,
-                ) {
+                if let Err(previous_span) =
+                    self.scopes
+                        .define(name, *span, SymbolKind::Variable, binding_type, false)
+                {
                     let previous_location = previous_span.start_location;
                     self.errors.push(SemanticError::new(
                         format!(
@@ -1665,25 +1663,12 @@ impl<'a> Analyzer<'a> {
             } => {
                 let expr_type = self.analyze_expr(expression);
                 for arm in arms {
-                    match &arm.pattern {
-                        crate::ast::MatchPattern::Literal { value, span } => {
-                            let pattern_type = literal_type(value);
-                            if !types_compatible(&expr_type, &pattern_type) {
-                                self.errors.push(SemanticError::new(
-                                    format!(
-                                        "match pattern type {} does not match expression type {}",
-                                        pattern_type.describe(),
-                                        expr_type.describe()
-                                    ),
-                                    *span,
-                                ));
-                            }
-                        }
-                        crate::ast::MatchPattern::Identifier { .. } => {
-                            // Pattern binding - could be validated more thoroughly in the future
-                        }
-                    }
+                    self.scopes.push(ScopeKind::Block);
+                    self.analyze_match_pattern(&arm.pattern, &expr_type);
                     self.analyze_statement(&arm.body);
+                    if let Some(frame) = self.scopes.pop() {
+                        self.report_unused(frame);
+                    }
                 }
             }
             Stmt::Break { span } => {
@@ -1696,13 +1681,325 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn analyze_match_pattern(&mut self, pattern: &MatchPattern, scrutinee_type: &Type) {
+        match pattern {
+            MatchPattern::Literal { value, span } => {
+                let pattern_type = literal_type(value);
+                if !types_compatible(scrutinee_type, &pattern_type) {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "match pattern type {} does not match expression type {}",
+                            pattern_type.describe(),
+                            scrutinee_type.describe()
+                        ),
+                        *span,
+                    ));
+                }
+            }
+            MatchPattern::Identifier { name, span } => {
+                if name == "_" {
+                    return;
+                }
+                if let Err(previous_span) = self.scopes.define(
+                    name,
+                    *span,
+                    SymbolKind::Variable,
+                    scrutinee_type.clone(),
+                    false,
+                ) {
+                    let previous_location = previous_span.start_location;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "variable '{}' already defined in this scope (previous definition at {})",
+                            name, previous_location
+                        ),
+                        *span,
+                    ));
+                }
+            }
+            MatchPattern::EnumVariant {
+                enum_path,
+                variant,
+                kind,
+                span,
+            } => {
+                self.analyze_enum_pattern(enum_path, variant, kind, *span, scrutinee_type);
+            }
+        }
+    }
+
+    fn analyze_enum_pattern(
+        &mut self,
+        enum_path: &[String],
+        variant: &str,
+        kind: &EnumPatternKind,
+        span: Span,
+        scrutinee_type: &Type,
+    ) {
+        if enum_path.len() != 1 {
+            let mut qualified = enum_path.join("::");
+            if qualified.is_empty() {
+                qualified = variant.to_string();
+            } else {
+                qualified.push_str("::");
+                qualified.push_str(variant);
+            }
+            self.errors.push(SemanticError::new(
+                format!("qualified enum paths are not supported yet: {}", qualified),
+                span,
+            ));
+
+            match kind {
+                EnumPatternKind::Tuple(arguments) => {
+                    for argument in arguments {
+                        let unknown = Type::Unknown;
+                        self.analyze_match_pattern(argument, &unknown);
+                    }
+                }
+                EnumPatternKind::Struct(fields) => {
+                    for field in fields {
+                        let unknown = Type::Unknown;
+                        self.analyze_match_pattern(&field.pattern, &unknown);
+                    }
+                }
+                EnumPatternKind::Unit => {}
+            }
+            return;
+        }
+
+        let enum_name = &enum_path[0];
+
+        let scrutinee_enum_name = match scrutinee_type {
+            Type::Enum(name) => Some(name.clone()),
+            Type::Unknown => None,
+            other => {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "match pattern uses enum variant '{}::{}' but expression has type {}",
+                        enum_name,
+                        variant,
+                        other.describe()
+                    ),
+                    span,
+                ));
+                None
+            }
+        };
+
+        if let Some(name) = scrutinee_enum_name.as_ref() {
+            if enum_name != name {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "match pattern references enum '{}' but expression has type enum {}",
+                        enum_name, name
+                    ),
+                    span,
+                ));
+            }
+        }
+
+        let Some(enum_info) = self.enum_registry.get(enum_name) else {
+            self.errors.push(SemanticError::new(
+                format!("use of undeclared enum '{}' in match pattern", enum_name),
+                span,
+            ));
+            return;
+        };
+
+        let Some(variant_info_ref) = enum_info.variants.get(variant) else {
+            self.errors.push(SemanticError::new(
+                format!("enum '{}' has no variant '{}'", enum_name, variant),
+                span,
+            ));
+            return;
+        };
+
+        let variant_info = variant_info_ref.clone();
+        let kind = kind.clone();
+
+        match (variant_info, kind) {
+            (EnumVariantInfo::Unit, EnumPatternKind::Unit) => {}
+            (EnumVariantInfo::Unit, EnumPatternKind::Tuple(arguments)) => {
+                for argument in &arguments {
+                    let unknown = Type::Unknown;
+                    self.analyze_match_pattern(argument, &unknown);
+                }
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "enum variant '{}::{}' pattern does not accept arguments",
+                        enum_name, variant
+                    ),
+                    span,
+                ));
+            }
+            (EnumVariantInfo::Unit, EnumPatternKind::Struct(fields)) => {
+                for field in &fields {
+                    let unknown = Type::Unknown;
+                    self.analyze_match_pattern(&field.pattern, &unknown);
+                }
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "enum variant '{}::{}' pattern does not accept fields ({} provided)",
+                        enum_name,
+                        variant,
+                        fields.len()
+                    ),
+                    span,
+                ));
+            }
+            (EnumVariantInfo::Tuple(expected_types), EnumPatternKind::Tuple(arguments)) => {
+                if expected_types.len() != arguments.len() {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "enum variant '{}::{}' pattern expects {} argument(s), got {}",
+                            enum_name,
+                            variant,
+                            expected_types.len(),
+                            arguments.len()
+                        ),
+                        span,
+                    ));
+                }
+
+                for (index, argument) in arguments.iter().enumerate() {
+                    if let Some(expected_type) = expected_types.get(index) {
+                        self.analyze_match_pattern(argument, expected_type);
+                    } else {
+                        let unknown = Type::Unknown;
+                        self.analyze_match_pattern(argument, &unknown);
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "enum variant '{}::{}' does not accept argument {}",
+                                enum_name,
+                                variant,
+                                index + 1
+                            ),
+                            pattern_span(argument),
+                        ));
+                    }
+                }
+
+                if expected_types.len() > arguments.len() {
+                    for missing_index in arguments.len()..expected_types.len() {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "missing argument {} for enum variant '{}::{}' pattern",
+                                missing_index + 1,
+                                enum_name,
+                                variant
+                            ),
+                            span,
+                        ));
+                    }
+                }
+            }
+            (EnumVariantInfo::Tuple(expected_types), EnumPatternKind::Unit) => {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "enum variant '{}::{}' pattern expects {} argument(s), but none were provided",
+                        enum_name,
+                        variant,
+                        expected_types.len()
+                    ),
+                    span,
+                ));
+            }
+            (EnumVariantInfo::Tuple(_expected_types), EnumPatternKind::Struct(fields)) => {
+                for field in &fields {
+                    let unknown = Type::Unknown;
+                    self.analyze_match_pattern(&field.pattern, &unknown);
+                }
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "enum variant '{}::{}' pattern expects positional arguments, got struct pattern with {} field(s)",
+                        enum_name,
+                        variant,
+                        fields.len()
+                    ),
+                    span,
+                ));
+            }
+            (EnumVariantInfo::Struct(expected_fields), EnumPatternKind::Struct(field_patterns)) => {
+                let mut seen = HashSet::new();
+                let mut present = HashSet::new();
+
+                for field in &field_patterns {
+                    if !seen.insert(field.name.clone()) {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "duplicate field '{}' in pattern for enum variant '{}::{}'",
+                                field.name, enum_name, variant
+                            ),
+                            field.span,
+                        ));
+                        continue;
+                    }
+
+                    if let Some(expected_type) = expected_fields.get(&field.name) {
+                        present.insert(field.name.clone());
+                        self.analyze_match_pattern(&field.pattern, expected_type);
+                    } else {
+                        let unknown = Type::Unknown;
+                        self.analyze_match_pattern(&field.pattern, &unknown);
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "enum variant '{}::{}' has no field '{}'",
+                                enum_name, variant, field.name
+                            ),
+                            field.span,
+                        ));
+                    }
+                }
+
+                for field_name in expected_fields.keys() {
+                    if !present.contains(field_name) {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "missing field '{}' in pattern for enum variant '{}::{}'",
+                                field_name, enum_name, variant
+                            ),
+                            span,
+                        ));
+                    }
+                }
+            }
+            (EnumVariantInfo::Struct(_), EnumPatternKind::Tuple(arguments)) => {
+                for argument in &arguments {
+                    let unknown = Type::Unknown;
+                    self.analyze_match_pattern(argument, &unknown);
+                }
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "enum variant '{}::{}' pattern expects named fields, got positional pattern with {} argument(s)",
+                        enum_name,
+                        variant,
+                        arguments.len()
+                    ),
+                    span,
+                ));
+            }
+            (EnumVariantInfo::Struct(_), EnumPatternKind::Unit) => {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "enum variant '{}::{}' pattern expects named fields, but none were provided",
+                        enum_name,
+                        variant
+                    ),
+                    span,
+                ));
+            }
+        }
+    }
+
     fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
         let Some(context_ref) = self.current_function.as_ref() else {
             if let Some(expr) = value {
                 self.analyze_expr(expr);
             }
-            self.errors
-                .push(SemanticError::new("return statement outside of function", span));
+            self.errors.push(SemanticError::new(
+                "return statement outside of function",
+                span,
+            ));
             return;
         };
 
@@ -1974,8 +2271,10 @@ impl<'a> Analyzer<'a> {
                         ));
                     }
                 } else {
-                    self.errors
-                        .push(SemanticError::new("'await' used outside of function", *span));
+                    self.errors.push(SemanticError::new(
+                        "'await' used outside of function",
+                        *span,
+                    ));
                 }
 
                 match value_type {
@@ -1983,10 +2282,7 @@ impl<'a> Analyzer<'a> {
                     Type::Unknown => Type::Unknown,
                     other => {
                         self.errors.push(SemanticError::new(
-                            format!(
-                                "'await' expects a future but found {}",
-                                other.describe()
-                            ),
+                            format!("'await' expects a future but found {}", other.describe()),
                             *span,
                         ));
                         Type::Unknown
@@ -3008,9 +3304,17 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::StructLiteral { span, .. }
         | Expr::EnumLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
-    | Expr::ArrayRepeat { span, .. }
-    | Expr::Index { span, .. }
-    | Expr::Await { span, .. } => *span,
+        | Expr::ArrayRepeat { span, .. }
+        | Expr::Index { span, .. }
+        | Expr::Await { span, .. } => *span,
+    }
+}
+
+fn pattern_span(pattern: &MatchPattern) -> Span {
+    match pattern {
+        MatchPattern::Literal { span, .. }
+        | MatchPattern::Identifier { span, .. }
+        | MatchPattern::EnumVariant { span, .. } => *span,
     }
 }
 
@@ -3102,9 +3406,9 @@ mod tests {
             "fn main(): i32 { return await helper(); } async fn helper(): i32 { return 1; }",
         )
         .unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|error| error.message.contains("'await' used outside of async function")));
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("'await' used outside of async function")));
     }
 
     #[test]
@@ -3537,9 +3841,9 @@ mod tests {
     #[test]
     fn defer_outside_function_reports_error() {
         let errors = analyze_source("defer { return; }").unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|error| error.message.contains("defer statement outside of function")));
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("defer statement outside of function")));
     }
 
     #[test]
@@ -3891,5 +4195,64 @@ mod tests {
     fn public_enum() {
         let result = analyze_source("pub enum Color { Red, Green, Blue } fn main(): void { }");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn match_accepts_enum_variant_patterns() {
+        analyze_source(
+            "enum Flag { On, Off } fn react(flag: Flag) { match flag { Flag::On => { return; }, Flag::Off => { return; } } }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn match_binds_enum_tuple_payload() {
+        analyze_source(
+            "enum Maybe { None, Some(i32) } fn extract(value: Maybe): i32 { match value { Maybe::Some(v) => { return v; }, Maybe::None => { return 0; } } }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn match_struct_variant_binding() {
+        analyze_source(
+            "enum Message { None, Data { value: i32 } } fn handle(message: Message): i32 { match message { Message::Data { value } => { return value; }, Message::None => { return 0; } } }",
+        )
+        .expect("analysis ok");
+    }
+
+    #[test]
+    fn match_rejects_pattern_type_mismatch() {
+        let errors = analyze_source(
+            "enum Flag { On } fn react(value: i32) { match value { Flag::On => { return; } } }",
+        )
+        .unwrap_err();
+        assert!(errors.iter().any(|error| error.message.contains(
+            "match pattern uses enum variant 'Flag::On' but expression has type integer"
+        )));
+    }
+
+    #[test]
+    fn match_reports_tuple_variant_arity_mismatch() {
+        let errors = analyze_source(
+            "enum State { Empty, Value(i32, i32) } fn react(state: State) { match state { State::Value(x) => { return; }, State::Empty => { return; } } }",
+        )
+        .unwrap_err();
+        assert!(errors.iter().any(|error| error
+            .message
+            .contains("pattern expects 2 argument(s), got 1")));
+    }
+
+    #[test]
+    fn match_reports_missing_struct_fields() {
+        let errors = analyze_source(
+            "enum Message { Data { value: i32 } } fn react(message: Message) { match message { Message::Data {} => { return; } } }",
+        )
+        .unwrap_err();
+        assert!(errors.iter().any(|error| {
+            let message = &error.message;
+            message.contains("pattern expects named fields, but none were provided")
+                || message.contains("missing field 'value' in pattern for enum variant")
+        }));
     }
 }

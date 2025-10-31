@@ -1,9 +1,9 @@
 use crate::{
     ast::{
-    BinaryOperator, Block, CatchClause, Constant, EnumDecl, EnumVariant, EnumVariantData,
-    Export, ExportItem, Expr, Function, Import, ImportItem, Item, Literal, MatchArm,
-    MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl, StructField,
-    StructFieldInit, TypeName, UnaryOperator, Visibility,
+        BinaryOperator, Block, CatchClause, Constant, EnumDecl, EnumPatternField, EnumPatternKind,
+        EnumVariant, EnumVariantData, Export, ExportItem, Expr, Function, Import, ImportItem, Item,
+        Literal, MatchArm, MatchPattern, Module, ModulePath, Parameter, Stmt, StructDecl,
+        StructField, StructFieldInit, TypeName, UnaryOperator, Visibility,
     },
     error::{ParseError, ParseResult},
     span::Span,
@@ -14,6 +14,7 @@ pub struct Parser<'a> {
     tokens: &'a [Token],
     current: usize,
     errors: Vec<ParseError>,
+    allow_struct_literals: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -22,6 +23,7 @@ impl<'a> Parser<'a> {
             tokens,
             current: 0,
             errors: Vec::new(),
+            allow_struct_literals: true,
         }
     }
 
@@ -429,7 +431,40 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_match_statement(&mut self, keyword_span: Span) -> Option<Stmt> {
-        let expression = self.expression()?;
+        let start_index = self.current;
+        let start_errors = self.errors.len();
+        let expression = match self.expression() {
+            Some(expr) => {
+                if self.peek().kind == TokenKind::LBrace {
+                    expr
+                } else {
+                    self.current = start_index;
+                    self.errors.truncate(start_errors);
+                    let previous = self.allow_struct_literals;
+                    self.allow_struct_literals = false;
+                    let result = self.expression();
+                    self.allow_struct_literals = previous;
+                    result?
+                }
+            }
+            None => {
+                let struct_literal_error = self.errors[start_errors..]
+                    .iter()
+                    .any(|error| error.message.contains("struct literal"));
+                if struct_literal_error {
+                    self.current = start_index;
+                    self.errors.truncate(start_errors);
+                    let previous = self.allow_struct_literals;
+                    self.allow_struct_literals = false;
+                    let result = self.expression();
+                    self.allow_struct_literals = previous;
+                    result?
+                } else {
+                    return None;
+                }
+            }
+        };
+
         let open_brace = self
             .consume(TokenKind::LBrace, "expected '{' after match expression")?
             .clone();
@@ -532,17 +567,29 @@ impl<'a> Parser<'a> {
         }
 
         if self.match_token(TokenKind::Identifier) {
-            let token = self.previous().clone();
-            if token.lexeme != "_" {
-                self.errors.push(ParseError::new(
-                    "only '_' wildcard identifier is supported in match patterns",
-                    token.span.start_location,
-                ));
-                return None;
+            let first = self.previous().clone();
+            let mut segments = vec![first.lexeme.clone()];
+            let mut span = first.span;
+
+            while self.match_token(TokenKind::Scope) {
+                let ident = self
+                    .consume_identifier("expected identifier after '::' in match pattern")?
+                    .clone();
+                span = span_union(span, ident.span);
+                segments.push(ident.lexeme.clone());
             }
+
+            if segments.len() > 1 {
+                let variant = segments
+                    .pop()
+                    .expect("path length greater than one guarantees variant");
+                let enum_path = segments;
+                return self.parse_enum_pattern(enum_path, variant, span);
+            }
+
             return Some(MatchPattern::Identifier {
-                name: token.lexeme,
-                span: token.span,
+                name: first.lexeme,
+                span: first.span,
             });
         }
 
@@ -550,6 +597,89 @@ impl<'a> Parser<'a> {
         self.errors
             .push(ParseError::new("expected match pattern", location));
         None
+    }
+
+    fn parse_enum_pattern(
+        &mut self,
+        enum_path: Vec<String>,
+        variant: String,
+        start_span: Span,
+    ) -> Option<MatchPattern> {
+        let mut span = start_span;
+
+        let kind = if self.match_token(TokenKind::LParen) {
+            let mut arguments = Vec::new();
+            if !self.check(TokenKind::RParen) {
+                loop {
+                    let pattern = self.parse_match_pattern()?;
+                    span = span_union(span, match_pattern_span(&pattern));
+                    arguments.push(pattern);
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+
+            let close = self
+                .consume(
+                    TokenKind::RParen,
+                    "expected ')' after enum variant pattern arguments",
+                )?
+                .clone();
+            span = span_union(span, close.span);
+            EnumPatternKind::Tuple(arguments)
+        } else if self.match_token(TokenKind::LBrace) {
+            let open = self.previous().span;
+            span = span_union(span, open);
+            let mut fields = Vec::new();
+
+            while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                let field_token = self
+                    .consume_identifier("expected field name in enum variant pattern")?
+                    .clone();
+                let field_name = field_token.lexeme.clone();
+                let field_start = field_token.span;
+
+                let (pattern, field_span) = if self.match_token(TokenKind::Colon) {
+                    let inner = self.parse_match_pattern()?;
+                    let span = span_union(field_start, match_pattern_span(&inner));
+                    (inner, span)
+                } else {
+                    let binding = MatchPattern::Identifier {
+                        name: field_name.clone(),
+                        span: field_start,
+                    };
+                    (binding, field_start)
+                };
+
+                span = span_union(span, field_span);
+
+                fields.push(EnumPatternField {
+                    name: field_name,
+                    pattern,
+                    span: field_span,
+                });
+
+                if !self.match_token(TokenKind::Comma) {
+                    break;
+                }
+            }
+
+            let close = self
+                .consume(TokenKind::RBrace, "expected '}' after enum variant fields")?
+                .clone();
+            span = span_union(span, close.span);
+            EnumPatternKind::Struct(fields)
+        } else {
+            EnumPatternKind::Unit
+        };
+
+        Some(MatchPattern::EnumVariant {
+            enum_path,
+            variant,
+            kind,
+            span,
+        })
     }
 
     fn parse_assignment_statement(&mut self) -> Option<Stmt> {
@@ -894,7 +1024,7 @@ impl<'a> Parser<'a> {
             }
 
             let field_name = self.consume_identifier("expected field name")?.clone();
-            self.consume(TokenKind::Colon, "expected ':' after field name")?;
+            self.consume(TokenKind::Colon, "expected ':' after struct field name")?;
             let field_type = self.parse_type_name()?;
             let field_span = span_union(field_name.span, field_type.span);
 
@@ -971,7 +1101,10 @@ impl<'a> Parser<'a> {
                     }
 
                     let field_name = self.consume_identifier("expected field name")?.clone();
-                    self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                    self.consume(
+                        TokenKind::Colon,
+                        "expected ':' after enum variant field name",
+                    )?;
                     let field_type = self.parse_type_name()?;
                     let field_span = span_union(field_name.span, field_type.span);
 
@@ -1564,7 +1697,7 @@ impl<'a> Parser<'a> {
                 segments.push(ident.lexeme.clone());
             }
 
-            if segments.len() == 1 && self.check(TokenKind::LBrace) {
+            if segments.len() == 1 && self.allow_struct_literals && self.check(TokenKind::LBrace) {
                 return self.parse_struct_literal(first);
             }
 
@@ -1667,7 +1800,10 @@ impl<'a> Parser<'a> {
             let field_name = field_token.lexeme.clone();
             let field_start = field_token.span;
 
-            self.consume(TokenKind::Colon, "expected ':' after field name")?;
+            self.consume(
+                TokenKind::Colon,
+                "expected ':' after field name in struct literal",
+            )?;
             let value = self.expression()?;
             let field_span = span_union(field_start, expr_span(&value));
 
@@ -1731,7 +1867,10 @@ impl<'a> Parser<'a> {
                 let field_name = field_token.lexeme.clone();
                 let field_start = field_token.span;
 
-                self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                self.consume(
+                    TokenKind::Colon,
+                    "expected ':' after field name in enum variant literal",
+                )?;
                 let value = self.expression()?;
                 let field_span = span_union(field_start, expr_span(&value));
 
@@ -1878,9 +2017,9 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::StructLiteral { span, .. }
         | Expr::ArrayLiteral { span, .. }
         | Expr::ArrayRepeat { span, .. }
-    | Expr::Index { span, .. }
-    | Expr::EnumLiteral { span, .. }
-    | Expr::Await { span, .. } => *span,
+        | Expr::Index { span, .. }
+        | Expr::EnumLiteral { span, .. }
+        | Expr::Await { span, .. } => *span,
     }
 }
 
@@ -1897,9 +2036,9 @@ fn statement_span(stmt: &Stmt) -> Span {
         | Stmt::Break { span, .. }
         | Stmt::Continue { span, .. }
         | Stmt::FieldAssignment { span, .. }
-    | Stmt::Using { span, .. }
-    | Stmt::Defer { span, .. }
-    | Stmt::Try { span, .. }
+        | Stmt::Using { span, .. }
+        | Stmt::Defer { span, .. }
+        | Stmt::Try { span, .. }
         | Stmt::Block(Block { span, .. }) => *span,
         Stmt::Expr(expr) => expr_span(expr),
     }
@@ -1907,7 +2046,9 @@ fn statement_span(stmt: &Stmt) -> Span {
 
 fn match_pattern_span(pattern: &MatchPattern) -> Span {
     match pattern {
-        MatchPattern::Literal { span, .. } | MatchPattern::Identifier { span, .. } => *span,
+        MatchPattern::Literal { span, .. }
+        | MatchPattern::Identifier { span, .. }
+        | MatchPattern::EnumVariant { span, .. } => *span,
     }
 }
 
@@ -2150,7 +2291,9 @@ mod tests {
         let module = parse_ok("fn main(): i32 { return await load(); }");
         match &module.items[0] {
             Item::Function(Function { body, .. }) => match &body.statements[0] {
-                Stmt::Return { value: Some(expr), .. } => match expr {
+                Stmt::Return {
+                    value: Some(expr), ..
+                } => match expr {
                     Expr::Await { .. } => {}
                     _ => panic!("expected await expression"),
                 },
@@ -2196,5 +2339,12 @@ mod tests {
             },
             _ => panic!("expected function"),
         }
+    }
+
+    #[test]
+    fn parse_match_enum_unit_pattern() {
+        parse_ok(
+            "enum Flag { On } fn react(value: Flag) { match value { Flag::On => { return; } } }",
+        );
     }
 }
