@@ -10,13 +10,13 @@ module app.main;
 import std.console;
 
 fn main(): i32 {
-    std.console::println("Type something and press enter:");
+    println("Type something and press enter:");
 
     // `read_line` returns the text without the trailing newline.
-    let user_input = std.console::read_line();
+    let user_input = read_line();
 
-    std.console::println("You typed:");
-    std.console::println(user_input);
+    println("You typed:");
+    println(user_input);
 
     return 0;
 }
@@ -32,18 +32,18 @@ import std.args;
 
 fn main(): i32 {
     if std.args::is_empty() {
-        std.console::println("No arguments provided.");
+        println("No arguments provided.");
         return 0;
     }
 
-    std.console::println("Arguments:");
+    println("Arguments:");
     let list = std.args::all();
     let count = std.args::len();
 
     // The first entry is always the executable path.
     let index = 1;
     while index < count {
-        std.console::println(list[index]);
+        println(list[index]);
         index = index + 1;
     }
 
@@ -51,4 +51,4 @@ fn main(): i32 {
 }
 ```
 
-> **Nota:** a CLI ainda não executa os binários gerados, mas os exemplos acima servem como guia de como estruturar o código quando o backend de execução estiver disponível.
+> **Nota:** `spectra new` já inclui `import std.console;` no `main.spc` gerado e cria um stub em `src/std/console.spc` até que o runtime esteja conectado. A CLI ainda não executa os binários gerados, mas os exemplos acima servem como guia de como estruturar o código quando o backend de execução estiver disponível.

@@ -57,6 +57,7 @@
 ### Fase 3 — Ampliação da CLI (`spectra-cli`)
 - ✅ `spectra new`, `spectra build` e `spectra run` implementados com scaffold básico, seleção de profile (`--release`) e captura de argumentos para uso futuro.
 - ✅ Seleção de `main` por módulo através da flag `--main`, build completo com `--all` e manifestos contendo o mapa módulo→binário; testes básicos cobrindo os fluxos principais.
+- ✅ Template padrão agora importa `std.console`, demonstra `println` e gera o stub `src/std/console.spc` para orientar o desenvolvedor enquanto o runtime não está plugado.
 - 🔜 Templates adicionais (console modular + testes) e execução real no `run`.
 
 ### Fase 4 — Infraestrutura de Build e Artefatos
@@ -94,4 +95,4 @@
 ## Próximos Passos Imediatos
 - Escrever ADR resumindo as decisões do suporte a console apps e alinhar backlog para execução incremental das próximas fases.
 - Conectar o comando `spectra run` a um backend de execução assim que o pipeline de geração estiver disponível, reaproveitando o manifesto multi-binário.
-- Definir exemplos gerados automaticamente (`spectra new`) que utilizem `std.console` para guiar desenvolvedores iniciantes.
+- Planejar os próximos templates (ex.: versão modular, variantes com testes) e coletar feedback inicial do scaffold atual para priorizar melhorias.

@@ -20,7 +20,7 @@ cargo run --package spectra-cli -- new hello_cli
 cargo run --package spectra-cli -- build hello_cli
 ```
 
-> O comando `new` gera um esqueleto de projeto com `src/main.spc`. O `build` compila todo o diretório, valida a assinatura de `main` e gera um artefato em `target/<profile>/<bin>.build.txt` mapeando módulos e fontes para binários.
+> O comando `new` gera um esqueleto de projeto com `src/main.spc` e um stub de biblioteca em `src/std/console.spc`. O `build` compila todo o diretório, valida a assinatura de `main` e gera um artefato em `target/<profile>/<bin>.build.txt` mapeando módulos e fontes para binários.
 
 Selecione explicitamente o módulo de entrada quando houver múltiplos `fn main()`:
 
@@ -36,7 +36,7 @@ cargo run --package spectra-cli -- build hello_cli --all
 
 ### Console I/O helpers
 
-The runtime crate already exposes minimal console helpers. Use `std.console::print/println/print_err/println_err/read_line` and the `std.args` helpers to prepare your source code for future execution support. Veja exemplos práticos em `docs/console-io-recipes.md`.
+The runtime crate already exposes minimal console helpers. Importe `std.console` e use `print/println/print_err/println_err/read_line` diretamente (ou com o prefixo `std.console::` se preferir) além dos utilitários `std.args`. Veja exemplos práticos em `docs/console-io-recipes.md`.
 
 ### Rodando builds dentro do projeto gerado
 
