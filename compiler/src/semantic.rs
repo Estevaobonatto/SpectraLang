@@ -121,7 +121,14 @@ impl<'a> Analyzer<'a> {
                         if function.visibility != Visibility::Public {
                             continue;
                         }
-                        let signature = self.build_function_signature(function);
+                        let placeholder_signature = FunctionType {
+                            parameters: vec![Type::Unknown; function.parameters.len()],
+                            return_type: Box::new(if function.return_type.is_some() {
+                                Type::Unknown
+                            } else {
+                                Type::Void
+                            }),
+                        };
                         let exports = self.module_exports.entry(key.clone()).or_default();
                         if exports.constants.contains_key(&function.name)
                             || exports.structs.contains_key(&function.name)
@@ -156,7 +163,7 @@ impl<'a> Analyzer<'a> {
                         match exports.functions.entry(function.name.clone()) {
                             Entry::Vacant(entry) => {
                                 entry.insert(FunctionExport {
-                                    signature: signature.clone(),
+                                    signature: placeholder_signature,
                                     span: function.span,
                                 });
                             }
@@ -701,35 +708,46 @@ impl<'a> Analyzer<'a> {
     fn register_functions(&mut self, module: &'a Module) {
         for item in &module.items {
             if let Item::Function(function) = item {
-                let signature = self.signature_for_function(module, function);
-                if let Err(previous_span) = self.scopes.define(
+                let signature = self.build_function_signature(function);
+                match self.scopes.define(
                     &function.name,
                     function.span,
                     SymbolKind::Function,
                     Type::Function(signature.clone()),
                     false,
                 ) {
-                    let previous_location = previous_span.start_location;
-                    if self.current_module_imports.contains(&function.name) {
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "imported symbol '{}' conflicts with local definition (previous definition at {})",
-                                function.name, previous_location
-                            ),
-                            function.span,
-                        ));
-                    } else {
-                        self.errors.push(SemanticError::new(
-                            format!(
-                                "function '{}' already defined (previous definition at {})",
-                                function.name, previous_location
-                            ),
-                            function.span,
-                        ));
+                    Err(previous_span) => {
+                        let previous_location = previous_span.start_location;
+                        if self.current_module_imports.contains(&function.name) {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "imported symbol '{}' conflicts with local definition (previous definition at {})",
+                                    function.name, previous_location
+                                ),
+                                function.span,
+                            ));
+                        } else {
+                            self.errors.push(SemanticError::new(
+                                format!(
+                                    "function '{}' already defined (previous definition at {})",
+                                    function.name, previous_location
+                                ),
+                                function.span,
+                            ));
+                        }
                     }
-                } else {
-                    self.current_module_signatures
-                        .insert(function.name.clone(), signature);
+                    Ok(()) => {
+                        self.current_module_signatures
+                            .insert(function.name.clone(), signature.clone());
+                        if let Some(current_key) = self.current_module_key.as_ref() {
+                            if let Some(exports) = self.module_exports.get_mut(current_key) {
+                                if let Some(entry) = exports.functions.get_mut(&function.name) {
+                                    entry.signature = signature.clone();
+                                    entry.span = function.span;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -756,21 +774,6 @@ impl<'a> Analyzer<'a> {
                 }
             }
         }
-    }
-
-    fn signature_for_function(
-        &mut self,
-        module: &'a Module,
-        function: &'a Function,
-    ) -> FunctionType {
-        if let Some(key) = module.name.as_ref().map(module_path_key) {
-            if let Some(exports) = self.module_exports.get(&key) {
-                if let Some(export) = exports.functions.get(&function.name) {
-                    return export.signature.clone();
-                }
-            }
-        }
-        self.build_function_signature(function)
     }
 
     fn introduce_imports(&mut self, module: &'a Module) {
@@ -902,8 +905,7 @@ impl<'a> Analyzer<'a> {
                             import.span,
                         ));
                     } else {
-                        self.struct_registry
-                            .insert(name.clone(), export.ty.clone());
+                        self.struct_registry.insert(name.clone(), export.ty.clone());
                         self.current_module_imports.insert(name.clone());
                         struct_updates.push((name.clone(), export.ty.clone(), export.span));
                     }
@@ -1836,8 +1838,16 @@ impl<'a> Analyzer<'a> {
             } => {
                 let object_type = self.analyze_expr(object);
                 match &object_type {
-                    Type::Struct(_, fields) => {
-                        if let Some(field_type) = fields.get(field) {
+                    Type::Struct(struct_name, fields) => {
+                        let resolved_fields = if let Some(Type::Struct(_, stored_fields)) =
+                            self.struct_registry.get(struct_name).cloned()
+                        {
+                            stored_fields
+                        } else {
+                            fields.clone()
+                        };
+
+                        if let Some(field_type) = resolved_fields.get(field) {
                             field_type.clone()
                         } else {
                             self.errors.push(SemanticError::new(
