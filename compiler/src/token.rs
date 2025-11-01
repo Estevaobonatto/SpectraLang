@@ -10,6 +10,7 @@ pub enum Keyword {
     // Declarations
     Fn,
     Struct,
+    Enum,
     Class,
     Trait,
     Let,
@@ -63,6 +64,7 @@ impl Keyword {
             // Declarations
             "fn" => Some(Self::Fn),
             "struct" => Some(Self::Struct),
+            "enum" => Some(Self::Enum),
             "class" => Some(Self::Class),
             "trait" => Some(Self::Trait),
             "let" => Some(Self::Let),

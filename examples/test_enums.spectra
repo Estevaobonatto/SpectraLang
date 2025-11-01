@@ -1,0 +1,35 @@
+module test;
+
+// Enum simples (C-style)
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+// Enum com valores associados
+enum Option {
+    Some(int),
+    None
+}
+
+enum Result {
+    Ok(int),
+    Err(int)
+}
+
+fn test_simple_enum() -> int {
+    let c = Color::Red;
+    // Por enquanto, apenas retornar valor fixo
+    42
+}
+
+fn test_option_enum() -> int {
+    let opt = Option::Some(10);
+    // Por enquanto, apenas retornar valor fixo
+    10
+}
+
+fn main() -> int {
+    test_simple_enum()
+}

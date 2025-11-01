@@ -19,6 +19,9 @@ pub enum Type {
     Struct {
         name: String,
     },
+    Enum {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +46,7 @@ pub enum Item {
     Import(Import),
     Function(Function),
     Struct(Struct),
+    Enum(Enum),
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +91,21 @@ pub struct StructField {
     pub name: String,
     pub span: Span,
     pub ty: TypeAnnotation,
+}
+
+#[derive(Debug, Clone)]
+pub struct Enum {
+    pub name: String,
+    pub span: Span,
+    pub visibility: Visibility,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub span: Span,
+    pub data: Option<Vec<TypeAnnotation>>, // None for unit variants, Some for tuple variants
 }
 
 #[derive(Debug, Clone)]
@@ -251,6 +270,13 @@ pub enum ExpressionKind {
     FieldAccess {
         object: Box<Expression>,
         field: String,
+    },
+
+    // Enums
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        data: Option<Vec<Expression>>, // None for unit, Some for tuple variants
     },
 }
 

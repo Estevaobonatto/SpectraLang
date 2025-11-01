@@ -23,6 +23,9 @@ impl Parser {
             crate::token::TokenKind::Keyword(Keyword::Struct) => {
                 self.parse_item_with_visibility(Visibility::Private)
             }
+            crate::token::TokenKind::Keyword(Keyword::Enum) => {
+                self.parse_item_with_visibility(Visibility::Private)
+            }
             _ => {
                 self.error("Expected item declaration (import, fn, etc.)");
                 Err(())
@@ -40,8 +43,12 @@ impl Parser {
                 let struct_item = self.parse_struct(visibility)?;
                 Ok(Item::Struct(struct_item))
             }
+            crate::token::TokenKind::Keyword(Keyword::Enum) => {
+                let enum_item = self.parse_enum(visibility)?;
+                Ok(Item::Enum(enum_item))
+            }
             _ => {
-                self.error("Expected function or struct declaration");
+                self.error("Expected function, struct, or enum declaration");
                 Err(())
             }
         }
@@ -184,6 +191,67 @@ impl Parser {
             span: span_union(start_span, end_span),
             visibility,
             fields,
+        })
+    }
+
+    pub(super) fn parse_enum(&mut self, visibility: Visibility) -> Result<crate::ast::Enum, ()> {
+        use crate::ast::{Enum, EnumVariant};
+        
+        // Expect: enum <name> { <variants> }
+        let start_span = self.consume_keyword(Keyword::Enum, "Expected 'enum' keyword")?;
+
+        let (name, _name_span) = self.consume_identifier("Expected enum name")?;
+
+        self.consume_symbol('{', "Expected '{' after enum name")?;
+
+        let mut variants = Vec::new();
+
+        // Parse variants
+        while !self.check_symbol('}') && !self.is_at_end() {
+            // Parse variant: <name> or <name>(<types>)
+            let (variant_name, variant_span) = self.consume_identifier("Expected variant name")?;
+            
+            let data = if self.check_symbol('(') {
+                self.advance(); // consume '('
+                
+                let mut types = Vec::new();
+                
+                // Parse tuple variant data types
+                if !self.check_symbol(')') {
+                    loop {
+                        types.push(self.parse_type_annotation()?);
+                        if !self.check_symbol(',') {
+                            break;
+                        }
+                        self.advance(); // consume ','
+                    }
+                }
+                
+                self.consume_symbol(')', "Expected ')' after variant data")?;
+                Some(types)
+            } else {
+                None // Unit variant
+            };
+            
+            variants.push(EnumVariant {
+                name: variant_name,
+                span: variant_span,
+                data,
+            });
+            
+            // Optional comma
+            if self.check_symbol(',') {
+                self.advance();
+            }
+        }
+
+        let end_span = self.consume_symbol('}', "Expected '}' to end enum")?;
+
+        Ok(Enum {
+            name,
+            span: span_union(start_span, end_span),
+            visibility,
+            variants,
         })
     }
 }

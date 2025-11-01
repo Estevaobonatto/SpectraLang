@@ -173,6 +173,9 @@ impl SemanticAnalyzer {
             Item::Struct(_struct) => {
                 // TODO: Struct validation (unique field names, etc.)
             }
+            Item::Enum(_enum) => {
+                // TODO: Enum validation (unique variant names, etc.)
+            }
         }
     }
 
@@ -475,6 +478,10 @@ impl SemanticAnalyzer {
             ExpressionKind::FieldAccess { object: _, field: _ } => {
                 // TODO: Inferir tipo do campo baseado no tipo do objeto
                 Type::Unknown
+            }
+            ExpressionKind::EnumVariant { enum_name, variant_name: _, data: _ } => {
+                // TODO: Verificar se enum e variant existem
+                Type::Enum { name: enum_name.clone() }
             }
         }
     }
@@ -808,6 +815,14 @@ impl SemanticAnalyzer {
             ExpressionKind::FieldAccess { object, field: _ } => {
                 // TODO: Validar campo existe no struct
                 self.analyze_expression(object);
+            }
+            ExpressionKind::EnumVariant { enum_name: _, variant_name: _, data } => {
+                // TODO: Validar enum e variant existem, tipos corretos
+                if let Some(args) = data {
+                    for arg in args {
+                        self.analyze_expression(arg);
+                    }
+                }
             }
         }
     }

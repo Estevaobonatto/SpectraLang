@@ -30,6 +30,8 @@ pub struct ASTLowering {
     struct_definitions: HashMap<String, Vec<(String, IRType)>>,
     /// Maps struct variable names to (pointer, struct_name) for field access
     struct_var_map: HashMap<String, (Value, String)>,
+    /// Maps enum names to their variant definitions: (variant_name, tag, data_types)
+    enum_definitions: HashMap<String, Vec<(String, usize, Option<Vec<IRType>>)>>,
     loop_stack: Vec<LoopContext>,
 }
 
@@ -43,6 +45,7 @@ impl ASTLowering {
             array_map: HashMap::new(),
             struct_definitions: HashMap::new(),
             struct_var_map: HashMap::new(),
+            enum_definitions: HashMap::new(),
             loop_stack: Vec::new(),
         }
     }
@@ -50,7 +53,7 @@ impl ASTLowering {
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
         let mut ir_module = IRModule::new(&ast_module.name);
 
-        // First pass: collect struct definitions
+        // First pass: collect struct and enum definitions
         for item in &ast_module.items {
             if let Item::Struct(struct_def) = item {
                 let fields: Vec<(String, IRType)> = struct_def
@@ -62,6 +65,19 @@ impl ASTLowering {
                     })
                     .collect();
                 self.struct_definitions.insert(struct_def.name.clone(), fields);
+            } else if let Item::Enum(enum_def) = item {
+                let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
+                    .variants
+                    .iter()
+                    .enumerate()
+                    .map(|(tag, variant)| {
+                        let data_types = variant.data.as_ref().map(|types| {
+                            types.iter().map(|ty| self.lower_type_annotation(ty)).collect()
+                        });
+                        (variant.name.clone(), tag, data_types)
+                    })
+                    .collect();
+                self.enum_definitions.insert(enum_def.name.clone(), variants);
             }
         }
 
@@ -1026,6 +1042,67 @@ impl ASTLowering {
                 // Se não conseguimos determinar, retornar placeholder
                 ir_func.next_value()
             }
+            ExpressionKind::EnumVariant { enum_name, variant_name, data } => {
+                // Buscar definição do enum
+                if let Some(variants) = self.enum_definitions.get(enum_name) {
+                    // Encontrar o variant
+                    if let Some((_, tag, variant_data_types)) = variants
+                        .iter()
+                        .find(|(name, _, _)| name == variant_name)
+                    {
+                        // Se é unit variant, retornar apenas o tag
+                        if variant_data_types.is_none() {
+                            return self.builder.build_const_int(ir_func, *tag as i64);
+                        }
+                        
+                        // Se é tuple variant, criar tupla (tag, data...)
+                        if let Some(data_exprs) = data {
+                            let mut elements = Vec::new();
+                            
+                            // Primeiro elemento: tag
+                            elements.push(self.builder.build_const_int(ir_func, *tag as i64));
+                            
+                            // Demais elementos: dados do variant
+                            for data_expr in data_exprs {
+                                elements.push(self.lower_expression(data_expr, ir_func));
+                            }
+                            
+                            // Criar tipos da tupla
+                            let mut element_types = vec![IRType::Int];
+                            if let Some(data_types) = variant_data_types {
+                                element_types.extend(data_types.clone());
+                            }
+                            
+                            let tuple_type = IRType::Tuple {
+                                elements: element_types.clone(),
+                            };
+                            
+                            // Alocar tupla no stack
+                            let tuple_ptr = self.builder.build_alloca(ir_func, tuple_type.clone());
+                            
+                            // Store cada elemento
+                            for (idx, elem_value) in elements.iter().enumerate() {
+                                let index_value = self.builder.build_const_int(ir_func, idx as i64);
+                                let elem_ptr = self.builder.build_getelementptr(
+                                    ir_func,
+                                    tuple_ptr,
+                                    index_value,
+                                    element_types[idx].clone(),
+                                );
+                                self.builder.build_store(ir_func, elem_ptr, *elem_value);
+                            }
+                            
+                            return tuple_ptr;
+                        }
+                        
+                        // Variant com dados mas sem argumentos fornecidos - erro
+                        return self.builder.build_const_int(ir_func, *tag as i64);
+                    }
+                }
+                
+                // Enum ou variant não encontrado
+                ir_func.next_value()
+            }
         }
     }
 
@@ -1080,8 +1157,27 @@ impl ASTLowering {
                 IRType::Tuple { elements: ir_elements }
             }
             ASTType::Struct { name: _ } => {
-                // TODO: Structs serão representados como ponteiros
+                // Structs são representados como ponteiros
                 IRType::Pointer(Box::new(IRType::Void))
+            }
+            ASTType::Enum { name } => {
+                // Enums são representados como tagged unions
+                // Para simplificar, vamos representar como uma tupla ou int
+                // dependendo se tem dados ou não
+                if let Some(variants) = self.enum_definitions.get(name) {
+                    // Se todos os variants são unit, usar int
+                    let all_unit = variants.iter().all(|(_, _, data)| data.is_none());
+                    if all_unit {
+                        IRType::Int
+                    } else {
+                        // Se algum tem dados, precisa de tupla dinâmica
+                        // Por simplificação, usar ponteiro genérico
+                        IRType::Pointer(Box::new(IRType::Void))
+                    }
+                } else {
+                    // Enum não encontrado, usar int como fallback
+                    IRType::Int
+                }
             }
         }
     }

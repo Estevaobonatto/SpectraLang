@@ -303,34 +303,91 @@ impl Parser {
                 let start_span = span;
                 self.advance();
                 
-                // Check if it's a struct literal: Name { fields }
-                if self.check_symbol('{') {
-                    self.advance(); // consume '{'
+                // Check if it's an enum variant: Name::Variant or Name::Variant(data)
+                if self.check_symbol(':') && self.position + 1 < self.tokens.len() 
+                    && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':')) {
+                    self.advance(); // consume first ':'
+                    self.advance(); // consume second ':'
                     
-                    let mut fields = Vec::new();
+                    let (variant_name, _) = self.consume_identifier("Expected variant name after '::")?;
                     
-                    // Parse fields
-                    while !self.check_symbol('}') && !self.is_at_end() {
-                        // Parse: field_name: value
-                        let (field_name, _) = self.consume_identifier("Expected field name")?;
-                        self.consume_symbol(':', "Expected ':' after field name")?;
-                        let field_value = self.parse_expression()?;
+                    // Check for tuple variant data
+                    let data = if self.check_symbol('(') {
+                        self.advance(); // consume '('
                         
-                        fields.push((field_name, field_value));
-                        
-                        // Optional comma
-                        if self.check_symbol(',') {
-                            self.advance();
+                        let mut args = Vec::new();
+                        if !self.check_symbol(')') {
+                            loop {
+                                args.push(self.parse_expression()?);
+                                if !self.check_symbol(',') {
+                                    break;
+                                }
+                                self.advance(); // consume ','
+                            }
                         }
+                        
+                        let end_span = self.consume_symbol(')', "Expected ')' after variant data")?;
+                        Some(args)
+                    } else {
+                        None
+                    };
+                    
+                    return Ok(Expression {
+                        span: crate::span::span_union(start_span, self.current().span),
+                        kind: ExpressionKind::EnumVariant {
+                            enum_name: name,
+                            variant_name,
+                            data,
+                        },
+                    });
+                }
+                
+                // Check if it's a struct literal: Name { fields }
+                // Only if followed by { and then identifier:value pattern
+                if self.check_symbol('{') {
+                    // Lookahead: after '{', should see identifier followed by ':'
+                    let is_struct_literal = if self.position + 1 < self.tokens.len() {
+                        matches!(self.tokens[self.position + 1].kind, TokenKind::Identifier(_))
+                            && self.position + 2 < self.tokens.len()
+                            && matches!(self.tokens[self.position + 2].kind, TokenKind::Symbol(':'))
+                    } else {
+                        false
+                    };
+                    
+                    if is_struct_literal {
+                        self.advance(); // consume '{'
+                        
+                        let mut fields = Vec::new();
+                        
+                        // Parse fields
+                        while !self.check_symbol('}') && !self.is_at_end() {
+                            // Parse: field_name: value
+                            let (field_name, _) = self.consume_identifier("Expected field name")?;
+                            self.consume_symbol(':', "Expected ':' after field name")?;
+                            let field_value = self.parse_expression()?;
+                            
+                            fields.push((field_name, field_value));
+                            
+                            // Optional comma
+                            if self.check_symbol(',') {
+                                self.advance();
+                            }
+                        }
+                        
+                        let end_span = self.current().span;
+                        self.consume_symbol('}', "Expected '}' to end struct literal")?;
+                        
+                        Ok(Expression {
+                            span: crate::span::span_union(start_span, end_span),
+                            kind: ExpressionKind::StructLiteral { name, fields },
+                        })
+                    } else {
+                        // Just an identifier, '{' belongs to surrounding context
+                        Ok(Expression {
+                            span,
+                            kind: ExpressionKind::Identifier(name),
+                        })
                     }
-                    
-                    let end_span = self.current().span;
-                    self.consume_symbol('}', "Expected '}' to end struct literal")?;
-                    
-                    Ok(Expression {
-                        span: crate::span::span_union(start_span, end_span),
-                        kind: ExpressionKind::StructLiteral { name, fields },
-                    })
                 } else {
                     // Just an identifier
                     Ok(Expression {

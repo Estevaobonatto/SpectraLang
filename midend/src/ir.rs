@@ -234,6 +234,10 @@ pub enum Type {
         name: String,
         fields: Vec<(String, Type)>,
     },
+    Enum {
+        name: String,
+        variants: Vec<(String, Option<Vec<Type>>)>, // (name, data_types)
+    },
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
