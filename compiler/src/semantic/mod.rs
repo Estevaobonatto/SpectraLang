@@ -359,12 +359,19 @@ impl SemanticAnalyzer {
                 right,
             } => {
                 let left_type = self.infer_expression_type(left);
-                let _right_type = self.infer_expression_type(right);
+                let right_type = self.infer_expression_type(right);
 
                 use crate::ast::BinaryOperator;
                 match operator {
-                    BinaryOperator::Add
-                    | BinaryOperator::Subtract
+                    BinaryOperator::Add => {
+                        // If either operand is string, result is string (concatenation)
+                        if matches!(left_type, Type::String) || matches!(right_type, Type::String) {
+                            Type::String
+                        } else {
+                            left_type
+                        }
+                    }
+                    BinaryOperator::Subtract
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
                     | BinaryOperator::Modulo => left_type,
@@ -419,6 +426,32 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
+            ExpressionKind::TupleLiteral { elements } => {
+                if elements.is_empty() {
+                    // Empty tuple - unit type
+                    Type::Tuple { elements: vec![] }
+                } else {
+                    // Infer type of each element
+                    let element_types: Vec<Type> = elements
+                        .iter()
+                        .map(|e| self.infer_expression_type(e))
+                        .collect();
+                    Type::Tuple { elements: element_types }
+                }
+            }
+            ExpressionKind::TupleAccess { tuple, index } => {
+                let tuple_type = self.infer_expression_type(tuple);
+                match tuple_type {
+                    Type::Tuple { elements } => {
+                        if *index < elements.len() {
+                            elements[*index].clone()
+                        } else {
+                            Type::Unknown
+                        }
+                    }
+                    _ => Type::Unknown,
+                }
+            }
         }
     }
 
@@ -452,8 +485,41 @@ impl SemanticAnalyzer {
 
                 use crate::ast::BinaryOperator;
                 match operator {
-                    BinaryOperator::Add
-                    | BinaryOperator::Subtract
+                    BinaryOperator::Add => {
+                        // Add supports both numeric types and string concatenation
+                        let is_string_concat = matches!(left_type, Type::String) || matches!(right_type, Type::String);
+                        
+                        if is_string_concat {
+                            // String concatenation - both operands must be strings
+                            if !matches!(left_type, Type::String | Type::Unknown) {
+                                self.error(
+                                    format!("Cannot concatenate non-string type {:?} with string", left_type),
+                                    left.span,
+                                );
+                            }
+                            if !matches!(right_type, Type::String | Type::Unknown) {
+                                self.error(
+                                    format!("Cannot concatenate string with non-string type {:?}", right_type),
+                                    right.span,
+                                );
+                            }
+                        } else {
+                            // Numeric addition
+                            if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
+                                self.error(
+                                    format!("Left operand of arithmetic operation must be numeric, found {:?}", left_type),
+                                    left.span,
+                                );
+                            }
+                            if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
+                                self.error(
+                                    format!("Right operand of arithmetic operation must be numeric, found {:?}", right_type),
+                                    right.span,
+                                );
+                            }
+                        }
+                    }
+                    BinaryOperator::Subtract
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
                     | BinaryOperator::Modulo => {
@@ -672,6 +738,41 @@ impl SemanticAnalyzer {
                         format!("Cannot index into non-array type {:?}", array_type),
                         array.span,
                     );
+                }
+            }
+            ExpressionKind::TupleLiteral { elements } => {
+                // Analyze all elements
+                for element in elements {
+                    self.analyze_expression(element);
+                }
+            }
+            ExpressionKind::TupleAccess { tuple, index } => {
+                self.analyze_expression(tuple);
+                
+                // Check that tuple is actually a tuple
+                let tuple_type = self.infer_expression_type(tuple);
+                match tuple_type {
+                    Type::Tuple { elements } => {
+                        if *index >= elements.len() {
+                            self.error(
+                                format!(
+                                    "Tuple index {} out of bounds (tuple has {} elements)",
+                                    index,
+                                    elements.len()
+                                ),
+                                tuple.span,
+                            );
+                        }
+                    }
+                    Type::Unknown => {
+                        // Can't validate, but don't error
+                    }
+                    _ => {
+                        self.error(
+                            format!("Cannot access tuple element on non-tuple type {:?}", tuple_type),
+                            tuple.span,
+                        );
+                    }
                 }
             }
         }

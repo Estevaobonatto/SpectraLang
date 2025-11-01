@@ -227,6 +227,9 @@ pub enum Type {
         element_type: Box<Type>,
         size: usize,
     },
+    Tuple {
+        elements: Vec<Type>,
+    },
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,

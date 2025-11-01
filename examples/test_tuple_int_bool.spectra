@@ -1,0 +1,7 @@
+module test_tuple_int_bool;
+
+fn main() -> int {
+    let data = (42, true);
+    let x = data.0;
+    x
+}

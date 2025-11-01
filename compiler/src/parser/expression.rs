@@ -231,6 +231,32 @@ impl Parser {
                         index: Box::new(index),
                     },
                 };
+            } else if self.check_symbol('.') {
+                self.advance(); // consume '.'
+                
+                // Expect a number for tuple access
+                if let TokenKind::Number(num_str) = &self.current().kind {
+                    // Parse as integer
+                    if let Ok(index) = num_str.parse::<usize>() {
+                        let end_span = self.current().span;
+                        self.advance();
+                        
+                        let span = crate::span::span_union(expr.span, end_span);
+                        expr = Expression {
+                            span,
+                            kind: ExpressionKind::TupleAccess {
+                                tuple: Box::new(expr),
+                                index,
+                            },
+                        };
+                    } else {
+                        self.error("Invalid tuple index");
+                        return Err(());
+                    }
+                } else {
+                    self.error("Expected number after '.' for tuple access");
+                    return Err(());
+                }
             } else {
                 break;
             }
@@ -286,12 +312,50 @@ impl Parser {
             }
             TokenKind::Symbol('(') => {
                 self.advance(); // consume '('
-                let expr = self.parse_expression()?;
-                self.consume_symbol(')', "Expected ')' after expression")?;
-                Ok(Expression {
-                    span,
-                    kind: ExpressionKind::Grouping(Box::new(expr)),
-                })
+                
+                // Check for empty tuple ()
+                if self.check_symbol(')') {
+                    let end_span = self.current().span;
+                    self.advance();
+                    let span = crate::span::span_union(span, end_span);
+                    return Ok(Expression {
+                        span,
+                        kind: ExpressionKind::TupleLiteral { elements: vec![] },
+                    });
+                }
+                
+                let first_expr = self.parse_expression()?;
+                
+                // If followed by comma, it's a tuple
+                if self.check_symbol(',') {
+                    let mut elements = vec![first_expr];
+                    
+                    while self.check_symbol(',') {
+                        self.advance(); // consume ','
+                        
+                        // Allow trailing comma before ')'
+                        if self.check_symbol(')') {
+                            break;
+                        }
+                        
+                        elements.push(self.parse_expression()?);
+                    }
+                    
+                    let end_span = self.consume_symbol(')', "Expected ')' after tuple elements")?;
+                    let span = crate::span::span_union(span, end_span);
+                    
+                    Ok(Expression {
+                        span,
+                        kind: ExpressionKind::TupleLiteral { elements },
+                    })
+                } else {
+                    // Just grouping
+                    self.consume_symbol(')', "Expected ')' after expression")?;
+                    Ok(Expression {
+                        span,
+                        kind: ExpressionKind::Grouping(Box::new(first_expr)),
+                    })
+                }
             }
             TokenKind::Symbol('[') => {
                 self.advance(); // consume '['

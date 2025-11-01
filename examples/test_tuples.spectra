@@ -1,0 +1,29 @@
+module test_tuples;
+
+fn test_simple_tuple() -> int {
+    let tuple = (1, 2, 3);
+    let x = tuple.0;
+    let y = tuple.1;
+    let z = tuple.2;
+    x + y + z
+}
+
+fn test_mixed_tuple() -> int {
+    let data = (42, 10, true);
+    let num = data.0;
+    num
+}
+
+fn test_tuple_assignment() -> int {
+    let result = (10, 20);
+    let x = result.0;
+    let y = result.1;
+    x + y
+}
+
+fn test_nested_tuple() -> int {
+    let nested = ((1, 2), (3, 4));
+    let first = nested.0;
+    let x = first.0;
+    x
+}

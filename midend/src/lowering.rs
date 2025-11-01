@@ -55,6 +55,46 @@ impl ASTLowering {
         ir_module
     }
 
+    /// Infere o tipo IR de uma expressão AST (análise simplificada)
+    fn infer_expr_ir_type(&self, expr: &Expression) -> IRType {
+        match &expr.kind {
+            ExpressionKind::NumberLiteral(s) => {
+                // Se tem ponto, é float, senão int
+                if s.contains('.') {
+                    IRType::Float
+                } else {
+                    IRType::Int
+                }
+            }
+            ExpressionKind::StringLiteral(_) => IRType::String,
+            ExpressionKind::BoolLiteral(_) => IRType::Bool,
+            ExpressionKind::ArrayLiteral { elements } => {
+                if elements.is_empty() {
+                    IRType::Array {
+                        element_type: Box::new(IRType::Int),
+                        size: 0,
+                    }
+                } else {
+                    let elem_type = self.infer_expr_ir_type(&elements[0]);
+                    IRType::Array {
+                        element_type: Box::new(elem_type),
+                        size: elements.len(),
+                    }
+                }
+            }
+            ExpressionKind::TupleLiteral { elements } => {
+                let element_types: Vec<IRType> = elements
+                    .iter()
+                    .map(|e| self.infer_expr_ir_type(e))
+                    .collect();
+                IRType::Tuple {
+                    elements: element_types,
+                }
+            }
+            _ => IRType::Int, // Fallback
+        }
+    }
+
     fn lower_function(&mut self, ast_func: &ASTFunction) -> IRFunction {
         // Convert parameters
         let params: Vec<Parameter> = ast_func
@@ -789,6 +829,77 @@ impl ASTLowering {
                 // Carregar o valor do elemento
                 self.builder.build_load(ir_func, elem_ptr)
             }
+            ExpressionKind::TupleLiteral { elements } => {
+                // Alocar memória para a tuple
+                let size = elements.len();
+                if size == 0 {
+                    // Tuple vazia - retornar um valor placeholder
+                    return ir_func.next_value();
+                }
+                
+                // Determinar os tipos dos elementos usando inferência
+                let elem_types: Vec<IRType> = elements
+                    .iter()
+                    .map(|e| self.infer_expr_ir_type(e))
+                    .collect();
+                
+                // Alocar espaço para a tuple no stack
+                let tuple_type = IRType::Tuple {
+                    elements: elem_types.clone(),
+                };
+                let tuple_ptr = self.builder.build_alloca(ir_func, tuple_type);
+                
+                // Inicializar cada elemento
+                for (i, elem_expr) in elements.iter().enumerate() {
+                    let elem_value = self.lower_expression(elem_expr, ir_func);
+                    let index_value = self.builder.build_const_int(ir_func, i as i64);
+                    let elem_ptr = self.builder.build_getelementptr(
+                        ir_func,
+                        tuple_ptr,
+                        index_value,
+                        elem_types[i].clone(),
+                    );
+                    self.builder.build_store(ir_func, elem_ptr, elem_value);
+                }
+                
+                // Retornar o ponteiro para a tuple
+                tuple_ptr
+            }
+            ExpressionKind::TupleAccess { tuple, index } => {
+                // Avaliar a expressão da tuple
+                let tuple_ptr = self.lower_expression(tuple, ir_func);
+                
+                // Calcular o endereço do elemento usando o índice constante
+                let index_value = self.builder.build_const_int(ir_func, *index as i64);
+                
+                // Inferir o tipo do elemento da tuple
+                let elem_type = if let ExpressionKind::TupleLiteral { elements } = &tuple.kind {
+                    // Se é um literal, inferir diretamente
+                    if *index < elements.len() {
+                        self.infer_expr_ir_type(&elements[*index])
+                    } else {
+                        IRType::Int
+                    }
+                } else {
+                    // Caso contrário, inferir o tipo da tuple inteira e extrair o elemento
+                    match self.infer_expr_ir_type(tuple) {
+                        IRType::Tuple { elements } if *index < elements.len() => {
+                            elements[*index].clone()
+                        }
+                        _ => IRType::Int, // Fallback
+                    }
+                };
+                
+                let elem_ptr = self.builder.build_getelementptr(
+                    ir_func,
+                    tuple_ptr,
+                    index_value,
+                    elem_type,
+                );
+                
+                // Carregar o valor do elemento
+                self.builder.build_load(ir_func, elem_ptr)
+            }
         }
     }
 
@@ -821,6 +932,14 @@ impl ASTLowering {
             ASTType::Array { element_type, .. } => {
                 // Arrays são representados como ponteiros no IR
                 IRType::Pointer(Box::new(self.lower_type(element_type)))
+            }
+            ASTType::Tuple { elements } => {
+                // Converter cada tipo do elemento
+                let ir_elements: Vec<IRType> = elements
+                    .iter()
+                    .map(|elem_type| self.lower_type(elem_type))
+                    .collect();
+                IRType::Tuple { elements: ir_elements }
             }
         }
     }

@@ -13,6 +13,9 @@ pub enum Type {
         element_type: Box<Type>,
         size: Option<usize>, // None = tamanho dinâmico
     },
+    Tuple {
+        elements: Vec<Type>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +205,15 @@ pub enum ExpressionKind {
     IndexAccess {
         array: Box<Expression>,
         index: Box<Expression>,
+    },
+
+    // Tuples
+    TupleLiteral {
+        elements: Vec<Expression>,
+    },
+    TupleAccess {
+        tuple: Box<Expression>,
+        index: usize, // 0, 1, 2, etc.
     },
 }
 
