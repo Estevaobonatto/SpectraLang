@@ -1,25 +1,25 @@
 ﻿
-Teste                          Status Erro                                                                                       
------                          ------ ----                                                                                       
-01_basic_syntax.spectra        PASSOU                                                                                            
-02_arithmetic.spectra          PASSOU                                                                                            
-03_comparisons.spectra         PASSOU                                                                                            
-04_logic.spectra               PASSOU                                                                                            
-05_if_else.spectra             PASSOU                                                                                            
-06_while_loop.spectra          PASSOU                                                                                            
-07_for_loop.spectra            PASSOU                                                                                            
-08_loop_infinite.spectra       PASSOU                                                                                            
-09_do_while.spectra            PASSOU                                                                                            
-10_unless.spectra              FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.exe ...                 
-11_switch_case.spectra         PASSOU                                                                                            
-12_assignments.spectra         PASSOU                                                                                            
-13_nested_blocks.spectra       PASSOU                                                                                            
-14_multiple_functions.spectra  PASSOU                                                                                            
-15_complex_expressions.spectra PASSOU                                                                                            
-16_break_continue.spectra      PASSOU                                                                                            
-17_type_inference.spectra      PASSOU                                                                                            
-18_scopes.spectra              FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.exe ...                 
-19_recursion.spectra           PASSOU                                                                                            
-20_all_features.spectra        FALHOU Code generation failed: Failed to define function 'process': Compilation error: Verifier...
+Teste                          Status Erro                                                                    
+-----                          ------ ----                                                                    
+01_basic_syntax.spectra        PASSOU                                                                         
+02_arithmetic.spectra          PASSOU                                                                         
+03_comparisons.spectra         PASSOU                                                                         
+04_logic.spectra               PASSOU                                                                         
+05_if_else.spectra             PASSOU                                                                         
+06_while_loop.spectra          PASSOU                                                                         
+07_for_loop.spectra            PASSOU                                                                         
+08_loop_infinite.spectra       PASSOU                                                                         
+09_do_while.spectra            PASSOU                                                                         
+10_unless.spectra              FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.ex...
+11_switch_case.spectra         FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.ex...
+12_assignments.spectra         PASSOU                                                                         
+13_nested_blocks.spectra       PASSOU                                                                         
+14_multiple_functions.spectra  PASSOU                                                                         
+15_complex_expressions.spectra PASSOU                                                                         
+16_break_continue.spectra      PASSOU                                                                         
+17_type_inference.spectra      PASSOU                                                                         
+18_scopes.spectra              FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.ex...
+19_recursion.spectra           PASSOU                                                                         
+20_all_features.spectra        FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.ex...
 
 

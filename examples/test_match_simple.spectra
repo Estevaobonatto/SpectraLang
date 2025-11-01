@@ -1,0 +1,21 @@
+module test;
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+fn test_match_unit() -> int {
+    let color = Color::Red;
+    
+    return match color {
+        Color::Red => 1,
+        Color::Green => 2,
+        Color::Blue => 3
+    };
+}
+
+fn main() -> int {
+    test_match_unit()
+}

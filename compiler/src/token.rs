@@ -134,8 +134,9 @@ pub enum Operator {
     And, // &&
     Or,  // ||
 
-    // Arrow (for function returns)
-    Arrow, // ->
+    // Arrows
+    Arrow,    // -> (for function returns)
+    FatArrow, // => (for match arms, etc.)
 }
 
 #[derive(Debug, Clone, PartialEq)]

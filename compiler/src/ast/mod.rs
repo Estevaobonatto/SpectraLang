@@ -278,6 +278,37 @@ pub enum ExpressionKind {
         variant_name: String,
         data: Option<Vec<Expression>>, // None for unit, Some for tuple variants
     },
+
+    // Pattern Matching
+    Match {
+        scrutinee: Box<Expression>,
+        arms: Vec<MatchArm>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expression,
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    // Wildcard pattern: _
+    Wildcard,
+    
+    // Literal patterns: 42, true, "hello"
+    Literal(Expression),
+    
+    // Identifier pattern: x (binds value)
+    Identifier(String),
+    
+    // Enum variant patterns: Option::Some(x), Color::Red
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        data: Option<Vec<Pattern>>, // None for unit, Some(patterns) for tuple
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

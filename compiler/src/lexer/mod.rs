@@ -164,6 +164,9 @@ impl<'source> Lexer<'source> {
                         ('=', Some('=')) => {
                             (TokenKind::Operator(crate::token::Operator::EqualEqual), 2)
                         }
+                        ('=', Some('>')) => {
+                            (TokenKind::Operator(crate::token::Operator::FatArrow), 2)
+                        }
                         ('!', Some('=')) => {
                             (TokenKind::Operator(crate::token::Operator::NotEqual), 2)
                         }

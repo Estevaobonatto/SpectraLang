@@ -1105,6 +1105,110 @@ impl ASTLowering {
                 // Enum ou variant não encontrado
                 ir_func.next_value()
             }
+            ExpressionKind::Match { scrutinee, arms } => {
+                // Lower do valor sendo matcheado
+                let scrutinee_value = self.lower_expression(scrutinee, ir_func);
+                
+                // Criar blocos para cada arm e um bloco de saída
+                let exit_block = ir_func.add_block("match_exit");
+                let mut arm_check_blocks = Vec::new();
+                let mut arm_body_blocks = Vec::new();
+                
+                // Criar blocos para cada arm: um para checar pattern, outro para executar body
+                for (idx, _) in arms.iter().enumerate() {
+                    arm_check_blocks.push(ir_func.add_block(&format!("match_check_{}", idx)));
+                    arm_body_blocks.push(ir_func.add_block(&format!("match_body_{}", idx)));
+                }
+                
+                // Variável para armazenar resultado do match
+                let result_type = IRType::Int; // Simplificado por enquanto
+                let result_alloca = self.builder.build_alloca(ir_func, result_type.clone());
+                
+                // Do bloco atual, fazer branch para o primeiro check
+                self.builder.build_branch(ir_func, arm_check_blocks[0]);
+                
+                // Processar cada arm
+                for (idx, arm) in arms.iter().enumerate() {
+                    // Bloco de checagem do pattern
+                    self.builder.set_current_block(arm_check_blocks[idx]);
+                    
+                    let pattern_matches = self.lower_pattern_check(
+                        &arm.pattern,
+                        scrutinee_value,
+                        ir_func,
+                    );
+                    
+                    // Próximo bloco: ou próximo arm, ou exit se não houver mais arms
+                    let next_check = if idx + 1 < arms.len() {
+                        arm_check_blocks[idx + 1]
+                    } else {
+                        exit_block
+                    };
+                    
+                    // Se pattern match, ir para body; senão, próximo check
+                    self.builder.build_cond_branch(
+                        ir_func,
+                        pattern_matches,
+                        arm_body_blocks[idx],
+                        next_check,
+                    );
+                    
+                    // Bloco de execução do body
+                    self.builder.set_current_block(arm_body_blocks[idx]);
+                    let body_value = self.lower_expression(&arm.body, ir_func);
+                    self.builder.build_store(ir_func, result_alloca, body_value);
+                    self.builder.build_branch(ir_func, exit_block);
+                }
+                
+                // Bloco de saída
+                self.builder.set_current_block(exit_block);
+                self.builder.build_load(ir_func, result_alloca)
+            }
+        }
+    }
+
+    fn lower_pattern_check(
+        &mut self,
+        pattern: &spectra_compiler::ast::Pattern,
+        scrutinee: Value,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        use spectra_compiler::ast::Pattern;
+        
+        match pattern {
+            Pattern::Wildcard => {
+                // Wildcard sempre match
+                self.builder.build_const_int(ir_func, 1)
+            }
+            Pattern::Identifier(_name) => {
+                // Binding sempre match
+                // TODO: Adicionar binding ao scope
+                self.builder.build_const_int(ir_func, 1)
+            }
+            Pattern::Literal(_expr) => {
+                // TODO: Comparar com literal
+                self.builder.build_const_int(ir_func, 1)
+            }
+            Pattern::EnumVariant {
+                enum_name,
+                variant_name,
+                data: _,
+            } => {
+                // Buscar tag do variant
+                let variants_opt = self.enum_definitions.get(enum_name).cloned();
+                if let Some(variants) = variants_opt {
+                    if let Some((_, expected_tag, _)) = variants
+                        .iter()
+                        .find(|(name, _, _)| name == variant_name)
+                    {
+                        // Para unit variant ou int simples, comparar diretamente
+                        let expected_tag_value = self.builder.build_const_int(ir_func, *expected_tag as i64);
+                        return self.builder.build_eq(ir_func, scrutinee, expected_tag_value);
+                    }
+                }
+                // Fallback: sempre false
+                self.builder.build_const_int(ir_func, 0)
+            }
         }
     }
 

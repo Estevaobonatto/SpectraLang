@@ -1,0 +1,35 @@
+module test;
+
+enum Option {
+    Some,
+    None
+}
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+fn test_simple_match() -> int {
+    let c = Color::Green;
+    match c {
+        Color::Red => 1,
+        Color::Green => 2,
+        Color::Blue => 3
+    }
+}
+
+fn test_wildcard() -> int {
+    let c = Color::Blue;
+    match c {
+        Color::Red => 1,
+        _ => 999
+    }
+}
+
+fn main() -> int {
+    let a = test_simple_match();
+    let b = test_wildcard();
+    a + b
+}

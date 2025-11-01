@@ -483,6 +483,15 @@ impl SemanticAnalyzer {
                 // TODO: Verificar se enum e variant existem
                 Type::Enum { name: enum_name.clone() }
             }
+            ExpressionKind::Match { scrutinee: _, arms } => {
+                // TODO: Verificar exhaustividade do match
+                // Por enquanto, retornar tipo do primeiro arm
+                if let Some(first_arm) = arms.first() {
+                    self.infer_expression_type(&first_arm.body)
+                } else {
+                    Type::Unknown
+                }
+            }
         }
     }
 
@@ -822,6 +831,13 @@ impl SemanticAnalyzer {
                     for arg in args {
                         self.analyze_expression(arg);
                     }
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                // TODO: Verificar exhaustividade, tipos consistentes nos arms
+                self.analyze_expression(scrutinee);
+                for arm in arms {
+                    self.analyze_expression(&arm.body);
                 }
             }
         }

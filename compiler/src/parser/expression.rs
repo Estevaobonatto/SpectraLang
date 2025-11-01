@@ -298,6 +298,7 @@ impl Parser {
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
             TokenKind::Keyword(Keyword::Unless) => self.parse_unless_expression(),
+            TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 let start_span = span;
@@ -345,11 +346,16 @@ impl Parser {
                 // Check if it's a struct literal: Name { fields }
                 // Only if followed by { and then identifier:value pattern
                 if self.check_symbol('{') {
-                    // Lookahead: after '{', should see identifier followed by ':'
+                    // Lookahead: after '{', should see identifier followed by SINGLE ':'
+                    // (not '::' which would be enum variant)
                     let is_struct_literal = if self.position + 1 < self.tokens.len() {
-                        matches!(self.tokens[self.position + 1].kind, TokenKind::Identifier(_))
-                            && self.position + 2 < self.tokens.len()
-                            && matches!(self.tokens[self.position + 2].kind, TokenKind::Symbol(':'))
+                        let has_identifier = matches!(self.tokens[self.position + 1].kind, TokenKind::Identifier(_));
+                        let has_colon = self.position + 2 < self.tokens.len()
+                            && matches!(self.tokens[self.position + 2].kind, TokenKind::Symbol(':'));
+                        // Make sure it's NOT followed by another colon (::)
+                        let not_double_colon = self.position + 3 >= self.tokens.len()
+                            || !matches!(self.tokens[self.position + 3].kind, TokenKind::Symbol(':'));
+                        has_identifier && has_colon && not_double_colon
                     } else {
                         false
                     };
@@ -559,5 +565,109 @@ impl Parser {
                 else_block,
             },
         })
+    }
+
+    fn parse_match_expression(&mut self) -> Result<Expression, ()> {
+        use crate::ast::MatchArm;
+        
+        let start_span = self.consume_keyword(Keyword::Match, "Expected 'match'")?;
+        let scrutinee = Box::new(self.parse_expression()?);
+        
+        // Expect '{'
+        self.consume_symbol('{', "Expected '{' after match scrutinee")?;
+        
+        let mut arms = Vec::new();
+        
+        // Parse match arms
+        while !self.check_symbol('}') && !self.is_at_end() {
+            // Parse pattern
+            let pattern = self.parse_pattern()?;
+            
+            // Expect '=>' operator
+            if !matches!(self.current().kind, TokenKind::Operator(crate::token::Operator::FatArrow)) {
+                self.error("Expected '=>' after pattern in match arm");
+                return Err(());
+            }
+            self.advance(); // consume '=>'
+            
+            // Parse body expression
+            let body = self.parse_expression()?;
+            
+            arms.push(MatchArm { pattern, body });
+            
+            // Optional comma, or break if we see '}'
+            if self.check_symbol(',') {
+                self.advance();
+            } else if self.check_symbol('}') {
+                break; // End of match arms
+            }
+        }
+        
+        let end_span = self.consume_symbol('}', "Expected '}' to end match")?;
+        
+        Ok(Expression {
+            span: crate::span::span_union(start_span, end_span),
+            kind: ExpressionKind::Match { scrutinee, arms },
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Result<crate::ast::Pattern, ()> {
+        use crate::ast::Pattern;
+        
+        // Wildcard pattern: _
+        if self.check_symbol('_') {
+            self.advance();
+            return Ok(Pattern::Wildcard);
+        }
+        
+        // Check for enum variant pattern: EnumName::VariantName
+        if let TokenKind::Identifier(name) = &self.current().kind {
+            let first_name = name.clone();
+            self.advance();
+            
+            // Check for ::
+            if self.check_symbol(':') && self.position + 1 < self.tokens.len()
+                && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
+            {
+                self.advance(); // consume first ':'
+                self.advance(); // consume second ':'
+                
+                let (variant_name, _) = self.consume_identifier("Expected variant name")?;
+                
+                // Check for data patterns: (pattern, pattern, ...)
+                let data = if self.check_symbol('(') {
+                    self.advance(); // consume '('
+                    
+                    let mut patterns = Vec::new();
+                    if !self.check_symbol(')') {
+                        loop {
+                            patterns.push(self.parse_pattern()?);
+                            if !self.check_symbol(',') {
+                                break;
+                            }
+                            self.advance(); // consume ','
+                        }
+                    }
+                    
+                    self.consume_symbol(')', "Expected ')' after variant data patterns")?;
+                    Some(patterns)
+                } else {
+                    None
+                };
+                
+                return Ok(Pattern::EnumVariant {
+                    enum_name: first_name,
+                    variant_name,
+                    data,
+                });
+            }
+            
+            // Just an identifier pattern (binding)
+            return Ok(Pattern::Identifier(first_name));
+        }
+        
+        // Literal patterns (números, booleanos, etc.)
+        let expr = self.parse_primary_expression()?;
+        Ok(Pattern::Literal(expr))
     }
 }
