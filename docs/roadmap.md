@@ -4,39 +4,70 @@
                     🚀 SpectraLang Development Timeline
                     ===================================
 
-Fase 1: Compilador Básico (Meses 0-3) ██████████████░░░░░░░░ 70%
+Fase 1: Compilador Básico (Meses 0-3) ████████████████████ 100%
 ├─ ✅ Parser Modular (100%)
 ├─ ✅ Lexer com Operadores (100%)
 ├─ ✅ AST Expandido (100%)
 ├─ ✅ Operadores Binários e Unários (100%)
-├─ ✅ Estruturas de Controle Básicas (50%)
+├─ ✅ Estruturas de Controle Completas (85%)
 │  ├─ ✅ if/elif/else
 │  ├─ ✅ while
 │  ├─ ✅ for...in / for...of
-│  ├─ ⏳ switch/case
-│  ├─ ⏳ loop
-│  ├─ ⏳ do while
-│  └─ ⏳ unless
+│  ├─ ⏳ switch/case (deprecated - usar match)
+│  ├─ ✅ loop
+│  ├─ ✅ do while
+│  ├─ ⏳ unless (bug conhecido)
+│  ├─ ✅ break/continue
+│  └─ ✅ match expressions
 ├─ ✅ Sistema de Tipos (100%)
 │  ├─ ✅ Anotações de tipo
 │  ├─ ✅ Type checking
-│  └─ ✅ Inferência
-├─ ✅ Arrays (100%)
-│  ├─ ✅ Literais e indexação
-│  ├─ ✅ Type checking
-│  ├─ ✅ Arrays em loops
-│  └─ ✅ GetElementPtr IR
-└─ ⏳ Runtime Básico (30%)
+│  ├─ ✅ Inferência
+│  ├─ ✅ Structs
+│  └─ ✅ Enums
+├─ ✅ Backend Completo (100%)
+│  ├─ ✅ SSA IR generation
+│  ├─ ✅ Cranelift codegen
+│  └─ ✅ Native compilation
+└─ ✅ Runtime Básico (80%)
 
-Fase 2: Features Avançadas (Meses 3-7) ░░░░░░░░░░░░░░░░░░░░ 0%
-├─ ⏳ Pattern Matching
-├─ ⏳ Macros
+Fase 2: Pattern Matching (Meses 3-4) ████████░░░░░░░░░░░░ 40%
+├─ ✅ Match Expressions (100%)
+│  ├─ ✅ AST e Parser
+│  ├─ ✅ => token (FatArrow)
+│  ├─ ✅ Semantic analysis
+│  └─ ✅ IR lowering com control flow
+├─ ✅ Padrões Básicos (70%)
+│  ├─ ✅ Wildcard (_)
+│  ├─ ✅ Enum variants (Color::Red)
+│  ├─ ⏳ Identifier bindings (x => x + 1)
+│  └─ ⏳ Literal patterns (1 => "one")
+├─ ⏳ Destructuring (0%)
+│  ├─ ⏳ Tuple variants (Some(x) => x)
+│  ├─ ⏳ Nested patterns
+│  └─ ⏳ Struct patterns
+└─ ⏳ Validação Avançada (0%)
+   ├─ ⏳ Exhaustiveness checking
+   ├─ ⏳ Type checking de arms
+   └─ ⏳ Unreachable pattern detection
+
+Fase 3: Methods e OOP (Meses 4-5) ░░░░░░░░░░░░░░░░░░░░ 0%
+├─ ⏳ Impl Blocks
+│  ├─ ⏳ Associated functions
+│  ├─ ⏳ Instance methods
+│  └─ ⏳ Self parameters
+├─ ⏳ Method Call Syntax
+└─ ⏳ Name Mangling
+
+Fase 4: Features Avançadas (Meses 5-8) ░░░░░░░░░░░░░░░░░░░░ 0%
+├─ ⏳ Arrays e Slices
 ├─ ⏳ Generics
 ├─ ⏳ Traits
+├─ ⏳ Macros
 ├─ ⏳ Standard Library
 │  ├─ ⏳ Collections
 │  ├─ ⏳ IO
-│  └─ ⏳ Async
+│  └─ ⏳ String utilities
 ├─ ⏳ Otimizações
 └─ ⏳ LSP (Language Server)
 

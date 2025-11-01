@@ -21,6 +21,9 @@
 │  Type System         │    ✅    │    ✅    │   ✅    │
 │  Type Inference      │    ✅    │    ✅    │   ✅    │
 │  Type Validation     │    ✅    │    ✅    │   ✅    │
+│  Structs             │    ✅    │    ✅    │   ✅    │
+│  Enums               │    ✅    │    ✅    │   ✅    │
+│  Pattern Matching    │    ✅    │    ✅    │   ✅    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -47,7 +50,49 @@ let sum = x + 10;     → int
 let cmp = x > 5;      → bool
 ```
 
-### 3️⃣ Validação de Operações
+### 3️⃣ Structs (Estruturas de Dados)
+```spectra
+struct Point {
+    x: int,
+    y: int
+}
+
+let p = Point { x: 10, y: 20 };
+let sum = p.x + p.y;  // Acesso a campos
+```
+
+### 4️⃣ Enums (Tipos Soma)
+```spectra
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+enum Option {
+    Some,
+    None
+}
+
+let c = Color::Red;           // Unit variant
+let opt = Option::Some;       // Unit variant
+```
+
+### 5️⃣ Pattern Matching
+```spectra
+let result = match color {
+    Color::Red => 1,
+    Color::Green => 2,
+    Color::Blue => 3
+};
+
+let value = match option {
+    Option::Some => 100,
+    _ => 0  // Wildcard pattern
+};
+```
+
+### 6️⃣ Validação de Operações
 
 #### Operações Aritméticas (+, -, *, /, %)
 ```
@@ -209,14 +254,14 @@ README_VISUAL.md                        ← Este arquivo
 ┌────────────────────────────────────────────┐
 │  Métrica                  │  Valor         │
 ├────────────────────────────────────────────┤
-│  Linhas de código (total) │  ~2,000        │
-│  Linhas de código (tipos) │  ~250          │
-│  Arquivos criados         │  25+           │
-│  Testes implementados     │  10            │
-│  Taxa de sucesso          │  100%          │
-│  Documentos               │  6             │
-│  Tipos suportados         │  7             │
-│  Operadores validados     │  17            │
+│  Linhas de código (total) │  ~5,000        │
+│  Linhas de código (novos) │  +263 (match)  │
+│  Arquivos criados         │  30+           │
+│  Testes de validação      │  20            │
+│  Taxa de sucesso          │  80% (16/20)   │
+│  Documentos               │  8             │
+│  Tipos suportados         │  9 (+ structs) │
+│  Operadores validados     │  18 (+ =>)     │
 └────────────────────────────────────────────┘
 ```
 
@@ -232,23 +277,38 @@ README_VISUAL.md                        ← Este arquivo
 ✅ Fase 1.7: Validação de tipos
 ✅ Fase 1.8: Testes abrangentes
 ✅ Fase 1.9: Documentação completa
+✅ Fase 2.1: Backend completo (IR + Cranelift)
+✅ Fase 2.2: Structs implementados
+✅ Fase 2.3: Enums implementados
+✅ Fase 2.4: Pattern Matching implementado
 ```
 
 ## 🎯 Próximas Fases
 
-### Fase 2: Backend (Próxima)
+### Fase 3: Aprimoramentos de Pattern Matching (PRIORITÁRIO)
 ```
-⏳ Geração de código intermediário
-⏳ Otimizações básicas
-⏳ Geração de código nativo
+🔄 Tuple variant destructuring - Option::Some(x) => x
+🔄 Identifier bindings - x => x + 1
+🔄 Exhaustiveness checking - Avisar casos não cobertos
+🔄 Type checking em match arms - Garantir tipos compatíveis
+🔄 Literal patterns - 1 => "one", true => "yes"
 ```
 
-### Fase 3: Recursos Avançados
+### Fase 4: Methods e Impl Blocks
 ```
-⏳ Arrays e coleções
-⏳ Structs e enums
-⏳ Genéricos
-⏳ Pattern matching
+⏳ impl blocks para structs/enums
+⏳ Associated functions (métodos estáticos)
+⏳ self/&self/&mut self parameters
+⏳ Method call syntax (obj.method())
+```
+
+### Fase 5: Recursos Avançados
+```
+⏳ Arrays e slices
+⏳ Genéricos (structs e funções)
+⏳ Traits (interfaces)
+⏳ Closures
+⏳ Iterators
 ```
 
 ## 🌟 Qualidade do Código

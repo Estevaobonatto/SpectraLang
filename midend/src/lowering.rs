@@ -1155,6 +1155,10 @@ impl ASTLowering {
                     
                     // Bloco de execução do body
                     self.builder.set_current_block(arm_body_blocks[idx]);
+                    
+                    // Fazer bindings do pattern antes de executar body
+                    self.lower_pattern_bindings(&arm.pattern, scrutinee_value, ir_func);
+                    
                     let body_value = self.lower_expression(&arm.body, ir_func);
                     self.builder.build_store(ir_func, result_alloca, body_value);
                     self.builder.build_branch(ir_func, exit_block);
@@ -1182,7 +1186,6 @@ impl ASTLowering {
             }
             Pattern::Identifier(_name) => {
                 // Binding sempre match
-                // TODO: Adicionar binding ao scope
                 self.builder.build_const_int(ir_func, 1)
             }
             Pattern::Literal(_expr) => {
@@ -1197,17 +1200,91 @@ impl ASTLowering {
                 // Buscar tag do variant
                 let variants_opt = self.enum_definitions.get(enum_name).cloned();
                 if let Some(variants) = variants_opt {
-                    if let Some((_, expected_tag, _)) = variants
+                    if let Some((_, expected_tag, variant_types)) = variants
                         .iter()
                         .find(|(name, _, _)| name == variant_name)
                     {
-                        // Para unit variant ou int simples, comparar diretamente
-                        let expected_tag_value = self.builder.build_const_int(ir_func, *expected_tag as i64);
-                        return self.builder.build_eq(ir_func, scrutinee, expected_tag_value);
+                        // Para unit variant, comparar diretamente o tag
+                        if variant_types.is_none() {
+                            let expected_tag_value = self.builder.build_const_int(ir_func, *expected_tag as i64);
+                            return self.builder.build_eq(ir_func, scrutinee, expected_tag_value);
+                        } else {
+                            // Para tuple variant, extrair tag (primeiro elemento da tuple)
+                            let zero_index = self.builder.build_const_int(ir_func, 0);
+                            let tag_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                scrutinee,
+                                zero_index,
+                                IRType::Int,
+                            );
+                            let tag_value = self.builder.build_load(ir_func, tag_ptr);
+                            let expected_tag_value = self.builder.build_const_int(ir_func, *expected_tag as i64);
+                            return self.builder.build_eq(ir_func, tag_value, expected_tag_value);
+                        }
                     }
                 }
                 // Fallback: sempre false
                 self.builder.build_const_int(ir_func, 0)
+            }
+        }
+    }
+
+    /// Extrai valores do scrutinee e cria bindings locais de acordo com o pattern
+    fn lower_pattern_bindings(
+        &mut self,
+        pattern: &spectra_compiler::ast::Pattern,
+        scrutinee: Value,
+        ir_func: &mut IRFunction,
+    ) {
+        use spectra_compiler::ast::Pattern;
+        
+        match pattern {
+            Pattern::Wildcard => {
+                // Wildcard não cria bindings
+            }
+            Pattern::Identifier(name) => {
+                // Criar variável local para o identifier binding
+                // Usar value_map (valores diretos, não precisam de alloca/load)
+                self.value_map.insert(name.clone(), scrutinee);
+            }
+            Pattern::Literal(_) => {
+                // Literal não cria bindings
+            }
+            Pattern::EnumVariant {
+                enum_name,
+                variant_name,
+                data,
+            } => {
+                // Se há patterns de data, extrair valores e fazer binding recursivo
+                if let Some(patterns) = data {
+                    let variants_opt = self.enum_definitions.get(enum_name).cloned();
+                    if let Some(variants) = variants_opt {
+                        if let Some((_, _tag, variant_types)) = variants
+                            .iter()
+                            .find(|(name, _, _)| name == variant_name)
+                        {
+                            if let Some(types) = variant_types {
+                                // Para cada pattern de data, extrair o valor correspondente
+                                for (idx, sub_pattern) in patterns.iter().enumerate() {
+                                    if idx < types.len() {
+                                        // Extrair elemento idx+1 da tuple (idx 0 é o tag)
+                                        let index_value = self.builder.build_const_int(ir_func, (idx + 1) as i64);
+                                        let element_ptr = self.builder.build_getelementptr(
+                                            ir_func,
+                                            scrutinee,
+                                            index_value,
+                                            types[idx].clone(),
+                                        );
+                                        let element_value = self.builder.build_load(ir_func, element_ptr);
+                                        
+                                        // Recursivamente fazer binding do sub-pattern
+                                        self.lower_pattern_bindings(sub_pattern, element_value, ir_func);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -1,0 +1,26 @@
+module test;
+
+enum Option {
+    Some(int),
+    None
+}
+
+fn test_destructuring() -> int {
+    let opt = Option::Some(42);
+    match opt {
+        Option::Some(value) => value,
+        Option::None => 0
+    }
+}
+
+fn test_multiple_values() -> int {
+    // Para quando tivermos tuple variants com múltiplos valores
+    let x = 10;
+    match x {
+        _ => x
+    }
+}
+
+fn main() -> int {
+    test_destructuring()
+}

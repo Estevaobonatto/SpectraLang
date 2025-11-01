@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        Block, Expression, ExpressionKind, Function, Item, Module, Statement, StatementKind, Type,
+        Block, Expression, ExpressionKind, Function, Item, Module, Pattern, Statement, StatementKind, Type,
     },
     error::SemanticError,
     span::Span,
@@ -837,7 +837,52 @@ impl SemanticAnalyzer {
                 // TODO: Verificar exhaustividade, tipos consistentes nos arms
                 self.analyze_expression(scrutinee);
                 for arm in arms {
+                    // Criar novo escopo para o arm
+                    self.push_scope();
+                    
+                    // Registrar variáveis do pattern
+                    self.register_pattern_bindings(&arm.pattern);
+                    
+                    // Analisar corpo do arm
                     self.analyze_expression(&arm.body);
+                    
+                    // Sair do escopo
+                    self.pop_scope();
+                }
+            }
+        }
+    }
+
+    /// Registra variáveis bound por um pattern no escopo atual
+    fn register_pattern_bindings(&mut self, pattern: &Pattern) {
+        use crate::ast::Pattern;
+        
+        match pattern {
+            Pattern::Wildcard => {
+                // Não cria bindings
+            }
+            Pattern::Identifier(name) => {
+                // Registra a variável no escopo atual
+                // Tipo será inferido posteriormente
+                if let Some(scope) = self.symbols.last_mut() {
+                    scope.insert(
+                        name.clone(),
+                        SymbolInfo {
+                            span: Span::dummy(),
+                            ty: Type::Unknown,
+                        },
+                    );
+                }
+            }
+            Pattern::Literal(_) => {
+                // Não cria bindings
+            }
+            Pattern::EnumVariant { enum_name: _, variant_name: _, data } => {
+                // Se houver sub-patterns, registrar recursivamente
+                if let Some(sub_patterns) = data {
+                    for sub_pattern in sub_patterns {
+                        self.register_pattern_bindings(sub_pattern);
+                    }
                 }
             }
         }
