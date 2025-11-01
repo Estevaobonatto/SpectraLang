@@ -72,17 +72,30 @@ impl SemanticAnalyzer {
     }
 
     fn type_annotation_to_type(&self, type_ann: &Option<crate::ast::TypeAnnotation>) -> Type {
+        use crate::ast::TypeAnnotationKind;
+        
         match type_ann {
-            Some(ann) if ann.segments.len() == 1 => match ann.segments[0].as_str() {
-                "int" => Type::Int,
-                "float" => Type::Float,
-                "bool" => Type::Bool,
-                "string" => Type::String,
-                "char" => Type::Char,
+            Some(ann) => match &ann.kind {
+                TypeAnnotationKind::Simple { segments } if segments.len() == 1 => {
+                    match segments[0].as_str() {
+                        "int" => Type::Int,
+                        "float" => Type::Float,
+                        "bool" => Type::Bool,
+                        "string" => Type::String,
+                        "char" => Type::Char,
+                        _ => Type::Unknown,
+                    }
+                }
+                TypeAnnotationKind::Tuple { elements } => {
+                    let element_types: Vec<Type> = elements
+                        .iter()
+                        .map(|elem_ann| self.type_annotation_to_type(&Some(elem_ann.clone())))
+                        .collect();
+                    Type::Tuple { elements: element_types }
+                }
                 _ => Type::Unknown,
             },
             None => Type::Unknown,
-            _ => Type::Unknown,
         }
     }
 

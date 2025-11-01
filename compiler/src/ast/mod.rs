@@ -72,8 +72,16 @@ pub struct FunctionParam {
 
 #[derive(Debug, Clone)]
 pub struct TypeAnnotation {
-    pub segments: Vec<String>,
+    pub kind: TypeAnnotationKind,
     pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeAnnotationKind {
+    /// Tipo simples: int, string, etc.
+    Simple { segments: Vec<String> },
+    /// Tipo tuple: (int, string, bool)
+    Tuple { elements: Vec<TypeAnnotation> },
 }
 
 #[derive(Debug, Clone)]

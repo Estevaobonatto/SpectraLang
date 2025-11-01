@@ -517,11 +517,11 @@ impl ASTLowering {
                     self.builder.build_const_int(ir_func, 0)
                 }
             }
-            ExpressionKind::StringLiteral(_) => {
-                // TODO: String constant support
-                // For now, just create a placeholder value
-                let value = ir_func.next_value();
-                value
+            ExpressionKind::StringLiteral(_s) => {
+                // TODO: String constant support com globais
+                // Por ora, criar uma constante int como placeholder
+                // Isso permite que strings funcionem em tuples
+                self.builder.build_const_int(ir_func, 0)
             }
             ExpressionKind::BoolLiteral(b) => self.builder.build_const_bool(ir_func, *b),
             ExpressionKind::Identifier(name) => {
@@ -904,18 +904,30 @@ impl ASTLowering {
     }
 
     fn lower_type_annotation(&self, type_ann: &TypeAnnotation) -> IRType {
-        // For now, simple mapping based on name
-        if type_ann.segments.is_empty() {
-            return IRType::Void;
-        }
-
-        match type_ann.segments[0].as_str() {
-            "int" => IRType::Int,
-            "float" => IRType::Float,
-            "bool" => IRType::Bool,
-            "string" => IRType::String,
-            "char" => IRType::Char,
-            _ => IRType::Void,
+        use spectra_compiler::ast::TypeAnnotationKind;
+        
+        match &type_ann.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                if segments.is_empty() {
+                    return IRType::Void;
+                }
+                
+                match segments[0].as_str() {
+                    "int" => IRType::Int,
+                    "float" => IRType::Float,
+                    "bool" => IRType::Bool,
+                    "string" => IRType::String,
+                    "char" => IRType::Char,
+                    _ => IRType::Void,
+                }
+            }
+            TypeAnnotationKind::Tuple { elements } => {
+                let ir_elements: Vec<IRType> = elements
+                    .iter()
+                    .map(|elem_ann| self.lower_type_annotation(elem_ann))
+                    .collect();
+                IRType::Tuple { elements: ir_elements }
+            }
         }
     }
 

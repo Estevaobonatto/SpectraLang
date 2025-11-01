@@ -9,7 +9,7 @@ fn test_simple_tuple() -> int {
 }
 
 fn test_mixed_tuple() -> int {
-    let data = (42, 10, true);
+    let data = (42, "hello", true);
     let num = data.0;
     num
 }
