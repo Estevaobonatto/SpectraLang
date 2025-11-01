@@ -28,7 +28,7 @@ impl Parser {
 
     pub fn parse(mut self) -> Result<Module, Vec<ParseError>> {
         let module = self.parse_module();
-        
+
         if self.errors.is_empty() {
             Ok(module)
         } else {
@@ -39,9 +39,9 @@ impl Parser {
     // === Token Navigation Methods ===
 
     fn current(&self) -> &Token {
-        self.tokens.get(self.position).unwrap_or_else(|| {
-            self.tokens.last().expect("tokens should not be empty")
-        })
+        self.tokens
+            .get(self.position)
+            .unwrap_or_else(|| self.tokens.last().expect("tokens should not be empty"))
     }
 
     #[allow(dead_code)]

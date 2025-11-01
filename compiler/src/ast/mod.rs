@@ -7,7 +7,7 @@ pub enum Type {
     Bool,
     String,
     Char,
-    Unit, // Tipo vazio (sem valor de retorno)
+    Unit,    // Tipo vazio (sem valor de retorno)
     Unknown, // Tipo desconhecido (para inferência)
 }
 
@@ -146,7 +146,7 @@ pub enum ExpressionKind {
     NumberLiteral(String),
     StringLiteral(String),
     BoolLiteral(bool),
-    
+
     // Operations
     Binary {
         left: Box<Expression>,
@@ -157,13 +157,13 @@ pub enum ExpressionKind {
         operator: UnaryOperator,
         operand: Box<Expression>,
     },
-    
+
     // Function calls
     Call {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
     },
-    
+
     // Control flow expressions
     If {
         condition: Box<Expression>,
@@ -171,14 +171,14 @@ pub enum ExpressionKind {
         elif_blocks: Vec<(Expression, Block)>,
         else_block: Option<Block>,
     },
-    
+
     // Unless é como if, mas com condição negada
     Unless {
         condition: Box<Expression>,
         then_block: Block,
         else_block: Option<Block>,
     },
-    
+
     // Grouping
     Grouping(Box<Expression>),
 }
@@ -191,7 +191,7 @@ pub enum BinaryOperator {
     Multiply, // *
     Divide,   // /
     Modulo,   // %
-    
+
     // Comparison
     Equal,        // ==
     NotEqual,     // !=
@@ -199,7 +199,7 @@ pub enum BinaryOperator {
     Greater,      // >
     LessEqual,    // <=
     GreaterEqual, // >=
-    
+
     // Logical
     And, // &&
     Or,  // ||

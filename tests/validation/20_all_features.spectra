@@ -1,0 +1,66 @@
+// Teste 20: Todas as features combinadas
+module all_features;
+
+fn process(value: int) -> int {
+    let result = 0;
+    
+    unless value < 0 {
+        if value > 100 {
+            result = 100;
+        } elif value > 50 {
+            result = 50;
+        } else {
+            let temp = value;
+            loop {
+                temp = temp - 1;
+                result = result + 1;
+                if temp <= 0 {
+                    break;
+                }
+            }
+        }
+    } else {
+        result = 0;
+    }
+    
+    return result;
+}
+
+fn calculate_sum(n: int) -> int {
+    let sum = 0;
+    let i = 0;
+    
+    do {
+        i = i + 1;
+        sum = sum + i;
+    } while i < n;
+    
+    return sum;
+}
+
+fn switch_test(option: int) -> int {
+    let result = 0;
+    
+    switch option {
+        case 1 => {
+            result = 10;
+        }
+        case 2 => {
+            result = 20;
+        }
+        case 3 => {
+            result = 30;
+        }
+    }
+    
+    return result;
+}
+
+fn main() -> int {
+    let a = process(75);
+    let b = calculate_sum(10);
+    let c = switch_test(2);
+    
+    let total = a + b + c;
+    return total;
+}

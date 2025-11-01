@@ -241,12 +241,8 @@ impl Parser {
                     kind: ExpressionKind::BoolLiteral(false),
                 })
             }
-            TokenKind::Keyword(Keyword::If) => {
-                self.parse_if_expression()
-            }
-            TokenKind::Keyword(Keyword::Unless) => {
-                self.parse_unless_expression()
-            }
+            TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
+            TokenKind::Keyword(Keyword::Unless) => self.parse_unless_expression(),
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 self.advance();
@@ -289,12 +285,12 @@ impl Parser {
 
     fn parse_if_expression(&mut self) -> Result<Expression, ()> {
         let start_span = self.consume_keyword(Keyword::If, "Expected 'if'")?;
-        
+
         let condition = Box::new(self.parse_expression()?);
         let then_block = self.parse_block()?;
-        
+
         let mut elif_blocks = Vec::new();
-        
+
         // Parse elif/elseif blocks
         while self.check_keyword(Keyword::Elif) || self.check_keyword(Keyword::ElseIf) {
             self.advance(); // consume 'elif' or 'elseif'
@@ -302,7 +298,7 @@ impl Parser {
             let elif_body = self.parse_block()?;
             elif_blocks.push((elif_condition, elif_body));
         }
-        
+
         // Parse optional else block
         let else_block = if self.check_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
@@ -310,12 +306,13 @@ impl Parser {
         } else {
             None
         };
-        
-        let end_span = else_block.as_ref()
+
+        let end_span = else_block
+            .as_ref()
             .map(|b| b.span)
             .or_else(|| elif_blocks.last().map(|(_, b)| b.span))
             .unwrap_or(then_block.span);
-        
+
         Ok(Expression {
             span: crate::span::span_union(start_span, end_span),
             kind: ExpressionKind::If {
@@ -332,10 +329,10 @@ impl Parser {
         // É equivalente a: if !(condition) { body } [else { else_body }]
         let start_span = self.current().span;
         self.advance(); // consume 'unless'
-        
+
         let condition = Box::new(self.parse_expression()?);
         let then_block = self.parse_block()?;
-        
+
         // Optional else block
         let else_block = if self.check_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
@@ -343,11 +340,12 @@ impl Parser {
         } else {
             None
         };
-        
-        let end_span = else_block.as_ref()
+
+        let end_span = else_block
+            .as_ref()
             .map(|b| b.span)
             .unwrap_or(then_block.span);
-        
+
         Ok(Expression {
             span: crate::span::span_union(start_span, end_span),
             kind: ExpressionKind::Unless {

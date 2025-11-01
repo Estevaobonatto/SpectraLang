@@ -1,7 +1,4 @@
-use crate::{
-    ast::TypeAnnotation,
-    span::span_union,
-};
+use crate::{ast::TypeAnnotation, span::span_union};
 
 use super::Parser;
 
@@ -9,7 +6,7 @@ impl Parser {
     pub(super) fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ()> {
         // Parse type path like: Vec, std.collections.HashMap, etc.
         let start_span = self.current().span;
-        
+
         let (first_segment, _) = self.consume_identifier("Expected type name")?;
         let mut segments = vec![first_segment];
 
@@ -20,7 +17,9 @@ impl Parser {
             segments.push(segment);
         }
 
-        let end_span = self.tokens.get(self.position.saturating_sub(1))
+        let end_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(start_span);
 

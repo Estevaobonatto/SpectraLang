@@ -6,17 +6,17 @@ pub enum Keyword {
     Module,
     Import,
     Export,
-    
+
     // Declarations
     Fn,
     Class,
     Trait,
     Let,
-    
+
     // Visibility
     Pub,
     Mut,
-    
+
     // Control flow - conditionals
     Match,
     Switch,
@@ -27,7 +27,7 @@ pub enum Keyword {
     Elif,
     ElseIf,
     Unless,
-    
+
     // Control flow - loops
     While,
     Do,
@@ -38,14 +38,14 @@ pub enum Keyword {
     Repeat,
     Until,
     Loop,
-    
+
     // Control flow - jumps
     Return,
     Break,
     Continue,
     Yield,
     Goto,
-    
+
     // Literals
     True,
     False,
@@ -58,17 +58,17 @@ impl Keyword {
             "module" => Some(Self::Module),
             "import" => Some(Self::Import),
             "export" => Some(Self::Export),
-            
+
             // Declarations
             "fn" => Some(Self::Fn),
             "class" => Some(Self::Class),
             "trait" => Some(Self::Trait),
             "let" => Some(Self::Let),
-            
+
             // Visibility
             "pub" => Some(Self::Pub),
             "mut" => Some(Self::Mut),
-            
+
             // Control flow - conditionals
             "match" => Some(Self::Match),
             "switch" => Some(Self::Switch),
@@ -79,7 +79,7 @@ impl Keyword {
             "elif" => Some(Self::Elif),
             "elseif" => Some(Self::ElseIf),
             "unless" => Some(Self::Unless),
-            
+
             // Control flow - loops
             "while" => Some(Self::While),
             "do" => Some(Self::Do),
@@ -90,18 +90,18 @@ impl Keyword {
             "repeat" => Some(Self::Repeat),
             "until" => Some(Self::Until),
             "loop" => Some(Self::Loop),
-            
+
             // Control flow - jumps
             "return" => Some(Self::Return),
             "break" => Some(Self::Break),
             "continue" => Some(Self::Continue),
             "yield" => Some(Self::Yield),
             "goto" => Some(Self::Goto),
-            
+
             // Literals
             "true" => Some(Self::True),
             "false" => Some(Self::False),
-            
+
             _ => None,
         }
     }
@@ -121,17 +121,17 @@ pub enum TokenKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Operator {
     // Comparison
-    EqualEqual,    // ==
-    NotEqual,      // !=
-    LessEqual,     // <=
-    GreaterEqual,  // >=
-    
+    EqualEqual,   // ==
+    NotEqual,     // !=
+    LessEqual,    // <=
+    GreaterEqual, // >=
+
     // Logical
-    And,           // &&
-    Or,            // ||
-    
+    And, // &&
+    Or,  // ||
+
     // Arrow (for function returns)
-    Arrow,         // ->
+    Arrow, // ->
 }
 
 #[derive(Debug, Clone, PartialEq)]

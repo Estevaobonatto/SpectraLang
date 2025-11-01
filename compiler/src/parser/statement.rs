@@ -1,5 +1,8 @@
 use crate::{
-    ast::{DoWhileLoop, ForLoop, LetStatement, LoopStatement, ReturnStatement, Statement, StatementKind, SwitchCase, SwitchStatement, WhileLoop},
+    ast::{
+        DoWhileLoop, ForLoop, LetStatement, LoopStatement, ReturnStatement, Statement,
+        StatementKind, SwitchCase, SwitchStatement, WhileLoop,
+    },
     span::span_union,
     token::Keyword,
 };
@@ -52,7 +55,7 @@ impl Parser {
             _ => {
                 // Check if it's an assignment (identifier = expression)
                 let checkpoint = self.position;
-                
+
                 // Try to parse as identifier = expression
                 if matches!(self.current().kind, crate::token::TokenKind::Identifier(_)) {
                     if let Ok((target, target_span)) = self.consume_identifier("") {
@@ -60,7 +63,7 @@ impl Parser {
                             self.advance(); // consume '='
                             let value = self.parse_expression()?;
                             self.consume_symbol(';', "Expected ';' after assignment")?;
-                            
+
                             return Ok(Statement {
                                 span: span_union(start_span, value.span),
                                 kind: StatementKind::Assignment(crate::ast::AssignmentStatement {
@@ -72,30 +75,32 @@ impl Parser {
                         }
                     }
                 }
-                
+
                 // Not an assignment, restore position and parse as expression
                 self.position = checkpoint;
-                
+
                 // Expression statement
                 let expr = self.parse_expression()?;
-                
+
                 // Only require semicolon if the expression is not a block-ending structure
                 // (if, unless, while, for, loop, do-while, switch already handle their own blocks)
                 let requires_semicolon = !matches!(
                     expr.kind,
-                    crate::ast::ExpressionKind::If { .. } | 
-                    crate::ast::ExpressionKind::Unless { .. }
+                    crate::ast::ExpressionKind::If { .. }
+                        | crate::ast::ExpressionKind::Unless { .. }
                 );
-                
+
                 if requires_semicolon {
                     self.consume_symbol(';', "Expected ';' after expression")?;
                 }
-                
+
                 StatementKind::Expression(expr)
             }
         };
 
-        let end_span = self.tokens.get(self.position.saturating_sub(1))
+        let end_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(start_span);
 
@@ -137,7 +142,9 @@ impl Parser {
 
     fn parse_return_statement(&mut self) -> Result<StatementKind, ()> {
         // Expect: return [expr];
-        let start_span = self.tokens.get(self.position.saturating_sub(1))
+        let start_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(self.current().span);
 
@@ -157,7 +164,9 @@ impl Parser {
 
     fn parse_while_statement(&mut self) -> Result<StatementKind, ()> {
         // Expect: while <condition> { <body> }
-        let start_span = self.tokens.get(self.position.saturating_sub(1))
+        let start_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(self.current().span);
 
@@ -174,7 +183,9 @@ impl Parser {
 
     fn parse_for_statement(&mut self) -> Result<StatementKind, ()> {
         // Expect: for <iterator> in/of <iterable> { <body> }
-        let start_span = self.tokens.get(self.position.saturating_sub(1))
+        let start_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(self.current().span);
 
@@ -207,7 +218,9 @@ impl Parser {
 
     fn parse_loop_statement(&mut self) -> Result<StatementKind, ()> {
         // loop { ... }
-        let start_span = self.tokens.get(self.position.saturating_sub(1))
+        let start_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(self.current().span);
         let body = self.parse_block()?;
@@ -221,7 +234,9 @@ impl Parser {
 
     fn parse_do_while_statement(&mut self) -> Result<StatementKind, ()> {
         // do { ... } while condition;
-        let start_span = self.tokens.get(self.position.saturating_sub(1))
+        let start_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(self.current().span);
         let body = self.parse_block()?;
@@ -245,7 +260,9 @@ impl Parser {
 
     fn parse_switch_statement(&mut self) -> Result<StatementKind, ()> {
         // switch value { case pattern => body, ... default => body }
-        let start_span = self.tokens.get(self.position.saturating_sub(1))
+        let start_span = self
+            .tokens
+            .get(self.position.saturating_sub(1))
             .map(|t| t.span)
             .unwrap_or(self.current().span);
         let value = self.parse_expression()?;
@@ -259,7 +276,7 @@ impl Parser {
             if self.check_keyword(Keyword::Case) {
                 self.advance(); // consume 'case'
                 let pattern = self.parse_expression()?;
-                
+
                 // Aceita ':' ou '=>' como separador
                 if self.check_symbol(':') {
                     self.advance();
@@ -285,7 +302,7 @@ impl Parser {
                 });
             } else if self.check_keyword(Keyword::Else) {
                 self.advance(); // consume 'else'
-                
+
                 // Aceita ':' ou '=>'
                 if self.check_symbol(':') {
                     self.advance();

@@ -159,24 +159,32 @@ impl<'source> Lexer<'source> {
                     } else {
                         None
                     };
-                    
+
                     let (token_kind, chars_consumed) = match (ch, next_char) {
-                        ('=', Some('=')) => (TokenKind::Operator(crate::token::Operator::EqualEqual), 2),
-                        ('!', Some('=')) => (TokenKind::Operator(crate::token::Operator::NotEqual), 2),
-                        ('<', Some('=')) => (TokenKind::Operator(crate::token::Operator::LessEqual), 2),
-                        ('>', Some('=')) => (TokenKind::Operator(crate::token::Operator::GreaterEqual), 2),
+                        ('=', Some('=')) => {
+                            (TokenKind::Operator(crate::token::Operator::EqualEqual), 2)
+                        }
+                        ('!', Some('=')) => {
+                            (TokenKind::Operator(crate::token::Operator::NotEqual), 2)
+                        }
+                        ('<', Some('=')) => {
+                            (TokenKind::Operator(crate::token::Operator::LessEqual), 2)
+                        }
+                        ('>', Some('=')) => {
+                            (TokenKind::Operator(crate::token::Operator::GreaterEqual), 2)
+                        }
                         ('&', Some('&')) => (TokenKind::Operator(crate::token::Operator::And), 2),
                         ('|', Some('|')) => (TokenKind::Operator(crate::token::Operator::Or), 2),
                         ('-', Some('>')) => (TokenKind::Operator(crate::token::Operator::Arrow), 2),
                         _ => (TokenKind::Symbol(ch), 1),
                     };
-                    
+
                     for _ in 0..chars_consumed {
                         let (_, current_char) = characters[index];
                         bump_position(current_char, &mut line, &mut column);
                         index += 1;
                     }
-                    
+
                     let end_offset = if index < length {
                         characters[index].0
                     } else {

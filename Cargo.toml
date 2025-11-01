@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "compiler",
+    "midend",
+    "backend",
     "runtime",
     "tools/spectra-cli",
 ]

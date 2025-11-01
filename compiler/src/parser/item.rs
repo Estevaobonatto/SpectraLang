@@ -53,7 +53,10 @@ impl Parser {
         self.consume_symbol(')', "Expected ')' after function parameters")?;
 
         // Optional return type
-        let return_type = if matches!(&self.current().kind, crate::token::TokenKind::Operator(crate::token::Operator::Arrow)) {
+        let return_type = if matches!(
+            &self.current().kind,
+            crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
+        ) {
             self.advance(); // consume '->'
             Some(self.parse_type_annotation()?)
         } else {

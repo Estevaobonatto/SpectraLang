@@ -1,0 +1,19 @@
+// Teste 5: If/elif/else
+module if_else;
+
+fn test_if_else(n: int) -> int {
+    if n > 10 {
+        return 1;
+    } elif n > 5 {
+        return 2;
+    } else {
+        return 3;
+    }
+}
+
+fn main() -> int {
+    let r1 = test_if_else(15);
+    let r2 = test_if_else(7);
+    let r3 = test_if_else(2);
+    return r1 + r2 + r3;
+}

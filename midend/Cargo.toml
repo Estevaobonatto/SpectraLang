@@ -1,0 +1,11 @@
+[package]
+name = "spectra-midend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spectra-compiler = { path = "../compiler" }
+
+[lib]
+name = "spectra_midend"
+path = "src/lib.rs"

@@ -1,0 +1,15 @@
+[package]
+name = "spectra-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spectra-compiler = { path = "../compiler" }
+spectra-midend = { path = "../midend" }
+cranelift = "0.109"
+cranelift-codegen = "0.109"
+cranelift-frontend = "0.109"
+cranelift-module = "0.109"
+cranelift-jit = "0.109"
+cranelift-native = "0.109"
+target-lexicon = "0.12"

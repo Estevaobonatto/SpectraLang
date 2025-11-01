@@ -51,7 +51,7 @@ impl Parser {
         let start_span = self.consume_keyword(Keyword::Import, "Expected 'import' keyword")?;
 
         let mut path = Vec::new();
-        
+
         // First identifier
         let (name, _) = self.consume_identifier("Expected module path")?;
         path.push(name);
