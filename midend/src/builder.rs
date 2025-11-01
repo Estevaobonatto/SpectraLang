@@ -158,6 +158,98 @@ impl IRBuilder {
         result
     }
 
+    pub fn build_not(&self, func: &mut Function, operand: Value) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::Not { result, operand });
+            }
+        }
+        result
+    }
+
+    pub fn build_alloca(&self, func: &mut Function, ty: crate::ir::Type) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::Alloca { result, ty });
+            }
+        }
+        result
+    }
+
+    pub fn build_load(&self, func: &mut Function, ptr: Value) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::Load { result, ptr });
+            }
+        }
+        result
+    }
+
+    pub fn build_store(&self, func: &mut Function, ptr: Value, value: Value) {
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::Store { ptr, value });
+            }
+        }
+    }
+
+    pub fn build_copy(&self, func: &mut Function, source: Value) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::Copy { result, source });
+            }
+        }
+        result
+    }
+
+    pub fn build_phi(
+        &self,
+        func: &mut Function,
+        incoming: Vec<(Value, usize)>,
+    ) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::Phi { result, incoming });
+            }
+        }
+        result
+    }
+
+    pub fn build_const_int(&self, func: &mut Function, value: i64) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::ConstInt { result, value });
+            }
+        }
+        result
+    }
+
+    pub fn build_const_float(&self, func: &mut Function, value: f64) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::ConstFloat { result, value });
+            }
+        }
+        result
+    }
+
+    pub fn build_const_bool(&self, func: &mut Function, value: bool) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::ConstBool { result, value });
+            }
+        }
+        result
+    }
+
     pub fn build_return(&self, func: &mut Function, value: Option<Value>) {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {

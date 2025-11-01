@@ -1,6 +1,7 @@
 // Optimization passes for IR
 
 pub mod constant_folding;
+pub mod dead_code_elimination;
 
 use crate::ir::Module;
 

@@ -378,6 +378,22 @@ impl CodeGenerator {
                 // PHI nodes should be resolved during SSA construction
                 // For now, we skip them in code generation
             }
+
+            // Constant instructions
+            InstructionKind::ConstInt { result, value } => {
+                let result_val = builder.ins().iconst(types::I64, *value);
+                value_map.insert(result.id, result_val);
+            }
+
+            InstructionKind::ConstFloat { result, value } => {
+                let result_val = builder.ins().f64const(*value);
+                value_map.insert(result.id, result_val);
+            }
+
+            InstructionKind::ConstBool { result, value } => {
+                let result_val = builder.ins().iconst(types::I8, if *value { 1 } else { 0 });
+                value_map.insert(result.id, result_val);
+            }
         }
 
         Ok(())

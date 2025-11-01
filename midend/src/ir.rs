@@ -163,6 +163,20 @@ pub enum InstructionKind {
         result: Value,
         source: Value,
     },
+
+    // Constants (for literal values)
+    ConstInt {
+        result: Value,
+        value: i64,
+    },
+    ConstFloat {
+        result: Value,
+        value: f64,
+    },
+    ConstBool {
+        result: Value,
+        value: bool,
+    },
 }
 
 /// Block terminator (control flow)
