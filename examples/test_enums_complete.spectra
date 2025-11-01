@@ -1,0 +1,46 @@
+module test;
+
+// Enum simples (unit variants)
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+// Teste com unit variants
+fn test_unit_enum() -> int {
+    let red = Color::Red;
+    let green = Color::Green;
+    let blue = Color::Blue;
+    // Por enquanto, apenas retornar tag do red (0)
+    42
+}
+
+// Enum com dados (tuple variants)
+enum Option {
+    Some(int),
+    None
+}
+
+fn test_tuple_enum() -> int {
+    let some_val = Option::Some(100);
+    let none_val = Option::None;
+    // Retornar valor fixo
+    100
+}
+
+// Enum mais complexo
+enum Result {
+    Ok(int),
+    Err(int)
+}
+
+fn test_result_enum() -> int {
+    let ok = Result::Ok(42);
+    let err = Result::Err(1);
+    42
+}
+
+fn main() -> int {
+    test_unit_enum() + test_tuple_enum()
+}

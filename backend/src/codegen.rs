@@ -558,6 +558,7 @@ impl CodeGenerator {
             IRType::Array { .. } => Ok(types::I64), // Arrays são representados como ponteiros
             IRType::Tuple { .. } => Ok(types::I64), // Tuples são representadas como ponteiros
             IRType::Struct { .. } => Ok(types::I64), // Structs são representados como ponteiros
+            IRType::Enum { .. } => Ok(types::I64), // Enums são representados como ponteiros ou ints
             IRType::Function { .. } => Ok(types::I64),
         }
     }
@@ -582,6 +583,21 @@ impl CodeGenerator {
             IRType::Struct { fields, .. } => {
                 // Soma dos tamanhos de cada campo (sem padding por enquanto)
                 fields.iter().map(|(_, field_ty)| Self::type_size_bytes(field_ty)).sum()
+            }
+            IRType::Enum { variants, .. } => {
+                // Tamanho máximo entre todos os variants (tag + max data)
+                let max_variant_size = variants
+                    .iter()
+                    .map(|(_, data_types)| {
+                        if let Some(types) = data_types {
+                            8 + types.iter().map(|ty| Self::type_size_bytes(ty)).sum::<usize>()
+                        } else {
+                            8 // Apenas o tag
+                        }
+                    })
+                    .max()
+                    .unwrap_or(8);
+                max_variant_size
             }
             IRType::Function { .. } => 8,
         }

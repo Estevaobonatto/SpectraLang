@@ -1043,8 +1043,10 @@ impl ASTLowering {
                 ir_func.next_value()
             }
             ExpressionKind::EnumVariant { enum_name, variant_name, data } => {
-                // Buscar definição do enum
-                if let Some(variants) = self.enum_definitions.get(enum_name) {
+                // Buscar definição do enum (clonar para evitar borrow issues)
+                let variants_opt = self.enum_definitions.get(enum_name).cloned();
+                
+                if let Some(variants) = variants_opt {
                     // Encontrar o variant
                     if let Some((_, tag, variant_data_types)) = variants
                         .iter()

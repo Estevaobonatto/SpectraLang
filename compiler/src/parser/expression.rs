@@ -326,7 +326,7 @@ impl Parser {
                             }
                         }
                         
-                        let end_span = self.consume_symbol(')', "Expected ')' after variant data")?;
+                        let _end_span = self.consume_symbol(')', "Expected ')' after variant data")?;
                         Some(args)
                     } else {
                         None
