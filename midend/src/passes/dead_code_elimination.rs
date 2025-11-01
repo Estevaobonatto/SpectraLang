@@ -103,6 +103,10 @@ impl DeadCodeElimination {
                 used.insert(ptr.id);
                 used.insert(value.id);
             }
+            InstructionKind::GetElementPtr { ptr, index, .. } => {
+                used.insert(ptr.id);
+                used.insert(index.id);
+            }
             InstructionKind::Call { args, .. } => {
                 for arg in args {
                     used.insert(arg.id);

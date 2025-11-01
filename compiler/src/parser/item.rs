@@ -116,9 +116,16 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.check_symbol('}') && !self.is_at_end() {
+            // Try to parse as statement
             match self.parse_statement() {
                 Ok(stmt) => statements.push(stmt),
-                Err(_) => self.synchronize(),
+                Err(_) => {
+                    // If parsing failed and next is '}', try parsing as final expression without ';'
+                    if self.check_symbol('}') {
+                        break; // Let the error propagate, block might be empty
+                    }
+                    self.synchronize();
+                }
             }
         }
 

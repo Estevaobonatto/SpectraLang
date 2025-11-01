@@ -24,6 +24,8 @@ pub struct ASTLowering {
     value_map: HashMap<String, Value>,
     /// Maps variable names to their allocated memory locations (for mutable variables)
     alloca_map: HashMap<String, Value>,
+    /// Maps array names to their base pointers (stack addresses)
+    array_map: HashMap<String, Value>,
     loop_stack: Vec<LoopContext>,
 }
 
@@ -34,6 +36,7 @@ impl ASTLowering {
             current_function: None,
             value_map: HashMap::new(),
             alloca_map: HashMap::new(),
+            array_map: HashMap::new(),
             loop_stack: Vec::new(),
         }
     }
@@ -85,6 +88,7 @@ impl ASTLowering {
         // Map parameters to values
         self.value_map.clear();
         self.alloca_map.clear();
+        self.array_map.clear();
         for (idx, param) in params.iter().enumerate() {
             self.value_map.insert(param.name.clone(), Value { id: idx });
         }
@@ -100,12 +104,34 @@ impl ASTLowering {
 
         // Lower function body
         self.current_function = Some(ir_func.clone());
-        self.lower_block(&ast_func.body.statements, &mut ir_func);
+        
+        // Check if last statement is an expression (implicit return)
+        let mut implicit_return_value = None;
+        if let Some(last_stmt) = ast_func.body.statements.last() {
+            if let StatementKind::Expression(expr) = &last_stmt.kind {
+                // Lower all statements except the last
+                if ast_func.body.statements.len() > 1 {
+                    for stmt in &ast_func.body.statements[..ast_func.body.statements.len() - 1] {
+                        self.lower_statement(stmt, &mut ir_func);
+                    }
+                }
+                // Lower last expression and capture its value
+                implicit_return_value = Some(self.lower_expression(expr, &mut ir_func));
+            } else {
+                // No implicit return, lower all statements
+                self.lower_block(&ast_func.body.statements, &mut ir_func);
+            }
+        } else {
+            // Empty body
+            self.lower_block(&ast_func.body.statements, &mut ir_func);
+        }
 
         // Ensure function has a return
         if let Some(block) = ir_func.get_block_mut(entry_block) {
             if block.terminator.is_none() {
-                block.set_terminator(Terminator::Return { value: None });
+                block.set_terminator(Terminator::Return {
+                    value: implicit_return_value,
+                });
             }
         }
 
@@ -129,7 +155,11 @@ impl ASTLowering {
         for stmt in statements {
             match &stmt.kind {
                 StatementKind::Assignment(assign) => {
-                    assigned.insert(assign.target.clone());
+                    // Extract variable name from LValue
+                    // For now, only track simple identifiers (not array elements)
+                    if let spectra_compiler::ast::LValue::Identifier(name) = &assign.target {
+                        assigned.insert(name.clone());
+                    }
                 }
                 StatementKind::While(while_stmt) => {
                     // Recursively check loop body
@@ -183,8 +213,12 @@ impl ASTLowering {
                 if let Some(ref value_expr) = let_stmt.value {
                     let value = self.lower_expression(value_expr, ir_func);
                     
+                    // Check if this is an array literal - store pointer in array_map
+                    if matches!(value_expr.kind, ExpressionKind::ArrayLiteral { .. }) {
+                        self.array_map.insert(let_stmt.name.clone(), value);
+                    }
                     // If variable will be assigned later, store to allocated memory
-                    if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
+                    else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
                         self.builder.build_store(ir_func, alloca_ptr, value);
                     } else {
                         // Otherwise, just map the SSA value
@@ -195,12 +229,33 @@ impl ASTLowering {
             StatementKind::Assignment(assign) => {
                 let value = self.lower_expression(&assign.value, ir_func);
                 
-                // Assignment always uses memory (variable must have been allocated)
-                if let Some(&alloca_ptr) = self.alloca_map.get(&assign.target) {
-                    self.builder.build_store(ir_func, alloca_ptr, value);
-                } else {
-                    // Fallback: update value_map (shouldn't happen if analysis is correct)
-                    self.value_map.insert(assign.target.clone(), value);
+                match &assign.target {
+                    spectra_compiler::ast::LValue::Identifier(name) => {
+                        // Assignment to simple variable (uses memory)
+                        if let Some(&alloca_ptr) = self.alloca_map.get(name) {
+                            self.builder.build_store(ir_func, alloca_ptr, value);
+                        } else {
+                            // Fallback: update value_map (shouldn't happen if analysis is correct)
+                            self.value_map.insert(name.clone(), value);
+                        }
+                    }
+                    spectra_compiler::ast::LValue::IndexAccess { array, index } => {
+                        // Assignment to array element
+                        let array_ptr = self.lower_expression(array, ir_func);
+                        let index_value = self.lower_expression(index, ir_func);
+                        
+                        // Calcular endereço do elemento
+                        let elem_type = IRType::Int; // Assumir int por enquanto
+                        let elem_ptr = self.builder.build_getelementptr(
+                            ir_func,
+                            array_ptr,
+                            index_value,
+                            elem_type,
+                        );
+                        
+                        // Store valor no elemento
+                        self.builder.build_store(ir_func, elem_ptr, value);
+                    }
                 }
             }
             StatementKind::Return(ret) => {
@@ -427,8 +482,12 @@ impl ASTLowering {
             }
             ExpressionKind::BoolLiteral(b) => self.builder.build_const_bool(ir_func, *b),
             ExpressionKind::Identifier(name) => {
-                // First check if variable is in memory (mutable)
-                if let Some(&alloca_ptr) = self.alloca_map.get(name) {
+                // Check if this is an array - return pointer directly
+                if let Some(&array_ptr) = self.array_map.get(name) {
+                    array_ptr
+                }
+                // Check if variable is in memory (mutable)
+                else if let Some(&alloca_ptr) = self.alloca_map.get(name) {
                     // Load from memory
                     self.builder.build_load(ir_func, alloca_ptr)
                 } else if let Some(&value) = self.value_map.get(name) {
@@ -648,6 +707,61 @@ impl ASTLowering {
                 }
             }
             ExpressionKind::Grouping(inner) => self.lower_expression(inner, ir_func),
+            ExpressionKind::ArrayLiteral { elements } => {
+                // Alocar memória para o array
+                let size = elements.len();
+                if size == 0 {
+                    // Array vazio - retornar um valor placeholder
+                    return ir_func.next_value();
+                }
+                
+                // Determinar o tipo do elemento (assume todos são do mesmo tipo)
+                // Por simplicidade, vamos usar Int como padrão
+                let elem_type = IRType::Int;
+                
+                // Alocar espaço para o array no stack (tipo Array com tamanho)
+                let array_type = IRType::Array {
+                    element_type: Box::new(elem_type.clone()),
+                    size,
+                };
+                let array_ptr = self.builder.build_alloca(ir_func, array_type);
+                
+                // Inicializar cada elemento
+                for (i, elem_expr) in elements.iter().enumerate() {
+                    let elem_value = self.lower_expression(elem_expr, ir_func);
+                    let index_value = self.builder.build_const_int(ir_func, i as i64);
+                    let elem_ptr = self.builder.build_getelementptr(
+                        ir_func,
+                        array_ptr,
+                        index_value,
+                        elem_type.clone(),
+                    );
+                    self.builder.build_store(ir_func, elem_ptr, elem_value);
+                }
+                
+                // Retornar o ponteiro para o array
+                array_ptr
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                // Avaliar a expressão do array
+                let array_ptr = self.lower_expression(array, ir_func);
+                
+                // Avaliar o índice
+                let index_value = self.lower_expression(index, ir_func);
+                
+                // Calcular o endereço do elemento
+                // Por simplicidade, assumir tipo Int
+                let elem_type = IRType::Int;
+                let elem_ptr = self.builder.build_getelementptr(
+                    ir_func,
+                    array_ptr,
+                    index_value,
+                    elem_type,
+                );
+                
+                // Carregar o valor do elemento
+                self.builder.build_load(ir_func, elem_ptr)
+            }
         }
     }
 
@@ -677,6 +791,10 @@ impl ASTLowering {
             ASTType::Char => IRType::Char,
             ASTType::Unit => IRType::Void,
             ASTType::Unknown => IRType::Void,
+            ASTType::Array { element_type, .. } => {
+                // Arrays são representados como ponteiros no IR
+                IRType::Pointer(Box::new(self.lower_type(element_type)))
+            }
         }
     }
 }

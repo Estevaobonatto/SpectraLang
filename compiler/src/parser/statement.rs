@@ -53,48 +53,53 @@ impl Parser {
                 StatementKind::Continue
             }
             _ => {
-                // Check if it's an assignment (identifier = expression)
-                let checkpoint = self.position;
-
-                // Try to parse as identifier = expression
-                if matches!(self.current().kind, crate::token::TokenKind::Identifier(_)) {
-                    if let Ok((target, target_span)) = self.consume_identifier("") {
-                        if self.check_symbol('=') {
-                            self.advance(); // consume '='
-                            let value = self.parse_expression()?;
-                            self.consume_symbol(';', "Expected ';' after assignment")?;
-
-                            return Ok(Statement {
-                                span: span_union(start_span, value.span),
-                                kind: StatementKind::Assignment(crate::ast::AssignmentStatement {
-                                    target,
-                                    target_span,
-                                    value,
-                                }),
-                            });
-                        }
-                    }
-                }
-
-                // Not an assignment, restore position and parse as expression
-                self.position = checkpoint;
-
-                // Expression statement
+                // Try to parse as assignment or expression statement
                 let expr = self.parse_expression()?;
+                
+                // Check if followed by '='
+                if self.check_symbol('=') {
+                    // This is an assignment
+                    self.advance(); // consume '='
+                    
+                    // Convert expression to LValue
+                    let (target, target_span) = match expr.kind {
+                        crate::ast::ExpressionKind::Identifier(name) => {
+                            (crate::ast::LValue::Identifier(name), expr.span)
+                        }
+                        crate::ast::ExpressionKind::IndexAccess { array, index } => {
+                            (crate::ast::LValue::IndexAccess { array, index }, expr.span)
+                        }
+                        _ => {
+                            self.error("Invalid assignment target");
+                            return Err(());
+                        }
+                    };
+                    
+                    let value = self.parse_expression()?;
+                    self.consume_symbol(';', "Expected ';' after assignment")?;
+                    
+                    StatementKind::Assignment(crate::ast::AssignmentStatement {
+                        target,
+                        target_span,
+                        value,
+                    })
+                } else {
+                    // Expression statement
+                    
+                    // Only require semicolon if the expression is not a block-ending structure
+                    // or if this is not the last expression in a block (next token is not '}')
+                    let requires_semicolon = !matches!(
+                        expr.kind,
+                        crate::ast::ExpressionKind::If { .. }
+                            | crate::ast::ExpressionKind::Unless { .. }
+                    ) && !self.check_symbol('}');
 
-                // Only require semicolon if the expression is not a block-ending structure
-                // (if, unless, while, for, loop, do-while, switch already handle their own blocks)
-                let requires_semicolon = !matches!(
-                    expr.kind,
-                    crate::ast::ExpressionKind::If { .. }
-                        | crate::ast::ExpressionKind::Unless { .. }
-                );
+                    if requires_semicolon {
+                        self.consume_symbol(';', "Expected ';' after expression")?;
+                    }
 
-                if requires_semicolon {
-                    self.consume_symbol(';', "Expected ';' after expression")?;
+                    StatementKind::Expression(expr)
                 }
-
-                StatementKind::Expression(expr)
             }
         };
 

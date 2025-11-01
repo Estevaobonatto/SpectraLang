@@ -191,32 +191,49 @@ impl Parser {
     fn parse_call_expression(&mut self) -> Result<Expression, ()> {
         let mut expr = self.parse_primary_expression()?;
 
-        // Handle function calls
-        while self.check_symbol('(') {
-            self.advance(); // consume '('
+        // Handle function calls and array indexing
+        loop {
+            if self.check_symbol('(') {
+                self.advance(); // consume '('
 
-            let mut arguments = Vec::new();
+                let mut arguments = Vec::new();
 
-            if !self.check_symbol(')') {
-                loop {
-                    arguments.push(self.parse_expression()?);
-                    if !self.check_symbol(',') {
-                        break;
+                if !self.check_symbol(')') {
+                    loop {
+                        arguments.push(self.parse_expression()?);
+                        if !self.check_symbol(',') {
+                            break;
+                        }
+                        self.advance(); // consume ','
                     }
-                    self.advance(); // consume ','
                 }
+
+                let end_span = self.consume_symbol(')', "Expected ')' after arguments")?;
+
+                let span = crate::span::span_union(expr.span, end_span);
+                expr = Expression {
+                    span,
+                    kind: ExpressionKind::Call {
+                        callee: Box::new(expr),
+                        arguments,
+                    },
+                };
+            } else if self.check_symbol('[') {
+                self.advance(); // consume '['
+                let index = self.parse_expression()?;
+                let end_span = self.consume_symbol(']', "Expected ']' after index")?;
+                
+                let span = crate::span::span_union(expr.span, end_span);
+                expr = Expression {
+                    span,
+                    kind: ExpressionKind::IndexAccess {
+                        array: Box::new(expr),
+                        index: Box::new(index),
+                    },
+                };
+            } else {
+                break;
             }
-
-            let end_span = self.consume_symbol(')', "Expected ')' after arguments")?;
-
-            let span = crate::span::span_union(expr.span, end_span);
-            expr = Expression {
-                span,
-                kind: ExpressionKind::Call {
-                    callee: Box::new(expr),
-                    arguments,
-                },
-            };
         }
 
         Ok(expr)
@@ -274,6 +291,28 @@ impl Parser {
                 Ok(Expression {
                     span,
                     kind: ExpressionKind::Grouping(Box::new(expr)),
+                })
+            }
+            TokenKind::Symbol('[') => {
+                self.advance(); // consume '['
+                let mut elements = Vec::new();
+                
+                if !self.check_symbol(']') {
+                    loop {
+                        elements.push(self.parse_expression()?);
+                        if !self.check_symbol(',') {
+                            break;
+                        }
+                        self.advance(); // consume ','
+                    }
+                }
+                
+                let end_span = self.consume_symbol(']', "Expected ']' after array elements")?;
+                let span = crate::span::span_union(span, end_span);
+                
+                Ok(Expression {
+                    span,
+                    kind: ExpressionKind::ArrayLiteral { elements },
                 })
             }
             _ => {

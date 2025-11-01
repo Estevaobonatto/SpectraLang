@@ -144,6 +144,12 @@ pub enum InstructionKind {
         ptr: Value,
         value: Value,
     },
+    GetElementPtr {
+        result: Value,
+        ptr: Value,
+        index: Value,
+        element_type: Type,
+    },
 
     // Function calls
     Call {
@@ -217,6 +223,10 @@ pub enum Type {
     String,
     Char,
     Pointer(Box<Type>),
+    Array {
+        element_type: Box<Type>,
+        size: usize,
+    },
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,

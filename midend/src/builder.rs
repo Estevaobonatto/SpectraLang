@@ -196,6 +196,27 @@ impl IRBuilder {
         }
     }
 
+    pub fn build_getelementptr(
+        &self,
+        func: &mut Function,
+        ptr: Value,
+        index: Value,
+        element_type: crate::ir::Type,
+    ) -> Value {
+        let result = func.next_value();
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::GetElementPtr {
+                    result,
+                    ptr,
+                    index,
+                    element_type,
+                });
+            }
+        }
+        result
+    }
+
     pub fn build_copy(&self, func: &mut Function, source: Value) -> Value {
         let result = func.next_value();
         if let Some(block_id) = self.current_block {

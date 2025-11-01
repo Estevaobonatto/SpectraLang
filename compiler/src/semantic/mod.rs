@@ -219,18 +219,37 @@ impl SemanticAnalyzer {
                 }
             }
             StatementKind::Assignment(assign_stmt) => {
-                // Check if variable exists
-                if self.lookup_symbol(&assign_stmt.target).is_none() {
-                    self.error(
-                        format!("Variable '{}' is not defined", assign_stmt.target),
-                        assign_stmt.target_span,
-                    );
-                } else {
-                    // Analyze the value expression
-                    self.analyze_expression(&assign_stmt.value);
-
-                    // TODO: Check type compatibility between variable and assigned value
+                // Analyze the target (lvalue)
+                match &assign_stmt.target {
+                    crate::ast::LValue::Identifier(name) => {
+                        // Check if variable exists
+                        if self.lookup_symbol(name).is_none() {
+                            self.error(
+                                format!("Variable '{}' is not defined", name),
+                                assign_stmt.target_span,
+                            );
+                        }
+                    }
+                    crate::ast::LValue::IndexAccess { array, index } => {
+                        // Analyze array and index expressions
+                        self.analyze_expression(array);
+                        self.analyze_expression(index);
+                        
+                        // Check that index is an integer
+                        let index_type = self.infer_expression_type(index);
+                        if !matches!(index_type, Type::Int | Type::Unknown) {
+                            self.error(
+                                format!("Array index must be an integer, found {:?}", index_type),
+                                assign_stmt.target_span,
+                            );
+                        }
+                    }
                 }
+                
+                // Analyze the value expression
+                self.analyze_expression(&assign_stmt.value);
+
+                // TODO: Check type compatibility between target and assigned value
             }
             StatementKind::Return(ret_stmt) => {
                 if self.current_function.is_none() {
@@ -377,6 +396,29 @@ impl SemanticAnalyzer {
             ExpressionKind::If { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
             ExpressionKind::Unless { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
             ExpressionKind::Grouping(inner) => self.infer_expression_type(inner),
+            ExpressionKind::ArrayLiteral { elements } => {
+                if elements.is_empty() {
+                    // Array vazio, tipo desconhecido
+                    Type::Array {
+                        element_type: Box::new(Type::Unknown),
+                        size: Some(0),
+                    }
+                } else {
+                    // Inferir tipo do primeiro elemento
+                    let elem_type = self.infer_expression_type(&elements[0]);
+                    Type::Array {
+                        element_type: Box::new(elem_type),
+                        size: Some(elements.len()),
+                    }
+                }
+            }
+            ExpressionKind::IndexAccess { array, index: _ } => {
+                let array_type = self.infer_expression_type(array);
+                match array_type {
+                    Type::Array { element_type, .. } => *element_type,
+                    _ => Type::Unknown,
+                }
+            }
         }
     }
 
@@ -586,6 +628,51 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::Grouping(inner) => {
                 self.analyze_expression(inner);
+            }
+            ExpressionKind::ArrayLiteral { elements } => {
+                // Analyze all elements
+                for element in elements {
+                    self.analyze_expression(element);
+                }
+                
+                // Check that all elements have the same type
+                if !elements.is_empty() {
+                    let first_type = self.infer_expression_type(&elements[0]);
+                    for (i, element) in elements.iter().enumerate().skip(1) {
+                        let elem_type = self.infer_expression_type(element);
+                        if first_type != Type::Unknown && elem_type != Type::Unknown && first_type != elem_type {
+                            self.error(
+                                format!(
+                                    "Array element {} has type {:?}, expected {:?}",
+                                    i, elem_type, first_type
+                                ),
+                                element.span,
+                            );
+                        }
+                    }
+                }
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.analyze_expression(array);
+                self.analyze_expression(index);
+                
+                // Check that index is an integer
+                let index_type = self.infer_expression_type(index);
+                if !matches!(index_type, Type::Int | Type::Unknown) {
+                    self.error(
+                        format!("Array index must be an integer, found {:?}", index_type),
+                        index.span,
+                    );
+                }
+                
+                // Check that array is actually an array
+                let array_type = self.infer_expression_type(array);
+                if !matches!(array_type, Type::Array { .. } | Type::Unknown) {
+                    self.error(
+                        format!("Cannot index into non-array type {:?}", array_type),
+                        array.span,
+                    );
+                }
             }
         }
     }

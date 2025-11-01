@@ -9,6 +9,10 @@ pub enum Type {
     Char,
     Unit,    // Tipo vazio (sem valor de retorno)
     Unknown, // Tipo desconhecido (para inferência)
+    Array {
+        element_type: Box<Type>,
+        size: Option<usize>, // None = tamanho dinâmico
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -97,8 +101,17 @@ pub enum StatementKind {
 }
 
 #[derive(Debug, Clone)]
+pub enum LValue {
+    Identifier(String),
+    IndexAccess {
+        array: Box<Expression>,
+        index: Box<Expression>,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct AssignmentStatement {
-    pub target: String,
+    pub target: LValue,
     pub target_span: Span,
     pub value: Expression,
 }
@@ -181,6 +194,15 @@ pub enum ExpressionKind {
 
     // Grouping
     Grouping(Box<Expression>),
+
+    // Arrays
+    ArrayLiteral {
+        elements: Vec<Expression>,
+    },
+    IndexAccess {
+        array: Box<Expression>,
+        index: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

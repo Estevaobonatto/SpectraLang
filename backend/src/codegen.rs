@@ -2,6 +2,7 @@
 // Translates Spectra IR to native machine code
 
 use cranelift::prelude::*;
+use cranelift_codegen::ir::StackSlot;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use spectra_midend::ir::{
@@ -115,6 +116,7 @@ impl CodeGenerator {
         // Create value and block mappings
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
+        let mut stack_slot_map: HashMap<usize, StackSlot> = HashMap::new();
 
         // Map function parameters to Cranelift values
         let params = builder.block_params(entry_block).to_vec();
@@ -139,6 +141,7 @@ impl CodeGenerator {
                 &mut builder,
                 ir_block,
                 &mut value_map,
+                &mut stack_slot_map,
                 &block_map,
                 &self.function_map,
                 &mut self.module,
@@ -174,6 +177,7 @@ impl CodeGenerator {
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
+        stack_slot_map: &mut HashMap<usize, StackSlot>,
         block_map: &HashMap<usize, Block>,
         function_map: &HashMap<String, FuncId>,
         module: &mut JITModule,
@@ -190,7 +194,7 @@ impl CodeGenerator {
 
         // Generate instructions
         for instr in &ir_block.instructions {
-            Self::generate_instruction_static(builder, instr, value_map, function_map, module)?;
+            Self::generate_instruction_static(builder, instr, value_map, stack_slot_map, function_map, module)?;
         }
 
         // Generate terminator
@@ -206,6 +210,7 @@ impl CodeGenerator {
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
+        stack_slot_map: &mut HashMap<usize, StackSlot>,
         function_map: &HashMap<String, FuncId>,
         module: &mut JITModule,
     ) -> Result<(), String> {
@@ -327,12 +332,23 @@ impl CodeGenerator {
 
             // Memory operations
             InstructionKind::Alloca { result, ty } => {
-                let cl_type = Self::ir_type_to_cranelift(ty)?;
+                // Calculate actual size in bytes (important for arrays)
+                let size_bytes = Self::type_size_bytes(ty) as u32;
+                // Use 8-byte alignment for better compatibility
+                let alignment = 8;
                 let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
-                    cl_type.bytes(),
-                    0,
+                    size_bytes,
+                    alignment,
                 ));
+                
+                // ONLY store arrays in stack_slot_map (they need cross-block access)
+                // Regular mutable variables work fine with just value_map
+                if matches!(ty, IRType::Array { .. }) {
+                    stack_slot_map.insert(result.id, stack_slot);
+                }
+                
+                // For immediate use in the same block, always generate stack_addr
                 let addr = builder.ins().stack_addr(types::I64, stack_slot, 0);
                 value_map.insert(result.id, addr);
             }
@@ -347,6 +363,38 @@ impl CodeGenerator {
                 let ptr_val = get_value(ptr)?;
                 let value_val = get_value(value)?;
                 builder.ins().store(MemFlags::new(), value_val, ptr_val, 0);
+            }
+
+            InstructionKind::GetElementPtr {
+                result,
+                ptr,
+                index,
+                element_type,
+            } => {
+                // Check if ptr refers to a stack slot that needs regeneration
+                let ptr_val = if let Some(&stack_slot) = stack_slot_map.get(&ptr.id) {
+                    // Regenerate stack_addr in this block (solves SSA dominance issue)
+                    builder.ins().stack_addr(types::I64, stack_slot, 0)
+                } else {
+                    get_value(ptr)?
+                };
+                
+                let index_val = get_value(index)?;
+                
+                // Calcular o tamanho do elemento em bytes
+                let elem_size = match element_type {
+                    IRType::Int | IRType::Float => 8,
+                    IRType::Bool | IRType::Char => 1,
+                    _ => 8, // default
+                };
+                
+                // offset = index * elem_size
+                let elem_size_val = builder.ins().iconst(types::I64, elem_size);
+                let offset = builder.ins().imul(index_val, elem_size_val);
+                
+                // ptr + offset
+                let result_val = builder.ins().iadd(ptr_val, offset);
+                value_map.insert(result.id, result_val);
             }
 
             // Function call
@@ -507,7 +555,25 @@ impl CodeGenerator {
             IRType::String => Ok(types::I64),
             IRType::Char => Ok(types::I32),
             IRType::Pointer(_) => Ok(types::I64),
+            IRType::Array { .. } => Ok(types::I64), // Arrays são representados como ponteiros
             IRType::Function { .. } => Ok(types::I64),
+        }
+    }
+    
+    /// Get size in bytes of an IR type
+    fn type_size_bytes(ty: &IRType) -> usize {
+        match ty {
+            IRType::Void => 0,
+            IRType::Bool => 1,
+            IRType::Char => 4,
+            IRType::Int => 8,
+            IRType::Float => 8,
+            IRType::String => 8,
+            IRType::Pointer(_) => 8,
+            IRType::Array { element_type, size } => {
+                Self::type_size_bytes(element_type) * size
+            }
+            IRType::Function { .. } => 8,
         }
     }
 

@@ -1,0 +1,6 @@
+module test_simple_array;
+
+fn test() -> int {
+    let arr = [1, 2, 3];
+    arr[0]
+}
