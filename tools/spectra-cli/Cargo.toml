@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 spectra-compiler = { path = "../../compiler" }
+spectra-midend = { path = "../../midend" }
+spectra-backend = { path = "../../backend" }

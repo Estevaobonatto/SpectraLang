@@ -337,7 +337,9 @@ dependencies = [
 name = "spectra-cli"
 version = "0.1.0"
 dependencies = [
+ "spectra-backend",
  "spectra-compiler",
+ "spectra-midend",
 ]
 
 [[package]]

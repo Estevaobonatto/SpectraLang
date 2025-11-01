@@ -1,0 +1,54 @@
+module math_test;
+
+fn add(a: int, b: int) -> int {
+    return a + b;
+}
+
+fn multiply(a: int, b: int) -> int {
+    return a * b;
+}
+
+fn factorial(n: int) -> int {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn fibonacci(n: int) -> int {
+    if n <= 1 {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+pub fn main() {
+    let x = 5;
+    let y = 10;
+    
+    // Testes de operações básicas
+    let sum = add(x, y);
+    let product = multiply(x, y);
+    
+    // Testes de recursão
+    let fact5 = factorial(5);
+    let fib7 = fibonacci(7);
+    
+    // Testes de controle de fluxo
+    let max = 0;
+    if x > y {
+        max = x;
+    } else {
+        max = y;
+    }
+    
+    // Loop simples
+    let counter = 0;
+    let i = 0;
+    while i < 10 {
+        counter = counter + 1;
+        i = i + 1;
+    }
+    
+    return;
+}

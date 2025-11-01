@@ -35,7 +35,7 @@ struct FunctionSignature {
     return_type: Type,
 }
 
-struct SemanticAnalyzer {
+pub struct SemanticAnalyzer {
     errors: Vec<SemanticError>,
     // Symbol table: maps variable/function names to their type info
     symbols: Vec<HashMap<String, SymbolInfo>>,
@@ -48,7 +48,7 @@ struct SemanticAnalyzer {
 }
 
 impl SemanticAnalyzer {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             errors: Vec::new(),
             symbols: vec![HashMap::new()], // Start with global scope
@@ -108,7 +108,7 @@ impl SemanticAnalyzer {
         None
     }
 
-    fn analyze_module(&mut self, module: &Module) {
+    pub fn analyze_module(&mut self, module: &Module) -> Vec<SemanticError> {
         // First pass: collect all function declarations
         for item in &module.items {
             if let Item::Function(func) = item {
@@ -143,6 +143,9 @@ impl SemanticAnalyzer {
         for item in &module.items {
             self.analyze_item(item);
         }
+
+        // Return collected errors
+        std::mem::take(&mut self.errors)
     }
 
     fn analyze_item(&mut self, item: &Item) {

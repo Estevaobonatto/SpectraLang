@@ -145,6 +145,15 @@ impl CodeGenerator {
             )?;
         }
 
+        // Seal all blocks after generating code
+        for ir_block in &ir_func.blocks {
+            if ir_block.id != 0 {  // Entry block already sealed
+                if let Some(&block) = block_map.get(&ir_block.id) {
+                    builder.seal_block(block);
+                }
+            }
+        }
+
         // Finalize function
         builder.finalize();
 
