@@ -230,6 +230,10 @@ pub enum Type {
     Tuple {
         elements: Vec<Type>,
     },
+    Struct {
+        name: String,
+        fields: Vec<(String, Type)>,
+    },
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,

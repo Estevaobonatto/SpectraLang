@@ -557,6 +557,7 @@ impl CodeGenerator {
             IRType::Pointer(_) => Ok(types::I64),
             IRType::Array { .. } => Ok(types::I64), // Arrays são representados como ponteiros
             IRType::Tuple { .. } => Ok(types::I64), // Tuples são representadas como ponteiros
+            IRType::Struct { .. } => Ok(types::I64), // Structs são representados como ponteiros
             IRType::Function { .. } => Ok(types::I64),
         }
     }
@@ -577,6 +578,10 @@ impl CodeGenerator {
             IRType::Tuple { elements } => {
                 // Soma dos tamanhos de cada elemento (sem padding por enquanto)
                 elements.iter().map(|elem_ty| Self::type_size_bytes(elem_ty)).sum()
+            }
+            IRType::Struct { fields, .. } => {
+                // Soma dos tamanhos de cada campo (sem padding por enquanto)
+                fields.iter().map(|(_, field_ty)| Self::type_size_bytes(field_ty)).sum()
             }
             IRType::Function { .. } => 8,
         }

@@ -234,9 +234,9 @@ impl Parser {
             } else if self.check_symbol('.') {
                 self.advance(); // consume '.'
                 
-                // Expect a number for tuple access
+                // Check if it's a number (tuple access) or identifier (field access)
                 if let TokenKind::Number(num_str) = &self.current().kind {
-                    // Parse as integer
+                    // Tuple access: .0, .1, .2, etc.
                     if let Ok(index) = num_str.parse::<usize>() {
                         let end_span = self.current().span;
                         self.advance();
@@ -253,8 +253,20 @@ impl Parser {
                         self.error("Invalid tuple index");
                         return Err(());
                     }
+                } else if let TokenKind::Identifier(_) = &self.current().kind {
+                    // Field access: .field_name
+                    let (field_name, end_span) = self.consume_identifier("Expected field name after '.'")?;
+                    
+                    let span = crate::span::span_union(expr.span, end_span);
+                    expr = Expression {
+                        span,
+                        kind: ExpressionKind::FieldAccess {
+                            object: Box::new(expr),
+                            field: field_name,
+                        },
+                    };
                 } else {
-                    self.error("Expected number after '.' for tuple access");
+                    self.error("Expected number or field name after '.'");
                     return Err(());
                 }
             } else {
@@ -288,11 +300,44 @@ impl Parser {
             TokenKind::Keyword(Keyword::Unless) => self.parse_unless_expression(),
             TokenKind::Identifier(name) => {
                 let name = name.clone();
+                let start_span = span;
                 self.advance();
-                Ok(Expression {
-                    span,
-                    kind: ExpressionKind::Identifier(name),
-                })
+                
+                // Check if it's a struct literal: Name { fields }
+                if self.check_symbol('{') {
+                    self.advance(); // consume '{'
+                    
+                    let mut fields = Vec::new();
+                    
+                    // Parse fields
+                    while !self.check_symbol('}') && !self.is_at_end() {
+                        // Parse: field_name: value
+                        let (field_name, _) = self.consume_identifier("Expected field name")?;
+                        self.consume_symbol(':', "Expected ':' after field name")?;
+                        let field_value = self.parse_expression()?;
+                        
+                        fields.push((field_name, field_value));
+                        
+                        // Optional comma
+                        if self.check_symbol(',') {
+                            self.advance();
+                        }
+                    }
+                    
+                    let end_span = self.current().span;
+                    self.consume_symbol('}', "Expected '}' to end struct literal")?;
+                    
+                    Ok(Expression {
+                        span: crate::span::span_union(start_span, end_span),
+                        kind: ExpressionKind::StructLiteral { name, fields },
+                    })
+                } else {
+                    // Just an identifier
+                    Ok(Expression {
+                        span,
+                        kind: ExpressionKind::Identifier(name),
+                    })
+                }
             }
             TokenKind::Number(value) => {
                 let value = value.clone();

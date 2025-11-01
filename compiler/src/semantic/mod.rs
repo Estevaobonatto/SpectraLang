@@ -170,6 +170,9 @@ impl SemanticAnalyzer {
             Item::Function(func) => {
                 self.analyze_function(func);
             }
+            Item::Struct(_struct) => {
+                // TODO: Struct validation (unique field names, etc.)
+            }
         }
     }
 
@@ -464,6 +467,14 @@ impl SemanticAnalyzer {
                     }
                     _ => Type::Unknown,
                 }
+            }
+            ExpressionKind::StructLiteral { name, fields: _ } => {
+                // TODO: Verificar se struct existe e retornar seu tipo
+                Type::Struct { name: name.clone() }
+            }
+            ExpressionKind::FieldAccess { object: _, field: _ } => {
+                // TODO: Inferir tipo do campo baseado no tipo do objeto
+                Type::Unknown
             }
         }
     }
@@ -787,6 +798,16 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
+            }
+            ExpressionKind::StructLiteral { name: _, fields } => {
+                // TODO: Validar struct existe e campos são corretos
+                for (_field_name, field_value) in fields {
+                    self.analyze_expression(field_value);
+                }
+            }
+            ExpressionKind::FieldAccess { object, field: _ } => {
+                // TODO: Validar campo existe no struct
+                self.analyze_expression(object);
             }
         }
     }

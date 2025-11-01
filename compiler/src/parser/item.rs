@@ -20,6 +20,9 @@ impl Parser {
             crate::token::TokenKind::Keyword(Keyword::Fn) => {
                 self.parse_item_with_visibility(Visibility::Private)
             }
+            crate::token::TokenKind::Keyword(Keyword::Struct) => {
+                self.parse_item_with_visibility(Visibility::Private)
+            }
             _ => {
                 self.error("Expected item declaration (import, fn, etc.)");
                 Err(())
@@ -33,8 +36,12 @@ impl Parser {
                 let function = self.parse_function(visibility)?;
                 Ok(Item::Function(function))
             }
+            crate::token::TokenKind::Keyword(Keyword::Struct) => {
+                let struct_item = self.parse_struct(visibility)?;
+                Ok(Item::Struct(struct_item))
+            }
             _ => {
-                self.error("Expected function declaration");
+                self.error("Expected function or struct declaration");
                 Err(())
             }
         }
@@ -134,6 +141,49 @@ impl Parser {
         Ok(Block {
             span: span_union(start_span, end_span),
             statements,
+        })
+    }
+
+    pub(super) fn parse_struct(&mut self, visibility: Visibility) -> Result<crate::ast::Struct, ()> {
+        use crate::ast::{Struct, StructField};
+        
+        // Expect: struct <name> { <fields> }
+        let start_span = self.consume_keyword(Keyword::Struct, "Expected 'struct' keyword")?;
+
+        let (name, _name_span) = self.consume_identifier("Expected struct name")?;
+
+        self.consume_symbol('{', "Expected '{' after struct name")?;
+
+        let mut fields = Vec::new();
+
+        // Parse fields
+        while !self.check_symbol('}') && !self.is_at_end() {
+            // Parse field: <name>: <type>
+            let (field_name, field_span) = self.consume_identifier("Expected field name")?;
+            
+            self.consume_symbol(':', "Expected ':' after field name")?;
+            
+            let field_type = self.parse_type_annotation()?;
+            
+            fields.push(StructField {
+                name: field_name,
+                span: field_span,
+                ty: field_type,
+            });
+            
+            // Optional comma
+            if self.check_symbol(',') {
+                self.advance();
+            }
+        }
+
+        let end_span = self.consume_symbol('}', "Expected '}' to end struct")?;
+
+        Ok(Struct {
+            name,
+            span: span_union(start_span, end_span),
+            visibility,
+            fields,
         })
     }
 }

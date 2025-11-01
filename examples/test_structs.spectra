@@ -1,0 +1,26 @@
+module test_structs;
+
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Person {
+    age: int,
+    height: int
+}
+
+fn test_basic_struct() -> int {
+    let p = Point { x: 10, y: 20 };
+    p.x + p.y
+}
+
+fn test_multiple_structs() -> int {
+    let point = Point { x: 5, y: 15 };
+    let person = Person { age: 25, height: 180 };
+    point.x + person.age
+}
+
+fn main() -> int {
+    test_basic_struct()
+}

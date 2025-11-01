@@ -26,6 +26,10 @@ pub struct ASTLowering {
     alloca_map: HashMap<String, Value>,
     /// Maps array names to their base pointers (stack addresses)
     array_map: HashMap<String, Value>,
+    /// Maps struct names to their field definitions
+    struct_definitions: HashMap<String, Vec<(String, IRType)>>,
+    /// Maps struct variable names to (pointer, struct_name) for field access
+    struct_var_map: HashMap<String, (Value, String)>,
     loop_stack: Vec<LoopContext>,
 }
 
@@ -37,6 +41,8 @@ impl ASTLowering {
             value_map: HashMap::new(),
             alloca_map: HashMap::new(),
             array_map: HashMap::new(),
+            struct_definitions: HashMap::new(),
+            struct_var_map: HashMap::new(),
             loop_stack: Vec::new(),
         }
     }
@@ -44,7 +50,22 @@ impl ASTLowering {
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
         let mut ir_module = IRModule::new(&ast_module.name);
 
-        // Lower all functions
+        // First pass: collect struct definitions
+        for item in &ast_module.items {
+            if let Item::Struct(struct_def) = item {
+                let fields: Vec<(String, IRType)> = struct_def
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        let field_type = self.lower_type_annotation(&field.ty);
+                        (field.name.clone(), field_type)
+                    })
+                    .collect();
+                self.struct_definitions.insert(struct_def.name.clone(), fields);
+            }
+        }
+
+        // Second pass: lower functions
         for item in &ast_module.items {
             if let Item::Function(func) = item {
                 let ir_func = self.lower_function(func);
@@ -129,6 +150,7 @@ impl ASTLowering {
         self.value_map.clear();
         self.alloca_map.clear();
         self.array_map.clear();
+        self.struct_var_map.clear();
         for (idx, param) in params.iter().enumerate() {
             self.value_map.insert(param.name.clone(), Value { id: idx });
         }
@@ -259,6 +281,10 @@ impl ASTLowering {
                     // Check if this is an array literal - store pointer in array_map
                     if matches!(value_expr.kind, ExpressionKind::ArrayLiteral { .. }) {
                         self.array_map.insert(let_stmt.name.clone(), value);
+                    }
+                    // Check if this is a struct literal - store pointer + name in struct_var_map
+                    else if let ExpressionKind::StructLiteral { name, .. } = &value_expr.kind {
+                        self.struct_var_map.insert(let_stmt.name.clone(), (value, name.clone()));
                     }
                     // If variable will be assigned later, store to allocated memory
                     else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
@@ -900,6 +926,106 @@ impl ASTLowering {
                 // Carregar o valor do elemento
                 self.builder.build_load(ir_func, elem_ptr)
             }
+            ExpressionKind::StructLiteral { name, fields } => {
+                // Buscar definição do struct
+                let struct_fields = self.struct_definitions.get(name).cloned();
+                
+                if let Some(field_defs) = struct_fields {
+                    // Criar tipo struct
+                    let struct_type = IRType::Struct {
+                        name: name.clone(),
+                        fields: field_defs.clone(),
+                    };
+                    
+                    // Alocar espaço para o struct no stack
+                    let struct_ptr = self.builder.build_alloca(ir_func, struct_type);
+                    
+                    // Inicializar cada campo
+                    for (field_idx, (field_name, field_expr)) in fields.iter().enumerate() {
+                        // Lower da expressão do campo
+                        let field_value = self.lower_expression(field_expr, ir_func);
+                        
+                        // Obter tipo do campo
+                        let field_type = field_defs.iter()
+                            .find(|(name, _)| name == field_name)
+                            .map(|(_, ty)| ty.clone())
+                            .unwrap_or(IRType::Int);
+                        
+                        // GEP para o campo
+                        let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                        let field_ptr = self.builder.build_getelementptr(
+                            ir_func,
+                            struct_ptr,
+                            index_value,
+                            field_type,
+                        );
+                        
+                        // Store do valor
+                        self.builder.build_store(ir_func, field_ptr, field_value);
+                    }
+                    
+                    // Retornar ponteiro para o struct
+                    struct_ptr
+                } else {
+                    // Struct não encontrado, retornar placeholder
+                    ir_func.next_value()
+                }
+            }
+            ExpressionKind::FieldAccess { object, field } => {
+                // Se o objeto é um identificador, buscar no struct_var_map
+                if let ExpressionKind::Identifier(name) = &object.kind {
+                    if let Some((struct_ptr, struct_name)) = self.struct_var_map.get(name) {
+                        // Buscar definição do struct
+                        if let Some(field_defs) = self.struct_definitions.get(struct_name) {
+                            // Encontrar índice do campo
+                            if let Some((field_idx, (_, field_type))) = field_defs
+                                .iter()
+                                .enumerate()
+                                .find(|(_, (fname, _))| fname == field)
+                            {
+                                // GEP para o campo
+                                let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                                let field_ptr = self.builder.build_getelementptr(
+                                    ir_func,
+                                    *struct_ptr,
+                                    index_value,
+                                    field_type.clone(),
+                                );
+                                
+                                // Load do campo
+                                return self.builder.build_load(ir_func, field_ptr);
+                            }
+                        }
+                    }
+                }
+                // Se o objeto é um StructLiteral inline, processar diretamente
+                else if let ExpressionKind::StructLiteral { name, .. } = &object.kind {
+                    let object_ptr = self.lower_expression(object, ir_func);
+                    if let Some(field_defs) = self.struct_definitions.get(name) {
+                        // Encontrar índice do campo
+                        if let Some((field_idx, (_, field_type))) = field_defs
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (fname, _))| fname == field)
+                        {
+                            // GEP para o campo
+                            let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                            let field_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                object_ptr,
+                                index_value,
+                                field_type.clone(),
+                            );
+                            
+                            // Load do campo
+                            return self.builder.build_load(ir_func, field_ptr);
+                        }
+                    }
+                }
+                
+                // Se não conseguimos determinar, retornar placeholder
+                ir_func.next_value()
+            }
         }
     }
 
@@ -952,6 +1078,10 @@ impl ASTLowering {
                     .map(|elem_type| self.lower_type(elem_type))
                     .collect();
                 IRType::Tuple { elements: ir_elements }
+            }
+            ASTType::Struct { name: _ } => {
+                // TODO: Structs serão representados como ponteiros
+                IRType::Pointer(Box::new(IRType::Void))
             }
         }
     }

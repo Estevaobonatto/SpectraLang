@@ -16,6 +16,9 @@ pub enum Type {
     Tuple {
         elements: Vec<Type>,
     },
+    Struct {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +42,7 @@ impl Module {
 pub enum Item {
     Import(Import),
     Function(Function),
+    Struct(Struct),
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +72,21 @@ pub struct FunctionParam {
     pub name: String,
     pub span: Span,
     pub ty: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Struct {
+    pub name: String,
+    pub span: Span,
+    pub visibility: Visibility,
+    pub fields: Vec<StructField>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructField {
+    pub name: String,
+    pub span: Span,
+    pub ty: TypeAnnotation,
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +241,16 @@ pub enum ExpressionKind {
     TupleAccess {
         tuple: Box<Expression>,
         index: usize, // 0, 1, 2, etc.
+    },
+
+    // Structs
+    StructLiteral {
+        name: String,
+        fields: Vec<(String, Expression)>, // (field_name, value)
+    },
+    FieldAccess {
+        object: Box<Expression>,
+        field: String,
     },
 }
 
