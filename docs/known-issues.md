@@ -1,10 +1,10 @@
 # Bug Report: While Loops com Assignments
 
-## Status: 🐛 Bug Conhecido
+## Status: ✅ RESOLVIDO
 
 ## Descrição
 
-Loops `while` que contêm assignments de variáveis (`x = x + 1`) não funcionam corretamente após otimização.
+Loops `while` que contêm assignments de variáveis (`x = x + 1`) agora funcionam corretamente com a implementação de Memory SSA.
 
 ## Problema
 

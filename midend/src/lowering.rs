@@ -182,12 +182,26 @@ impl ASTLowering {
             StatementKind::Let(let_stmt) => {
                 if let Some(ref value_expr) = let_stmt.value {
                     let value = self.lower_expression(value_expr, ir_func);
-                    self.value_map.insert(let_stmt.name.clone(), value);
+                    
+                    // If variable will be assigned later, store to allocated memory
+                    if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
+                        self.builder.build_store(ir_func, alloca_ptr, value);
+                    } else {
+                        // Otherwise, just map the SSA value
+                        self.value_map.insert(let_stmt.name.clone(), value);
+                    }
                 }
             }
             StatementKind::Assignment(assign) => {
                 let value = self.lower_expression(&assign.value, ir_func);
-                self.value_map.insert(assign.target.clone(), value);
+                
+                // Assignment always uses memory (variable must have been allocated)
+                if let Some(&alloca_ptr) = self.alloca_map.get(&assign.target) {
+                    self.builder.build_store(ir_func, alloca_ptr, value);
+                } else {
+                    // Fallback: update value_map (shouldn't happen if analysis is correct)
+                    self.value_map.insert(assign.target.clone(), value);
+                }
             }
             StatementKind::Return(ret) => {
                 let value = ret
@@ -413,10 +427,17 @@ impl ASTLowering {
             }
             ExpressionKind::BoolLiteral(b) => self.builder.build_const_bool(ir_func, *b),
             ExpressionKind::Identifier(name) => {
-                self.value_map.get(name).copied().unwrap_or_else(|| {
+                // First check if variable is in memory (mutable)
+                if let Some(&alloca_ptr) = self.alloca_map.get(name) {
+                    // Load from memory
+                    self.builder.build_load(ir_func, alloca_ptr)
+                } else if let Some(&value) = self.value_map.get(name) {
+                    // Use SSA value directly
+                    value
+                } else {
                     // Unknown variable, create placeholder
                     ir_func.next_value()
-                })
+                }
             }
             ExpressionKind::Binary {
                 left,
