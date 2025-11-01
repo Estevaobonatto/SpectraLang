@@ -416,7 +416,13 @@ impl ASTLowering {
                     then_value = Some(self.lower_expression(expr, ir_func));
                 }
                 let then_final_block = self.builder.get_current_block().unwrap_or(then_bb);
-                self.builder.build_branch(ir_func, merge_bb);
+                
+                // Only add branch if block doesn't have terminator
+                if let Some(block) = ir_func.get_block_mut(then_final_block) {
+                    if block.terminator.is_none() {
+                        self.builder.build_branch(ir_func, merge_bb);
+                    }
+                }
 
                 // Else/elif branches
                 self.builder.set_current_block(else_bb);
@@ -436,7 +442,13 @@ impl ASTLowering {
                     }
                 }
                 let else_final_block = self.builder.get_current_block().unwrap_or(else_bb);
-                self.builder.build_branch(ir_func, merge_bb);
+                
+                // Only add branch if block doesn't have terminator
+                if let Some(block) = ir_func.get_block_mut(else_final_block) {
+                    if block.terminator.is_none() {
+                        self.builder.build_branch(ir_func, merge_bb);
+                    }
+                }
 
                 // Merge block with PHI node
                 self.builder.set_current_block(merge_bb);
@@ -481,7 +493,13 @@ impl ASTLowering {
                     unless_value = Some(self.lower_expression(expr, ir_func));
                 }
                 let unless_then_final = self.builder.get_current_block().unwrap_or(unless_then_bb);
-                self.builder.build_branch(ir_func, unless_merge_bb);
+                
+                // Only add branch if block doesn't have terminator
+                if let Some(block) = ir_func.get_block_mut(unless_then_final) {
+                    if block.terminator.is_none() {
+                        self.builder.build_branch(ir_func, unless_merge_bb);
+                    }
+                }
 
                 // Else branch (executes when condition is true)
                 self.builder.set_current_block(unless_else_bb);
@@ -493,7 +511,13 @@ impl ASTLowering {
                     }
                 }
                 let unless_else_final = self.builder.get_current_block().unwrap_or(unless_else_bb);
-                self.builder.build_branch(ir_func, unless_merge_bb);
+                
+                // Only add branch if block doesn't have terminator
+                if let Some(block) = ir_func.get_block_mut(unless_else_final) {
+                    if block.terminator.is_none() {
+                        self.builder.build_branch(ir_func, unless_merge_bb);
+                    }
+                }
 
                 // Merge
                 self.builder.set_current_block(unless_merge_bb);

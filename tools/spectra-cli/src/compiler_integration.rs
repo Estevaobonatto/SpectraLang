@@ -151,24 +151,38 @@ mod tests {
     #[test]
     fn test_end_to_end_simple() {
         let source = r#"
+            module test;
+            
             fn add(a: int, b: int) -> int {
                 return a + b;
+            }
+            
+            pub fn main() {
+                let x = add(5, 3);
+                return;
             }
         "#;
 
         let mut compiler = SpectraCompiler::default();
         let result = compiler.compile(source, "test.spectra");
 
-        assert!(result.is_ok(), "Compilation should succeed: {:?}", result);
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_end_to_end_with_optimization() {
         let source = r#"
+            module test;
+            
             fn compute() -> int {
                 let x = 10 + 20;
                 let y = x * 2;
                 return y;
+            }
+            
+            pub fn main() {
+                let result = compute();
+                return;
             }
         "#;
 
@@ -188,12 +202,19 @@ mod tests {
     #[test]
     fn test_end_to_end_control_flow() {
         let source = r#"
+            module test;
+            
             fn max(a: int, b: int) -> int {
                 if a > b {
                     return a;
                 } else {
                     return b;
                 }
+            }
+            
+            pub fn main() {
+                let result = max(10, 20);
+                return;
             }
         "#;
 
@@ -206,6 +227,8 @@ mod tests {
     #[test]
     fn test_end_to_end_loop() {
         let source = r#"
+            module test;
+            
             fn factorial(n: int) -> int {
                 let result = 1;
                 let i = 1;
@@ -216,6 +239,11 @@ mod tests {
                 }
                 
                 return result;
+            }
+            
+            pub fn main() {
+                let result = factorial(5);
+                return;
             }
         "#;
 
