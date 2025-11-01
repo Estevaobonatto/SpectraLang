@@ -25,6 +25,7 @@ pub fn analyze_modules(modules: &[&Module]) -> Result<(), Vec<SemanticError>> {
 
 #[derive(Debug, Clone)]
 struct SymbolInfo {
+    #[allow(dead_code)]
     span: Span,
     ty: Type,
 }

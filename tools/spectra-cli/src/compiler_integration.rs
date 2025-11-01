@@ -98,6 +98,7 @@ impl SpectraCompiler {
     }
 
     /// Compile and execute (JIT)
+    #[allow(dead_code)]
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), String> {
         self.compile(source, "<jit>")?;
 

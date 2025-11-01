@@ -6,7 +6,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use spectra_midend::ir::{
     BasicBlock as IRBasicBlock, Function as IRFunction, Instruction, InstructionKind,
-    Module as IRModule, Parameter, Terminator, Type as IRType, Value as IRValue,
+    Module as IRModule, Terminator, Type as IRType, Value as IRValue,
 };
 use std::collections::HashMap;
 

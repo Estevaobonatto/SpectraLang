@@ -17,7 +17,7 @@ impl Pass for ConstantFolding {
     }
 
     fn run(&mut self, module: &mut Module) -> bool {
-        use crate::ir::{InstructionKind, Value};
+        use crate::ir::InstructionKind;
         use std::collections::HashMap;
 
         let mut modified = false;

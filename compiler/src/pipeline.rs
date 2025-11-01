@@ -52,7 +52,7 @@ impl CompilationPipeline {
     pub fn compile(
         &self,
         source: &str,
-        filename: &str,
+        _filename: &str,
     ) -> Result<CompilationResult, Vec<CompilerError>> {
         // Phase 1: Lexical Analysis
         let lexer = Lexer::new(source);
