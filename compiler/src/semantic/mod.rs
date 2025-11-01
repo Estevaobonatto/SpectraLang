@@ -1,6 +1,387 @@
-use crate::{ast::Module, error::SemanticError};
+use crate::{
+    ast::{
+        Block, Expression, ExpressionKind, Function, Item, Module, Statement, StatementKind, Type,
+    },
+    error::SemanticError,
+    span::Span,
+};
+use std::collections::HashMap;
 
 pub fn analyze_modules(modules: &[&Module]) -> Result<(), Vec<SemanticError>> {
-    let _ = modules;
-    Ok(())
+    let mut errors = Vec::new();
+
+    for module in modules {
+        let mut analyzer = SemanticAnalyzer::new();
+        analyzer.analyze_module(module);
+        errors.extend(analyzer.errors);
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SymbolInfo {
+    span: Span,
+    ty: Type,
+}
+
+#[derive(Debug, Clone)]
+struct FunctionSignature {
+    params: Vec<Type>,
+    return_type: Type,
+}
+
+struct SemanticAnalyzer {
+    errors: Vec<SemanticError>,
+    // Symbol table: maps variable/function names to their type info
+    symbols: Vec<HashMap<String, SymbolInfo>>,
+    // Function table: maps function names to their signatures
+    functions: HashMap<String, FunctionSignature>,
+    // Track if we're inside a loop (for break/continue validation)
+    loop_depth: usize,
+    // Track if we're inside a function (for return validation)
+    current_function: Option<String>,
+}
+
+impl SemanticAnalyzer {
+    fn new() -> Self {
+        Self {
+            errors: Vec::new(),
+            symbols: vec![HashMap::new()], // Start with global scope
+            functions: HashMap::new(),
+            loop_depth: 0,
+            current_function: None,
+        }
+    }
+
+    fn error(&mut self, message: impl Into<String>, span: Span) {
+        self.errors.push(SemanticError::new(message, span));
+    }
+
+    fn push_scope(&mut self) {
+        self.symbols.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.symbols.pop();
+    }
+
+    fn type_annotation_to_type(&self, type_ann: &Option<crate::ast::TypeAnnotation>) -> Type {
+        match type_ann {
+            Some(ann) if ann.segments.len() == 1 => {
+                match ann.segments[0].as_str() {
+                    "int" => Type::Int,
+                    "float" => Type::Float,
+                    "bool" => Type::Bool,
+                    "string" => Type::String,
+                    "char" => Type::Char,
+                    _ => Type::Unknown,
+                }
+            }
+            None => Type::Unknown,
+            _ => Type::Unknown,
+        }
+    }
+
+    fn declare_symbol(&mut self, name: String, span: Span, ty: Type) -> bool {
+        // Check if already declared in current scope
+        if let Some(current_scope) = self.symbols.last_mut() {
+            if current_scope.contains_key(&name) {
+                return false; // Already declared
+            }
+            current_scope.insert(name, SymbolInfo { span, ty });
+            true
+        } else {
+            false
+        }
+    }
+
+    fn lookup_symbol(&self, name: &str) -> Option<&SymbolInfo> {
+        // Search from innermost to outermost scope
+        for scope in self.symbols.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    fn analyze_module(&mut self, module: &Module) {
+        // First pass: collect all function declarations
+        for item in &module.items {
+            if let Item::Function(func) = item {
+                if self.functions.contains_key(&func.name) {
+                    self.error(
+                        format!("Function '{}' is already defined", func.name),
+                        func.span,
+                    );
+                } else {
+                    // Extract parameter types
+                    let params: Vec<Type> = func.params.iter()
+                        .map(|p| self.type_annotation_to_type(&p.ty))
+                        .collect();
+                    
+                    // Extract return type
+                    let return_type = self.type_annotation_to_type(&func.return_type);
+                    
+                    let signature = FunctionSignature {
+                        params,
+                        return_type: return_type.clone(),
+                    };
+                    
+                    self.functions.insert(func.name.clone(), signature);
+                    self.declare_symbol(func.name.clone(), func.span, return_type);
+                }
+            }
+        }
+
+        // Second pass: analyze function bodies
+        for item in &module.items {
+            self.analyze_item(item);
+        }
+    }
+
+    fn analyze_item(&mut self, item: &Item) {
+        match item {
+            Item::Import(_) => {
+                // Import analysis would go here
+            }
+            Item::Function(func) => {
+                self.analyze_function(func);
+            }
+        }
+    }
+
+    fn analyze_function(&mut self, func: &Function) {
+        self.current_function = Some(func.name.clone());
+        self.push_scope();
+
+        // Declare parameters in function scope
+        for param in &func.params {
+            let param_type = self.type_annotation_to_type(&param.ty);
+            if !self.declare_symbol(param.name.clone(), param.span, param_type) {
+                self.error(
+                    format!("Parameter '{}' is already declared", param.name),
+                    param.span,
+                );
+            }
+        }
+
+        // Analyze function body
+        self.analyze_block(&func.body);
+
+        self.pop_scope();
+        self.current_function = None;
+    }
+
+    fn analyze_block(&mut self, block: &Block) {
+        self.push_scope();
+
+        for statement in &block.statements {
+            self.analyze_statement(statement);
+        }
+
+        self.pop_scope();
+    }
+
+    fn analyze_statement(&mut self, statement: &Statement) {
+        match &statement.kind {
+            StatementKind::Let(let_stmt) => {
+                // Infer type from value expression or annotation
+                let inferred_type = if let Some(ref value) = let_stmt.value {
+                    self.infer_expression_type(value)
+                } else {
+                    self.type_annotation_to_type(&let_stmt.ty)
+                };
+
+                // Check if value expression is valid (if present)
+                if let Some(ref value) = let_stmt.value {
+                    self.analyze_expression(value);
+                }
+
+                // Declare the variable with its type
+                if !self.declare_symbol(let_stmt.name.clone(), let_stmt.span, inferred_type) {
+                    self.error(
+                        format!("Variable '{}' is already declared in this scope", let_stmt.name),
+                        let_stmt.span,
+                    );
+                }
+            }
+            StatementKind::Return(ret_stmt) => {
+                if self.current_function.is_none() {
+                    self.error(
+                        "Return statement outside of function",
+                        ret_stmt.span,
+                    );
+                }
+
+                if let Some(ref value) = ret_stmt.value {
+                    self.analyze_expression(value);
+                }
+            }
+            StatementKind::Expression(expr) => {
+                self.analyze_expression(expr);
+            }
+            StatementKind::While(while_loop) => {
+                self.analyze_expression(&while_loop.condition);
+                self.loop_depth += 1;
+                self.analyze_block(&while_loop.body);
+                self.loop_depth -= 1;
+            }
+            StatementKind::For(for_loop) => {
+                self.push_scope();
+
+                // Analyze iterable expression
+                self.analyze_expression(&for_loop.iterable);
+
+                // Declare iterator variable (type is inferred from iterable)
+                let iterator_type = Type::Unknown; // TODO: inferir do tipo do iterável
+                if !self.declare_symbol(for_loop.iterator.clone(), for_loop.span, iterator_type) {
+                    self.error(
+                        format!("Iterator variable '{}' conflicts with existing declaration", for_loop.iterator),
+                        for_loop.span,
+                    );
+                }
+
+                // Analyze loop body
+                self.loop_depth += 1;
+                self.analyze_block(&for_loop.body);
+                self.loop_depth -= 1;
+
+                self.pop_scope();
+            }
+            StatementKind::Break => {
+                if self.loop_depth == 0 {
+                    self.error(
+                        "Break statement outside of loop",
+                        statement.span,
+                    );
+                }
+            }
+            StatementKind::Continue => {
+                if self.loop_depth == 0 {
+                    self.error(
+                        "Continue statement outside of loop",
+                        statement.span,
+                    );
+                }
+            }
+        }
+    }
+
+    fn infer_expression_type(&mut self, expr: &Expression) -> Type {
+        match &expr.kind {
+            ExpressionKind::IntLiteral(_) => Type::Int,
+            ExpressionKind::FloatLiteral(_) => Type::Float,
+            ExpressionKind::StringLiteral(_) => Type::String,
+            ExpressionKind::CharLiteral(_) => Type::Char,
+            ExpressionKind::BoolLiteral(_) => Type::Bool,
+            ExpressionKind::Identifier(name) => {
+                if let Some(info) = self.lookup_symbol(name) {
+                    info.ty.clone()
+                } else if let Some(sig) = self.functions.get(name) {
+                    sig.return_type.clone()
+                } else {
+                    Type::Unknown
+                }
+            }
+            ExpressionKind::Binary { left, op, right } => {
+                let left_type = self.infer_expression_type(left);
+                let _right_type = self.infer_expression_type(right);
+                
+                use crate::ast::BinaryOperator;
+                match op {
+                    BinaryOperator::Add | BinaryOperator::Subtract | 
+                    BinaryOperator::Multiply | BinaryOperator::Divide | 
+                    BinaryOperator::Modulo => left_type,
+                    BinaryOperator::Equal | BinaryOperator::NotEqual |
+                    BinaryOperator::Less | BinaryOperator::Greater |
+                    BinaryOperator::LessEqual | BinaryOperator::GreaterEqual |
+                    BinaryOperator::And | BinaryOperator::Or => Type::Bool,
+                }
+            }
+            ExpressionKind::Unary { op: _, expr } => {
+                self.infer_expression_type(expr)
+            }
+            ExpressionKind::Call { func, args: _ } => {
+                if let ExpressionKind::Identifier(name) = &func.kind {
+                    if let Some(sig) = self.functions.get(name) {
+                        return sig.return_type.clone();
+                    }
+                }
+                Type::Unknown
+            }
+            ExpressionKind::If { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
+            ExpressionKind::Block(_) => Type::Unit,
+        }
+    }
+
+    fn analyze_expression(&mut self, expr: &Expression) {
+        match &expr.kind {
+            ExpressionKind::Identifier(name) => {
+                // Check if identifier is declared
+                if self.lookup_symbol(name).is_none() && !self.functions.contains_key(name) {
+                    self.error(
+                        format!("Undefined variable or function '{}'", name),
+                        expr.span,
+                    );
+                }
+            }
+            ExpressionKind::NumberLiteral(_)
+            | ExpressionKind::StringLiteral(_)
+            | ExpressionKind::BoolLiteral(_) => {
+                // Literals are always valid
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.analyze_expression(left);
+                self.analyze_expression(right);
+            }
+            ExpressionKind::Unary { operand, .. } => {
+                self.analyze_expression(operand);
+            }
+            ExpressionKind::Call { callee, arguments } => {
+                // Check if function exists
+                if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if !self.functions.contains_key(name) && self.lookup_symbol(name).is_none() {
+                        self.error(
+                            format!("Undefined function '{}'", name),
+                            callee.span,
+                        );
+                    }
+                } else {
+                    self.analyze_expression(callee);
+                }
+
+                // Analyze arguments
+                for arg in arguments {
+                    self.analyze_expression(arg);
+                }
+            }
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
+                self.analyze_expression(condition);
+                self.analyze_block(then_block);
+
+                for (elif_cond, elif_body) in elif_blocks {
+                    self.analyze_expression(elif_cond);
+                    self.analyze_block(elif_body);
+                }
+
+                if let Some(ref else_body) = else_block {
+                    self.analyze_block(else_body);
+                }
+            }
+            ExpressionKind::Grouping(inner) => {
+                self.analyze_expression(inner);
+            }
+        }
+    }
 }

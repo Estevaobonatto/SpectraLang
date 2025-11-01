@@ -1,5 +1,16 @@
 use crate::span::Span;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Type {
+    Int,
+    Float,
+    Bool,
+    String,
+    Char,
+    Unit, // Tipo vazio (sem valor de retorno)
+    Unknown, // Tipo desconhecido (para inferência)
+}
+
 #[derive(Debug, Clone)]
 pub struct Module {
     pub name: String,
@@ -19,5 +30,165 @@ impl Module {
 
 #[derive(Debug, Clone)]
 pub enum Item {
-    Placeholder,
+    Import(Import),
+    Function(Function),
+}
+
+#[derive(Debug, Clone)]
+pub struct Import {
+    pub path: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub name: String,
+    pub span: Span,
+    pub visibility: Visibility,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Option<TypeAnnotation>,
+    pub body: Block,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionParam {
+    pub name: String,
+    pub span: Span,
+    pub ty: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeAnnotation {
+    pub segments: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub span: Span,
+    pub statements: Vec<Statement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Statement {
+    pub span: Span,
+    pub kind: StatementKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum StatementKind {
+    Let(LetStatement),
+    Return(ReturnStatement),
+    Expression(Expression),
+    While(WhileLoop),
+    For(ForLoop),
+    Break,
+    Continue,
+}
+
+#[derive(Debug, Clone)]
+pub struct WhileLoop {
+    pub condition: Expression,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForLoop {
+    pub iterator: String,
+    pub iterable: Expression,
+    pub body: Block,
+    pub span: Span,
+    pub is_in: bool, // true for 'in', false for 'of'
+}
+
+#[derive(Debug, Clone)]
+pub struct LetStatement {
+    pub name: String,
+    pub span: Span,
+    pub ty: Option<TypeAnnotation>,
+    pub value: Option<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReturnStatement {
+    pub span: Span,
+    pub value: Option<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Expression {
+    pub span: Span,
+    pub kind: ExpressionKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ExpressionKind {
+    // Literals
+    Identifier(String),
+    NumberLiteral(String),
+    StringLiteral(String),
+    BoolLiteral(bool),
+    
+    // Operations
+    Binary {
+        left: Box<Expression>,
+        operator: BinaryOperator,
+        right: Box<Expression>,
+    },
+    Unary {
+        operator: UnaryOperator,
+        operand: Box<Expression>,
+    },
+    
+    // Function calls
+    Call {
+        callee: Box<Expression>,
+        arguments: Vec<Expression>,
+    },
+    
+    // Control flow expressions
+    If {
+        condition: Box<Expression>,
+        then_block: Block,
+        elif_blocks: Vec<(Expression, Block)>,
+        else_block: Option<Block>,
+    },
+    
+    // Grouping
+    Grouping(Box<Expression>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOperator {
+    // Arithmetic
+    Add,      // +
+    Subtract, // -
+    Multiply, // *
+    Divide,   // /
+    Modulo,   // %
+    
+    // Comparison
+    Equal,        // ==
+    NotEqual,     // !=
+    Less,         // <
+    Greater,      // >
+    LessEqual,    // <=
+    GreaterEqual, // >=
+    
+    // Logical
+    And, // &&
+    Or,  // ||
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOperator {
+    Negate, // -
+    Not,    // !
 }

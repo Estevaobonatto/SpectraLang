@@ -1,0 +1,50 @@
+module advanced_test;
+
+import std.io;
+import std.math.operations;
+import data.structures.list;
+
+pub fn fibonacci(n: i32) -> i32 {
+    let a = 0;
+    let b: i32 = 1;
+    let temp;
+    
+    return calculate(a, b);
+}
+
+fn calculate(x, y) {
+    let result = add(x, y);
+    return result;
+}
+
+pub fn main() {
+    let num: i32 = 10;
+    let result = fibonacci(num);
+    
+    print(result);
+    greet("World");
+    
+    return;
+}
+
+fn greet(name) {
+    let message = "Hello";
+    display(concat(message, name));
+    return;
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    return;
+}
+
+fn concat(str1, str2) {
+    return;
+}
+
+fn display(text) {
+    return;
+}
+
+fn print(value) {
+    return;
+}

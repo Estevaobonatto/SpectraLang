@@ -29,7 +29,7 @@ fn main() {
                     }
                 };
 
-                let mut parser = Parser::new(&tokens);
+                let parser = Parser::new(tokens);
                 match parser.parse() {
                     Ok(module) => parsed_modules.push(module),
                     Err(errors) => {

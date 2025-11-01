@@ -1,0 +1,8 @@
+// Teste: Variável redeclarada
+module test_redeclaration;
+
+pub fn main() {
+    let x = 10;
+    let x = 20; // ERRO: variável já declarada no mesmo escopo
+    return;
+}
