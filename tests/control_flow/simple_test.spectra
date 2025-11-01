@@ -1,0 +1,36 @@
+// Teste simplificado: Novos controles de fluxo
+module test_control_simple;
+
+pub fn main() {
+    // Test loop infinito com break
+    let counter = 0;
+    loop {
+        counter = counter + 1;
+        let done = counter >= 5;
+        if done {
+            break;
+        };
+    };
+    
+    // Test do-while
+    let x = 0;
+    do {
+        x = x + 1;
+    } while x < 3;
+    
+    // Test switch
+    let number = 2;
+    switch number {
+        case 1 => {
+            let a = 10;
+        }
+        case 2 => {
+            let b = 20;
+        }
+        else => {
+            let c = 30;
+        }
+    };
+    
+    return;
+}

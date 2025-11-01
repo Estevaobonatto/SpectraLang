@@ -244,6 +244,9 @@ impl Parser {
             TokenKind::Keyword(Keyword::If) => {
                 self.parse_if_expression()
             }
+            TokenKind::Keyword(Keyword::Unless) => {
+                self.parse_unless_expression()
+            }
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 self.advance();
@@ -319,6 +322,37 @@ impl Parser {
                 condition,
                 then_block,
                 elif_blocks,
+                else_block,
+            },
+        })
+    }
+
+    fn parse_unless_expression(&mut self) -> Result<Expression, ()> {
+        // unless condition { body } [else { else_body }]
+        // É equivalente a: if !(condition) { body } [else { else_body }]
+        let start_span = self.current().span;
+        self.advance(); // consume 'unless'
+        
+        let condition = Box::new(self.parse_expression()?);
+        let then_block = self.parse_block()?;
+        
+        // Optional else block
+        let else_block = if self.check_keyword(Keyword::Else) {
+            self.advance(); // consume 'else'
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        
+        let end_span = else_block.as_ref()
+            .map(|b| b.span)
+            .unwrap_or(then_block.span);
+        
+        Ok(Expression {
+            span: crate::span::span_union(start_span, end_span),
+            kind: ExpressionKind::Unless {
+                condition,
+                then_block,
                 else_block,
             },
         })

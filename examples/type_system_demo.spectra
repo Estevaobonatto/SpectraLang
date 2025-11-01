@@ -1,0 +1,84 @@
+// Exemplo: Demonstração completa do sistema de tipos
+module type_system_demo;
+
+// Função com tipos explícitos
+fn calculate_area(width: int, height: int) -> int {
+    return width * height;
+}
+
+// Função com tipos mistos
+fn format_message(name: string, age: int, score: float) -> string {
+    // TODO: implementar concatenação de strings
+    return name;
+}
+
+// Função que retorna booleano
+fn is_adult(age: int) -> bool {
+    return age >= 18;
+}
+
+// Função sem retorno (tipo Unit implícito)
+fn print_info(message: string) {
+    // TODO: implementar print
+    return;
+}
+
+pub fn main() {
+    // Inferência de tipos de literais
+    let number = 42;                  // int
+    let pi = 3.14159;                 // float
+    let greeting = "Hello, World!";   // string
+    let is_active = true;             // bool
+    
+    // Inferência de tipos de expressões
+    let sum = 10 + 20;                // int
+    let difference = 5.5 - 2.3;       // float
+    let product = number * 2;         // int
+    let quotient = pi / 2.0;          // float
+    
+    // Inferência de tipos de comparações
+    let is_greater = number > 30;     // bool
+    let is_equal = sum == 30;         // bool
+    let in_range = (number >= 0) && (number <= 100);  // bool
+    
+    // Inferência de tipos de chamadas de função
+    let area = calculate_area(10, 20);    // int
+    let adult_check = is_adult(25);       // bool
+    
+    // Operações lógicas
+    let condition1 = true;
+    let condition2 = false;
+    let result = condition1 && condition2;  // bool
+    let or_result = condition1 || condition2;  // bool
+    
+    // Operações aritméticas complexas
+    let complex = (10 + 5) * (20 - 8) / 3;  // int
+    let nested = ((number * 2) + 10) - (sum / 2);  // int
+    
+    // Chamadas de função com validação de tipos
+    print_info("Starting calculations...");
+    
+    let width = 15;
+    let height = 10;
+    let room_area = calculate_area(width, height);
+    
+    // Validação de idade
+    let person_age = 21;
+    let can_vote = is_adult(person_age);
+    
+    return;
+}
+
+// Função auxiliar para demonstrar tipos numéricos
+fn calculate_discount(price: float, percent: int) -> float {
+    let discount_amount = price * 0.01;  // float
+    return discount_amount;
+}
+
+// Função com múltiplas operações
+fn process_data(x: int, y: int, z: int) -> bool {
+    let sum = x + y + z;
+    let average = sum / 3;
+    let is_valid = average > 50;
+    return is_valid;
+}

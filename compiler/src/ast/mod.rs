@@ -84,12 +84,23 @@ pub struct Statement {
 #[derive(Debug, Clone)]
 pub enum StatementKind {
     Let(LetStatement),
+    Assignment(AssignmentStatement),
     Return(ReturnStatement),
     Expression(Expression),
     While(WhileLoop),
+    DoWhile(DoWhileLoop),
     For(ForLoop),
+    Loop(LoopStatement),
+    Switch(SwitchStatement),
     Break,
     Continue,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssignmentStatement {
+    pub target: String,
+    pub target_span: Span,
+    pub value: Expression,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +172,13 @@ pub enum ExpressionKind {
         else_block: Option<Block>,
     },
     
+    // Unless é como if, mas com condição negada
+    Unless {
+        condition: Box<Expression>,
+        then_block: Block,
+        else_block: Option<Block>,
+    },
+    
     // Grouping
     Grouping(Box<Expression>),
 }
@@ -191,4 +209,35 @@ pub enum BinaryOperator {
 pub enum UnaryOperator {
     Negate, // -
     Not,    // !
+}
+
+// Loop infinito: loop { ... }
+#[derive(Debug, Clone)]
+pub struct LoopStatement {
+    pub body: Block,
+    pub span: Span,
+}
+
+// Do-while: do { ... } while condition;
+#[derive(Debug, Clone)]
+pub struct DoWhileLoop {
+    pub body: Block,
+    pub condition: Expression,
+    pub span: Span,
+}
+
+// Switch: switch expr { case pattern => body, ... }
+#[derive(Debug, Clone)]
+pub struct SwitchStatement {
+    pub value: Expression,
+    pub cases: Vec<SwitchCase>,
+    pub default: Option<Block>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct SwitchCase {
+    pub pattern: Expression, // Padrão a ser comparado
+    pub body: Block,
+    pub span: Span,
 }

@@ -1,0 +1,113 @@
+// TESTE CONSOLIDADO: Todas as funcionalidades do sistema de tipos
+module comprehensive_test;
+
+// ============================================
+// PARTE 1: Funções com Tipos Explícitos
+// ============================================
+
+fn add_integers(a: int, b: int) -> int {
+    return a + b;
+}
+
+fn multiply_floats(x: float, y: float) -> float {
+    return x * y;
+}
+
+fn is_positive(num: int) -> bool {
+    return num > 0;
+}
+
+fn concat_strings(s1: string, s2: string) -> string {
+    return s1;  // TODO: implementar concatenação real
+}
+
+// ============================================
+// PARTE 2: Inferência de Tipos
+// ============================================
+
+pub fn main() {
+    // Literais básicos
+    let int_var = 42;
+    let float_var = 3.14;
+    let string_var = "Hello";
+    let bool_var = true;
+    
+    // Operações aritméticas
+    let sum = 10 + 20;
+    let diff = 100 - 50;
+    let prod = 5 * 6;
+    let quot = 100 / 4;
+    let rem = 17 % 5;
+    
+    // Operações com float
+    let float_sum = 1.5 + 2.5;
+    let float_prod = 2.0 * 3.0;
+    
+    // Comparações
+    let greater = 10 > 5;
+    let less = 3 < 7;
+    let equal = sum == 30;
+    let not_equal = diff != 100;
+    let gte = 10 >= 10;
+    let lte = 5 <= 10;
+    
+    // Operações lógicas
+    let and_op = true && false;
+    let or_op = true || false;
+    let complex_logic = (10 > 5) && (20 < 30);
+    
+    // ============================================
+    // PARTE 3: Chamadas de Função
+    // ============================================
+    
+    let result1 = add_integers(10, 20);
+    let result2 = multiply_floats(2.5, 4.0);
+    let result3 = is_positive(100);
+    let result4 = concat_strings("Hello", "World");
+    
+    // ============================================
+    // PARTE 4: Expressões Complexas
+    // ============================================
+    
+    let complex1 = (10 + 5) * (20 - 8);
+    let complex2 = ((100 / 4) * 3) + (50 - 10);
+    let complex3 = (10 > 5) && (20 < 30) || (15 == 15);
+    
+    // ============================================
+    // PARTE 5: Validações de Tipo
+    // ============================================
+    
+    // Operações válidas
+    let valid1 = int_var + 10;
+    let valid2 = float_var * 2.0;
+    let valid3 = bool_var && true;
+    
+    // Comparações válidas
+    let valid4 = int_var > 0;
+    let valid5 = float_var <= 5.0;
+    let valid6 = string_var == "Hello";
+    
+    return;
+}
+
+// ============================================
+// PARTE 6: Funções Auxiliares
+// ============================================
+
+fn calculate_average(a: int, b: int, c: int) -> int {
+    let sum = a + b + c;
+    let avg = sum / 3;
+    return avg;
+}
+
+fn check_range(value: int, min: int, max: int) -> bool {
+    let above_min = value >= min;
+    let below_max = value <= max;
+    return above_min && below_max;
+}
+
+fn process_number(n: int) -> int {
+    let doubled = n * 2;
+    let plus_ten = doubled + 10;
+    return plus_ten;
+}

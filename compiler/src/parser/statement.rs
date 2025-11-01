@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ForLoop, LetStatement, ReturnStatement, Statement, StatementKind, WhileLoop},
+    ast::{DoWhileLoop, ForLoop, LetStatement, LoopStatement, ReturnStatement, Statement, StatementKind, SwitchCase, SwitchStatement, WhileLoop},
     span::span_union,
     token::Keyword,
 };
@@ -23,9 +23,21 @@ impl Parser {
                 self.advance(); // consume 'while'
                 self.parse_while_statement()?
             }
+            crate::token::TokenKind::Keyword(Keyword::Do) => {
+                self.advance(); // consume 'do'
+                self.parse_do_while_statement()?
+            }
             crate::token::TokenKind::Keyword(Keyword::For) => {
                 self.advance(); // consume 'for'
                 self.parse_for_statement()?
+            }
+            crate::token::TokenKind::Keyword(Keyword::Loop) => {
+                self.advance(); // consume 'loop'
+                self.parse_loop_statement()?
+            }
+            crate::token::TokenKind::Keyword(Keyword::Switch) => {
+                self.advance(); // consume 'switch'
+                self.parse_switch_statement()?
             }
             crate::token::TokenKind::Keyword(Keyword::Break) => {
                 self.advance(); // consume 'break'
@@ -38,9 +50,47 @@ impl Parser {
                 StatementKind::Continue
             }
             _ => {
+                // Check if it's an assignment (identifier = expression)
+                let checkpoint = self.position;
+                
+                // Try to parse as identifier = expression
+                if matches!(self.current().kind, crate::token::TokenKind::Identifier(_)) {
+                    if let Ok((target, target_span)) = self.consume_identifier("") {
+                        if self.check_symbol('=') {
+                            self.advance(); // consume '='
+                            let value = self.parse_expression()?;
+                            self.consume_symbol(';', "Expected ';' after assignment")?;
+                            
+                            return Ok(Statement {
+                                span: span_union(start_span, value.span),
+                                kind: StatementKind::Assignment(crate::ast::AssignmentStatement {
+                                    target,
+                                    target_span,
+                                    value,
+                                }),
+                            });
+                        }
+                    }
+                }
+                
+                // Not an assignment, restore position and parse as expression
+                self.position = checkpoint;
+                
                 // Expression statement
                 let expr = self.parse_expression()?;
-                self.consume_symbol(';', "Expected ';' after expression")?;
+                
+                // Only require semicolon if the expression is not a block-ending structure
+                // (if, unless, while, for, loop, do-while, switch already handle their own blocks)
+                let requires_semicolon = !matches!(
+                    expr.kind,
+                    crate::ast::ExpressionKind::If { .. } | 
+                    crate::ast::ExpressionKind::Unless { .. }
+                );
+                
+                if requires_semicolon {
+                    self.consume_symbol(';', "Expected ';' after expression")?;
+                }
+                
                 StatementKind::Expression(expr)
             }
         };
@@ -152,6 +202,118 @@ impl Parser {
             body,
             span: span_union(start_span, end_span),
             is_in,
+        }))
+    }
+
+    fn parse_loop_statement(&mut self) -> Result<StatementKind, ()> {
+        // loop { ... }
+        let start_span = self.tokens.get(self.position.saturating_sub(1))
+            .map(|t| t.span)
+            .unwrap_or(self.current().span);
+        let body = self.parse_block()?;
+        let end_span = body.span;
+
+        Ok(StatementKind::Loop(LoopStatement {
+            body,
+            span: span_union(start_span, end_span),
+        }))
+    }
+
+    fn parse_do_while_statement(&mut self) -> Result<StatementKind, ()> {
+        // do { ... } while condition;
+        let start_span = self.tokens.get(self.position.saturating_sub(1))
+            .map(|t| t.span)
+            .unwrap_or(self.current().span);
+        let body = self.parse_block()?;
+
+        if !self.check_keyword(Keyword::While) {
+            self.error("Expected 'while' after do-block");
+            return Err(());
+        }
+        self.advance(); // consume 'while'
+
+        let condition = self.parse_expression()?;
+        let end_span = condition.span;
+        self.consume_symbol(';', "Expected ';' after do-while condition")?;
+
+        Ok(StatementKind::DoWhile(DoWhileLoop {
+            body,
+            condition,
+            span: span_union(start_span, end_span),
+        }))
+    }
+
+    fn parse_switch_statement(&mut self) -> Result<StatementKind, ()> {
+        // switch value { case pattern => body, ... default => body }
+        let start_span = self.tokens.get(self.position.saturating_sub(1))
+            .map(|t| t.span)
+            .unwrap_or(self.current().span);
+        let value = self.parse_expression()?;
+
+        self.consume_symbol('{', "Expected '{' after switch value")?;
+
+        let mut cases = Vec::new();
+        let mut default = None;
+
+        while !self.check_symbol('}') && self.position < self.tokens.len() {
+            if self.check_keyword(Keyword::Case) {
+                self.advance(); // consume 'case'
+                let pattern = self.parse_expression()?;
+                
+                // Aceita ':' ou '=>' como separador
+                if self.check_symbol(':') {
+                    self.advance();
+                } else if self.check_symbol('=') {
+                    self.advance();
+                    if !self.check_symbol('>') {
+                        self.error("Expected '>' after '=' in case");
+                        return Err(());
+                    }
+                    self.advance();
+                } else {
+                    self.error("Expected ':' or '=>' after case pattern");
+                    return Err(());
+                }
+
+                let case_body = self.parse_block()?;
+                let case_span = span_union(pattern.span, case_body.span);
+
+                cases.push(SwitchCase {
+                    pattern,
+                    body: case_body,
+                    span: case_span,
+                });
+            } else if self.check_keyword(Keyword::Else) {
+                self.advance(); // consume 'else'
+                
+                // Aceita ':' ou '=>'
+                if self.check_symbol(':') {
+                    self.advance();
+                } else if self.check_symbol('=') {
+                    self.advance();
+                    if !self.check_symbol('>') {
+                        self.error("Expected '>' after '=' in default");
+                        return Err(());
+                    }
+                    self.advance();
+                }
+
+                default = Some(self.parse_block()?);
+                break; // default deve ser o último
+            } else {
+                self.error("Expected 'case' or 'default' in switch body");
+                return Err(());
+            }
+        }
+
+        let end_span = self.current().span;
+        self.consume_symbol('}', "Expected '}' to close switch statement")?;
+
+        Ok(StatementKind::Switch(SwitchStatement {
+            value,
+            cases,
+            default,
+            span: span_union(start_span, end_span),
         }))
     }
 }

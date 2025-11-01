@@ -211,6 +211,20 @@ impl SemanticAnalyzer {
                     );
                 }
             }
+            StatementKind::Assignment(assign_stmt) => {
+                // Check if variable exists
+                if self.lookup_symbol(&assign_stmt.target).is_none() {
+                    self.error(
+                        format!("Variable '{}' is not defined", assign_stmt.target),
+                        assign_stmt.target_span,
+                    );
+                } else {
+                    // Analyze the value expression
+                    self.analyze_expression(&assign_stmt.value);
+                    
+                    // TODO: Check type compatibility between variable and assigned value
+                }
+            }
             StatementKind::Return(ret_stmt) => {
                 if self.current_function.is_none() {
                     self.error(
@@ -231,6 +245,12 @@ impl SemanticAnalyzer {
                 self.loop_depth += 1;
                 self.analyze_block(&while_loop.body);
                 self.loop_depth -= 1;
+            }
+            StatementKind::DoWhile(do_while_loop) => {
+                self.loop_depth += 1;
+                self.analyze_block(&do_while_loop.body);
+                self.loop_depth -= 1;
+                self.analyze_expression(&do_while_loop.condition);
             }
             StatementKind::For(for_loop) => {
                 self.push_scope();
@@ -254,6 +274,26 @@ impl SemanticAnalyzer {
 
                 self.pop_scope();
             }
+            StatementKind::Loop(loop_stmt) => {
+                self.loop_depth += 1;
+                self.analyze_block(&loop_stmt.body);
+                self.loop_depth -= 1;
+            }
+            StatementKind::Switch(switch_stmt) => {
+                // Analyze the value being switched on
+                self.analyze_expression(&switch_stmt.value);
+                
+                // Analyze each case
+                for case in &switch_stmt.cases {
+                    self.analyze_expression(&case.pattern);
+                    self.analyze_block(&case.body);
+                }
+                
+                // Analyze default case if present
+                if let Some(ref default_block) = switch_stmt.default {
+                    self.analyze_block(default_block);
+                }
+            }
             StatementKind::Break => {
                 if self.loop_depth == 0 {
                     self.error(
@@ -275,10 +315,14 @@ impl SemanticAnalyzer {
 
     fn infer_expression_type(&mut self, expr: &Expression) -> Type {
         match &expr.kind {
-            ExpressionKind::IntLiteral(_) => Type::Int,
-            ExpressionKind::FloatLiteral(_) => Type::Float,
+            ExpressionKind::NumberLiteral(num) => {
+                if num.contains('.') {
+                    Type::Float
+                } else {
+                    Type::Int
+                }
+            }
             ExpressionKind::StringLiteral(_) => Type::String,
-            ExpressionKind::CharLiteral(_) => Type::Char,
             ExpressionKind::BoolLiteral(_) => Type::Bool,
             ExpressionKind::Identifier(name) => {
                 if let Some(info) = self.lookup_symbol(name) {
@@ -289,12 +333,12 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
-            ExpressionKind::Binary { left, op, right } => {
+            ExpressionKind::Binary { left, operator, right } => {
                 let left_type = self.infer_expression_type(left);
                 let _right_type = self.infer_expression_type(right);
                 
                 use crate::ast::BinaryOperator;
-                match op {
+                match operator {
                     BinaryOperator::Add | BinaryOperator::Subtract | 
                     BinaryOperator::Multiply | BinaryOperator::Divide | 
                     BinaryOperator::Modulo => left_type,
@@ -304,11 +348,11 @@ impl SemanticAnalyzer {
                     BinaryOperator::And | BinaryOperator::Or => Type::Bool,
                 }
             }
-            ExpressionKind::Unary { op: _, expr } => {
-                self.infer_expression_type(expr)
+            ExpressionKind::Unary { operator: _, operand } => {
+                self.infer_expression_type(operand)
             }
-            ExpressionKind::Call { func, args: _ } => {
-                if let ExpressionKind::Identifier(name) = &func.kind {
+            ExpressionKind::Call { callee, arguments: _ } => {
+                if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(sig) = self.functions.get(name) {
                         return sig.return_type.clone();
                     }
@@ -316,7 +360,8 @@ impl SemanticAnalyzer {
                 Type::Unknown
             }
             ExpressionKind::If { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
-            ExpressionKind::Block(_) => Type::Unit,
+            ExpressionKind::Unless { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
+            ExpressionKind::Grouping(inner) => self.infer_expression_type(inner),
         }
     }
 
@@ -336,17 +381,119 @@ impl SemanticAnalyzer {
             | ExpressionKind::BoolLiteral(_) => {
                 // Literals are always valid
             }
-            ExpressionKind::Binary { left, right, .. } => {
+            ExpressionKind::Binary { left, operator, right } => {
                 self.analyze_expression(left);
                 self.analyze_expression(right);
+                
+                // Type check binary operations
+                let left_type = self.infer_expression_type(left);
+                let right_type = self.infer_expression_type(right);
+                
+                use crate::ast::BinaryOperator;
+                match operator {
+                    BinaryOperator::Add | BinaryOperator::Subtract |
+                    BinaryOperator::Multiply | BinaryOperator::Divide |
+                    BinaryOperator::Modulo => {
+                        // Arithmetic operations require numeric types
+                        if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
+                            self.error(
+                                format!("Left operand of arithmetic operation must be numeric, found {:?}", left_type),
+                                left.span,
+                            );
+                        }
+                        if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
+                            self.error(
+                                format!("Right operand of arithmetic operation must be numeric, found {:?}", right_type),
+                                right.span,
+                            );
+                        }
+                        // Check if types match
+                        if left_type != Type::Unknown && right_type != Type::Unknown && left_type != right_type {
+                            self.error(
+                                format!("Type mismatch in arithmetic operation: {:?} and {:?}", left_type, right_type),
+                                expr.span,
+                            );
+                        }
+                    }
+                    BinaryOperator::Equal | BinaryOperator::NotEqual => {
+                        // Equality can compare any types, but they should match
+                        if left_type != Type::Unknown && right_type != Type::Unknown && left_type != right_type {
+                            self.error(
+                                format!("Type mismatch in equality comparison: {:?} and {:?}", left_type, right_type),
+                                expr.span,
+                            );
+                        }
+                    }
+                    BinaryOperator::Less | BinaryOperator::Greater |
+                    BinaryOperator::LessEqual | BinaryOperator::GreaterEqual => {
+                        // Comparison requires numeric types
+                        if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
+                            self.error(
+                                format!("Left operand of comparison must be numeric, found {:?}", left_type),
+                                left.span,
+                            );
+                        }
+                        if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
+                            self.error(
+                                format!("Right operand of comparison must be numeric, found {:?}", right_type),
+                                right.span,
+                            );
+                        }
+                    }
+                    BinaryOperator::And | BinaryOperator::Or => {
+                        // Logical operations require boolean types
+                        if !matches!(left_type, Type::Bool | Type::Unknown) {
+                            self.error(
+                                format!("Left operand of logical operation must be boolean, found {:?}", left_type),
+                                left.span,
+                            );
+                        }
+                        if !matches!(right_type, Type::Bool | Type::Unknown) {
+                            self.error(
+                                format!("Right operand of logical operation must be boolean, found {:?}", right_type),
+                                right.span,
+                            );
+                        }
+                    }
+                }
             }
             ExpressionKind::Unary { operand, .. } => {
                 self.analyze_expression(operand);
             }
             ExpressionKind::Call { callee, arguments } => {
-                // Check if function exists
+                // Check if function exists and validate argument types
                 if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if !self.functions.contains_key(name) && self.lookup_symbol(name).is_none() {
+                    if let Some(signature) = self.functions.get(name).cloned() {
+                        // Validate number of arguments
+                        if arguments.len() != signature.params.len() {
+                            self.error(
+                                format!(
+                                    "Function '{}' expects {} arguments, but {} were provided",
+                                    name,
+                                    signature.params.len(),
+                                    arguments.len()
+                                ),
+                                expr.span,
+                            );
+                        } else {
+                            // Validate argument types
+                            for (i, (arg, expected_type)) in arguments.iter().zip(&signature.params).enumerate() {
+                                let arg_type = self.infer_expression_type(arg);
+                                if arg_type != Type::Unknown && *expected_type != Type::Unknown && arg_type != *expected_type {
+                                    self.error(
+                                        format!(
+                                            "Argument {} of function '{}' has type {:?}, expected {:?}",
+                                            i + 1,
+                                            name,
+                                            arg_type,
+                                            expected_type
+                                        ),
+                                        arg.span,
+                                    );
+                                }
+                            }
+                        }
+                    } else if self.lookup_symbol(name).is_none() {
                         self.error(
                             format!("Undefined function '{}'", name),
                             callee.span,
@@ -374,6 +521,18 @@ impl SemanticAnalyzer {
                     self.analyze_expression(elif_cond);
                     self.analyze_block(elif_body);
                 }
+
+                if let Some(ref else_body) = else_block {
+                    self.analyze_block(else_body);
+                }
+            }
+            ExpressionKind::Unless {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.analyze_expression(condition);
+                self.analyze_block(then_block);
 
                 if let Some(ref else_body) = else_block {
                     self.analyze_block(else_body);

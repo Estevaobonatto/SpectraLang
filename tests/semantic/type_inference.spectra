@@ -1,0 +1,28 @@
+// Teste: Inferência de tipos e verificação básica
+module test_types;
+
+pub fn main() {
+    // Tipos inferidos de literais
+    let x = 42;           // int
+    let y = 3.14;         // float
+    let name = "Alice";   // string
+    let flag = true;      // bool
+    
+    // Tipos de operações
+    let sum = x + 10;     // int
+    let result = x > 20;  // bool
+    
+    // Tipos de funções
+    let value = get_number();  // int
+    
+    return;
+}
+
+fn get_number() -> int {
+    return 100;
+}
+
+fn calculate(a: int, b: int) -> int {
+    let product = a * b;
+    return product;
+}

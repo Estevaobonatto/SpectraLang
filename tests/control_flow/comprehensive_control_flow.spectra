@@ -1,0 +1,56 @@
+// Teste completo das novas estruturas de controle
+module comprehensive_control_flow;
+
+fn test_loop() -> int {
+    let i = 0;
+    loop {
+        i = i + 1;
+        if i > 5 {
+            break;
+        }
+    }
+    return i;
+}
+
+fn test_do_while() -> int {
+    let x = 0;
+    do {
+        x = x + 1;
+    } while x < 3;
+    return x;
+}
+
+fn test_unless() -> int {
+    let value = 10;
+    unless value < 5 {
+        return 100;
+    }
+    return 0;
+}
+
+fn test_switch() -> int {
+    let day = 2;
+    let result = 0;
+    
+    switch day {
+        case 1 => {
+            result = 10;
+        }
+        case 2 => {
+            result = 20;
+        }
+        case 3 => {
+            result = 30;
+        }
+    }
+    
+    return result;
+}
+
+fn main() -> int {
+    let a = test_loop();
+    let b = test_do_while();
+    let c = test_unless();
+    let d = test_switch();
+    return a + b + c + d;
+}
