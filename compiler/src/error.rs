@@ -14,7 +14,9 @@ impl fmt::Display for CompilerError {
         match self {
             CompilerError::Lexical(e) => write!(f, "Lexical error at {:?}: {}", e.span, e.message),
             CompilerError::Parse(e) => write!(f, "Parse error at {:?}: {}", e.span, e.message),
-            CompilerError::Semantic(e) => write!(f, "Semantic error at {:?}: {}", e.span, e.message),
+            CompilerError::Semantic(e) => {
+                write!(f, "Semantic error at {:?}: {}", e.span, e.message)
+            }
         }
     }
 }

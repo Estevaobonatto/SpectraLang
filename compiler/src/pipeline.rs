@@ -49,17 +49,27 @@ impl CompilationPipeline {
     }
 
     /// Run the full compilation pipeline
-    pub fn compile(&self, source: &str, filename: &str) -> Result<CompilationResult, Vec<CompilerError>> {
+    pub fn compile(
+        &self,
+        source: &str,
+        filename: &str,
+    ) -> Result<CompilationResult, Vec<CompilerError>> {
         // Phase 1: Lexical Analysis
         let lexer = Lexer::new(source);
         let tokens = lexer.tokenize().map_err(|errors| {
-            errors.into_iter().map(CompilerError::Lexical).collect::<Vec<_>>()
+            errors
+                .into_iter()
+                .map(CompilerError::Lexical)
+                .collect::<Vec<_>>()
         })?;
 
         // Phase 2: Parsing
         let parser = Parser::new(tokens);
         let ast = parser.parse().map_err(|errors| {
-            errors.into_iter().map(CompilerError::Parse).collect::<Vec<_>>()
+            errors
+                .into_iter()
+                .map(CompilerError::Parse)
+                .collect::<Vec<_>>()
         })?;
 
         if self.options.dump_ast {
@@ -73,13 +83,16 @@ impl CompilationPipeline {
         let semantic_errors = semantic.analyze_module(&ast);
 
         if !semantic_errors.is_empty() {
-            return Err(semantic_errors.into_iter().map(|e| CompilerError::Semantic(e)).collect());
+            return Err(semantic_errors
+                .into_iter()
+                .map(|e| CompilerError::Semantic(e))
+                .collect());
         }
 
         // Phase 4: Midend (IR Generation + Optimization)
         // TODO: Connect to midend when ready
         // let ir_module = self.lower_to_ir(&ast)?;
-        
+
         // if self.options.optimize {
         //     let ir_module = self.optimize_ir(ir_module)?;
         // }
@@ -104,10 +117,10 @@ impl CompilationPipeline {
     /// Compile and execute (for REPL)
     pub fn compile_and_execute(&self, source: &str) -> Result<(), Vec<CompilerError>> {
         let _result = self.compile(source, "<repl>")?;
-        
+
         // TODO: Execute compiled code
         println!("Compilation successful! (Execution not yet implemented)");
-        
+
         Ok(())
     }
 }

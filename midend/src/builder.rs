@@ -206,11 +206,7 @@ impl IRBuilder {
         result
     }
 
-    pub fn build_phi(
-        &self,
-        func: &mut Function,
-        incoming: Vec<(Value, usize)>,
-    ) -> Value {
+    pub fn build_phi(&self, func: &mut Function, incoming: Vec<(Value, usize)>) -> Value {
         let result = func.next_value();
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {

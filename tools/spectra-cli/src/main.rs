@@ -6,7 +6,7 @@ use std::{env, fs, process};
 
 fn main() {
     let mut args = env::args().skip(1);
-    
+
     // Parse command line arguments
     let mut file_paths = Vec::new();
     let mut options = CompilationOptions::default();
@@ -65,18 +65,16 @@ fn main() {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         match fs::read_to_string(path) {
-            Ok(source) => {
-                match compiler.compile(&source, path) {
-                    Ok(()) => {
-                        println!("\n✅ Successfully compiled: {}", path);
-                    }
-                    Err(error) => {
-                        has_failures = true;
-                        eprintln!("\n❌ Compilation failed: {}", path);
-                        eprintln!("{}", error);
-                    }
+            Ok(source) => match compiler.compile(&source, path) {
+                Ok(()) => {
+                    println!("\n✅ Successfully compiled: {}", path);
                 }
-            }
+                Err(error) => {
+                    has_failures = true;
+                    eprintln!("\n❌ Compilation failed: {}", path);
+                    eprintln!("{}", error);
+                }
+            },
             Err(error) => {
                 has_failures = true;
                 eprintln!("\n❌ Failed to read file: {}", path);

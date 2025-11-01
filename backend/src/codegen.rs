@@ -147,7 +147,8 @@ impl CodeGenerator {
 
         // Seal all blocks after generating code
         for ir_block in &ir_func.blocks {
-            if ir_block.id != 0 {  // Entry block already sealed
+            if ir_block.id != 0 {
+                // Entry block already sealed
                 if let Some(&block) = block_map.get(&ir_block.id) {
                     builder.seal_block(block);
                 }
@@ -189,13 +190,7 @@ impl CodeGenerator {
 
         // Generate instructions
         for instr in &ir_block.instructions {
-            Self::generate_instruction_static(
-                builder,
-                instr,
-                value_map,
-                function_map,
-                module,
-            )?;
+            Self::generate_instruction_static(builder, instr, value_map, function_map, module)?;
         }
 
         // Generate terminator
@@ -293,16 +288,19 @@ impl CodeGenerator {
             InstructionKind::Gt { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().icmp(IntCC::SignedGreaterThan, lhs_val, rhs_val);
+                let result_val = builder
+                    .ins()
+                    .icmp(IntCC::SignedGreaterThan, lhs_val, rhs_val);
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Ge { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder
-                    .ins()
-                    .icmp(IntCC::SignedGreaterThanOrEqual, lhs_val, rhs_val);
+                let result_val =
+                    builder
+                        .ins()
+                        .icmp(IntCC::SignedGreaterThanOrEqual, lhs_val, rhs_val);
                 value_map.insert(result.id, result_val);
             }
 

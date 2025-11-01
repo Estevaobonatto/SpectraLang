@@ -22,6 +22,8 @@ pub struct ASTLowering {
     builder: IRBuilder,
     current_function: Option<IRFunction>,
     value_map: HashMap<String, Value>,
+    /// Maps variable names to their allocated memory locations (for mutable variables)
+    alloca_map: HashMap<String, Value>,
     loop_stack: Vec<LoopContext>,
 }
 
@@ -31,6 +33,7 @@ impl ASTLowering {
             builder: IRBuilder::new(),
             current_function: None,
             value_map: HashMap::new(),
+            alloca_map: HashMap::new(),
             loop_stack: Vec::new(),
         }
     }
@@ -81,8 +84,18 @@ impl ASTLowering {
 
         // Map parameters to values
         self.value_map.clear();
+        self.alloca_map.clear();
         for (idx, param) in params.iter().enumerate() {
             self.value_map.insert(param.name.clone(), Value { id: idx });
+        }
+
+        // Analyze which variables are assigned to (need memory allocation)
+        let assigned_vars = self.find_assigned_variables(&ast_func.body.statements);
+
+        // Allocate memory for mutable variables
+        for var_name in &assigned_vars {
+            let alloca_value = self.builder.build_alloca(&mut ir_func, IRType::Int);
+            self.alloca_map.insert(var_name.clone(), alloca_value);
         }
 
         // Lower function body
@@ -103,6 +116,65 @@ impl ASTLowering {
         for stmt in statements {
             self.lower_statement(stmt, ir_func);
         }
+    }
+
+    /// Analyzes which variables are assigned to in a block
+    fn find_assigned_variables(
+        &self,
+        statements: &[Statement],
+    ) -> std::collections::HashSet<String> {
+        use std::collections::HashSet;
+        let mut assigned = HashSet::new();
+
+        for stmt in statements {
+            match &stmt.kind {
+                StatementKind::Assignment(assign) => {
+                    assigned.insert(assign.target.clone());
+                }
+                StatementKind::While(while_stmt) => {
+                    // Recursively check loop body
+                    assigned.extend(self.find_assigned_variables(&while_stmt.body.statements));
+                }
+                StatementKind::DoWhile(do_while) => {
+                    assigned.extend(self.find_assigned_variables(&do_while.body.statements));
+                }
+                StatementKind::For(for_stmt) => {
+                    assigned.extend(self.find_assigned_variables(&for_stmt.body.statements));
+                }
+                StatementKind::Loop(loop_stmt) => {
+                    assigned.extend(self.find_assigned_variables(&loop_stmt.body.statements));
+                }
+                StatementKind::Switch(switch) => {
+                    for case in &switch.cases {
+                        assigned.extend(self.find_assigned_variables(&case.body.statements));
+                    }
+                    if let Some(default) = &switch.default {
+                        assigned.extend(self.find_assigned_variables(&default.statements));
+                    }
+                }
+                StatementKind::Expression(expr) => {
+                    // Check if expression contains assignments in blocks
+                    if let ExpressionKind::If {
+                        then_block,
+                        elif_blocks,
+                        else_block,
+                        ..
+                    } = &expr.kind
+                    {
+                        assigned.extend(self.find_assigned_variables(&then_block.statements));
+                        for (_, block) in elif_blocks {
+                            assigned.extend(self.find_assigned_variables(&block.statements));
+                        }
+                        if let Some(else_b) = else_block {
+                            assigned.extend(self.find_assigned_variables(&else_b.statements));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assigned
     }
 
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
@@ -142,7 +214,10 @@ impl ASTLowering {
                     .build_cond_branch(ir_func, condition, body_block, exit_block);
 
                 // Body (push loop context for break/continue)
-                self.loop_stack.push(LoopContext { header_block, exit_block });
+                self.loop_stack.push(LoopContext {
+                    header_block,
+                    exit_block,
+                });
                 self.builder.set_current_block(body_block);
                 self.lower_block(&while_stmt.body.statements, ir_func);
                 self.builder.build_branch(ir_func, header_block);
@@ -158,9 +233,12 @@ impl ASTLowering {
 
                 // Branch to body first
                 self.builder.build_branch(ir_func, body_block);
-                
+
                 // Body (push loop context for break/continue)
-                self.loop_stack.push(LoopContext { header_block, exit_block });
+                self.loop_stack.push(LoopContext {
+                    header_block,
+                    exit_block,
+                });
                 self.builder.set_current_block(body_block);
                 self.lower_block(&do_while.body.statements, ir_func);
                 self.builder.build_branch(ir_func, header_block);
@@ -195,7 +273,10 @@ impl ASTLowering {
                     .build_cond_branch(ir_func, condition, body_block, exit_block);
 
                 // Body (push loop context for break/continue)
-                self.loop_stack.push(LoopContext { header_block, exit_block });
+                self.loop_stack.push(LoopContext {
+                    header_block,
+                    exit_block,
+                });
                 self.builder.set_current_block(body_block);
                 // TODO: Bind iterator variable
                 self.lower_block(&for_stmt.body.statements, ir_func);
@@ -211,10 +292,13 @@ impl ASTLowering {
 
                 // Branch to body
                 self.builder.build_branch(ir_func, body_block);
-                
+
                 // Body (infinite loop - needs break to exit)
                 // Use body_block as header since it's the loop entry point
-                self.loop_stack.push(LoopContext { header_block: body_block, exit_block });
+                self.loop_stack.push(LoopContext {
+                    header_block: body_block,
+                    exit_block,
+                });
                 self.builder.set_current_block(body_block);
                 self.lower_block(&loop_stmt.body.statements, ir_func);
                 self.builder.build_branch(ir_func, body_block);
@@ -327,9 +411,7 @@ impl ASTLowering {
                 let value = ir_func.next_value();
                 value
             }
-            ExpressionKind::BoolLiteral(b) => {
-                self.builder.build_const_bool(ir_func, *b)
-            }
+            ExpressionKind::BoolLiteral(b) => self.builder.build_const_bool(ir_func, *b),
             ExpressionKind::Identifier(name) => {
                 self.value_map.get(name).copied().unwrap_or_else(|| {
                     // Unknown variable, create placeholder
@@ -363,16 +445,14 @@ impl ASTLowering {
             ExpressionKind::Unary { operator, operand } => {
                 use spectra_compiler::ast::UnaryOperator;
                 let operand_value = self.lower_expression(operand, ir_func);
-                
+
                 match operator {
                     UnaryOperator::Negate => {
                         // Negate: 0 - operand
                         let zero = self.builder.build_const_int(ir_func, 0);
                         self.builder.build_sub(ir_func, zero, operand_value)
                     }
-                    UnaryOperator::Not => {
-                        self.builder.build_not(ir_func, operand_value)
-                    }
+                    UnaryOperator::Not => self.builder.build_not(ir_func, operand_value),
                 }
             }
             ExpressionKind::Call { callee, arguments } => {
@@ -412,11 +492,15 @@ impl ASTLowering {
                 let mut then_value = None;
                 self.lower_block(&then_block.statements, ir_func);
                 // If last statement is an expression, use it as value
-                if let Some(Statement { kind: StatementKind::Expression(expr), .. }) = then_block.statements.last() {
+                if let Some(Statement {
+                    kind: StatementKind::Expression(expr),
+                    ..
+                }) = then_block.statements.last()
+                {
                     then_value = Some(self.lower_expression(expr, ir_func));
                 }
                 let then_final_block = self.builder.get_current_block().unwrap_or(then_bb);
-                
+
                 // Only add branch if block doesn't have terminator
                 if let Some(block) = ir_func.get_block_mut(then_final_block) {
                     if block.terminator.is_none() {
@@ -427,22 +511,26 @@ impl ASTLowering {
                 // Else/elif branches
                 self.builder.set_current_block(else_bb);
                 let mut else_value = None;
-                
+
                 // Handle elif branches
                 if !elif_blocks.is_empty() {
                     // TODO: Proper elif chain with multiple blocks
                     // For now, treat as nested if
                 }
-                
+
                 // Else branch
                 if let Some(else_body) = else_block {
                     self.lower_block(&else_body.statements, ir_func);
-                    if let Some(Statement { kind: StatementKind::Expression(expr), .. }) = else_body.statements.last() {
+                    if let Some(Statement {
+                        kind: StatementKind::Expression(expr),
+                        ..
+                    }) = else_body.statements.last()
+                    {
                         else_value = Some(self.lower_expression(expr, ir_func));
                     }
                 }
                 let else_final_block = self.builder.get_current_block().unwrap_or(else_bb);
-                
+
                 // Only add branch if block doesn't have terminator
                 if let Some(block) = ir_func.get_block_mut(else_final_block) {
                     if block.terminator.is_none() {
@@ -452,7 +540,7 @@ impl ASTLowering {
 
                 // Merge block with PHI node
                 self.builder.set_current_block(merge_bb);
-                
+
                 // If both branches produce values, create PHI node
                 if let (Some(then_val), Some(else_val)) = (then_value, else_value) {
                     self.builder.build_phi(
@@ -477,7 +565,7 @@ impl ASTLowering {
                 // Evaluate and negate condition
                 let cond_value = self.lower_expression(condition, ir_func);
                 let negated_cond = self.builder.build_not(ir_func, cond_value);
-                
+
                 self.builder.build_cond_branch(
                     ir_func,
                     negated_cond,
@@ -489,11 +577,15 @@ impl ASTLowering {
                 self.builder.set_current_block(unless_then_bb);
                 let mut unless_value = None;
                 self.lower_block(&then_block.statements, ir_func);
-                if let Some(Statement { kind: StatementKind::Expression(expr), .. }) = then_block.statements.last() {
+                if let Some(Statement {
+                    kind: StatementKind::Expression(expr),
+                    ..
+                }) = then_block.statements.last()
+                {
                     unless_value = Some(self.lower_expression(expr, ir_func));
                 }
                 let unless_then_final = self.builder.get_current_block().unwrap_or(unless_then_bb);
-                
+
                 // Only add branch if block doesn't have terminator
                 if let Some(block) = ir_func.get_block_mut(unless_then_final) {
                     if block.terminator.is_none() {
@@ -506,12 +598,16 @@ impl ASTLowering {
                 let mut unless_else_value = None;
                 if let Some(else_body) = else_block {
                     self.lower_block(&else_body.statements, ir_func);
-                    if let Some(Statement { kind: StatementKind::Expression(expr), .. }) = else_body.statements.last() {
+                    if let Some(Statement {
+                        kind: StatementKind::Expression(expr),
+                        ..
+                    }) = else_body.statements.last()
+                    {
                         unless_else_value = Some(self.lower_expression(expr, ir_func));
                     }
                 }
                 let unless_else_final = self.builder.get_current_block().unwrap_or(unless_else_bb);
-                
+
                 // Only add branch if block doesn't have terminator
                 if let Some(block) = ir_func.get_block_mut(unless_else_final) {
                     if block.terminator.is_none() {

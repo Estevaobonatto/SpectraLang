@@ -28,15 +28,13 @@ impl SpectraCompiler {
         // Phase 1-3: Frontend (Lexer → Parser → Semantic)
         println!("📝 Phase 1-3: Frontend Analysis");
         let pipeline = CompilationPipeline::new(self.options.clone());
-        let compilation_result = pipeline
-            .compile(source, filename)
-            .map_err(|errors| {
-                let mut error_msg = String::from("Compilation errors:\n");
-                for error in errors {
-                    error_msg.push_str(&format!("  • {}\n", error));
-                }
-                error_msg
-            })?;
+        let compilation_result = pipeline.compile(source, filename).map_err(|errors| {
+            let mut error_msg = String::from("Compilation errors:\n");
+            for error in errors {
+                error_msg.push_str(&format!("  • {}\n", error));
+            }
+            error_msg
+        })?;
 
         println!("  ✅ Lexical analysis complete");
         println!("  ✅ Parsing complete");
@@ -56,8 +54,11 @@ impl SpectraCompiler {
 
         // Optimization passes
         if self.options.optimize {
-            println!("  🔧 Running optimization passes (level {})...", self.options.opt_level);
-            
+            println!(
+                "  🔧 Running optimization passes (level {})...",
+                self.options.opt_level
+            );
+
             if self.options.opt_level >= 1 {
                 let mut cf = ConstantFolding::new();
                 if cf.run(&mut ir_module) {
@@ -99,10 +100,10 @@ impl SpectraCompiler {
     /// Compile and execute (JIT)
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), String> {
         self.compile(source, "<jit>")?;
-        
+
         // TODO: Execute the compiled code via JIT
         println!("\n🎯 Execution (TODO: JIT execution not yet implemented)");
-        
+
         Ok(())
     }
 
@@ -110,7 +111,7 @@ impl SpectraCompiler {
     fn dump_ir(&self, ir_module: &IRModule) {
         println!("Module: {}", ir_module.name);
         println!();
-        
+
         for func in &ir_module.functions {
             println!("function {}(", func.name);
             for (i, param) in func.params.iter().enumerate() {
@@ -120,7 +121,7 @@ impl SpectraCompiler {
                 print!("%{}: {:?}", param.id, param.ty);
             }
             println!(") -> {:?} {{", func.return_type);
-            
+
             for block in &func.blocks {
                 println!("  {}:", block.label);
                 for instr in &block.instructions {
@@ -131,7 +132,7 @@ impl SpectraCompiler {
                 }
                 println!();
             }
-            
+
             println!("}}");
             println!();
         }

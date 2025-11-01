@@ -53,7 +53,8 @@ impl Pass for DeadCodeElimination {
             for (block_idx, block) in func.blocks.iter().enumerate() {
                 for (instr_idx, instr) in block.instructions.iter().enumerate() {
                     if let Some(result_id) = Self::get_result_id(&instr.kind) {
-                        if !used_values.contains(&result_id) && !Self::has_side_effects(&instr.kind) {
+                        if !used_values.contains(&result_id) && !Self::has_side_effects(&instr.kind)
+                        {
                             dead_instructions.push((block_idx, instr_idx));
                         }
                     }
