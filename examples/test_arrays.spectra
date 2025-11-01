@@ -3,13 +3,13 @@ module test_arrays;
 fn test_simple_array() -> int {
     let arr = [1, 2, 3, 4, 5];
     let x = arr[2];
-    return x;
+    x
 }
 
 fn test_array_assignment() -> int {
     let arr = [10, 20, 30];
     arr[1] = 99;
-    return arr[1];
+    arr[1]
 }
 
 fn test_array_loop() -> int {
@@ -22,5 +22,5 @@ fn test_array_loop() -> int {
         i = i + 1;
     }
     
-    return sum;
+    sum
 }

@@ -126,12 +126,15 @@ impl ASTLowering {
             self.lower_block(&ast_func.body.statements, &mut ir_func);
         }
 
-        // Ensure function has a return
-        if let Some(block) = ir_func.get_block_mut(entry_block) {
-            if block.terminator.is_none() {
-                block.set_terminator(Terminator::Return {
-                    value: implicit_return_value,
-                });
+        // Ensure function has a return in the current block
+        // (After lowering all statements, we should be in the final block)
+        if let Some(current_block_id) = self.builder.get_current_block() {
+            if let Some(block) = ir_func.get_block_mut(current_block_id) {
+                if block.terminator.is_none() {
+                    block.set_terminator(Terminator::Return {
+                        value: implicit_return_value,
+                    });
+                }
             }
         }
 
@@ -611,24 +614,48 @@ impl ASTLowering {
                 }
                 let else_final_block = self.builder.get_current_block().unwrap_or(else_bb);
 
+                // Check if else block has terminator
+                let else_has_terminator = if let Some(block) = ir_func.get_block(else_final_block) {
+                    block.terminator.is_some()
+                } else {
+                    false
+                };
+
                 // Only add branch if block doesn't have terminator
-                if let Some(block) = ir_func.get_block_mut(else_final_block) {
-                    if block.terminator.is_none() {
-                        self.builder.build_branch(ir_func, merge_bb);
+                if !else_has_terminator {
+                    if let Some(block) = ir_func.get_block_mut(else_final_block) {
+                        if block.terminator.is_none() {
+                            self.builder.build_branch(ir_func, merge_bb);
+                        }
                     }
                 }
 
-                // Merge block with PHI node
-                self.builder.set_current_block(merge_bb);
-
-                // If both branches produce values, create PHI node
-                if let (Some(then_val), Some(else_val)) = (then_value, else_value) {
-                    self.builder.build_phi(
-                        ir_func,
-                        vec![(then_val, then_final_block), (else_val, else_final_block)],
-                    )
+                // Check if then block has terminator
+                let then_has_terminator = if let Some(block) = ir_func.get_block(then_final_block) {
+                    block.terminator.is_some()
                 } else {
-                    // No value produced (void)
+                    false
+                };
+
+                // Only use merge block if at least one branch reaches it
+                if !then_has_terminator || !else_has_terminator {
+                    // Merge block with PHI node
+                    self.builder.set_current_block(merge_bb);
+
+                    // If both branches produce values, create PHI node
+                    if let (Some(then_val), Some(else_val)) = (then_value, else_value) {
+                        self.builder.build_phi(
+                            ir_func,
+                            vec![(then_val, then_final_block), (else_val, else_final_block)],
+                        )
+                    } else {
+                        // No value produced (void)
+                        ir_func.next_value()
+                    }
+                } else {
+                    // Both branches have terminators (returns), no merge needed
+                    // Don't set current block to merge - leave it undefined
+                    // This will make the function return check skip adding a return
                     ir_func.next_value()
                 }
             }
