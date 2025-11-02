@@ -1,0 +1,21 @@
+module test;
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+// Test: Match NÃO exhaustivo - falta Blue
+fn test_non_exhaustive() -> int {
+    let c = Color::Red;
+    match c {
+        Color::Red => 1,
+        Color::Green => 2
+        // Faltando Color::Blue - deveria dar warning/erro
+    }
+}
+
+fn main() -> int {
+    test_non_exhaustive()
+}

@@ -1,0 +1,41 @@
+// Test: Literal patterns em match expressions
+// Expected: Compile successfully
+
+module test;
+
+// Test: Match com literal int
+fn test_int() -> int {
+    let x = 5;
+    match x {
+        1 => 10,
+        2 => 20,
+        5 => 50,
+        _ => 0
+    }
+}
+
+// Test: Match com literal bool
+fn test_bool() -> int {
+    let flag = false;
+    match flag {
+        true => 1,
+        false => 2
+    }
+}
+
+// Test: Match com zero
+fn test_zero() -> int {
+    let x = 0;
+    match x {
+        0 => 100,
+        _ => 200
+    }
+}
+
+fn main() -> int {
+    let a = test_int();   // 50
+    let b = test_bool();  // 2
+    let c = test_zero();  // 100
+    
+    a + b + c  // 152
+}

@@ -47,6 +47,7 @@ pub enum Item {
     Function(Function),
     Struct(Struct),
     Enum(Enum),
+    Impl(ImplBlock),
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +285,13 @@ pub enum ExpressionKind {
         scrutinee: Box<Expression>,
         arms: Vec<MatchArm>,
     },
+
+    // Method calls (dot notation)
+    MethodCall {
+        object: Box<Expression>,
+        method_name: String,
+        arguments: Vec<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -367,5 +375,38 @@ pub struct SwitchStatement {
 pub struct SwitchCase {
     pub pattern: Expression, // Padrão a ser comparado
     pub body: Block,
+    pub span: Span,
+}
+
+// ============================================================================
+// Impl Blocks e Methods
+// ============================================================================
+
+/// Bloco de implementação para adicionar métodos a um tipo
+#[derive(Debug, Clone)]
+pub struct ImplBlock {
+    pub type_name: String,           // Nome do tipo (struct ou enum)
+    pub methods: Vec<Method>,        // Métodos implementados
+    pub span: Span,
+}
+
+/// Método associado a um tipo
+#[derive(Debug, Clone)]
+pub struct Method {
+    pub name: String,
+    pub params: Vec<Parameter>,      // Parâmetros (incluindo self, se presente)
+    pub return_type: Option<TypeAnnotation>,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// Parâmetro de método (pode ser self, &self, &mut self, ou parâmetro normal)
+#[derive(Debug, Clone)]
+pub struct Parameter {
+    pub name: String,
+    pub type_annotation: Option<TypeAnnotation>,
+    pub is_self: bool,               // true se for self/&self/&mut self
+    pub is_reference: bool,          // true se for &self ou &mut self
+    pub is_mutable: bool,            // true se for &mut self
     pub span: Span,
 }

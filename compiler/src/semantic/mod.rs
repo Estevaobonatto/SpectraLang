@@ -42,6 +42,10 @@ pub struct SemanticAnalyzer {
     symbols: Vec<HashMap<String, SymbolInfo>>,
     // Function table: maps function names to their signatures
     functions: HashMap<String, FunctionSignature>,
+    // Enum definitions: maps enum names to their variants
+    enum_definitions: HashMap<String, Vec<String>>,
+    // Methods: maps type_name to (method_name, signature)
+    methods: HashMap<String, HashMap<String, FunctionSignature>>,
     // Track if we're inside a loop (for break/continue validation)
     loop_depth: usize,
     // Track if we're inside a function (for return validation)
@@ -54,6 +58,8 @@ impl SemanticAnalyzer {
             errors: Vec::new(),
             symbols: vec![HashMap::new()], // Start with global scope
             functions: HashMap::new(),
+            enum_definitions: HashMap::new(),
+            methods: HashMap::new(),
             loop_depth: 0,
             current_function: None,
         }
@@ -173,9 +179,83 @@ impl SemanticAnalyzer {
             Item::Struct(_struct) => {
                 // TODO: Struct validation (unique field names, etc.)
             }
-            Item::Enum(_enum) => {
+            Item::Enum(enum_def) => {
+                // Coletar variants do enum para exhaustiveness checking
+                let variant_names: Vec<String> = enum_def.variants
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect();
+                self.enum_definitions.insert(enum_def.name.clone(), variant_names);
+                
                 // TODO: Enum validation (unique variant names, etc.)
             }
+            Item::Impl(impl_block) => {
+                self.analyze_impl_block(impl_block);
+            }
+        }
+    }
+
+    fn analyze_impl_block(&mut self, impl_block: &crate::ast::ImplBlock) {
+        // Fase 1: Registrar assinaturas dos métodos
+        for method in &impl_block.methods {
+            // Extrair tipos dos parâmetros
+            let mut param_types = Vec::new();
+            for param in &method.params {
+                if param.is_self {
+                    // self parameter - tipo é o do impl block
+                    // TODO: Distinguir entre self, &self, &mut self
+                    param_types.push(Type::Struct { name: impl_block.type_name.clone() });
+                } else {
+                    let param_type = self.type_annotation_to_type(&param.type_annotation);
+                    param_types.push(param_type);
+                }
+            }
+            
+            let return_type = self.type_annotation_to_type(&method.return_type);
+            
+            // Registrar método
+            let signature = FunctionSignature {
+                params: param_types,
+                return_type,
+            };
+            
+            let type_methods = self.methods
+                .entry(impl_block.type_name.clone())
+                .or_insert_with(HashMap::new);
+            
+            if type_methods.insert(method.name.clone(), signature).is_some() {
+                self.error(
+                    format!("Method '{}' is already defined for type '{}'", method.name, impl_block.type_name),
+                    method.span,
+                );
+            }
+        }
+        
+        // Fase 2: Analisar corpos dos métodos
+        for method in &impl_block.methods {
+            self.current_function = Some(format!("{}::{}", impl_block.type_name, method.name));
+            self.push_scope();
+            
+            // Declarar parâmetros no escopo
+            for param in &method.params {
+                let param_type = if param.is_self {
+                    Type::Struct { name: impl_block.type_name.clone() }
+                } else {
+                    self.type_annotation_to_type(&param.type_annotation)
+                };
+                
+                if !self.declare_symbol(param.name.clone(), param.span, param_type) {
+                    self.error(
+                        format!("Parameter '{}' is already declared", param.name),
+                        param.span,
+                    );
+                }
+            }
+            
+            self.analyze_block(&method.body);
+            
+            self.pop_scope();
+            self.current_function = None;
         }
     }
 
@@ -491,6 +571,10 @@ impl SemanticAnalyzer {
                 } else {
                     Type::Unknown
                 }
+            }
+            ExpressionKind::MethodCall { object: _, method_name: _, arguments: _ } => {
+                // TODO: Inferir tipo de retorno do método
+                Type::Unknown
             }
         }
     }
@@ -834,8 +918,12 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::Match { scrutinee, arms } => {
-                // TODO: Verificar exhaustividade, tipos consistentes nos arms
                 self.analyze_expression(scrutinee);
+                
+                // Verificar exhaustiveness
+                self.check_match_exhaustiveness(arms, expr.span);
+                
+                // TODO: Verificar tipos consistentes nos arms
                 for arm in arms {
                     // Criar novo escopo para o arm
                     self.push_scope();
@@ -849,6 +937,17 @@ impl SemanticAnalyzer {
                     // Sair do escopo
                     self.pop_scope();
                 }
+            }
+            ExpressionKind::MethodCall { object, method_name: _, arguments } => {
+                // Analisar objeto
+                self.analyze_expression(object);
+                
+                // Analisar argumentos
+                for arg in arguments {
+                    self.analyze_expression(arg);
+                }
+                
+                // TODO: Verificar se método existe para o tipo do objeto
             }
         }
     }
@@ -885,6 +984,92 @@ impl SemanticAnalyzer {
                     }
                 }
             }
+        }
+    }
+
+    /// Verifica se um match expression é exhaustivo
+    fn check_match_exhaustiveness(&mut self, arms: &[crate::ast::MatchArm], span: Span) {
+        use crate::ast::Pattern;
+        
+        // Se tem wildcard ou identifier, é automaticamente exhaustivo
+        let has_catch_all = arms.iter().any(|arm| {
+            matches!(arm.pattern, Pattern::Wildcard | Pattern::Identifier(_))
+        });
+        
+        if has_catch_all {
+            return; // Exhaustivo
+        }
+        
+        // Coletar todos os enum variants cobertos
+        let mut covered_variants: HashMap<String, Vec<String>> = HashMap::new();
+        
+        for arm in arms {
+            if let Pattern::EnumVariant { enum_name, variant_name, .. } = &arm.pattern {
+                covered_variants
+                    .entry(enum_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(variant_name.clone());
+            }
+        }
+        
+        // Verificar se todos os variants de cada enum estão cobertos
+        for (enum_name, covered) in &covered_variants {
+            if let Some(all_variants) = self.enum_definitions.get(enum_name) {
+                let missing: Vec<&String> = all_variants
+                    .iter()
+                    .filter(|v| !covered.contains(v))
+                    .collect();
+                
+                if !missing.is_empty() {
+                    let missing_str = missing
+                        .iter()
+                        .map(|v| format!("{}::{}", enum_name, v))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    
+                    self.error(
+                        format!(
+                            "Match expression is not exhaustive. Missing patterns: {}",
+                            missing_str
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+        
+        // Se tem apenas literais, verificar se cobre todos os casos de bool
+        let only_literals = arms.iter().all(|arm| {
+            matches!(arm.pattern, Pattern::Literal(_))
+        });
+        
+        if only_literals {
+            // Verificar se tem true E false (exhaustivo para bool)
+            use crate::ast::ExpressionKind;
+            let has_true = arms.iter().any(|arm| {
+                if let Pattern::Literal(expr) = &arm.pattern {
+                    matches!(expr.kind, ExpressionKind::BoolLiteral(true))
+                } else {
+                    false
+                }
+            });
+            let has_false = arms.iter().any(|arm| {
+                if let Pattern::Literal(expr) = &arm.pattern {
+                    matches!(expr.kind, ExpressionKind::BoolLiteral(false))
+                } else {
+                    false
+                }
+            });
+            
+            // Se tem true E false, é exhaustivo para bool
+            if has_true && has_false {
+                return;
+            }
+            
+            self.error(
+                "Match expression with only literal patterns is not exhaustive. Consider adding a wildcard pattern (_).",
+                span,
+            );
         }
     }
 }

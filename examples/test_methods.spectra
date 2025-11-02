@@ -1,0 +1,28 @@
+module test;
+
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Point {
+    fn new(x: int, y: int) -> Point {
+        Point { x: x, y: y }
+    }
+    
+    fn distance_from_origin(&self) -> int {
+        // Simplificado: apenas soma x + y
+        self.x + self.y
+    }
+    
+    fn move_by(&mut self, dx: int, dy: int) {
+        self.x = self.x + dx;
+        self.y = self.y + dy;
+    }
+}
+
+fn main() -> int {
+    let p = Point::new(3, 4);
+    let dist = p.distance_from_origin();
+    dist  // 7
+}

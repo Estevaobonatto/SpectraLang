@@ -1168,6 +1168,23 @@ impl ASTLowering {
                 self.builder.set_current_block(exit_block);
                 self.builder.build_load(ir_func, result_alloca)
             }
+            ExpressionKind::MethodCall { object, method_name, arguments } => {
+                // TODO: Implementar method call lowering completo
+                // Estratégia:
+                // 1. Parser precisa criar AST para obj.method(args)
+                // 2. Semantic analyzer determina tipo de obj e valida método
+                // 3. Lowering converte para Type_method(obj, args)
+                //
+                // Por enquanto, apenas lower componentes para não quebrar compilação
+                let _obj_value = self.lower_expression(object, ir_func);
+                let _method = method_name;
+                for arg in arguments {
+                    self.lower_expression(arg, ir_func);
+                }
+                
+                // Retornar valor dummy (será substituído quando parser implementar)
+                self.builder.build_const_int(ir_func, 0)
+            }
         }
     }
 
@@ -1188,9 +1205,10 @@ impl ASTLowering {
                 // Binding sempre match
                 self.builder.build_const_int(ir_func, 1)
             }
-            Pattern::Literal(_expr) => {
-                // TODO: Comparar com literal
-                self.builder.build_const_int(ir_func, 1)
+            Pattern::Literal(expr) => {
+                // Comparar scrutinee com o valor literal
+                let literal_value = self.lower_expression(expr, ir_func);
+                self.builder.build_eq(ir_func, scrutinee, literal_value)
             }
             Pattern::EnumVariant {
                 enum_name,

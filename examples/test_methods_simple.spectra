@@ -1,0 +1,21 @@
+module test;
+
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Point {
+    fn new(x: int, y: int) -> Point {
+        Point { x: x, y: y }
+    }
+    
+    fn get_x(&self) -> int {
+        42  // Simplificado - retorna constante
+    }
+}
+
+fn main() -> int {
+    let p = Point::new(3, 4);
+    0
+}

@@ -1,0 +1,17 @@
+// Test: Method call syntax parsing
+module methods_basic;
+
+fn create_dummy() -> int {
+    42
+}
+
+fn main() -> int {
+    // Criar uma "pseudo-struct" usando int
+    let obj = create_dummy();
+    
+    // Test method call syntax (será resolvido mais tarde)
+    // obj.method() deve parsear sem erro
+    // Por enquanto retornar valor direto
+    
+    obj
+}

@@ -254,17 +254,46 @@ impl Parser {
                         return Err(());
                     }
                 } else if let TokenKind::Identifier(_) = &self.current().kind {
-                    // Field access: .field_name
-                    let (field_name, end_span) = self.consume_identifier("Expected field name after '.'")?;
+                    // Field access ou method call: .field_name ou .method_name(args)
+                    let (name, name_span) = self.consume_identifier("Expected field/method name after '.'")?;
                     
-                    let span = crate::span::span_union(expr.span, end_span);
-                    expr = Expression {
-                        span,
-                        kind: ExpressionKind::FieldAccess {
-                            object: Box::new(expr),
-                            field: field_name,
-                        },
-                    };
+                    // Verificar se é method call (seguido de '(')
+                    if self.check_symbol('(') {
+                        self.advance(); // consume '('
+                        
+                        let mut arguments = Vec::new();
+                        if !self.check_symbol(')') {
+                            loop {
+                                arguments.push(self.parse_expression()?);
+                                if !self.check_symbol(',') {
+                                    break;
+                                }
+                                self.advance(); // consume ','
+                            }
+                        }
+                        
+                        let end_span = self.consume_symbol(')', "Expected ')' after method arguments")?;
+                        
+                        let span = crate::span::span_union(expr.span, end_span);
+                        expr = Expression {
+                            span,
+                            kind: ExpressionKind::MethodCall {
+                                object: Box::new(expr),
+                                method_name: name,
+                                arguments,
+                            },
+                        };
+                    } else {
+                        // É field access
+                        let span = crate::span::span_union(expr.span, name_span);
+                        expr = Expression {
+                            span,
+                            kind: ExpressionKind::FieldAccess {
+                                object: Box::new(expr),
+                                field: name,
+                            },
+                        };
+                    }
                 } else {
                     self.error("Expected number or field name after '.'");
                     return Err(());

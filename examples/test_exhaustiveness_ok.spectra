@@ -1,0 +1,42 @@
+module test;
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+// Test: Match exhaustivo com todos os variants
+fn test_exhaustive_complete() -> int {
+    let c = Color::Red;
+    match c {
+        Color::Red => 1,
+        Color::Green => 2,
+        Color::Blue => 3
+    }
+}
+
+// Test: Match exhaustivo com wildcard
+fn test_exhaustive_wildcard() -> int {
+    let c = Color::Green;
+    match c {
+        Color::Red => 1,
+        _ => 99
+    }
+}
+
+// Test: Match exhaustivo com identifier
+fn test_exhaustive_identifier() -> int {
+    let c = Color::Blue;
+    match c {
+        x => 42
+    }
+}
+
+fn main() -> int {
+    let a = test_exhaustive_complete();   // 1
+    let b = test_exhaustive_wildcard();   // 99
+    let c = test_exhaustive_identifier(); // 42
+    
+    a + b + c  // 142
+}

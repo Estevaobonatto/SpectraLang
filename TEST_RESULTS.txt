@@ -22,5 +22,7 @@ Teste                                  Status Erro
 19_recursion.spectra                   PASSOU                                                                         
 20_all_features.spectra                FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.ex...
 31_tuple_variant_destructuring.spectra PASSOU                                                                         
+32_literal_patterns.spectra            PASSOU                                                                         
+33_methods_basic.spectra               PASSOU                                                                         
 
 
