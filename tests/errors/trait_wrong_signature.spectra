@@ -1,0 +1,21 @@
+// Teste de trait implementation com signature errada - deve falhar
+module test_trait_wrong_sig;
+
+trait Calculator {
+    fn add(&self, x: int, y: int) -> int;
+}
+
+struct MathEngine {
+    value: int
+}
+
+// Implementação com número errado de parâmetros
+impl Calculator for MathEngine {
+    fn add(&self, x: int) -> int {  // Falta o parâmetro 'y'
+        x + 10
+    }
+}
+
+fn main() -> int {
+    42
+}

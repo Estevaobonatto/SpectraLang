@@ -1,5 +1,8 @@
 use crate::{
-    ast::{Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, TraitDeclaration, TraitMethod, Visibility},
+    ast::{
+        Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, TraitDeclaration,
+        TraitMethod, Visibility,
+    },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
 };
@@ -163,9 +166,12 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_struct(&mut self, visibility: Visibility) -> Result<crate::ast::Struct, ()> {
+    pub(super) fn parse_struct(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<crate::ast::Struct, ()> {
         use crate::ast::{Struct, StructField};
-        
+
         // Expect: struct <name> { <fields> }
         let start_span = self.consume_keyword(Keyword::Struct, "Expected 'struct' keyword")?;
 
@@ -179,17 +185,17 @@ impl Parser {
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse field: <name>: <type>
             let (field_name, field_span) = self.consume_identifier("Expected field name")?;
-            
+
             self.consume_symbol(':', "Expected ':' after field name")?;
-            
+
             let field_type = self.parse_type_annotation()?;
-            
+
             fields.push(StructField {
                 name: field_name,
                 span: field_span,
                 ty: field_type,
             });
-            
+
             // Optional comma
             if self.check_symbol(',') {
                 self.advance();
@@ -208,7 +214,7 @@ impl Parser {
 
     pub(super) fn parse_enum(&mut self, visibility: Visibility) -> Result<crate::ast::Enum, ()> {
         use crate::ast::{Enum, EnumVariant};
-        
+
         // Expect: enum <name> { <variants> }
         let start_span = self.consume_keyword(Keyword::Enum, "Expected 'enum' keyword")?;
 
@@ -222,12 +228,12 @@ impl Parser {
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse variant: <name> or <name>(<types>)
             let (variant_name, variant_span) = self.consume_identifier("Expected variant name")?;
-            
+
             let data = if self.check_symbol('(') {
                 self.advance(); // consume '('
-                
+
                 let mut types = Vec::new();
-                
+
                 // Parse tuple variant data types
                 if !self.check_symbol(')') {
                     loop {
@@ -238,19 +244,19 @@ impl Parser {
                         self.advance(); // consume ','
                     }
                 }
-                
+
                 self.consume_symbol(')', "Expected ')' after variant data")?;
                 Some(types)
             } else {
                 None // Unit variant
             };
-            
+
             variants.push(EnumVariant {
                 name: variant_name,
                 span: variant_span,
                 data,
             });
-            
+
             // Optional comma
             if self.check_symbol(',') {
                 self.advance();
@@ -270,9 +276,10 @@ impl Parser {
     pub(super) fn parse_impl_block(&mut self) -> Result<ImplBlock, ()> {
         // Expect: impl TypeName { methods... } ou impl TraitName for TypeName { methods... }
         let start_span = self.consume_keyword(Keyword::Impl, "Expected 'impl' keyword")?;
-        
-        let (first_name, _) = self.consume_identifier("Expected trait or type name after 'impl'")?;
-        
+
+        let (first_name, _) =
+            self.consume_identifier("Expected trait or type name after 'impl'")?;
+
         // Checar se é "impl Trait for Type" ou "impl Type"
         if self.check_keyword(Keyword::For) {
             // É um trait impl: impl TraitName for TypeName
@@ -280,28 +287,29 @@ impl Parser {
             let (type_name, _) = self.consume_identifier("Expected type name after 'for'")?;
             return self.parse_trait_impl_block(start_span, first_name, type_name);
         }
-        
+
         // É um impl regular: impl TypeName
         let type_name = first_name;
-        
+
         self.consume_symbol('{', "Expected '{' to start impl block")?;
-        
+
         let mut methods = Vec::new();
-        
+
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse method: fn method_name(params) -> type { body }
             self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword for method")?;
-            
-            let (method_name, method_name_span) = self.consume_identifier("Expected method name")?;
-            
+
+            let (method_name, method_name_span) =
+                self.consume_identifier("Expected method name")?;
+
             self.consume_symbol('(', "Expected '(' after method name")?;
-            
+
             // Parse parameters (pode incluir self)
             let mut params = Vec::new();
-            
+
             while !self.check_symbol(')') && !self.is_at_end() {
                 let param_start = self.current().span;
-                
+
                 // Verificar se é self, &self, ou &mut self
                 let (is_self, is_reference, is_mutable) = if self.check_keyword(Keyword::Mut) {
                     self.advance(); // consume 'mut'
@@ -343,7 +351,7 @@ impl Parser {
                 } else {
                     (false, false, false) // parâmetro normal
                 };
-                
+
                 let (param_name, type_annotation) = if is_self {
                     ("self".to_string(), None)
                 } else {
@@ -352,7 +360,7 @@ impl Parser {
                     let ty = self.parse_type_annotation()?;
                     (name, Some(ty))
                 };
-                
+
                 let param_end = self.current().span;
                 params.push(Parameter {
                     name: param_name,
@@ -362,15 +370,15 @@ impl Parser {
                     is_mutable,
                     span: span_union(param_start, param_end),
                 });
-                
+
                 // Optional comma
                 if self.check_symbol(',') {
                     self.advance();
                 }
             }
-            
+
             self.consume_symbol(')', "Expected ')' after method parameters")?;
-            
+
             // Optional return type
             let return_type = if matches!(
                 &self.current().kind,
@@ -381,10 +389,10 @@ impl Parser {
             } else {
                 None
             };
-            
+
             let body = self.parse_block()?;
             let body_end_span = body.span;
-            
+
             methods.push(Method {
                 name: method_name,
                 params,
@@ -393,11 +401,12 @@ impl Parser {
                 span: span_union(method_name_span, body_end_span),
             });
         }
-        
+
         let end_span = self.consume_symbol('}', "Expected '}' to end impl block")?;
-        
+
         Ok(ImplBlock {
             type_name,
+            trait_name: None, // impl regular
             methods,
             span: span_union(start_span, end_span),
         })
@@ -407,30 +416,33 @@ impl Parser {
     pub(super) fn parse_trait_declaration(&mut self) -> Result<TraitDeclaration, ()> {
         // Expect: trait <name> { <method signatures> }
         let start_span = self.consume_keyword(Keyword::Trait, "Expected 'trait' keyword")?;
-        
+
         let (name, _name_span) = self.consume_identifier("Expected trait name")?;
-        
+
         self.consume_symbol('{', "Expected '{' after trait name")?;
-        
+
         let mut methods = Vec::new();
-        
+
         // Parse method signatures (sem corpo, apenas assinaturas)
         while !self.check_symbol('}') && !self.is_at_end() {
-            let method_start = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?;
-            
-            let (method_name, method_name_span) = self.consume_identifier("Expected method name")?;
-            
+            let method_start =
+                self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?;
+
+            let (method_name, method_name_span) =
+                self.consume_identifier("Expected method name")?;
+
             self.consume_symbol('(', "Expected '(' after method name")?;
-            
+
             // Parse parameters (igual a métodos regulares)
             let mut params = Vec::new();
-            
+
             while !self.check_symbol(')') && !self.is_at_end() {
                 let param_start = self.current().span;
-                
+
                 // Check for self parameter
-                let is_self_param = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
-                
+                let is_self_param =
+                    matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+
                 let (is_self, is_reference, is_mutable) = if is_self_param {
                     self.advance();
                     (true, false, false)
@@ -442,7 +454,8 @@ impl Parser {
                     } else {
                         false
                     };
-                    let is_self_after_ref = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+                    let is_self_after_ref =
+                        matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
                     if !is_self_after_ref {
                         self.error("Expected 'self' after '&'");
                         return Err(());
@@ -455,7 +468,7 @@ impl Parser {
                     self.consume_symbol(':', "Expected ':' after parameter name")?;
                     let param_type = self.parse_type_annotation()?;
                     let param_end = param_type.span;
-                    
+
                     params.push(Parameter {
                         name: param_name,
                         type_annotation: Some(param_type),
@@ -464,13 +477,13 @@ impl Parser {
                         is_mutable: false,
                         span: span_union(param_start, param_end),
                     });
-                    
+
                     if self.check_symbol(',') {
                         self.advance();
                     }
                     continue;
                 };
-                
+
                 // Para self, o span vai até o token atual - 1
                 // Como já avançamos, precisamos usar param_start até onde paramos
                 let param_end = param_start; // Simplificado - usamos só o start
@@ -482,14 +495,14 @@ impl Parser {
                     is_mutable,
                     span: param_start,
                 });
-                
+
                 if self.check_symbol(',') {
                     self.advance();
                 }
             }
-            
+
             self.consume_symbol(')', "Expected ')' after method parameters")?;
-            
+
             // Optional return type
             let return_type = if matches!(
                 &self.current().kind,
@@ -500,10 +513,11 @@ impl Parser {
             } else {
                 None
             };
-            
+
             // Trait methods não têm corpo, apenas assinatura
-            let method_end = self.consume_symbol(';', "Expected ';' after trait method signature")?;
-            
+            let method_end =
+                self.consume_symbol(';', "Expected ';' after trait method signature")?;
+
             methods.push(TraitMethod {
                 name: method_name,
                 params,
@@ -511,9 +525,9 @@ impl Parser {
                 span: span_union(method_start, method_end),
             });
         }
-        
+
         let end_span = self.consume_symbol('}', "Expected '}' to end trait declaration")?;
-        
+
         Ok(TraitDeclaration {
             name,
             methods,
@@ -522,31 +536,38 @@ impl Parser {
     }
 
     /// Parse trait implementation: impl TraitName for TypeName { methods... }
-    fn parse_trait_impl_block(&mut self, start_span: Span, _trait_name: String, type_name: String) -> Result<ImplBlock, ()> {
+    fn parse_trait_impl_block(
+        &mut self,
+        start_span: Span,
+        _trait_name: String,
+        type_name: String,
+    ) -> Result<ImplBlock, ()> {
         // Nota: Por enquanto, vamos retornar um ImplBlock regular
         // TODO: Criar Item::TraitImpl separado e validar que métodos correspondem ao trait
-        
+
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
-        
+
         let mut methods = Vec::new();
-        
+
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse method (igual ao impl block regular)
             let method_name_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method")?;
-            
-            let (method_name, method_name_span) = self.consume_identifier("Expected method name")?;
-            
+
+            let (method_name, method_name_span) =
+                self.consume_identifier("Expected method name")?;
+
             self.consume_symbol('(', "Expected '(' after method name")?;
-            
+
             // Parse parameters
             let mut params = Vec::new();
-            
+
             while !self.check_symbol(')') && !self.is_at_end() {
                 let param_start = self.current().span;
-                
+
                 // Check for self parameter
-                let is_self_param = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
-                
+                let is_self_param =
+                    matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+
                 let (is_self, is_reference, is_mutable) = if is_self_param {
                     self.advance();
                     (true, false, false)
@@ -558,7 +579,8 @@ impl Parser {
                     } else {
                         false
                     };
-                    let is_self_after_ref = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+                    let is_self_after_ref =
+                        matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
                     if !is_self_after_ref {
                         self.error("Expected 'self' after '&'");
                         return Err(());
@@ -571,7 +593,7 @@ impl Parser {
                     self.consume_symbol(':', "Expected ':' after parameter name")?;
                     let param_type = self.parse_type_annotation()?;
                     let param_end = param_type.span;
-                    
+
                     params.push(Parameter {
                         name: param_name,
                         type_annotation: Some(param_type),
@@ -580,13 +602,13 @@ impl Parser {
                         is_mutable: false,
                         span: span_union(param_start, param_end),
                     });
-                    
+
                     if self.check_symbol(',') {
                         self.advance();
                     }
                     continue;
                 };
-                
+
                 params.push(Parameter {
                     name: "self".to_string(),
                     type_annotation: None,
@@ -595,14 +617,14 @@ impl Parser {
                     is_mutable,
                     span: param_start,
                 });
-                
+
                 if self.check_symbol(',') {
                     self.advance();
                 }
             }
-            
+
             self.consume_symbol(')', "Expected ')' after method parameters")?;
-            
+
             // Optional return type
             let return_type = if matches!(
                 &self.current().kind,
@@ -613,10 +635,10 @@ impl Parser {
             } else {
                 None
             };
-            
+
             let body = self.parse_block()?;
             let body_end_span = body.span;
-            
+
             methods.push(Method {
                 name: method_name,
                 params,
@@ -625,14 +647,13 @@ impl Parser {
                 span: span_union(method_name_span, body_end_span),
             });
         }
-        
+
         let end_span = self.consume_symbol('}', "Expected '}' to end trait impl block")?;
-        
-        // Por enquanto, retorna um ImplBlock regular com o type_name correto
-        // Os métodos serão registrados normalmente no type
-        // TODO: Validar que os métodos correspondem às assinaturas do trait
+
+        // Retorna ImplBlock com trait_name preenchido
         Ok(ImplBlock {
-            type_name, // Usa apenas o type_name, não o trait
+            type_name,
+            trait_name: Some(_trait_name), // impl Trait for Type
             methods,
             span: span_union(start_span, end_span),
         })

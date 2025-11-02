@@ -34,5 +34,6 @@ Teste                                  Status Erro
 41_static_constructors.spectra         PASSOU                                                                         
 42_traits_parse.spectra                PASSOU                                                                         
 43_trait_impl.spectra                  PASSOU                                                                         
+44_trait_validation.spectra            PASSOU                                                                         
 
 

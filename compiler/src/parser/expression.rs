@@ -222,7 +222,7 @@ impl Parser {
                 self.advance(); // consume '['
                 let index = self.parse_expression()?;
                 let end_span = self.consume_symbol(']', "Expected ']' after index")?;
-                
+
                 let span = crate::span::span_union(expr.span, end_span);
                 expr = Expression {
                     span,
@@ -233,14 +233,14 @@ impl Parser {
                 };
             } else if self.check_symbol('.') {
                 self.advance(); // consume '.'
-                
+
                 // Check if it's a number (tuple access) or identifier (field access)
                 if let TokenKind::Number(num_str) = &self.current().kind {
                     // Tuple access: .0, .1, .2, etc.
                     if let Ok(index) = num_str.parse::<usize>() {
                         let end_span = self.current().span;
                         self.advance();
-                        
+
                         let span = crate::span::span_union(expr.span, end_span);
                         expr = Expression {
                             span,
@@ -255,12 +255,13 @@ impl Parser {
                     }
                 } else if let TokenKind::Identifier(_) = &self.current().kind {
                     // Field access ou method call: .field_name ou .method_name(args)
-                    let (name, name_span) = self.consume_identifier("Expected field/method name after '.'")?;
-                    
+                    let (name, name_span) =
+                        self.consume_identifier("Expected field/method name after '.'")?;
+
                     // Verificar se é method call (seguido de '(')
                     if self.check_symbol('(') {
                         self.advance(); // consume '('
-                        
+
                         let mut arguments = Vec::new();
                         if !self.check_symbol(')') {
                             loop {
@@ -271,9 +272,10 @@ impl Parser {
                                 self.advance(); // consume ','
                             }
                         }
-                        
-                        let end_span = self.consume_symbol(')', "Expected ')' after method arguments")?;
-                        
+
+                        let end_span =
+                            self.consume_symbol(')', "Expected ')' after method arguments")?;
+
                         let span = crate::span::span_union(expr.span, end_span);
                         expr = Expression {
                             span,
@@ -333,19 +335,22 @@ impl Parser {
                 let name = name.clone();
                 let start_span = span;
                 self.advance();
-                
+
                 // Check if it's an enum variant: Name::Variant or Name::Variant(data)
-                if self.check_symbol(':') && self.position + 1 < self.tokens.len() 
-                    && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':')) {
+                if self.check_symbol(':')
+                    && self.position + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
+                {
                     self.advance(); // consume first ':'
                     self.advance(); // consume second ':'
-                    
-                    let (variant_name, _) = self.consume_identifier("Expected variant name after '::")?;
-                    
+
+                    let (variant_name, _) =
+                        self.consume_identifier("Expected variant name after '::")?;
+
                     // Check for tuple variant data
                     let data = if self.check_symbol('(') {
                         self.advance(); // consume '('
-                        
+
                         let mut args = Vec::new();
                         if !self.check_symbol(')') {
                             loop {
@@ -356,13 +361,14 @@ impl Parser {
                                 self.advance(); // consume ','
                             }
                         }
-                        
-                        let _end_span = self.consume_symbol(')', "Expected ')' after variant data")?;
+
+                        let _end_span =
+                            self.consume_symbol(')', "Expected ')' after variant data")?;
                         Some(args)
                     } else {
                         None
                     };
-                    
+
                     return Ok(Expression {
                         span: crate::span::span_union(start_span, self.current().span),
                         kind: ExpressionKind::EnumVariant {
@@ -372,47 +378,56 @@ impl Parser {
                         },
                     });
                 }
-                
+
                 // Check if it's a struct literal: Name { fields }
                 // Only if followed by { and then identifier:value pattern
                 if self.check_symbol('{') {
                     // Lookahead: after '{', should see identifier followed by SINGLE ':'
                     // (not '::' which would be enum variant)
                     let is_struct_literal = if self.position + 1 < self.tokens.len() {
-                        let has_identifier = matches!(self.tokens[self.position + 1].kind, TokenKind::Identifier(_));
+                        let has_identifier = matches!(
+                            self.tokens[self.position + 1].kind,
+                            TokenKind::Identifier(_)
+                        );
                         let has_colon = self.position + 2 < self.tokens.len()
-                            && matches!(self.tokens[self.position + 2].kind, TokenKind::Symbol(':'));
+                            && matches!(
+                                self.tokens[self.position + 2].kind,
+                                TokenKind::Symbol(':')
+                            );
                         // Make sure it's NOT followed by another colon (::)
                         let not_double_colon = self.position + 3 >= self.tokens.len()
-                            || !matches!(self.tokens[self.position + 3].kind, TokenKind::Symbol(':'));
+                            || !matches!(
+                                self.tokens[self.position + 3].kind,
+                                TokenKind::Symbol(':')
+                            );
                         has_identifier && has_colon && not_double_colon
                     } else {
                         false
                     };
-                    
+
                     if is_struct_literal {
                         self.advance(); // consume '{'
-                        
+
                         let mut fields = Vec::new();
-                        
+
                         // Parse fields
                         while !self.check_symbol('}') && !self.is_at_end() {
                             // Parse: field_name: value
                             let (field_name, _) = self.consume_identifier("Expected field name")?;
                             self.consume_symbol(':', "Expected ':' after field name")?;
                             let field_value = self.parse_expression()?;
-                            
+
                             fields.push((field_name, field_value));
-                            
+
                             // Optional comma
                             if self.check_symbol(',') {
                                 self.advance();
                             }
                         }
-                        
+
                         let end_span = self.current().span;
                         self.consume_symbol('}', "Expected '}' to end struct literal")?;
-                        
+
                         Ok(Expression {
                             span: crate::span::span_union(start_span, end_span),
                             kind: ExpressionKind::StructLiteral { name, fields },
@@ -450,7 +465,7 @@ impl Parser {
             }
             TokenKind::Symbol('(') => {
                 self.advance(); // consume '('
-                
+
                 // Check for empty tuple ()
                 if self.check_symbol(')') {
                     let end_span = self.current().span;
@@ -461,27 +476,27 @@ impl Parser {
                         kind: ExpressionKind::TupleLiteral { elements: vec![] },
                     });
                 }
-                
+
                 let first_expr = self.parse_expression()?;
-                
+
                 // If followed by comma, it's a tuple
                 if self.check_symbol(',') {
                     let mut elements = vec![first_expr];
-                    
+
                     while self.check_symbol(',') {
                         self.advance(); // consume ','
-                        
+
                         // Allow trailing comma before ')'
                         if self.check_symbol(')') {
                             break;
                         }
-                        
+
                         elements.push(self.parse_expression()?);
                     }
-                    
+
                     let end_span = self.consume_symbol(')', "Expected ')' after tuple elements")?;
                     let span = crate::span::span_union(span, end_span);
-                    
+
                     Ok(Expression {
                         span,
                         kind: ExpressionKind::TupleLiteral { elements },
@@ -498,7 +513,7 @@ impl Parser {
             TokenKind::Symbol('[') => {
                 self.advance(); // consume '['
                 let mut elements = Vec::new();
-                
+
                 if !self.check_symbol(']') {
                     loop {
                         elements.push(self.parse_expression()?);
@@ -508,10 +523,10 @@ impl Parser {
                         self.advance(); // consume ','
                     }
                 }
-                
+
                 let end_span = self.consume_symbol(']', "Expected ']' after array elements")?;
                 let span = crate::span::span_union(span, end_span);
-                
+
                 Ok(Expression {
                     span,
                     kind: ExpressionKind::ArrayLiteral { elements },
@@ -599,32 +614,35 @@ impl Parser {
 
     fn parse_match_expression(&mut self) -> Result<Expression, ()> {
         use crate::ast::MatchArm;
-        
+
         let start_span = self.consume_keyword(Keyword::Match, "Expected 'match'")?;
         let scrutinee = Box::new(self.parse_expression()?);
-        
+
         // Expect '{'
         self.consume_symbol('{', "Expected '{' after match scrutinee")?;
-        
+
         let mut arms = Vec::new();
-        
+
         // Parse match arms
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse pattern
             let pattern = self.parse_pattern()?;
-            
+
             // Expect '=>' operator
-            if !matches!(self.current().kind, TokenKind::Operator(crate::token::Operator::FatArrow)) {
+            if !matches!(
+                self.current().kind,
+                TokenKind::Operator(crate::token::Operator::FatArrow)
+            ) {
                 self.error("Expected '=>' after pattern in match arm");
                 return Err(());
             }
             self.advance(); // consume '=>'
-            
+
             // Parse body expression
             let body = self.parse_expression()?;
-            
+
             arms.push(MatchArm { pattern, body });
-            
+
             // Optional comma, or break if we see '}'
             if self.check_symbol(',') {
                 self.advance();
@@ -632,9 +650,9 @@ impl Parser {
                 break; // End of match arms
             }
         }
-        
+
         let end_span = self.consume_symbol('}', "Expected '}' to end match")?;
-        
+
         Ok(Expression {
             span: crate::span::span_union(start_span, end_span),
             kind: ExpressionKind::Match { scrutinee, arms },
@@ -643,31 +661,32 @@ impl Parser {
 
     fn parse_pattern(&mut self) -> Result<crate::ast::Pattern, ()> {
         use crate::ast::Pattern;
-        
+
         // Wildcard pattern: _
         if self.check_symbol('_') {
             self.advance();
             return Ok(Pattern::Wildcard);
         }
-        
+
         // Check for enum variant pattern: EnumName::VariantName
         if let TokenKind::Identifier(name) = &self.current().kind {
             let first_name = name.clone();
             self.advance();
-            
+
             // Check for ::
-            if self.check_symbol(':') && self.position + 1 < self.tokens.len()
+            if self.check_symbol(':')
+                && self.position + 1 < self.tokens.len()
                 && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
             {
                 self.advance(); // consume first ':'
                 self.advance(); // consume second ':'
-                
+
                 let (variant_name, _) = self.consume_identifier("Expected variant name")?;
-                
+
                 // Check for data patterns: (pattern, pattern, ...)
                 let data = if self.check_symbol('(') {
                     self.advance(); // consume '('
-                    
+
                     let mut patterns = Vec::new();
                     if !self.check_symbol(')') {
                         loop {
@@ -678,24 +697,24 @@ impl Parser {
                             self.advance(); // consume ','
                         }
                     }
-                    
+
                     self.consume_symbol(')', "Expected ')' after variant data patterns")?;
                     Some(patterns)
                 } else {
                     None
                 };
-                
+
                 return Ok(Pattern::EnumVariant {
                     enum_name: first_name,
                     variant_name,
                     data,
                 });
             }
-            
+
             // Just an identifier pattern (binding)
             return Ok(Pattern::Identifier(first_name));
         }
-        
+
         // Literal patterns (números, booleanos, etc.)
         let expr = self.parse_primary_expression()?;
         Ok(Pattern::Literal(expr))

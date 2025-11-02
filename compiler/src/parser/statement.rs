@@ -55,12 +55,12 @@ impl Parser {
             _ => {
                 // Try to parse as assignment or expression statement
                 let expr = self.parse_expression()?;
-                
+
                 // Check if followed by '='
                 if self.check_symbol('=') {
                     // This is an assignment
                     self.advance(); // consume '='
-                    
+
                     // Convert expression to LValue
                     let (target, target_span) = match expr.kind {
                         crate::ast::ExpressionKind::Identifier(name) => {
@@ -74,10 +74,10 @@ impl Parser {
                             return Err(());
                         }
                     };
-                    
+
                     let value = self.parse_expression()?;
                     self.consume_symbol(';', "Expected ';' after assignment")?;
-                    
+
                     StatementKind::Assignment(crate::ast::AssignmentStatement {
                         target,
                         target_span,
@@ -85,7 +85,7 @@ impl Parser {
                     })
                 } else {
                     // Expression statement
-                    
+
                     // Only require semicolon if the expression is not a block-ending structure
                     // or if this is not the last expression in a block (next token is not '}')
                     let requires_semicolon = !matches!(

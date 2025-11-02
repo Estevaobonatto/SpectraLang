@@ -64,7 +64,8 @@ impl ASTLowering {
                         (field.name.clone(), field_type)
                     })
                     .collect();
-                self.struct_definitions.insert(struct_def.name.clone(), fields);
+                self.struct_definitions
+                    .insert(struct_def.name.clone(), fields);
             } else if let Item::Enum(enum_def) = item {
                 let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
                     .variants
@@ -72,12 +73,16 @@ impl ASTLowering {
                     .enumerate()
                     .map(|(tag, variant)| {
                         let data_types = variant.data.as_ref().map(|types| {
-                            types.iter().map(|ty| self.lower_type_annotation(ty)).collect()
+                            types
+                                .iter()
+                                .map(|ty| self.lower_type_annotation(ty))
+                                .collect()
                         });
                         (variant.name.clone(), tag, data_types)
                     })
                     .collect();
-                self.enum_definitions.insert(enum_def.name.clone(), variants);
+                self.enum_definitions
+                    .insert(enum_def.name.clone(), variants);
             }
         }
 
@@ -182,7 +187,7 @@ impl ASTLowering {
 
         // Lower function body
         self.current_function = Some(ir_func.clone());
-        
+
         // Check if last statement is an expression (implicit return)
         let mut implicit_return_value = None;
         if let Some(last_stmt) = ast_func.body.statements.last() {
@@ -293,14 +298,15 @@ impl ASTLowering {
             StatementKind::Let(let_stmt) => {
                 if let Some(ref value_expr) = let_stmt.value {
                     let value = self.lower_expression(value_expr, ir_func);
-                    
+
                     // Check if this is an array literal - store pointer in array_map
                     if matches!(value_expr.kind, ExpressionKind::ArrayLiteral { .. }) {
                         self.array_map.insert(let_stmt.name.clone(), value);
                     }
                     // Check if this is a struct literal - store pointer + name in struct_var_map
                     else if let ExpressionKind::StructLiteral { name, .. } = &value_expr.kind {
-                        self.struct_var_map.insert(let_stmt.name.clone(), (value, name.clone()));
+                        self.struct_var_map
+                            .insert(let_stmt.name.clone(), (value, name.clone()));
                     }
                     // If variable will be assigned later, store to allocated memory
                     else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
@@ -313,7 +319,7 @@ impl ASTLowering {
             }
             StatementKind::Assignment(assign) => {
                 let value = self.lower_expression(&assign.value, ir_func);
-                
+
                 match &assign.target {
                     spectra_compiler::ast::LValue::Identifier(name) => {
                         // Assignment to simple variable (uses memory)
@@ -328,7 +334,7 @@ impl ASTLowering {
                         // Assignment to array element
                         let array_ptr = self.lower_expression(array, ir_func);
                         let index_value = self.lower_expression(index, ir_func);
-                        
+
                         // Calcular endereço do elemento
                         let elem_type = IRType::Int; // Assumir int por enquanto
                         let elem_ptr = self.builder.build_getelementptr(
@@ -337,7 +343,7 @@ impl ASTLowering {
                             index_value,
                             elem_type,
                         );
-                        
+
                         // Store valor no elemento
                         self.builder.build_store(ir_func, elem_ptr, value);
                     }
@@ -823,18 +829,18 @@ impl ASTLowering {
                     // Array vazio - retornar um valor placeholder
                     return ir_func.next_value();
                 }
-                
+
                 // Determinar o tipo do elemento (assume todos são do mesmo tipo)
                 // Por simplicidade, vamos usar Int como padrão
                 let elem_type = IRType::Int;
-                
+
                 // Alocar espaço para o array no stack (tipo Array com tamanho)
                 let array_type = IRType::Array {
                     element_type: Box::new(elem_type.clone()),
                     size,
                 };
                 let array_ptr = self.builder.build_alloca(ir_func, array_type);
-                
+
                 // Inicializar cada elemento
                 for (i, elem_expr) in elements.iter().enumerate() {
                     let elem_value = self.lower_expression(elem_expr, ir_func);
@@ -847,27 +853,24 @@ impl ASTLowering {
                     );
                     self.builder.build_store(ir_func, elem_ptr, elem_value);
                 }
-                
+
                 // Retornar o ponteiro para o array
                 array_ptr
             }
             ExpressionKind::IndexAccess { array, index } => {
                 // Avaliar a expressão do array
                 let array_ptr = self.lower_expression(array, ir_func);
-                
+
                 // Avaliar o índice
                 let index_value = self.lower_expression(index, ir_func);
-                
+
                 // Calcular o endereço do elemento
                 // Por simplicidade, assumir tipo Int
                 let elem_type = IRType::Int;
-                let elem_ptr = self.builder.build_getelementptr(
-                    ir_func,
-                    array_ptr,
-                    index_value,
-                    elem_type,
-                );
-                
+                let elem_ptr =
+                    self.builder
+                        .build_getelementptr(ir_func, array_ptr, index_value, elem_type);
+
                 // Carregar o valor do elemento
                 self.builder.build_load(ir_func, elem_ptr)
             }
@@ -878,19 +881,19 @@ impl ASTLowering {
                     // Tuple vazia - retornar um valor placeholder
                     return ir_func.next_value();
                 }
-                
+
                 // Determinar os tipos dos elementos usando inferência
                 let elem_types: Vec<IRType> = elements
                     .iter()
                     .map(|e| self.infer_expr_ir_type(e))
                     .collect();
-                
+
                 // Alocar espaço para a tuple no stack
                 let tuple_type = IRType::Tuple {
                     elements: elem_types.clone(),
                 };
                 let tuple_ptr = self.builder.build_alloca(ir_func, tuple_type);
-                
+
                 // Inicializar cada elemento
                 for (i, elem_expr) in elements.iter().enumerate() {
                     let elem_value = self.lower_expression(elem_expr, ir_func);
@@ -903,17 +906,17 @@ impl ASTLowering {
                     );
                     self.builder.build_store(ir_func, elem_ptr, elem_value);
                 }
-                
+
                 // Retornar o ponteiro para a tuple
                 tuple_ptr
             }
             ExpressionKind::TupleAccess { tuple, index } => {
                 // Avaliar a expressão da tuple
                 let tuple_ptr = self.lower_expression(tuple, ir_func);
-                
+
                 // Calcular o endereço do elemento usando o índice constante
                 let index_value = self.builder.build_const_int(ir_func, *index as i64);
-                
+
                 // Inferir o tipo do elemento da tuple
                 let elem_type = if let ExpressionKind::TupleLiteral { elements } = &tuple.kind {
                     // Se é um literal, inferir diretamente
@@ -931,42 +934,40 @@ impl ASTLowering {
                         _ => IRType::Int, // Fallback
                     }
                 };
-                
-                let elem_ptr = self.builder.build_getelementptr(
-                    ir_func,
-                    tuple_ptr,
-                    index_value,
-                    elem_type,
-                );
-                
+
+                let elem_ptr =
+                    self.builder
+                        .build_getelementptr(ir_func, tuple_ptr, index_value, elem_type);
+
                 // Carregar o valor do elemento
                 self.builder.build_load(ir_func, elem_ptr)
             }
             ExpressionKind::StructLiteral { name, fields } => {
                 // Buscar definição do struct
                 let struct_fields = self.struct_definitions.get(name).cloned();
-                
+
                 if let Some(field_defs) = struct_fields {
                     // Criar tipo struct
                     let struct_type = IRType::Struct {
                         name: name.clone(),
                         fields: field_defs.clone(),
                     };
-                    
+
                     // Alocar espaço para o struct no stack
                     let struct_ptr = self.builder.build_alloca(ir_func, struct_type);
-                    
+
                     // Inicializar cada campo
                     for (field_idx, (field_name, field_expr)) in fields.iter().enumerate() {
                         // Lower da expressão do campo
                         let field_value = self.lower_expression(field_expr, ir_func);
-                        
+
                         // Obter tipo do campo
-                        let field_type = field_defs.iter()
+                        let field_type = field_defs
+                            .iter()
                             .find(|(name, _)| name == field_name)
                             .map(|(_, ty)| ty.clone())
                             .unwrap_or(IRType::Int);
-                        
+
                         // GEP para o campo
                         let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
                         let field_ptr = self.builder.build_getelementptr(
@@ -975,11 +976,11 @@ impl ASTLowering {
                             index_value,
                             field_type,
                         );
-                        
+
                         // Store do valor
                         self.builder.build_store(ir_func, field_ptr, field_value);
                     }
-                    
+
                     // Retornar ponteiro para o struct
                     struct_ptr
                 } else {
@@ -1000,14 +1001,15 @@ impl ASTLowering {
                                 .find(|(_, (fname, _))| fname == field)
                             {
                                 // GEP para o campo
-                                let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                                let index_value =
+                                    self.builder.build_const_int(ir_func, field_idx as i64);
                                 let field_ptr = self.builder.build_getelementptr(
                                     ir_func,
                                     *struct_ptr,
                                     index_value,
                                     field_type.clone(),
                                 );
-                                
+
                                 // Load do campo
                                 return self.builder.build_load(ir_func, field_ptr);
                             }
@@ -1025,63 +1027,67 @@ impl ASTLowering {
                             .find(|(_, (fname, _))| fname == field)
                         {
                             // GEP para o campo
-                            let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                            let index_value =
+                                self.builder.build_const_int(ir_func, field_idx as i64);
                             let field_ptr = self.builder.build_getelementptr(
                                 ir_func,
                                 object_ptr,
                                 index_value,
                                 field_type.clone(),
                             );
-                            
+
                             // Load do campo
                             return self.builder.build_load(ir_func, field_ptr);
                         }
                     }
                 }
-                
+
                 // Se não conseguimos determinar, retornar placeholder
                 ir_func.next_value()
             }
-            ExpressionKind::EnumVariant { enum_name, variant_name, data } => {
+            ExpressionKind::EnumVariant {
+                enum_name,
+                variant_name,
+                data,
+            } => {
                 // Buscar definição do enum (clonar para evitar borrow issues)
                 let variants_opt = self.enum_definitions.get(enum_name).cloned();
-                
+
                 if let Some(variants) = variants_opt {
                     // Encontrar o variant
-                    if let Some((_, tag, variant_data_types)) = variants
-                        .iter()
-                        .find(|(name, _, _)| name == variant_name)
+                    if let Some((_, tag, variant_data_types)) =
+                        variants.iter().find(|(name, _, _)| name == variant_name)
                     {
                         // Se é unit variant, retornar apenas o tag
                         if variant_data_types.is_none() {
                             return self.builder.build_const_int(ir_func, *tag as i64);
                         }
-                        
+
                         // Se é tuple variant, criar tupla (tag, data...)
                         if let Some(data_exprs) = data {
                             let mut elements = Vec::new();
-                            
+
                             // Primeiro elemento: tag
                             elements.push(self.builder.build_const_int(ir_func, *tag as i64));
-                            
+
                             // Demais elementos: dados do variant
                             for data_expr in data_exprs {
                                 elements.push(self.lower_expression(data_expr, ir_func));
                             }
-                            
+
                             // Criar tipos da tupla
                             let mut element_types = vec![IRType::Int];
                             if let Some(data_types) = variant_data_types {
                                 element_types.extend(data_types.clone());
                             }
-                            
+
                             let tuple_type = IRType::Tuple {
                                 elements: element_types.clone(),
                             };
-                            
+
                             // Alocar tupla no stack
                             let tuple_ptr = self.builder.build_alloca(ir_func, tuple_type.clone());
-                            
+
                             // Store cada elemento
                             for (idx, elem_value) in elements.iter().enumerate() {
                                 let index_value = self.builder.build_const_int(ir_func, idx as i64);
@@ -1093,58 +1099,55 @@ impl ASTLowering {
                                 );
                                 self.builder.build_store(ir_func, elem_ptr, *elem_value);
                             }
-                            
+
                             return tuple_ptr;
                         }
-                        
+
                         // Variant com dados mas sem argumentos fornecidos - erro
                         return self.builder.build_const_int(ir_func, *tag as i64);
                     }
                 }
-                
+
                 // Enum ou variant não encontrado
                 ir_func.next_value()
             }
             ExpressionKind::Match { scrutinee, arms } => {
                 // Lower do valor sendo matcheado
                 let scrutinee_value = self.lower_expression(scrutinee, ir_func);
-                
+
                 // Criar blocos para cada arm e um bloco de saída
                 let exit_block = ir_func.add_block("match_exit");
                 let mut arm_check_blocks = Vec::new();
                 let mut arm_body_blocks = Vec::new();
-                
+
                 // Criar blocos para cada arm: um para checar pattern, outro para executar body
                 for (idx, _) in arms.iter().enumerate() {
                     arm_check_blocks.push(ir_func.add_block(&format!("match_check_{}", idx)));
                     arm_body_blocks.push(ir_func.add_block(&format!("match_body_{}", idx)));
                 }
-                
+
                 // Variável para armazenar resultado do match
                 let result_type = IRType::Int; // Simplificado por enquanto
                 let result_alloca = self.builder.build_alloca(ir_func, result_type.clone());
-                
+
                 // Do bloco atual, fazer branch para o primeiro check
                 self.builder.build_branch(ir_func, arm_check_blocks[0]);
-                
+
                 // Processar cada arm
                 for (idx, arm) in arms.iter().enumerate() {
                     // Bloco de checagem do pattern
                     self.builder.set_current_block(arm_check_blocks[idx]);
-                    
-                    let pattern_matches = self.lower_pattern_check(
-                        &arm.pattern,
-                        scrutinee_value,
-                        ir_func,
-                    );
-                    
+
+                    let pattern_matches =
+                        self.lower_pattern_check(&arm.pattern, scrutinee_value, ir_func);
+
                     // Próximo bloco: ou próximo arm, ou exit se não houver mais arms
                     let next_check = if idx + 1 < arms.len() {
                         arm_check_blocks[idx + 1]
                     } else {
                         exit_block
                     };
-                    
+
                     // Se pattern match, ir para body; senão, próximo check
                     self.builder.build_cond_branch(
                         ir_func,
@@ -1152,28 +1155,33 @@ impl ASTLowering {
                         arm_body_blocks[idx],
                         next_check,
                     );
-                    
+
                     // Bloco de execução do body
                     self.builder.set_current_block(arm_body_blocks[idx]);
-                    
+
                     // Fazer bindings do pattern antes de executar body
                     self.lower_pattern_bindings(&arm.pattern, scrutinee_value, ir_func);
-                    
+
                     let body_value = self.lower_expression(&arm.body, ir_func);
                     self.builder.build_store(ir_func, result_alloca, body_value);
                     self.builder.build_branch(ir_func, exit_block);
                 }
-                
+
                 // Bloco de saída
                 self.builder.set_current_block(exit_block);
                 self.builder.build_load(ir_func, result_alloca)
             }
-            ExpressionKind::MethodCall { object, method_name, arguments, type_name } => {
+            ExpressionKind::MethodCall {
+                object,
+                method_name,
+                arguments,
+                type_name,
+            } => {
                 // Lower method call to function call: obj.method(args) -> Type_method(obj, args)
-                
+
                 // 1. Lower o objeto (self será o primeiro argumento)
                 let obj_value = self.lower_expression(object, ir_func);
-                
+
                 // 2. Determinar o tipo do objeto
                 let obj_type_name = if let Some(name) = type_name {
                     // Tipo já foi preenchido pelo semantic analyzer
@@ -1185,11 +1193,11 @@ impl ASTLowering {
                         // Buscar na tabela de valores para descobrir o tipo
                         // Por enquanto, não temos acesso ao tipo - usar heurística
                         // Se obj_value é um struct, o nome do tipo está no IR
-                        
+
                         // Fallback: tentar extrair do nome do valor no IR
                         // Isso não é ideal mas funciona para casos simples
                         // TODO: Passar tipo explicitamente do semantic analyzer
-                        
+
                         // Por enquanto, retornar valor dummy
                         // O semantic analyzer deveria ter preenchido type_name
                         return self.builder.build_const_int(ir_func, 0);
@@ -1198,20 +1206,21 @@ impl ASTLowering {
                         return self.builder.build_const_int(ir_func, 0);
                     }
                 };
-                
+
                 // 3. Construir nome da função: Type_method
                 let function_name = format!("{}_{}", obj_type_name, method_name);
-                
+
                 // 4. Lower argumentos
                 let mut call_args = vec![obj_value]; // self é o primeiro argumento
                 for arg in arguments {
                     let arg_value = self.lower_expression(arg, ir_func);
                     call_args.push(arg_value);
                 }
-                
+
                 // 5. Fazer a chamada de função
                 // Assumir que retorna algo (se for void, será ignorado depois)
-                self.builder.build_call(ir_func, function_name, call_args, true)
+                self.builder
+                    .build_call(ir_func, function_name, call_args, true)
                     .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
         }
@@ -1224,7 +1233,7 @@ impl ASTLowering {
         ir_func: &mut IRFunction,
     ) -> Value {
         use spectra_compiler::ast::Pattern;
-        
+
         match pattern {
             Pattern::Wildcard => {
                 // Wildcard sempre match
@@ -1247,14 +1256,16 @@ impl ASTLowering {
                 // Buscar tag do variant
                 let variants_opt = self.enum_definitions.get(enum_name).cloned();
                 if let Some(variants) = variants_opt {
-                    if let Some((_, expected_tag, variant_types)) = variants
-                        .iter()
-                        .find(|(name, _, _)| name == variant_name)
+                    if let Some((_, expected_tag, variant_types)) =
+                        variants.iter().find(|(name, _, _)| name == variant_name)
                     {
                         // Para unit variant, comparar diretamente o tag
                         if variant_types.is_none() {
-                            let expected_tag_value = self.builder.build_const_int(ir_func, *expected_tag as i64);
-                            return self.builder.build_eq(ir_func, scrutinee, expected_tag_value);
+                            let expected_tag_value =
+                                self.builder.build_const_int(ir_func, *expected_tag as i64);
+                            return self
+                                .builder
+                                .build_eq(ir_func, scrutinee, expected_tag_value);
                         } else {
                             // Para tuple variant, extrair tag (primeiro elemento da tuple)
                             let zero_index = self.builder.build_const_int(ir_func, 0);
@@ -1265,8 +1276,11 @@ impl ASTLowering {
                                 IRType::Int,
                             );
                             let tag_value = self.builder.build_load(ir_func, tag_ptr);
-                            let expected_tag_value = self.builder.build_const_int(ir_func, *expected_tag as i64);
-                            return self.builder.build_eq(ir_func, tag_value, expected_tag_value);
+                            let expected_tag_value =
+                                self.builder.build_const_int(ir_func, *expected_tag as i64);
+                            return self
+                                .builder
+                                .build_eq(ir_func, tag_value, expected_tag_value);
                         }
                     }
                 }
@@ -1284,7 +1298,7 @@ impl ASTLowering {
         ir_func: &mut IRFunction,
     ) {
         use spectra_compiler::ast::Pattern;
-        
+
         match pattern {
             Pattern::Wildcard => {
                 // Wildcard não cria bindings
@@ -1306,26 +1320,31 @@ impl ASTLowering {
                 if let Some(patterns) = data {
                     let variants_opt = self.enum_definitions.get(enum_name).cloned();
                     if let Some(variants) = variants_opt {
-                        if let Some((_, _tag, variant_types)) = variants
-                            .iter()
-                            .find(|(name, _, _)| name == variant_name)
+                        if let Some((_, _tag, variant_types)) =
+                            variants.iter().find(|(name, _, _)| name == variant_name)
                         {
                             if let Some(types) = variant_types {
                                 // Para cada pattern de data, extrair o valor correspondente
                                 for (idx, sub_pattern) in patterns.iter().enumerate() {
                                     if idx < types.len() {
                                         // Extrair elemento idx+1 da tuple (idx 0 é o tag)
-                                        let index_value = self.builder.build_const_int(ir_func, (idx + 1) as i64);
+                                        let index_value =
+                                            self.builder.build_const_int(ir_func, (idx + 1) as i64);
                                         let element_ptr = self.builder.build_getelementptr(
                                             ir_func,
                                             scrutinee,
                                             index_value,
                                             types[idx].clone(),
                                         );
-                                        let element_value = self.builder.build_load(ir_func, element_ptr);
-                                        
+                                        let element_value =
+                                            self.builder.build_load(ir_func, element_ptr);
+
                                         // Recursivamente fazer binding do sub-pattern
-                                        self.lower_pattern_bindings(sub_pattern, element_value, ir_func);
+                                        self.lower_pattern_bindings(
+                                            sub_pattern,
+                                            element_value,
+                                            ir_func,
+                                        );
                                     }
                                 }
                             }
@@ -1338,13 +1357,13 @@ impl ASTLowering {
 
     fn lower_type_annotation(&self, type_ann: &TypeAnnotation) -> IRType {
         use spectra_compiler::ast::TypeAnnotationKind;
-        
+
         match &type_ann.kind {
             TypeAnnotationKind::Simple { segments } => {
                 if segments.is_empty() {
                     return IRType::Void;
                 }
-                
+
                 match segments[0].as_str() {
                     "int" => IRType::Int,
                     "float" => IRType::Float,
@@ -1359,7 +1378,9 @@ impl ASTLowering {
                     .iter()
                     .map(|elem_ann| self.lower_type_annotation(elem_ann))
                     .collect();
-                IRType::Tuple { elements: ir_elements }
+                IRType::Tuple {
+                    elements: ir_elements,
+                }
             }
         }
     }
@@ -1384,7 +1405,9 @@ impl ASTLowering {
                     .iter()
                     .map(|elem_type| self.lower_type(elem_type))
                     .collect();
-                IRType::Tuple { elements: ir_elements }
+                IRType::Tuple {
+                    elements: ir_elements,
+                }
             }
             ASTType::Struct { name: _ } => {
                 // Structs são representados como ponteiros

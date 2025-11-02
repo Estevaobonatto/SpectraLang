@@ -307,13 +307,13 @@ pub struct MatchArm {
 pub enum Pattern {
     // Wildcard pattern: _
     Wildcard,
-    
+
     // Literal patterns: 42, true, "hello"
     Literal(Expression),
-    
+
     // Identifier pattern: x (binds value)
     Identifier(String),
-    
+
     // Enum variant patterns: Option::Some(x), Color::Red
     EnumVariant {
         enum_name: String,
@@ -388,8 +388,9 @@ pub struct SwitchCase {
 /// Bloco de implementação para adicionar métodos a um tipo
 #[derive(Debug, Clone)]
 pub struct ImplBlock {
-    pub type_name: String,           // Nome do tipo (struct ou enum)
-    pub methods: Vec<Method>,        // Métodos implementados
+    pub type_name: String,          // Nome do tipo (struct ou enum)
+    pub trait_name: Option<String>, // Nome do trait (se for impl Trait for Type)
+    pub methods: Vec<Method>,       // Métodos implementados
     pub span: Span,
 }
 
@@ -397,7 +398,7 @@ pub struct ImplBlock {
 #[derive(Debug, Clone)]
 pub struct Method {
     pub name: String,
-    pub params: Vec<Parameter>,      // Parâmetros (incluindo self, se presente)
+    pub params: Vec<Parameter>, // Parâmetros (incluindo self, se presente)
     pub return_type: Option<TypeAnnotation>,
     pub body: Block,
     pub span: Span,
@@ -408,9 +409,9 @@ pub struct Method {
 pub struct Parameter {
     pub name: String,
     pub type_annotation: Option<TypeAnnotation>,
-    pub is_self: bool,               // true se for self/&self/&mut self
-    pub is_reference: bool,          // true se for &self ou &mut self
-    pub is_mutable: bool,            // true se for &mut self
+    pub is_self: bool,      // true se for self/&self/&mut self
+    pub is_reference: bool, // true se for &self ou &mut self
+    pub is_mutable: bool,   // true se for &mut self
     pub span: Span,
 }
 
@@ -422,7 +423,7 @@ pub struct Parameter {
 #[derive(Debug, Clone)]
 pub struct TraitDeclaration {
     pub name: String,
-    pub methods: Vec<TraitMethod>,   // Assinaturas de métodos (sem corpo)
+    pub methods: Vec<TraitMethod>, // Assinaturas de métodos (sem corpo)
     pub span: Span,
 }
 
@@ -430,7 +431,7 @@ pub struct TraitDeclaration {
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
     pub name: String,
-    pub params: Vec<Parameter>,      // Parâmetros (incluindo self)
+    pub params: Vec<Parameter>, // Parâmetros (incluindo self)
     pub return_type: Option<TypeAnnotation>,
     pub span: Span,
 }
@@ -438,8 +439,8 @@ pub struct TraitMethod {
 /// Implementação de trait para um tipo: impl TraitName for TypeName
 #[derive(Debug, Clone)]
 pub struct TraitImpl {
-    pub trait_name: String,          // Nome do trait
-    pub type_name: String,           // Nome do tipo que implementa o trait
-    pub methods: Vec<Method>,        // Métodos implementados (com corpo)
+    pub trait_name: String,   // Nome do trait
+    pub type_name: String,    // Nome do tipo que implementa o trait
+    pub methods: Vec<Method>, // Métodos implementados (com corpo)
     pub span: Span,
 }

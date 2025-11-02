@@ -1,0 +1,35 @@
+// Teste completo de traits com validação
+module test44;
+
+trait Calculator {
+    fn add(&self, x: int, y: int) -> int;
+    fn multiply(&self, x: int) -> int;
+    fn get_value(&self) -> int;
+}
+
+struct MathEngine {
+    value: int
+}
+
+// Implementação completa e correta
+impl Calculator for MathEngine {
+    fn add(&self, x: int, y: int) -> int {
+        x + y + self.value
+    }
+    
+    fn multiply(&self, x: int) -> int {
+        x * 2
+    }
+    
+    fn get_value(&self) -> int {
+        self.value
+    }
+}
+
+fn main() -> int {
+    let engine = MathEngine { value: 5 };
+    let sum = engine.add(10, 20);        // 35
+    let product = engine.multiply(7);    // 14
+    let val = engine.get_value();        // 5
+    sum + product + val                  // 54
+}

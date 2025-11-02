@@ -1,0 +1,23 @@
+// Teste de trait implementation incompleta - deve falhar
+module test_trait_incomplete;
+
+trait Calculator {
+    fn add(&self, x: int, y: int) -> int;
+    fn multiply(&self, x: int) -> int;
+}
+
+struct MathEngine {
+    value: int
+}
+
+// Implementação incompleta - falta multiply
+impl Calculator for MathEngine {
+    fn add(&self, x: int, y: int) -> int {
+        x + y
+    }
+    // multiply não implementado!
+}
+
+fn main() -> int {
+    42
+}

@@ -194,7 +194,14 @@ impl CodeGenerator {
 
         // Generate instructions
         for instr in &ir_block.instructions {
-            Self::generate_instruction_static(builder, instr, value_map, stack_slot_map, function_map, module)?;
+            Self::generate_instruction_static(
+                builder,
+                instr,
+                value_map,
+                stack_slot_map,
+                function_map,
+                module,
+            )?;
         }
 
         // Generate terminator
@@ -341,13 +348,13 @@ impl CodeGenerator {
                     size_bytes,
                     alignment,
                 ));
-                
+
                 // ONLY store arrays in stack_slot_map (they need cross-block access)
                 // Regular mutable variables work fine with just value_map
                 if matches!(ty, IRType::Array { .. }) {
                     stack_slot_map.insert(result.id, stack_slot);
                 }
-                
+
                 // For immediate use in the same block, always generate stack_addr
                 let addr = builder.ins().stack_addr(types::I64, stack_slot, 0);
                 value_map.insert(result.id, addr);
@@ -378,20 +385,20 @@ impl CodeGenerator {
                 } else {
                     get_value(ptr)?
                 };
-                
+
                 let index_val = get_value(index)?;
-                
+
                 // Calcular o tamanho do elemento em bytes
                 let elem_size = match element_type {
                     IRType::Int | IRType::Float => 8,
                     IRType::Bool | IRType::Char => 1,
                     _ => 8, // default
                 };
-                
+
                 // offset = index * elem_size
                 let elem_size_val = builder.ins().iconst(types::I64, elem_size);
                 let offset = builder.ins().imul(index_val, elem_size_val);
-                
+
                 // ptr + offset
                 let result_val = builder.ins().iadd(ptr_val, offset);
                 value_map.insert(result.id, result_val);
@@ -562,7 +569,7 @@ impl CodeGenerator {
             IRType::Function { .. } => Ok(types::I64),
         }
     }
-    
+
     /// Get size in bytes of an IR type
     fn type_size_bytes(ty: &IRType) -> usize {
         match ty {
@@ -573,16 +580,20 @@ impl CodeGenerator {
             IRType::Float => 8,
             IRType::String => 8,
             IRType::Pointer(_) => 8,
-            IRType::Array { element_type, size } => {
-                Self::type_size_bytes(element_type) * size
-            }
+            IRType::Array { element_type, size } => Self::type_size_bytes(element_type) * size,
             IRType::Tuple { elements } => {
                 // Soma dos tamanhos de cada elemento (sem padding por enquanto)
-                elements.iter().map(|elem_ty| Self::type_size_bytes(elem_ty)).sum()
+                elements
+                    .iter()
+                    .map(|elem_ty| Self::type_size_bytes(elem_ty))
+                    .sum()
             }
             IRType::Struct { fields, .. } => {
                 // Soma dos tamanhos de cada campo (sem padding por enquanto)
-                fields.iter().map(|(_, field_ty)| Self::type_size_bytes(field_ty)).sum()
+                fields
+                    .iter()
+                    .map(|(_, field_ty)| Self::type_size_bytes(field_ty))
+                    .sum()
             }
             IRType::Enum { variants, .. } => {
                 // Tamanho máximo entre todos os variants (tag + max data)
@@ -590,7 +601,10 @@ impl CodeGenerator {
                     .iter()
                     .map(|(_, data_types)| {
                         if let Some(types) = data_types {
-                            8 + types.iter().map(|ty| Self::type_size_bytes(ty)).sum::<usize>()
+                            8 + types
+                                .iter()
+                                .map(|ty| Self::type_size_bytes(ty))
+                                .sum::<usize>()
                         } else {
                             8 // Apenas o tag
                         }
