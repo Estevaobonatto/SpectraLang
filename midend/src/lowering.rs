@@ -1432,6 +1432,11 @@ impl ASTLowering {
                     IRType::Int
                 }
             }
+            ASTType::TypeParameter { name: _ } => {
+                // Type parameters são resolvidos via monomorphization
+                // Por enquanto, tratar como ponteiro genérico
+                IRType::Pointer(Box::new(IRType::Void))
+            }
         }
     }
 }

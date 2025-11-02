@@ -1,0 +1,26 @@
+// Teste de parsing de generics com trait bounds
+module test45;
+
+// Trait simples para usar como bound
+trait Printable {
+    fn print(&self) -> int;
+}
+
+// Função genérica simples sem bounds
+fn identity<T>(x: T) -> T {
+    return x;
+}
+
+// Função genérica com trait bound
+fn process<T: Printable>(item: T) -> int {
+    return item.print();
+}
+
+// Função genérica com múltiplos type parameters
+fn combine<T, U>(x: T, y: U) -> int {
+    return 42;
+}
+
+fn main() -> int {
+    return 0;
+}

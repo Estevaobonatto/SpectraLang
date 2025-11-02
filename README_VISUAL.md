@@ -25,9 +25,10 @@
 │  Enums               │    ✅    │    ✅    │   ✅    │
 │  Pattern Matching    │    ✅    │    ✅    │   ✅    │
 │  Methods (OOP)       │    ✅    │    ✅    │   ✅    │
+│  Traits (Interfaces) │    ✅    │    ✅    │   ✅    │
 └──────────────────────────────────────────────────────┘
 
-📈 24/28 testes passando (85.71%)
+📈 30/34 testes passando (88.24%)
 ```
 
 ## 🎯 Funcionalidades Implementadas
@@ -127,7 +128,45 @@ fn main() -> int {
 - ✅ Inferência automática de tipos
 - ✅ Lowering para chamadas de função
 
-### 7️⃣ Validação de Operações
+### 7️⃣ Traits (Interfaces)
+```spectra
+trait Printable {
+    fn to_string(&self) -> int;
+    fn debug(&self) -> int;
+}
+
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Printable for Point {
+    fn to_string(&self) -> int {
+        return self.x + self.y;
+    }
+    
+    fn debug(&self) -> int {
+        return self.x * self.y;
+    }
+}
+
+fn main() -> int {
+    let p = Point { x: 10, y: 20 };
+    let str = p.to_string();    // 30
+    let dbg = p.debug();        // 200
+    return str + dbg;           // 230
+}
+```
+
+**Características:**
+- ✅ Declaração: `trait Name { fn method(&self) -> Type; }`
+- ✅ Implementação: `impl Trait for Type { ... }`
+- ✅ Validação completa de assinaturas
+- ✅ Múltiplos traits por tipo
+- ✅ Mensagens de erro específicas
+- ✅ Polimorfismo baseado em traits
+
+### 8️⃣ Validação de Operações
 
 #### Operações Aritméticas (+, -, *, /, %)
 ```
@@ -155,12 +194,14 @@ fn main() -> int {
 ✅ Retorna bool
 ```
 
-### 4️⃣ Validação de Funções
+### 9️⃣ Validação de Funções
 ```
 ✅ Verifica existência
 ✅ Valida número de argumentos
 ✅ Valida tipo de argumentos
 ✅ Infere tipo de retorno
+✅ Valida métodos em structs
+✅ Valida implementações de traits
 ```
 
 ## 📈 Resultados dos Testes

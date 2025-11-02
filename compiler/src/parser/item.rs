@@ -1,7 +1,7 @@
 use crate::{
     ast::{
         Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, TraitDeclaration,
-        TraitMethod, Visibility,
+        TraitMethod, TypeParameter, Visibility,
     },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
@@ -70,10 +70,17 @@ impl Parser {
     }
 
     pub(super) fn parse_function(&mut self, visibility: Visibility) -> Result<Function, ()> {
-        // Expect: fn <name>(<params>) [-> type] { <body> }
+        // Expect: fn <name><T: Trait>(<params>) [-> type] { <body> }
         let start_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword")?;
 
         let (name, _name_span) = self.consume_identifier("Expected function name")?;
+
+        // Parse optional type parameters: <T, U: Trait>
+        let type_params = if self.check_symbol('<') {
+            self.parse_type_parameters()?
+        } else {
+            Vec::new()
+        };
 
         self.consume_symbol('(', "Expected '(' after function name")?;
 
@@ -99,6 +106,7 @@ impl Parser {
             name,
             span: span_union(start_span, end_span),
             visibility,
+            type_params,
             params,
             return_type,
             body,
@@ -412,12 +420,30 @@ impl Parser {
         })
     }
 
-    /// Parse trait declaration: trait Name { fn method(&self) -> Type; }
+    /// Parse trait declaration: trait Name: Parent1, Parent2 { fn method(&self) -> Type; }
     pub(super) fn parse_trait_declaration(&mut self) -> Result<TraitDeclaration, ()> {
-        // Expect: trait <name> { <method signatures> }
+        // Expect: trait <name> [: Parent1 + Parent2] { <method signatures> }
         let start_span = self.consume_keyword(Keyword::Trait, "Expected 'trait' keyword")?;
 
         let (name, _name_span) = self.consume_identifier("Expected trait name")?;
+
+        // Parse optional parent traits: trait A: B, C
+        let mut parent_traits = Vec::new();
+        if self.check_symbol(':') {
+            self.advance(); // consume ':'
+            
+            loop {
+                let (parent_name, _) = self.consume_identifier("Expected parent trait name")?;
+                parent_traits.push(parent_name);
+                
+                // Check for '+' separator
+                if self.check_symbol('+') {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
 
         self.consume_symbol('{', "Expected '{' after trait name")?;
 
@@ -530,6 +556,7 @@ impl Parser {
 
         Ok(TraitDeclaration {
             name,
+            parent_traits,
             methods,
             span: span_union(start_span, end_span),
         })
@@ -657,5 +684,66 @@ impl Parser {
             methods,
             span: span_union(start_span, end_span),
         })
+    }
+
+    /// Parse generic type parameters: <T, U: Trait, V: Trait1 + Trait2>
+    fn parse_type_parameters(&mut self) -> Result<Vec<TypeParameter>, ()> {
+        self.consume_symbol('<', "Expected '<'")?;
+        
+        let mut type_params = Vec::new();
+        
+        // Empty type parameter list
+        if self.check_symbol('>') {
+            self.advance();
+            return Ok(type_params);
+        }
+        
+        loop {
+            let param_start = self.current().span;
+            let (name, _) = self.consume_identifier("Expected type parameter name")?;
+            
+            // Parse optional trait bounds: T: Trait1 + Trait2
+            let mut bounds = Vec::new();
+            if self.check_symbol(':') {
+                self.advance(); // consume ':'
+                
+                // Parse trait bounds separated by '+'
+                loop {
+                    let (trait_name, _) = self.consume_identifier("Expected trait name")?;
+                    bounds.push(trait_name);
+                    
+                    // Check for '+'
+                    if self.check_symbol('+') {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            type_params.push(TypeParameter {
+                name,
+                bounds,
+                span: param_start,
+            });
+            
+            // Check for continuation or end
+            if self.check_symbol(',') {
+                self.advance();
+                // Allow trailing comma
+                if self.check_symbol('>') {
+                    break;
+                }
+            } else if self.check_symbol('>') {
+                break;
+            } else {
+                self.error("Expected ',' or '>' in type parameter list");
+                return Err(());
+            }
+        }
+        
+        self.consume_symbol('>', "Expected '>' to close type parameters")?;
+        
+        Ok(type_params)
     }
 }

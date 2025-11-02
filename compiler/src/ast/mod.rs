@@ -22,6 +22,10 @@ pub enum Type {
     Enum {
         name: String,
     },
+    /// Generic type parameter (e.g., T in fn foo<T>(x: T))
+    TypeParameter {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -69,9 +73,18 @@ pub struct Function {
     pub name: String,
     pub span: Span,
     pub visibility: Visibility,
+    pub type_params: Vec<TypeParameter>, // NEW: Generic type parameters
     pub params: Vec<FunctionParam>,
     pub return_type: Option<TypeAnnotation>,
     pub body: Block,
+}
+
+/// Generic type parameter: T, T: Trait, T: Trait1 + Trait2
+#[derive(Debug, Clone)]
+pub struct TypeParameter {
+    pub name: String,
+    pub bounds: Vec<String>, // Trait bounds (e.g., ["Printable", "Debug"])
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -423,6 +436,7 @@ pub struct Parameter {
 #[derive(Debug, Clone)]
 pub struct TraitDeclaration {
     pub name: String,
+    pub parent_traits: Vec<String>, // NEW: Trait inheritance (e.g., trait Debug: Printable)
     pub methods: Vec<TraitMethod>, // Assinaturas de métodos (sem corpo)
     pub span: Span,
 }
