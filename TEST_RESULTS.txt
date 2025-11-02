@@ -26,5 +26,6 @@ Teste                                  Status Erro
 33_methods_basic.spectra               PASSOU                                                                         
 34_method_simulation.spectra           PASSOU                                                                         
 35_self_field.spectra                  PASSOU                                                                         
+36_struct_with_methods.spectra         PASSOU                                                                         
 
 

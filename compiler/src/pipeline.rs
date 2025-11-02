@@ -65,7 +65,7 @@ impl CompilationPipeline {
 
         // Phase 2: Parsing
         let parser = Parser::new(tokens);
-        let ast = parser.parse().map_err(|errors| {
+        let mut ast = parser.parse().map_err(|errors| {
             errors
                 .into_iter()
                 .map(CompilerError::Parse)
@@ -80,7 +80,7 @@ impl CompilationPipeline {
 
         // Phase 3: Semantic Analysis
         let mut semantic = SemanticAnalyzer::new();
-        let semantic_errors = semantic.analyze_module(&ast);
+        let semantic_errors = semantic.analyze_module(&mut ast);
 
         if !semantic_errors.is_empty() {
             return Err(semantic_errors

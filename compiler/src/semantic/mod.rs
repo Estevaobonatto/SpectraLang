@@ -7,7 +7,7 @@ use crate::{
 };
 use std::collections::HashMap;
 
-pub fn analyze_modules(modules: &[&Module]) -> Result<(), Vec<SemanticError>> {
+pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
 
     for module in modules {
@@ -128,7 +128,7 @@ impl SemanticAnalyzer {
         None
     }
 
-    pub fn analyze_module(&mut self, module: &Module) -> Vec<SemanticError> {
+    pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
         // First pass: collect all function declarations
         for item in &module.items {
             if let Item::Function(func) = item {
@@ -162,6 +162,11 @@ impl SemanticAnalyzer {
         // Second pass: analyze function bodies
         for item in &module.items {
             self.analyze_item(item);
+        }
+
+        // Third pass: fill type information in method calls
+        for item in &mut module.items {
+            self.fill_method_call_types_in_item(item);
         }
 
         // Return collected errors
@@ -572,8 +577,26 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
-            ExpressionKind::MethodCall { object: _, method_name: _, arguments: _, type_name: _ } => {
-                // TODO: Inferir tipo de retorno do método
+            ExpressionKind::MethodCall { object, method_name, arguments: _, type_name: _ } => {
+                // Inferir tipo de retorno do método baseado na assinatura
+                let obj_type = self.infer_expression_type(object);
+                
+                // Extrair nome do tipo
+                let type_name = match &obj_type {
+                    Type::Struct { name } => Some(name.clone()),
+                    Type::Enum { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+                
+                // Buscar assinatura do método
+                if let Some(type_name) = type_name {
+                    if let Some(type_methods) = self.methods.get(&type_name) {
+                        if let Some(signature) = type_methods.get(method_name) {
+                            return signature.return_type.clone();
+                        }
+                    }
+                }
+                
                 Type::Unknown
             }
         }
@@ -938,7 +961,7 @@ impl SemanticAnalyzer {
                     self.pop_scope();
                 }
             }
-            ExpressionKind::MethodCall { object, method_name: _, arguments, type_name: _ } => {
+            ExpressionKind::MethodCall { object, method_name, arguments, type_name: _ } => {
                 // Analisar objeto
                 self.analyze_expression(object);
                 
@@ -947,7 +970,40 @@ impl SemanticAnalyzer {
                     self.analyze_expression(arg);
                 }
                 
-                // TODO: Verificar se método existe para o tipo do objeto
+                // Verificar se método existe para o tipo do objeto
+                let obj_type = self.infer_expression_type(object);
+                
+                // Extrair nome do tipo
+                let type_name = match &obj_type {
+                    Type::Struct { name } => Some(name.clone()),
+                    Type::Enum { name, .. } => Some(name.clone()),
+                    Type::Unknown => None,
+                    _ => {
+                        self.error(
+                            format!("Cannot call method '{}' on type '{:?}'", method_name, obj_type),
+                            expr.span,
+                        );
+                        None
+                    }
+                };
+                
+                // Se conseguimos extrair o tipo, verificar se método existe
+                if let Some(type_name) = type_name {
+                    if let Some(type_methods) = self.methods.get(&type_name) {
+                        if !type_methods.contains_key(method_name) {
+                            self.error(
+                                format!("Method '{}' not found for type '{}'", method_name, type_name),
+                                expr.span,
+                            );
+                        }
+                        // TODO: Validar número e tipos dos argumentos
+                    } else {
+                        self.error(
+                            format!("No methods defined for type '{}'", type_name),
+                            expr.span,
+                        );
+                    }
+                }
             }
         }
     }
@@ -1070,6 +1126,120 @@ impl SemanticAnalyzer {
                 "Match expression with only literal patterns is not exhaustive. Consider adding a wildcard pattern (_).",
                 span,
             );
+        }
+    }
+
+    // Third pass: fill type information in method calls
+    fn fill_method_call_types_in_item(&mut self, item: &mut Item) {
+        match item {
+            Item::Function(func) => {
+                self.fill_method_call_types_in_block(&mut func.body);
+            }
+            Item::Impl(impl_block) => {
+                for method in &mut impl_block.methods {
+                    self.fill_method_call_types_in_block(&mut method.body);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn fill_method_call_types_in_block(&mut self, block: &mut crate::ast::Block) {
+        for stmt in &mut block.statements {
+            self.fill_method_call_types_in_statement(stmt);
+        }
+    }
+
+    fn fill_method_call_types_in_statement(&mut self, stmt: &mut Statement) {
+        use crate::ast::StatementKind;
+        
+        match &mut stmt.kind {
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &mut let_stmt.value {
+                    self.fill_method_call_types_in_expression(value);
+                }
+            }
+            StatementKind::Assignment(assign) => {
+                self.fill_method_call_types_in_expression(&mut assign.value);
+            }
+            StatementKind::While(while_loop) => {
+                self.fill_method_call_types_in_expression(&mut while_loop.condition);
+                self.fill_method_call_types_in_block(&mut while_loop.body);
+            }
+            StatementKind::DoWhile(do_while) => {
+                self.fill_method_call_types_in_block(&mut do_while.body);
+                self.fill_method_call_types_in_expression(&mut do_while.condition);
+            }
+            StatementKind::For(for_loop) => {
+                self.fill_method_call_types_in_expression(&mut for_loop.iterable);
+                self.fill_method_call_types_in_block(&mut for_loop.body);
+            }
+            StatementKind::Loop(loop_stmt) => {
+                self.fill_method_call_types_in_block(&mut loop_stmt.body);
+            }
+            StatementKind::Expression(expr) => {
+                self.fill_method_call_types_in_expression(expr);
+            }
+            StatementKind::Return(ret_stmt) => {
+                if let Some(expr) = &mut ret_stmt.value {
+                    self.fill_method_call_types_in_expression(expr);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn fill_method_call_types_in_expression(&mut self, expr: &mut Expression) {
+        use crate::ast::ExpressionKind;
+        
+        match &mut expr.kind {
+            ExpressionKind::MethodCall { object, method_name, arguments, type_name } => {
+                // Primeiro, processar recursivamente o objeto e argumentos
+                self.fill_method_call_types_in_expression(object);
+                for arg in arguments {
+                    self.fill_method_call_types_in_expression(arg);
+                }
+                
+                // Se type_name ainda não foi preenchido, inferir agora
+                if type_name.is_none() {
+                    let obj_type = self.infer_expression_type(object);
+                    *type_name = match obj_type {
+                        Type::Struct { name } => Some(name),
+                        Type::Enum { name, .. } => Some(name),
+                        _ => None,
+                    };
+                }
+            }
+            ExpressionKind::Call { callee, arguments } => {
+                self.fill_method_call_types_in_expression(callee);
+                for arg in arguments {
+                    self.fill_method_call_types_in_expression(arg);
+                }
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.fill_method_call_types_in_expression(left);
+                self.fill_method_call_types_in_expression(right);
+            }
+            ExpressionKind::Unary { operand, .. } => {
+                self.fill_method_call_types_in_expression(operand);
+            }
+            ExpressionKind::FieldAccess { object, .. } => {
+                self.fill_method_call_types_in_expression(object);
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.fill_method_call_types_in_expression(array);
+                self.fill_method_call_types_in_expression(index);
+            }
+            ExpressionKind::TupleAccess { tuple, .. } => {
+                self.fill_method_call_types_in_expression(tuple);
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.fill_method_call_types_in_expression(scrutinee);
+                for arm in arms {
+                    self.fill_method_call_types_in_expression(&mut arm.body);
+                }
+            }
+            _ => {}
         }
     }
 }
