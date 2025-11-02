@@ -1,9 +1,29 @@
 # SpectraLang - Relatório de Progresso da Implementação
 
-**Data**: 1 de Novembro de 2025  
-**Fase**: Fase 1 - Protótipo do Compilador Básico (EM ANDAMENTO - Arrays Completos)
+**Data**: 2 de Novembro de 2025  
+**Fase**: Fase 1 - Protótipo do Compilador Básico (EM ANDAMENTO - Métodos Completos)
 
 ## ✅ Conquistas Recentes
+
+### 🎉 NOVO: Sistema de Métodos Completo e Funcional
+- ✅ Blocos `impl Type { ... }` para definição de métodos
+- ✅ Chamadas de método com sintaxe OOP: `obj.method(args)`
+- ✅ Parâmetro especial `&self` para acesso ao objeto
+- ✅ Validação completa: existência de método, contagem de argumentos, tipos de argumentos
+- ✅ Inferência automática de tipos via SymbolInfo
+- ✅ Sistema `types_match()` para comparação recursiva de tipos
+- ✅ Análise semântica em 3 passes (collect → analyze → fill types)
+- ✅ Lowering: `obj.method(args)` → `Type_method(obj, args)`
+- ✅ 6 testes passando (33-38) + 2 testes de erro validados
+- ✅ **24/28 testes totais passando (85.71%)**
+
+**Arquitetura de Métodos:**
+- HashMap de métodos: `Type → Method → Signature`
+- SymbolInfo armazena tipos com variáveis
+- AST mutável permite preenchimento de tipos (Pass 3)
+- Validação completa antes de gerar código
+
+**Ver documentação completa**: [`docs/methods-implementation-report.md`](methods-implementation-report.md)
 
 ### 🎉 NOVO: Arrays Completos e Funcionais
 - ✅ Sintaxe de literais de arrays: `[1, 2, 3, 4, 5]`

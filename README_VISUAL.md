@@ -24,7 +24,10 @@
 │  Structs             │    ✅    │    ✅    │   ✅    │
 │  Enums               │    ✅    │    ✅    │   ✅    │
 │  Pattern Matching    │    ✅    │    ✅    │   ✅    │
+│  Methods (OOP)       │    ✅    │    ✅    │   ✅    │
 └──────────────────────────────────────────────────────┘
+
+📈 24/28 testes passando (85.71%)
 ```
 
 ## 🎯 Funcionalidades Implementadas
@@ -92,7 +95,39 @@ let value = match option {
 };
 ```
 
-### 6️⃣ Validação de Operações
+### 6️⃣ Métodos (Programação Orientada a Objetos)
+```spectra
+struct Calculator {
+    value: int
+}
+
+impl Calculator {
+    fn add(&self, x: int, y: int) -> int {
+        return x + y;
+    }
+    
+    fn multiply(&self, x: int) -> int {
+        return x * 2;
+    }
+}
+
+fn main() -> int {
+    let calc = Calculator { value: 0 };
+    let sum = calc.add(5, 3);       // Chamada OOP
+    let product = calc.multiply(7);
+    return sum + product;
+}
+```
+
+**Características:**
+- ✅ Blocos `impl Type { ... }` para definir métodos
+- ✅ Parâmetro especial `&self`
+- ✅ Sintaxe `obj.method(args)`
+- ✅ Validação completa (existência, argumentos, tipos)
+- ✅ Inferência automática de tipos
+- ✅ Lowering para chamadas de função
+
+### 7️⃣ Validação de Operações
 
 #### Operações Aritméticas (+, -, *, /, %)
 ```

@@ -1,0 +1,38 @@
+// Teste de method chaining - chamadas encadeadas
+// obj.method1().method2().method3()
+
+module test39;
+
+struct Builder {
+    value: int
+}
+
+impl Builder {
+    fn set_value(&self, v: int) -> Builder {
+        Builder { value: v }
+    }
+    
+    fn add(&self, x: int) -> Builder {
+        Builder { value: x + 10 }
+    }
+    
+    fn get_value(&self) -> int {
+        42
+    }
+}
+
+fn main() -> int {
+    let b = Builder { value: 0 };
+    
+    // Test 1: Single chain
+    let b2 = b.set_value(10);
+    let result1 = b2.get_value();
+    
+    // Test 2: Double chain
+    let result2 = b.set_value(20).get_value();
+    
+    // Test 3: Triple chain
+    let result3 = b.set_value(5).add(10).get_value();
+    
+    result1 + result2 + result3
+}

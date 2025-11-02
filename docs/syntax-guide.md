@@ -293,15 +293,93 @@ fn helper() {
 }
 ```
 
+## Métodos (Programação Orientada a Objetos)
+
+### Definindo Métodos com `impl`
+
+```spectra
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Point {
+    // Método com self (acessa o objeto)
+    fn get_x(&self) -> int {
+        return 42;
+    }
+    
+    // Método com múltiplos parâmetros
+    fn add(&self, a: int, b: int) -> int {
+        return a + b;
+    }
+}
+```
+
+### Chamando Métodos
+
+```spectra
+fn main() -> int {
+    // Criar instância
+    let p = Point { x: 10, y: 20 };
+    
+    // Chamar método
+    let x = p.get_x();
+    
+    // Método com argumentos
+    let sum = p.add(5, 3);
+    
+    return x;
+}
+```
+
+### Características dos Métodos
+
+- **Parâmetro `&self`**: Primeiro parâmetro especial que representa o objeto
+- **Sintaxe OOP**: Use `objeto.metodo(args)` em vez de `Type_metodo(objeto, args)`
+- **Validação Automática**: 
+  - Verifica se o método existe para o tipo
+  - Valida número de argumentos (descontando `self`)
+  - Valida tipos de argumentos
+- **Inferência de Tipos**: O compilador infere o tipo do objeto automaticamente
+
+### Exemplo Completo: Calculator
+
+```spectra
+struct Calculator {
+    value: int
+}
+
+impl Calculator {
+    fn add(&self, x: int, y: int) -> int {
+        return x + y;
+    }
+    
+    fn multiply(&self, x: int) -> int {
+        return x * 2;
+    }
+}
+
+fn main() -> int {
+    let calc = Calculator { value: 0 };
+    
+    let sum = calc.add(5, 3);       // 8
+    let product = calc.multiply(7);  // 14
+    
+    return sum + product;  // 22
+}
+```
+
 ## Recursos Futuros (Em Desenvolvimento)
 
-- ⏳ `match/case` - Pattern matching
+- ⏳ `match/case` - Pattern matching (80% completo)
+- ⏳ Self field access (`self.x`)
+- ⏳ Method chaining (`obj.m1().m2()`)
+- ⏳ Static methods / Constructors (`Type::new()`)
 - ⏳ `switch/case` - Switch statements
 - ⏳ `loop` - Loop infinito
 - ⏳ `do while` - Loop com condição no final
-- ⏳ Arrays e coleções
-- ⏳ Structs e enums
-- ⏳ Classes e traits
+- ⏳ Traits (interfaces)
 - ⏳ Generics
 - ⏳ Macros
 

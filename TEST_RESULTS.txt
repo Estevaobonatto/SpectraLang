@@ -29,5 +29,8 @@ Teste                                  Status Erro
 36_struct_with_methods.spectra         PASSOU                                                                         
 37_type_inference_debug.spectra        PASSOU                                                                         
 38_method_args_validation.spectra      PASSOU                                                                         
+39_method_chaining.spectra             PASSOU                                                                         
+40_self_field_access.spectra           PASSOU                                                                         
+41_static_constructors.spectra         PASSOU                                                                         
 
 
