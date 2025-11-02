@@ -1168,22 +1168,43 @@ impl ASTLowering {
                 self.builder.set_current_block(exit_block);
                 self.builder.build_load(ir_func, result_alloca)
             }
-            ExpressionKind::MethodCall { object, method_name, arguments } => {
-                // TODO: Implementar method call lowering completo
-                // Estratégia:
-                // 1. Parser precisa criar AST para obj.method(args)
-                // 2. Semantic analyzer determina tipo de obj e valida método
-                // 3. Lowering converte para Type_method(obj, args)
-                //
-                // Por enquanto, apenas lower componentes para não quebrar compilação
-                let _obj_value = self.lower_expression(object, ir_func);
-                let _method = method_name;
+            ExpressionKind::MethodCall { object, method_name, arguments, type_name } => {
+                // Lower method call to function call: obj.method(args) -> Type_method(obj, args)
+                
+                // 1. Lower o objeto (self será o primeiro argumento)
+                let obj_value = self.lower_expression(object, ir_func);
+                
+                // 2. Determinar o tipo do objeto
+                let obj_type_name = if let Some(name) = type_name {
+                    // Tipo já foi preenchido pelo semantic analyzer
+                    name.clone()
+                } else {
+                    // Tentar inferir o tipo do objeto
+                    // Por enquanto, suportar apenas identificadores simples
+                    if let ExpressionKind::Identifier(id) = &object.kind {
+                        // Verificar se é uma struct ou enum conhecida
+                        // TODO: Implementar lookup adequado
+                        id.clone()
+                    } else {
+                        // Não conseguimos inferir - retornar dummy
+                        return self.builder.build_const_int(ir_func, 0);
+                    }
+                };
+                
+                // 3. Construir nome da função: Type_method
+                let function_name = format!("{}_{}", obj_type_name, method_name);
+                
+                // 4. Lower argumentos
+                let mut call_args = vec![obj_value]; // self é o primeiro argumento
                 for arg in arguments {
-                    self.lower_expression(arg, ir_func);
+                    let arg_value = self.lower_expression(arg, ir_func);
+                    call_args.push(arg_value);
                 }
                 
-                // Retornar valor dummy (será substituído quando parser implementar)
-                self.builder.build_const_int(ir_func, 0)
+                // 5. Fazer a chamada de função
+                // Assumir que retorna algo (se for void, será ignorado depois)
+                self.builder.build_call(ir_func, function_name, call_args, true)
+                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
         }
     }

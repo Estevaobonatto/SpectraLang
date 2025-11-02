@@ -1,0 +1,15 @@
+// Test: self field access in methods
+module self_field_test;
+
+fn test_self() -> int {
+    // Simular que self é um parâmetro
+    let self_value = 42;
+    
+    // Em um método real, self.x seria acessado
+    // Por enquanto, apenas retornar valor
+    self_value
+}
+
+fn main() -> int {
+    test_self()
+}

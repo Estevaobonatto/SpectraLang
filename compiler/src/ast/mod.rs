@@ -291,6 +291,7 @@ pub enum ExpressionKind {
         object: Box<Expression>,
         method_name: String,
         arguments: Vec<Expression>,
+        type_name: Option<String>, // Preenchido pelo semantic analyzer
     },
 }
 

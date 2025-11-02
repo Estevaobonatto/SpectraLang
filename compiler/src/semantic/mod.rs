@@ -572,7 +572,7 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
-            ExpressionKind::MethodCall { object: _, method_name: _, arguments: _ } => {
+            ExpressionKind::MethodCall { object: _, method_name: _, arguments: _, type_name: _ } => {
                 // TODO: Inferir tipo de retorno do método
                 Type::Unknown
             }
@@ -938,7 +938,7 @@ impl SemanticAnalyzer {
                     self.pop_scope();
                 }
             }
-            ExpressionKind::MethodCall { object, method_name: _, arguments } => {
+            ExpressionKind::MethodCall { object, method_name: _, arguments, type_name: _ } => {
                 // Analisar objeto
                 self.analyze_expression(object);
                 

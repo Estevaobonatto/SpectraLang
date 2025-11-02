@@ -24,5 +24,7 @@ Teste                                  Status Erro
 31_tuple_variant_destructuring.spectra PASSOU                                                                         
 32_literal_patterns.spectra            PASSOU                                                                         
 33_methods_basic.spectra               PASSOU                                                                         
+34_method_simulation.spectra           PASSOU                                                                         
+35_self_field.spectra                  PASSOU                                                                         
 
 

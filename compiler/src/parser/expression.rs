@@ -281,6 +281,7 @@ impl Parser {
                                 object: Box::new(expr),
                                 method_name: name,
                                 arguments,
+                                type_name: None, // Será preenchido pelo semantic analyzer
                             },
                         };
                     } else {

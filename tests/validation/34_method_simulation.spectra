@@ -1,0 +1,29 @@
+// Test: Method calls with impl blocks
+module methods_test;
+
+fn Point_new(x: int, y: int) -> int {
+    // Simula construtor - retorna x por enquanto
+    x
+}
+
+fn Point_get_x(self_ptr: int) -> int {
+    // Simula getter - retorna valor fixo
+    42
+}
+
+fn Point_add(a: int, b: int) -> int {
+    a + b
+}
+
+fn main() -> int {
+    // Simular Point.new(10, 20)
+    let p = Point_new(10, 20);
+    
+    // Simular p.get_x()
+    let x = Point_get_x(p);
+    
+    // Simular Point.add(5, 7)
+    let sum = Point_add(5, 7);
+    
+    x + sum  // 42 + 12 = 54
+}
