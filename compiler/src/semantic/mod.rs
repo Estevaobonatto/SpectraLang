@@ -128,6 +128,39 @@ impl SemanticAnalyzer {
         None
     }
 
+    fn types_match(&self, actual: &Type, expected: &Type) -> bool {
+        match (actual, expected) {
+            // Tipos idênticos
+            (Type::Int, Type::Int) => true,
+            (Type::Float, Type::Float) => true,
+            (Type::String, Type::String) => true,
+            (Type::Bool, Type::Bool) => true,
+            (Type::Unit, Type::Unit) => true,
+            
+            // Structs com mesmo nome
+            (Type::Struct { name: n1 }, Type::Struct { name: n2 }) => n1 == n2,
+            
+            // Enums com mesmo nome
+            (Type::Enum { name: n1, .. }, Type::Enum { name: n2, .. }) => n1 == n2,
+            
+            // Unknown aceita qualquer coisa (inferência incompleta)
+            (Type::Unknown, _) | (_, Type::Unknown) => true,
+            
+            // Tuples com mesmo tamanho e tipos compatíveis
+            (Type::Tuple { elements: t1 }, Type::Tuple { elements: t2 }) => {
+                t1.len() == t2.len() && 
+                t1.iter().zip(t2.iter()).all(|(a, b)| self.types_match(a, b))
+            }
+            
+            // Arrays com tipos de elemento compatíveis
+            (Type::Array { element_type: e1, .. }, Type::Array { element_type: e2, .. }) => {
+                self.types_match(e1, e2)
+            }
+            
+            _ => false,
+        }
+    }
+
     pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
         // First pass: collect all function declarations
         for item in &module.items {
@@ -988,15 +1021,57 @@ impl SemanticAnalyzer {
                 };
                 
                 // Se conseguimos extrair o tipo, verificar se método existe
-                if let Some(type_name) = type_name {
-                    if let Some(type_methods) = self.methods.get(&type_name) {
-                        if !type_methods.contains_key(method_name) {
+                if let Some(type_name) = &type_name {
+                    // Clonar a assinatura para evitar problemas de borrow
+                    let method_signature = self.methods
+                        .get(type_name)
+                        .and_then(|methods| methods.get(method_name).cloned());
+                    
+                    if let Some(signature) = method_signature {
+                        // Validar número de argumentos
+                        // Nota: signature.params inclui self como primeiro parâmetro
+                        let expected_args = if signature.params.is_empty() {
+                            0
+                        } else {
+                            signature.params.len() - 1 // Subtrair self
+                        };
+                        
+                        if arguments.len() != expected_args {
                             self.error(
-                                format!("Method '{}' not found for type '{}'", method_name, type_name),
+                                format!(
+                                    "Method '{}' expects {} argument(s), but {} were provided",
+                                    method_name,
+                                    expected_args,
+                                    arguments.len()
+                                ),
                                 expr.span,
                             );
                         }
-                        // TODO: Validar número e tipos dos argumentos
+                        
+                        // Validar tipos dos argumentos
+                        for (i, arg) in arguments.iter().enumerate() {
+                            let arg_type = self.infer_expression_type(arg);
+                            // +1 porque params[0] é self
+                            if let Some(expected_type) = signature.params.get(i + 1) {
+                                if !self.types_match(&arg_type, expected_type) {
+                                    self.error(
+                                        format!(
+                                            "Method '{}' argument {} has type {:?}, but {:?} was expected",
+                                            method_name,
+                                            i + 1,
+                                            arg_type,
+                                            expected_type
+                                        ),
+                                        arg.span,
+                                    );
+                                }
+                            }
+                        }
+                    } else if self.methods.contains_key(type_name) {
+                        self.error(
+                            format!("Method '{}' not found for type '{}'", method_name, type_name),
+                            expr.span,
+                        );
                     } else {
                         self.error(
                             format!("No methods defined for type '{}'", type_name),

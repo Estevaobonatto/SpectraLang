@@ -1,0 +1,21 @@
+// Test: Method with wrong number of arguments - should fail
+module method_args_error_test;
+
+struct Calculator {
+    value: int
+}
+
+impl Calculator {
+    fn add(&self, x: int, y: int) -> int {
+        x + y
+    }
+}
+
+fn main() -> int {
+    let calc = Calculator { value: 0 };
+    
+    // ERRO: add espera 2 argumentos, mas passamos 1
+    let result = calc.add(5);
+    
+    result
+}

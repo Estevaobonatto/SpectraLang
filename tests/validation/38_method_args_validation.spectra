@@ -1,0 +1,28 @@
+// Test: Method argument validation
+module method_args_test;
+
+struct Calculator {
+    value: int
+}
+
+impl Calculator {
+    fn add(&self, x: int, y: int) -> int {
+        x + y
+    }
+    
+    fn multiply(&self, x: int) -> int {
+        x * 2
+    }
+}
+
+fn main() -> int {
+    let calc = Calculator { value: 0 };
+    
+    // Correto: 2 argumentos
+    let sum = calc.add(5, 3);
+    
+    // Correto: 1 argumento
+    let product = calc.multiply(7);
+    
+    sum + product
+}

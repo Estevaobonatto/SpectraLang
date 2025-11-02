@@ -1,0 +1,19 @@
+// Test: Debug type inference
+module type_debug;
+
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Point {
+    fn get_x(&self) -> int {
+        42
+    }
+}
+
+fn main() -> int {
+    let p = Point { x: 10, y: 20 };
+    let result = p.get_x();
+    result
+}
