@@ -48,6 +48,8 @@ pub enum Item {
     Struct(Struct),
     Enum(Enum),
     Impl(ImplBlock),
+    Trait(TraitDeclaration),
+    TraitImpl(TraitImpl),
 }
 
 #[derive(Debug, Clone)]
@@ -409,5 +411,35 @@ pub struct Parameter {
     pub is_self: bool,               // true se for self/&self/&mut self
     pub is_reference: bool,          // true se for &self ou &mut self
     pub is_mutable: bool,            // true se for &mut self
+    pub span: Span,
+}
+
+// ============================================================================
+// Traits
+// ============================================================================
+
+/// Declaração de trait (interface)
+#[derive(Debug, Clone)]
+pub struct TraitDeclaration {
+    pub name: String,
+    pub methods: Vec<TraitMethod>,   // Assinaturas de métodos (sem corpo)
+    pub span: Span,
+}
+
+/// Assinatura de método em um trait (sem implementação)
+#[derive(Debug, Clone)]
+pub struct TraitMethod {
+    pub name: String,
+    pub params: Vec<Parameter>,      // Parâmetros (incluindo self)
+    pub return_type: Option<TypeAnnotation>,
+    pub span: Span,
+}
+
+/// Implementação de trait para um tipo: impl TraitName for TypeName
+#[derive(Debug, Clone)]
+pub struct TraitImpl {
+    pub trait_name: String,          // Nome do trait
+    pub type_name: String,           // Nome do tipo que implementa o trait
+    pub methods: Vec<Method>,        // Métodos implementados (com corpo)
     pub span: Span,
 }

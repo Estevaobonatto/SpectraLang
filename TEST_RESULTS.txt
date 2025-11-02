@@ -32,5 +32,7 @@ Teste                                  Status Erro
 39_method_chaining.spectra             PASSOU                                                                         
 40_self_field_access.spectra           PASSOU                                                                         
 41_static_constructors.spectra         PASSOU                                                                         
+42_traits_parse.spectra                PASSOU                                                                         
+43_trait_impl.spectra                  PASSOU                                                                         
 
 

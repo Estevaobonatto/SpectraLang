@@ -230,6 +230,14 @@ impl SemanticAnalyzer {
             Item::Impl(impl_block) => {
                 self.analyze_impl_block(impl_block);
             }
+            Item::Trait(_trait_decl) => {
+                // TODO: Register trait methods for validation
+                // self.analyze_trait_declaration(trait_decl);
+            }
+            Item::TraitImpl(_trait_impl) => {
+                // TODO: Validate trait implementation
+                // self.analyze_trait_impl(trait_impl);
+            }
         }
     }
 

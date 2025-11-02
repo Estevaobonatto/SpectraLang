@@ -1,0 +1,19 @@
+// Teste básico de traits - apenas parsing
+module test42;
+
+// Declaração do trait
+trait Printable {
+    fn print(&self) -> int;
+    fn debug(&self) -> int;
+}
+
+struct Point {
+    x: int,
+    y: int
+}
+
+// Por enquanto, apenas testando o parse do trait
+// A implementação virá depois
+fn main() -> int {
+    42
+}

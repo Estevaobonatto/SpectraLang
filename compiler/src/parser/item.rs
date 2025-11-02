@@ -1,6 +1,6 @@
 use crate::{
-    ast::{Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, Visibility},
-    span::span_union,
+    ast::{Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, TraitDeclaration, TraitMethod, Visibility},
+    span::{span_union, Span},
     token::{Keyword, TokenKind},
 };
 
@@ -29,6 +29,10 @@ impl Parser {
             crate::token::TokenKind::Keyword(Keyword::Impl) => {
                 let impl_block = self.parse_impl_block()?;
                 Ok(Item::Impl(impl_block))
+            }
+            crate::token::TokenKind::Keyword(Keyword::Trait) => {
+                let trait_decl = self.parse_trait_declaration()?;
+                Ok(Item::Trait(trait_decl))
             }
             _ => {
                 self.error("Expected item declaration (import, fn, etc.)");
@@ -264,10 +268,21 @@ impl Parser {
     }
 
     pub(super) fn parse_impl_block(&mut self) -> Result<ImplBlock, ()> {
-        // Expect: impl TypeName { methods... }
+        // Expect: impl TypeName { methods... } ou impl TraitName for TypeName { methods... }
         let start_span = self.consume_keyword(Keyword::Impl, "Expected 'impl' keyword")?;
         
-        let (type_name, _) = self.consume_identifier("Expected type name after 'impl'")?;
+        let (first_name, _) = self.consume_identifier("Expected trait or type name after 'impl'")?;
+        
+        // Checar se é "impl Trait for Type" ou "impl Type"
+        if self.check_keyword(Keyword::For) {
+            // É um trait impl: impl TraitName for TypeName
+            self.advance(); // consume 'for'
+            let (type_name, _) = self.consume_identifier("Expected type name after 'for'")?;
+            return self.parse_trait_impl_block(start_span, first_name, type_name);
+        }
+        
+        // É um impl regular: impl TypeName
+        let type_name = first_name;
         
         self.consume_symbol('{', "Expected '{' to start impl block")?;
         
@@ -383,6 +398,241 @@ impl Parser {
         
         Ok(ImplBlock {
             type_name,
+            methods,
+            span: span_union(start_span, end_span),
+        })
+    }
+
+    /// Parse trait declaration: trait Name { fn method(&self) -> Type; }
+    pub(super) fn parse_trait_declaration(&mut self) -> Result<TraitDeclaration, ()> {
+        // Expect: trait <name> { <method signatures> }
+        let start_span = self.consume_keyword(Keyword::Trait, "Expected 'trait' keyword")?;
+        
+        let (name, _name_span) = self.consume_identifier("Expected trait name")?;
+        
+        self.consume_symbol('{', "Expected '{' after trait name")?;
+        
+        let mut methods = Vec::new();
+        
+        // Parse method signatures (sem corpo, apenas assinaturas)
+        while !self.check_symbol('}') && !self.is_at_end() {
+            let method_start = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?;
+            
+            let (method_name, method_name_span) = self.consume_identifier("Expected method name")?;
+            
+            self.consume_symbol('(', "Expected '(' after method name")?;
+            
+            // Parse parameters (igual a métodos regulares)
+            let mut params = Vec::new();
+            
+            while !self.check_symbol(')') && !self.is_at_end() {
+                let param_start = self.current().span;
+                
+                // Check for self parameter
+                let is_self_param = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+                
+                let (is_self, is_reference, is_mutable) = if is_self_param {
+                    self.advance();
+                    (true, false, false)
+                } else if self.check_symbol('&') {
+                    self.advance();
+                    let is_mut = if self.check_keyword(Keyword::Mut) {
+                        self.advance();
+                        true
+                    } else {
+                        false
+                    };
+                    let is_self_after_ref = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+                    if !is_self_after_ref {
+                        self.error("Expected 'self' after '&'");
+                        return Err(());
+                    }
+                    self.advance();
+                    (true, true, is_mut)
+                } else {
+                    // Regular parameter
+                    let (param_name, _) = self.consume_identifier("Expected parameter name")?;
+                    self.consume_symbol(':', "Expected ':' after parameter name")?;
+                    let param_type = self.parse_type_annotation()?;
+                    let param_end = param_type.span;
+                    
+                    params.push(Parameter {
+                        name: param_name,
+                        type_annotation: Some(param_type),
+                        is_self: false,
+                        is_reference: false,
+                        is_mutable: false,
+                        span: span_union(param_start, param_end),
+                    });
+                    
+                    if self.check_symbol(',') {
+                        self.advance();
+                    }
+                    continue;
+                };
+                
+                // Para self, o span vai até o token atual - 1
+                // Como já avançamos, precisamos usar param_start até onde paramos
+                let param_end = param_start; // Simplificado - usamos só o start
+                params.push(Parameter {
+                    name: "self".to_string(),
+                    type_annotation: None,
+                    is_self,
+                    is_reference,
+                    is_mutable,
+                    span: param_start,
+                });
+                
+                if self.check_symbol(',') {
+                    self.advance();
+                }
+            }
+            
+            self.consume_symbol(')', "Expected ')' after method parameters")?;
+            
+            // Optional return type
+            let return_type = if matches!(
+                &self.current().kind,
+                crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
+            ) {
+                self.advance(); // consume '->'
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+            
+            // Trait methods não têm corpo, apenas assinatura
+            let method_end = self.consume_symbol(';', "Expected ';' after trait method signature")?;
+            
+            methods.push(TraitMethod {
+                name: method_name,
+                params,
+                return_type,
+                span: span_union(method_start, method_end),
+            });
+        }
+        
+        let end_span = self.consume_symbol('}', "Expected '}' to end trait declaration")?;
+        
+        Ok(TraitDeclaration {
+            name,
+            methods,
+            span: span_union(start_span, end_span),
+        })
+    }
+
+    /// Parse trait implementation: impl TraitName for TypeName { methods... }
+    fn parse_trait_impl_block(&mut self, start_span: Span, _trait_name: String, type_name: String) -> Result<ImplBlock, ()> {
+        // Nota: Por enquanto, vamos retornar um ImplBlock regular
+        // TODO: Criar Item::TraitImpl separado e validar que métodos correspondem ao trait
+        
+        self.consume_symbol('{', "Expected '{' to start trait impl block")?;
+        
+        let mut methods = Vec::new();
+        
+        while !self.check_symbol('}') && !self.is_at_end() {
+            // Parse method (igual ao impl block regular)
+            let method_name_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method")?;
+            
+            let (method_name, method_name_span) = self.consume_identifier("Expected method name")?;
+            
+            self.consume_symbol('(', "Expected '(' after method name")?;
+            
+            // Parse parameters
+            let mut params = Vec::new();
+            
+            while !self.check_symbol(')') && !self.is_at_end() {
+                let param_start = self.current().span;
+                
+                // Check for self parameter
+                let is_self_param = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+                
+                let (is_self, is_reference, is_mutable) = if is_self_param {
+                    self.advance();
+                    (true, false, false)
+                } else if self.check_symbol('&') {
+                    self.advance();
+                    let is_mut = if self.check_keyword(Keyword::Mut) {
+                        self.advance();
+                        true
+                    } else {
+                        false
+                    };
+                    let is_self_after_ref = matches!(&self.current().kind, TokenKind::Identifier(id) if id == "self");
+                    if !is_self_after_ref {
+                        self.error("Expected 'self' after '&'");
+                        return Err(());
+                    }
+                    self.advance();
+                    (true, true, is_mut)
+                } else {
+                    // Regular parameter
+                    let (param_name, _) = self.consume_identifier("Expected parameter name")?;
+                    self.consume_symbol(':', "Expected ':' after parameter name")?;
+                    let param_type = self.parse_type_annotation()?;
+                    let param_end = param_type.span;
+                    
+                    params.push(Parameter {
+                        name: param_name,
+                        type_annotation: Some(param_type),
+                        is_self: false,
+                        is_reference: false,
+                        is_mutable: false,
+                        span: span_union(param_start, param_end),
+                    });
+                    
+                    if self.check_symbol(',') {
+                        self.advance();
+                    }
+                    continue;
+                };
+                
+                params.push(Parameter {
+                    name: "self".to_string(),
+                    type_annotation: None,
+                    is_self,
+                    is_reference,
+                    is_mutable,
+                    span: param_start,
+                });
+                
+                if self.check_symbol(',') {
+                    self.advance();
+                }
+            }
+            
+            self.consume_symbol(')', "Expected ')' after method parameters")?;
+            
+            // Optional return type
+            let return_type = if matches!(
+                &self.current().kind,
+                crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
+            ) {
+                self.advance(); // consume '->'
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+            
+            let body = self.parse_block()?;
+            let body_end_span = body.span;
+            
+            methods.push(Method {
+                name: method_name,
+                params,
+                return_type,
+                body,
+                span: span_union(method_name_span, body_end_span),
+            });
+        }
+        
+        let end_span = self.consume_symbol('}', "Expected '}' to end trait impl block")?;
+        
+        // Por enquanto, retorna um ImplBlock regular com o type_name correto
+        // Os métodos serão registrados normalmente no type
+        // TODO: Validar que os métodos correspondem às assinaturas do trait
+        Ok(ImplBlock {
+            type_name, // Usa apenas o type_name, não o trait
             methods,
             span: span_union(start_span, end_span),
         })

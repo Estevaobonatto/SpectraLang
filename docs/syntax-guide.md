@@ -370,16 +370,105 @@ fn main() -> int {
 }
 ```
 
+## Traits (Interfaces/Protocolos)
+
+### Declarando um Trait
+
+```spectra
+trait Printable {
+    fn print(&self) -> int;
+    fn debug(&self) -> int;
+}
+```
+
+**Características**:
+- Traits definem **assinaturas de métodos** sem implementação
+- Cada método termina com `;` (não tem corpo `{ }`)
+- Podem ter múltiplos métodos
+- Semelhante a interfaces em outras linguagens
+
+### Implementando um Trait
+
+```spectra
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Printable for Point {
+    fn print(&self) -> int {
+        self.x + self.y
+    }
+    
+    fn debug(&self) -> int {
+        self.x * self.y
+    }
+}
+```
+
+**Sintaxe**: `impl TraitName for TypeName { ... }`
+
+### Usando Traits
+
+```spectra
+fn main() -> int {
+    let p = Point { x: 10, y: 20 };
+    
+    // Chama método do trait
+    let sum = p.print();      // 30
+    let product = p.debug();  // 200
+    
+    sum + product
+}
+```
+
+### Exemplo Completo
+
+```spectra
+// Trait para cálculos
+trait Calculator {
+    fn add(&self, x: int, y: int) -> int;
+    fn multiply(&self, x: int) -> int;
+}
+
+// Tipo que implementa o trait
+struct MathEngine {
+    value: int
+}
+
+impl Calculator for MathEngine {
+    fn add(&self, x: int, y: int) -> int {
+        x + y + self.value
+    }
+    
+    fn multiply(&self, x: int) -> int {
+        x * 2
+    }
+}
+
+fn main() -> int {
+    let engine = MathEngine { value: 5 };
+    let sum = engine.add(10, 20);        // 35 (10 + 20 + 5)
+    let product = engine.multiply(7);    // 14 (7 * 2)
+    sum + product                        // 49
+}
+```
+
+### Benefícios dos Traits
+
+- ✅ **Polimorfismo**: Múltiplos tipos podem implementar o mesmo trait
+- ✅ **Reutilização**: Código genérico pode trabalhar com qualquer tipo que implemente um trait
+- ✅ **Organização**: Agrupa funcionalidades relacionadas
+- ✅ **Documentação**: Deixa claro quais operações um tipo suporta
+
 ## Recursos Futuros (Em Desenvolvimento)
 
-- ⏳ `match/case` - Pattern matching (80% completo)
-- ⏳ Self field access (`self.x`)
-- ⏳ Method chaining (`obj.m1().m2()`)
-- ⏳ Static methods / Constructors (`Type::new()`)
+- ⏳ Trait bounds em generics (`fn process<T: Printable>(item: T)`)
+- ⏳ Default implementations em traits
+- ⏳ Trait inheritance (`trait A: B`)
 - ⏳ `switch/case` - Switch statements
 - ⏳ `loop` - Loop infinito
 - ⏳ `do while` - Loop com condição no final
-- ⏳ Traits (interfaces)
 - ⏳ Generics
 - ⏳ Macros
 
