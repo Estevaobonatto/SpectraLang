@@ -1,0 +1,18 @@
+// Test: Monomorphization with struct
+module test_mono_struct;
+
+struct Point {
+    x: int,
+    y: int
+}
+
+// Generic function that returns a value from a struct-like parameter
+fn identity<T>(item: T) -> T {
+    return item;
+}
+
+fn main() -> int {
+    let p = Point { x: 10, y: 20 };
+    let p2: Point = identity(p);
+    return p2.x + p2.y;
+}

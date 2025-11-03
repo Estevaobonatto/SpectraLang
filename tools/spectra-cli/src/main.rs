@@ -61,23 +61,22 @@ fn main() {
     let mut has_failures = false;
 
     for path in &file_paths {
-        println!("\n📦 Compiling: {}", path);
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("\nCompiling: {}", path);
 
         match fs::read_to_string(path) {
             Ok(source) => match compiler.compile(&source, path) {
                 Ok(()) => {
-                    println!("\n✅ Successfully compiled: {}", path);
+                    println!("\nSuccessfully compiled: {}", path);
                 }
                 Err(error) => {
                     has_failures = true;
-                    eprintln!("\n❌ Compilation failed: {}", path);
+                    eprintln!("\nCompilation failed: {}", path);
                     eprintln!("{}", error);
                 }
             },
             Err(error) => {
                 has_failures = true;
-                eprintln!("\n❌ Failed to read file: {}", path);
+                eprintln!("\nFailed to read file: {}", path);
                 eprintln!("Error: {}", error);
             }
         }
@@ -87,7 +86,7 @@ fn main() {
         eprintln!("\n💥 Compilation failed with errors");
         process::exit(1);
     } else {
-        println!("\n🎉 All files compiled successfully!");
+        println!("\nAll files compiled successfully!");
     }
 }
 

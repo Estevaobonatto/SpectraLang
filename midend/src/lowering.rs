@@ -117,6 +117,8 @@ pub struct ASTLowering {
     pending_specializations: Vec<MonomorphizationRequest>,
     /// Already generated specializations (mangled_name -> IR function name)
     generated_specializations: HashMap<String, String>,
+    /// Type substitution map for current monomorphization (type_param -> concrete_type)
+    type_substitution_map: HashMap<String, IRType>,
 }
 
 impl ASTLowering {
@@ -134,6 +136,7 @@ impl ASTLowering {
             generic_functions: HashMap::new(),
             pending_specializations: Vec::new(),
             generated_specializations: HashMap::new(),
+            type_substitution_map: HashMap::new(),
         }
     }
 
@@ -225,7 +228,7 @@ impl ASTLowering {
 
     /// Create a specialized version of a generic function
     fn specialize_function(&mut self, generic_func: &ASTFunction, request: &MonomorphizationRequest) -> IRFunction {
-        // Create type substitution map: type_param_name -> concrete_type
+        // Create type substitution map: type_param_name -> IRType
         let mut type_map: HashMap<String, IRType> = HashMap::new();
         for (i, type_param) in generic_func.type_params.iter().enumerate() {
             if let Some(concrete_type) = request.concrete_types.get(i) {
@@ -233,8 +236,6 @@ impl ASTLowering {
             }
         }
         
-        // For now, just lower the function with the mangled name
-        // TODO: Actually substitute types in the function body
         let mangled_name = request.mangled_name();
         
         // Create specialized function by copying generic and renaming
@@ -242,8 +243,66 @@ impl ASTLowering {
         specialized.name = mangled_name.clone();
         specialized.type_params.clear(); // Remove generic parameters
         
+        // Substitute type parameters in function signature
+        for param in &mut specialized.params {
+            if let Some(ref mut ty) = param.ty {
+                self.substitute_type_in_annotation(ty, &type_map);
+            }
+        }
+        
+        if let Some(ref mut return_ty) = specialized.return_type {
+            self.substitute_type_in_annotation(return_ty, &type_map);
+        }
+        
+        // Set type substitution map for lowering
+        self.type_substitution_map = type_map;
+        
         // Lower the specialized function
-        self.lower_function(&specialized)
+        let result = self.lower_function(&specialized);
+        
+        // Clear type substitution map after lowering
+        self.type_substitution_map.clear();
+        
+        result
+    }
+
+    /// Substitute type parameters in a TypeAnnotation
+    fn substitute_type_in_annotation(&self, annotation: &mut TypeAnnotation, type_map: &HashMap<String, IRType>) {
+        use spectra_compiler::ast::TypeAnnotationKind;
+        
+        match &mut annotation.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                // Check if this is a type parameter (e.g., "T")
+                if segments.len() == 1 {
+                    let name = &segments[0];
+                    if let Some(concrete_type) = type_map.get(name) {
+                        // Replace with concrete type name
+                        let concrete_name = self.ir_type_to_ast_name(concrete_type);
+                        segments[0] = concrete_name;
+                    }
+                }
+            }
+            TypeAnnotationKind::Tuple { elements } => {
+                // Recursively substitute in tuple elements
+                for elem in elements {
+                    self.substitute_type_in_annotation(elem, type_map);
+                }
+            }
+        }
+    }
+
+    /// Convert IRType to AST type name for substitution
+    fn ir_type_to_ast_name(&self, ty: &IRType) -> String {
+        match ty {
+            IRType::Int => "int".to_string(),
+            IRType::Float => "float".to_string(),
+            IRType::Bool => "bool".to_string(),
+            IRType::String => "string".to_string(),
+            IRType::Char => "char".to_string(),
+            IRType::Struct { name, .. } => name.clone(),
+            IRType::Pointer(inner) => format!("ptr<{}>", self.ir_type_to_ast_name(inner)),
+            _ => "unknown".to_string(),
+        }
     }
 
     /// Infere o tipo IR de uma expressão AST (análise simplificada)
@@ -468,6 +527,26 @@ impl ASTLowering {
                     else if let ExpressionKind::StructLiteral { name, .. } = &value_expr.kind {
                         self.struct_var_map
                             .insert(let_stmt.name.clone(), (value, name.clone()));
+                    }
+                    // Check if this might be a struct value (e.g., from function call)
+                    // We need to check the type annotation if available
+                    else if let Some(ref type_ann) = let_stmt.ty {
+                        let var_type = self.lower_type_annotation(type_ann);
+                        if let IRType::Struct { name, fields } = var_type {
+                            // Allocate space for the struct
+                            let struct_ptr = self.builder.build_alloca(ir_func, IRType::Struct { 
+                                name: name.clone(), 
+                                fields: fields.clone() 
+                            });
+                            // Store the struct value
+                            self.builder.build_store(ir_func, struct_ptr, value);
+                            // Add to struct_var_map
+                            self.struct_var_map.insert(let_stmt.name.clone(), (struct_ptr, name));
+                        } else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
+                            self.builder.build_store(ir_func, alloca_ptr, value);
+                        } else {
+                            self.value_map.insert(let_stmt.name.clone(), value);
+                        }
                     }
                     // If variable will be assigned later, store to allocated memory
                     else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
@@ -789,6 +868,11 @@ impl ASTLowering {
                 // Check if this is an array - return pointer directly
                 if let Some(&array_ptr) = self.array_map.get(name) {
                     array_ptr
+                }
+                // Check if this is a struct variable
+                else if let Some(&(struct_ptr, _)) = self.struct_var_map.get(name) {
+                    // Load struct from memory
+                    self.builder.build_load(ir_func, struct_ptr)
                 }
                 // Check if variable is in memory (mutable)
                 else if let Some(&alloca_ptr) = self.alloca_map.get(name) {
@@ -1627,13 +1711,29 @@ impl ASTLowering {
                     return IRType::Void;
                 }
 
-                match segments[0].as_str() {
+                // Check if this is a type parameter that needs substitution
+                let type_name = segments[0].as_str();
+                if let Some(concrete_type) = self.type_substitution_map.get(type_name) {
+                    return concrete_type.clone();
+                }
+
+                match type_name {
                     "int" => IRType::Int,
                     "float" => IRType::Float,
                     "bool" => IRType::Bool,
                     "string" => IRType::String,
                     "char" => IRType::Char,
-                    _ => IRType::Void,
+                    _ => {
+                        // Check if this is a struct type
+                        if let Some(fields) = self.struct_definitions.get(type_name) {
+                            IRType::Struct {
+                                name: type_name.to_string(),
+                                fields: fields.clone(),
+                            }
+                        } else {
+                            IRType::Void
+                        }
+                    }
                 }
             }
             TypeAnnotationKind::Tuple { elements } => {
