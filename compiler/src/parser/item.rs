@@ -185,6 +185,13 @@ impl Parser {
 
         let (name, _name_span) = self.consume_identifier("Expected struct name")?;
 
+        // Parse optional type parameters: <T, U>
+        let type_params = if self.check_symbol('<') {
+            self.parse_type_parameters()?
+        } else {
+            Vec::new()
+        };
+
         self.consume_symbol('{', "Expected '{' after struct name")?;
 
         let mut fields = Vec::new();
@@ -217,6 +224,7 @@ impl Parser {
             span: span_union(start_span, end_span),
             visibility,
             fields,
+            type_params,
         })
     }
 
@@ -227,6 +235,13 @@ impl Parser {
         let start_span = self.consume_keyword(Keyword::Enum, "Expected 'enum' keyword")?;
 
         let (name, _name_span) = self.consume_identifier("Expected enum name")?;
+
+        // Parse optional type parameters: <T>
+        let type_params = if self.check_symbol('<') {
+            self.parse_type_parameters()?
+        } else {
+            Vec::new()
+        };
 
         self.consume_symbol('{', "Expected '{' after enum name")?;
 
@@ -278,6 +293,7 @@ impl Parser {
             span: span_union(start_span, end_span),
             visibility,
             variants,
+            type_params,
         })
     }
 

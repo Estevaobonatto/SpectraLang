@@ -6,8 +6,9 @@ use crate::ir::{
     Function as IRFunction, Module as IRModule, Parameter, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
-    BinaryOperator, Expression, ExpressionKind, Function as ASTFunction, Item, Module as ASTModule,
-    Statement, StatementKind, Type as ASTType, TypeAnnotation,
+    BinaryOperator, Enum as ASTEnum, Expression, ExpressionKind, Function as ASTFunction, Item,
+    Module as ASTModule, Statement, StatementKind, Struct as ASTStruct, Type as ASTType,
+    TypeAnnotation,
 };
 use std::collections::HashMap;
 
@@ -113,6 +114,10 @@ pub struct ASTLowering {
     loop_stack: Vec<LoopContext>,
     /// Maps generic function names to their AST definitions (for monomorphization)
     generic_functions: HashMap<String, ASTFunction>,
+    /// Maps generic struct names to their AST definitions
+    generic_structs: HashMap<String, ASTStruct>,
+    /// Maps generic enum names to their AST definitions
+    generic_enums: HashMap<String, ASTEnum>,
     /// Requests for monomorphization that need to be processed
     pending_specializations: Vec<MonomorphizationRequest>,
     /// Already generated specializations (mangled_name -> IR function name)
@@ -136,6 +141,8 @@ impl ASTLowering {
             enum_definitions: HashMap::new(),
             loop_stack: Vec::new(),
             generic_functions: HashMap::new(),
+            generic_structs: HashMap::new(),
+            generic_enums: HashMap::new(),
             pending_specializations: Vec::new(),
             generated_specializations: HashMap::new(),
             type_substitution_map: HashMap::new(),
@@ -149,33 +156,49 @@ impl ASTLowering {
         // First pass: collect struct and enum definitions, and trait implementations
         for item in &ast_module.items {
             if let Item::Struct(struct_def) = item {
-                let fields: Vec<(String, IRType)> = struct_def
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        let field_type = self.lower_type_annotation(&field.ty);
-                        (field.name.clone(), field_type)
-                    })
-                    .collect();
-                self.struct_definitions
-                    .insert(struct_def.name.clone(), fields);
+                // Check if this is a generic struct
+                if !struct_def.type_params.is_empty() {
+                    // Store generic struct for later monomorphization
+                    self.generic_structs.insert(struct_def.name.clone(), struct_def.clone());
+                    eprintln!("Info: Stored generic struct '{}' for monomorphization", struct_def.name);
+                } else {
+                    // Regular struct - process immediately
+                    let fields: Vec<(String, IRType)> = struct_def
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            let field_type = self.lower_type_annotation(&field.ty);
+                            (field.name.clone(), field_type)
+                        })
+                        .collect();
+                    self.struct_definitions
+                        .insert(struct_def.name.clone(), fields);
+                }
             } else if let Item::Enum(enum_def) = item {
-                let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
-                    .variants
-                    .iter()
-                    .enumerate()
-                    .map(|(tag, variant)| {
-                        let data_types = variant.data.as_ref().map(|types| {
-                            types
-                                .iter()
-                                .map(|ty| self.lower_type_annotation(ty))
-                                .collect()
-                        });
-                        (variant.name.clone(), tag, data_types)
-                    })
-                    .collect();
-                self.enum_definitions
-                    .insert(enum_def.name.clone(), variants);
+                // Check if this is a generic enum
+                if !enum_def.type_params.is_empty() {
+                    // Store generic enum for later monomorphization
+                    self.generic_enums.insert(enum_def.name.clone(), enum_def.clone());
+                    eprintln!("Info: Stored generic enum '{}' for monomorphization", enum_def.name);
+                } else {
+                    // Regular enum - process immediately
+                    let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
+                        .variants
+                        .iter()
+                        .enumerate()
+                        .map(|(tag, variant)| {
+                            let data_types = variant.data.as_ref().map(|types| {
+                                types
+                                    .iter()
+                                    .map(|ty| self.lower_type_annotation(ty))
+                                    .collect()
+                            });
+                            (variant.name.clone(), tag, data_types)
+                        })
+                        .collect();
+                    self.enum_definitions
+                        .insert(enum_def.name.clone(), variants);
+                }
             } else if let Item::Impl(impl_block) = item {
                 // Collect trait implementations
                 if let Some(ref trait_name) = impl_block.trait_name {

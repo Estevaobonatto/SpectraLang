@@ -102,6 +102,7 @@ pub struct Struct {
     pub span: Span,
     pub visibility: Visibility,
     pub fields: Vec<StructField>,
+    pub type_params: Vec<TypeParameter>, // Generic type parameters (e.g., <T, U>)
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +118,7 @@ pub struct Enum {
     pub span: Span,
     pub visibility: Visibility,
     pub variants: Vec<EnumVariant>,
+    pub type_params: Vec<TypeParameter>, // Generic type parameters (e.g., <T>)
 }
 
 #[derive(Debug, Clone)]

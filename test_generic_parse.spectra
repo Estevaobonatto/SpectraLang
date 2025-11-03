@@ -1,0 +1,24 @@
+// Test: Generic struct parsing
+module test_generic_struct;
+
+// Generic struct with one type parameter
+struct Point<T> {
+    x: T,
+    y: T
+}
+
+// Generic struct with two type parameters
+struct Pair<T, U> {
+    first: T,
+    second: U
+}
+
+// Generic enum
+enum Option<T> {
+    Some(T),
+    None
+}
+
+fn main() -> int {
+    return 42;
+}
