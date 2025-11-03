@@ -58,6 +58,10 @@ pub struct SemanticAnalyzer {
     traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
     // Trait implementations: maps (trait_name, type_name) to validation status
     trait_impls: HashMap<(String, String), bool>,
+    // Generic structs: maps struct_name to (type_params, field_definitions)
+    generic_structs: HashMap<String, (Vec<String>, Vec<(String, crate::ast::TypeAnnotation)>)>,
+    // Generic enums: maps enum_name to (type_params, variants)
+    generic_enums: HashMap<String, (Vec<String>, Vec<String>)>,
     // Track if we're inside a loop (for break/continue validation)
     loop_depth: usize,
     // Track if we're inside a function (for return validation)
@@ -74,6 +78,8 @@ impl SemanticAnalyzer {
             methods: HashMap::new(),
             traits: HashMap::new(),
             trait_impls: HashMap::new(),
+            generic_structs: HashMap::new(),
+            generic_enums: HashMap::new(),
             loop_depth: 0,
             current_function: None,
         }
@@ -191,33 +197,60 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
-        // First pass: collect all function declarations
+        // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
-            if let Item::Function(func) = item {
-                if self.functions.contains_key(&func.name) {
-                    self.error(
-                        format!("Function '{}' is already defined", func.name),
-                        func.span,
-                    );
-                } else {
-                    // Extract parameter types
-                    let params: Vec<Type> = func
-                        .params
-                        .iter()
-                        .map(|p| self.type_annotation_to_type(&p.ty))
-                        .collect();
+            match item {
+                Item::Function(func) => {
+                    if self.functions.contains_key(&func.name) {
+                        self.error(
+                            format!("Function '{}' is already defined", func.name),
+                            func.span,
+                        );
+                    } else {
+                        // Extract parameter types
+                        let params: Vec<Type> = func
+                            .params
+                            .iter()
+                            .map(|p| self.type_annotation_to_type(&p.ty))
+                            .collect();
 
-                    // Extract return type
-                    let return_type = self.type_annotation_to_type(&func.return_type);
+                        // Extract return type
+                        let return_type = self.type_annotation_to_type(&func.return_type);
 
-                    let signature = FunctionSignature {
-                        params,
-                        return_type: return_type.clone(),
-                    };
+                        let signature = FunctionSignature {
+                            params,
+                            return_type: return_type.clone(),
+                        };
 
-                    self.functions.insert(func.name.clone(), signature);
-                    self.declare_symbol(func.name.clone(), func.span, return_type);
+                        self.functions.insert(func.name.clone(), signature);
+                        self.declare_symbol(func.name.clone(), func.span, return_type);
+                    }
                 }
+                Item::Struct(struct_def) => {
+                    // Collect generic structs for type inference
+                    if !struct_def.type_params.is_empty() {
+                        let type_param_names: Vec<String> = struct_def.type_params.iter()
+                            .map(|tp| tp.name.clone())
+                            .collect();
+                        let fields: Vec<(String, crate::ast::TypeAnnotation)> = struct_def.fields.iter()
+                            .map(|f| (f.name.clone(), f.ty.clone()))
+                            .collect();
+                        self.generic_structs.insert(struct_def.name.clone(), (type_param_names, fields));
+                    }
+                }
+                Item::Enum(enum_def) => {
+                    // Collect generic enums for type inference
+                    if !enum_def.type_params.is_empty() {
+                        let type_param_names: Vec<String> = enum_def.type_params.iter()
+                            .map(|tp| tp.name.clone())
+                            .collect();
+                        let variant_names: Vec<String> = enum_def.variants.iter()
+                            .map(|v| v.name.clone())
+                            .collect();
+                        self.generic_enums.insert(enum_def.name.clone(), (type_param_names, variant_names));
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -226,7 +259,12 @@ impl SemanticAnalyzer {
             self.analyze_item(item);
         }
 
-        // Third pass: fill type information in method calls
+        // Third pass: infer generic type arguments
+        for item in &mut module.items {
+            self.infer_generic_types_in_item(item);
+        }
+
+        // Fourth pass: fill type information in method calls
         for item in &mut module.items {
             self.fill_method_call_types_in_item(item);
         }
@@ -1287,7 +1325,7 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::StructLiteral { fields, .. } => {
-                // TODO: Validar struct existe e campos são corretos
+                // Validate fields
                 for (_field_name, field_value) in fields {
                     self.analyze_expression(field_value);
                 }
@@ -1699,6 +1737,245 @@ impl SemanticAnalyzer {
                 }
             }
             _ => {}
+        }
+    }
+
+    // ============= Type Inference Pass =============
+
+    fn infer_generic_types_in_item(&mut self, item: &mut Item) {
+        match item {
+            Item::Function(func) => {
+                self.infer_generic_types_in_block(&mut func.body);
+            }
+            _ => {}
+        }
+    }
+
+    fn infer_generic_types_in_block(&mut self, block: &mut Block) {
+        for stmt in &mut block.statements {
+            self.infer_generic_types_in_statement(stmt);
+        }
+    }
+
+    fn infer_generic_types_in_statement(&mut self, stmt: &mut Statement) {
+        use crate::ast::StatementKind;
+
+        match &mut stmt.kind {
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &mut let_stmt.value {
+                    self.infer_generic_types_in_expression(value);
+                }
+            }
+            StatementKind::Assignment(assign) => {
+                self.infer_generic_types_in_expression(&mut assign.value);
+            }
+            StatementKind::While(while_loop) => {
+                self.infer_generic_types_in_expression(&mut while_loop.condition);
+                self.infer_generic_types_in_block(&mut while_loop.body);
+            }
+            StatementKind::DoWhile(do_while_loop) => {
+                self.infer_generic_types_in_block(&mut do_while_loop.body);
+                self.infer_generic_types_in_expression(&mut do_while_loop.condition);
+            }
+            StatementKind::For(for_loop) => {
+                self.infer_generic_types_in_expression(&mut for_loop.iterable);
+                self.infer_generic_types_in_block(&mut for_loop.body);
+            }
+            StatementKind::Expression(expr) => {
+                self.infer_generic_types_in_expression(expr);
+            }
+            StatementKind::Return(ret_stmt) => {
+                if let Some(value) = &mut ret_stmt.value {
+                    self.infer_generic_types_in_expression(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn infer_generic_types_in_expression(&mut self, expr: &mut Expression) {
+        match &mut expr.kind {
+            ExpressionKind::StructLiteral { name, type_args, fields } => {
+                // Infer type arguments if not provided and struct is generic
+                if type_args.is_empty() {
+                    if let Some((type_params, field_defs)) = self.generic_structs.get(name).cloned() {
+                        // Attempt to infer type arguments from field values
+                        let inferred_types = self.infer_struct_type_args(&type_params, &field_defs, fields);
+                        if !inferred_types.is_empty() {
+                            // Update the expression with inferred type arguments
+                            *type_args = inferred_types;
+                            eprintln!("Info: Inferred type arguments for struct '{}': {:?}", name, type_args);
+                        }
+                    }
+                }
+                
+                // Recurse into field values
+                for (_, field_value) in fields {
+                    self.infer_generic_types_in_expression(field_value);
+                }
+            }
+            ExpressionKind::EnumVariant { enum_name, type_args, variant_name, data } => {
+                // TODO: Implement enum type inference
+                // For now, just recurse into data
+                if let Some(args) = data {
+                    for arg in args {
+                        self.infer_generic_types_in_expression(arg);
+                    }
+                }
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.infer_generic_types_in_expression(left);
+                self.infer_generic_types_in_expression(right);
+            }
+            ExpressionKind::Unary { operand, .. } => {
+                self.infer_generic_types_in_expression(operand);
+            }
+            ExpressionKind::Call { arguments, .. } => {
+                for arg in arguments {
+                    self.infer_generic_types_in_expression(arg);
+                }
+            }
+            ExpressionKind::If { condition, then_block, elif_blocks, else_block } => {
+                self.infer_generic_types_in_expression(condition);
+                self.infer_generic_types_in_block(then_block);
+                for (elif_cond, elif_block) in elif_blocks {
+                    self.infer_generic_types_in_expression(elif_cond);
+                    self.infer_generic_types_in_block(elif_block);
+                }
+                if let Some(else_body) = else_block {
+                    self.infer_generic_types_in_block(else_body);
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.infer_generic_types_in_expression(scrutinee);
+                for arm in arms {
+                    self.infer_generic_types_in_expression(&mut arm.body);
+                }
+            }
+            ExpressionKind::ArrayLiteral { elements } => {
+                for elem in elements {
+                    self.infer_generic_types_in_expression(elem);
+                }
+            }
+            ExpressionKind::FieldAccess { object, .. } => {
+                self.infer_generic_types_in_expression(object);
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.infer_generic_types_in_expression(array);
+                self.infer_generic_types_in_expression(index);
+            }
+            _ => {}
+        }
+    }
+
+    /// Infer type arguments for a generic struct from field values
+    fn infer_struct_type_args(
+        &mut self,
+        type_params: &[String],
+        field_defs: &[(String, crate::ast::TypeAnnotation)],
+        field_values: &[(String, Expression)],
+    ) -> Vec<crate::ast::TypeAnnotation> {
+        use crate::ast::{TypeAnnotation, TypeAnnotationKind};
+        use crate::span::Span;
+        
+        // Create a map to store inferred types for each type parameter
+        let mut type_map: HashMap<String, Type> = HashMap::new();
+        
+        // For each field value, infer its type and match against field definition
+        for (field_name, field_expr) in field_values {
+            // Find the field definition
+            if let Some((_, field_type_ann)) = field_defs.iter().find(|(name, _)| name == field_name) {
+                // Infer the type of the field expression
+                let value_type = self.infer_expression_type(field_expr);
+                
+                // Try to unify the field type annotation with the value type
+                self.unify_type_annotation(field_type_ann, &value_type, &mut type_map);
+            }
+        }
+        
+        // Convert inferred types to TypeAnnotation in the order of type_params
+        let mut result = Vec::new();
+        for param in type_params {
+            if let Some(inferred_type) = type_map.get(param) {
+                let type_ann = self.type_to_annotation(inferred_type);
+                result.push(type_ann);
+            } else {
+                // Could not infer this type parameter, return empty to indicate failure
+                return Vec::new();
+            }
+        }
+        
+        result
+    }
+
+    /// Unify a type annotation (potentially containing type variables) with a concrete type
+    fn unify_type_annotation(
+        &self,
+        type_ann: &crate::ast::TypeAnnotation,
+        concrete_type: &Type,
+        type_map: &mut HashMap<String, Type>,
+    ) {
+        use crate::ast::TypeAnnotationKind;
+        
+        match &type_ann.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                // If it's a single segment, it might be a type parameter
+                if segments.len() == 1 {
+                    let name = &segments[0];
+                    // Check if this could be a type parameter (starts with uppercase typically)
+                    // For now, we'll assume any single segment could be a type parameter
+                    // and try to map it
+                    if !type_map.contains_key(name) {
+                        type_map.insert(name.clone(), concrete_type.clone());
+                    }
+                    // TODO: Check consistency if already mapped
+                }
+            }
+            TypeAnnotationKind::Tuple { elements } => {
+                if let Type::Tuple { elements: concrete_elements } = concrete_type {
+                    // Unify each element
+                    for (elem_ann, elem_type) in elements.iter().zip(concrete_elements.iter()) {
+                        self.unify_type_annotation(elem_ann, elem_type, type_map);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Convert a Type to TypeAnnotation
+    fn type_to_annotation(&self, ty: &Type) -> crate::ast::TypeAnnotation {
+        use crate::ast::{TypeAnnotation, TypeAnnotationKind};
+        use crate::span::Span;
+        
+        let kind = match ty {
+            Type::Int => TypeAnnotationKind::Simple { segments: vec!["int".to_string()] },
+            Type::Float => TypeAnnotationKind::Simple { segments: vec!["float".to_string()] },
+            Type::Bool => TypeAnnotationKind::Simple { segments: vec!["bool".to_string()] },
+            Type::String => TypeAnnotationKind::Simple { segments: vec!["string".to_string()] },
+            Type::Char => TypeAnnotationKind::Simple { segments: vec!["char".to_string()] },
+            Type::Unit => TypeAnnotationKind::Simple { segments: vec!["void".to_string()] },
+            Type::Struct { name } => TypeAnnotationKind::Simple { segments: vec![name.clone()] },
+            Type::Enum { name, .. } => TypeAnnotationKind::Simple { segments: vec![name.clone()] },
+            Type::Tuple { elements } => {
+                let element_anns = elements.iter()
+                    .map(|el| self.type_to_annotation(el))
+                    .collect();
+                TypeAnnotationKind::Tuple { elements: element_anns }
+            }
+            Type::Array { element_type, .. } => {
+                // For arrays, we'll just use the element type name
+                let elem_ann = self.type_to_annotation(element_type);
+                // Simplification: return element type (proper array annotation would need size)
+                elem_ann.kind
+            }
+            Type::TypeParameter { name } => TypeAnnotationKind::Simple { segments: vec![name.clone()] },
+            Type::SelfType => TypeAnnotationKind::Simple { segments: vec!["Self".to_string()] },
+            Type::Unknown => TypeAnnotationKind::Simple { segments: vec!["unknown".to_string()] },
+        };
+        
+        TypeAnnotation {
+            kind,
+            span: Span { start: 0, end: 0, start_location: crate::span::Location { line: 0, column: 0 }, end_location: crate::span::Location { line: 0, column: 0 } },
         }
     }
 }
