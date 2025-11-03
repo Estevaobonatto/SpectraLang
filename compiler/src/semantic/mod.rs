@@ -473,8 +473,18 @@ impl SemanticAnalyzer {
                 Some((impl_signature, _span)) => {
                     // Verificar que as assinaturas correspondem
                     // Primeiro parâmetro do trait é Unknown (self genérico), então pulamos
-                    let trait_params = &trait_method_info.signature.params[1..]; // Pula self
-                    let impl_params = &impl_signature.params[1..]; // Pula self
+                    // Mas apenas se houver parâmetros (métodos estáticos não têm self)
+                    let trait_params = if !trait_method_info.signature.params.is_empty() {
+                        &trait_method_info.signature.params[1..] // Pula self
+                    } else {
+                        &trait_method_info.signature.params[..] // Sem parâmetros
+                    };
+                    
+                    let impl_params = if !impl_signature.params.is_empty() {
+                        &impl_signature.params[1..] // Pula self
+                    } else {
+                        &impl_signature.params[..] // Sem parâmetros
+                    };
 
                     if trait_params.len() != impl_params.len() {
                         self.error(

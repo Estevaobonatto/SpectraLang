@@ -45,5 +45,6 @@ Teste                                  Status Erro
 52_stdlib_default.spectra              PASSOU                                                                         
 53_multiple_traits.spectra             PASSOU                                                                         
 54_inheritance_with_defaults.spectra   PASSOU                                                                         
+55_stdlib_comprehensive.spectra        PASSOU                                                                         
 
 
