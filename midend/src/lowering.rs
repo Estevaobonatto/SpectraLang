@@ -1484,11 +1484,34 @@ impl ASTLowering {
             }
             ExpressionKind::EnumVariant {
                 enum_name,
+                type_args,
                 variant_name,
                 data,
             } => {
+                // Check if this is a generic enum instantiation
+                let actual_name = if !type_args.is_empty() {
+                    // Generate mangled name: Option<int> → Option_int
+                    let type_names: Vec<String> = type_args.iter()
+                        .map(|ty| self.type_annotation_to_string(ty))
+                        .collect();
+                    let mangled = format!("{}_{}", enum_name, type_names.join("_"));
+                    
+                    // Check if we need to specialize this enum
+                    if !self.enum_definitions.contains_key(&mangled) {
+                        if let Some(generic_enum) = self.generic_enums.get(enum_name).cloned() {
+                            self.specialize_enum(&generic_enum, type_args, &mangled);
+                        } else {
+                            panic!("Generic enum '{}' not found", enum_name);
+                        }
+                    }
+                    
+                    mangled
+                } else {
+                    enum_name.clone()
+                };
+                
                 // Buscar definição do enum (clonar para evitar borrow issues)
-                let variants_opt = self.enum_definitions.get(enum_name).cloned();
+                let variants_opt = self.enum_definitions.get(&actual_name).cloned();
 
                 if let Some(variants) = variants_opt {
                     // Encontrar o variant
@@ -1689,6 +1712,7 @@ impl ASTLowering {
                 enum_name,
                 variant_name,
                 data: _,
+                ..
             } => {
                 // Buscar tag do variant
                 let variants_opt = self.enum_definitions.get(enum_name).cloned();
@@ -1752,6 +1776,7 @@ impl ASTLowering {
                 enum_name,
                 variant_name,
                 data,
+                ..
             } => {
                 // Se há patterns de data, extrair valores e fazer binding recursivo
                 if let Some(patterns) = data {
@@ -1944,6 +1969,53 @@ impl ASTLowering {
         self.struct_definitions.insert(mangled_name.to_string(), specialized_fields);
         
         eprintln!("Info: Specialized struct '{}' as '{}'", generic.name, mangled_name);
+    }
+
+    /// Specialize a generic enum with concrete type arguments
+    fn specialize_enum(&mut self, generic: &ASTEnum, type_args: &[TypeAnnotation], mangled_name: &str) {
+        // Create type substitution map: T -> int, U -> float, etc.
+        let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
+        
+        if generic.type_params.len() != type_args.len() {
+            panic!(
+                "Type argument count mismatch for enum '{}': expected {}, got {}",
+                generic.name,
+                generic.type_params.len(),
+                type_args.len()
+            );
+        }
+        
+        for (param, arg) in generic.type_params.iter().zip(type_args.iter()) {
+            type_map.insert(param.name.clone(), arg.clone());
+        }
+        
+        // Substitute types in variants
+        let specialized_variants: Vec<(String, usize, Option<Vec<IRType>>)> = generic.variants.iter()
+            .enumerate()
+            .map(|(tag, variant)| {
+                let variant_name = variant.name.clone();
+                
+                // Substitute types in variant data if present
+                let variant_types = if let Some(ref data_types) = variant.data {
+                    let substituted: Vec<IRType> = data_types.iter()
+                        .map(|ty| {
+                            let substituted_type = self.substitute_type(ty, &type_map);
+                            self.lower_type_annotation(&substituted_type)
+                        })
+                        .collect();
+                    Some(substituted)
+                } else {
+                    None
+                };
+                
+                (variant_name, tag, variant_types)
+            })
+            .collect();
+        
+        // Store specialized enum definition
+        self.enum_definitions.insert(mangled_name.to_string(), specialized_variants);
+        
+        eprintln!("Info: Specialized enum '{}' as '{}'", generic.name, mangled_name);
     }
 
     /// Substitute type parameters in a type annotation

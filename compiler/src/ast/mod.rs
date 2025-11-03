@@ -296,6 +296,7 @@ pub enum ExpressionKind {
     // Enums
     EnumVariant {
         enum_name: String,
+        type_args: Vec<TypeAnnotation>, // Generic type arguments: Option<int>
         variant_name: String,
         data: Option<Vec<Expression>>, // None for unit, Some for tuple variants
     },
@@ -335,6 +336,7 @@ pub enum Pattern {
     // Enum variant patterns: Option::Some(x), Color::Red
     EnumVariant {
         enum_name: String,
+        type_args: Vec<TypeAnnotation>, // Generic type arguments: Option<int>
         variant_name: String,
         data: Option<Vec<Pattern>>, // None for unit, Some(patterns) for tuple
     },

@@ -907,6 +907,7 @@ impl SemanticAnalyzer {
                 enum_name,
                 variant_name: _,
                 data: _,
+                ..
             } => {
                 // TODO: Verificar se enum e variant existem
                 Type::Enum {
@@ -1299,6 +1300,7 @@ impl SemanticAnalyzer {
                 enum_name: _,
                 variant_name: _,
                 data,
+                ..
             } => {
                 // TODO: Validar enum e variant existem, tipos corretos
                 if let Some(args) = data {
@@ -1478,6 +1480,7 @@ impl SemanticAnalyzer {
                 enum_name: _,
                 variant_name: _,
                 data,
+                ..
             } => {
                 // Se houver sub-patterns, registrar recursivamente
                 if let Some(sub_patterns) = data {

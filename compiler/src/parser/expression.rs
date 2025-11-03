@@ -380,6 +380,7 @@ impl Parser {
                         span: crate::span::span_union(start_span, self.current().span),
                         kind: ExpressionKind::EnumVariant {
                             enum_name: name,
+                            type_args,
                             variant_name,
                             data,
                         },
@@ -675,10 +676,17 @@ impl Parser {
             return Ok(Pattern::Wildcard);
         }
 
-        // Check for enum variant pattern: EnumName::VariantName
+        // Check for enum variant pattern: EnumName::VariantName or EnumName<Type>::VariantName
         if let TokenKind::Identifier(name) = &self.current().kind {
             let first_name = name.clone();
             self.advance();
+
+            // Parse optional type arguments: EnumName<Type>
+            let type_args = if self.check_symbol('<') {
+                self.parse_type_arguments()?
+            } else {
+                Vec::new()
+            };
 
             // Check for ::
             if self.check_symbol(':')
@@ -713,6 +721,7 @@ impl Parser {
 
                 return Ok(Pattern::EnumVariant {
                     enum_name: first_name,
+                    type_args,
                     variant_name,
                     data,
                 });
