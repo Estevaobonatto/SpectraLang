@@ -11,6 +11,51 @@ use spectra_compiler::ast::{
 };
 use std::collections::HashMap;
 
+/// Stack-based scope system for variable shadowing support
+#[derive(Clone)]
+struct ScopeStack {
+    scopes: Vec<HashMap<String, Value>>,
+}
+
+impl ScopeStack {
+    fn new() -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+    }
+
+    fn insert(&mut self, name: String, value: Value) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, value);
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<Value> {
+        // Search from innermost to outermost scope
+        for scope in self.scopes.iter().rev() {
+            if let Some(value) = scope.get(name) {
+                return Some(*value);
+            }
+        }
+        None
+    }
+
+    fn clear(&mut self) {
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
+    }
+}
+
 /// Loop context for break/continue handling
 #[derive(Clone)]
 struct LoopContext {
@@ -21,7 +66,7 @@ struct LoopContext {
 pub struct ASTLowering {
     builder: IRBuilder,
     current_function: Option<IRFunction>,
-    value_map: HashMap<String, Value>,
+    value_map: ScopeStack,
     /// Maps variable names to their allocated memory locations (for mutable variables)
     alloca_map: HashMap<String, Value>,
     /// Maps array names to their base pointers (stack addresses)
@@ -40,7 +85,7 @@ impl ASTLowering {
         Self {
             builder: IRBuilder::new(),
             current_function: None,
-            value_map: HashMap::new(),
+            value_map: ScopeStack::new(),
             alloca_map: HashMap::new(),
             array_map: HashMap::new(),
             struct_definitions: HashMap::new(),
@@ -231,8 +276,20 @@ impl ASTLowering {
     }
 
     fn lower_block(&mut self, statements: &[Statement], ir_func: &mut IRFunction) {
+        self.lower_block_with_scope(statements, ir_func, true);
+    }
+
+    fn lower_block_with_scope(&mut self, statements: &[Statement], ir_func: &mut IRFunction, create_scope: bool) {
+        if create_scope {
+            self.value_map.push_scope();
+        }
+        
         for stmt in statements {
             self.lower_statement(stmt, ir_func);
+        }
+        
+        if create_scope {
+            self.value_map.pop_scope();
         }
     }
 
@@ -587,7 +644,7 @@ impl ASTLowering {
                 else if let Some(&alloca_ptr) = self.alloca_map.get(name) {
                     // Load from memory
                     self.builder.build_load(ir_func, alloca_ptr)
-                } else if let Some(&value) = self.value_map.get(name) {
+                } else if let Some(value) = self.value_map.get(name) {
                     // Use SSA value directly
                     value
                 } else {

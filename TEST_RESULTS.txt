@@ -1,50 +1,50 @@
 ﻿
-Teste                                  Status Erro                                                                              
------                                  ------ ----                                                                              
-01_basic_syntax.spectra                PASSOU                                                                                   
-02_arithmetic.spectra                  PASSOU                                                                                   
-03_comparisons.spectra                 PASSOU                                                                                   
-04_logic.spectra                       PASSOU                                                                                   
-05_if_else.spectra                     PASSOU                                                                                   
-06_while_loop.spectra                  PASSOU                                                                                   
-07_for_loop.spectra                    PASSOU                                                                                   
-08_loop_infinite.spectra               PASSOU                                                                                   
-09_do_while.spectra                    PASSOU                                                                                   
-10_unless.spectra                      PASSOU                                                                                   
-11_switch_case.spectra                 PASSOU                                                                                   
-12_assignments.spectra                 PASSOU                                                                                   
-13_nested_blocks.spectra               PASSOU                                                                                   
-14_multiple_functions.spectra          PASSOU                                                                                   
-15_complex_expressions.spectra         PASSOU                                                                                   
-16_break_continue.spectra              PASSOU                                                                                   
-17_type_inference.spectra              PASSOU                                                                                   
-18_scopes.spectra                      FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.exe ...        
-19_recursion.spectra                   PASSOU                                                                                   
-20_all_features.spectra                FALHOU Code generation failed: Failed to define function 'process': Compilation error:...
-31_tuple_variant_destructuring.spectra PASSOU                                                                                   
-32_literal_patterns.spectra            PASSOU                                                                                   
-33_methods_basic.spectra               PASSOU                                                                                   
-34_method_simulation.spectra           PASSOU                                                                                   
-35_self_field.spectra                  PASSOU                                                                                   
-36_struct_with_methods.spectra         PASSOU                                                                                   
-37_type_inference_debug.spectra        PASSOU                                                                                   
-38_method_args_validation.spectra      PASSOU                                                                                   
-39_method_chaining.spectra             PASSOU                                                                                   
-40_self_field_access.spectra           PASSOU                                                                                   
-41_static_constructors.spectra         PASSOU                                                                                   
-42_traits_parse.spectra                PASSOU                                                                                   
-43_trait_impl.spectra                  PASSOU                                                                                   
-44_trait_validation.spectra            PASSOU                                                                                   
-45_generics_parse.spectra              PASSOU                                                                                   
-46_trait_inheritance.spectra           PASSOU                                                                                   
-47_multi_level_inheritance.spectra     PASSOU                                                                                   
-48_default_implementations.spectra     PASSOU                                                                                   
-49_stdlib_clone.spectra                PASSOU                                                                                   
-50_self_keyword.spectra                PASSOU                                                                                   
-51_stdlib_debug.spectra                PASSOU                                                                                   
-52_stdlib_default.spectra              PASSOU                                                                                   
-53_multiple_traits.spectra             PASSOU                                                                                   
-54_inheritance_with_defaults.spectra   PASSOU                                                                                   
-55_stdlib_comprehensive.spectra        PASSOU                                                                                   
+Teste                                  Status Erro
+-----                                  ------ ----
+01_basic_syntax.spectra                PASSOU     
+02_arithmetic.spectra                  PASSOU     
+03_comparisons.spectra                 PASSOU     
+04_logic.spectra                       PASSOU     
+05_if_else.spectra                     PASSOU     
+06_while_loop.spectra                  PASSOU     
+07_for_loop.spectra                    PASSOU     
+08_loop_infinite.spectra               PASSOU     
+09_do_while.spectra                    PASSOU     
+10_unless.spectra                      PASSOU     
+11_switch_case.spectra                 PASSOU     
+12_assignments.spectra                 PASSOU     
+13_nested_blocks.spectra               PASSOU     
+14_multiple_functions.spectra          PASSOU     
+15_complex_expressions.spectra         PASSOU     
+16_break_continue.spectra              PASSOU     
+17_type_inference.spectra              PASSOU     
+18_scopes.spectra                      PASSOU     
+19_recursion.spectra                   PASSOU     
+20_all_features.spectra                PASSOU     
+31_tuple_variant_destructuring.spectra PASSOU     
+32_literal_patterns.spectra            PASSOU     
+33_methods_basic.spectra               PASSOU     
+34_method_simulation.spectra           PASSOU     
+35_self_field.spectra                  PASSOU     
+36_struct_with_methods.spectra         PASSOU     
+37_type_inference_debug.spectra        PASSOU     
+38_method_args_validation.spectra      PASSOU     
+39_method_chaining.spectra             PASSOU     
+40_self_field_access.spectra           PASSOU     
+41_static_constructors.spectra         PASSOU     
+42_traits_parse.spectra                PASSOU     
+43_trait_impl.spectra                  PASSOU     
+44_trait_validation.spectra            PASSOU     
+45_generics_parse.spectra              PASSOU     
+46_trait_inheritance.spectra           PASSOU     
+47_multi_level_inheritance.spectra     PASSOU     
+48_default_implementations.spectra     PASSOU     
+49_stdlib_clone.spectra                PASSOU     
+50_self_keyword.spectra                PASSOU     
+51_stdlib_debug.spectra                PASSOU     
+52_stdlib_default.spectra              PASSOU     
+53_multiple_traits.spectra             PASSOU     
+54_inheritance_with_defaults.spectra   PASSOU     
+55_stdlib_comprehensive.spectra        PASSOU     
 
 

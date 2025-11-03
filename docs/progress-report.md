@@ -5,8 +5,8 @@
 
 ## ✅ Conquistas Recentes
 
-### 🎉 ATUALIZAÇÃO: Sistema Completo com 93.33% de Sucesso!
-**Status**: 42/45 testes (93.33%) 🚀 +2.22%
+### 🎉 ATUALIZAÇÃO: Quase 100%! 95.56% de Testes Passando!
+**Status**: 43/45 testes (95.56%) 🚀 +2.23%
 
 #### Trait Inheritance (100%)
 - ✅ Herança simples: `trait A: B`
@@ -290,6 +290,8 @@ fn is_even(n: int) -> bool {
 10. ✅ Default implementations - **100% COMPLETO**
 11. ✅ Self type - **100% COMPLETO**
 12. ✅ Switch/case statements - **COMPLETO**
+13. ✅ Unless statements - **COMPLETO**
+14. ⏳ Variable shadowing - **Pendente** (requer stack de escopos)
 12. ✅ Generics (parser) - **50% COMPLETO**
 13. 🔄 Standard library inicial - **40% COMPLETO**
 
