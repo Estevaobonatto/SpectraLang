@@ -119,6 +119,8 @@ pub struct ASTLowering {
     generated_specializations: HashMap<String, String>,
     /// Type substitution map for current monomorphization (type_param -> concrete_type)
     type_substitution_map: HashMap<String, IRType>,
+    /// Maps (type_name, trait_name) -> true to track trait implementations
+    trait_implementations: HashMap<(String, String), bool>,
 }
 
 impl ASTLowering {
@@ -137,13 +139,14 @@ impl ASTLowering {
             pending_specializations: Vec::new(),
             generated_specializations: HashMap::new(),
             type_substitution_map: HashMap::new(),
+            trait_implementations: HashMap::new(),
         }
     }
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
         let mut ir_module = IRModule::new(&ast_module.name);
 
-        // First pass: collect struct and enum definitions
+        // First pass: collect struct and enum definitions, and trait implementations
         for item in &ast_module.items {
             if let Item::Struct(struct_def) = item {
                 let fields: Vec<(String, IRType)> = struct_def
@@ -173,6 +176,12 @@ impl ASTLowering {
                     .collect();
                 self.enum_definitions
                     .insert(enum_def.name.clone(), variants);
+            } else if let Item::Impl(impl_block) = item {
+                // Collect trait implementations
+                if let Some(ref trait_name) = impl_block.trait_name {
+                    let key = (impl_block.type_name.clone(), trait_name.clone());
+                    self.trait_implementations.insert(key, true);
+                }
             }
         }
 
@@ -233,6 +242,26 @@ impl ASTLowering {
         for (i, type_param) in generic_func.type_params.iter().enumerate() {
             if let Some(concrete_type) = request.concrete_types.get(i) {
                 type_map.insert(type_param.name.clone(), concrete_type.clone());
+            }
+        }
+        
+        // Validate trait bounds
+        for (i, type_param) in generic_func.type_params.iter().enumerate() {
+            if let Some(concrete_type) = request.concrete_types.get(i) {
+                // Check each trait bound
+                for bound in &type_param.bounds {
+                    if !self.type_satisfies_trait(concrete_type, bound) {
+                        let type_name = self.ir_type_to_ast_name(concrete_type);
+                        panic!(
+                            "Trait bound violation: Type '{}' does not implement trait '{}' required by type parameter '{}'.\n\
+                             Function '{}' requires {} to have trait {}.\n\
+                             Specialization: {} -> {}",
+                            type_name, bound, type_param.name,
+                            generic_func.name, type_param.name, bound,
+                            generic_func.name, request.mangled_name()
+                        );
+                    }
+                }
             }
         }
         
@@ -303,6 +332,15 @@ impl ASTLowering {
             IRType::Pointer(inner) => format!("ptr<{}>", self.ir_type_to_ast_name(inner)),
             _ => "unknown".to_string(),
         }
+    }
+
+    /// Check if a concrete type satisfies a trait bound
+    fn type_satisfies_trait(&self, concrete_type: &IRType, trait_name: &str) -> bool {
+        let type_name = self.ir_type_to_ast_name(concrete_type);
+        
+        // Check if we have recorded this implementation
+        let key = (type_name, trait_name.to_string());
+        self.trait_implementations.get(&key).copied().unwrap_or(false)
     }
 
     /// Infere o tipo IR de uma expressão AST (análise simplificada)

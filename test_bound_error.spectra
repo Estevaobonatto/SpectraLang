@@ -1,0 +1,25 @@
+// Test: Monomorphization with trait bound violation
+module test_trait_bound_error;
+
+// Trait for cloning
+trait Clone {
+    fn clone(&self) -> int;
+}
+
+// Struct WITHOUT Clone implementation
+struct Point {
+    x: int,
+    y: int
+}
+
+// Generic function that requires Clone
+fn process<T: Clone>(item: T) -> int {
+    return item.clone();
+}
+
+fn main() -> int {
+    // This should cause an error: Point doesn't implement Clone
+    let p = Point { x: 10, y: 20 };
+    let result = process(p);
+    return result;
+}
