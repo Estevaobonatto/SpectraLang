@@ -188,7 +188,62 @@ impl ASTLowering {
             }
         }
 
+        // Process pending monomorphization requests
+        self.process_monomorphization_requests(&mut ir_module);
+
         ir_module
+    }
+
+    /// Process all pending monomorphization requests
+    fn process_monomorphization_requests(&mut self, ir_module: &mut IRModule) {
+        // Process each pending specialization
+        while let Some(request) = self.pending_specializations.pop() {
+            let mangled = request.mangled_name();
+            
+            // Skip if already generated
+            if self.generated_specializations.contains_key(&mangled) {
+                continue;
+            }
+            
+            // Get the generic function AST
+            if let Some(generic_func) = self.generic_functions.get(&request.generic_name).cloned() {
+                eprintln!("Info: Generating specialization: {}", mangled);
+                
+                // Generate specialized function
+                let specialized_func = self.specialize_function(&generic_func, &request);
+                
+                // Add to module
+                ir_module.add_function(specialized_func.clone());
+                
+                // Mark as generated
+                self.generated_specializations.insert(mangled.clone(), specialized_func.name);
+            } else {
+                eprintln!("Warning: Generic function '{}' not found for monomorphization", request.generic_name);
+            }
+        }
+    }
+
+    /// Create a specialized version of a generic function
+    fn specialize_function(&mut self, generic_func: &ASTFunction, request: &MonomorphizationRequest) -> IRFunction {
+        // Create type substitution map: type_param_name -> concrete_type
+        let mut type_map: HashMap<String, IRType> = HashMap::new();
+        for (i, type_param) in generic_func.type_params.iter().enumerate() {
+            if let Some(concrete_type) = request.concrete_types.get(i) {
+                type_map.insert(type_param.name.clone(), concrete_type.clone());
+            }
+        }
+        
+        // For now, just lower the function with the mangled name
+        // TODO: Actually substitute types in the function body
+        let mangled_name = request.mangled_name();
+        
+        // Create specialized function by copying generic and renaming
+        let mut specialized = generic_func.clone();
+        specialized.name = mangled_name.clone();
+        specialized.type_params.clear(); // Remove generic parameters
+        
+        // Lower the specialized function
+        self.lower_function(&specialized)
     }
 
     /// Infere o tipo IR de uma expressão AST (análise simplificada)
