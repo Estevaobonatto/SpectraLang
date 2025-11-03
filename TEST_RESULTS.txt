@@ -10,7 +10,7 @@ Teste                                  Status Erro
 07_for_loop.spectra                    PASSOU                                                                                   
 08_loop_infinite.spectra               PASSOU                                                                                   
 09_do_while.spectra                    PASSOU                                                                                   
-10_unless.spectra                      FALHOU error: process didn't exit successfully: `target\debug\spectra-cli.exe ...        
+10_unless.spectra                      PASSOU                                                                                   
 11_switch_case.spectra                 PASSOU                                                                                   
 12_assignments.spectra                 PASSOU                                                                                   
 13_nested_blocks.spectra               PASSOU                                                                                   

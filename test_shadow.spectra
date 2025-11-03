@@ -1,0 +1,14 @@
+// Teste simples de shadowing
+module test_shadow;
+
+fn test() -> int {
+    let x = 10;
+    if true {
+        let x = 20;
+    }
+    return x;  // Deve retornar 10
+}
+
+fn main() -> int {
+    return test();
+}

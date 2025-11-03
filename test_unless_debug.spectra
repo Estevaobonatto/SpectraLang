@@ -1,0 +1,14 @@
+// Teste simplificado de unless para debug
+module test_unless_debug;
+
+fn test_simple() -> int {
+    let x = 10;
+    unless x < 5 {
+        return 100;
+    }
+    return 0;
+}
+
+fn main() -> int {
+    return test_simple();
+}

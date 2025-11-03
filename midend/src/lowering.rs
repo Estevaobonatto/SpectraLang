@@ -809,21 +809,46 @@ impl ASTLowering {
                 }
                 let unless_else_final = self.builder.get_current_block().unwrap_or(unless_else_bb);
 
+                // Check if else block has terminator
+                let else_has_terminator = if let Some(block) = ir_func.get_block(unless_else_final) {
+                    block.terminator.is_some()
+                } else {
+                    false
+                };
+
                 // Only add branch if block doesn't have terminator
-                if let Some(block) = ir_func.get_block_mut(unless_else_final) {
-                    if block.terminator.is_none() {
-                        self.builder.build_branch(ir_func, unless_merge_bb);
+                if !else_has_terminator {
+                    if let Some(block) = ir_func.get_block_mut(unless_else_final) {
+                        if block.terminator.is_none() {
+                            self.builder.build_branch(ir_func, unless_merge_bb);
+                        }
                     }
                 }
 
-                // Merge
-                self.builder.set_current_block(unless_merge_bb);
-                if let (Some(then_val), Some(else_val)) = (unless_value, unless_else_value) {
-                    self.builder.build_phi(
-                        ir_func,
-                        vec![(then_val, unless_then_final), (else_val, unless_else_final)],
-                    )
+                // Check if then block has terminator
+                let then_has_terminator = if let Some(block) = ir_func.get_block(unless_then_final) {
+                    block.terminator.is_some()
                 } else {
+                    false
+                };
+
+                // Only use merge block if at least one branch reaches it
+                if !then_has_terminator || !else_has_terminator {
+                    // Merge block with PHI node
+                    self.builder.set_current_block(unless_merge_bb);
+
+                    // If both branches produce values, create PHI node
+                    if let (Some(then_val), Some(else_val)) = (unless_value, unless_else_value) {
+                        self.builder.build_phi(
+                            ir_func,
+                            vec![(then_val, unless_then_final), (else_val, unless_else_final)],
+                        )
+                    } else {
+                        // No value produced (void)
+                        ir_func.next_value()
+                    }
+                } else {
+                    // Both branches have terminators (returns), no merge needed
                     ir_func.next_value()
                 }
             }
