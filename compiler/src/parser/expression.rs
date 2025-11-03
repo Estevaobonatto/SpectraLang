@@ -336,6 +336,13 @@ impl Parser {
                 let start_span = span;
                 self.advance();
 
+                // Parse optional type arguments: Name<Type1, Type2>
+                let type_args = if self.check_symbol('<') {
+                    self.parse_type_arguments()?
+                } else {
+                    Vec::new()
+                };
+
                 // Check if it's an enum variant: Name::Variant or Name::Variant(data)
                 if self.check_symbol(':')
                     && self.position + 1 < self.tokens.len()
@@ -430,7 +437,7 @@ impl Parser {
 
                         Ok(Expression {
                             span: crate::span::span_union(start_span, end_span),
-                            kind: ExpressionKind::StructLiteral { name, fields },
+                            kind: ExpressionKind::StructLiteral { name, type_args, fields },
                         })
                     } else {
                         // Just an identifier, '{' belongs to surrounding context
@@ -718,5 +725,30 @@ impl Parser {
         // Literal patterns (números, booleanos, etc.)
         let expr = self.parse_primary_expression()?;
         Ok(Pattern::Literal(expr))
+    }
+
+    /// Parse type arguments: <Type1, Type2>
+    /// Used in generic type instantiation: Point<int>, Option<string>
+    fn parse_type_arguments(&mut self) -> Result<Vec<crate::ast::TypeAnnotation>, ()> {
+        self.consume_symbol('<', "Expected '<' for type arguments")?;
+
+        let mut type_args = Vec::new();
+
+        // Parse first type argument
+        if !self.check_symbol('>') {
+            loop {
+                let type_arg = self.parse_type_annotation()?;
+                type_args.push(type_arg);
+
+                if !self.check_symbol(',') {
+                    break;
+                }
+                self.advance(); // consume ','
+            }
+        }
+
+        self.consume_symbol('>', "Expected '>' after type arguments")?;
+
+        Ok(type_args)
     }
 }

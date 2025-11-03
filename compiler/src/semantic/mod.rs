@@ -892,7 +892,7 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
-            ExpressionKind::StructLiteral { name, fields: _ } => {
+            ExpressionKind::StructLiteral { name, .. } => {
                 // TODO: Verificar se struct existe e retornar seu tipo
                 Type::Struct { name: name.clone() }
             }
@@ -1285,7 +1285,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            ExpressionKind::StructLiteral { name: _, fields } => {
+            ExpressionKind::StructLiteral { fields, .. } => {
                 // TODO: Validar struct existe e campos são corretos
                 for (_field_name, field_value) in fields {
                     self.analyze_expression(field_value);

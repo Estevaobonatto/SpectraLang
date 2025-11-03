@@ -1,0 +1,13 @@
+// Simple test: single generic struct instantiation
+
+module test_simple_generic;
+
+struct Point<T> {
+    x: T,
+    y: T
+}
+
+fn main() -> int {
+    let p = Point<int> { x: 10, y: 20 };
+    return p.x + p.y; // Should return 30
+}

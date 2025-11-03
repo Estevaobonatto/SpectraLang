@@ -8,7 +8,7 @@ use crate::ir::{
 use spectra_compiler::ast::{
     BinaryOperator, Enum as ASTEnum, Expression, ExpressionKind, Function as ASTFunction, Item,
     Module as ASTModule, Statement, StatementKind, Struct as ASTStruct, Type as ASTType,
-    TypeAnnotation,
+    TypeAnnotation, TypeAnnotationKind,
 };
 use std::collections::HashMap;
 
@@ -585,9 +585,18 @@ impl ASTLowering {
                         self.array_map.insert(let_stmt.name.clone(), value);
                     }
                     // Check if this is a struct literal - store pointer + name in struct_var_map
-                    else if let ExpressionKind::StructLiteral { name, .. } = &value_expr.kind {
+                    else if let ExpressionKind::StructLiteral { name, type_args, .. } = &value_expr.kind {
+                        // Calculate the actual (possibly mangled) struct name
+                        let actual_name = if !type_args.is_empty() {
+                            let type_names: Vec<String> = type_args.iter()
+                                .map(|ty| self.type_annotation_to_string(ty))
+                                .collect();
+                            format!("{}_{}", name, type_names.join("_"))
+                        } else {
+                            name.clone()
+                        };
                         self.struct_var_map
-                            .insert(let_stmt.name.clone(), (value, name.clone()));
+                            .insert(let_stmt.name.clone(), (value, actual_name));
                     }
                     // Check if this might be a struct value (e.g., from function call)
                     // We need to check the type annotation if available
@@ -1350,14 +1359,34 @@ impl ASTLowering {
                 // Carregar o valor do elemento
                 self.builder.build_load(ir_func, elem_ptr)
             }
-            ExpressionKind::StructLiteral { name, fields } => {
+            ExpressionKind::StructLiteral { name, fields, type_args } => {
+                // Check if this is a generic struct instantiation
+                let actual_name = if !type_args.is_empty() {
+                    // Generate mangled name: Point<int> → Point_int
+                    let type_names: Vec<String> = type_args.iter()
+                        .map(|ty| self.type_annotation_to_string(ty))
+                        .collect();
+                    let mangled = format!("{}_{}", name, type_names.join("_"));
+                    
+                    // Check if we need to specialize this struct
+                    if !self.struct_definitions.contains_key(&mangled) {
+                        if let Some(generic_struct) = self.generic_structs.get(name).cloned() {
+                            self.specialize_struct(&generic_struct, type_args, &mangled);
+                        } else {
+                            panic!("Generic struct '{}' not found", name);
+                        }
+                    }
+                    
+                    mangled
+                } else {
+                    name.clone()
+                };
+                
                 // Buscar definição do struct
-                let struct_fields = self.struct_definitions.get(name).cloned();
-
-                if let Some(field_defs) = struct_fields {
+                let struct_fields = self.struct_definitions.get(&actual_name).cloned();                if let Some(field_defs) = struct_fields {
                     // Criar tipo struct
                     let struct_type = IRType::Struct {
-                        name: name.clone(),
+                        name: actual_name.clone(),
                         fields: field_defs.clone(),
                     };
 
@@ -1866,6 +1895,80 @@ impl ASTLowering {
                 // Por enquanto, tratar como ponteiro genérico (será resolvido no contexto)
                 IRType::Pointer(Box::new(IRType::Void))
             }
+        }
+    }
+
+    /// Convert TypeAnnotation to string for name mangling
+    fn type_annotation_to_string(&self, ty: &TypeAnnotation) -> String {
+        match &ty.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                segments.join("::")
+            }
+            TypeAnnotationKind::Tuple { elements } => {
+                let element_strs: Vec<String> = elements.iter()
+                    .map(|el| self.type_annotation_to_string(el))
+                    .collect();
+                format!("tuple_{}", element_strs.join("_"))
+            }
+        }
+    }
+
+    /// Specialize a generic struct with concrete type arguments
+    fn specialize_struct(&mut self, generic: &ASTStruct, type_args: &[TypeAnnotation], mangled_name: &str) {
+        // Create type substitution map: T -> int, U -> float, etc.
+        let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
+        
+        if generic.type_params.len() != type_args.len() {
+            panic!(
+                "Type argument count mismatch for struct '{}': expected {}, got {}",
+                generic.name,
+                generic.type_params.len(),
+                type_args.len()
+            );
+        }
+        
+        for (param, arg) in generic.type_params.iter().zip(type_args.iter()) {
+            type_map.insert(param.name.clone(), arg.clone());
+        }
+        
+        // Substitute types in fields
+        let specialized_fields: Vec<(String, IRType)> = generic.fields.iter()
+            .map(|field| {
+                let substituted_type = self.substitute_type(&field.ty, &type_map);
+                let ir_type = self.lower_type_annotation(&substituted_type);
+                (field.name.clone(), ir_type)
+            })
+            .collect();
+        
+        // Store specialized struct definition
+        self.struct_definitions.insert(mangled_name.to_string(), specialized_fields);
+        
+        eprintln!("Info: Specialized struct '{}' as '{}'", generic.name, mangled_name);
+    }
+
+    /// Substitute type parameters in a type annotation
+    fn substitute_type(&self, ty: &TypeAnnotation, type_map: &HashMap<String, TypeAnnotation>) -> TypeAnnotation {
+        let substituted_kind = match &ty.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                // Check if this is a type parameter (single segment)
+                if segments.len() == 1 {
+                    if let Some(concrete) = type_map.get(&segments[0]) {
+                        return concrete.clone();
+                    }
+                }
+                TypeAnnotationKind::Simple { segments: segments.clone() }
+            }
+            TypeAnnotationKind::Tuple { elements } => {
+                let subst_elements = elements.iter()
+                    .map(|el| self.substitute_type(el, type_map))
+                    .collect();
+                TypeAnnotationKind::Tuple { elements: subst_elements }
+            }
+        };
+        
+        TypeAnnotation {
+            kind: substituted_kind,
+            span: ty.span,
         }
     }
 }

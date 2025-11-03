@@ -285,6 +285,7 @@ pub enum ExpressionKind {
     // Structs
     StructLiteral {
         name: String,
+        type_args: Vec<TypeAnnotation>, // Type arguments for generic instantiation: Point<int>
         fields: Vec<(String, Expression)>, // (field_name, value)
     },
     FieldAccess {
