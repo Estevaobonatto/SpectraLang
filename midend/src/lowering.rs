@@ -63,6 +63,39 @@ struct LoopContext {
     exit_block: usize,
 }
 
+/// Represents a needed specialization of a generic function
+#[derive(Debug, Clone)]
+struct MonomorphizationRequest {
+    /// Name of the generic function
+    generic_name: String,
+    /// Concrete types to substitute for type parameters (in order)
+    concrete_types: Vec<IRType>,
+}
+
+impl MonomorphizationRequest {
+    /// Generate mangled name for this specialization
+    /// Example: process<Point> -> process_Point
+    fn mangled_name(&self) -> String {
+        let mut name = self.generic_name.clone();
+        for ty in &self.concrete_types {
+            name.push('_');
+            name.push_str(&Self::type_to_string(ty));
+        }
+        name
+    }
+
+    fn type_to_string(ty: &IRType) -> String {
+        match ty {
+            IRType::Int => "int".to_string(),
+            IRType::Float => "float".to_string(),
+            IRType::Bool => "bool".to_string(),
+            IRType::Pointer(inner) => format!("ptr_{}", Self::type_to_string(inner)),
+            IRType::Struct { name, .. } => name.clone(),
+            _ => "unknown".to_string(), // Fallback for other types
+        }
+    }
+}
+
 pub struct ASTLowering {
     builder: IRBuilder,
     current_function: Option<IRFunction>,
@@ -80,6 +113,10 @@ pub struct ASTLowering {
     loop_stack: Vec<LoopContext>,
     /// Maps generic function names to their AST definitions (for monomorphization)
     generic_functions: HashMap<String, ASTFunction>,
+    /// Requests for monomorphization that need to be processed
+    pending_specializations: Vec<MonomorphizationRequest>,
+    /// Already generated specializations (mangled_name -> IR function name)
+    generated_specializations: HashMap<String, String>,
 }
 
 impl ASTLowering {
@@ -95,6 +132,8 @@ impl ASTLowering {
             enum_definitions: HashMap::new(),
             loop_stack: Vec::new(),
             generic_functions: HashMap::new(),
+            pending_specializations: Vec::new(),
+            generated_specializations: HashMap::new(),
         }
     }
 
@@ -619,6 +658,58 @@ impl ASTLowering {
         }
     }
 
+    /// Infer concrete types from argument expressions
+    /// This is a simplified type inference for monomorphization
+    fn infer_argument_types(&self, arguments: &[Expression]) -> Vec<IRType> {
+        arguments
+            .iter()
+            .map(|arg| {
+                // Try to infer type from expression
+                match &arg.kind {
+                    ExpressionKind::NumberLiteral(n) => {
+                        // Try to determine if int or float
+                        if n.contains('.') {
+                            IRType::Float
+                        } else {
+                            IRType::Int
+                        }
+                    }
+                    ExpressionKind::BoolLiteral(_) => IRType::Bool,
+                    ExpressionKind::StringLiteral(_) => IRType::Pointer(Box::new(IRType::Int)), // String is pointer
+                    ExpressionKind::Identifier(name) => {
+                        // Try to find in struct_var_map
+                        if let Some((_, struct_name)) = self.struct_var_map.get(name) {
+                            // Get fields from struct_definitions
+                            let fields = self.struct_definitions
+                                .get(struct_name)
+                                .cloned()
+                                .unwrap_or_default();
+                            IRType::Struct {
+                                name: struct_name.clone(),
+                                fields,
+                            }
+                        } else {
+                            // Default to Int if we can't determine
+                            IRType::Int
+                        }
+                    }
+                    ExpressionKind::StructLiteral { name, .. } => {
+                        // Get fields from struct_definitions
+                        let fields = self.struct_definitions
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
+                        IRType::Struct {
+                            name: name.clone(),
+                            fields,
+                        }
+                    }
+                    _ => IRType::Int, // Default fallback
+                }
+            })
+            .collect()
+    }
+
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
         match &expr.kind {
             ExpressionKind::NumberLiteral(n) => {
@@ -706,8 +797,33 @@ impl ASTLowering {
                     "unknown".to_string()
                 };
 
+                // Check if this is a call to a generic function
+                let final_function_name = if self.generic_functions.contains_key(&function_name) {
+                    // This is a generic function call - we need to infer concrete types
+                    // For now, we'll infer types from the argument expressions
+                    let concrete_types = self.infer_argument_types(arguments);
+                    
+                    let request = MonomorphizationRequest {
+                        generic_name: function_name.clone(),
+                        concrete_types: concrete_types.clone(),
+                    };
+                    
+                    let mangled = request.mangled_name();
+                    
+                    // Check if we already generated this specialization
+                    if !self.generated_specializations.contains_key(&mangled) {
+                        // Mark it as pending
+                        eprintln!("Info: Requesting specialization: {} -> {}", function_name, mangled);
+                        self.pending_specializations.push(request);
+                    }
+                    
+                    mangled
+                } else {
+                    function_name
+                };
+
                 self.builder
-                    .build_call(ir_func, function_name, arg_values, true)
+                    .build_call(ir_func, final_function_name, arg_values, true)
                     .unwrap_or_else(|| ir_func.next_value())
             }
             ExpressionKind::If {

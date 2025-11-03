@@ -1,0 +1,13 @@
+// Simple test for monomorphization detection
+module test_mono_detect;
+
+// Generic function
+fn identity<T>(x: T) -> T {
+    return x;
+}
+
+fn main() -> int {
+    // This should trigger detection
+    let x = identity(42);
+    return x;
+}
