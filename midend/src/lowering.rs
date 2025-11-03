@@ -78,6 +78,8 @@ pub struct ASTLowering {
     /// Maps enum names to their variant definitions: (variant_name, tag, data_types)
     enum_definitions: HashMap<String, Vec<(String, usize, Option<Vec<IRType>>)>>,
     loop_stack: Vec<LoopContext>,
+    /// Maps generic function names to their AST definitions (for monomorphization)
+    generic_functions: HashMap<String, ASTFunction>,
 }
 
 impl ASTLowering {
@@ -92,6 +94,7 @@ impl ASTLowering {
             struct_var_map: HashMap::new(),
             enum_definitions: HashMap::new(),
             loop_stack: Vec::new(),
+            generic_functions: HashMap::new(),
         }
     }
 
@@ -134,9 +137,10 @@ impl ASTLowering {
         // Second pass: lower functions
         for item in &ast_module.items {
             if let Item::Function(func) = item {
-                // Skip generic functions - they need monomorphization
+                // Store generic functions for later monomorphization
                 if !func.type_params.is_empty() {
-                    eprintln!("Warning: Skipping generic function '{}' - monomorphization not yet implemented", func.name);
+                    self.generic_functions.insert(func.name.clone(), func.clone());
+                    eprintln!("Info: Stored generic function '{}' for monomorphization", func.name);
                     continue;
                 }
                 

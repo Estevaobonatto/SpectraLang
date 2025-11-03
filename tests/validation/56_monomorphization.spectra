@@ -1,0 +1,45 @@
+// Test: Monomorphization - Generic function specialization
+module test_monomorphization;
+
+// Trait for cloning
+trait Clone {
+    fn clone(&self) -> int;
+}
+
+// Struct that implements Clone
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Clone for Point {
+    fn clone(&self) -> int {
+        return self.x + self.y;
+    }
+}
+
+// Generic function that uses trait bound
+fn process<T: Clone>(item: T) -> int {
+    return item.clone();
+}
+
+// Generic function without bounds
+fn identity<T>(x: T) -> T {
+    return x;
+}
+
+fn main() -> int {
+    // These calls should trigger monomorphization
+    // Should generate: process_Point
+    let p = Point { x: 10, y: 20 };
+    let result1 = process(p);
+    
+    // Should generate: identity_int
+    let x = identity(42);
+    
+    // Should generate: identity_Point
+    let p2 = Point { x: 5, y: 15 };
+    let p3 = identity(p2);
+    
+    return result1 + x;
+}
