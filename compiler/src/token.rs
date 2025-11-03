@@ -20,6 +20,9 @@ pub enum Keyword {
     Pub,
     Mut,
 
+    // Special types
+    SelfType,  // Self keyword for referring to implementing type
+
     // Control flow - conditionals
     Match,
     Switch,
@@ -74,6 +77,9 @@ impl Keyword {
             // Visibility
             "pub" => Some(Self::Pub),
             "mut" => Some(Self::Mut),
+
+            // Special types
+            "Self" => Some(Self::SelfType),
 
             // Control flow - conditionals
             "match" => Some(Self::Match),

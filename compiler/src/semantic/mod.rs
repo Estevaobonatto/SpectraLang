@@ -37,6 +37,13 @@ struct FunctionSignature {
     return_type: Type,
 }
 
+#[derive(Debug, Clone)]
+struct TraitMethodInfo {
+    signature: FunctionSignature,
+    has_default: bool, // true if method has default implementation
+    default_body: Option<crate::ast::Block>, // corpo da implementação padrão, se houver
+}
+
 pub struct SemanticAnalyzer {
     errors: Vec<SemanticError>,
     // Symbol table: maps variable/function names to their type info
@@ -47,8 +54,8 @@ pub struct SemanticAnalyzer {
     enum_definitions: HashMap<String, Vec<String>>,
     // Methods: maps type_name to (method_name, signature)
     methods: HashMap<String, HashMap<String, FunctionSignature>>,
-    // Traits: maps trait_name to (method_name, signature)
-    traits: HashMap<String, HashMap<String, FunctionSignature>>,
+    // Traits: maps trait_name to (method_name, method_info)
+    traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
     // Trait implementations: maps (trait_name, type_name) to validation status
     trait_impls: HashMap<(String, String), bool>,
     // Track if we're inside a loop (for break/continue validation)
@@ -96,6 +103,7 @@ impl SemanticAnalyzer {
                         "bool" => Type::Bool,
                         "string" => Type::String,
                         "char" => Type::Char,
+                        "Self" => Type::SelfType, // Self type
                         _ => Type::Unknown,
                     }
                 }
@@ -154,6 +162,10 @@ impl SemanticAnalyzer {
 
             // Unknown aceita qualquer coisa (inferência incompleta)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
+
+            // Self type matches any Struct (will be resolved in context)
+            (Type::SelfType, Type::Struct { .. }) | (Type::Struct { .. }, Type::SelfType) => true,
+            (Type::SelfType, Type::SelfType) => true,
 
             // Tuples com mesmo tamanho e tipos compatíveis
             (Type::Tuple { elements: t1 }, Type::Tuple { elements: t2 }) => {
@@ -260,6 +272,9 @@ impl SemanticAnalyzer {
         // Se for impl Trait for Type, validar que implementa todos os métodos
         if let Some(ref trait_name) = impl_block.trait_name {
             self.validate_trait_impl(impl_block, trait_name);
+            
+            // Copiar métodos padrão do trait para o tipo
+            self.copy_default_trait_methods(trait_name, &impl_block.type_name, impl_block);
         }
 
         // Fase 1: Coletar todas as assinaturas dos métodos
@@ -340,6 +355,25 @@ impl SemanticAnalyzer {
     fn analyze_trait_declaration(&mut self, trait_decl: &crate::ast::TraitDeclaration) {
         let mut trait_methods = HashMap::new();
 
+        // First, inherit methods from parent traits
+        for parent_trait_name in &trait_decl.parent_traits {
+            if let Some(parent_methods) = self.traits.get(parent_trait_name).cloned() {
+                // Add all parent methods to this trait
+                for (method_name, method_signature) in parent_methods {
+                    trait_methods.insert(method_name, method_signature);
+                }
+            } else {
+                self.error(
+                    format!(
+                        "Parent trait '{}' is not defined. Traits must be declared before being used as parent traits.",
+                        parent_trait_name
+                    ),
+                    trait_decl.span,
+                );
+            }
+        }
+
+        // Then add this trait's own methods (can override inherited methods)
         for method in &trait_decl.methods {
             // Converter parâmetros para Type
             let mut param_types = Vec::new();
@@ -359,9 +393,15 @@ impl SemanticAnalyzer {
                 params: param_types,
                 return_type,
             };
+            
+            let method_info = TraitMethodInfo {
+                signature,
+                has_default: method.body.is_some(), // Has default if body is present
+                default_body: method.body.clone(), // Clone the body if present
+            };
 
             if trait_methods
-                .insert(method.name.clone(), signature)
+                .insert(method.name.clone(), method_info)
                 .is_some()
             {
                 self.error(
@@ -428,12 +468,12 @@ impl SemanticAnalyzer {
         }
 
         // Verificar que todos os métodos do trait foram implementados
-        for (trait_method_name, trait_signature) in &trait_methods {
+        for (trait_method_name, trait_method_info) in &trait_methods {
             match implemented_methods.get(trait_method_name) {
                 Some((impl_signature, _span)) => {
                     // Verificar que as assinaturas correspondem
                     // Primeiro parâmetro do trait é Unknown (self genérico), então pulamos
-                    let trait_params = &trait_signature.params[1..]; // Pula self
+                    let trait_params = &trait_method_info.signature.params[1..]; // Pula self
                     let impl_params = &impl_signature.params[1..]; // Pula self
 
                     if trait_params.len() != impl_params.len() {
@@ -468,13 +508,13 @@ impl SemanticAnalyzer {
                     }
 
                     // Verificar tipo de retorno
-                    if !self.types_match(&impl_signature.return_type, &trait_signature.return_type)
+                    if !self.types_match(&impl_signature.return_type, &trait_method_info.signature.return_type)
                     {
                         self.error(
                             format!(
                                 "Method '{}' has wrong return type. Expected {:?}, found {:?}",
                                 trait_method_name,
-                                trait_signature.return_type,
+                                trait_method_info.signature.return_type,
                                 impl_signature.return_type
                             ),
                             impl_block.span,
@@ -482,14 +522,16 @@ impl SemanticAnalyzer {
                     }
                 }
                 None => {
-                    // Método não implementado
-                    self.error(
-                        format!(
-                            "Type '{}' does not implement trait method '{}'",
-                            impl_block.type_name, trait_method_name
-                        ),
-                        impl_block.span,
-                    );
+                    // Método não implementado - OK se tem default, erro caso contrário
+                    if !trait_method_info.has_default {
+                        self.error(
+                            format!(
+                                "Type '{}' does not implement required trait method '{}' (no default implementation)",
+                                impl_block.type_name, trait_method_name
+                            ),
+                            impl_block.span,
+                        );
+                    }
                 }
             }
         }
@@ -497,6 +539,53 @@ impl SemanticAnalyzer {
         // Registrar que este tipo implementa este trait
         self.trait_impls
             .insert((trait_name.to_string(), impl_block.type_name.clone()), true);
+    }
+
+    /// Copia métodos padrão do trait para o tipo que o implementa
+    fn copy_default_trait_methods(
+        &mut self,
+        trait_name: &str,
+        type_name: &str,
+        impl_block: &crate::ast::ImplBlock,
+    ) {
+        // Obter métodos do trait
+        let trait_methods = match self.traits.get(trait_name).cloned() {
+            Some(methods) => methods,
+            None => return,
+        };
+
+        // Obter métodos já implementados
+        let implemented_methods: std::collections::HashSet<String> = impl_block
+            .methods
+            .iter()
+            .map(|m| m.name.clone())
+            .collect();
+
+        // Para cada método do trait com implementação padrão não implementado
+        for (method_name, trait_method_info) in trait_methods {
+            // Se tem default e não foi implementado
+            if trait_method_info.has_default && !implemented_methods.contains(&method_name) {
+                // Criar assinatura substituindo self genérico pelo tipo concreto
+                let mut concrete_params = Vec::new();
+                for (i, param) in trait_method_info.signature.params.iter().enumerate() {
+                    if i == 0 {
+                        // Substituir self genérico pelo tipo concreto
+                        concrete_params.push(Type::Struct { name: type_name.to_string() });
+                    } else {
+                        concrete_params.push(param.clone());
+                    }
+                }
+
+                let concrete_signature = FunctionSignature {
+                    params: concrete_params,
+                    return_type: trait_method_info.signature.return_type.clone(),
+                };
+
+                // Registrar método no tipo
+                let type_methods = self.methods.entry(type_name.to_string()).or_insert_with(HashMap::new);
+                type_methods.insert(method_name, concrete_signature);
+            }
+        }
     }
 
     fn analyze_function(&mut self, func: &Function) {
@@ -1271,7 +1360,28 @@ impl SemanticAnalyzer {
                         .get(type_name)
                         .and_then(|methods| methods.get(method_name).cloned());
 
-                    if let Some(signature) = method_signature {
+                    // Se não encontrou o método explicitamente, buscar em traits com implementação padrão
+                    let (signature, has_default) = if let Some(sig) = method_signature {
+                        (Some(sig), false)
+                    } else {
+                        // Procurar em todos os traits implementados por este tipo
+                        let mut found_signature = None;
+                        for ((trait_name, impl_type), _) in &self.trait_impls {
+                            if impl_type == type_name {
+                                if let Some(trait_methods) = self.traits.get(trait_name) {
+                                    if let Some(trait_method_info) = trait_methods.get(method_name) {
+                                        if trait_method_info.has_default {
+                                            found_signature = Some(trait_method_info.signature.clone());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        (found_signature, true)
+                    };
+
+                    if let Some(signature) = signature {
                         // Validar número de argumentos
                         // Nota: signature.params inclui self como primeiro parâmetro
                         let expected_args = if signature.params.is_empty() {

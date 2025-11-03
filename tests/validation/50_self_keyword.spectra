@@ -1,0 +1,14 @@
+// Teste: Self keyword básico
+// Verifica que Self é reconhecido como keyword no parser
+module test50;
+
+// Trait simples com Self no tipo de retorno
+trait Identity {
+    fn get_self(self) -> Self;
+}
+
+fn main() -> int {
+    // Apenas testar que o trait com Self compila
+    let x: int = 42;
+    return x;
+}

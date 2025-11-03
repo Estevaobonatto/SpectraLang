@@ -540,14 +540,25 @@ impl Parser {
                 None
             };
 
-            // Trait methods não têm corpo, apenas assinatura
-            let method_end =
-                self.consume_symbol(';', "Expected ';' after trait method signature")?;
+            // Trait methods can have:
+            // 1. No body (just signature): fn method(&self) -> Type;
+            // 2. Default implementation: fn method(&self) -> Type { body }
+            let (body, method_end) = if self.check_symbol('{') {
+                // Has default implementation
+                let body = self.parse_block()?;
+                let end = body.span;
+                (Some(body), end)
+            } else {
+                // Just signature, no body
+                let end = self.consume_symbol(';', "Expected ';' after trait method signature")?;
+                (None, end)
+            };
 
             methods.push(TraitMethod {
                 name: method_name,
                 params,
                 return_type,
+                body,
                 span: span_union(method_start, method_end),
             });
         }

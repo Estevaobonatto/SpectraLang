@@ -9,6 +9,16 @@ impl Parser {
     pub(super) fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ()> {
         let start_span = self.current().span;
 
+        // Check for Self type
+        if self.check_keyword(crate::token::Keyword::SelfType) {
+            let end_span = self.current().span;
+            self.advance();
+            return Ok(TypeAnnotation {
+                kind: TypeAnnotationKind::Simple { segments: vec!["Self".to_string()] },
+                span: span_union(start_span, end_span),
+            });
+        }
+
         // Check if it's a tuple type: (int, string, ...)
         if self.check_symbol('(') {
             self.advance(); // consume '('

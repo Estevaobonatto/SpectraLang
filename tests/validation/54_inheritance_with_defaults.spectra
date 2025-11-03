@@ -1,0 +1,38 @@
+// Teste: Combinação de herança de traits e defaults
+// Testa trait que herda de outro e tem métodos com defaults
+module test54;
+
+// Trait base
+trait Printable {
+    fn to_code(self) -> int;  // Método obrigatório
+}
+
+// Trait que herda e adiciona defaults
+trait Display: Printable {
+    // to_code já é herdado de Printable, não precisa redeclarar
+    
+    fn format(self) -> int {
+        // Default: retorna o código multiplicado por 2
+        return self.to_code() * 2;
+    }
+}
+
+// Struct que implementa Display
+struct Item {
+    value: int
+}
+
+impl Display for Item {
+    fn to_code(self) -> int {
+        return self.value;
+    }
+    // format() não precisa ser implementado (tem default)
+}
+
+fn main() -> int {
+    let item: Item = Item { value: 21 };
+    let code: int = item.to_code();      // 21
+    let formatted: int = item.format();  // 42 (21 * 2)
+    
+    return formatted;  // Deve retornar 42
+}

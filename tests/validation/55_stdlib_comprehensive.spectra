@@ -1,0 +1,86 @@
+// Teste: Standard Library Comprehensive
+// Testa múltiplos traits juntos com herança e defaults
+module test55;
+
+// Clone trait
+trait Clone {
+    fn clone(self) -> Self;
+}
+
+// Debug trait
+trait Debug {
+    fn debug(self) -> int {
+        return 999;  // Default: retorna código placeholder
+    }
+}
+
+// Default trait
+trait Default {
+    fn default() -> Self;
+}
+
+// Eq trait com default
+trait Eq {
+    fn eq(self, other: Self) -> bool;
+    
+    fn ne(self, other: Self) -> bool {
+        return !self.eq(other);  // Default usa eq
+    }
+}
+
+// Point struct
+struct Point {
+    x: int,
+    y: int
+}
+
+// Implementar Clone para Point
+impl Clone for Point {
+    fn clone(self) -> Point {
+        return Point { x: self.x, y: self.y };
+    }
+}
+
+// Implementar Debug para Point (usa default)
+impl Debug for Point {
+    // Usa default implementation
+}
+
+// Implementar Default para Point
+impl Default for Point {
+    fn default() -> Point {
+        return Point { x: 0, y: 0 };
+    }
+}
+
+// Implementar Eq para Point
+impl Eq for Point {
+    fn eq(self, other: Point) -> bool {
+        return self.x == other.x && self.y == other.y;
+    }
+    // ne é herdado do default
+}
+
+fn main() -> int {
+    // Testar Default
+    let p1 = Point::default();  // (0, 0)
+    
+    // Testar construtor normal
+    let p2 = Point { x: 5, y: 10 };
+    
+    // Testar Clone
+    let p3 = p2.clone();  // (5, 10)
+    
+    // Testar Debug
+    let debug_code = p1.debug();  // 999
+    
+    // Testar Eq
+    let are_equal = p2.eq(p3);  // true
+    let not_equal = p1.ne(p2);  // true
+    
+    // Retornar resultado combinado
+    if are_equal && not_equal {
+        return debug_code;  // 999
+    }
+    return 0;
+}

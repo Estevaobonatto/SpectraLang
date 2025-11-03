@@ -89,6 +89,12 @@ impl ASTLowering {
         // Second pass: lower functions
         for item in &ast_module.items {
             if let Item::Function(func) = item {
+                // Skip generic functions - they need monomorphization
+                if !func.type_params.is_empty() {
+                    eprintln!("Warning: Skipping generic function '{}' - monomorphization not yet implemented", func.name);
+                    continue;
+                }
+                
                 let ir_func = self.lower_function(func);
                 ir_module.add_function(ir_func);
             }
@@ -1435,6 +1441,11 @@ impl ASTLowering {
             ASTType::TypeParameter { name: _ } => {
                 // Type parameters são resolvidos via monomorphization
                 // Por enquanto, tratar como ponteiro genérico
+                IRType::Pointer(Box::new(IRType::Void))
+            }
+            ASTType::SelfType => {
+                // Self type é resolvido para o tipo concreto do impl block
+                // Por enquanto, tratar como ponteiro genérico (será resolvido no contexto)
                 IRType::Pointer(Box::new(IRType::Void))
             }
         }

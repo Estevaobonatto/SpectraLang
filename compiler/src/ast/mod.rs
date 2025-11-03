@@ -26,6 +26,8 @@ pub enum Type {
     TypeParameter {
         name: String,
     },
+    /// Self type - refers to the implementing type in trait methods or impl blocks
+    SelfType,
 }
 
 #[derive(Debug, Clone)]
@@ -441,12 +443,13 @@ pub struct TraitDeclaration {
     pub span: Span,
 }
 
-/// Assinatura de método em um trait (sem implementação)
+/// Método em um trait (pode ter ou não implementação default)
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
     pub name: String,
     pub params: Vec<Parameter>, // Parâmetros (incluindo self)
     pub return_type: Option<TypeAnnotation>,
+    pub body: Option<Block>,    // NEW: None = apenas assinatura, Some = default implementation
     pub span: Span,
 }
 

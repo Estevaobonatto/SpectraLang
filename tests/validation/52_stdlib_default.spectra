@@ -1,0 +1,30 @@
+// Teste: Standard Library - Default Trait
+// Trait Default para valores padrão de tipos
+module test52;
+
+// Trait Default: fornece valor padrão para um tipo
+trait Default {
+    fn is_default(self) -> bool;  // Verifica se é o valor padrão
+}
+
+// Implementação para Counter
+struct Counter {
+    count: int
+}
+
+impl Default for Counter {
+    fn is_default(self) -> bool {
+        // Considera padrão se count é 0
+        return self.count == 0;
+    }
+}
+
+fn main() -> int {
+    let c1: Counter = Counter { count: 0 };
+    let c2: Counter = Counter { count: 5 };
+    
+    let is_def1: bool = c1.is_default();  // true
+    let is_def2: bool = c2.is_default();  // false
+    
+    return 0;  // Sucesso se compilar
+}

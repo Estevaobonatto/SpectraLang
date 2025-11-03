@@ -1,0 +1,28 @@
+// Teste: Standard Library - Debug Trait
+// Trait Debug para representação de debug de tipos
+module test51;
+
+// Trait Debug: formatação para debug
+trait Debug {
+    fn debug(self) -> int;  // Retorna um código de debug por enquanto
+}
+
+// Implementação para Point
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Debug for Point {
+    fn debug(self) -> int {
+        // Retornar soma das coordenadas como código de debug
+        return self.x + self.y;
+    }
+}
+
+fn main() -> int {
+    let p: Point = Point { x: 10, y: 20 };
+    let debug_code: int = p.debug();
+    
+    return debug_code;  // Deve retornar 30
+}

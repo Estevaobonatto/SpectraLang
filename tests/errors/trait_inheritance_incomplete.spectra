@@ -1,0 +1,26 @@
+// Teste de erro: trait inheritance incompleta
+module test_error;
+
+trait Printable {
+    fn to_string(&self) -> int;
+}
+
+trait Debug: Printable {
+    fn debug(&self) -> int;
+}
+
+struct Point {
+    x: int,
+    y: int
+}
+
+// Erro: implementa Debug mas não implementa to_string de Printable
+impl Debug for Point {
+    fn debug(&self) -> int {
+        self.x * self.y
+    }
+}
+
+fn main() -> int {
+    0
+}

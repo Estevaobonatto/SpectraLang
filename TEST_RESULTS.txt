@@ -35,5 +35,15 @@ Teste                                  Status Erro
 42_traits_parse.spectra                PASSOU                                                                         
 43_trait_impl.spectra                  PASSOU                                                                         
 44_trait_validation.spectra            PASSOU                                                                         
+45_generics_parse.spectra              PASSOU                                                                         
+46_trait_inheritance.spectra           PASSOU                                                                         
+47_multi_level_inheritance.spectra     PASSOU                                                                         
+48_default_implementations.spectra     PASSOU                                                                         
+49_stdlib_clone.spectra                PASSOU                                                                         
+50_self_keyword.spectra                PASSOU                                                                         
+51_stdlib_debug.spectra                PASSOU                                                                         
+52_stdlib_default.spectra              PASSOU                                                                         
+53_multiple_traits.spectra             PASSOU                                                                         
+54_inheritance_with_defaults.spectra   PASSOU                                                                         
 
 

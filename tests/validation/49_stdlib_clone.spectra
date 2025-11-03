@@ -1,0 +1,28 @@
+// Teste: Standard Library - Clone Trait
+// Este teste verifica a implementação do trait Clone com Self
+module test49;
+
+// Trait Clone: duplicação de valores usando Self como tipo de retorno
+trait Clone {
+    fn clone(self) -> Self;
+}
+
+// Struct simples
+struct Number {
+    value: int
+}
+
+// Implementação de Clone para Number
+impl Clone for Number {
+    fn clone(self) -> Number {
+        // Por enquanto, apenas retornar self (shallow copy)
+        return self;
+    }
+}
+
+fn main() -> int {
+    let num: Number = Number { value: 42 };
+    let copy: Number = num.clone();
+    
+    return 0;  // Sucesso se compilar
+}
