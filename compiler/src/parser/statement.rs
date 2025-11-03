@@ -4,7 +4,7 @@ use crate::{
         StatementKind, SwitchCase, SwitchStatement, WhileLoop,
     },
     span::span_union,
-    token::Keyword,
+    token::{Keyword, Operator, TokenKind},
 };
 
 use super::Parser;
@@ -285,13 +285,8 @@ impl Parser {
                 // Aceita ':' ou '=>' como separador
                 if self.check_symbol(':') {
                     self.advance();
-                } else if self.check_symbol('=') {
-                    self.advance();
-                    if !self.check_symbol('>') {
-                        self.error("Expected '>' after '=' in case");
-                        return Err(());
-                    }
-                    self.advance();
+                } else if matches!(self.current().kind, TokenKind::Operator(Operator::FatArrow)) {
+                    self.advance(); // consume '=>'
                 } else {
                     self.error("Expected ':' or '=>' after case pattern");
                     return Err(());
@@ -311,13 +306,8 @@ impl Parser {
                 // Aceita ':' ou '=>'
                 if self.check_symbol(':') {
                     self.advance();
-                } else if self.check_symbol('=') {
-                    self.advance();
-                    if !self.check_symbol('>') {
-                        self.error("Expected '>' after '=' in default");
-                        return Err(());
-                    }
-                    self.advance();
+                } else if matches!(self.current().kind, TokenKind::Operator(Operator::FatArrow)) {
+                    self.advance(); // consume '=>'
                 }
 
                 default = Some(self.parse_block()?);
