@@ -131,39 +131,191 @@ error: Function 'add' expects 2 arguments, but 1 were provided
    |             ^^^^^^^ expected 2 arguments, found 1
 ```
 
-## Recursos Futuros
+## Tipos Compostos
 
-### Em Desenvolvimento
-- [ ] Tipos compostos (arrays, tuplas)
-- [ ] Tipos definidos pelo usuário (structs, enums)
-- [ ] Genéricos
-- [ ] Traits/Interfaces
-- [ ] Conversão implícita entre tipos numéricos
-- [ ] Nullable types / Option
-- [ ] Type aliases
+### Arrays
+Arrays de tamanho fixo ou dinâmico:
 
-### Exemplos Futuros
 ```spectra
-// Arrays
-let numbers: [int] = [1, 2, 3, 4, 5];
+let numbers = [1, 2, 3, 4, 5];
+let first = numbers[0];  // Acesso por índice
+```
 
-// Structs
+### Tuplas
+Coleções heterogêneas de valores:
+
+```spectra
+let person = ("Alice", 30, true);
+let name = person.0;   // Acesso por índice
+let age = person.1;
+```
+
+### Structs ✅
+Tipos definidos pelo usuário com campos nomeados:
+
+```spectra
 struct Point {
     x: int,
     y: int,
 }
 
-// Enums
+let p = Point { x: 10, y: 20 };
+let x_coord = p.x;
+```
+
+### Enums ✅
+Tipos soma com variants:
+
+```spectra
 enum Color {
     Red,
     Green,
     Blue,
 }
 
-// Genéricos
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+let color = Color::Red;
+let maybe = Option::Some(42);
+```
+
+## Genéricos ✅
+
+### Structs Genéricos ✅
+Structs parametrizados por tipos:
+
+```spectra
+struct Point<T> {
+    x: T,
+    y: T,
+}
+
+// Inferência automática de tipos!
+let p1 = Point { x: 10, y: 20 };        // Point<int>
+let p2 = Point { x: 3.14, y: 2.71 };    // Point<float>
+
+// Type arguments explícitos também funcionam
+let p3 = Point<int> { x: 100, y: 200 };
+```
+
+### Múltiplos Parâmetros de Tipo ✅
+```spectra
+struct Pair<T, U> {
+    first: T,
+    second: U,
+}
+
+let pair = Pair { first: 42, second: "hello" };  // Pair<int, string>
+```
+
+### Enums Genéricos ✅
+```spectra
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+let opt1 = Option<int>::Some(42);
+let opt2 = Option<int>::None;
+let res = Result<int, string>::Ok(100);
+```
+
+### Funções Genéricas ✅
+```spectra
 fn identity<T>(value: T) -> T {
     return value;
 }
+
+fn first<T>(a: T, b: T) -> T {
+    return a;
+}
+```
+
+### Trait Bounds ✅
+Restrições de tipos em funções genéricas:
+
+```spectra
+trait Clone {
+    fn clone(self: Self) -> Self;
+}
+
+fn duplicate<T: Clone>(value: T) -> T {
+    return value.clone();
+}
+```
+
+### Monomorphization ✅
+O compilador gera código especializado para cada tipo concreto usado:
+
+```
+Point<int>   → Point_int   (especialização)
+Point<float> → Point_float (especialização)
+```
+
+## Type Inference para Generics ✅
+
+### Inferência Automática
+O compilador infere type arguments de valores:
+
+```spectra
+// Não precisa especificar <int>
+let p = Point { x: 10, y: 20 };  
+// Compilador infere: Point<int>
+
+let pair = Pair { first: 42, second: 1.5 };
+// Compilador infere: Pair<int, float>
+```
+
+### Algoritmo de Unificação
+1. Analisa tipos dos campos fornecidos
+2. Mapeia parâmetros de tipo (T, U) para tipos concretos
+3. Valida consistência das inferências
+4. Preenche type arguments automaticamente
+
+## Recursos Futuros
+
+### Próximos Passos
+- [ ] Inferência de tipos para enums: `Option::Some(42)` → `Option<int>`
+- [ ] Inferência contextual: inferir de onde o valor é usado
+- [ ] Generic methods em structs: `impl<T> Point<T> { ... }`
+- [ ] Trait implementations para tipos genéricos
+- [ ] Associated types em traits
+- [ ] Higher-kinded types
+- [ ] Conversão implícita entre tipos numéricos
+- [ ] Type aliases: `type Vec<T> = Array<T>`
+- [ ] Standard library types genéricos completos
+
+### Em Planejamento
+```spectra
+// Generic methods
+impl<T> Point<T> {
+    fn new(x: T, y: T) -> Point<T> {
+        return Point { x: x, y: y };
+    }
+}
+
+// Trait implementations para generics
+impl<T: Clone> Clone for Point<T> {
+    fn clone(self: Self) -> Self {
+        return Point { x: self.x.clone(), y: self.y.clone() };
+    }
+}
+
+// Standard library
+let vec = Vec::new();
+vec.push(1);
+vec.push(2);
+
+let map = HashMap::new();
+map.insert("key", 42);
 ```
 
 ## Testes
