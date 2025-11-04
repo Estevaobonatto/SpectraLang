@@ -508,6 +508,74 @@ impl ASTLowering {
         self.trait_implementations.get(&key).copied().unwrap_or(false)
     }
 
+    fn merge_array_element_types(&self, left: &IRType, right: &IRType) -> Option<IRType> {
+        if left == right {
+            return Some(left.clone());
+        }
+
+        match (left, right) {
+            (IRType::Int, IRType::Float) | (IRType::Float, IRType::Int) => Some(IRType::Float),
+            (IRType::Pointer(l), IRType::Pointer(r)) => {
+                self.merge_array_element_types(l.as_ref(), r.as_ref())
+                    .map(|merged| IRType::Pointer(Box::new(merged)))
+            }
+            (IRType::Array { element_type: l_elem, size: l_size }, IRType::Array { element_type: r_elem, size: r_size }) => {
+                if l_size != r_size {
+                    None
+                } else {
+                    self.merge_array_element_types(l_elem.as_ref(), r_elem.as_ref()).map(|merged| IRType::Array {
+                        element_type: Box::new(merged),
+                        size: *l_size,
+                    })
+                }
+            }
+            (IRType::Struct { name: l_name, fields: l_fields }, IRType::Struct { name: r_name, fields: r_fields }) => {
+                if l_name == r_name && l_fields == r_fields {
+                    Some(IRType::Struct {
+                        name: l_name.clone(),
+                        fields: l_fields.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            (IRType::Enum { name: l_name, variants: l_variants }, IRType::Enum { name: r_name, variants: r_variants }) => {
+                if l_name == r_name && l_variants == r_variants {
+                    Some(IRType::Enum {
+                        name: l_name.clone(),
+                        variants: l_variants.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn infer_array_element_type(&self, elements: &[Expression]) -> IRType {
+        if elements.is_empty() {
+            return IRType::Int;
+        }
+
+        let mut element_type = self.infer_expr_ir_type(&elements[0]);
+
+        for expr in elements.iter().skip(1) {
+            let next_type = self.infer_expr_ir_type(expr);
+            match self.merge_array_element_types(&element_type, &next_type) {
+                Some(merged) => {
+                    element_type = merged;
+                }
+                None => {
+                    element_type = IRType::Int;
+                    break;
+                }
+            }
+        }
+
+        element_type
+    }
+
     /// Infere o tipo IR de uma expressão AST (análise simplificada)
     fn infer_expr_ir_type(&self, expr: &Expression) -> IRType {
         match &expr.kind {
@@ -522,17 +590,10 @@ impl ASTLowering {
             ExpressionKind::StringLiteral(_) => IRType::String,
             ExpressionKind::BoolLiteral(_) => IRType::Bool,
             ExpressionKind::ArrayLiteral { elements } => {
-                if elements.is_empty() {
-                    IRType::Array {
-                        element_type: Box::new(IRType::Int),
-                        size: 0,
-                    }
-                } else {
-                    let elem_type = self.infer_expr_ir_type(&elements[0]);
-                    IRType::Array {
-                        element_type: Box::new(elem_type),
-                        size: elements.len(),
-                    }
+                let elem_type = self.infer_array_element_type(elements);
+                IRType::Array {
+                    element_type: Box::new(elem_type),
+                    size: elements.len(),
                 }
             }
             ExpressionKind::TupleLiteral { elements } => {
@@ -1651,9 +1712,8 @@ impl ASTLowering {
                     return ir_func.next_value();
                 }
 
-                // Determinar o tipo do elemento (assume todos são do mesmo tipo)
-                // Por simplicidade, vamos usar Int como padrão
-                let elem_type = IRType::Int;
+                // Inferir o tipo dos elementos
+                let elem_type = self.infer_array_element_type(elements);
 
                 // Alocar espaço para o array no stack (tipo Array com tamanho)
                 let array_type = IRType::Array {
