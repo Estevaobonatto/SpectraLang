@@ -196,7 +196,11 @@ impl LoopStructureValidation {
             .copied()
             .min_by_key(|&idx| {
                 let block = &blocks[idx];
-                let priority = if block.label.contains(".header") { 0 } else { 1 };
+                let priority = if block.label.contains(".header") {
+                    0
+                } else {
+                    1
+                };
                 (priority, block.id)
             })
             .unwrap_or(component[0])
@@ -284,4 +288,3 @@ impl Pass for LoopStructureValidation {
         false
     }
 }
-

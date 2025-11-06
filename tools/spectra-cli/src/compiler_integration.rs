@@ -1,6 +1,8 @@
 // Full compiler integration
 // Provides a backend driver that plugs midend + backend into the shared pipeline.
 
+use std::time::{Duration, Instant};
+
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
     error::MidendError, BackendDriver, BackendError, CompilationOptions, CompilationPipeline,
@@ -16,9 +18,18 @@ use spectra_midend::{
 };
 
 #[derive(Debug)]
+struct PassReport {
+    name: &'static str,
+    duration: Duration,
+    modified: bool,
+}
+
+#[derive(Debug)]
 struct FullPipelineArtifacts {
     ir_module: IRModule,
-    applied_passes: Vec<&'static str>,
+    passes: Vec<PassReport>,
+    lowering_duration: Duration,
+    codegen_duration: Duration,
 }
 
 struct FullPipelineBackend {
@@ -40,7 +51,9 @@ impl BackendDriver for FullPipelineBackend {
         options: &CompilationOptions,
     ) -> Result<Self::Artifacts, Vec<CompilerError>> {
         let mut lowering = ASTLowering::new();
+        let lowering_start = Instant::now();
         let mut ir_module = lowering.lower_module(ast);
+        let lowering_duration = lowering_start.elapsed();
 
         if options.dump_ir {
             println!("=== IR (before optimization) ===");
@@ -48,25 +61,34 @@ impl BackendDriver for FullPipelineBackend {
             println!();
         }
 
-        let mut applied_passes = Vec::new();
+        let mut pass_reports = Vec::new();
 
         if options.optimize {
             if options.opt_level >= 1 {
                 let mut cf = ConstantFolding::new();
-                if cf.run(&mut ir_module) {
-                    applied_passes.push("Constant Folding");
-                }
+                let pass_start = Instant::now();
+                let modified = cf.run(&mut ir_module);
+                pass_reports.push(PassReport {
+                    name: "Constant Folding",
+                    duration: pass_start.elapsed(),
+                    modified,
+                });
             }
 
             if options.opt_level >= 2 {
                 let mut dce = DeadCodeElimination::new();
-                if dce.run(&mut ir_module) {
-                    applied_passes.push("Dead Code Elimination");
-                }
+                let pass_start = Instant::now();
+                let modified = dce.run(&mut ir_module);
+                pass_reports.push(PassReport {
+                    name: "Dead Code Elimination",
+                    duration: pass_start.elapsed(),
+                    modified,
+                });
             }
         }
 
         let mut loop_check = LoopStructureValidation::new();
+        let validation_start = Instant::now();
         loop_check.run(&mut ir_module);
 
         if loop_check.has_errors() {
@@ -83,7 +105,11 @@ impl BackendDriver for FullPipelineBackend {
             return Err(errors);
         }
 
-        applied_passes.push("Loop Structure Validation");
+        pass_reports.push(PassReport {
+            name: "Loop Structure Validation",
+            duration: validation_start.elapsed(),
+            modified: false,
+        });
 
         if options.dump_ir {
             println!("=== IR (after optimization) ===");
@@ -92,7 +118,11 @@ impl BackendDriver for FullPipelineBackend {
         }
 
         let mut codegen = CodeGenerator::new();
-        if let Err(error) = codegen.generate_module(&ir_module) {
+        let codegen_start = Instant::now();
+        let codegen_result = codegen.generate_module(&ir_module);
+        let codegen_duration = codegen_start.elapsed();
+
+        if let Err(error) = codegen_result {
             return Err(vec![CompilerError::Backend(BackendError::new(error))]);
         }
 
@@ -100,7 +130,9 @@ impl BackendDriver for FullPipelineBackend {
 
         Ok(FullPipelineArtifacts {
             ir_module,
-            applied_passes,
+            passes: pass_reports,
+            lowering_duration,
+            codegen_duration,
         })
     }
 
@@ -129,21 +161,30 @@ impl BackendDriver for FullPipelineBackend {
             return Ok(());
         }
 
-        spectra_runtime::initialize();
+        let runtime_state = spectra_runtime::initialize();
+        let execution_start = Instant::now();
 
         let return_value = unsafe {
-            codegen
-                .execute_entry_point("main", &artifacts.ir_module)
-                .map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?
+            codegen.execute_entry_point("main", &artifacts.ir_module)
         };
+        let execution_duration = execution_start.elapsed();
+
+        let return_value = return_value
+            .map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?;
+
+        let runtime_uptime = runtime_state.uptime();
+        let init_thread = runtime_state.init_thread_id();
 
         if let Some(value) = return_value {
             println!(
-                "\n✅ Execution completed (JIT)\n   - main() returned {}",
-                value
+                "\n✅ Execution completed (JIT)\n   - main() returned {}\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
+                value, execution_duration, runtime_uptime, init_thread
             );
         } else {
-            println!("\n✅ Execution completed (JIT)\n   - main() returned void");
+            println!(
+                "\n✅ Execution completed (JIT)\n   - main() returned void\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
+                execution_duration, runtime_uptime, init_thread
+            );
         }
 
         Ok(())
@@ -178,12 +219,37 @@ impl SpectraCompiler {
 
         let artifacts = compilation.backend_artifacts;
 
-        if self.options.optimize && !artifacts.applied_passes.is_empty() {
-            println!(
-                "Optimization passes applied: {}",
-                artifacts.applied_passes.join(", ")
-            );
+        if self.options.optimize {
+            let modified_passes: Vec<_> = artifacts
+                .passes
+                .iter()
+                .filter(|report| report.modified)
+                .map(|report| report.name)
+                .collect();
+
+            if modified_passes.is_empty() {
+                println!("Optimization passes applied: none (IR unchanged)");
+            } else {
+                println!(
+                    "Optimization passes applied: {}",
+                    modified_passes.join(", ")
+                );
+            }
         }
+
+        if !artifacts.passes.is_empty() {
+            println!("Pass timings:");
+            for report in &artifacts.passes {
+                let status = if report.modified { "modified" } else { "no change" };
+                println!(
+                    "  • {:<28} {:>10?} ({})",
+                    report.name, report.duration, status
+                );
+            }
+        }
+
+        println!("Lowering time: {:?}", artifacts.lowering_duration);
+        println!("Code generation time: {:?}", artifacts.codegen_duration);
 
         println!(
             "IR functions emitted: {}",
@@ -225,12 +291,37 @@ impl SpectraCompiler {
 
         let artifacts = &compilation.backend_artifacts;
 
-        if self.options.optimize && !artifacts.applied_passes.is_empty() {
-            println!(
-                "Optimization passes applied: {}",
-                artifacts.applied_passes.join(", ")
-            );
+        if self.options.optimize {
+            let modified_passes: Vec<_> = artifacts
+                .passes
+                .iter()
+                .filter(|report| report.modified)
+                .map(|report| report.name)
+                .collect();
+
+            if modified_passes.is_empty() {
+                println!("Optimization passes applied: none (IR unchanged)");
+            } else {
+                println!(
+                    "Optimization passes applied: {}",
+                    modified_passes.join(", ")
+                );
+            }
         }
+
+        if !artifacts.passes.is_empty() {
+            println!("Pass timings:");
+            for report in &artifacts.passes {
+                let status = if report.modified { "modified" } else { "no change" };
+                println!(
+                    "  • {:<28} {:>10?} ({})",
+                    report.name, report.duration, status
+                );
+            }
+        }
+
+        println!("Lowering time: {:?}", artifacts.lowering_duration);
+        println!("Code generation time: {:?}", artifacts.codegen_duration);
 
         println!(
             "IR functions emitted: {}",
