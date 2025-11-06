@@ -31,10 +31,17 @@ struct SymbolInfo {
     ty: Type,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelfParamKind {
+    Value,
+    Reference { mutable: bool },
+}
+
 #[derive(Debug, Clone)]
 struct FunctionSignature {
     params: Vec<Type>,
     return_type: Type,
+    self_kind: Option<SelfParamKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +239,54 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn types_compatible(&self, a: &Type, b: &Type) -> bool {
+        self.types_match(a, b) && self.types_match(b, a)
+    }
+
+    fn branch_type_mismatch(&self, types: &[Type]) -> Option<(Type, Type)> {
+        let mut reference: Option<Type> = None;
+
+        for ty in types {
+            if matches!(ty, Type::Unknown) {
+                continue;
+            }
+
+            if let Some(ref expected) = reference {
+                if !self.types_compatible(expected, ty) {
+                    return Some((expected.clone(), ty.clone()));
+                }
+            } else {
+                reference = Some(ty.clone());
+            }
+        }
+
+        None
+    }
+
+    fn first_non_unknown_type(&self, types: &[Type]) -> Option<Type> {
+        types
+            .iter()
+            .find(|ty| !matches!(ty, Type::Unknown))
+            .cloned()
+    }
+
+    fn infer_block_type(&mut self, block: &Block) -> Type {
+        if let Some(last_stmt) = block.statements.last() {
+            match &last_stmt.kind {
+                StatementKind::Expression(expr) => self.infer_expression_type(expr),
+                StatementKind::Return(ret) => {
+                    if let Some(value) = &ret.value {
+                        self.infer_expression_type(value);
+                    }
+                    Type::Unknown
+                }
+                _ => Type::Unit,
+            }
+        } else {
+            Type::Unit
+        }
+    }
+
     pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
         // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
@@ -256,6 +311,7 @@ impl SemanticAnalyzer {
                         let signature = FunctionSignature {
                             params,
                             return_type: return_type.clone(),
+                            self_kind: None,
                         };
 
                         self.functions.insert(func.name.clone(), signature);
@@ -450,10 +506,27 @@ impl SemanticAnalyzer {
         for method in &impl_block.methods {
             // Extrair tipos dos parâmetros
             let mut param_types = Vec::new();
+            let mut self_kind = None;
             for param in &method.params {
                 if param.is_self {
                     // self parameter - tipo é o do impl block
-                    // TODO: Distinguir entre self, &self, &mut self
+                    if self_kind.is_some() {
+                        self.error(
+                            format!(
+                                "Method '{}' declares more than one self parameter",
+                                method.name
+                            ),
+                            param.span,
+                        );
+                    }
+
+                    self_kind = Some(if param.is_reference {
+                        SelfParamKind::Reference {
+                            mutable: param.is_mutable,
+                        }
+                    } else {
+                        SelfParamKind::Value
+                    });
                     param_types.push(Type::Struct {
                         name: impl_block.type_name.clone(),
                     });
@@ -469,6 +542,7 @@ impl SemanticAnalyzer {
             let signature = FunctionSignature {
                 params: param_types,
                 return_type,
+                self_kind,
             };
 
             let type_methods = self
@@ -546,8 +620,26 @@ impl SemanticAnalyzer {
         for method in &trait_decl.methods {
             // Converter parâmetros para Type
             let mut param_types = Vec::new();
+            let mut self_kind = None;
             for param in &method.params {
                 if param.is_self {
+                    if self_kind.is_some() {
+                        self.error(
+                            format!(
+                                "Trait method '{}' declares more than one self parameter",
+                                method.name
+                            ),
+                            param.span,
+                        );
+                    }
+
+                    self_kind = Some(if param.is_reference {
+                        SelfParamKind::Reference {
+                            mutable: param.is_mutable,
+                        }
+                    } else {
+                        SelfParamKind::Value
+                    });
                     // self em trait é genérico - será o tipo que implementa o trait
                     param_types.push(Type::Unknown);
                 } else {
@@ -561,6 +653,7 @@ impl SemanticAnalyzer {
             let signature = FunctionSignature {
                 params: param_types,
                 return_type,
+                self_kind,
             };
 
             let method_info = TraitMethodInfo {
@@ -615,8 +708,26 @@ impl SemanticAnalyzer {
         for method in &impl_block.methods {
             // Converter parâmetros para Type
             let mut param_types = Vec::new();
+            let mut self_kind = None;
             for param in &method.params {
                 if param.is_self {
+                    if self_kind.is_some() {
+                        self.error(
+                            format!(
+                                "Method '{}' declares more than one self parameter",
+                                method.name
+                            ),
+                            param.span,
+                        );
+                    }
+
+                    self_kind = Some(if param.is_reference {
+                        SelfParamKind::Reference {
+                            mutable: param.is_mutable,
+                        }
+                    } else {
+                        SelfParamKind::Value
+                    });
                     param_types.push(Type::Struct {
                         name: impl_block.type_name.clone(),
                     });
@@ -631,6 +742,7 @@ impl SemanticAnalyzer {
             let signature = FunctionSignature {
                 params: param_types,
                 return_type,
+                self_kind,
             };
 
             implemented_methods.insert(method.name.clone(), (signature, method.span));
@@ -643,16 +755,31 @@ impl SemanticAnalyzer {
                     // Verificar que as assinaturas correspondem
                     // Primeiro parâmetro do trait é Unknown (self genérico), então pulamos
                     // Mas apenas se houver parâmetros (métodos estáticos não têm self)
-                    let trait_params = if !trait_method_info.signature.params.is_empty() {
-                        &trait_method_info.signature.params[1..] // Pula self
+                    let trait_has_self = trait_method_info.signature.self_kind.is_some();
+                    let impl_has_self = impl_signature.self_kind.is_some();
+
+                    if trait_method_info.signature.self_kind != impl_signature.self_kind {
+                        self.error(
+                            format!(
+                                "Method '{}' has incompatible self receiver between trait and implementation",
+                                trait_method_name
+                            ),
+                            impl_block.span,
+                        );
+                    }
+
+                    let trait_params = if trait_has_self
+                        && trait_method_info.signature.params.len() >= 1
+                    {
+                        &trait_method_info.signature.params[1..]
                     } else {
-                        &trait_method_info.signature.params[..] // Sem parâmetros
+                        &trait_method_info.signature.params[..]
                     };
 
-                    let impl_params = if !impl_signature.params.is_empty() {
-                        &impl_signature.params[1..] // Pula self
+                    let impl_params = if impl_has_self && impl_signature.params.len() >= 1 {
+                        &impl_signature.params[1..]
                     } else {
-                        &impl_signature.params[..] // Sem parâmetros
+                        &impl_signature.params[..]
                     };
 
                     if trait_params.len() != impl_params.len() {
@@ -746,7 +873,7 @@ impl SemanticAnalyzer {
                 // Criar assinatura substituindo self genérico pelo tipo concreto
                 let mut concrete_params = Vec::new();
                 for (i, param) in trait_method_info.signature.params.iter().enumerate() {
-                    if i == 0 {
+                    if i == 0 && trait_method_info.signature.self_kind.is_some() {
                         // Substituir self genérico pelo tipo concreto
                         concrete_params.push(Type::Struct {
                             name: type_name.to_string(),
@@ -759,6 +886,7 @@ impl SemanticAnalyzer {
                 let concrete_signature = FunctionSignature {
                     params: concrete_params,
                     return_type: trait_method_info.signature.return_type.clone(),
+                    self_kind: trait_method_info.signature.self_kind,
                 };
 
                 // Registrar método no tipo
@@ -1051,8 +1179,48 @@ impl SemanticAnalyzer {
                 }
                 Type::Unknown
             }
-            ExpressionKind::If { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
-            ExpressionKind::Unless { .. } => Type::Unknown, // TODO: inferir tipo comum dos ramos
+            ExpressionKind::If {
+                then_block,
+                elif_blocks,
+                else_block,
+                ..
+            } => {
+                let mut branch_types = Vec::new();
+                branch_types.push(self.infer_block_type(then_block));
+                for (_, elif_block) in elif_blocks {
+                    branch_types.push(self.infer_block_type(elif_block));
+                }
+                branch_types.push(match else_block {
+                    Some(block) => self.infer_block_type(block),
+                    None => Type::Unit,
+                });
+
+                if self.branch_type_mismatch(&branch_types).is_some() {
+                    Type::Unknown
+                } else {
+                    self.first_non_unknown_type(&branch_types)
+                        .unwrap_or(Type::Unknown)
+                }
+            }
+            ExpressionKind::Unless {
+                then_block,
+                else_block,
+                ..
+            } => {
+                let mut branch_types = Vec::new();
+                branch_types.push(self.infer_block_type(then_block));
+                branch_types.push(match else_block {
+                    Some(block) => self.infer_block_type(block),
+                    None => Type::Unit,
+                });
+
+                if self.branch_type_mismatch(&branch_types).is_some() {
+                    Type::Unknown
+                } else {
+                    self.first_non_unknown_type(&branch_types)
+                        .unwrap_or(Type::Unknown)
+                }
+            }
             ExpressionKind::Grouping(inner) => self.infer_expression_type(inner),
             ExpressionKind::ArrayLiteral { elements } => {
                 if elements.is_empty() {
@@ -1143,12 +1311,18 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::Match { scrutinee: _, arms } => {
-                // TODO: Verificar exhaustividade do match
-                // Por enquanto, retornar tipo do primeiro arm
-                if let Some(first_arm) = arms.first() {
-                    self.infer_expression_type(&first_arm.body)
-                } else {
+                if arms.is_empty() {
+                    return Type::Unknown;
+                }
+
+                let arm_types: Vec<Type> =
+                    arms.iter().map(|arm| self.infer_expression_type(&arm.body)).collect();
+
+                if self.branch_type_mismatch(&arm_types).is_some() {
                     Type::Unknown
+                } else {
+                    self.first_non_unknown_type(&arm_types)
+                        .unwrap_or(Type::Unknown)
                 }
             }
             ExpressionKind::MethodCall {
@@ -1412,6 +1586,26 @@ impl SemanticAnalyzer {
                 if let Some(ref else_body) = else_block {
                     self.analyze_block(else_body);
                 }
+
+                let mut branch_types = Vec::new();
+                branch_types.push(self.infer_block_type(then_block));
+                for (_, elif_body) in elif_blocks {
+                    branch_types.push(self.infer_block_type(elif_body));
+                }
+                branch_types.push(match else_block {
+                    Some(block) => self.infer_block_type(block),
+                    None => Type::Unit,
+                });
+
+                if let Some((expected, found)) = self.branch_type_mismatch(&branch_types) {
+                    self.error(
+                        format!(
+                            "Incompatible branch types in if expression: expected {:?}, found {:?}",
+                            expected, found
+                        ),
+                        expr.span,
+                    );
+                }
             }
             ExpressionKind::Unless {
                 condition,
@@ -1423,6 +1617,23 @@ impl SemanticAnalyzer {
 
                 if let Some(ref else_body) = else_block {
                     self.analyze_block(else_body);
+                }
+
+                let mut branch_types = Vec::new();
+                branch_types.push(self.infer_block_type(then_block));
+                branch_types.push(match else_block {
+                    Some(block) => self.infer_block_type(block),
+                    None => Type::Unit,
+                });
+
+                if let Some((expected, found)) = self.branch_type_mismatch(&branch_types) {
+                    self.error(
+                        format!(
+                            "Incompatible branch types in unless expression: expected {:?}, found {:?}",
+                            expected, found
+                        ),
+                        expr.span,
+                    );
                 }
             }
             ExpressionKind::Grouping(inner) => {
@@ -1778,23 +1989,36 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::Match { scrutinee, arms } => {
                 self.analyze_expression(scrutinee);
+                let scrutinee_type = self.infer_expression_type(scrutinee);
 
                 // Verificar exhaustiveness
                 self.check_match_exhaustiveness(arms, expr.span);
 
-                // TODO: Verificar tipos consistentes nos arms
+                let mut arm_result_types = Vec::new();
                 for arm in arms {
                     // Criar novo escopo para o arm
                     self.push_scope();
 
                     // Registrar variáveis do pattern
                     self.register_pattern_bindings(&arm.pattern);
+                    self.bind_pattern_types(&arm.pattern, &scrutinee_type);
 
                     // Analisar corpo do arm
                     self.analyze_expression(&arm.body);
+                    arm_result_types.push(self.infer_expression_type(&arm.body));
 
                     // Sair do escopo
                     self.pop_scope();
+                }
+
+                if let Some((expected, found)) = self.branch_type_mismatch(&arm_result_types) {
+                    self.error(
+                        format!(
+                            "Match arms must return compatible types; expected {:?}, found {:?}",
+                            expected, found
+                        ),
+                        expr.span,
+                    );
                 }
             }
             ExpressionKind::MethodCall {
@@ -1851,8 +2075,26 @@ impl SemanticAnalyzer {
                                     if let Some(trait_method_info) = trait_methods.get(method_name)
                                     {
                                         if trait_method_info.has_default {
-                                            found_signature =
-                                                Some(trait_method_info.signature.clone());
+                                            let mut params =
+                                                trait_method_info.signature.params.clone();
+                                            if trait_method_info.signature.self_kind.is_some()
+                                                && !params.is_empty()
+                                            {
+                                                params[0] = Type::Struct {
+                                                    name: type_name.clone(),
+                                                };
+                                            }
+
+                                            found_signature = Some(FunctionSignature {
+                                                params,
+                                                return_type: trait_method_info
+                                                    .signature
+                                                    .return_type
+                                                    .clone(),
+                                                self_kind: trait_method_info
+                                                    .signature
+                                                    .self_kind,
+                                            });
                                             break;
                                         }
                                     }
@@ -1863,13 +2105,37 @@ impl SemanticAnalyzer {
                     };
 
                     if let Some(signature) = signature {
-                        // Validar número de argumentos
-                        // Nota: signature.params inclui self como primeiro parâmetro
-                        let expected_args = if signature.params.is_empty() {
-                            0
-                        } else {
-                            signature.params.len() - 1 // Subtrair self
-                        };
+                        let has_self = signature.self_kind.is_some();
+
+                        if !has_self {
+                            self.error(
+                                format!(
+                                    "Method '{}' does not take 'self'; call it as an associated function",
+                                    method_name
+                                ),
+                                expr.span,
+                            );
+                            return;
+                        }
+
+                        // Validate object type matches expected self parameter when known
+                        if let Some(expected_self_type) = signature.params.get(0) {
+                            if !self.types_match(&obj_type, expected_self_type) {
+                                self.error(
+                                    format!(
+                                        "Method '{}' expects receiver of type {:?}, but found {:?}",
+                                        method_name, expected_self_type, obj_type
+                                    ),
+                                    expr.span,
+                                );
+                            }
+                        }
+
+                        let arg_offset = if has_self { 1 } else { 0 };
+                        let expected_args = signature
+                            .params
+                            .len()
+                            .saturating_sub(arg_offset);
 
                         if arguments.len() != expected_args {
                             self.error(
@@ -1886,8 +2152,8 @@ impl SemanticAnalyzer {
                         // Validar tipos dos argumentos
                         for (i, arg) in arguments.iter().enumerate() {
                             let arg_type = self.infer_expression_type(arg);
-                            // +1 porque params[0] é self
-                            if let Some(expected_type) = signature.params.get(i + 1) {
+                            let expected_index = i + arg_offset;
+                            if let Some(expected_type) = signature.params.get(expected_index) {
                                 if !self.types_match(&arg_type, expected_type) {
                                     self.error(
                                         format!(
@@ -1955,6 +2221,108 @@ impl SemanticAnalyzer {
                 if let Some(sub_patterns) = data {
                     for sub_pattern in sub_patterns {
                         self.register_pattern_bindings(sub_pattern);
+                    }
+                }
+            }
+        }
+    }
+
+    fn infer_pattern_type(&mut self, pattern: &Pattern) -> Option<Type> {
+        use crate::ast::Pattern;
+
+        match pattern {
+            Pattern::Wildcard => None,
+            Pattern::Identifier(_) => Some(Type::Unknown),
+            Pattern::Literal(expr) => Some(self.infer_expression_type(expr)),
+            Pattern::EnumVariant {
+                enum_name,
+                variant_name,
+                ..
+            } => {
+                if let Some(enum_info) = self.enum_infos.get(enum_name) {
+                    if enum_info.variants.contains_key(variant_name) {
+                        return Some(Type::Enum {
+                            name: enum_name.clone(),
+                        });
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    fn bind_pattern_types(&mut self, pattern: &Pattern, ty: &Type) {
+        use crate::ast::Pattern;
+
+        let mut effective_type = ty.clone();
+        if matches!(effective_type, Type::Unknown) {
+            if let Some(inferred) = self.infer_pattern_type(pattern) {
+                effective_type = inferred;
+            }
+        }
+
+        match pattern {
+            Pattern::Wildcard => {}
+            Pattern::Identifier(name) => {
+                if let Some(scope) = self.symbols.last_mut() {
+                    if let Some(info) = scope.get_mut(name) {
+                        info.ty = effective_type.clone();
+                    }
+                }
+            }
+            Pattern::Literal(_) => {}
+            Pattern::EnumVariant {
+                enum_name,
+                variant_name,
+                data,
+                ..
+            } => {
+                let enum_type = match &effective_type {
+                    Type::Enum { name } => name.clone(),
+                    _ => {
+                        if let Some(Type::Enum { name }) = self.infer_pattern_type(pattern) {
+                            name
+                        } else {
+                            return;
+                        }
+                    }
+                };
+
+                if enum_type != *enum_name {
+                    return;
+                }
+
+                let Some(enum_info) = self.enum_infos.get(enum_name) else {
+                    return;
+                };
+                let Some(variant_info) = enum_info.variants.get(variant_name) else {
+                    return;
+                };
+
+                if let (Some(sub_patterns), Some(field_types)) = (&data, &variant_info.data) {
+                    if sub_patterns.len() != field_types.len() {
+                        self.error(
+                            format!(
+                                "Pattern for variant '{}::{}' has {} sub-pattern(s), but {} were expected",
+                                enum_name,
+                                variant_name,
+                                sub_patterns.len(),
+                                field_types.len()
+                            ),
+                            Span::dummy(),
+                        );
+                        return;
+                    }
+
+                    let inferred_field_types: Vec<Type> = field_types
+                        .iter()
+                        .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                        .collect();
+
+                    for (sub_pattern, field_type) in
+                        sub_patterns.iter().zip(inferred_field_types.iter())
+                    {
+                        self.bind_pattern_types(sub_pattern, field_type);
                     }
                 }
             }
