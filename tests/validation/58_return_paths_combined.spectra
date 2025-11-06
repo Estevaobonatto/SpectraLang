@@ -1,0 +1,96 @@
+// Teste 58: Combinações de if/match/loop assegurando retornos válidos
+module validation_return_paths;
+
+fn evaluate(flag: bool, value: int) -> int {
+    if flag {
+        match value % 3 {
+            0 => value,
+            _ => value + 1,
+        }
+    } else {
+        let temp = value;
+        loop {
+            if temp > 5 {
+                break;
+            }
+
+            if temp == 5 {
+                return temp * 2;
+            }
+
+            temp = temp + 1;
+        }
+
+        match temp > 10 {
+            true => temp,
+            false => temp + 2,
+        }
+    }
+}
+
+fn analyze(choice: bool, depth: int) -> int {
+    match choice {
+        true => {
+            let mut_depth = depth + 1;
+            if mut_depth > 3 {
+                return mut_depth * 3;
+            }
+
+            loop {
+                if mut_depth % 2 == 0 {
+                    return mut_depth + 7;
+                }
+                mut_depth = mut_depth + 1;
+            }
+        },
+        false => {
+            let value = depth * 2;
+            match value {
+                0 => 10,
+                _ => {
+                    if value > 10 {
+                        value
+                    } else {
+                        value + 5
+                    }
+                }
+            }
+        },
+    }
+}
+
+fn branch_with_unless(flag: bool, start: int) -> int {
+    let counter = start;
+
+    unless flag {
+        loop {
+            if counter > 8 {
+                return counter;
+            }
+
+            match counter % 4 {
+                0 => {
+                    counter = counter + 3;
+                }
+                _ => {
+                    counter = counter + 2;
+                }
+            }
+        }
+    }
+
+    match flag {
+        true => start + 1,
+        false => counter,
+    }
+}
+
+pub fn main() -> int {
+    let a = evaluate(true, 4);
+    let b = evaluate(false, 3);
+    let c = analyze(true, 2);
+    let d = analyze(false, 6);
+    let e = branch_with_unless(false, 1);
+
+    a + b + c + d + e
+}

@@ -1,0 +1,149 @@
+// Teste: Garantia de retorno em funções que declaram tipos não-void
+module test_return_paths;
+
+fn missing_final_expr() -> int {
+    let value = 10;
+    if value > 0 {
+        return value;
+    }
+    // falta retorno para o caso value <= 0
+}
+
+fn missing_else(flag: bool) -> int {
+    if flag {
+        return 1;
+    }
+    // sem else e sem retorno
+}
+
+fn loop_with_break(flag: bool, limit: int) -> int {
+    let i = 0;
+
+    loop {
+        if flag && i > limit {
+            return i;
+        }
+
+        if !flag {
+            break;
+        }
+
+        if i == limit {
+            return limit;
+        }
+
+        i = i + 1;
+    }
+
+    // se chegamos aqui, faltou retorno
+}
+
+fn nested_if_loop(flag: bool, other: bool) -> int {
+    if flag {
+        loop {
+            if other {
+                return 10;
+            }
+            break;
+        }
+    } else {
+        return 20;
+    }
+    // caso flag seja true e other seja false, falta retorno
+}
+
+fn match_with_partial_return(choice: int) -> int {
+    match choice {
+        0 => 0,
+        1 => {
+            if choice > 2 {
+                return choice;
+            }
+            // falta retorno para choice == 1
+        },
+        _ => {
+            if choice > 5 {
+                return choice * 2;
+            } else {
+                return choice + 1;
+            }
+        },
+    }
+}
+
+fn valid_nested_if(flag: bool) -> int {
+    if flag {
+        if flag {
+            3
+        } else {
+            4
+        }
+    } else {
+        if flag {
+            5
+        } else {
+            6
+        }
+    }
+}
+
+fn valid_loop_match(flag: bool, limit: int) -> int {
+    let current = 0;
+
+    loop {
+        if current > limit {
+            return current;
+        }
+
+        match flag {
+            true => {
+                if current == limit {
+                    return current;
+                }
+            }
+            false => {
+                if current == limit {
+                    break;
+                }
+            }
+        }
+
+        current = current + 1;
+    }
+
+    match flag {
+        true => limit,
+        false => limit + 1,
+    }
+}
+
+fn valid_match_chain(choice: int) -> int {
+    match choice {
+        0 => 10,
+        _ => {
+            if choice % 2 == 0 {
+                let updated = choice / 2;
+                match updated {
+                    0 => 20,
+                    _ => updated + 30,
+                }
+            } else {
+                40
+            }
+        }
+    }
+}
+
+pub fn main() {
+    // funções válidas
+    let _ = valid_nested_if(true);
+    let _ = valid_loop_match(false, 3);
+    let _ = valid_match_chain(6);
+
+    // Exercitar caminhos problemáticos
+    let _ = missing_final_expr();
+    let _ = missing_else(true);
+    let _ = loop_with_break(false, 4);
+    let _ = nested_if_loop(true, false);
+    let _ = match_with_partial_return(1);
+}

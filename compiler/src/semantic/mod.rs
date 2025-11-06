@@ -147,6 +147,7 @@ pub struct SemanticAnalyzer {
     loop_depth: usize,
     // Track if we're inside a function (for return validation)
     current_function: Option<String>,
+    current_return_type: Option<Type>,
 }
 
 impl SemanticAnalyzer {
@@ -166,6 +167,7 @@ impl SemanticAnalyzer {
             loop_depth: 0,
             current_function: None,
             trait_signatures: HashMap::new(),
+            current_return_type: None,
         }
     }
 
@@ -675,6 +677,10 @@ impl SemanticAnalyzer {
         // Fase 2: Analisar corpos dos métodos
         for method in &impl_block.methods {
             self.current_function = Some(format!("{}::{}", impl_block.type_name, method.name));
+            let expected_return = self.type_annotation_to_type(&method.return_type);
+            let previous_return = self
+                .current_return_type
+                .replace(expected_return.clone());
             self.push_scope();
 
             // Declarar parâmetros no escopo
@@ -696,9 +702,11 @@ impl SemanticAnalyzer {
             }
 
             self.analyze_block(&method.body);
+            self.validate_function_block_return(&method.body, &expected_return, method.span);
 
             self.pop_scope();
             self.current_function = None;
+            self.current_return_type = previous_return;
         }
     }
 
@@ -1074,6 +1082,13 @@ impl SemanticAnalyzer {
 
     fn analyze_function(&mut self, func: &Function) {
         self.current_function = Some(func.name.clone());
+        let expected_return = self
+            .functions
+            .get(&func.name)
+            .map(|sig| sig.return_type.clone())
+            .unwrap_or_else(|| self.type_annotation_to_type(&func.return_type));
+        let previous_return = self.current_return_type.replace(expected_return.clone());
+
         self.push_scope();
 
         // Declare parameters in function scope
@@ -1089,9 +1104,11 @@ impl SemanticAnalyzer {
 
         // Analyze function body
         self.analyze_block(&func.body);
+        self.validate_function_block_return(&func.body, &expected_return, func.span);
 
         self.pop_scope();
         self.current_function = None;
+        self.current_return_type = previous_return;
     }
 
     fn analyze_block(&mut self, block: &Block) {
@@ -1195,6 +1212,8 @@ impl SemanticAnalyzer {
                 if let Some(ref value) = ret_stmt.value {
                     self.analyze_expression(value);
                 }
+
+                self.check_return_statement(ret_stmt.value.as_ref(), ret_stmt.span);
             }
             StatementKind::Expression(expr) => {
                 self.analyze_expression(expr);
@@ -2612,6 +2631,179 @@ impl SemanticAnalyzer {
                         sub_patterns.iter().zip(inferred_field_types.iter())
                     {
                         self.bind_pattern_types(sub_pattern, field_type);
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_return_statement(&mut self, value: Option<&Expression>, span: Span) {
+        let expected = match self.current_return_type.as_ref() {
+            Some(ty) => ty.clone(),
+            None => return,
+        };
+
+        match value {
+            Some(expr) => {
+                if matches!(expected, Type::Unit) {
+                    self.error(
+                        "Return statement in function with no return type",
+                        expr.span,
+                    );
+                    return;
+                }
+
+                let actual = self.infer_expression_type(expr);
+                if matches!(actual, Type::Unknown) || matches!(expected, Type::Unknown) {
+                    return;
+                }
+
+                if !self.types_match(&actual, &expected) {
+                    self.error(
+                        format!(
+                            "Return type mismatch: expected {:?}, found {:?}",
+                            expected, actual
+                        ),
+                        expr.span,
+                    );
+                }
+            }
+            None => {
+                if !matches!(expected, Type::Unit | Type::Unknown) {
+                    self.error(
+                        format!(
+                            "Return statement missing value of type {:?}",
+                            expected
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+    }
+
+    fn block_guaranteed_return(&self, block: &Block) -> bool {
+        if block.statements.is_empty() {
+            return false;
+        }
+
+        for (index, statement) in block.statements.iter().enumerate() {
+            let is_last = index + 1 == block.statements.len();
+            if self.statement_guaranteed_return(statement, is_last) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn statement_guaranteed_return(&self, statement: &Statement, is_last: bool) -> bool {
+        use crate::ast::StatementKind;
+
+        match &statement.kind {
+            StatementKind::Return(_) => true,
+            StatementKind::Expression(expr) if is_last => {
+                self.expression_guaranteed_return(expr)
+            }
+            StatementKind::Loop(loop_stmt) if is_last => {
+                self.block_guaranteed_return(&loop_stmt.body)
+            }
+            _ => false,
+        }
+    }
+
+    fn expression_guaranteed_return(&self, expression: &Expression) -> bool {
+        use crate::ast::ExpressionKind;
+
+        match &expression.kind {
+            ExpressionKind::If {
+                then_block,
+                elif_blocks,
+                else_block,
+                ..
+            } => {
+                let then_returns = self.block_guaranteed_return(then_block);
+                let elif_returns = elif_blocks
+                    .iter()
+                    .all(|(_, block)| self.block_guaranteed_return(block));
+                let else_returns = else_block
+                    .as_ref()
+                    .map(|block| self.block_guaranteed_return(block))
+                    .unwrap_or(false);
+
+                then_returns && elif_returns && else_returns
+            }
+            ExpressionKind::Unless {
+                then_block,
+                else_block,
+                ..
+            } => {
+                let then_returns = self.block_guaranteed_return(then_block);
+                let else_returns = else_block
+                    .as_ref()
+                    .map(|block| self.block_guaranteed_return(block))
+                    .unwrap_or(false);
+
+                then_returns && else_returns
+            }
+            ExpressionKind::Match { arms, .. } => {
+                !arms.is_empty()
+                    && arms
+                        .iter()
+                        .all(|arm| self.expression_guaranteed_return(&arm.body))
+            }
+            _ => true,
+        }
+    }
+
+    fn validate_function_block_return(&mut self, body: &Block, expected: &Type, span: Span) {
+        match expected {
+            Type::Unknown => return,
+            Type::Unit => {
+                let block_type = self.infer_block_type(body);
+                if !matches!(block_type, Type::Unit | Type::Unknown) {
+                    self.error(
+                        format!(
+                            "Function declared with no return type but final expression has type {:?}",
+                            block_type
+                        ),
+                        body.span,
+                    );
+                }
+            }
+            expected_type => {
+                if !self.block_guaranteed_return(body) {
+                    self.error(
+                        format!(
+                            "Function declared to return {:?} may exit without returning a value",
+                            expected_type
+                        ),
+                        span,
+                    );
+                }
+
+                let block_type = self.infer_block_type(body);
+                match block_type {
+                    Type::Unknown => {}
+                    Type::Unit => {
+                        self.error(
+                            format!(
+                                "Function must return value of type {:?}",
+                                expected_type
+                            ),
+                            span,
+                        );
+                    }
+                    actual => {
+                        if !self.types_match(&actual, expected_type) {
+                            self.error(
+                                format!(
+                                    "Function final expression has type {:?}, expected {:?}",
+                                    actual, expected_type
+                                ),
+                                body.span,
+                            );
+                        }
                     }
                 }
             }
