@@ -7,3 +7,4 @@ edition = "2021"
 spectra-compiler = { path = "../../compiler" }
 spectra-midend = { path = "../../midend" }
 spectra-backend = { path = "../../backend" }
+spectra-runtime = { path = "../../runtime" }

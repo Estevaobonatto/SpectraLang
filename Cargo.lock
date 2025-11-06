@@ -339,6 +339,7 @@ dependencies = [
  "spectra-backend",
  "spectra-compiler",
  "spectra-midend",
+ "spectra-runtime",
 ]
 
 [[package]]

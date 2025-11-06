@@ -39,6 +39,9 @@ fn main() {
                 options.optimize = true;
                 options.opt_level = 3;
             }
+            "--run" | "-r" => {
+                options.run_jit = true;
+            }
             arg if arg.starts_with('-') => {
                 eprintln!("Unknown option: {}", arg);
                 eprintln!("Use --help for usage information");
@@ -104,6 +107,7 @@ fn print_help() {
     println!("    -O1                Enable basic optimizations");
     println!("    -O2                Enable moderate optimizations (default)");
     println!("    -O3                Enable aggressive optimizations");
+    println!("    --run, -r          Execute the program with the JIT after compiling");
     println!();
     println!("EXAMPLES:");
     println!("    spectra program.spectra");

@@ -7,6 +7,7 @@ use crate::{
     span::Span,
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::fmt;
 
 #[derive(Debug, Clone)]
 struct TraitMethodSignature {
@@ -27,6 +28,26 @@ struct ParameterInfo {
 enum TypeAnnotationPattern {
     Simple(Vec<String>),
     Tuple(Vec<TypeAnnotationPattern>),
+}
+
+impl fmt::Display for TypeAnnotationPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TypeAnnotationPattern::Simple(segments) => {
+                write!(f, "{}", segments.join("::"))
+            }
+            TypeAnnotationPattern::Tuple(elements) => {
+                write!(f, "(")?;
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", element)?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
 }
 
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
@@ -111,6 +132,7 @@ pub struct SemanticAnalyzer {
     methods: HashMap<String, HashMap<String, FunctionSignature>>,
     // Traits: maps trait_name to (method_name, method_info)
     traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
+    trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
     // Trait implementations: maps (trait_name, type_name) to validation status
     trait_impls: HashMap<(String, String), bool>,
     // Struct metadata for validation and lookup
@@ -143,6 +165,7 @@ impl SemanticAnalyzer {
             generic_enums: HashMap::new(),
             loop_depth: 0,
             current_function: None,
+            trait_signatures: HashMap::new(),
         }
     }
 
@@ -187,6 +210,60 @@ impl SemanticAnalyzer {
             },
             None => Type::Unknown,
         }
+    }
+
+    fn annotation_to_pattern(annotation: &crate::ast::TypeAnnotation) -> TypeAnnotationPattern {
+        use crate::ast::TypeAnnotationKind;
+
+        match &annotation.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                TypeAnnotationPattern::Simple(segments.clone())
+            }
+            TypeAnnotationKind::Tuple { elements } => TypeAnnotationPattern::Tuple(
+                elements.iter().map(Self::annotation_to_pattern).collect(),
+            ),
+        }
+    }
+
+    fn option_annotation_to_pattern(
+        annotation: &Option<crate::ast::TypeAnnotation>,
+    ) -> Option<TypeAnnotationPattern> {
+        annotation.as_ref().map(Self::annotation_to_pattern)
+    }
+
+    fn format_parameter(param: &ParameterInfo) -> String {
+        if param.is_self {
+            if param.is_reference {
+                if param.is_mutable {
+                    "&mut self".to_string()
+                } else {
+                    "&self".to_string()
+                }
+            } else {
+                "self".to_string()
+            }
+        } else if let Some(ty) = &param.ty {
+            ty.to_string()
+        } else {
+            "_".to_string()
+        }
+    }
+
+    fn format_trait_signature(method_name: &str, signature: &TraitMethodSignature) -> String {
+        let params = signature
+            .params
+            .iter()
+            .map(Self::format_parameter)
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let return_part = signature
+            .return_type
+            .as_ref()
+            .map(|ty| format!(" -> {}", ty))
+            .unwrap_or_default();
+
+        format!("fn {}({}){}", method_name, params, return_part)
     }
 
     fn declare_symbol(&mut self, name: String, span: Span, ty: Type) -> bool {
@@ -628,6 +705,7 @@ impl SemanticAnalyzer {
     /// Analisa declaração de trait e registra assinaturas dos métodos
     fn analyze_trait_declaration(&mut self, trait_decl: &crate::ast::TraitDeclaration) {
         let mut trait_methods = HashMap::new();
+        let mut signature_map = HashMap::new();
 
         // First, inherit methods from parent traits
         for parent_trait_name in &trait_decl.parent_traits {
@@ -645,6 +723,12 @@ impl SemanticAnalyzer {
                     trait_decl.span,
                 );
             }
+
+            if let Some(parent_signatures) = self.trait_signatures.get(parent_trait_name).cloned() {
+                for (method_name, signature) in parent_signatures {
+                    signature_map.insert(method_name, signature);
+                }
+            }
         }
 
         // Then add this trait's own methods (can override inherited methods)
@@ -652,6 +736,7 @@ impl SemanticAnalyzer {
             // Converter parâmetros para Type
             let mut param_types = Vec::new();
             let mut self_kind = None;
+            let mut parameter_infos = Vec::new();
             for param in &method.params {
                 if param.is_self {
                     if self_kind.is_some() {
@@ -673,13 +758,26 @@ impl SemanticAnalyzer {
                     });
                     // self em trait é genérico - será o tipo que implementa o trait
                     param_types.push(Type::Unknown);
+                    parameter_infos.push(ParameterInfo {
+                        is_self: true,
+                        is_reference: param.is_reference,
+                        is_mutable: param.is_mutable,
+                        ty: None,
+                    });
                 } else {
                     let param_type = self.type_annotation_to_type(&param.type_annotation);
                     param_types.push(param_type);
+                    parameter_infos.push(ParameterInfo {
+                        is_self: false,
+                        is_reference: false,
+                        is_mutable: false,
+                        ty: Self::option_annotation_to_pattern(&param.type_annotation),
+                    });
                 }
             }
 
             let return_type = self.type_annotation_to_type(&method.return_type);
+            let return_pattern = Self::option_annotation_to_pattern(&method.return_type);
 
             let signature = FunctionSignature {
                 params: param_types,
@@ -705,6 +803,15 @@ impl SemanticAnalyzer {
                     method.span,
                 );
             }
+
+            signature_map.insert(
+                method.name.clone(),
+                TraitMethodSignature {
+                    params: parameter_infos,
+                    return_type: return_pattern,
+                    has_default_body: method.body.is_some(),
+                },
+            );
         }
 
         // Registrar trait com suas assinaturas
@@ -718,6 +825,9 @@ impl SemanticAnalyzer {
                 trait_decl.span,
             );
         }
+
+        self.trait_signatures
+            .insert(trait_decl.name.clone(), signature_map);
     }
 
     /// Valida que um impl Trait for Type implementa todos os métodos do trait
@@ -733,6 +843,12 @@ impl SemanticAnalyzer {
                 return;
             }
         };
+
+        let trait_signature_map = self
+            .trait_signatures
+            .get(trait_name)
+            .cloned()
+            .unwrap_or_default();
 
         // Coletar métodos implementados
         let mut implemented_methods = HashMap::new();
@@ -781,6 +897,10 @@ impl SemanticAnalyzer {
 
         // Verificar que todos os métodos do trait foram implementados
         for (trait_method_name, trait_method_info) in &trait_methods {
+            let expected_signature_repr = trait_signature_map
+                .get(trait_method_name)
+                .map(|signature| Self::format_trait_signature(trait_method_name, signature));
+
             match implemented_methods.get(trait_method_name) {
                 Some((impl_signature, _span)) => {
                     // Verificar que as assinaturas correspondem
@@ -813,15 +933,18 @@ impl SemanticAnalyzer {
                     };
 
                     if trait_params.len() != impl_params.len() {
-                        self.error(
-                            format!(
-                                "Method '{}' has wrong number of parameters. Expected {}, found {}",
-                                trait_method_name,
-                                trait_params.len(),
-                                impl_params.len()
-                            ),
-                            impl_block.span,
+                        let mut message = format!(
+                            "Method '{}' has wrong number of parameters. Expected {}, found {}",
+                            trait_method_name,
+                            trait_params.len(),
+                            impl_params.len()
                         );
+
+                        if let Some(signature_repr) = &expected_signature_repr {
+                            message.push_str(&format!(". Expected {}", signature_repr));
+                        }
+
+                        self.error(message, impl_block.span);
                         continue;
                     }
 
@@ -830,16 +953,19 @@ impl SemanticAnalyzer {
                         trait_params.iter().zip(impl_params.iter()).enumerate()
                     {
                         if !self.types_match(impl_param, trait_param) {
-                            self.error(
-                                format!(
-                                    "Method '{}' parameter {} has wrong type. Expected {:?}, found {:?}",
-                                    trait_method_name,
-                                    i + 1,
-                                    trait_param,
-                                    impl_param
-                                ),
-                                impl_block.span,
+                            let mut message = format!(
+                                "Method '{}' parameter {} has wrong type. Expected {:?}, found {:?}",
+                                trait_method_name,
+                                i + 1,
+                                trait_param,
+                                impl_param
                             );
+
+                            if let Some(signature_repr) = &expected_signature_repr {
+                                message.push_str(&format!(" (expected {})", signature_repr));
+                            }
+
+                            self.error(message, impl_block.span);
                         }
                     }
 
@@ -848,27 +974,44 @@ impl SemanticAnalyzer {
                         &impl_signature.return_type,
                         &trait_method_info.signature.return_type,
                     ) {
-                        self.error(
-                            format!(
-                                "Method '{}' has wrong return type. Expected {:?}, found {:?}",
-                                trait_method_name,
-                                trait_method_info.signature.return_type,
-                                impl_signature.return_type
-                            ),
-                            impl_block.span,
+                        let mut message = format!(
+                            "Method '{}' has wrong return type. Expected {:?}, found {:?}",
+                            trait_method_name,
+                            trait_method_info.signature.return_type,
+                            impl_signature.return_type
                         );
+
+                        if let Some(signature_repr) = &expected_signature_repr {
+                            message.push_str(&format!(" (expected {})", signature_repr));
+                        }
+
+                        self.error(message, impl_block.span);
                     }
                 }
                 None => {
                     // Método não implementado - OK se tem default, erro caso contrário
-                    if !trait_method_info.has_default {
-                        self.error(
+                    let requires_impl = trait_signature_map
+                        .get(trait_method_name)
+                        .map(|signature| !signature.has_default_body)
+                        .unwrap_or(!trait_method_info.has_default);
+
+                    if requires_impl {
+                        let message = if let Some(signature_repr) =
+                            trait_signature_map.get(trait_method_name).map(|signature| {
+                                Self::format_trait_signature(trait_method_name, signature)
+                            }) {
+                            format!(
+                                "Type '{}' does not implement required trait method '{}' (expected signature: {}; no default implementation)",
+                                impl_block.type_name, trait_method_name, signature_repr
+                            )
+                        } else {
                             format!(
                                 "Type '{}' does not implement required trait method '{}' (no default implementation)",
                                 impl_block.type_name, trait_method_name
-                            ),
-                            impl_block.span,
-                        );
+                            )
+                        };
+
+                        self.error(message, impl_block.span);
                     }
                 }
             }

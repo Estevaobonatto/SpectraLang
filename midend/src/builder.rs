@@ -278,6 +278,7 @@ impl IRBuilder {
     pub fn build_branch(&self, func: &mut Function, target: usize) {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {
+                block.terminator = None;
                 block.set_terminator(Terminator::Branch { target });
             }
         }
@@ -292,6 +293,7 @@ impl IRBuilder {
     ) {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {
+                block.terminator = None;
                 block.set_terminator(Terminator::CondBranch {
                     condition,
                     true_block,

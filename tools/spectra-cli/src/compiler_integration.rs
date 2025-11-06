@@ -8,7 +8,10 @@ use spectra_compiler::{
 use spectra_midend::{
     ir::Module as IRModule,
     lowering::ASTLowering,
-    passes::{constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination, Pass},
+    passes::{
+        constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
+        validation::LoopStructureValidation, Pass,
+    },
 };
 
 #[derive(Debug)]
@@ -17,11 +20,13 @@ struct FullPipelineArtifacts {
     applied_passes: Vec<&'static str>,
 }
 
-struct FullPipelineBackend;
+struct FullPipelineBackend {
+    codegen: Option<CodeGenerator>,
+}
 
 impl FullPipelineBackend {
     fn new() -> Self {
-        Self
+        Self { codegen: None }
     }
 }
 
@@ -60,6 +65,11 @@ impl BackendDriver for FullPipelineBackend {
             }
         }
 
+        let mut loop_check = LoopStructureValidation::new();
+        if loop_check.run(&mut ir_module) {
+            applied_passes.push("Loop Structure Validation");
+        }
+
         if options.dump_ir {
             println!("=== IR (after optimization) ===");
             println!("{:#?}", ir_module);
@@ -70,6 +80,8 @@ impl BackendDriver for FullPipelineBackend {
         if let Err(error) = codegen.generate_module(&ir_module) {
             return Err(vec![CompilerError::Backend(BackendError::new(error))]);
         }
+
+        self.codegen = Some(codegen);
 
         Ok(FullPipelineArtifacts {
             ir_module,
@@ -82,15 +94,41 @@ impl BackendDriver for FullPipelineBackend {
         artifacts: &Self::Artifacts,
         _options: &CompilationOptions,
     ) -> Result<(), Vec<CompilerError>> {
-        if artifacts
+        let codegen = match self.codegen.as_mut() {
+            Some(codegen) => codegen,
+            None => {
+                println!(
+                    "\n⚠️ Backend artifacts missing code generator; JIT execution unavailable"
+                );
+                return Ok(());
+            }
+        };
+
+        if !artifacts
             .ir_module
             .functions
             .iter()
             .any(|func| func.name == "main")
         {
-            println!("\n🎯 Execution preview (JIT pending)\n   - Found entry point 'main'\n   - IR-based execution is not yet available");
+            println!("\n⚠️ No entry point 'main' found; skipping execution");
+            return Ok(());
+        }
+
+        spectra_runtime::initialize();
+
+        let return_value = unsafe {
+            codegen
+                .execute_entry_point("main", &artifacts.ir_module)
+                .map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?
+        };
+
+        if let Some(value) = return_value {
+            println!(
+                "\n✅ Execution completed (JIT)\n   - main() returned {}",
+                value
+            );
         } else {
-            println!("\n⚠️ No entry point 'main' found; skipping execution preview");
+            println!("\n✅ Execution completed (JIT)\n   - main() returned void");
         }
 
         Ok(())
@@ -123,16 +161,29 @@ impl SpectraCompiler {
             error_msg
         })?;
 
-        let FullPipelineArtifacts {
-            ir_module,
-            applied_passes,
-        } = compilation.backend_artifacts;
+        let artifacts = compilation.backend_artifacts;
 
-        if self.options.optimize && !applied_passes.is_empty() {
-            println!("Optimization passes applied: {}", applied_passes.join(", "));
+        if self.options.optimize && !artifacts.applied_passes.is_empty() {
+            println!(
+                "Optimization passes applied: {}",
+                artifacts.applied_passes.join(", ")
+            );
         }
 
-        println!("IR functions emitted: {}", ir_module.functions.len());
+        println!(
+            "IR functions emitted: {}",
+            artifacts.ir_module.functions.len()
+        );
+
+        if self.options.run_jit {
+            pipeline.execute_artifacts(&artifacts).map_err(|errors| {
+                let mut error_msg = String::from("Execution errors:\n");
+                for error in errors {
+                    error_msg.push_str(&format!("  • {}\n", error));
+                }
+                error_msg
+            })?;
+        }
 
         println!("✨ Compilation successful!");
         println!("━━━━━━━━━━━━━━━━━━━━");
@@ -239,6 +290,7 @@ mod tests {
             opt_level: 2,
             dump_ir: false,
             dump_ast: false,
+            run_jit: false,
         };
 
         let mut compiler = SpectraCompiler::new(options);

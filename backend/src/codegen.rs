@@ -626,6 +626,40 @@ impl CodeGenerator {
 
         Ok(self.module.get_finalized_function(*func_id))
     }
+
+    /// Execute an entry point with signature `fn() -> int` or `fn() -> void`.
+    pub unsafe fn execute_entry_point(
+        &mut self,
+        name: &str,
+        ir_module: &IRModule,
+    ) -> Result<Option<i64>, String> {
+        let ptr = self.get_function_ptr(name)?;
+
+        let return_type = ir_module
+            .get_function(name)
+            .map(|f| f.return_type.clone())
+            .unwrap_or(IRType::Void);
+
+        match return_type {
+            IRType::Void => {
+                let func: extern "C" fn() = std::mem::transmute(ptr);
+                func();
+                Ok(None)
+            }
+            IRType::Int => {
+                let func: extern "C" fn() -> i64 = std::mem::transmute(ptr);
+                Ok(Some(func()))
+            }
+            IRType::Bool => {
+                let func: extern "C" fn() -> i8 = std::mem::transmute(ptr);
+                Ok(Some(func() as i64))
+            }
+            other => Err(format!(
+                "Execution for return type {:?} is not yet supported",
+                other
+            )),
+        }
+    }
 }
 
 impl Default for CodeGenerator {
@@ -637,6 +671,7 @@ impl Default for CodeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spectra_midend::ir::Parameter;
 
     #[test]
     fn test_codegen_creation() {
@@ -680,7 +715,7 @@ mod tests {
 
     #[test]
     fn test_arithmetic_instructions() {
-        use spectra_midend::ir::{BasicBlock, InstructionKind, Terminator, Value};
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
 
         let mut codegen = CodeGenerator::new();
 
@@ -729,7 +764,7 @@ mod tests {
 
     #[test]
     fn test_comparison_instructions() {
-        use spectra_midend::ir::{BasicBlock, InstructionKind, Terminator, Value};
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
 
         let mut codegen = CodeGenerator::new();
 
@@ -775,7 +810,7 @@ mod tests {
 
     #[test]
     fn test_logical_instructions() {
-        use spectra_midend::ir::{BasicBlock, InstructionKind, Terminator, Value};
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
 
         let mut codegen = CodeGenerator::new();
 

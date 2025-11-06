@@ -19,6 +19,8 @@ pub struct CompilationOptions {
     pub dump_ir: bool,
     /// Dump AST for debugging
     pub dump_ast: bool,
+    /// Execute compiled code via JIT after successful compilation
+    pub run_jit: bool,
 }
 
 impl Default for CompilationOptions {
@@ -28,6 +30,7 @@ impl Default for CompilationOptions {
             opt_level: 2,
             dump_ir: false,
             dump_ast: false,
+            run_jit: false,
         }
     }
 }

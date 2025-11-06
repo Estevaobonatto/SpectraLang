@@ -643,6 +643,28 @@ impl ASTLowering {
             }
             ExpressionKind::StringLiteral(_) => IRType::String,
             ExpressionKind::BoolLiteral(_) => IRType::Bool,
+            ExpressionKind::Identifier(name) => {
+                if let Some((_, struct_name)) = self.struct_var_map.get(name) {
+                    let fields = self
+                        .struct_definitions
+                        .get(&struct_name)
+                        .cloned()
+                        .unwrap_or_default();
+                    IRType::Struct {
+                        name: struct_name,
+                        fields,
+                    }
+                } else if let Some(info) = self.array_map.get(name) {
+                    IRType::Array {
+                        element_type: Box::new(info.element_type.clone()),
+                        size: info.size,
+                    }
+                } else if let Some(ty) = self.variable_types.get(name) {
+                    ty
+                } else {
+                    IRType::Int
+                }
+            }
             ExpressionKind::ArrayLiteral { elements } => {
                 let elem_type = self.infer_array_element_type(elements);
                 IRType::Array {
@@ -657,6 +679,54 @@ impl ASTLowering {
                     .collect();
                 IRType::Tuple {
                     elements: element_types,
+                }
+            }
+            ExpressionKind::Grouping(inner) => self.infer_expr_ir_type(inner),
+            ExpressionKind::Unary { operator, operand } => match operator {
+                UnaryOperator::Negate => self.infer_expr_ir_type(operand),
+                UnaryOperator::Not => IRType::Bool,
+            },
+            ExpressionKind::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                let left_type = self.infer_expr_ir_type(left);
+                let right_type = self.infer_expr_ir_type(right);
+
+                match operator {
+                    BinaryOperator::Add
+                    | BinaryOperator::Subtract
+                    | BinaryOperator::Multiply
+                    | BinaryOperator::Divide
+                    | BinaryOperator::Modulo => {
+                        let (left_is_float, left_is_string) = match left_type {
+                            IRType::Float => (true, false),
+                            IRType::String => (false, true),
+                            _ => (false, false),
+                        };
+                        let (right_is_float, right_is_string) = match right_type {
+                            IRType::Float => (true, false),
+                            IRType::String => (false, true),
+                            _ => (false, false),
+                        };
+
+                        if left_is_float || right_is_float {
+                            IRType::Float
+                        } else if left_is_string || right_is_string {
+                            IRType::String
+                        } else {
+                            IRType::Int
+                        }
+                    }
+                    BinaryOperator::Equal
+                    | BinaryOperator::NotEqual
+                    | BinaryOperator::Less
+                    | BinaryOperator::LessEqual
+                    | BinaryOperator::Greater
+                    | BinaryOperator::GreaterEqual
+                    | BinaryOperator::And
+                    | BinaryOperator::Or => IRType::Bool,
                 }
             }
             _ => IRType::Int, // Fallback
