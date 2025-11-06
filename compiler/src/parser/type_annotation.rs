@@ -14,7 +14,9 @@ impl Parser {
             let end_span = self.current().span;
             self.advance();
             return Ok(TypeAnnotation {
-                kind: TypeAnnotationKind::Simple { segments: vec!["Self".to_string()] },
+                kind: TypeAnnotationKind::Simple {
+                    segments: vec!["Self".to_string()],
+                },
                 span: span_union(start_span, end_span),
             });
         }

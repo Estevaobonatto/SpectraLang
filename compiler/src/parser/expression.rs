@@ -438,7 +438,11 @@ impl Parser {
 
                         Ok(Expression {
                             span: crate::span::span_union(start_span, end_span),
-                            kind: ExpressionKind::StructLiteral { name, type_args, fields },
+                            kind: ExpressionKind::StructLiteral {
+                                name,
+                                type_args,
+                                fields,
+                            },
                         })
                     } else {
                         // Just an identifier, '{' belongs to surrounding context

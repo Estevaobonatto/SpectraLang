@@ -301,8 +301,12 @@ impl ASTLowering {
                 // Check if this is a generic struct
                 if !struct_def.type_params.is_empty() {
                     // Store generic struct for later monomorphization
-                    self.generic_structs.insert(struct_def.name.clone(), struct_def.clone());
-                    eprintln!("Info: Stored generic struct '{}' for monomorphization", struct_def.name);
+                    self.generic_structs
+                        .insert(struct_def.name.clone(), struct_def.clone());
+                    eprintln!(
+                        "Info: Stored generic struct '{}' for monomorphization",
+                        struct_def.name
+                    );
                 } else {
                     // Regular struct - process immediately
                     let fields: Vec<(String, IRType)> = struct_def
@@ -320,8 +324,12 @@ impl ASTLowering {
                 // Check if this is a generic enum
                 if !enum_def.type_params.is_empty() {
                     // Store generic enum for later monomorphization
-                    self.generic_enums.insert(enum_def.name.clone(), enum_def.clone());
-                    eprintln!("Info: Stored generic enum '{}' for monomorphization", enum_def.name);
+                    self.generic_enums
+                        .insert(enum_def.name.clone(), enum_def.clone());
+                    eprintln!(
+                        "Info: Stored generic enum '{}' for monomorphization",
+                        enum_def.name
+                    );
                 } else {
                     // Regular enum - process immediately
                     let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
@@ -355,11 +363,15 @@ impl ASTLowering {
             if let Item::Function(func) = item {
                 // Store generic functions for later monomorphization
                 if !func.type_params.is_empty() {
-                    self.generic_functions.insert(func.name.clone(), func.clone());
-                    eprintln!("Info: Stored generic function '{}' for monomorphization", func.name);
+                    self.generic_functions
+                        .insert(func.name.clone(), func.clone());
+                    eprintln!(
+                        "Info: Stored generic function '{}' for monomorphization",
+                        func.name
+                    );
                     continue;
                 }
-                
+
                 let ir_func = self.lower_function(func);
                 ir_module.add_function(ir_func);
             }
@@ -376,32 +388,40 @@ impl ASTLowering {
         // Process each pending specialization
         while let Some(request) = self.pending_specializations.pop() {
             let mangled = request.mangled_name();
-            
+
             // Skip if already generated
             if self.generated_specializations.contains_key(&mangled) {
                 continue;
             }
-            
+
             // Get the generic function AST
             if let Some(generic_func) = self.generic_functions.get(&request.generic_name).cloned() {
                 eprintln!("Info: Generating specialization: {}", mangled);
-                
+
                 // Generate specialized function
                 let specialized_func = self.specialize_function(&generic_func, &request);
-                
+
                 // Add to module
                 ir_module.add_function(specialized_func.clone());
-                
+
                 // Mark as generated
-                self.generated_specializations.insert(mangled.clone(), specialized_func.name);
+                self.generated_specializations
+                    .insert(mangled.clone(), specialized_func.name);
             } else {
-                eprintln!("Warning: Generic function '{}' not found for monomorphization", request.generic_name);
+                eprintln!(
+                    "Warning: Generic function '{}' not found for monomorphization",
+                    request.generic_name
+                );
             }
         }
     }
 
     /// Create a specialized version of a generic function
-    fn specialize_function(&mut self, generic_func: &ASTFunction, request: &MonomorphizationRequest) -> IRFunction {
+    fn specialize_function(
+        &mut self,
+        generic_func: &ASTFunction,
+        request: &MonomorphizationRequest,
+    ) -> IRFunction {
         // Create type substitution map: type_param_name -> IRType
         let mut type_map: HashMap<String, IRType> = HashMap::new();
         for (i, type_param) in generic_func.type_params.iter().enumerate() {
@@ -409,7 +429,7 @@ impl ASTLowering {
                 type_map.insert(type_param.name.clone(), concrete_type.clone());
             }
         }
-        
+
         // Validate trait bounds
         for (i, type_param) in generic_func.type_params.iter().enumerate() {
             if let Some(concrete_type) = request.concrete_types.get(i) {
@@ -429,41 +449,45 @@ impl ASTLowering {
                 }
             }
         }
-        
+
         let mangled_name = request.mangled_name();
-        
+
         // Create specialized function by copying generic and renaming
         let mut specialized = generic_func.clone();
         specialized.name = mangled_name.clone();
         specialized.type_params.clear(); // Remove generic parameters
-        
+
         // Substitute type parameters in function signature
         for param in &mut specialized.params {
             if let Some(ref mut ty) = param.ty {
                 self.substitute_type_in_annotation(ty, &type_map);
             }
         }
-        
+
         if let Some(ref mut return_ty) = specialized.return_type {
             self.substitute_type_in_annotation(return_ty, &type_map);
         }
-        
+
         // Set type substitution map for lowering
         self.type_substitution_map = type_map;
-        
+
         // Lower the specialized function
         let result = self.lower_function(&specialized);
-        
+
         // Clear type substitution map after lowering
         self.type_substitution_map.clear();
-        
+
         result
     }
 
     /// Substitute type parameters in a TypeAnnotation
-    fn substitute_type_in_annotation(&self, annotation: &mut TypeAnnotation, type_map: &HashMap<String, IRType>) {
+    fn substitute_type_in_annotation(
+        &self,
+        annotation: &mut TypeAnnotation,
+        type_map: &HashMap<String, IRType>,
+    ) {
         use spectra_compiler::ast::TypeAnnotationKind;
-        
+
         match &mut annotation.kind {
             TypeAnnotationKind::Simple { segments } => {
                 // Check if this is a type parameter (e.g., "T")
@@ -502,10 +526,13 @@ impl ASTLowering {
     /// Check if a concrete type satisfies a trait bound
     fn type_satisfies_trait(&self, concrete_type: &IRType, trait_name: &str) -> bool {
         let type_name = self.ir_type_to_ast_name(concrete_type);
-        
+
         // Check if we have recorded this implementation
         let key = (type_name, trait_name.to_string());
-        self.trait_implementations.get(&key).copied().unwrap_or(false)
+        self.trait_implementations
+            .get(&key)
+            .copied()
+            .unwrap_or(false)
     }
 
     fn merge_array_element_types(&self, left: &IRType, right: &IRType) -> Option<IRType> {
@@ -515,21 +542,39 @@ impl ASTLowering {
 
         match (left, right) {
             (IRType::Int, IRType::Float) | (IRType::Float, IRType::Int) => Some(IRType::Float),
-            (IRType::Pointer(l), IRType::Pointer(r)) => {
-                self.merge_array_element_types(l.as_ref(), r.as_ref())
-                    .map(|merged| IRType::Pointer(Box::new(merged)))
-            }
-            (IRType::Array { element_type: l_elem, size: l_size }, IRType::Array { element_type: r_elem, size: r_size }) => {
+            (IRType::Pointer(l), IRType::Pointer(r)) => self
+                .merge_array_element_types(l.as_ref(), r.as_ref())
+                .map(|merged| IRType::Pointer(Box::new(merged))),
+            (
+                IRType::Array {
+                    element_type: l_elem,
+                    size: l_size,
+                },
+                IRType::Array {
+                    element_type: r_elem,
+                    size: r_size,
+                },
+            ) => {
                 if l_size != r_size {
                     None
                 } else {
-                    self.merge_array_element_types(l_elem.as_ref(), r_elem.as_ref()).map(|merged| IRType::Array {
-                        element_type: Box::new(merged),
-                        size: *l_size,
-                    })
+                    self.merge_array_element_types(l_elem.as_ref(), r_elem.as_ref())
+                        .map(|merged| IRType::Array {
+                            element_type: Box::new(merged),
+                            size: *l_size,
+                        })
                 }
             }
-            (IRType::Struct { name: l_name, fields: l_fields }, IRType::Struct { name: r_name, fields: r_fields }) => {
+            (
+                IRType::Struct {
+                    name: l_name,
+                    fields: l_fields,
+                },
+                IRType::Struct {
+                    name: r_name,
+                    fields: r_fields,
+                },
+            ) => {
                 if l_name == r_name && l_fields == r_fields {
                     Some(IRType::Struct {
                         name: l_name.clone(),
@@ -539,7 +584,16 @@ impl ASTLowering {
                     None
                 }
             }
-            (IRType::Enum { name: l_name, variants: l_variants }, IRType::Enum { name: r_name, variants: r_variants }) => {
+            (
+                IRType::Enum {
+                    name: l_name,
+                    variants: l_variants,
+                },
+                IRType::Enum {
+                    name: r_name,
+                    variants: r_variants,
+                },
+            ) => {
                 if l_name == r_name && l_variants == r_variants {
                     Some(IRType::Enum {
                         name: l_name.clone(),
@@ -618,7 +672,11 @@ impl ASTLowering {
             .map(|(idx, param)| Parameter {
                 id: idx,
                 name: param.name.clone(),
-                ty: param.ty.as_ref().map(|t| self.lower_type_annotation(t)).unwrap_or(IRType::Void),
+                ty: param
+                    .ty
+                    .as_ref()
+                    .map(|t| self.lower_type_annotation(t))
+                    .unwrap_or(IRType::Void),
             })
             .collect();
 
@@ -719,18 +777,23 @@ impl ASTLowering {
         self.lower_block_with_scope(statements, ir_func, true);
     }
 
-    fn lower_block_with_scope(&mut self, statements: &[Statement], ir_func: &mut IRFunction, create_scope: bool) {
+    fn lower_block_with_scope(
+        &mut self,
+        statements: &[Statement],
+        ir_func: &mut IRFunction,
+        create_scope: bool,
+    ) {
         if create_scope {
             self.value_map.push_scope();
             self.variable_types.push_scope();
             self.array_map.push_scope();
             self.struct_var_map.push_scope();
         }
-        
+
         for stmt in statements {
             self.lower_statement(stmt, ir_func);
         }
-        
+
         if create_scope {
             self.struct_var_map.pop_scope();
             self.array_map.pop_scope();
@@ -810,18 +873,12 @@ impl ASTLowering {
     ) -> (Option<Value>, usize, bool) {
         self.lower_block(&block.statements, ir_func);
 
-        let current_block_id = self
-            .builder
-            .get_current_block()
-            .unwrap_or(entry_block);
+        let current_block_id = self.builder.get_current_block().unwrap_or(entry_block);
 
-        let produced_value = block
-            .statements
-            .last()
-            .and_then(|stmt| match &stmt.kind {
-                StatementKind::Expression(expr) => Some(self.lower_expression(expr, ir_func)),
-                _ => None,
-            });
+        let produced_value = block.statements.last().and_then(|stmt| match &stmt.kind {
+            StatementKind::Expression(expr) => Some(self.lower_expression(expr, ir_func)),
+            _ => None,
+        });
 
         let has_terminator = ir_func
             .get_block(current_block_id)
@@ -895,7 +952,8 @@ impl ASTLowering {
                 };
 
                 if let Some(ref ty) = inferred_type {
-                    self.variable_types.insert(let_stmt.name.clone(), ty.clone());
+                    self.variable_types
+                        .insert(let_stmt.name.clone(), ty.clone());
                 }
 
                 if let Some(ref value_expr) = let_stmt.value {
@@ -903,7 +961,9 @@ impl ASTLowering {
 
                     match &value_expr.kind {
                         ExpressionKind::ArrayLiteral { .. } => {
-                            if let Some(IRType::Array { element_type, size }) = inferred_type.clone() {
+                            if let Some(IRType::Array { element_type, size }) =
+                                inferred_type.clone()
+                            {
                                 self.array_map.insert(
                                     let_stmt.name.clone(),
                                     ArrayInfo {
@@ -915,7 +975,9 @@ impl ASTLowering {
                             }
                             self.value_map.insert(let_stmt.name.clone(), value);
                         }
-                        ExpressionKind::StructLiteral { name, type_args, .. } => {
+                        ExpressionKind::StructLiteral {
+                            name, type_args, ..
+                        } => {
                             let actual_name = if !type_args.is_empty() {
                                 let type_names: Vec<String> = type_args
                                     .iter()
@@ -943,9 +1005,9 @@ impl ASTLowering {
                                     self.builder.build_store(ir_func, struct_ptr, value);
                                     self.struct_var_map
                                         .insert(let_stmt.name.clone(), (struct_ptr, name));
-                                    self.value_map
-                                        .insert(let_stmt.name.clone(), struct_ptr);
-                                } else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name)
+                                    self.value_map.insert(let_stmt.name.clone(), struct_ptr);
+                                } else if let Some(&alloca_ptr) =
+                                    self.alloca_map.get(&let_stmt.name)
                                 {
                                     self.builder.build_store(ir_func, alloca_ptr, value);
                                 } else {
@@ -970,8 +1032,7 @@ impl ASTLowering {
                             self.builder.build_store(ir_func, alloca_ptr, value);
 
                             if let Some((_, struct_name)) = self.struct_var_map.get(name) {
-                                self
-                                    .struct_var_map
+                                self.struct_var_map
                                     .insert(name.clone(), (alloca_ptr, struct_name));
                             }
 
@@ -993,11 +1054,11 @@ impl ASTLowering {
 
                             if let Some(var_ty) = self.variable_types.get(name) {
                                 match var_ty {
-                                    IRType::Struct { name: struct_name, .. } => {
-                                        self.struct_var_map.insert(
-                                            name.clone(),
-                                            (value, struct_name.clone()),
-                                        );
+                                    IRType::Struct {
+                                        name: struct_name, ..
+                                    } => {
+                                        self.struct_var_map
+                                            .insert(name.clone(), (value, struct_name.clone()));
                                     }
                                     IRType::Array { element_type, size } => {
                                         self.array_map.insert(
@@ -1130,12 +1191,8 @@ impl ASTLowering {
                 // Header: check index < length
                 self.builder.set_current_block(header_block);
                 let current_index = self.builder.build_load(ir_func, index_alloca);
-                let length_const = self
-                    .builder
-                    .build_const_int(ir_func, length as i64);
-                let condition = self
-                    .builder
-                    .build_lt(ir_func, current_index, length_const);
+                let length_const = self.builder.build_const_int(ir_func, length as i64);
+                let condition = self.builder.build_lt(ir_func, current_index, length_const);
                 self.builder
                     .build_cond_branch(ir_func, condition, body_block, exit_block);
 
@@ -1353,7 +1410,8 @@ impl ASTLowering {
                     }
                     ExpressionKind::StructLiteral { name, .. } => {
                         // Get fields from struct_definitions
-                        let fields = self.struct_definitions
+                        let fields = self
+                            .struct_definitions
                             .get(name)
                             .cloned()
                             .unwrap_or_default();
@@ -1460,21 +1518,24 @@ impl ASTLowering {
                     // This is a generic function call - we need to infer concrete types
                     // For now, we'll infer types from the argument expressions
                     let concrete_types = self.infer_argument_types(arguments);
-                    
+
                     let request = MonomorphizationRequest {
                         generic_name: function_name.clone(),
                         concrete_types: concrete_types.clone(),
                     };
-                    
+
                     let mangled = request.mangled_name();
-                    
+
                     // Check if we already generated this specialization
                     if !self.generated_specializations.contains_key(&mangled) {
                         // Mark it as pending
-                        eprintln!("Info: Requesting specialization: {} -> {}", function_name, mangled);
+                        eprintln!(
+                            "Info: Requesting specialization: {} -> {}",
+                            function_name, mangled
+                        );
                         self.pending_specializations.push(request);
                     }
-                    
+
                     mangled
                 } else {
                     function_name
@@ -1574,8 +1635,8 @@ impl ASTLowering {
 
                 if let Some(else_block_ast) = else_block {
                     self.builder.set_current_block(current_false_block);
-                    let (else_value, else_final_block, else_has_terminator) =
-                        self.lower_branch_block_result(else_block_ast, ir_func, current_false_block);
+                    let (else_value, else_final_block, else_has_terminator) = self
+                        .lower_branch_block_result(else_block_ast, ir_func, current_false_block);
 
                     if let Some(value) = else_value {
                         if !else_has_terminator {
@@ -1661,7 +1722,8 @@ impl ASTLowering {
                 let unless_else_final = self.builder.get_current_block().unwrap_or(unless_else_bb);
 
                 // Check if else block has terminator
-                let else_has_terminator = if let Some(block) = ir_func.get_block(unless_else_final) {
+                let else_has_terminator = if let Some(block) = ir_func.get_block(unless_else_final)
+                {
                     block.terminator.is_some()
                 } else {
                     false
@@ -1677,7 +1739,8 @@ impl ASTLowering {
                 }
 
                 // Check if then block has terminator
-                let then_has_terminator = if let Some(block) = ir_func.get_block(unless_then_final) {
+                let then_has_terminator = if let Some(block) = ir_func.get_block(unless_then_final)
+                {
                     block.terminator.is_some()
                 } else {
                     false
@@ -1823,15 +1886,20 @@ impl ASTLowering {
                 // Carregar o valor do elemento
                 self.builder.build_load(ir_func, elem_ptr)
             }
-            ExpressionKind::StructLiteral { name, fields, type_args } => {
+            ExpressionKind::StructLiteral {
+                name,
+                fields,
+                type_args,
+            } => {
                 // Check if this is a generic struct instantiation
                 let actual_name = if !type_args.is_empty() {
                     // Generate mangled name: Point<int> → Point_int
-                    let type_names: Vec<String> = type_args.iter()
+                    let type_names: Vec<String> = type_args
+                        .iter()
                         .map(|ty| self.type_annotation_to_string(ty))
                         .collect();
                     let mangled = format!("{}_{}", name, type_names.join("_"));
-                    
+
                     // Check if we need to specialize this struct
                     if !self.struct_definitions.contains_key(&mangled) {
                         if let Some(generic_struct) = self.generic_structs.get(name).cloned() {
@@ -1840,12 +1908,12 @@ impl ASTLowering {
                             panic!("Generic struct '{}' not found", name);
                         }
                     }
-                    
+
                     mangled
                 } else {
                     name.clone()
                 };
-                
+
                 // Buscar definição do struct
                 let struct_fields = self.struct_definitions.get(&actual_name).cloned();
                 if let Some(field_defs) = struct_fields {
@@ -1956,11 +2024,12 @@ impl ASTLowering {
                 // Check if this is a generic enum instantiation
                 let actual_name = if !type_args.is_empty() {
                     // Generate mangled name: Option<int> → Option_int
-                    let type_names: Vec<String> = type_args.iter()
+                    let type_names: Vec<String> = type_args
+                        .iter()
                         .map(|ty| self.type_annotation_to_string(ty))
                         .collect();
                     let mangled = format!("{}_{}", enum_name, type_names.join("_"));
-                    
+
                     // Check if we need to specialize this enum
                     if !self.enum_definitions.contains_key(&mangled) {
                         if let Some(generic_enum) = self.generic_enums.get(enum_name).cloned() {
@@ -1969,12 +2038,12 @@ impl ASTLowering {
                             panic!("Generic enum '{}' not found", enum_name);
                         }
                     }
-                    
+
                     mangled
                 } else {
                     enum_name.clone()
                 };
-                
+
                 // Buscar definição do enum (clonar para evitar borrow issues)
                 let variants_opt = self.enum_definitions.get(&actual_name).cloned();
 
@@ -2155,20 +2224,18 @@ impl ASTLowering {
         // Populate buffer with literal contents
         for (idx, byte) in bytes.iter().enumerate() {
             let index = self.builder.build_const_int(ir_func, idx as i64);
-            let slot_ptr = self
-                .builder
-                .build_getelementptr(ir_func, buffer_ptr, index, IRType::Int);
+            let slot_ptr =
+                self.builder
+                    .build_getelementptr(ir_func, buffer_ptr, index, IRType::Int);
             let value = self.builder.build_const_int(ir_func, *byte as i64);
             self.builder.build_store(ir_func, slot_ptr, value);
         }
 
         // Null terminator at the end
-        let terminator_index = self
-            .builder
-            .build_const_int(ir_func, bytes.len() as i64);
-        let terminator_ptr = self
-            .builder
-            .build_getelementptr(ir_func, buffer_ptr, terminator_index, IRType::Int);
+        let terminator_index = self.builder.build_const_int(ir_func, bytes.len() as i64);
+        let terminator_ptr =
+            self.builder
+                .build_getelementptr(ir_func, buffer_ptr, terminator_index, IRType::Int);
         let zero = self.builder.build_const_int(ir_func, 0);
         self.builder.build_store(ir_func, terminator_ptr, zero);
 
@@ -2415,11 +2482,10 @@ impl ASTLowering {
     /// Convert TypeAnnotation to string for name mangling
     fn type_annotation_to_string(&self, ty: &TypeAnnotation) -> String {
         match &ty.kind {
-            TypeAnnotationKind::Simple { segments } => {
-                segments.join("::")
-            }
+            TypeAnnotationKind::Simple { segments } => segments.join("::"),
             TypeAnnotationKind::Tuple { elements } => {
-                let element_strs: Vec<String> = elements.iter()
+                let element_strs: Vec<String> = elements
+                    .iter()
                     .map(|el| self.type_annotation_to_string(el))
                     .collect();
                 format!("tuple_{}", element_strs.join("_"))
@@ -2428,10 +2494,15 @@ impl ASTLowering {
     }
 
     /// Specialize a generic struct with concrete type arguments
-    fn specialize_struct(&mut self, generic: &ASTStruct, type_args: &[TypeAnnotation], mangled_name: &str) {
+    fn specialize_struct(
+        &mut self,
+        generic: &ASTStruct,
+        type_args: &[TypeAnnotation],
+        mangled_name: &str,
+    ) {
         // Create type substitution map: T -> int, U -> float, etc.
         let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
-        
+
         if generic.type_params.len() != type_args.len() {
             panic!(
                 "Type argument count mismatch for struct '{}': expected {}, got {}",
@@ -2440,31 +2511,42 @@ impl ASTLowering {
                 type_args.len()
             );
         }
-        
+
         for (param, arg) in generic.type_params.iter().zip(type_args.iter()) {
             type_map.insert(param.name.clone(), arg.clone());
         }
-        
+
         // Substitute types in fields
-        let specialized_fields: Vec<(String, IRType)> = generic.fields.iter()
+        let specialized_fields: Vec<(String, IRType)> = generic
+            .fields
+            .iter()
             .map(|field| {
                 let substituted_type = self.substitute_type(&field.ty, &type_map);
                 let ir_type = self.lower_type_annotation(&substituted_type);
                 (field.name.clone(), ir_type)
             })
             .collect();
-        
+
         // Store specialized struct definition
-        self.struct_definitions.insert(mangled_name.to_string(), specialized_fields);
-        
-        eprintln!("Info: Specialized struct '{}' as '{}'", generic.name, mangled_name);
+        self.struct_definitions
+            .insert(mangled_name.to_string(), specialized_fields);
+
+        eprintln!(
+            "Info: Specialized struct '{}' as '{}'",
+            generic.name, mangled_name
+        );
     }
 
     /// Specialize a generic enum with concrete type arguments
-    fn specialize_enum(&mut self, generic: &ASTEnum, type_args: &[TypeAnnotation], mangled_name: &str) {
+    fn specialize_enum(
+        &mut self,
+        generic: &ASTEnum,
+        type_args: &[TypeAnnotation],
+        mangled_name: &str,
+    ) {
         // Create type substitution map: T -> int, U -> float, etc.
         let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
-        
+
         if generic.type_params.len() != type_args.len() {
             panic!(
                 "Type argument count mismatch for enum '{}': expected {}, got {}",
@@ -2473,20 +2555,23 @@ impl ASTLowering {
                 type_args.len()
             );
         }
-        
+
         for (param, arg) in generic.type_params.iter().zip(type_args.iter()) {
             type_map.insert(param.name.clone(), arg.clone());
         }
-        
+
         // Substitute types in variants
-        let specialized_variants: Vec<(String, usize, Option<Vec<IRType>>)> = generic.variants.iter()
+        let specialized_variants: Vec<(String, usize, Option<Vec<IRType>>)> = generic
+            .variants
+            .iter()
             .enumerate()
             .map(|(tag, variant)| {
                 let variant_name = variant.name.clone();
-                
+
                 // Substitute types in variant data if present
                 let variant_types = if let Some(ref data_types) = variant.data {
-                    let substituted: Vec<IRType> = data_types.iter()
+                    let substituted: Vec<IRType> = data_types
+                        .iter()
                         .map(|ty| {
                             let substituted_type = self.substitute_type(ty, &type_map);
                             self.lower_type_annotation(&substituted_type)
@@ -2496,19 +2581,27 @@ impl ASTLowering {
                 } else {
                     None
                 };
-                
+
                 (variant_name, tag, variant_types)
             })
             .collect();
-        
+
         // Store specialized enum definition
-        self.enum_definitions.insert(mangled_name.to_string(), specialized_variants);
-        
-        eprintln!("Info: Specialized enum '{}' as '{}'", generic.name, mangled_name);
+        self.enum_definitions
+            .insert(mangled_name.to_string(), specialized_variants);
+
+        eprintln!(
+            "Info: Specialized enum '{}' as '{}'",
+            generic.name, mangled_name
+        );
     }
 
     /// Substitute type parameters in a type annotation
-    fn substitute_type(&self, ty: &TypeAnnotation, type_map: &HashMap<String, TypeAnnotation>) -> TypeAnnotation {
+    fn substitute_type(
+        &self,
+        ty: &TypeAnnotation,
+        type_map: &HashMap<String, TypeAnnotation>,
+    ) -> TypeAnnotation {
         let substituted_kind = match &ty.kind {
             TypeAnnotationKind::Simple { segments } => {
                 // Check if this is a type parameter (single segment)
@@ -2517,16 +2610,21 @@ impl ASTLowering {
                         return concrete.clone();
                     }
                 }
-                TypeAnnotationKind::Simple { segments: segments.clone() }
+                TypeAnnotationKind::Simple {
+                    segments: segments.clone(),
+                }
             }
             TypeAnnotationKind::Tuple { elements } => {
-                let subst_elements = elements.iter()
+                let subst_elements = elements
+                    .iter()
                     .map(|el| self.substitute_type(el, type_map))
                     .collect();
-                TypeAnnotationKind::Tuple { elements: subst_elements }
+                TypeAnnotationKind::Tuple {
+                    elements: subst_elements,
+                }
             }
         };
-        
+
         TypeAnnotation {
             kind: substituted_kind,
             span: ty.span,

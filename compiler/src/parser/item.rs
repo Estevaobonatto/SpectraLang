@@ -447,11 +447,11 @@ impl Parser {
         let mut parent_traits = Vec::new();
         if self.check_symbol(':') {
             self.advance(); // consume ':'
-            
+
             loop {
                 let (parent_name, _) = self.consume_identifier("Expected parent trait name")?;
                 parent_traits.push(parent_name);
-                
+
                 // Check for '+' separator
                 if self.check_symbol('+') {
                     self.advance();
@@ -716,29 +716,29 @@ impl Parser {
     /// Parse generic type parameters: <T, U: Trait, V: Trait1 + Trait2>
     fn parse_type_parameters(&mut self) -> Result<Vec<TypeParameter>, ()> {
         self.consume_symbol('<', "Expected '<'")?;
-        
+
         let mut type_params = Vec::new();
-        
+
         // Empty type parameter list
         if self.check_symbol('>') {
             self.advance();
             return Ok(type_params);
         }
-        
+
         loop {
             let param_start = self.current().span;
             let (name, _) = self.consume_identifier("Expected type parameter name")?;
-            
+
             // Parse optional trait bounds: T: Trait1 + Trait2
             let mut bounds = Vec::new();
             if self.check_symbol(':') {
                 self.advance(); // consume ':'
-                
+
                 // Parse trait bounds separated by '+'
                 loop {
                     let (trait_name, _) = self.consume_identifier("Expected trait name")?;
                     bounds.push(trait_name);
-                    
+
                     // Check for '+'
                     if self.check_symbol('+') {
                         self.advance();
@@ -747,13 +747,13 @@ impl Parser {
                     }
                 }
             }
-            
+
             type_params.push(TypeParameter {
                 name,
                 bounds,
                 span: param_start,
             });
-            
+
             // Check for continuation or end
             if self.check_symbol(',') {
                 self.advance();
@@ -768,9 +768,9 @@ impl Parser {
                 return Err(());
             }
         }
-        
+
         self.consume_symbol('>', "Expected '>' to close type parameters")?;
-        
+
         Ok(type_params)
     }
 }

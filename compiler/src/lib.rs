@@ -8,10 +8,12 @@ pub mod span;
 pub mod token;
 
 pub use ast::{BinaryOperator, Module, UnaryOperator};
-pub use error::{CompilerError, LexError, ParseError, SemanticError};
+pub use error::{BackendError, CompilerError, LexError, MidendError, ParseError, SemanticError};
 pub use lexer::Lexer;
 pub use parser::Parser;
-pub use pipeline::{CompilationOptions, CompilationPipeline, CompilationResult};
+pub use pipeline::{
+    BackendDriver, CompilationOptions, CompilationPipeline, CompilationResult, NoopBackend,
+};
 pub use semantic::analyze_modules;
 pub use span::{span_union, Location, Span};
 pub use token::{Keyword, Operator, Token, TokenKind};

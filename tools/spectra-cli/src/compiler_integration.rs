@@ -1,13 +1,82 @@
 // Full compiler integration
-// Complete pipeline: Source → AST → IR → Native Code
+// Provides a backend driver that plugs midend + backend into the shared pipeline.
 
 use spectra_backend::CodeGenerator;
-use spectra_compiler::{CompilationOptions, CompilationPipeline};
+use spectra_compiler::{
+    BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilerError,
+};
 use spectra_midend::{
     ir::Module as IRModule,
     lowering::ASTLowering,
     passes::{constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination, Pass},
 };
+
+#[derive(Debug)]
+struct FullPipelineArtifacts {
+    ir_module: IRModule,
+    applied_passes: Vec<&'static str>,
+}
+
+struct FullPipelineBackend;
+
+impl FullPipelineBackend {
+    fn new() -> Self {
+        Self
+    }
+}
+
+impl BackendDriver for FullPipelineBackend {
+    type Artifacts = FullPipelineArtifacts;
+
+    fn run(
+        &mut self,
+        ast: &spectra_compiler::ast::Module,
+        options: &CompilationOptions,
+    ) -> Result<Self::Artifacts, Vec<CompilerError>> {
+        let mut lowering = ASTLowering::new();
+        let mut ir_module = lowering.lower_module(ast);
+
+        if options.dump_ir {
+            println!("=== IR (before optimization) ===");
+            println!("{:#?}", ir_module);
+            println!();
+        }
+
+        let mut applied_passes = Vec::new();
+
+        if options.optimize {
+            if options.opt_level >= 1 {
+                let mut cf = ConstantFolding::new();
+                if cf.run(&mut ir_module) {
+                    applied_passes.push("Constant Folding");
+                }
+            }
+
+            if options.opt_level >= 2 {
+                let mut dce = DeadCodeElimination::new();
+                if dce.run(&mut ir_module) {
+                    applied_passes.push("Dead Code Elimination");
+                }
+            }
+        }
+
+        if options.dump_ir {
+            println!("=== IR (after optimization) ===");
+            println!("{:#?}", ir_module);
+            println!();
+        }
+
+        let mut codegen = CodeGenerator::new();
+        if let Err(error) = codegen.generate_module(&ir_module) {
+            return Err(vec![CompilerError::Backend(BackendError::new(error))]);
+        }
+
+        Ok(FullPipelineArtifacts {
+            ir_module,
+            applied_passes,
+        })
+    }
+}
 
 /// Complete compiler that integrates all phases
 pub struct SpectraCompiler {
@@ -25,10 +94,9 @@ impl SpectraCompiler {
         println!("━━━━━━━━━━━━━━━━━━━━");
         println!();
 
-        // Phase 1-3: Frontend (Lexer → Parser → Semantic)
-        println!("📝 Phase 1-3: Frontend Analysis");
         let pipeline = CompilationPipeline::new(self.options.clone());
-        let compilation_result = pipeline.compile(source, filename).map_err(|errors| {
+        let mut pipeline = pipeline.with_backend(FullPipelineBackend::new());
+        let compilation = pipeline.compile(source, filename).map_err(|errors| {
             let mut error_msg = String::from("Compilation errors:\n");
             for error in errors {
                 error_msg.push_str(&format!("  • {}\n", error));
@@ -36,60 +104,16 @@ impl SpectraCompiler {
             error_msg
         })?;
 
-        println!("  ✅ Lexical analysis complete");
-        println!("  ✅ Parsing complete");
-        println!("  ✅ Semantic analysis complete");
-        println!();
+        let FullPipelineArtifacts {
+            ir_module,
+            applied_passes,
+        } = compilation.backend_artifacts;
 
-        // Phase 4: Midend (AST → IR + Optimization)
-        println!("🔄 Phase 4: Midend (IR Generation)");
-        let mut lowering = ASTLowering::new();
-        let mut ir_module = lowering.lower_module(&compilation_result.ast);
-        println!("  ✅ AST lowered to IR");
-
-        if self.options.dump_ir {
-            println!("\n=== IR (Before Optimization) ===");
-            self.dump_ir(&ir_module);
+        if self.options.optimize && !applied_passes.is_empty() {
+            println!("Optimization passes applied: {}", applied_passes.join(", "));
         }
 
-        // Optimization passes
-        if self.options.optimize {
-            println!(
-                "  🔧 Running optimization passes (level {})...",
-                self.options.opt_level
-            );
-
-            if self.options.opt_level >= 1 {
-                let mut cf = ConstantFolding::new();
-                if cf.run(&mut ir_module) {
-                    println!("    • Constant folding applied");
-                }
-            }
-
-            if self.options.opt_level >= 2 {
-                let mut dce = DeadCodeElimination::new();
-                if dce.run(&mut ir_module) {
-                    println!("    • Dead code eliminated");
-                }
-            }
-
-            println!("  ✅ Optimization complete");
-        }
-
-        if self.options.dump_ir {
-            println!("\n=== IR (After Optimization) ===");
-            self.dump_ir(&ir_module);
-        }
-        println!();
-
-        // Phase 5: Backend (IR → Native Code)
-        println!("⚙️  Phase 5: Backend (Code Generation)");
-        let mut codegen = CodeGenerator::new();
-        codegen
-            .generate_module(&ir_module)
-            .map_err(|e| format!("Code generation failed: {}", e))?;
-        println!("  ✅ Native code generated");
-        println!();
+        println!("IR functions emitted: {}", ir_module.functions.len());
 
         println!("✨ Compilation successful!");
         println!("━━━━━━━━━━━━━━━━━━━━");
@@ -106,37 +130,6 @@ impl SpectraCompiler {
         println!("\n🎯 Execution (TODO: JIT execution not yet implemented)");
 
         Ok(())
-    }
-
-    /// Dump IR for debugging
-    fn dump_ir(&self, ir_module: &IRModule) {
-        println!("Module: {}", ir_module.name);
-        println!();
-
-        for func in &ir_module.functions {
-            println!("function {}(", func.name);
-            for (i, param) in func.params.iter().enumerate() {
-                if i > 0 {
-                    print!(", ");
-                }
-                print!("%{}: {:?}", param.id, param.ty);
-            }
-            println!(") -> {:?} {{", func.return_type);
-
-            for block in &func.blocks {
-                println!("  {}:", block.label);
-                for instr in &block.instructions {
-                    println!("    {:?}", instr.kind);
-                }
-                if let Some(term) = &block.terminator {
-                    println!("    {:?}", term);
-                }
-                println!();
-            }
-
-            println!("}}");
-            println!();
-        }
     }
 }
 

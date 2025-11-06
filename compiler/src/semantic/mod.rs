@@ -6,7 +6,7 @@ use crate::{
     error::SemanticError,
     span::Span,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
@@ -45,6 +45,32 @@ struct TraitMethodInfo {
     default_body: Option<crate::ast::Block>, // corpo da implementação padrão, se houver
 }
 
+#[derive(Debug, Clone)]
+struct StructFieldInfo {
+    ty: crate::ast::TypeAnnotation,
+    #[allow(dead_code)]
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct StructInfo {
+    type_params: Vec<String>,
+    fields: HashMap<String, StructFieldInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct EnumVariantInfo {
+    data: Option<Vec<crate::ast::TypeAnnotation>>,
+    #[allow(dead_code)]
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct EnumInfo {
+    type_params: Vec<String>,
+    variants: HashMap<String, EnumVariantInfo>,
+}
+
 pub struct SemanticAnalyzer {
     errors: Vec<SemanticError>,
     // Symbol table: maps variable/function names to their type info
@@ -59,6 +85,10 @@ pub struct SemanticAnalyzer {
     traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
     // Trait implementations: maps (trait_name, type_name) to validation status
     trait_impls: HashMap<(String, String), bool>,
+    // Struct metadata for validation and lookup
+    struct_infos: HashMap<String, StructInfo>,
+    // Enum metadata (including variant payload types)
+    enum_infos: HashMap<String, EnumInfo>,
     // Generic structs: maps struct_name to (type_params, field_definitions)
     generic_structs: HashMap<String, (Vec<String>, Vec<(String, crate::ast::TypeAnnotation)>)>,
     // Generic enums: maps enum_name to (type_params, variants)
@@ -79,6 +109,8 @@ impl SemanticAnalyzer {
             methods: HashMap::new(),
             traits: HashMap::new(),
             trait_impls: HashMap::new(),
+            struct_infos: HashMap::new(),
+            enum_infos: HashMap::new(),
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
             loop_depth: 0,
@@ -194,10 +226,7 @@ impl SemanticAnalyzer {
                     element_type: e2,
                     size: s2,
                 },
-            ) => {
-                self.types_match(e1, e2)
-                    && (s1.is_none() || s2.is_none() || s1 == s2)
-            }
+            ) => self.types_match(e1, e2) && (s1.is_none() || s2.is_none() || s1 == s2),
 
             _ => false,
         }
@@ -234,27 +263,128 @@ impl SemanticAnalyzer {
                     }
                 }
                 Item::Struct(struct_def) => {
+                    // Build struct metadata and validate duplicate fields
+                    let mut fields_map = HashMap::new();
+                    for field in &struct_def.fields {
+                        if fields_map.contains_key(&field.name) {
+                            self.error(
+                                format!(
+                                    "Field '{}' is duplicated in struct '{}'",
+                                    field.name, struct_def.name
+                                ),
+                                field.span,
+                            );
+                            continue;
+                        }
+
+                        fields_map.insert(
+                            field.name.clone(),
+                            StructFieldInfo {
+                                ty: field.ty.clone(),
+                                span: field.span,
+                            },
+                        );
+                    }
+
+                    let struct_info = StructInfo {
+                        type_params: struct_def
+                            .type_params
+                            .iter()
+                            .map(|tp| tp.name.clone())
+                            .collect(),
+                        fields: fields_map,
+                    };
+
+                    if self
+                        .struct_infos
+                        .insert(struct_def.name.clone(), struct_info)
+                        .is_some()
+                    {
+                        self.error(
+                            format!("Struct '{}' is already defined", struct_def.name),
+                            struct_def.span,
+                        );
+                    }
+
                     // Collect generic structs for type inference
                     if !struct_def.type_params.is_empty() {
-                        let type_param_names: Vec<String> = struct_def.type_params.iter()
+                        let type_param_names: Vec<String> = struct_def
+                            .type_params
+                            .iter()
                             .map(|tp| tp.name.clone())
                             .collect();
-                        let fields: Vec<(String, crate::ast::TypeAnnotation)> = struct_def.fields.iter()
+                        let fields: Vec<(String, crate::ast::TypeAnnotation)> = struct_def
+                            .fields
+                            .iter()
                             .map(|f| (f.name.clone(), f.ty.clone()))
                             .collect();
-                        self.generic_structs.insert(struct_def.name.clone(), (type_param_names, fields));
+                        self.generic_structs
+                            .insert(struct_def.name.clone(), (type_param_names, fields));
                     }
                 }
                 Item::Enum(enum_def) => {
+                    let variant_type_params: Vec<String> = enum_def
+                        .type_params
+                        .iter()
+                        .map(|tp| tp.name.clone())
+                        .collect();
+
+                    let mut variants_map = HashMap::new();
+                    let mut variant_names = Vec::new();
+
+                    for variant in &enum_def.variants {
+                        if variants_map.contains_key(&variant.name) {
+                            self.error(
+                                format!(
+                                    "Variant '{}' is duplicated in enum '{}'",
+                                    variant.name, enum_def.name
+                                ),
+                                variant.span,
+                            );
+                            continue;
+                        }
+
+                        variants_map.insert(
+                            variant.name.clone(),
+                            EnumVariantInfo {
+                                data: variant.data.clone(),
+                                span: variant.span,
+                            },
+                        );
+                        variant_names.push(variant.name.clone());
+                    }
+
+                    let enum_info = EnumInfo {
+                        type_params: variant_type_params.clone(),
+                        variants: variants_map,
+                    };
+
+                    if self
+                        .enum_infos
+                        .insert(enum_def.name.clone(), enum_info)
+                        .is_some()
+                    {
+                        self.error(
+                            format!("Enum '{}' is already defined", enum_def.name),
+                            enum_def.span,
+                        );
+                    }
+
+                    // Store variant names for exhaustiveness checking
+                    self.enum_definitions
+                        .insert(enum_def.name.clone(), variant_names);
+
                     // Collect generic enums for type inference
                     if !enum_def.type_params.is_empty() {
-                        let type_param_names: Vec<String> = enum_def.type_params.iter()
+                        let type_param_names: Vec<String> = enum_def
+                            .type_params
+                            .iter()
                             .map(|tp| tp.name.clone())
                             .collect();
-                        let variant_names: Vec<String> = enum_def.variants.iter()
-                            .map(|v| v.name.clone())
-                            .collect();
-                        self.generic_enums.insert(enum_def.name.clone(), (type_param_names, variant_names));
+                        let variant_names: Vec<String> =
+                            enum_def.variants.iter().map(|v| v.name.clone()).collect();
+                        self.generic_enums
+                            .insert(enum_def.name.clone(), (type_param_names, variant_names));
                     }
                 }
                 _ => {}
@@ -289,16 +419,10 @@ impl SemanticAnalyzer {
                 self.analyze_function(func);
             }
             Item::Struct(_struct) => {
-                // TODO: Struct validation (unique field names, etc.)
+                // Struct metadata is collected during the declaration pass.
             }
-            Item::Enum(enum_def) => {
-                // Coletar variants do enum para exhaustiveness checking
-                let variant_names: Vec<String> =
-                    enum_def.variants.iter().map(|v| v.name.clone()).collect();
-                self.enum_definitions
-                    .insert(enum_def.name.clone(), variant_names);
-
-                // TODO: Enum validation (unique variant names, etc.)
+            Item::Enum(_enum_def) => {
+                // Enum metadata is collected during the declaration pass.
             }
             Item::Impl(impl_block) => {
                 self.analyze_impl_block(impl_block);
@@ -317,7 +441,7 @@ impl SemanticAnalyzer {
         // Se for impl Trait for Type, validar que implementa todos os métodos
         if let Some(ref trait_name) = impl_block.trait_name {
             self.validate_trait_impl(impl_block, trait_name);
-            
+
             // Copiar métodos padrão do trait para o tipo
             self.copy_default_trait_methods(trait_name, &impl_block.type_name, impl_block);
         }
@@ -438,11 +562,11 @@ impl SemanticAnalyzer {
                 params: param_types,
                 return_type,
             };
-            
+
             let method_info = TraitMethodInfo {
                 signature,
                 has_default: method.body.is_some(), // Has default if body is present
-                default_body: method.body.clone(), // Clone the body if present
+                default_body: method.body.clone(),  // Clone the body if present
             };
 
             if trait_methods
@@ -524,7 +648,7 @@ impl SemanticAnalyzer {
                     } else {
                         &trait_method_info.signature.params[..] // Sem parâmetros
                     };
-                    
+
                     let impl_params = if !impl_signature.params.is_empty() {
                         &impl_signature.params[1..] // Pula self
                     } else {
@@ -563,8 +687,10 @@ impl SemanticAnalyzer {
                     }
 
                     // Verificar tipo de retorno
-                    if !self.types_match(&impl_signature.return_type, &trait_method_info.signature.return_type)
-                    {
+                    if !self.types_match(
+                        &impl_signature.return_type,
+                        &trait_method_info.signature.return_type,
+                    ) {
                         self.error(
                             format!(
                                 "Method '{}' has wrong return type. Expected {:?}, found {:?}",
@@ -610,11 +736,8 @@ impl SemanticAnalyzer {
         };
 
         // Obter métodos já implementados
-        let implemented_methods: std::collections::HashSet<String> = impl_block
-            .methods
-            .iter()
-            .map(|m| m.name.clone())
-            .collect();
+        let implemented_methods: std::collections::HashSet<String> =
+            impl_block.methods.iter().map(|m| m.name.clone()).collect();
 
         // Para cada método do trait com implementação padrão não implementado
         for (method_name, trait_method_info) in trait_methods {
@@ -625,7 +748,9 @@ impl SemanticAnalyzer {
                 for (i, param) in trait_method_info.signature.params.iter().enumerate() {
                     if i == 0 {
                         // Substituir self genérico pelo tipo concreto
-                        concrete_params.push(Type::Struct { name: type_name.to_string() });
+                        concrete_params.push(Type::Struct {
+                            name: type_name.to_string(),
+                        });
                     } else {
                         concrete_params.push(param.clone());
                     }
@@ -637,7 +762,10 @@ impl SemanticAnalyzer {
                 };
 
                 // Registrar método no tipo
-                let type_methods = self.methods.entry(type_name.to_string()).or_insert_with(HashMap::new);
+                let type_methods = self
+                    .methods
+                    .entry(type_name.to_string())
+                    .or_insert_with(HashMap::new);
                 type_methods.insert(method_name, concrete_signature);
             }
         }
@@ -795,10 +923,7 @@ impl SemanticAnalyzer {
                     Type::Unknown => Type::Unknown,
                     other => {
                         self.error(
-                            format!(
-                                "For-loop iterable must be um array, encontrado {:?}",
-                                other
-                            ),
+                            format!("For-loop iterable must be um array, encontrado {:?}", other),
                             for_loop.span,
                         );
                         Type::Unknown
@@ -981,25 +1106,40 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::StructLiteral { name, .. } => {
-                // TODO: Verificar se struct existe e retornar seu tipo
-                Type::Struct { name: name.clone() }
+                if self.struct_infos.contains_key(name) {
+                    Type::Struct { name: name.clone() }
+                } else {
+                    Type::Unknown
+                }
             }
             ExpressionKind::FieldAccess {
-                object: _,
-                field: _,
+                object,
+                field,
             } => {
-                // TODO: Inferir tipo do campo baseado no tipo do objeto
-                Type::Unknown
+                let object_type = self.infer_expression_type(object);
+                match object_type {
+                    Type::Struct { name } => {
+                        if let Some(expected_ann) = self
+                            .struct_infos
+                            .get(&name)
+                            .and_then(|info| info.fields.get(field))
+                            .map(|field_info| field_info.ty.clone())
+                        {
+                            self.type_annotation_to_type(&Some(expected_ann))
+                        } else {
+                            Type::Unknown
+                        }
+                    }
+                    _ => Type::Unknown,
+                }
             }
-            ExpressionKind::EnumVariant {
-                enum_name,
-                variant_name: _,
-                data: _,
-                ..
-            } => {
-                // TODO: Verificar se enum e variant existem
-                Type::Enum {
-                    name: enum_name.clone(),
+            ExpressionKind::EnumVariant { enum_name, .. } => {
+                if self.enum_infos.contains_key(enum_name) {
+                    Type::Enum {
+                        name: enum_name.clone(),
+                    }
+                } else {
+                    Type::Unknown
                 }
             }
             ExpressionKind::Match { scrutinee: _, arms } => {
@@ -1374,27 +1514,266 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            ExpressionKind::StructLiteral { fields, .. } => {
-                // Validate fields
-                for (_field_name, field_value) in fields {
+            ExpressionKind::StructLiteral {
+                name,
+                type_args,
+                fields,
+            } => {
+                // Validate struct exists
+                let struct_info = match self.struct_infos.get(name).cloned() {
+                    Some(info) => info,
+                    None => {
+                        self.error(
+                            format!("Struct '{}' is not defined", name),
+                            expr.span,
+                        );
+                        // Still analyze field expressions to surface nested errors
+                        for (_, field_value) in fields {
+                            self.analyze_expression(field_value);
+                        }
+                        return;
+                    }
+                };
+
+                // Validate type argument arity when explicitly provided
+                let expected_type_arg_count = struct_info.type_params.len();
+                if !type_args.is_empty() {
+                    if expected_type_arg_count == 0 {
+                        self.error(
+                            format!(
+                                "Struct '{}' does not accept type arguments, but {} were provided",
+                                name,
+                                type_args.len()
+                            ),
+                            expr.span,
+                        );
+                    } else if type_args.len() != expected_type_arg_count {
+                        self.error(
+                            format!(
+                                "Struct '{}' expects {} type argument(s), but {} were provided",
+                                name,
+                                expected_type_arg_count,
+                                type_args.len()
+                            ),
+                            expr.span,
+                        );
+                    }
+                }
+
+                let mut provided_fields = HashSet::new();
+
+                for (field_name, field_value) in fields {
                     self.analyze_expression(field_value);
+
+                    if !provided_fields.insert(field_name.clone()) {
+                        self.error(
+                            format!(
+                                "Field '{}' is specified multiple times in struct literal '{}'",
+                                field_name, name
+                            ),
+                            field_value.span,
+                        );
+                        continue;
+                    }
+
+                    if let Some(expected_field) = struct_info.fields.get(field_name) {
+                        let value_type = self.infer_expression_type(field_value);
+                        let expected_type =
+                            self.type_annotation_to_type(&Some(expected_field.ty.clone()));
+
+                        if !self.types_match(&value_type, &expected_type) {
+                            self.error(
+                                format!(
+                                    "Field '{}' in struct '{}' has type {:?}, but {:?} was expected",
+                                    field_name, name, value_type, expected_type
+                                ),
+                                field_value.span,
+                            );
+                        }
+                    } else {
+                        self.error(
+                            format!(
+                                "Struct '{}' has no field named '{}'",
+                                name, field_name
+                            ),
+                            field_value.span,
+                        );
+                    }
+                }
+
+                for expected_field_name in struct_info.fields.keys() {
+                    if !provided_fields.contains(expected_field_name) {
+                        self.error(
+                            format!(
+                                "Struct literal for '{}' is missing field '{}'",
+                                name, expected_field_name
+                            ),
+                            expr.span,
+                        );
+                    }
                 }
             }
-            ExpressionKind::FieldAccess { object, field: _ } => {
-                // TODO: Validar campo existe no struct
+            ExpressionKind::FieldAccess { object, field } => {
                 self.analyze_expression(object);
+
+                let object_type = self.infer_expression_type(object);
+                match object_type {
+                    Type::Struct { name } => {
+                        if let Some(struct_info) = self.struct_infos.get(&name) {
+                            if !struct_info.fields.contains_key(field) {
+                                self.error(
+                                    format!(
+                                        "Struct '{}' has no field named '{}'",
+                                        name, field
+                                    ),
+                                    expr.span,
+                                );
+                            }
+                        } else {
+                            self.error(
+                                format!("Struct '{}' is not defined", name),
+                                expr.span,
+                            );
+                        }
+                    }
+                    Type::Unknown => {
+                        // Cannot validate without type information
+                    }
+                    _ => {
+                        self.error(
+                            format!(
+                                "Cannot access field '{}' on non-struct type {:?}",
+                                field, object_type
+                            ),
+                            expr.span,
+                        );
+                    }
+                }
             }
             ExpressionKind::EnumVariant {
-                enum_name: _,
-                variant_name: _,
+                enum_name,
+                type_args,
+                variant_name,
                 data,
                 ..
             } => {
-                // TODO: Validar enum e variant existem, tipos corretos
                 if let Some(args) = data {
                     for arg in args {
                         self.analyze_expression(arg);
                     }
+                }
+
+                let enum_info = match self.enum_infos.get(enum_name).cloned() {
+                    Some(info) => info,
+                    None => {
+                        self.error(
+                            format!("Enum '{}' is not defined", enum_name),
+                            expr.span,
+                        );
+                        return;
+                    }
+                };
+
+                let expected_type_arg_count = enum_info.type_params.len();
+                if !type_args.is_empty() {
+                    if expected_type_arg_count == 0 {
+                        self.error(
+                            format!(
+                                "Enum '{}' does not accept type arguments, but {} were provided",
+                                enum_name,
+                                type_args.len()
+                            ),
+                            expr.span,
+                        );
+                    } else if type_args.len() != expected_type_arg_count {
+                        self.error(
+                            format!(
+                                "Enum '{}' expects {} type argument(s), but {} were provided",
+                                enum_name,
+                                expected_type_arg_count,
+                                type_args.len()
+                            ),
+                            expr.span,
+                        );
+                    }
+                }
+
+                let variant_info = match enum_info.variants.get(variant_name).cloned() {
+                    Some(info) => info,
+                    None => {
+                        self.error(
+                            format!(
+                                "Enum '{}' has no variant named '{}'",
+                                enum_name, variant_name
+                            ),
+                            expr.span,
+                        );
+                        return;
+                    }
+                };
+
+                match (&variant_info.data, data) {
+                    (Some(expected_params), Some(actual_args)) => {
+                        if expected_params.len() != actual_args.len() {
+                            self.error(
+                                format!(
+                                    "Variant '{}::{}' expects {} value(s), but {} were provided",
+                                    enum_name,
+                                    variant_name,
+                                    expected_params.len(),
+                                    actual_args.len()
+                                ),
+                                expr.span,
+                            );
+                        }
+
+                        for (idx, (expected_ann, arg_expr)) in expected_params
+                            .iter()
+                            .zip(actual_args.iter())
+                            .enumerate()
+                        {
+                            let arg_type = self.infer_expression_type(arg_expr);
+                            let expected_type =
+                                self.type_annotation_to_type(&Some(expected_ann.clone()));
+
+                            if !self.types_match(&arg_type, &expected_type) {
+                                self.error(
+                                    format!(
+                                        "Argument {} for variant '{}::{}' has type {:?}, but {:?} was expected",
+                                        idx + 1,
+                                        enum_name,
+                                        variant_name,
+                                        arg_type,
+                                        expected_type
+                                    ),
+                                    arg_expr.span,
+                                );
+                            }
+                        }
+                    }
+                    (Some(expected_params), None) => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' expects {} value(s)",
+                                enum_name,
+                                variant_name,
+                                expected_params.len()
+                            ),
+                            expr.span,
+                        );
+                    }
+                    (None, Some(actual_args)) => {
+                        if !actual_args.is_empty() {
+                            self.error(
+                                format!(
+                                    "Variant '{}::{}' does not take any values",
+                                    enum_name, variant_name
+                                ),
+                                expr.span,
+                            );
+                        }
+                    }
+                    (None, None) => {}
                 }
             }
             ExpressionKind::Match { scrutinee, arms } => {
@@ -1469,9 +1848,11 @@ impl SemanticAnalyzer {
                         for ((trait_name, impl_type), _) in &self.trait_impls {
                             if impl_type == type_name {
                                 if let Some(trait_methods) = self.traits.get(trait_name) {
-                                    if let Some(trait_method_info) = trait_methods.get(method_name) {
+                                    if let Some(trait_method_info) = trait_methods.get(method_name)
+                                    {
                                         if trait_method_info.has_default {
-                                            found_signature = Some(trait_method_info.signature.clone());
+                                            found_signature =
+                                                Some(trait_method_info.signature.clone());
                                             break;
                                         }
                                     }
@@ -1845,19 +2226,25 @@ impl SemanticAnalyzer {
 
     fn infer_generic_types_in_expression(&mut self, expr: &mut Expression) {
         match &mut expr.kind {
-            ExpressionKind::StructLiteral { name, type_args, fields } => {
+            ExpressionKind::StructLiteral {
+                name,
+                type_args,
+                fields,
+            } => {
                 // Infer type arguments if not provided and struct is generic
                 if type_args.is_empty() {
-                    if let Some((type_params, field_defs)) = self.generic_structs.get(name).cloned() {
+                    if let Some((type_params, field_defs)) = self.generic_structs.get(name).cloned()
+                    {
                         // Attempt to infer type arguments from field values
-                        let inferred_types = self.infer_struct_type_args(&type_params, &field_defs, fields);
+                        let inferred_types =
+                            self.infer_struct_type_args(&type_params, &field_defs, fields);
                         if !inferred_types.is_empty() {
                             // Update the expression with inferred type arguments
                             *type_args = inferred_types;
                         }
                     }
                 }
-                
+
                 // Recurse into field values
                 for (_, field_value) in fields {
                     self.infer_generic_types_in_expression(field_value);
@@ -1889,7 +2276,12 @@ impl SemanticAnalyzer {
                     self.infer_generic_types_in_expression(arg);
                 }
             }
-            ExpressionKind::If { condition, then_block, elif_blocks, else_block } => {
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
                 self.infer_generic_types_in_expression(condition);
                 self.infer_generic_types_in_block(then_block);
                 for (elif_cond, elif_block) in elif_blocks {
@@ -1931,19 +2323,21 @@ impl SemanticAnalyzer {
     ) -> Vec<crate::ast::TypeAnnotation> {
         // Create a map to store inferred types for each type parameter
         let mut type_map: HashMap<String, Type> = HashMap::new();
-        
+
         // For each field value, infer its type and match against field definition
         for (field_name, field_expr) in field_values {
             // Find the field definition
-            if let Some((_, field_type_ann)) = field_defs.iter().find(|(name, _)| name == field_name) {
+            if let Some((_, field_type_ann)) =
+                field_defs.iter().find(|(name, _)| name == field_name)
+            {
                 // Infer the type of the field expression
                 let value_type = self.infer_expression_type(field_expr);
-                
+
                 // Try to unify the field type annotation with the value type
                 self.unify_type_annotation(field_type_ann, &value_type, &mut type_map);
             }
         }
-        
+
         // Convert inferred types to TypeAnnotation in the order of type_params
         let mut result = Vec::new();
         for param in type_params {
@@ -1955,7 +2349,7 @@ impl SemanticAnalyzer {
                 return Vec::new();
             }
         }
-        
+
         result
     }
 
@@ -1967,7 +2361,7 @@ impl SemanticAnalyzer {
         type_map: &mut HashMap<String, Type>,
     ) {
         use crate::ast::TypeAnnotationKind;
-        
+
         match &type_ann.kind {
             TypeAnnotationKind::Simple { segments } => {
                 // If it's a single segment, it might be a type parameter
@@ -1983,7 +2377,10 @@ impl SemanticAnalyzer {
                 }
             }
             TypeAnnotationKind::Tuple { elements } => {
-                if let Type::Tuple { elements: concrete_elements } = concrete_type {
+                if let Type::Tuple {
+                    elements: concrete_elements,
+                } = concrete_type
+                {
                     // Unify each element
                     for (elem_ann, elem_type) in elements.iter().zip(concrete_elements.iter()) {
                         self.unify_type_annotation(elem_ann, elem_type, type_map);
@@ -1997,21 +2394,40 @@ impl SemanticAnalyzer {
     fn type_to_annotation(&self, ty: &Type) -> crate::ast::TypeAnnotation {
         use crate::ast::{TypeAnnotation, TypeAnnotationKind};
         use crate::span::Span;
-        
+
         let kind = match ty {
-            Type::Int => TypeAnnotationKind::Simple { segments: vec!["int".to_string()] },
-            Type::Float => TypeAnnotationKind::Simple { segments: vec!["float".to_string()] },
-            Type::Bool => TypeAnnotationKind::Simple { segments: vec!["bool".to_string()] },
-            Type::String => TypeAnnotationKind::Simple { segments: vec!["string".to_string()] },
-            Type::Char => TypeAnnotationKind::Simple { segments: vec!["char".to_string()] },
-            Type::Unit => TypeAnnotationKind::Simple { segments: vec!["void".to_string()] },
-            Type::Struct { name } => TypeAnnotationKind::Simple { segments: vec![name.clone()] },
-            Type::Enum { name, .. } => TypeAnnotationKind::Simple { segments: vec![name.clone()] },
+            Type::Int => TypeAnnotationKind::Simple {
+                segments: vec!["int".to_string()],
+            },
+            Type::Float => TypeAnnotationKind::Simple {
+                segments: vec!["float".to_string()],
+            },
+            Type::Bool => TypeAnnotationKind::Simple {
+                segments: vec!["bool".to_string()],
+            },
+            Type::String => TypeAnnotationKind::Simple {
+                segments: vec!["string".to_string()],
+            },
+            Type::Char => TypeAnnotationKind::Simple {
+                segments: vec!["char".to_string()],
+            },
+            Type::Unit => TypeAnnotationKind::Simple {
+                segments: vec!["void".to_string()],
+            },
+            Type::Struct { name } => TypeAnnotationKind::Simple {
+                segments: vec![name.clone()],
+            },
+            Type::Enum { name, .. } => TypeAnnotationKind::Simple {
+                segments: vec![name.clone()],
+            },
             Type::Tuple { elements } => {
-                let element_anns = elements.iter()
+                let element_anns = elements
+                    .iter()
                     .map(|el| self.type_to_annotation(el))
                     .collect();
-                TypeAnnotationKind::Tuple { elements: element_anns }
+                TypeAnnotationKind::Tuple {
+                    elements: element_anns,
+                }
             }
             Type::Array { element_type, .. } => {
                 // For arrays, we'll just use the element type name
@@ -2019,14 +2435,25 @@ impl SemanticAnalyzer {
                 // Simplification: return element type (proper array annotation would need size)
                 elem_ann.kind
             }
-            Type::TypeParameter { name } => TypeAnnotationKind::Simple { segments: vec![name.clone()] },
-            Type::SelfType => TypeAnnotationKind::Simple { segments: vec!["Self".to_string()] },
-            Type::Unknown => TypeAnnotationKind::Simple { segments: vec!["unknown".to_string()] },
+            Type::TypeParameter { name } => TypeAnnotationKind::Simple {
+                segments: vec![name.clone()],
+            },
+            Type::SelfType => TypeAnnotationKind::Simple {
+                segments: vec!["Self".to_string()],
+            },
+            Type::Unknown => TypeAnnotationKind::Simple {
+                segments: vec!["unknown".to_string()],
+            },
         };
-        
+
         TypeAnnotation {
             kind,
-            span: Span { start: 0, end: 0, start_location: crate::span::Location { line: 0, column: 0 }, end_location: crate::span::Location { line: 0, column: 0 } },
+            span: Span {
+                start: 0,
+                end: 0,
+                start_location: crate::span::Location { line: 0, column: 0 },
+                end_location: crate::span::Location { line: 0, column: 0 },
+            },
         }
     }
 }

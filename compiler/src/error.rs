@@ -7,6 +7,8 @@ pub enum CompilerError {
     Lexical(LexError),
     Parse(ParseError),
     Semantic(SemanticError),
+    Midend(MidendError),
+    Backend(BackendError),
 }
 
 impl fmt::Display for CompilerError {
@@ -17,6 +19,34 @@ impl fmt::Display for CompilerError {
             CompilerError::Semantic(e) => {
                 write!(f, "Semantic error at {:?}: {}", e.span, e.message)
             }
+            CompilerError::Midend(e) => write!(f, "Midend error: {}", e.message),
+            CompilerError::Backend(e) => write!(f, "Backend error: {}", e.message),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MidendError {
+    pub message: String,
+}
+
+impl MidendError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendError {
+    pub message: String,
+}
+
+impl BackendError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
         }
     }
 }

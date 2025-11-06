@@ -444,7 +444,7 @@ pub struct Parameter {
 pub struct TraitDeclaration {
     pub name: String,
     pub parent_traits: Vec<String>, // NEW: Trait inheritance (e.g., trait Debug: Printable)
-    pub methods: Vec<TraitMethod>, // Assinaturas de métodos (sem corpo)
+    pub methods: Vec<TraitMethod>,  // Assinaturas de métodos (sem corpo)
     pub span: Span,
 }
 
@@ -454,7 +454,7 @@ pub struct TraitMethod {
     pub name: String,
     pub params: Vec<Parameter>, // Parâmetros (incluindo self)
     pub return_type: Option<TypeAnnotation>,
-    pub body: Option<Block>,    // NEW: None = apenas assinatura, Some = default implementation
+    pub body: Option<Block>, // NEW: None = apenas assinatura, Some = default implementation
     pub span: Span,
 }
 

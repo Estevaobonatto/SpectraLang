@@ -21,7 +21,7 @@ pub enum Keyword {
     Mut,
 
     // Special types
-    SelfType,  // Self keyword for referring to implementing type
+    SelfType, // Self keyword for referring to implementing type
 
     // Control flow - conditionals
     Match,

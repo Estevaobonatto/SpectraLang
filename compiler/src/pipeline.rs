@@ -6,6 +6,7 @@ use crate::error::CompilerError;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::SemanticAnalyzer;
+use std::fmt::Debug;
 
 /// Compilation options
 #[derive(Debug, Clone)]
@@ -31,29 +32,83 @@ impl Default for CompilationOptions {
     }
 }
 
+/// Trait implemented by backends that continue compilation beyond semantic analysis.
+pub trait BackendDriver {
+    type Artifacts: Debug;
+
+    fn run(
+        &mut self,
+        ast: &ASTModule,
+        options: &CompilationOptions,
+    ) -> Result<Self::Artifacts, Vec<CompilerError>>;
+}
+
+/// Default backend that performs no additional work.
+#[derive(Debug, Default)]
+pub struct NoopBackend;
+
+impl BackendDriver for NoopBackend {
+    type Artifacts = ();
+
+    fn run(
+        &mut self,
+        _ast: &ASTModule,
+        _options: &CompilationOptions,
+    ) -> Result<Self::Artifacts, Vec<CompilerError>> {
+        Ok(())
+    }
+}
+
 /// Compilation pipeline result
-pub struct CompilationResult {
+#[derive(Debug)]
+pub struct CompilationResult<A>
+where
+    A: Debug,
+{
     pub ast: ASTModule,
     pub errors: Vec<CompilerError>,
     pub warnings: Vec<String>,
+    pub backend_artifacts: A,
 }
 
 /// Full compilation pipeline
-pub struct CompilationPipeline {
+pub struct CompilationPipeline<B = NoopBackend>
+where
+    B: BackendDriver,
+{
     options: CompilationOptions,
+    backend: B,
 }
 
-impl CompilationPipeline {
+impl CompilationPipeline<NoopBackend> {
     pub fn new(options: CompilationOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            backend: NoopBackend::default(),
+        }
     }
 
+    pub fn with_backend<B>(self, backend: B) -> CompilationPipeline<B>
+    where
+        B: BackendDriver,
+    {
+        CompilationPipeline {
+            options: self.options,
+            backend,
+        }
+    }
+}
+
+impl<B> CompilationPipeline<B>
+where
+    B: BackendDriver,
+{
     /// Run the full compilation pipeline
     pub fn compile(
-        &self,
+        &mut self,
         source: &str,
         _filename: &str,
-    ) -> Result<CompilationResult, Vec<CompilerError>> {
+    ) -> Result<CompilationResult<B::Artifacts>, Vec<CompilerError>> {
         // Phase 1: Lexical Analysis
         let lexer = Lexer::new(source);
         let tokens = lexer.tokenize().map_err(|errors| {
@@ -89,33 +144,18 @@ impl CompilationPipeline {
                 .collect());
         }
 
-        // Phase 4: Midend (IR Generation + Optimization)
-        // TODO: Connect to midend when ready
-        // let ir_module = self.lower_to_ir(&ast)?;
-
-        // if self.options.optimize {
-        //     let ir_module = self.optimize_ir(ir_module)?;
-        // }
-
-        // if self.options.dump_ir {
-        //     println!("=== IR ===");
-        //     println!("{:#?}", ir_module);
-        //     println!();
-        // }
-
-        // Phase 5: Backend (Code Generation)
-        // TODO: Connect to backend when ready
-        // let native_code = self.generate_code(&ir_module)?;
+        let backend_artifacts = self.backend.run(&ast, &self.options)?;
 
         Ok(CompilationResult {
             ast,
             errors: vec![],
             warnings: vec![],
+            backend_artifacts,
         })
     }
 
     /// Compile and execute (for REPL)
-    pub fn compile_and_execute(&self, source: &str) -> Result<(), Vec<CompilerError>> {
+    pub fn compile_and_execute(&mut self, source: &str) -> Result<(), Vec<CompilerError>> {
         let _result = self.compile(source, "<repl>")?;
 
         // TODO: Execute compiled code
@@ -138,7 +178,7 @@ mod tests {
             }
         "#;
 
-        let pipeline = CompilationPipeline::new(CompilationOptions::default());
+        let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
         let result = pipeline.compile(source, "test.spectra");
 
         assert!(result.is_ok());
@@ -154,7 +194,7 @@ mod tests {
             }
         "#;
 
-        let pipeline = CompilationPipeline::new(CompilationOptions::default());
+        let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
         let result = pipeline.compile(source, "test.spectra");
 
         assert!(result.is_ok());
@@ -172,7 +212,7 @@ mod tests {
             }
         "#;
 
-        let pipeline = CompilationPipeline::new(CompilationOptions::default());
+        let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
         let result = pipeline.compile(source, "test.spectra");
 
         assert!(result.is_ok());
@@ -194,7 +234,7 @@ mod tests {
             }
         "#;
 
-        let pipeline = CompilationPipeline::new(CompilationOptions::default());
+        let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
         let result = pipeline.compile(source, "test.spectra");
 
         assert!(result.is_ok());
@@ -208,7 +248,7 @@ mod tests {
             }
         "#;
 
-        let pipeline = CompilationPipeline::new(CompilationOptions::default());
+        let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
         let result = pipeline.compile(source, "test.spectra");
 
         assert!(result.is_err());

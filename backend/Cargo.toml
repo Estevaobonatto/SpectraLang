@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-spectra-compiler = { path = "../compiler" }
 spectra-midend = { path = "../midend" }
 cranelift = "0.109"
 cranelift-codegen = "0.109"

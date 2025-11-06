@@ -328,7 +328,6 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
- "spectra-compiler",
  "spectra-midend",
  "target-lexicon",
 ]
