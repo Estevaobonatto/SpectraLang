@@ -140,9 +140,15 @@ pub struct SemanticAnalyzer {
     // Enum metadata (including variant payload types)
     enum_infos: HashMap<String, EnumInfo>,
     // Generic structs: maps struct_name to (type_params, field_definitions)
-    generic_structs: HashMap<String, (Vec<String>, Vec<(String, crate::ast::TypeAnnotation)>)>,
+    generic_structs: HashMap<
+        String,
+        (
+            Vec<crate::ast::TypeParameter>,
+            Vec<(String, crate::ast::TypeAnnotation)>,
+        ),
+    >,
     // Generic enums: maps enum_name to (type_params, variants)
-    generic_enums: HashMap<String, (Vec<String>, Vec<String>)>,
+    generic_enums: HashMap<String, (Vec<crate::ast::TypeParameter>, Vec<String>)>,
     // Track if we're inside a loop (for break/continue validation)
     loop_depth: usize,
     // Track if we're inside a function (for return validation)
@@ -150,6 +156,7 @@ pub struct SemanticAnalyzer {
     current_return_type: Option<Type>,
     // Stack of in-scope generic type parameters
     generic_params: Vec<HashSet<String>>,
+    generic_param_bounds: Vec<HashMap<String, Vec<String>>>,
 }
 
 impl SemanticAnalyzer {
@@ -171,6 +178,7 @@ impl SemanticAnalyzer {
             trait_signatures: HashMap::new(),
             current_return_type: None,
             generic_params: Vec::new(),
+            generic_param_bounds: Vec::new(),
         }
     }
 
@@ -186,20 +194,37 @@ impl SemanticAnalyzer {
         self.symbols.pop();
     }
 
-    fn push_generic_params(&mut self, params: &[String]) -> bool {
+    fn push_generic_params(&mut self, params: &[crate::ast::TypeParameter]) -> bool {
         if params.is_empty() {
             return false;
         }
         let mut set = HashSet::new();
+        let mut bounds_map = HashMap::new();
+
         for param in params {
-            set.insert(param.clone());
+            set.insert(param.name.clone());
+            bounds_map.insert(param.name.clone(), param.bounds.clone());
+
+            for bound in &param.bounds {
+                if !self.traits.contains_key(bound) {
+                    self.error(
+                        format!(
+                            "Trait '{}' referenced in bound for type parameter '{}' is not defined",
+                            bound, param.name
+                        ),
+                        param.span,
+                    );
+                }
+            }
         }
         self.generic_params.push(set);
+        self.generic_param_bounds.push(bounds_map);
         true
     }
 
     fn pop_generic_params(&mut self) {
         self.generic_params.pop();
+        self.generic_param_bounds.pop();
     }
 
     fn is_generic_param(&self, name: &str) -> bool {
@@ -207,6 +232,114 @@ impl SemanticAnalyzer {
             .iter()
             .rev()
             .any(|params| params.contains(name))
+    }
+
+    fn get_generic_bounds(&self, name: &str) -> Option<&Vec<String>> {
+        for bounds in self.generic_param_bounds.iter().rev() {
+            if let Some(list) = bounds.get(name) {
+                return Some(list);
+            }
+        }
+        None
+    }
+
+    fn trait_method_signature_for_type_param(
+        &self,
+        param_name: &str,
+        method_name: &str,
+    ) -> Option<(FunctionSignature, String)> {
+        let bounds = self.get_generic_bounds(param_name)?;
+
+        for trait_name in bounds {
+            if let Some(trait_methods) = self.traits.get(trait_name) {
+                if let Some(trait_method_info) = trait_methods.get(method_name) {
+                    let mut params = trait_method_info.signature.params.clone();
+                    if trait_method_info.signature.self_kind.is_some() && !params.is_empty() {
+                        params[0] = Type::TypeParameter {
+                            name: param_name.to_string(),
+                        };
+                    }
+
+                    let signature = FunctionSignature {
+                        params,
+                        return_type: trait_method_info.signature.return_type.clone(),
+                        self_kind: trait_method_info.signature.self_kind,
+                    };
+
+                    return Some((signature, trait_name.clone()));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn validate_method_call_signature(
+        &mut self,
+        method_name: &str,
+        signature: &FunctionSignature,
+        receiver_type: &Type,
+        arguments: &[Expression],
+        call_span: Span,
+    ) {
+        let has_self = signature.self_kind.is_some();
+
+        if !has_self {
+            self.error(
+                format!(
+                    "Method '{}' does not take 'self'; call it as an associated function",
+                    method_name
+                ),
+                call_span,
+            );
+            return;
+        }
+
+        if let Some(expected_self_type) = signature.params.get(0) {
+            if !self.types_match(receiver_type, expected_self_type) {
+                self.error(
+                    format!(
+                        "Method '{}' expects receiver of type {:?}, but found {:?}",
+                        method_name, expected_self_type, receiver_type
+                    ),
+                    call_span,
+                );
+            }
+        }
+
+        let arg_offset = if has_self { 1 } else { 0 };
+        let expected_args = signature.params.len().saturating_sub(arg_offset);
+
+        if arguments.len() != expected_args {
+            self.error(
+                format!(
+                    "Method '{}' expects {} argument(s), but {} were provided",
+                    method_name,
+                    expected_args,
+                    arguments.len()
+                ),
+                call_span,
+            );
+        }
+
+        for (i, arg) in arguments.iter().enumerate() {
+            let arg_type = self.infer_expression_type(arg);
+            let expected_index = i + arg_offset;
+            if let Some(expected_type) = signature.params.get(expected_index) {
+                if !self.types_match(&arg_type, expected_type) {
+                    self.error(
+                        format!(
+                            "Method '{}' argument {} has type {:?}, but {:?} was expected",
+                            method_name,
+                            i + 1,
+                            arg_type,
+                            expected_type
+                        ),
+                        arg.span,
+                    );
+                }
+            }
+        }
     }
 
     fn type_annotation_to_type(&self, type_ann: &Option<crate::ast::TypeAnnotation>) -> Type {
@@ -435,12 +568,7 @@ impl SemanticAnalyzer {
                             func.span,
                         );
                     } else {
-                        let type_param_names: Vec<String> = func
-                            .type_params
-                            .iter()
-                            .map(|tp| tp.name.clone())
-                            .collect();
-                        let pushed_generics = self.push_generic_params(&type_param_names);
+                        let pushed_generics = self.push_generic_params(&func.type_params);
 
                         // Extract parameter types
                         let params: Vec<Type> = func
@@ -512,18 +640,14 @@ impl SemanticAnalyzer {
 
                     // Collect generic structs for type inference
                     if !struct_def.type_params.is_empty() {
-                        let type_param_names: Vec<String> = struct_def
-                            .type_params
-                            .iter()
-                            .map(|tp| tp.name.clone())
-                            .collect();
+                        let type_params = struct_def.type_params.clone();
                         let fields: Vec<(String, crate::ast::TypeAnnotation)> = struct_def
                             .fields
                             .iter()
                             .map(|f| (f.name.clone(), f.ty.clone()))
                             .collect();
                         self.generic_structs
-                            .insert(struct_def.name.clone(), (type_param_names, fields));
+                            .insert(struct_def.name.clone(), (type_params, fields));
                     }
                 }
                 Item::Enum(enum_def) => {
@@ -580,15 +704,11 @@ impl SemanticAnalyzer {
 
                     // Collect generic enums for type inference
                     if !enum_def.type_params.is_empty() {
-                        let type_param_names: Vec<String> = enum_def
-                            .type_params
-                            .iter()
-                            .map(|tp| tp.name.clone())
-                            .collect();
+                        let type_params = enum_def.type_params.clone();
                         let variant_names: Vec<String> =
                             enum_def.variants.iter().map(|v| v.name.clone()).collect();
                         self.generic_enums
-                            .insert(enum_def.name.clone(), (type_param_names, variant_names));
+                            .insert(enum_def.name.clone(), (type_params, variant_names));
                     }
                 }
                 _ => {}
@@ -652,7 +772,7 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_impl_block(&mut self, impl_block: &crate::ast::ImplBlock) {
-        let type_param_names = self
+        let type_param_info = self
             .generic_structs
             .get(&impl_block.type_name)
             .map(|(params, _)| params.clone())
@@ -661,7 +781,7 @@ impl SemanticAnalyzer {
                     .get(&impl_block.type_name)
                     .map(|(params, _)| params.clone())
             });
-        let pushed_generics = if let Some(ref params) = type_param_names {
+        let pushed_generics = if let Some(ref params) = type_param_info {
             self.push_generic_params(params)
         } else {
             false
@@ -741,9 +861,7 @@ impl SemanticAnalyzer {
         for method in &impl_block.methods {
             self.current_function = Some(format!("{}::{}", impl_block.type_name, method.name));
             let expected_return = self.type_annotation_to_type(&method.return_type);
-            let previous_return = self
-                .current_return_type
-                .replace(expected_return.clone());
+            let previous_return = self.current_return_type.replace(expected_return.clone());
             self.push_scope();
 
             // Declarar parâmetros no escopo
@@ -1148,12 +1266,7 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_function(&mut self, func: &Function) {
-        let type_param_names: Vec<String> = func
-            .type_params
-            .iter()
-            .map(|tp| tp.name.clone())
-            .collect();
-        let pushed_generics = self.push_generic_params(&type_param_names);
+        let pushed_generics = self.push_generic_params(&func.type_params);
 
         self.current_function = Some(func.name.clone());
         let expected_return = self
@@ -2227,7 +2340,7 @@ impl SemanticAnalyzer {
                 let scrutinee_type = self.infer_expression_type(scrutinee);
 
                 // Verificar exhaustiveness
-                self.check_match_exhaustiveness(arms, expr.span);
+                self.check_match_exhaustiveness(&scrutinee_type, arms, expr.span);
 
                 let mut arm_result_types = Vec::new();
                 for arm in arms {
@@ -2274,6 +2387,43 @@ impl SemanticAnalyzer {
                 // Verificar se método existe para o tipo do objeto
                 let obj_type = self.infer_expression_type(object);
 
+                if let Type::TypeParameter { name } = &obj_type {
+                    match self.trait_method_signature_for_type_param(name, method_name) {
+                        Some((signature, _trait_name)) => {
+                            self.validate_method_call_signature(
+                                method_name,
+                                &signature,
+                                &obj_type,
+                                arguments,
+                                expr.span,
+                            );
+                        }
+                        None => match self.get_generic_bounds(name) {
+                            Some(bounds) if !bounds.is_empty() => {
+                                self.error(
+                                        format!(
+                                            "Method '{}' is not provided by trait bounds ({}) on type parameter '{}'",
+                                            method_name,
+                                            bounds.join(", "),
+                                            name
+                                        ),
+                                        expr.span,
+                                    );
+                            }
+                            _ => {
+                                self.error(
+                                        format!(
+                                            "Type parameter '{}' must be constrained by a trait that defines method '{}'",
+                                            name, method_name
+                                        ),
+                                        expr.span,
+                                    );
+                            }
+                        },
+                    }
+                    return;
+                }
+
                 // Extrair nome do tipo
                 let type_name = match &obj_type {
                     Type::Struct { name } => Some(name.clone()),
@@ -2293,17 +2443,14 @@ impl SemanticAnalyzer {
 
                 // Se conseguimos extrair o tipo, verificar se método existe
                 if let Some(type_name) = &type_name {
-                    // Clonar a assinatura para evitar problemas de borrow
                     let method_signature = self
                         .methods
                         .get(type_name)
                         .and_then(|methods| methods.get(method_name).cloned());
 
-                    // Se não encontrou o método explicitamente, buscar em traits com implementação padrão
                     let signature = if let Some(sig) = method_signature {
                         Some(sig)
                     } else {
-                        // Procurar em todos os traits implementados por este tipo
                         let mut found_signature = None;
                         for ((trait_name, impl_type), _) in &self.trait_impls {
                             if impl_type == type_name {
@@ -2334,71 +2481,21 @@ impl SemanticAnalyzer {
                                     }
                                 }
                             }
+                            if found_signature.is_some() {
+                                break;
+                            }
                         }
                         found_signature
                     };
 
                     if let Some(signature) = signature {
-                        let has_self = signature.self_kind.is_some();
-
-                        if !has_self {
-                            self.error(
-                                format!(
-                                    "Method '{}' does not take 'self'; call it as an associated function",
-                                    method_name
-                                ),
-                                expr.span,
-                            );
-                            return;
-                        }
-
-                        // Validate object type matches expected self parameter when known
-                        if let Some(expected_self_type) = signature.params.get(0) {
-                            if !self.types_match(&obj_type, expected_self_type) {
-                                self.error(
-                                    format!(
-                                        "Method '{}' expects receiver of type {:?}, but found {:?}",
-                                        method_name, expected_self_type, obj_type
-                                    ),
-                                    expr.span,
-                                );
-                            }
-                        }
-
-                        let arg_offset = if has_self { 1 } else { 0 };
-                        let expected_args = signature.params.len().saturating_sub(arg_offset);
-
-                        if arguments.len() != expected_args {
-                            self.error(
-                                format!(
-                                    "Method '{}' expects {} argument(s), but {} were provided",
-                                    method_name,
-                                    expected_args,
-                                    arguments.len()
-                                ),
-                                expr.span,
-                            );
-                        }
-
-                        // Validar tipos dos argumentos
-                        for (i, arg) in arguments.iter().enumerate() {
-                            let arg_type = self.infer_expression_type(arg);
-                            let expected_index = i + arg_offset;
-                            if let Some(expected_type) = signature.params.get(expected_index) {
-                                if !self.types_match(&arg_type, expected_type) {
-                                    self.error(
-                                        format!(
-                                            "Method '{}' argument {} has type {:?}, but {:?} was expected",
-                                            method_name,
-                                            i + 1,
-                                            arg_type,
-                                            expected_type
-                                        ),
-                                        arg.span,
-                                    );
-                                }
-                            }
-                        }
+                        self.validate_method_call_signature(
+                            method_name,
+                            &signature,
+                            &obj_type,
+                            arguments,
+                            expr.span,
+                        );
                     } else if self.methods.contains_key(type_name) {
                         self.error(
                             format!(
@@ -2498,10 +2595,7 @@ impl SemanticAnalyzer {
                 let enum_info = match self.enum_infos.get(enum_name).cloned() {
                     Some(info) => info,
                     None => {
-                        self.error(
-                            format!("Enum '{}' is not defined", enum_name),
-                            match_span,
-                        );
+                        self.error(format!("Enum '{}' is not defined", enum_name), match_span);
                         return;
                     }
                 };
@@ -2748,10 +2842,7 @@ impl SemanticAnalyzer {
             None => {
                 if !matches!(expected, Type::Unit | Type::Unknown) {
                     self.error(
-                        format!(
-                            "Return statement missing value of type {:?}",
-                            expected
-                        ),
+                        format!("Return statement missing value of type {:?}", expected),
                         span,
                     );
                 }
@@ -2779,9 +2870,7 @@ impl SemanticAnalyzer {
 
         match &statement.kind {
             StatementKind::Return(_) => true,
-            StatementKind::Expression(expr) if is_last => {
-                self.expression_guaranteed_return(expr)
-            }
+            StatementKind::Expression(expr) if is_last => self.expression_guaranteed_return(expr),
             StatementKind::Loop(loop_stmt) if is_last => {
                 self.block_guaranteed_return(&loop_stmt.body)
             }
@@ -2864,10 +2953,7 @@ impl SemanticAnalyzer {
                     Type::Unknown => {}
                     Type::Unit => {
                         self.error(
-                            format!(
-                                "Function must return value of type {:?}",
-                                expected_type
-                            ),
+                            format!("Function must return value of type {:?}", expected_type),
                             span,
                         );
                     }
@@ -2888,8 +2974,13 @@ impl SemanticAnalyzer {
     }
 
     /// Verifica se um match expression é exhaustivo
-    fn check_match_exhaustiveness(&mut self, arms: &[crate::ast::MatchArm], span: Span) {
-        use crate::ast::Pattern;
+    fn check_match_exhaustiveness(
+        &mut self,
+        scrutinee_type: &Type,
+        arms: &[crate::ast::MatchArm],
+        span: Span,
+    ) {
+        use crate::ast::{ExpressionKind, Pattern};
 
         // Se tem wildcard ou identifier, é automaticamente exhaustivo
         let has_catch_all = arms
@@ -2900,35 +2991,66 @@ impl SemanticAnalyzer {
             return; // Exhaustivo
         }
 
-        // Coletar todos os enum variants cobertos
-        let mut covered_variants: HashMap<String, Vec<String>> = HashMap::new();
+        match scrutinee_type {
+            Type::Enum { name } => {
+                let Some(enum_info) = self.enum_infos.get(name) else {
+                    return;
+                };
 
-        for arm in arms {
-            if let Pattern::EnumVariant {
-                enum_name,
-                variant_name,
-                ..
-            } = &arm.pattern
-            {
-                covered_variants
-                    .entry(enum_name.clone())
-                    .or_insert_with(Vec::new)
-                    .push(variant_name.clone());
-            }
-        }
-
-        // Verificar se todos os variants de cada enum estão cobertos
-        for (enum_name, covered) in &covered_variants {
-            if let Some(all_variants) = self.enum_definitions.get(enum_name) {
-                let missing: Vec<&String> = all_variants
+                let mut covered_variants: HashSet<String> = HashSet::new();
+                let mut payload_coverage: HashMap<String, bool> = enum_info
+                    .variants
                     .iter()
-                    .filter(|v| !covered.contains(v))
+                    .filter(|(_, info)| info.data.as_ref().map(|d| !d.is_empty()).unwrap_or(false))
+                    .map(|(variant, _)| (variant.clone(), false))
                     .collect();
 
-                if !missing.is_empty() {
-                    let missing_str = missing
-                        .iter()
-                        .map(|v| format!("{}::{}", enum_name, v))
+                for arm in arms {
+                    if let Pattern::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        data,
+                        ..
+                    } = &arm.pattern
+                    {
+                        if enum_name != name {
+                            continue;
+                        }
+
+                        covered_variants.insert(variant_name.clone());
+
+                        if let Some(flag) = payload_coverage.get_mut(variant_name) {
+                            let expected_len = enum_info
+                                .variants
+                                .get(variant_name)
+                                .and_then(|info| info.data.as_ref())
+                                .map(|data| data.len())
+                                .unwrap_or(0);
+
+                            if let Some(payload_patterns) = data {
+                                if payload_patterns.len() == expected_len
+                                    && payload_patterns.iter().all(|p| {
+                                        matches!(p, Pattern::Wildcard | Pattern::Identifier(_))
+                                    })
+                                {
+                                    *flag = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let missing_variants: Vec<String> = enum_info
+                    .variants
+                    .keys()
+                    .filter(|variant| !covered_variants.contains(*variant))
+                    .cloned()
+                    .collect();
+
+                if !missing_variants.is_empty() {
+                    let missing_str = missing_variants
+                        .into_iter()
+                        .map(|variant| format!("{}::{}", name, variant))
                         .collect::<Vec<_>>()
                         .join(", ");
 
@@ -2939,42 +3061,135 @@ impl SemanticAnalyzer {
                         ),
                         span,
                     );
+                    return;
+                }
+
+                let missing_payload_guard: Vec<String> = payload_coverage
+                    .into_iter()
+                    .filter_map(|(variant, covered)| {
+                        if covered {
+                            None
+                        } else {
+                            Some(format!("{}::{}", name, variant))
+                        }
+                    })
+                    .collect();
+
+                if !missing_payload_guard.is_empty() {
+                    let list = missing_payload_guard.join(", ");
+                    self.error(
+                        format!(
+                            "Match on enum '{}' must include wildcard bindings for payload of variant(s): {}",
+                            name, list
+                        ),
+                        span,
+                    );
                 }
             }
-        }
+            Type::Bool => {
+                let has_true = arms.iter().any(|arm| {
+                    if let Pattern::Literal(expr) = &arm.pattern {
+                        matches!(expr.kind, ExpressionKind::BoolLiteral(true))
+                    } else {
+                        false
+                    }
+                });
+                let has_false = arms.iter().any(|arm| {
+                    if let Pattern::Literal(expr) = &arm.pattern {
+                        matches!(expr.kind, ExpressionKind::BoolLiteral(false))
+                    } else {
+                        false
+                    }
+                });
 
-        // Se tem apenas literais, verificar se cobre todos os casos de bool
-        let only_literals = arms
-            .iter()
-            .all(|arm| matches!(arm.pattern, Pattern::Literal(_)));
-
-        if only_literals {
-            // Verificar se tem true E false (exhaustivo para bool)
-            use crate::ast::ExpressionKind;
-            let has_true = arms.iter().any(|arm| {
-                if let Pattern::Literal(expr) = &arm.pattern {
-                    matches!(expr.kind, ExpressionKind::BoolLiteral(true))
-                } else {
-                    false
+                if !(has_true && has_false) {
+                    self.error(
+                        "Match on 'bool' is not exhaustive. Consider adding 'true', 'false', or a wildcard pattern (_).",
+                        span,
+                    );
                 }
-            });
-            let has_false = arms.iter().any(|arm| {
-                if let Pattern::Literal(expr) = &arm.pattern {
-                    matches!(expr.kind, ExpressionKind::BoolLiteral(false))
-                } else {
-                    false
-                }
-            });
-
-            // Se tem true E false, é exhaustivo para bool
-            if has_true && has_false {
-                return;
             }
+            Type::Tuple { elements } => {
+                if elements.is_empty() {
+                    return;
+                }
 
-            self.error(
-                "Match expression with only literal patterns is not exhaustive. Consider adding a wildcard pattern (_).",
-                span,
-            );
+                let mut bool_combinations: HashSet<Vec<bool>> = HashSet::new();
+                let mut unsupported_pattern = false;
+
+                for arm in arms {
+                    if let Pattern::Literal(expr) = &arm.pattern {
+                        if let ExpressionKind::TupleLiteral {
+                            elements: tuple_elems,
+                        } = &expr.kind
+                        {
+                            if tuple_elems.len() != elements.len() {
+                                unsupported_pattern = true;
+                                break;
+                            }
+
+                            let mut combo = Vec::with_capacity(elements.len());
+                            let mut tuple_supported = true;
+
+                            for (tuple_ty, tuple_expr) in elements.iter().zip(tuple_elems.iter()) {
+                                match (tuple_ty, &tuple_expr.kind) {
+                                    (Type::Bool, ExpressionKind::BoolLiteral(value)) => {
+                                        combo.push(*value);
+                                    }
+                                    _ => {
+                                        tuple_supported = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if tuple_supported {
+                                bool_combinations.insert(combo);
+                            } else {
+                                unsupported_pattern = true;
+                                break;
+                            }
+                        } else {
+                            unsupported_pattern = true;
+                            break;
+                        }
+                    } else {
+                        unsupported_pattern = true;
+                        break;
+                    }
+                }
+
+                if unsupported_pattern {
+                    self.error(
+                        "Match on tuple requires a wildcard (_) pattern to cover remaining combinations.",
+                        span,
+                    );
+                    return;
+                }
+
+                let expected = 1 << elements.len();
+                if bool_combinations.len() != expected {
+                    self.error(
+                        format!(
+                            "Match on tuple of bools is not exhaustive. Expected {} combination(s).",
+                            expected
+                        ),
+                        span,
+                    );
+                }
+            }
+            _ => {
+                let only_literals = arms
+                    .iter()
+                    .all(|arm| matches!(arm.pattern, Pattern::Literal(_)));
+
+                if only_literals {
+                    self.error(
+                        "Match expression with only literal patterns is not exhaustive. Consider adding a wildcard pattern (_).",
+                        span,
+                    );
+                }
+            }
         }
     }
 
@@ -3264,7 +3479,7 @@ impl SemanticAnalyzer {
     /// Infer type arguments for a generic struct from field values
     fn infer_struct_type_args(
         &mut self,
-        type_params: &[String],
+        type_params: &[crate::ast::TypeParameter],
         field_defs: &[(String, crate::ast::TypeAnnotation)],
         field_values: &[(String, Expression)],
     ) -> Vec<crate::ast::TypeAnnotation> {
@@ -3288,7 +3503,7 @@ impl SemanticAnalyzer {
         // Convert inferred types to TypeAnnotation in the order of type_params
         let mut result = Vec::new();
         for param in type_params {
-            if let Some(inferred_type) = type_map.get(param) {
+            if let Some(inferred_type) = type_map.get(&param.name) {
                 let type_ann = self.type_to_annotation(inferred_type);
                 result.push(type_ann);
             } else {
@@ -3335,7 +3550,7 @@ impl SemanticAnalyzer {
 
         let mut result = Vec::new();
         for param in type_params {
-            match type_map.get(&param) {
+            match type_map.get(&param.name) {
                 Some(mapped) if !matches!(mapped, Type::Unknown) => {
                     result.push(self.type_to_annotation(mapped));
                 }

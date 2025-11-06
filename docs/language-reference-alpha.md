@@ -116,13 +116,13 @@ enum Option<T> {
   - Literal patterns (numbers, booleans, strings).
   - Identifier bindings (`value`).
   - Enum variants with nested patterns (`Option::Some(x)`).
-- Exhaustiveness checking exists for enums but remains partial.
+- Exhaustiveness checking covers enums (including payload guard validation) and tuples of booleans; when coverage cannot be proven, the analyser requires a wildcard arm to guarantee totality.
 
 ## Semantics Overview
 - Symbol tables are scoped lexically within blocks.
 - Basic type checking exists for arithmetic, logical, and assignment expressions; unsupported combinations produce semantic errors.
 - Trait implementations are validated to ensure signatures match the trait definition and that all required methods are present.
-- Method calls resolve against inherent impls and trait defaults recorded in the semantic analyser.
+- Method calls resolve against inherent impls, trait defaults, and now enforce trait bounds before allowing generic receivers to dispatch methods.
 - Generic argument inference is limited; many cases remain `Unknown` and will be refined post-alpha.
 
 ## Deferred / Unsupported Features
@@ -147,7 +147,7 @@ These keywords or constructs are tokenised but not yet parsed or semantically va
 ## Known Limitations for Alpha
 - String escape sequences, character literals, and byte literals are not yet supported.
 - There is no visibility checking beyond `pub` markers.
-- Generic type checking and trait bounds enforcement are incomplete.
+- Trait bounds are enforced for generic method calls, but broader generic inference still defaults to `Unknown` in unsupported scenarios.
 - The standard library is not yet defined; examples rely on user-defined constructs.
 - Error recovery in the parser is basic; multiple syntax errors may cascade.
 

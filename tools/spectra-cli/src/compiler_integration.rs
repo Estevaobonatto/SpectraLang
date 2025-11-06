@@ -86,9 +86,7 @@ impl AggregateMetrics {
         }
 
         fn average(duration: Duration, count: usize) -> Duration {
-            duration
-                .checked_div(count as u32)
-                .unwrap_or(Duration::ZERO)
+            duration.checked_div(count as u32).unwrap_or(Duration::ZERO)
         }
 
         println!(
@@ -140,10 +138,7 @@ impl AggregateMetrics {
             for (name, data) in entries {
                 println!(
                     "      - {:<24} {:?} total (runs: {}, modified: {})",
-                    name,
-                    data.total_duration,
-                    data.runs,
-                    data.modified_runs
+                    name, data.total_duration, data.runs, data.modified_runs
                 );
             }
         }
@@ -290,13 +285,11 @@ impl BackendDriver for FullPipelineBackend {
         let runtime_state = spectra_runtime::initialize();
         let execution_start = Instant::now();
 
-        let return_value = unsafe {
-            codegen.execute_entry_point("main", &artifacts.ir_module)
-        };
+        let return_value = unsafe { codegen.execute_entry_point("main", &artifacts.ir_module) };
         let execution_duration = execution_start.elapsed();
 
-        let return_value = return_value
-            .map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?;
+        let return_value =
+            return_value.map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?;
 
         let runtime_uptime = runtime_state.uptime();
         let init_thread = runtime_state.init_thread_id();
@@ -385,7 +378,11 @@ impl SpectraCompiler {
         if self.options.collect_metrics && !artifacts.passes.is_empty() {
             println!("Pass timings:");
             for report in &artifacts.passes {
-                let status = if report.modified { "modified" } else { "no change" };
+                let status = if report.modified {
+                    "modified"
+                } else {
+                    "no change"
+                };
                 println!(
                     "  • {:<28} {:>10?} ({})",
                     report.name, report.duration, status
@@ -478,7 +475,11 @@ impl SpectraCompiler {
         if self.options.collect_metrics && !artifacts.passes.is_empty() {
             println!("Pass timings:");
             for report in &artifacts.passes {
-                let status = if report.modified { "modified" } else { "no change" };
+                let status = if report.modified {
+                    "modified"
+                } else {
+                    "no change"
+                };
                 println!(
                     "  • {:<28} {:>10?} ({})",
                     report.name, report.duration, status

@@ -9,8 +9,8 @@
 
 ## Type System & Semantics
 - [x] Implement generic type parameter resolution and substitution in the semantic analyzer _(generic scopes now tracked in `SemanticAnalyzer` and type parameters resolve to `Type::TypeParameter`)_
-- [ ] Enforce trait bounds and method resolution for generic/parametric types
-- [ ] Complete exhaustiveness checks for enums, tuples, and pattern combinations
+- [x] Enforce trait bounds and method resolution for generic/parametric types _(trait-bound lookup now validates method receivers and arguments for type parameters and concrete types)_
+- [x] Complete exhaustiveness checks for enums, tuples, and pattern combinations _(semantic analyzer now reasons about enum payload guards, tuple-of-bool combinations, and requires catch-alls when coverage cannot be proven)_
 - [ ] Specify and validate coercion, conversion, and visibility rules
 - [ ] Add type inference coverage tests for complex expressions and method calls
 
