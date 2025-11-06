@@ -470,7 +470,7 @@ impl Parser {
             let method_start =
                 self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?;
 
-            let (method_name, method_name_span) =
+            let (method_name, _method_name_span) =
                 self.consume_identifier("Expected method name")?;
 
             self.consume_symbol('(', "Expected '(' after method name")?;
@@ -528,7 +528,7 @@ impl Parser {
 
                 // Para self, o span vai até o token atual - 1
                 // Como já avançamos, precisamos usar param_start até onde paramos
-                let param_end = param_start; // Simplificado - usamos só o start
+                let _param_end = param_start; // Simplificado - usamos só o start
                 params.push(Parameter {
                     name: "self".to_string(),
                     type_annotation: None,
@@ -605,7 +605,7 @@ impl Parser {
 
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse method (igual ao impl block regular)
-            let method_name_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method")?;
+            let _fn_keyword_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method")?;
 
             let (method_name, method_name_span) =
                 self.consume_identifier("Expected method name")?;

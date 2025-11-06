@@ -41,6 +41,7 @@ struct FunctionSignature {
 struct TraitMethodInfo {
     signature: FunctionSignature,
     has_default: bool, // true if method has default implementation
+    #[allow(dead_code)]
     default_body: Option<crate::ast::Block>, // corpo da implementação padrão, se houver
 }
 
@@ -158,6 +159,7 @@ impl SemanticAnalyzer {
             (Type::Float, Type::Float) => true,
             (Type::String, Type::String) => true,
             (Type::Bool, Type::Bool) => true,
+            (Type::Char, Type::Char) => true,
             (Type::Unit, Type::Unit) => true,
 
             // Structs com mesmo nome
@@ -185,12 +187,17 @@ impl SemanticAnalyzer {
             // Arrays com tipos de elemento compatíveis
             (
                 Type::Array {
-                    element_type: e1, ..
+                    element_type: e1,
+                    size: s1,
                 },
                 Type::Array {
-                    element_type: e2, ..
+                    element_type: e2,
+                    size: s2,
                 },
-            ) => self.types_match(e1, e2),
+            ) => {
+                self.types_match(e1, e2)
+                    && (s1.is_none() || s2.is_none() || s1 == s2)
+            }
 
             _ => false,
         }
@@ -725,7 +732,31 @@ impl SemanticAnalyzer {
                 // Analyze the value expression
                 self.analyze_expression(&assign_stmt.value);
 
-                // TODO: Check type compatibility between target and assigned value
+                let target_type = match &assign_stmt.target {
+                    crate::ast::LValue::Identifier(name) => self
+                        .lookup_symbol(name)
+                        .map(|info| info.ty.clone())
+                        .unwrap_or(Type::Unknown),
+                    crate::ast::LValue::IndexAccess { array, .. } => {
+                        match self.infer_expression_type(array) {
+                            Type::Array { element_type, .. } => *element_type,
+                            Type::String => Type::Char,
+                            _ => Type::Unknown,
+                        }
+                    }
+                };
+
+                let value_type = self.infer_expression_type(&assign_stmt.value);
+
+                if !self.types_match(&value_type, &target_type) {
+                    self.error(
+                        format!(
+                            "Cannot assign value of type {:?} to target of type {:?}",
+                            value_type, target_type
+                        ),
+                        assign_stmt.value.span,
+                    );
+                }
             }
             StatementKind::Return(ret_stmt) => {
                 if self.current_function.is_none() {
@@ -757,9 +788,28 @@ impl SemanticAnalyzer {
                 // Analyze iterable expression
                 self.analyze_expression(&for_loop.iterable);
 
-                // Declare iterator variable (type is inferred from iterable)
-                let iterator_type = Type::Unknown; // TODO: inferir do tipo do iterável
-                if !self.declare_symbol(for_loop.iterator.clone(), for_loop.span, iterator_type) {
+                // Infer iterator type from iterable expression
+                let iterable_type = self.infer_expression_type(&for_loop.iterable);
+                let iterator_type = match iterable_type {
+                    Type::Array { element_type, .. } => *element_type,
+                    Type::Unknown => Type::Unknown,
+                    other => {
+                        self.error(
+                            format!(
+                                "For-loop iterable must be um array, encontrado {:?}",
+                                other
+                            ),
+                            for_loop.span,
+                        );
+                        Type::Unknown
+                    }
+                };
+
+                if !self.declare_symbol(
+                    for_loop.iterator.clone(),
+                    for_loop.span,
+                    iterator_type.clone(),
+                ) {
                     self.error(
                         format!(
                             "Iterator variable '{}' conflicts with existing declaration",
@@ -1411,8 +1461,8 @@ impl SemanticAnalyzer {
                         .and_then(|methods| methods.get(method_name).cloned());
 
                     // Se não encontrou o método explicitamente, buscar em traits com implementação padrão
-                    let (signature, has_default) = if let Some(sig) = method_signature {
-                        (Some(sig), false)
+                    let signature = if let Some(sig) = method_signature {
+                        Some(sig)
                     } else {
                         // Procurar em todos os traits implementados por este tipo
                         let mut found_signature = None;
@@ -1428,7 +1478,7 @@ impl SemanticAnalyzer {
                                 }
                             }
                         }
-                        (found_signature, true)
+                        found_signature
                     };
 
                     if let Some(signature) = signature {
@@ -1687,7 +1737,7 @@ impl SemanticAnalyzer {
         match &mut expr.kind {
             ExpressionKind::MethodCall {
                 object,
-                method_name,
+                method_name: _,
                 arguments,
                 type_name,
             } => {
@@ -1804,7 +1854,6 @@ impl SemanticAnalyzer {
                         if !inferred_types.is_empty() {
                             // Update the expression with inferred type arguments
                             *type_args = inferred_types;
-                            eprintln!("Info: Inferred type arguments for struct '{}': {:?}", name, type_args);
                         }
                     }
                 }
@@ -1814,7 +1863,12 @@ impl SemanticAnalyzer {
                     self.infer_generic_types_in_expression(field_value);
                 }
             }
-            ExpressionKind::EnumVariant { enum_name, type_args, variant_name, data } => {
+            ExpressionKind::EnumVariant {
+                enum_name: _,
+                type_args: _,
+                variant_name: _,
+                data,
+            } => {
                 // TODO: Implement enum type inference
                 // For now, just recurse into data
                 if let Some(args) = data {
@@ -1875,9 +1929,6 @@ impl SemanticAnalyzer {
         field_defs: &[(String, crate::ast::TypeAnnotation)],
         field_values: &[(String, Expression)],
     ) -> Vec<crate::ast::TypeAnnotation> {
-        use crate::ast::{TypeAnnotation, TypeAnnotationKind};
-        use crate::span::Span;
-        
         // Create a map to store inferred types for each type parameter
         let mut type_map: HashMap<String, Type> = HashMap::new();
         

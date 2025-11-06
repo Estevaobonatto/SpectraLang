@@ -6,9 +6,9 @@ use crate::ir::{
     Function as IRFunction, Module as IRModule, Parameter, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
-    BinaryOperator, Enum as ASTEnum, Expression, ExpressionKind, Function as ASTFunction, Item,
-    Module as ASTModule, Statement, StatementKind, Struct as ASTStruct, Type as ASTType,
-    TypeAnnotation, TypeAnnotationKind,
+    BinaryOperator, Block, Enum as ASTEnum, Expression, ExpressionKind, Function as ASTFunction,
+    Item, Module as ASTModule, Statement, StatementKind, Struct as ASTStruct, Type as ASTType,
+    TypeAnnotation, TypeAnnotationKind, UnaryOperator,
 };
 use std::collections::HashMap;
 
@@ -46,6 +46,146 @@ impl ScopeStack {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(name) {
                 return Some(*value);
+            }
+        }
+        None
+    }
+
+    fn clear(&mut self) {
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
+    }
+}
+
+/// Scoped map that tracks IR types associated with variable names
+#[derive(Clone)]
+struct TypeScopeStack {
+    scopes: Vec<HashMap<String, IRType>>,
+}
+
+impl TypeScopeStack {
+    fn new() -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+    }
+
+    fn insert(&mut self, name: String, ty: IRType) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, ty);
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<IRType> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(ty) = scope.get(name) {
+                return Some(ty.clone());
+            }
+        }
+        None
+    }
+
+    fn clear(&mut self) {
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
+    }
+}
+
+/// Metadata about an array lowered into IR
+#[derive(Clone)]
+struct ArrayInfo {
+    ptr: Value,
+    element_type: IRType,
+    size: usize,
+}
+
+/// Scoped storage for array metadata (pointer, element type, size)
+#[derive(Clone)]
+struct ArrayScopeStack {
+    scopes: Vec<HashMap<String, ArrayInfo>>,
+}
+
+impl ArrayScopeStack {
+    fn new() -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+    }
+
+    fn insert(&mut self, name: String, info: ArrayInfo) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, info);
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<&ArrayInfo> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    fn clear(&mut self) {
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
+    }
+}
+
+/// Scoped storage for struct pointers and their associated type names
+#[derive(Clone)]
+struct StructScopeStack {
+    scopes: Vec<HashMap<String, (Value, String)>>,
+}
+
+impl StructScopeStack {
+    fn new() -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+    }
+
+    fn insert(&mut self, name: String, info: (Value, String)) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, info);
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<(Value, String)> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(info.clone());
             }
         }
         None
@@ -101,14 +241,15 @@ pub struct ASTLowering {
     builder: IRBuilder,
     current_function: Option<IRFunction>,
     value_map: ScopeStack,
+    variable_types: TypeScopeStack,
     /// Maps variable names to their allocated memory locations (for mutable variables)
     alloca_map: HashMap<String, Value>,
-    /// Maps array names to their base pointers (stack addresses)
-    array_map: HashMap<String, Value>,
+    /// Maps array names to metadata for lowering (scoped)
+    array_map: ArrayScopeStack,
     /// Maps struct names to their field definitions
     struct_definitions: HashMap<String, Vec<(String, IRType)>>,
-    /// Maps struct variable names to (pointer, struct_name) for field access
-    struct_var_map: HashMap<String, (Value, String)>,
+    /// Maps struct variable names to (pointer, struct_name) for field access (scoped)
+    struct_var_map: StructScopeStack,
     /// Maps enum names to their variant definitions: (variant_name, tag, data_types)
     enum_definitions: HashMap<String, Vec<(String, usize, Option<Vec<IRType>>)>>,
     loop_stack: Vec<LoopContext>,
@@ -134,10 +275,11 @@ impl ASTLowering {
             builder: IRBuilder::new(),
             current_function: None,
             value_map: ScopeStack::new(),
+            variable_types: TypeScopeStack::new(),
             alloca_map: HashMap::new(),
-            array_map: HashMap::new(),
+            array_map: ArrayScopeStack::new(),
             struct_definitions: HashMap::new(),
-            struct_var_map: HashMap::new(),
+            struct_var_map: StructScopeStack::new(),
             enum_definitions: HashMap::new(),
             loop_stack: Vec::new(),
             generic_functions: HashMap::new(),
@@ -366,6 +508,74 @@ impl ASTLowering {
         self.trait_implementations.get(&key).copied().unwrap_or(false)
     }
 
+    fn merge_array_element_types(&self, left: &IRType, right: &IRType) -> Option<IRType> {
+        if left == right {
+            return Some(left.clone());
+        }
+
+        match (left, right) {
+            (IRType::Int, IRType::Float) | (IRType::Float, IRType::Int) => Some(IRType::Float),
+            (IRType::Pointer(l), IRType::Pointer(r)) => {
+                self.merge_array_element_types(l.as_ref(), r.as_ref())
+                    .map(|merged| IRType::Pointer(Box::new(merged)))
+            }
+            (IRType::Array { element_type: l_elem, size: l_size }, IRType::Array { element_type: r_elem, size: r_size }) => {
+                if l_size != r_size {
+                    None
+                } else {
+                    self.merge_array_element_types(l_elem.as_ref(), r_elem.as_ref()).map(|merged| IRType::Array {
+                        element_type: Box::new(merged),
+                        size: *l_size,
+                    })
+                }
+            }
+            (IRType::Struct { name: l_name, fields: l_fields }, IRType::Struct { name: r_name, fields: r_fields }) => {
+                if l_name == r_name && l_fields == r_fields {
+                    Some(IRType::Struct {
+                        name: l_name.clone(),
+                        fields: l_fields.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            (IRType::Enum { name: l_name, variants: l_variants }, IRType::Enum { name: r_name, variants: r_variants }) => {
+                if l_name == r_name && l_variants == r_variants {
+                    Some(IRType::Enum {
+                        name: l_name.clone(),
+                        variants: l_variants.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn infer_array_element_type(&self, elements: &[Expression]) -> IRType {
+        if elements.is_empty() {
+            return IRType::Int;
+        }
+
+        let mut element_type = self.infer_expr_ir_type(&elements[0]);
+
+        for expr in elements.iter().skip(1) {
+            let next_type = self.infer_expr_ir_type(expr);
+            match self.merge_array_element_types(&element_type, &next_type) {
+                Some(merged) => {
+                    element_type = merged;
+                }
+                None => {
+                    element_type = IRType::Int;
+                    break;
+                }
+            }
+        }
+
+        element_type
+    }
+
     /// Infere o tipo IR de uma expressão AST (análise simplificada)
     fn infer_expr_ir_type(&self, expr: &Expression) -> IRType {
         match &expr.kind {
@@ -380,17 +590,10 @@ impl ASTLowering {
             ExpressionKind::StringLiteral(_) => IRType::String,
             ExpressionKind::BoolLiteral(_) => IRType::Bool,
             ExpressionKind::ArrayLiteral { elements } => {
-                if elements.is_empty() {
-                    IRType::Array {
-                        element_type: Box::new(IRType::Int),
-                        size: 0,
-                    }
-                } else {
-                    let elem_type = self.infer_expr_ir_type(&elements[0]);
-                    IRType::Array {
-                        element_type: Box::new(elem_type),
-                        size: elements.len(),
-                    }
+                let elem_type = self.infer_array_element_type(elements);
+                IRType::Array {
+                    element_type: Box::new(elem_type),
+                    size: elements.len(),
                 }
             }
             ExpressionKind::TupleLiteral { elements } => {
@@ -415,11 +618,7 @@ impl ASTLowering {
             .map(|(idx, param)| Parameter {
                 id: idx,
                 name: param.name.clone(),
-                ty: param
-                    .ty
-                    .as_ref()
-                    .map(|t| self.lower_type_annotation(t))
-                    .unwrap_or(IRType::Void),
+                ty: param.ty.as_ref().map(|t| self.lower_type_annotation(t)).unwrap_or(IRType::Void),
             })
             .collect();
 
@@ -438,11 +637,34 @@ impl ASTLowering {
 
         // Map parameters to values
         self.value_map.clear();
+        self.variable_types.clear();
         self.alloca_map.clear();
         self.array_map.clear();
         self.struct_var_map.clear();
         for (idx, param) in params.iter().enumerate() {
-            self.value_map.insert(param.name.clone(), Value { id: idx });
+            let value = Value { id: idx };
+            self.value_map.insert(param.name.clone(), value);
+
+            if param.ty != IRType::Void {
+                self.variable_types
+                    .insert(param.name.clone(), param.ty.clone());
+
+                if let IRType::Struct { name, .. } = &param.ty {
+                    self.struct_var_map
+                        .insert(param.name.clone(), (value, name.clone()));
+                }
+
+                if let IRType::Array { element_type, size } = &param.ty {
+                    self.array_map.insert(
+                        param.name.clone(),
+                        ArrayInfo {
+                            ptr: value,
+                            element_type: element_type.as_ref().clone(),
+                            size: *size,
+                        },
+                    );
+                }
+            }
         }
 
         // Analyze which variables are assigned to (need memory allocation)
@@ -500,6 +722,9 @@ impl ASTLowering {
     fn lower_block_with_scope(&mut self, statements: &[Statement], ir_func: &mut IRFunction, create_scope: bool) {
         if create_scope {
             self.value_map.push_scope();
+            self.variable_types.push_scope();
+            self.array_map.push_scope();
+            self.struct_var_map.push_scope();
         }
         
         for stmt in statements {
@@ -507,6 +732,9 @@ impl ASTLowering {
         }
         
         if create_scope {
+            self.struct_var_map.pop_scope();
+            self.array_map.pop_scope();
+            self.variable_types.pop_scope();
             self.value_map.pop_scope();
         }
     }
@@ -574,56 +802,161 @@ impl ASTLowering {
         assigned
     }
 
+    fn lower_branch_block_result(
+        &mut self,
+        block: &Block,
+        ir_func: &mut IRFunction,
+        entry_block: usize,
+    ) -> (Option<Value>, usize, bool) {
+        self.lower_block(&block.statements, ir_func);
+
+        let current_block_id = self
+            .builder
+            .get_current_block()
+            .unwrap_or(entry_block);
+
+        let produced_value = block
+            .statements
+            .last()
+            .and_then(|stmt| match &stmt.kind {
+                StatementKind::Expression(expr) => Some(self.lower_expression(expr, ir_func)),
+                _ => None,
+            });
+
+        let has_terminator = ir_func
+            .get_block(current_block_id)
+            .map(|block| block.terminator.is_some())
+            .unwrap_or(false);
+
+        (produced_value, current_block_id, has_terminator)
+    }
+
+    fn evaluate_int_constant(&self, expr: &Expression) -> Option<i64> {
+        match &expr.kind {
+            ExpressionKind::NumberLiteral(value) => value.parse::<i64>().ok(),
+            ExpressionKind::BoolLiteral(value) => Some(if *value { 1 } else { 0 }),
+            ExpressionKind::Grouping(inner) => self.evaluate_int_constant(inner),
+            ExpressionKind::Unary { operator, operand } => {
+                let inner = self.evaluate_int_constant(operand)?;
+                match operator {
+                    UnaryOperator::Negate => Some(-inner),
+                    UnaryOperator::Not => Some(if inner == 0 { 1 } else { 0 }),
+                }
+            }
+            ExpressionKind::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                let lhs = self.evaluate_int_constant(left)?;
+                let rhs = self.evaluate_int_constant(right)?;
+                match operator {
+                    BinaryOperator::Add => Some(lhs + rhs),
+                    BinaryOperator::Subtract => Some(lhs - rhs),
+                    BinaryOperator::Multiply => Some(lhs * rhs),
+                    BinaryOperator::Divide => {
+                        if rhs == 0 {
+                            None
+                        } else {
+                            Some(lhs / rhs)
+                        }
+                    }
+                    BinaryOperator::Modulo => {
+                        if rhs == 0 {
+                            None
+                        } else {
+                            Some(lhs % rhs)
+                        }
+                    }
+                    BinaryOperator::Equal => Some(if lhs == rhs { 1 } else { 0 }),
+                    BinaryOperator::NotEqual => Some(if lhs != rhs { 1 } else { 0 }),
+                    BinaryOperator::Less => Some(if lhs < rhs { 1 } else { 0 }),
+                    BinaryOperator::Greater => Some(if lhs > rhs { 1 } else { 0 }),
+                    BinaryOperator::LessEqual => Some(if lhs <= rhs { 1 } else { 0 }),
+                    BinaryOperator::GreaterEqual => Some(if lhs >= rhs { 1 } else { 0 }),
+                    BinaryOperator::And => Some(if lhs != 0 && rhs != 0 { 1 } else { 0 }),
+                    BinaryOperator::Or => Some(if lhs != 0 || rhs != 0 { 1 } else { 0 }),
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
         match &stmt.kind {
             StatementKind::Let(let_stmt) => {
+                // Discover variable type either from initializer or annotation
+                let inferred_type = if let Some(ref value_expr) = let_stmt.value {
+                    Some(self.infer_expr_ir_type(value_expr))
+                } else if let Some(ref type_ann) = let_stmt.ty {
+                    Some(self.lower_type_annotation(type_ann))
+                } else {
+                    None
+                };
+
+                if let Some(ref ty) = inferred_type {
+                    self.variable_types.insert(let_stmt.name.clone(), ty.clone());
+                }
+
                 if let Some(ref value_expr) = let_stmt.value {
                     let value = self.lower_expression(value_expr, ir_func);
 
-                    // Check if this is an array literal - store pointer in array_map
-                    if matches!(value_expr.kind, ExpressionKind::ArrayLiteral { .. }) {
-                        self.array_map.insert(let_stmt.name.clone(), value);
-                    }
-                    // Check if this is a struct literal - store pointer + name in struct_var_map
-                    else if let ExpressionKind::StructLiteral { name, type_args, .. } = &value_expr.kind {
-                        // Calculate the actual (possibly mangled) struct name
-                        let actual_name = if !type_args.is_empty() {
-                            let type_names: Vec<String> = type_args.iter()
-                                .map(|ty| self.type_annotation_to_string(ty))
-                                .collect();
-                            format!("{}_{}", name, type_names.join("_"))
-                        } else {
-                            name.clone()
-                        };
-                        self.struct_var_map
-                            .insert(let_stmt.name.clone(), (value, actual_name));
-                    }
-                    // Check if this might be a struct value (e.g., from function call)
-                    // We need to check the type annotation if available
-                    else if let Some(ref type_ann) = let_stmt.ty {
-                        let var_type = self.lower_type_annotation(type_ann);
-                        if let IRType::Struct { name, fields } = var_type {
-                            // Allocate space for the struct
-                            let struct_ptr = self.builder.build_alloca(ir_func, IRType::Struct { 
-                                name: name.clone(), 
-                                fields: fields.clone() 
-                            });
-                            // Store the struct value
-                            self.builder.build_store(ir_func, struct_ptr, value);
-                            // Add to struct_var_map
-                            self.struct_var_map.insert(let_stmt.name.clone(), (struct_ptr, name));
-                        } else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
-                            self.builder.build_store(ir_func, alloca_ptr, value);
-                        } else {
+                    match &value_expr.kind {
+                        ExpressionKind::ArrayLiteral { .. } => {
+                            if let Some(IRType::Array { element_type, size }) = inferred_type.clone() {
+                                self.array_map.insert(
+                                    let_stmt.name.clone(),
+                                    ArrayInfo {
+                                        ptr: value,
+                                        element_type: *element_type,
+                                        size,
+                                    },
+                                );
+                            }
                             self.value_map.insert(let_stmt.name.clone(), value);
                         }
-                    }
-                    // If variable will be assigned later, store to allocated memory
-                    else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
-                        self.builder.build_store(ir_func, alloca_ptr, value);
-                    } else {
-                        // Otherwise, just map the SSA value
-                        self.value_map.insert(let_stmt.name.clone(), value);
+                        ExpressionKind::StructLiteral { name, type_args, .. } => {
+                            let actual_name = if !type_args.is_empty() {
+                                let type_names: Vec<String> = type_args
+                                    .iter()
+                                    .map(|ty| self.type_annotation_to_string(ty))
+                                    .collect();
+                                format!("{}_{}", name, type_names.join("_"))
+                            } else {
+                                name.clone()
+                            };
+                            self.struct_var_map
+                                .insert(let_stmt.name.clone(), (value, actual_name.clone()));
+                            self.value_map.insert(let_stmt.name.clone(), value);
+                        }
+                        _ => {
+                            if let Some(ref type_ann) = let_stmt.ty {
+                                let var_type = self.lower_type_annotation(type_ann);
+                                if let IRType::Struct { name, fields } = var_type {
+                                    let struct_ptr = self.builder.build_alloca(
+                                        ir_func,
+                                        IRType::Struct {
+                                            name: name.clone(),
+                                            fields: fields.clone(),
+                                        },
+                                    );
+                                    self.builder.build_store(ir_func, struct_ptr, value);
+                                    self.struct_var_map
+                                        .insert(let_stmt.name.clone(), (struct_ptr, name));
+                                    self.value_map
+                                        .insert(let_stmt.name.clone(), struct_ptr);
+                                } else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name)
+                                {
+                                    self.builder.build_store(ir_func, alloca_ptr, value);
+                                } else {
+                                    self.value_map.insert(let_stmt.name.clone(), value);
+                                }
+                            } else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
+                                self.builder.build_store(ir_func, alloca_ptr, value);
+                            } else {
+                                self.value_map.insert(let_stmt.name.clone(), value);
+                            }
+                        }
                     }
                 }
             }
@@ -635,9 +968,50 @@ impl ASTLowering {
                         // Assignment to simple variable (uses memory)
                         if let Some(&alloca_ptr) = self.alloca_map.get(name) {
                             self.builder.build_store(ir_func, alloca_ptr, value);
+
+                            if let Some((_, struct_name)) = self.struct_var_map.get(name) {
+                                self
+                                    .struct_var_map
+                                    .insert(name.clone(), (alloca_ptr, struct_name));
+                            }
+
+                            if let Some(IRType::Array { element_type, size }) =
+                                self.variable_types.get(name)
+                            {
+                                self.array_map.insert(
+                                    name.clone(),
+                                    ArrayInfo {
+                                        ptr: alloca_ptr,
+                                        element_type: *element_type,
+                                        size,
+                                    },
+                                );
+                            }
                         } else {
                             // Fallback: update value_map (shouldn't happen if analysis is correct)
                             self.value_map.insert(name.clone(), value);
+
+                            if let Some(var_ty) = self.variable_types.get(name) {
+                                match var_ty {
+                                    IRType::Struct { name: struct_name, .. } => {
+                                        self.struct_var_map.insert(
+                                            name.clone(),
+                                            (value, struct_name.clone()),
+                                        );
+                                    }
+                                    IRType::Array { element_type, size } => {
+                                        self.array_map.insert(
+                                            name.clone(),
+                                            ArrayInfo {
+                                                ptr: value,
+                                                element_type: *element_type,
+                                                size,
+                                            },
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
                     }
                     spectra_compiler::ast::LValue::IndexAccess { array, index } => {
@@ -646,7 +1020,11 @@ impl ASTLowering {
                         let index_value = self.lower_expression(index, ir_func);
 
                         // Calcular endereço do elemento
-                        let elem_type = IRType::Int; // Assumir int por enquanto
+                        let elem_type = match self.infer_expr_ir_type(array) {
+                            IRType::Array { element_type, .. } => *element_type,
+                            IRType::String => IRType::Int,
+                            _ => IRType::Int,
+                        };
                         let elem_ptr = self.builder.build_getelementptr(
                             ir_func,
                             array_ptr,
@@ -724,36 +1102,102 @@ impl ASTLowering {
                 self.builder.set_current_block(exit_block);
             }
             StatementKind::For(for_stmt) => {
-                // For now, implement simple for-in/for-of lowering
-                // TODO: Proper iterator support
+                // Lower iterable expression once to avoid recomputation
+                let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
+                let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
+
+                let (element_type, length) = match iterable_type {
+                    IRType::Array { element_type, size } => (*element_type, size),
+                    other => panic!(
+                        "for-loop lowering currently supports arrays only, found {:?}",
+                        other
+                    ),
+                };
+
                 let header_block = ir_func.add_block("for.header");
                 let body_block = ir_func.add_block("for.body");
+                let increment_block = ir_func.add_block("for.increment");
                 let exit_block = ir_func.add_block("for.exit");
 
-                // Evaluate iterable
-                let _iterable = self.lower_expression(&for_stmt.iterable, ir_func);
+                // Allocate and initialise loop index
+                let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
+                let zero = self.builder.build_const_int(ir_func, 0);
+                self.builder.build_store(ir_func, index_alloca, zero);
 
-                // Branch to header
+                // Jump to header to evaluate guard
                 self.builder.build_branch(ir_func, header_block);
-                self.builder.set_current_block(header_block);
 
-                // TODO: Check if iterator has next element
-                let condition = ir_func.next_value(); // Placeholder
+                // Header: check index < length
+                self.builder.set_current_block(header_block);
+                let current_index = self.builder.build_load(ir_func, index_alloca);
+                let length_const = self
+                    .builder
+                    .build_const_int(ir_func, length as i64);
+                let condition = self
+                    .builder
+                    .build_lt(ir_func, current_index, length_const);
                 self.builder
                     .build_cond_branch(ir_func, condition, body_block, exit_block);
 
-                // Body (push loop context for break/continue)
+                // Body block
+                self.builder.set_current_block(body_block);
                 self.loop_stack.push(LoopContext {
-                    header_block,
+                    header_block: increment_block,
                     exit_block,
                 });
-                self.builder.set_current_block(body_block);
-                // TODO: Bind iterator variable
-                self.lower_block(&for_stmt.body.statements, ir_func);
-                self.builder.build_branch(ir_func, header_block);
+
+                // Scoped bindings for iterator variable
+                self.value_map.push_scope();
+                self.variable_types.push_scope();
+                self.array_map.push_scope();
+                self.struct_var_map.push_scope();
+
+                let body_index = self.builder.build_load(ir_func, index_alloca);
+                let element_ptr = self.builder.build_getelementptr(
+                    ir_func,
+                    iterable_value,
+                    body_index,
+                    element_type.clone(),
+                );
+                let element_value = self.builder.build_load(ir_func, element_ptr);
+
+                // Bind iterator variable in current scope
+                self.value_map
+                    .insert(for_stmt.iterator.clone(), element_value);
+                self.variable_types
+                    .insert(for_stmt.iterator.clone(), element_type.clone());
+
+                if let IRType::Struct { name, .. } = &element_type {
+                    self.struct_var_map
+                        .insert(for_stmt.iterator.clone(), (element_value, name.clone()));
+                }
+
+                self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
+
+                // Determine if body naturally falls through
+                if let Some(current_block) = self.builder.get_current_block() {
+                    if let Some(block) = ir_func.get_block_mut(current_block) {
+                        if block.terminator.is_none() {
+                            self.builder.build_branch(ir_func, increment_block);
+                        }
+                    }
+                }
+
+                self.struct_var_map.pop_scope();
+                self.array_map.pop_scope();
+                self.variable_types.pop_scope();
+                self.value_map.pop_scope();
                 self.loop_stack.pop();
 
-                // Exit
+                // Increment block
+                self.builder.set_current_block(increment_block);
+                let step_index = self.builder.build_load(ir_func, index_alloca);
+                let one = self.builder.build_const_int(ir_func, 1);
+                let next_index = self.builder.build_add(ir_func, step_index, one);
+                self.builder.build_store(ir_func, index_alloca, next_index);
+                self.builder.build_branch(ir_func, header_block);
+
+                // Exit block becomes current for following statements
                 self.builder.set_current_block(exit_block);
             }
             StatementKind::Loop(loop_stmt) => {
@@ -790,12 +1234,14 @@ impl ASTLowering {
                     case_blocks.push((case_block, case));
 
                     // Extract constant value from pattern
-                    // TODO: Proper constant evaluation
-                    let pattern_int = if let ExpressionKind::NumberLiteral(n) = &case.pattern.kind {
-                        n.parse::<i64>().unwrap_or(0)
-                    } else {
-                        0 // Default value for non-integer patterns
-                    };
+                    let pattern_int = self
+                        .evaluate_int_constant(&case.pattern)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Switch case pattern must be a constant integer expression, found {:?}",
+                                case.pattern.kind
+                            )
+                        });
                     cases.push((pattern_int, case_block));
                 }
 
@@ -884,14 +1330,22 @@ impl ASTLowering {
                         // Try to find in struct_var_map
                         if let Some((_, struct_name)) = self.struct_var_map.get(name) {
                             // Get fields from struct_definitions
-                            let fields = self.struct_definitions
-                                .get(struct_name)
+                            let fields = self
+                                .struct_definitions
+                                .get(&struct_name)
                                 .cloned()
                                 .unwrap_or_default();
                             IRType::Struct {
-                                name: struct_name.clone(),
+                                name: struct_name,
                                 fields,
                             }
+                        } else if let Some(info) = self.array_map.get(name) {
+                            IRType::Array {
+                                element_type: Box::new(info.element_type.clone()),
+                                size: info.size,
+                            }
+                        } else if let Some(ty) = self.variable_types.get(name) {
+                            ty
                         } else {
                             // Default to Int if we can't determine
                             IRType::Int
@@ -927,20 +1381,15 @@ impl ASTLowering {
                     self.builder.build_const_int(ir_func, 0)
                 }
             }
-            ExpressionKind::StringLiteral(_s) => {
-                // TODO: String constant support com globais
-                // Por ora, criar uma constante int como placeholder
-                // Isso permite que strings funcionem em tuples
-                self.builder.build_const_int(ir_func, 0)
-            }
+            ExpressionKind::StringLiteral(s) => self.lower_string_literal(s, ir_func),
             ExpressionKind::BoolLiteral(b) => self.builder.build_const_bool(ir_func, *b),
             ExpressionKind::Identifier(name) => {
                 // Check if this is an array - return pointer directly
-                if let Some(&array_ptr) = self.array_map.get(name) {
-                    array_ptr
+                if let Some(info) = self.array_map.get(name) {
+                    info.ptr
                 }
                 // Check if this is a struct variable
-                else if let Some(&(struct_ptr, _)) = self.struct_var_map.get(name) {
+                else if let Some((struct_ptr, _)) = self.struct_var_map.get(name) {
                     // Load struct from memory
                     self.builder.build_load(ir_func, struct_ptr)
                 }
@@ -1042,100 +1491,116 @@ impl ASTLowering {
                 else_block,
             } => {
                 let then_bb = ir_func.add_block("if.then");
-                let else_bb = ir_func.add_block("if.else");
                 let merge_bb = ir_func.add_block("if.merge");
+                let else_bb = if else_block.is_some() {
+                    Some(ir_func.add_block("if.else"))
+                } else {
+                    None
+                };
 
-                // Evaluate condition
+                let first_false_bb = if !elif_blocks.is_empty() {
+                    ir_func.add_block("if.elif.0.cond")
+                } else if let Some(else_id) = else_bb {
+                    else_id
+                } else {
+                    merge_bb
+                };
+
                 let cond_value = self.lower_expression(condition, ir_func);
                 self.builder
-                    .build_cond_branch(ir_func, cond_value, then_bb, else_bb);
+                    .build_cond_branch(ir_func, cond_value, then_bb, first_false_bb);
 
-                // Then branch
+                let mut phi_inputs: Vec<(Value, usize)> = Vec::new();
+                let mut merge_has_predecessor = first_false_bb == merge_bb;
+
                 self.builder.set_current_block(then_bb);
-                let mut then_value = None;
-                self.lower_block(&then_block.statements, ir_func);
-                // If last statement is an expression, use it as value
-                if let Some(Statement {
-                    kind: StatementKind::Expression(expr),
-                    ..
-                }) = then_block.statements.last()
-                {
-                    then_value = Some(self.lower_expression(expr, ir_func));
-                }
-                let then_final_block = self.builder.get_current_block().unwrap_or(then_bb);
+                let (then_value, then_final_block, then_has_terminator) =
+                    self.lower_branch_block_result(then_block, ir_func, then_bb);
 
-                // Only add branch if block doesn't have terminator
-                if let Some(block) = ir_func.get_block_mut(then_final_block) {
-                    if block.terminator.is_none() {
-                        self.builder.build_branch(ir_func, merge_bb);
+                if let Some(value) = then_value {
+                    if !then_has_terminator {
+                        phi_inputs.push((value, then_final_block));
                     }
                 }
 
-                // Else/elif branches
-                self.builder.set_current_block(else_bb);
-                let mut else_value = None;
-
-                // Handle elif branches
-                if !elif_blocks.is_empty() {
-                    // TODO: Proper elif chain with multiple blocks
-                    // For now, treat as nested if
+                if !then_has_terminator {
+                    self.builder.build_branch(ir_func, merge_bb);
+                    merge_has_predecessor = true;
                 }
 
-                // Else branch
-                if let Some(else_body) = else_block {
-                    self.lower_block(&else_body.statements, ir_func);
-                    if let Some(Statement {
-                        kind: StatementKind::Expression(expr),
-                        ..
-                    }) = else_body.statements.last()
-                    {
-                        else_value = Some(self.lower_expression(expr, ir_func));
+                let mut current_false_block = first_false_bb;
+
+                for (idx, (elif_condition, elif_body)) in elif_blocks.iter().enumerate() {
+                    self.builder.set_current_block(current_false_block);
+                    let cond_value = self.lower_expression(elif_condition, ir_func);
+
+                    let elif_body_block = ir_func.add_block(&format!("if.elif.{}.body", idx));
+                    let next_false_block = if idx + 1 < elif_blocks.len() {
+                        ir_func.add_block(&format!("if.elif.{}.cond", idx + 1))
+                    } else if let Some(else_id) = else_bb {
+                        else_id
+                    } else {
+                        merge_bb
+                    };
+
+                    self.builder.build_cond_branch(
+                        ir_func,
+                        cond_value,
+                        elif_body_block,
+                        next_false_block,
+                    );
+
+                    if next_false_block == merge_bb {
+                        merge_has_predecessor = true;
                     }
-                }
-                let else_final_block = self.builder.get_current_block().unwrap_or(else_bb);
 
-                // Check if else block has terminator
-                let else_has_terminator = if let Some(block) = ir_func.get_block(else_final_block) {
-                    block.terminator.is_some()
-                } else {
-                    false
-                };
+                    self.builder.set_current_block(elif_body_block);
+                    let (elif_value, elif_final_block, elif_has_terminator) =
+                        self.lower_branch_block_result(elif_body, ir_func, elif_body_block);
 
-                // Only add branch if block doesn't have terminator
-                if !else_has_terminator {
-                    if let Some(block) = ir_func.get_block_mut(else_final_block) {
-                        if block.terminator.is_none() {
-                            self.builder.build_branch(ir_func, merge_bb);
+                    if let Some(value) = elif_value {
+                        if !elif_has_terminator {
+                            phi_inputs.push((value, elif_final_block));
                         }
                     }
+
+                    if !elif_has_terminator {
+                        self.builder.build_branch(ir_func, merge_bb);
+                        merge_has_predecessor = true;
+                    }
+
+                    current_false_block = next_false_block;
                 }
 
-                // Check if then block has terminator
-                let then_has_terminator = if let Some(block) = ir_func.get_block(then_final_block) {
-                    block.terminator.is_some()
-                } else {
-                    false
-                };
+                if let Some(else_block_ast) = else_block {
+                    self.builder.set_current_block(current_false_block);
+                    let (else_value, else_final_block, else_has_terminator) =
+                        self.lower_branch_block_result(else_block_ast, ir_func, current_false_block);
 
-                // Only use merge block if at least one branch reaches it
-                if !then_has_terminator || !else_has_terminator {
-                    // Merge block with PHI node
+                    if let Some(value) = else_value {
+                        if !else_has_terminator {
+                            phi_inputs.push((value, else_final_block));
+                        }
+                    }
+
+                    if !else_has_terminator {
+                        self.builder.build_branch(ir_func, merge_bb);
+                        merge_has_predecessor = true;
+                    }
+                } else if current_false_block != merge_bb {
+                    self.builder.set_current_block(current_false_block);
+                    self.builder.build_branch(ir_func, merge_bb);
+                    merge_has_predecessor = true;
+                }
+
+                if merge_has_predecessor {
                     self.builder.set_current_block(merge_bb);
-
-                    // If both branches produce values, create PHI node
-                    if let (Some(then_val), Some(else_val)) = (then_value, else_value) {
-                        self.builder.build_phi(
-                            ir_func,
-                            vec![(then_val, then_final_block), (else_val, else_final_block)],
-                        )
+                    if phi_inputs.len() >= 2 {
+                        self.builder.build_phi(ir_func, phi_inputs)
                     } else {
-                        // No value produced (void)
                         ir_func.next_value()
                     }
                 } else {
-                    // Both branches have terminators (returns), no merge needed
-                    // Don't set current block to merge - leave it undefined
-                    // This will make the function return check skip adding a return
                     ir_func.next_value()
                 }
             }
@@ -1247,9 +1712,8 @@ impl ASTLowering {
                     return ir_func.next_value();
                 }
 
-                // Determinar o tipo do elemento (assume todos são do mesmo tipo)
-                // Por simplicidade, vamos usar Int como padrão
-                let elem_type = IRType::Int;
+                // Inferir o tipo dos elementos
+                let elem_type = self.infer_array_element_type(elements);
 
                 // Alocar espaço para o array no stack (tipo Array com tamanho)
                 let array_type = IRType::Array {
@@ -1383,7 +1847,8 @@ impl ASTLowering {
                 };
                 
                 // Buscar definição do struct
-                let struct_fields = self.struct_definitions.get(&actual_name).cloned();                if let Some(field_defs) = struct_fields {
+                let struct_fields = self.struct_definitions.get(&actual_name).cloned();
+                if let Some(field_defs) = struct_fields {
                     // Criar tipo struct
                     let struct_type = IRType::Struct {
                         name: actual_name.clone(),
@@ -1430,7 +1895,7 @@ impl ASTLowering {
                 if let ExpressionKind::Identifier(name) = &object.kind {
                     if let Some((struct_ptr, struct_name)) = self.struct_var_map.get(name) {
                         // Buscar definição do struct
-                        if let Some(field_defs) = self.struct_definitions.get(struct_name) {
+                        if let Some(field_defs) = self.struct_definitions.get(&struct_name) {
                             // Encontrar índice do campo
                             if let Some((field_idx, (_, field_type))) = field_defs
                                 .iter()
@@ -1442,7 +1907,7 @@ impl ASTLowering {
                                     self.builder.build_const_int(ir_func, field_idx as i64);
                                 let field_ptr = self.builder.build_getelementptr(
                                     ir_func,
-                                    *struct_ptr,
+                                    struct_ptr,
                                     index_value,
                                     field_type.clone(),
                                 );
@@ -1647,23 +2112,13 @@ impl ASTLowering {
                     // Tipo já foi preenchido pelo semantic analyzer
                     name.clone()
                 } else {
-                    // Tentar inferir o tipo do objeto
-                    // Estratégia: extrair tipo da expressão do objeto
-                    if let ExpressionKind::Identifier(id) = &object.kind {
-                        // Buscar na tabela de valores para descobrir o tipo
-                        // Por enquanto, não temos acesso ao tipo - usar heurística
-                        // Se obj_value é um struct, o nome do tipo está no IR
-
-                        // Fallback: tentar extrair do nome do valor no IR
-                        // Isso não é ideal mas funciona para casos simples
-                        // TODO: Passar tipo explicitamente do semantic analyzer
-
-                        // Por enquanto, retornar valor dummy
-                        // O semantic analyzer deveria ter preenchido type_name
-                        return self.builder.build_const_int(ir_func, 0);
-                    } else {
-                        // Não conseguimos inferir - retornar dummy
-                        return self.builder.build_const_int(ir_func, 0);
+                    match self.infer_expr_ir_type(object) {
+                        IRType::Struct { name, .. } => name,
+                        IRType::Enum { name, .. } => name,
+                        other => panic!(
+                            "Não foi possível determinar o tipo do objeto para chamada de método '{method_name}' (tipo inferido: {:?})",
+                            other
+                        ),
                     }
                 };
 
@@ -1684,6 +2139,40 @@ impl ASTLowering {
                     .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
         }
+    }
+
+    fn lower_string_literal(&mut self, literal: &str, ir_func: &mut IRFunction) -> Value {
+        // Allocate buffer with trailing null terminator
+        let bytes = literal.as_bytes();
+        let total_size = bytes.len() + 1; // +1 for '\0'
+        let array_type = IRType::Array {
+            element_type: Box::new(IRType::Int),
+            size: total_size,
+        };
+
+        let buffer_ptr = self.builder.build_alloca(ir_func, array_type);
+
+        // Populate buffer with literal contents
+        for (idx, byte) in bytes.iter().enumerate() {
+            let index = self.builder.build_const_int(ir_func, idx as i64);
+            let slot_ptr = self
+                .builder
+                .build_getelementptr(ir_func, buffer_ptr, index, IRType::Int);
+            let value = self.builder.build_const_int(ir_func, *byte as i64);
+            self.builder.build_store(ir_func, slot_ptr, value);
+        }
+
+        // Null terminator at the end
+        let terminator_index = self
+            .builder
+            .build_const_int(ir_func, bytes.len() as i64);
+        let terminator_ptr = self
+            .builder
+            .build_getelementptr(ir_func, buffer_ptr, terminator_index, IRType::Int);
+        let zero = self.builder.build_const_int(ir_func, 0);
+        self.builder.build_store(ir_func, terminator_ptr, zero);
+
+        buffer_ptr
     }
 
     fn lower_pattern_check(
