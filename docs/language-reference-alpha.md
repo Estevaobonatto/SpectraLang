@@ -40,6 +40,7 @@ This document captures the currently implemented SpectraLang surface that define
   - Structs: `StructName { field: value, ... }`.
   - Enums: `EnumName::Variant` with optional tuple payload.
 - Generic type parameters are accepted in function, struct, enum, and trait signatures, but semantic resolution of generic arguments is limited.
+- Implicit conversions are restricted to numeric widening (`int` → `float`) in expressions and assignments; all other implicit coercions produce diagnostics requiring explicit handling.
 - `Self` denotes the implementing type inside trait/impl contexts.
 
 ## Declarations
@@ -123,6 +124,8 @@ enum Option<T> {
 - Basic type checking exists for arithmetic, logical, and assignment expressions; unsupported combinations produce semantic errors.
 - Trait implementations are validated to ensure signatures match the trait definition and that all required methods are present.
 - Method calls resolve against inherent impls, trait defaults, and now enforce trait bounds before allowing generic receivers to dispatch methods.
+- Numeric analysis performs limited promotion, permitting integers to flow into floating-point positions while rejecting narrowing or cross-domain conversions with targeted diagnostics.
+- Public structs, enums, and functions are rejected at compile time if their exposed fields, payloads, or signatures reference private user-defined types.
 - Generic argument inference is limited; many cases remain `Unknown` and will be refined post-alpha.
 
 ## Deferred / Unsupported Features
@@ -146,7 +149,7 @@ These keywords or constructs are tokenised but not yet parsed or semantically va
 
 ## Known Limitations for Alpha
 - String escape sequences, character literals, and byte literals are not yet supported.
-- There is no visibility checking beyond `pub` markers.
+- Visibility enforcement currently focuses on API boundaries: public functions, structs, and enums cannot expose private user-defined types, but cross-module lookup remains limited.
 - Trait bounds are enforced for generic method calls, but broader generic inference still defaults to `Unknown` in unsupported scenarios.
 - The standard library is not yet defined; examples rely on user-defined constructs.
 - Error recovery in the parser is basic; multiple syntax errors may cascade.

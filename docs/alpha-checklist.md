@@ -11,7 +11,7 @@
 - [x] Implement generic type parameter resolution and substitution in the semantic analyzer _(generic scopes now tracked in `SemanticAnalyzer` and type parameters resolve to `Type::TypeParameter`)_
 - [x] Enforce trait bounds and method resolution for generic/parametric types _(trait-bound lookup now validates method receivers and arguments for type parameters and concrete types)_
 - [x] Complete exhaustiveness checks for enums, tuples, and pattern combinations _(semantic analyzer now reasons about enum payload guards, tuple-of-bool combinations, and requires catch-alls when coverage cannot be proven)_
-- [ ] Specify and validate coercion, conversion, and visibility rules
+- [x] Specify and validate coercion, conversion, and visibility rules _(numeric expressions support int→float promotion with diagnostics for invalid conversions, and public APIs now fail compilation if they expose private user-defined types in signatures)_
 - [ ] Add type inference coverage tests for complex expressions and method calls
 
 ## Frontend Robustness

@@ -1,7 +1,7 @@
 use crate::{
     ast::{
         Block, Expression, ExpressionKind, Function, Item, Module, Pattern, Statement,
-        StatementKind, Type,
+        StatementKind, Type, Visibility,
     },
     error::SemanticError,
     span::Span,
@@ -103,6 +103,7 @@ struct StructFieldInfo {
 
 #[derive(Debug, Clone)]
 struct StructInfo {
+    visibility: Visibility,
     type_params: Vec<String>,
     fields: HashMap<String, StructFieldInfo>,
 }
@@ -116,6 +117,7 @@ struct EnumVariantInfo {
 
 #[derive(Debug, Clone)]
 struct EnumInfo {
+    visibility: Visibility,
     type_params: Vec<String>,
     variants: HashMap<String, EnumVariantInfo>,
 }
@@ -327,16 +329,19 @@ impl SemanticAnalyzer {
             let expected_index = i + arg_offset;
             if let Some(expected_type) = signature.params.get(expected_index) {
                 if !self.types_match(&arg_type, expected_type) {
-                    self.error(
-                        format!(
-                            "Method '{}' argument {} has type {:?}, but {:?} was expected",
-                            method_name,
-                            i + 1,
-                            arg_type,
-                            expected_type
-                        ),
-                        arg.span,
+                    let mut message = format!(
+                        "Method '{}' argument {} has type {:?}, but {:?} was expected",
+                        method_name,
+                        i + 1,
+                        arg_type,
+                        expected_type
                     );
+                    if let Some(hint) = self.conversion_hint(&arg_type, expected_type) {
+                        message.push_str(" ");
+                        message.push_str(&hint);
+                    }
+
+                    self.error(message, arg.span);
                 }
             }
         }
@@ -458,7 +463,179 @@ impl SemanticAnalyzer {
         None
     }
 
+    fn is_builtin_type(name: &str) -> bool {
+        matches!(name, "int" | "float" | "bool" | "string" | "char" | "Self")
+    }
+
+    fn can_auto_promote(&self, from: &Type, to: &Type) -> bool {
+        matches!((from, to), (Type::Int, Type::Float))
+    }
+
+    fn is_numeric_type(ty: &Type) -> bool {
+        matches!(ty, Type::Int | Type::Float)
+    }
+
+    fn numeric_types_can_interact(&self, left: &Type, right: &Type) -> bool {
+        matches!(left, Type::Unknown)
+            || matches!(right, Type::Unknown)
+            || (Self::is_numeric_type(left) && Self::is_numeric_type(right))
+    }
+
+    fn numeric_result_type(&self, left: &Type, right: &Type) -> Type {
+        if matches!(left, Type::Unknown) || matches!(right, Type::Unknown) {
+            return Type::Unknown;
+        }
+
+        if matches!(left, Type::Float) || matches!(right, Type::Float) {
+            Type::Float
+        } else if matches!(left, Type::Int) && matches!(right, Type::Int) {
+            Type::Int
+        } else {
+            Type::Unknown
+        }
+    }
+
+    fn lookup_type_visibility(&self, name: &str) -> Option<Visibility> {
+        if let Some(info) = self.struct_infos.get(name) {
+            return Some(info.visibility);
+        }
+        if let Some(info) = self.enum_infos.get(name) {
+            return Some(info.visibility);
+        }
+        None
+    }
+
+    fn validate_public_type_annotation(
+        &mut self,
+        annotation: &crate::ast::TypeAnnotation,
+        generics: &HashSet<String>,
+        context: &str,
+        span: Span,
+    ) {
+        use crate::ast::TypeAnnotationKind;
+
+        match &annotation.kind {
+            TypeAnnotationKind::Simple { segments } => {
+                if let Some(name) = segments.last() {
+                    if generics.contains(name) || Self::is_builtin_type(name) {
+                        return;
+                    }
+
+                    if let Some(visibility) = self.lookup_type_visibility(name) {
+                        if visibility == Visibility::Private {
+                            self.error(
+                                format!(
+                                    "{} references private type '{}'; mark the referenced type as public or keep this item private",
+                                    context, name
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
+            TypeAnnotationKind::Tuple { elements } => {
+                for element in elements {
+                    self.validate_public_type_annotation(element, generics, context, span);
+                }
+            }
+        }
+    }
+
+    fn enforce_visibility_rules(&mut self, item: &Item) {
+        match item {
+            Item::Struct(struct_def) if struct_def.visibility == Visibility::Public => {
+                let generics: HashSet<String> = struct_def
+                    .type_params
+                    .iter()
+                    .map(|tp| tp.name.clone())
+                    .collect();
+
+                for field in &struct_def.fields {
+                    self.validate_public_type_annotation(
+                        &field.ty,
+                        &generics,
+                        &format!("Public struct '{}' field '{}'", struct_def.name, field.name),
+                        field.span,
+                    );
+                }
+            }
+            Item::Enum(enum_def) if enum_def.visibility == Visibility::Public => {
+                let generics: HashSet<String> = enum_def
+                    .type_params
+                    .iter()
+                    .map(|tp| tp.name.clone())
+                    .collect();
+
+                for variant in &enum_def.variants {
+                    if let Some(data) = &variant.data {
+                        for (index, annotation) in data.iter().enumerate() {
+                            self.validate_public_type_annotation(
+                                annotation,
+                                &generics,
+                                &format!(
+                                    "Public enum '{}' variant '{}' field {}",
+                                    enum_def.name,
+                                    variant.name,
+                                    index + 1
+                                ),
+                                variant.span,
+                            );
+                        }
+                    }
+                }
+            }
+            Item::Function(func) if func.visibility == Visibility::Public => {
+                let generics: HashSet<String> =
+                    func.type_params.iter().map(|tp| tp.name.clone()).collect();
+
+                for param in &func.params {
+                    if let Some(annotation) = &param.ty {
+                        self.validate_public_type_annotation(
+                            annotation,
+                            &generics,
+                            &format!("Public function '{}' parameter '{}'", func.name, param.name),
+                            param.span,
+                        );
+                    }
+                }
+
+                if let Some(ret) = &func.return_type {
+                    self.validate_public_type_annotation(
+                        ret,
+                        &generics,
+                        &format!("Public function '{}' return type", func.name),
+                        func.span,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn conversion_hint(&self, actual: &Type, expected: &Type) -> Option<String> {
+        match (actual, expected) {
+            (Type::Float, Type::Int) => Some(
+                "Implicit narrowing from float to int is not allowed; use an explicit conversion.".to_string(),
+            ),
+            (Type::String, Type::Int | Type::Float | Type::Bool) => Some(
+                "Strings cannot be implicitly converted; parse or convert explicitly.".to_string(),
+            ),
+            (Type::Bool, Type::Int | Type::Float) => Some(
+                "Booleans do not implicitly convert to numbers; use a conditional or explicit conversion.".to_string(),
+            ),
+            (Type::Int, Type::Bool) => Some(
+                "Integers do not implicitly convert to booleans; compare against zero or use an explicit helper.".to_string(),
+            ),
+            _ => None,
+        }
+    }
+
     fn types_match(&self, actual: &Type, expected: &Type) -> bool {
+        if self.can_auto_promote(actual, expected) {
+            return true;
+        }
+
         match (actual, expected) {
             // Tipos idênticos
             (Type::Int, Type::Int) => true,
@@ -619,6 +796,7 @@ impl SemanticAnalyzer {
                     }
 
                     let struct_info = StructInfo {
+                        visibility: struct_def.visibility,
                         type_params: struct_def
                             .type_params
                             .iter()
@@ -683,6 +861,7 @@ impl SemanticAnalyzer {
                     }
 
                     let enum_info = EnumInfo {
+                        visibility: enum_def.visibility,
                         type_params: variant_type_params.clone(),
                         variants: variants_map,
                     };
@@ -713,6 +892,10 @@ impl SemanticAnalyzer {
                 }
                 _ => {}
             }
+        }
+
+        for item in &module.items {
+            self.enforce_visibility_rules(item);
         }
 
         // Second pass: analyze function bodies
@@ -1385,13 +1568,16 @@ impl SemanticAnalyzer {
                 let value_type = self.infer_expression_type(&assign_stmt.value);
 
                 if !self.types_match(&value_type, &target_type) {
-                    self.error(
-                        format!(
-                            "Cannot assign value of type {:?} to target of type {:?}",
-                            value_type, target_type
-                        ),
-                        assign_stmt.value.span,
+                    let mut message = format!(
+                        "Cannot assign value of type {:?} to target of type {:?}",
+                        value_type, target_type
                     );
+                    if let Some(hint) = self.conversion_hint(&value_type, &target_type) {
+                        message.push_str(" ");
+                        message.push_str(&hint);
+                    }
+
+                    self.error(message, assign_stmt.value.span);
                 }
             }
             StatementKind::Return(ret_stmt) => {
@@ -1528,13 +1714,13 @@ impl SemanticAnalyzer {
                         if matches!(left_type, Type::String) || matches!(right_type, Type::String) {
                             Type::String
                         } else {
-                            left_type
+                            self.numeric_result_type(&left_type, &right_type)
                         }
                     }
                     BinaryOperator::Subtract
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
-                    | BinaryOperator::Modulo => left_type,
+                    | BinaryOperator::Modulo => self.numeric_result_type(&left_type, &right_type),
                     BinaryOperator::Equal
                     | BinaryOperator::NotEqual
                     | BinaryOperator::Less
@@ -1808,11 +1994,7 @@ impl SemanticAnalyzer {
                                 right.span,
                             );
                         }
-                        // Check if types match
-                        if left_type != Type::Unknown
-                            && right_type != Type::Unknown
-                            && left_type != right_type
-                        {
+                        if !self.numeric_types_can_interact(&left_type, &right_type) {
                             self.error(
                                 format!(
                                     "Type mismatch in arithmetic operation: {:?} and {:?}",
@@ -1827,6 +2009,7 @@ impl SemanticAnalyzer {
                         if left_type != Type::Unknown
                             && right_type != Type::Unknown
                             && left_type != right_type
+                            && !self.numeric_types_can_interact(&left_type, &right_type)
                         {
                             self.error(
                                 format!(
@@ -2155,13 +2338,16 @@ impl SemanticAnalyzer {
                             self.type_annotation_to_type(&Some(expected_field.ty.clone()));
 
                         if !self.types_match(&value_type, &expected_type) {
-                            self.error(
-                                format!(
-                                    "Field '{}' in struct '{}' has type {:?}, but {:?} was expected",
-                                    field_name, name, value_type, expected_type
-                                ),
-                                field_value.span,
+                            let mut message = format!(
+                                "Field '{}' in struct '{}' has type {:?}, but {:?} was expected",
+                                field_name, name, value_type, expected_type
                             );
+                            if let Some(hint) = self.conversion_hint(&value_type, &expected_type) {
+                                message.push_str(" ");
+                                message.push_str(&hint);
+                            }
+
+                            self.error(message, field_value.span);
                         }
                     } else {
                         self.error(
@@ -2830,13 +3016,16 @@ impl SemanticAnalyzer {
                 }
 
                 if !self.types_match(&actual, &expected) {
-                    self.error(
-                        format!(
-                            "Return type mismatch: expected {:?}, found {:?}",
-                            expected, actual
-                        ),
-                        expr.span,
+                    let mut message = format!(
+                        "Return type mismatch: expected {:?}, found {:?}",
+                        expected, actual
                     );
+                    if let Some(hint) = self.conversion_hint(&actual, &expected) {
+                        message.push_str(" ");
+                        message.push_str(&hint);
+                    }
+
+                    self.error(message, expr.span);
                 }
             }
             None => {
