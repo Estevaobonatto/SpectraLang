@@ -486,11 +486,21 @@ impl SemanticAnalyzer {
             Item::Trait(trait_decl) => {
                 self.analyze_trait_declaration(trait_decl);
             }
-            Item::TraitImpl(_trait_impl) => {
-                // TraitImpl não é mais usado - impl Trait for Type
-                // é parseado como ImplBlock regular
+            Item::TraitImpl(trait_impl) => {
+                self.analyze_trait_impl(trait_impl);
             }
         }
+    }
+
+    fn analyze_trait_impl(&mut self, trait_impl: &crate::ast::TraitImpl) {
+        let derived_impl = crate::ast::ImplBlock {
+            type_name: trait_impl.type_name.clone(),
+            trait_name: Some(trait_impl.trait_name.clone()),
+            methods: trait_impl.methods.clone(),
+            span: trait_impl.span,
+        };
+
+        self.analyze_impl_block(&derived_impl);
     }
 
     fn analyze_impl_block(&mut self, impl_block: &crate::ast::ImplBlock) {
@@ -2391,6 +2401,11 @@ impl SemanticAnalyzer {
                     self.fill_method_call_types_in_block(&mut method.body);
                 }
             }
+            Item::TraitImpl(trait_impl) => {
+                for method in &mut trait_impl.methods {
+                    self.fill_method_call_types_in_block(&mut method.body);
+                }
+            }
             _ => {}
         }
     }
@@ -2505,6 +2520,16 @@ impl SemanticAnalyzer {
         match item {
             Item::Function(func) => {
                 self.infer_generic_types_in_block(&mut func.body);
+            }
+            Item::Impl(impl_block) => {
+                for method in &mut impl_block.methods {
+                    self.infer_generic_types_in_block(&mut method.body);
+                }
+            }
+            Item::TraitImpl(trait_impl) => {
+                for method in &mut trait_impl.methods {
+                    self.infer_generic_types_in_block(&mut method.body);
+                }
             }
             _ => {}
         }

@@ -10,11 +10,13 @@ use crate::{
     span::Span,
     token::{Keyword, Token, TokenKind},
 };
+use std::collections::HashMap;
 
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     errors: Vec<ParseError>,
+    trait_signatures: HashMap<String, Vec<String>>,
 }
 
 impl Parser {
@@ -23,6 +25,7 @@ impl Parser {
             tokens,
             position: 0,
             errors: Vec::new(),
+            trait_signatures: HashMap::new(),
         }
     }
 

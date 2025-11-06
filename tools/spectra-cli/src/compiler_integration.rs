@@ -76,6 +76,25 @@ impl BackendDriver for FullPipelineBackend {
             applied_passes,
         })
     }
+
+    fn execute(
+        &mut self,
+        artifacts: &Self::Artifacts,
+        _options: &CompilationOptions,
+    ) -> Result<(), Vec<CompilerError>> {
+        if artifacts
+            .ir_module
+            .functions
+            .iter()
+            .any(|func| func.name == "main")
+        {
+            println!("\n🎯 Execution preview (JIT pending)\n   - Found entry point 'main'\n   - IR-based execution is not yet available");
+        } else {
+            println!("\n⚠️ No entry point 'main' found; skipping execution preview");
+        }
+
+        Ok(())
+    }
 }
 
 /// Complete compiler that integrates all phases
@@ -124,10 +143,44 @@ impl SpectraCompiler {
     /// Compile and execute (JIT)
     #[allow(dead_code)]
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), String> {
-        self.compile(source, "<jit>")?;
+        println!("🚀 SpectraLang Compiler");
+        println!("━━━━━━━━━━━━━━━━━━━━");
+        println!();
 
-        // TODO: Execute the compiled code via JIT
-        println!("\n🎯 Execution (TODO: JIT execution not yet implemented)");
+        let pipeline = CompilationPipeline::new(self.options.clone());
+        let mut pipeline = pipeline.with_backend(FullPipelineBackend::new());
+        let compilation = pipeline.compile(source, "<jit>").map_err(|errors| {
+            let mut error_msg = String::from("Compilation errors:\n");
+            for error in errors {
+                error_msg.push_str(&format!("  • {}\n", error));
+            }
+            error_msg
+        })?;
+
+        let artifacts = &compilation.backend_artifacts;
+
+        if self.options.optimize && !artifacts.applied_passes.is_empty() {
+            println!(
+                "Optimization passes applied: {}",
+                artifacts.applied_passes.join(", ")
+            );
+        }
+
+        println!(
+            "IR functions emitted: {}",
+            artifacts.ir_module.functions.len()
+        );
+
+        pipeline.execute_artifacts(artifacts).map_err(|errors| {
+            let mut error_msg = String::from("Execution errors:\n");
+            for error in errors {
+                error_msg.push_str(&format!("  • {}\n", error));
+            }
+            error_msg
+        })?;
+
+        println!("✨ Compilation successful!");
+        println!("━━━━━━━━━━━━━━━━━━━━");
 
         Ok(())
     }

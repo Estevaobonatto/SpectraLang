@@ -1,11 +1,12 @@
 use crate::{
     ast::{
         Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, TraitDeclaration,
-        TraitMethod, TypeParameter, Visibility,
+        TraitImpl, TraitMethod, TypeParameter, Visibility,
     },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
 };
+use std::collections::HashSet;
 
 use super::Parser;
 
@@ -29,10 +30,7 @@ impl Parser {
             crate::token::TokenKind::Keyword(Keyword::Enum) => {
                 self.parse_item_with_visibility(Visibility::Private)
             }
-            crate::token::TokenKind::Keyword(Keyword::Impl) => {
-                let impl_block = self.parse_impl_block()?;
-                Ok(Item::Impl(impl_block))
-            }
+            crate::token::TokenKind::Keyword(Keyword::Impl) => self.parse_impl_block(),
             crate::token::TokenKind::Keyword(Keyword::Trait) => {
                 let trait_decl = self.parse_trait_declaration()?;
                 Ok(Item::Trait(trait_decl))
@@ -58,10 +56,7 @@ impl Parser {
                 let enum_item = self.parse_enum(visibility)?;
                 Ok(Item::Enum(enum_item))
             }
-            crate::token::TokenKind::Keyword(Keyword::Impl) => {
-                let impl_block = self.parse_impl_block()?;
-                Ok(Item::Impl(impl_block))
-            }
+            crate::token::TokenKind::Keyword(Keyword::Impl) => self.parse_impl_block(),
             _ => {
                 self.error("Expected function, struct, enum, or impl declaration");
                 Err(())
@@ -297,7 +292,7 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_impl_block(&mut self) -> Result<ImplBlock, ()> {
+    pub(super) fn parse_impl_block(&mut self) -> Result<Item, ()> {
         // Expect: impl TypeName { methods... } ou impl TraitName for TypeName { methods... }
         let start_span = self.consume_keyword(Keyword::Impl, "Expected 'impl' keyword")?;
 
@@ -309,7 +304,8 @@ impl Parser {
             // É um trait impl: impl TraitName for TypeName
             self.advance(); // consume 'for'
             let (type_name, _) = self.consume_identifier("Expected type name after 'for'")?;
-            return self.parse_trait_impl_block(start_span, first_name, type_name);
+            let trait_impl = self.parse_trait_impl_block(start_span, first_name, type_name)?;
+            return Ok(Item::TraitImpl(trait_impl));
         }
 
         // É um impl regular: impl TypeName
@@ -428,12 +424,12 @@ impl Parser {
 
         let end_span = self.consume_symbol('}', "Expected '}' to end impl block")?;
 
-        Ok(ImplBlock {
+        Ok(Item::Impl(ImplBlock {
             type_name,
             trait_name: None, // impl regular
             methods,
             span: span_union(start_span, end_span),
-        })
+        }))
     }
 
     /// Parse trait declaration: trait Name: Parent1, Parent2 { fn method(&self) -> Type; }
@@ -581,26 +577,49 @@ impl Parser {
 
         let end_span = self.consume_symbol('}', "Expected '}' to end trait declaration")?;
 
-        Ok(TraitDeclaration {
+        let trait_decl = TraitDeclaration {
             name,
             parent_traits,
             methods,
             span: span_union(start_span, end_span),
-        })
+        };
+
+        self.trait_signatures.insert(
+            trait_decl.name.clone(),
+            trait_decl
+                .methods
+                .iter()
+                .map(|method| method.name.clone())
+                .collect(),
+        );
+
+        Ok(trait_decl)
     }
 
     /// Parse trait implementation: impl TraitName for TypeName { methods... }
     fn parse_trait_impl_block(
         &mut self,
         start_span: Span,
-        _trait_name: String,
+        trait_name: String,
         type_name: String,
-    ) -> Result<ImplBlock, ()> {
-        // Nota: Por enquanto, vamos retornar um ImplBlock regular
-        // TODO: Criar Item::TraitImpl separado e validar que métodos correspondem ao trait
-
+    ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
+        let trait_methods_lookup = self
+            .trait_signatures
+            .get(&trait_name)
+            .cloned()
+            .map(|methods| methods.into_iter().collect::<HashSet<_>>());
+
+        if trait_methods_lookup.is_none() {
+            let message = format!(
+                "Trait '{}' must be declared before its implementation",
+                trait_name
+            );
+            self.error_at(&message, start_span);
+        }
+
+        let mut implemented_methods: HashSet<String> = HashSet::new();
         let mut methods = Vec::new();
 
         while !self.check_symbol('}') && !self.is_at_end() {
@@ -693,6 +712,8 @@ impl Parser {
             let body = self.parse_block()?;
             let body_end_span = body.span;
 
+            let method_name_for_checks = method_name.clone();
+
             methods.push(Method {
                 name: method_name,
                 params,
@@ -700,14 +721,31 @@ impl Parser {
                 body,
                 span: span_union(method_name_span, body_end_span),
             });
+
+            if let Some(ref trait_methods) = trait_methods_lookup {
+                if !trait_methods.contains(&method_name_for_checks) {
+                    let message = format!(
+                        "Method '{}' is not declared in trait '{}'",
+                        method_name_for_checks, trait_name
+                    );
+                    self.error_at(&message, method_name_span);
+                }
+            }
+
+            if !implemented_methods.insert(method_name_for_checks.clone()) {
+                let message = format!(
+                    "Method '{}' is implemented more than once in trait impl for '{}'",
+                    method_name_for_checks, trait_name
+                );
+                self.error_at(&message, method_name_span);
+            }
         }
 
         let end_span = self.consume_symbol('}', "Expected '}' to end trait impl block")?;
 
-        // Retorna ImplBlock com trait_name preenchido
-        Ok(ImplBlock {
+        Ok(TraitImpl {
+            trait_name,
             type_name,
-            trait_name: Some(_trait_name), // impl Trait for Type
             methods,
             span: span_union(start_span, end_span),
         })

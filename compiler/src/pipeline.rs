@@ -41,6 +41,14 @@ pub trait BackendDriver {
         ast: &ASTModule,
         options: &CompilationOptions,
     ) -> Result<Self::Artifacts, Vec<CompilerError>>;
+
+    fn execute(
+        &mut self,
+        _artifacts: &Self::Artifacts,
+        _options: &CompilationOptions,
+    ) -> Result<(), Vec<CompilerError>> {
+        Ok(())
+    }
 }
 
 /// Default backend that performs no additional work.
@@ -154,14 +162,17 @@ where
         })
     }
 
+    pub fn execute_artifacts(
+        &mut self,
+        artifacts: &B::Artifacts,
+    ) -> Result<(), Vec<CompilerError>> {
+        self.backend.execute(artifacts, &self.options)
+    }
+
     /// Compile and execute (for REPL)
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), Vec<CompilerError>> {
-        let _result = self.compile(source, "<repl>")?;
-
-        // TODO: Execute compiled code
-        println!("Compilation successful! (Execution not yet implemented)");
-
-        Ok(())
+        let compilation = self.compile(source, "<repl>")?;
+        self.execute_artifacts(&compilation.backend_artifacts)
     }
 }
 
