@@ -1,0 +1,47 @@
+// Teste: Inferência de tipos em expressões complexas
+module test_type_inference_complex;
+
+struct Pair {
+    left: int,
+    right: int,
+}
+
+fn energy(x: int, y: int) -> int {
+    let squared = x * x + y * y;
+    return squared;
+}
+
+fn blend(a: int, b: int, weight: int) -> int {
+    let scaled_a = a * weight;
+    let adjusted_b = b - weight;
+    return scaled_a + adjusted_b;
+}
+
+fn project(values: (int, int, int)) -> int {
+    let combined = values.0 + values.1;
+    return combined - values.2;
+}
+
+pub fn main() {
+    let base = Pair { left: 3, right: 4 };
+    let target = Pair { left: 6, right: 8 };
+
+    let base_energy = energy(base.left, base.right);
+    let target_energy = energy(target.left, target.right);
+    let diff = target_energy - base_energy;
+
+    let blend_result = blend(base.left + target.left, base.right + target.right, 2);
+
+    let summary = (diff, blend_result, base_energy);
+    let projection = project(summary);
+
+    let combined = projection + blend_result * diff;
+    let ratio = combined / (base.left + 1);
+    let remainder = combined % (target.right - 3);
+
+    let is_positive = combined > 0;
+    let thresholds_match = ratio == remainder;
+    let check = is_positive && !thresholds_match;
+
+    return;
+}

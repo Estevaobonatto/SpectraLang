@@ -1,0 +1,46 @@
+// Teste: Cobertura de erros envolvendo inferência de tipos e métodos genéricos
+module test_type_inference_errors;
+
+trait Summarize {
+    fn summary(&self) -> float;
+}
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+impl Summarize for Point {
+    fn summary(&self) -> float {
+        let sum = self.x * self.x + self.y * self.y;
+        let magnitude = sum + 0.0;
+        return magnitude;
+    }
+}
+
+struct Wrapper {
+    inner: float,
+}
+
+pub fn require_summary<T>(value: T) -> float {
+    // Erro: método "summary" não está disponível sem bound explícito
+    return value.summary();
+}
+
+pub fn bad_assignment() {
+    let total: int = 0;
+    let ratio = 2.5;
+
+    // Erro: tentativa de atribuir float para int
+    total = ratio;
+}
+
+pub fn method_argument_mismatch() {
+    let start = Point { x: 3, y: 4 };
+    let finish = Point { x: 5, y: 12 };
+    let weight = Wrapper { inner: 0.5 };
+
+    // Erro: método summary espera float, mas recebe Wrapper
+    let result = finish.summary(weight);
+    return;
+}

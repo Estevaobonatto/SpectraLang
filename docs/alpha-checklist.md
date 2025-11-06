@@ -12,7 +12,7 @@
 - [x] Enforce trait bounds and method resolution for generic/parametric types _(trait-bound lookup now validates method receivers and arguments for type parameters and concrete types)_
 - [x] Complete exhaustiveness checks for enums, tuples, and pattern combinations _(semantic analyzer now reasons about enum payload guards, tuple-of-bool combinations, and requires catch-alls when coverage cannot be proven)_
 - [x] Specify and validate coercion, conversion, and visibility rules _(numeric expressions support int→float promotion with diagnostics for invalid conversions, and public APIs now fail compilation if they expose private user-defined types in signatures)_
-- [ ] Add type inference coverage tests for complex expressions and method calls
+- [x] Add type inference coverage tests for complex expressions and method calls _(new semantic fixtures cover numeric promotion, trait-bound dispatch, and diagnostic failures in `tests/semantic/type_inference_complex_expressions.spectra` and `tests/semantic/type_inference_method_errors.spectra`)_
 
 ## Frontend Robustness
 - [ ] Audit lexer and parser feature coverage versus the planned syntax (traits with inheritance, impl blocks, pattern ergonomics)
