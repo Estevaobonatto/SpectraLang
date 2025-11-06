@@ -1,7 +1,7 @@
 module test;
 
-enum Option {
-    Some(int),
+enum Option<T> {
+    Some(T),
     None
 }
 
@@ -21,6 +21,15 @@ fn test_multiple_values() -> int {
     }
 }
 
+fn test_string_destructuring() -> string {
+    let msg = Option::Some("hello");
+    match msg {
+        Option::Some(text) => text,
+        Option::None => "fallback"
+    }
+}
+
 fn main() -> int {
+    let _greeting = test_string_destructuring();
     test_destructuring()
 }

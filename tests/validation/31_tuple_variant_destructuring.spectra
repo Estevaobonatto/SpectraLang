@@ -3,14 +3,14 @@
 
 module test;
 
-enum Option {
-    Some(int),
+enum Option<T> {
+    Some(T),
     None
 }
 
-enum Result {
-    Ok(int),
-    Err(int)
+enum Result<T> {
+    Ok(T),
+    Err(T)
 }
 
 // Test básico: extrair valor simples
@@ -33,17 +33,26 @@ fn test_expression() -> int {
 
 // Test: pattern matching aninhado
 fn test_result() -> int {
-    let res = Result::Ok(100);
-    match res {
+    let res_ok = Result::Ok(100);
+    let res_err = Result::Err(-5);
+
+    let ok_value = match res_ok {
         Result::Ok(value) => value + 1,
         Result::Err(code) => code * -1
-    }
+    };
+
+    let err_value = match res_err {
+        Result::Ok(value) => value,
+        Result::Err(code) => code * -1
+    };
+
+    ok_value + err_value
 }
 
 fn main() -> int {
     let a = test_simple();    // 42
     let b = test_expression(); // 20
-    let c = test_result();    // 101
-    
-    a + b + c  // 163
+    let c = test_result();    // 106
+
+    a + b + c  // 168
 }

@@ -17,30 +17,45 @@ fn test_unit_enum() -> int {
 }
 
 // Enum com dados (tuple variants)
-enum Option {
-    Some(int),
+enum Option<T> {
+    Some(T),
     None
 }
 
 fn test_tuple_enum() -> int {
     let some_val = Option::Some(100);
     let none_val = Option::None;
-    // Retornar valor fixo
-    100
+    let extracted = match some_val {
+        Option::Some(value) => value,
+        Option::None => 0,
+    };
+    let fallback = match none_val {
+        Option::Some(value) => value,
+        Option::None => 5,
+    };
+    extracted + fallback
 }
 
 // Enum mais complexo
-enum Result {
-    Ok(int),
-    Err(int)
+enum Result<T> {
+    Ok(T),
+    Err(T)
 }
 
 fn test_result_enum() -> int {
     let ok = Result::Ok(42);
     let err = Result::Err(1);
-    42
+    let ok_value = match ok {
+        Result::Ok(value) => value,
+        Result::Err(code) => code,
+    };
+    let err_value = match err {
+        Result::Ok(value) => value,
+        Result::Err(code) => code * -1,
+    };
+    ok_value + err_value
 }
 
 fn main() -> int {
-    test_unit_enum() + test_tuple_enum()
+    test_unit_enum() + test_tuple_enum() + test_result_enum()
 }

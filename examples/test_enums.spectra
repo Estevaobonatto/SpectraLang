@@ -8,14 +8,14 @@ enum Color {
 }
 
 // Enum com valores associados
-enum Option {
-    Some(int),
+enum Option<T> {
+    Some(T),
     None
 }
 
-enum Result {
-    Ok(int),
-    Err(int)
+enum Result<T> {
+    Ok(T),
+    Err(T)
 }
 
 fn test_simple_enum() -> int {
@@ -26,10 +26,29 @@ fn test_simple_enum() -> int {
 
 fn test_option_enum() -> int {
     let opt = Option::Some(10);
-    // Por enquanto, apenas retornar valor fixo
-    10
+    match opt {
+        Option::Some(value) => value,
+        Option::None => 0
+    }
+}
+
+fn test_result_enum() -> int {
+    let ok = Result::Ok(21);
+    let err = Result::Err(-4);
+
+    let ok_value = match ok {
+        Result::Ok(value) => value,
+        Result::Err(code) => code,
+    };
+
+    let err_value = match err {
+        Result::Ok(value) => value,
+        Result::Err(code) => code * -1,
+    };
+
+    ok_value + err_value
 }
 
 fn main() -> int {
-    test_simple_enum()
+    test_simple_enum() + test_option_enum() + test_result_enum()
 }

@@ -6,7 +6,7 @@ use crate::{
     error::SemanticError,
     span::Span,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
@@ -768,13 +768,12 @@ impl SemanticAnalyzer {
                         );
                     }
 
-                    let trait_params = if trait_has_self
-                        && trait_method_info.signature.params.len() >= 1
-                    {
-                        &trait_method_info.signature.params[1..]
-                    } else {
-                        &trait_method_info.signature.params[..]
-                    };
+                    let trait_params =
+                        if trait_has_self && trait_method_info.signature.params.len() >= 1 {
+                            &trait_method_info.signature.params[1..]
+                        } else {
+                            &trait_method_info.signature.params[..]
+                        };
 
                     let impl_params = if impl_has_self && impl_signature.params.len() >= 1 {
                         &impl_signature.params[1..]
@@ -1143,7 +1142,6 @@ impl SemanticAnalyzer {
                 use crate::ast::BinaryOperator;
                 match operator {
                     BinaryOperator::Add => {
-                        // If either operand is string, result is string (concatenation)
                         if matches!(left_type, Type::String) || matches!(right_type, Type::String) {
                             Type::String
                         } else {
@@ -1164,14 +1162,8 @@ impl SemanticAnalyzer {
                     | BinaryOperator::Or => Type::Bool,
                 }
             }
-            ExpressionKind::Unary {
-                operator: _,
-                operand,
-            } => self.infer_expression_type(operand),
-            ExpressionKind::Call {
-                callee,
-                arguments: _,
-            } => {
+            ExpressionKind::Unary { operand, .. } => self.infer_expression_type(operand),
+            ExpressionKind::Call { callee, .. } => {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(sig) = self.functions.get(name) {
                         return sig.return_type.clone();
@@ -1224,13 +1216,11 @@ impl SemanticAnalyzer {
             ExpressionKind::Grouping(inner) => self.infer_expression_type(inner),
             ExpressionKind::ArrayLiteral { elements } => {
                 if elements.is_empty() {
-                    // Array vazio, tipo desconhecido
                     Type::Array {
                         element_type: Box::new(Type::Unknown),
                         size: Some(0),
                     }
                 } else {
-                    // Inferir tipo do primeiro elemento
                     let elem_type = self.infer_expression_type(&elements[0]);
                     Type::Array {
                         element_type: Box::new(elem_type),
@@ -1238,7 +1228,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            ExpressionKind::IndexAccess { array, index: _ } => {
+            ExpressionKind::IndexAccess { array, .. } => {
                 let array_type = self.infer_expression_type(array);
                 match array_type {
                     Type::Array { element_type, .. } => *element_type,
@@ -1247,10 +1237,8 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::TupleLiteral { elements } => {
                 if elements.is_empty() {
-                    // Empty tuple - unit type
                     Type::Tuple { elements: vec![] }
                 } else {
-                    // Infer type of each element
                     let element_types: Vec<Type> = elements
                         .iter()
                         .map(|e| self.infer_expression_type(e))
@@ -1280,10 +1268,7 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
-            ExpressionKind::FieldAccess {
-                object,
-                field,
-            } => {
+            ExpressionKind::FieldAccess { object, field } => {
                 let object_type = self.infer_expression_type(object);
                 match object_type {
                     Type::Struct { name } => {
@@ -1315,8 +1300,10 @@ impl SemanticAnalyzer {
                     return Type::Unknown;
                 }
 
-                let arm_types: Vec<Type> =
-                    arms.iter().map(|arm| self.infer_expression_type(&arm.body)).collect();
+                let arm_types: Vec<Type> = arms
+                    .iter()
+                    .map(|arm| self.infer_expression_type(&arm.body))
+                    .collect();
 
                 if self.branch_type_mismatch(&arm_types).is_some() {
                     Type::Unknown
@@ -1328,20 +1315,15 @@ impl SemanticAnalyzer {
             ExpressionKind::MethodCall {
                 object,
                 method_name,
-                arguments: _,
-                type_name: _,
+                ..
             } => {
-                // Inferir tipo de retorno do método baseado na assinatura
                 let obj_type = self.infer_expression_type(object);
-
-                // Extrair nome do tipo
                 let type_name = match &obj_type {
                     Type::Struct { name } => Some(name.clone()),
                     Type::Enum { name, .. } => Some(name.clone()),
                     _ => None,
                 };
 
-                // Buscar assinatura do método
                 if let Some(type_name) = type_name {
                     if let Some(type_methods) = self.methods.get(&type_name) {
                         if let Some(signature) = type_methods.get(method_name) {
@@ -1734,10 +1716,7 @@ impl SemanticAnalyzer {
                 let struct_info = match self.struct_infos.get(name).cloned() {
                     Some(info) => info,
                     None => {
-                        self.error(
-                            format!("Struct '{}' is not defined", name),
-                            expr.span,
-                        );
+                        self.error(format!("Struct '{}' is not defined", name), expr.span);
                         // Still analyze field expressions to surface nested errors
                         for (_, field_value) in fields {
                             self.analyze_expression(field_value);
@@ -1803,10 +1782,7 @@ impl SemanticAnalyzer {
                         }
                     } else {
                         self.error(
-                            format!(
-                                "Struct '{}' has no field named '{}'",
-                                name, field_name
-                            ),
+                            format!("Struct '{}' has no field named '{}'", name, field_name),
                             field_value.span,
                         );
                     }
@@ -1833,18 +1809,12 @@ impl SemanticAnalyzer {
                         if let Some(struct_info) = self.struct_infos.get(&name) {
                             if !struct_info.fields.contains_key(field) {
                                 self.error(
-                                    format!(
-                                        "Struct '{}' has no field named '{}'",
-                                        name, field
-                                    ),
+                                    format!("Struct '{}' has no field named '{}'", name, field),
                                     expr.span,
                                 );
                             }
                         } else {
-                            self.error(
-                                format!("Struct '{}' is not defined", name),
-                                expr.span,
-                            );
+                            self.error(format!("Struct '{}' is not defined", name), expr.span);
                         }
                     }
                     Type::Unknown => {
@@ -1877,10 +1847,7 @@ impl SemanticAnalyzer {
                 let enum_info = match self.enum_infos.get(enum_name).cloned() {
                     Some(info) => info,
                     None => {
-                        self.error(
-                            format!("Enum '{}' is not defined", enum_name),
-                            expr.span,
-                        );
+                        self.error(format!("Enum '{}' is not defined", enum_name), expr.span);
                         return;
                     }
                 };
@@ -1938,10 +1905,8 @@ impl SemanticAnalyzer {
                             );
                         }
 
-                        for (idx, (expected_ann, arg_expr)) in expected_params
-                            .iter()
-                            .zip(actual_args.iter())
-                            .enumerate()
+                        for (idx, (expected_ann, arg_expr)) in
+                            expected_params.iter().zip(actual_args.iter()).enumerate()
                         {
                             let arg_type = self.infer_expression_type(arg_expr);
                             let expected_type =
@@ -2091,9 +2056,7 @@ impl SemanticAnalyzer {
                                                     .signature
                                                     .return_type
                                                     .clone(),
-                                                self_kind: trait_method_info
-                                                    .signature
-                                                    .self_kind,
+                                                self_kind: trait_method_info.signature.self_kind,
                                             });
                                             break;
                                         }
@@ -2132,10 +2095,7 @@ impl SemanticAnalyzer {
                         }
 
                         let arg_offset = if has_self { 1 } else { 0 };
-                        let expected_args = signature
-                            .params
-                            .len()
-                            .saturating_sub(arg_offset);
+                        let expected_args = signature.params.len().saturating_sub(arg_offset);
 
                         if arguments.len() != expected_args {
                             self.error(
@@ -2619,16 +2579,22 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::EnumVariant {
-                enum_name: _,
-                type_args: _,
-                variant_name: _,
+                enum_name,
+                type_args,
+                variant_name,
                 data,
             } => {
-                // TODO: Implement enum type inference
-                // For now, just recurse into data
                 if let Some(args) = data {
-                    for arg in args {
+                    for arg in args.iter_mut() {
                         self.infer_generic_types_in_expression(arg);
+                    }
+
+                    if type_args.is_empty() {
+                        let inferred_args =
+                            self.infer_enum_type_args(enum_name, variant_name, args.as_slice());
+                        if !inferred_args.is_empty() {
+                            *type_args = inferred_args;
+                        }
                     }
                 }
             }
@@ -2721,6 +2687,52 @@ impl SemanticAnalyzer {
         result
     }
 
+    /// Infer type arguments for a generic enum based on a variant constructor call
+    fn infer_enum_type_args(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        arg_exprs: &[Expression],
+    ) -> Vec<crate::ast::TypeAnnotation> {
+        let (type_params, _) = match self.generic_enums.get(enum_name) {
+            Some(info) => info.clone(),
+            None => return Vec::new(),
+        };
+
+        let variant_info = match self
+            .enum_infos
+            .get(enum_name)
+            .and_then(|info| info.variants.get(variant_name))
+            .cloned()
+        {
+            Some(info) => info,
+            None => return Vec::new(),
+        };
+
+        let field_type_annotations = match variant_info.data {
+            Some(data) if data.len() == arg_exprs.len() && !data.is_empty() => data,
+            _ => return Vec::new(),
+        };
+
+        let mut type_map: HashMap<String, Type> = HashMap::new();
+        for (field_ann, arg_expr) in field_type_annotations.iter().zip(arg_exprs) {
+            let value_type = self.infer_expression_type(arg_expr);
+            self.unify_type_annotation(field_ann, &value_type, &mut type_map);
+        }
+
+        let mut result = Vec::new();
+        for param in type_params {
+            match type_map.get(&param) {
+                Some(mapped) if !matches!(mapped, Type::Unknown) => {
+                    result.push(self.type_to_annotation(mapped));
+                }
+                _ => return Vec::new(),
+            }
+        }
+
+        result
+    }
+
     /// Unify a type annotation (potentially containing type variables) with a concrete type
     fn unify_type_annotation(
         &self,
@@ -2738,10 +2750,16 @@ impl SemanticAnalyzer {
                     // Check if this could be a type parameter (starts with uppercase typically)
                     // For now, we'll assume any single segment could be a type parameter
                     // and try to map it
-                    if !type_map.contains_key(name) {
-                        type_map.insert(name.clone(), concrete_type.clone());
+                    match type_map.entry(name.clone()) {
+                        Entry::Occupied(mut entry) => {
+                            if !self.types_compatible(entry.get(), concrete_type) {
+                                entry.insert(Type::Unknown);
+                            }
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(concrete_type.clone());
+                        }
                     }
-                    // TODO: Check consistency if already mapped
                 }
             }
             TypeAnnotationKind::Tuple { elements } => {
@@ -2749,6 +2767,9 @@ impl SemanticAnalyzer {
                     elements: concrete_elements,
                 } = concrete_type
                 {
+                    if elements.len() != concrete_elements.len() {
+                        return;
+                    }
                     // Unify each element
                     for (elem_ann, elem_type) in elements.iter().zip(concrete_elements.iter()) {
                         self.unify_type_annotation(elem_ann, elem_type, type_map);

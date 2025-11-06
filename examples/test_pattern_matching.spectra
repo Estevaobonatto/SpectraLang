@@ -1,13 +1,13 @@
 module test;
 
-enum Option {
-    Some(int),
+enum Option<T> {
+    Some(T),
     None
 }
 
-enum Result {
-    Ok(int),
-    Err(int)
+enum Result<T> {
+    Ok(T),
+    Err(T)
 }
 
 // Teste básico de match
@@ -41,5 +41,11 @@ fn process(opt: Option) -> int {
 fn main() -> int {
     let some_val = Option::Some(42);
     let result = unwrap_or(some_val, 0);
+    let status = Option::Some("ready");
+    let message = match status {
+        Option::Some(text) => text,
+        Option::None => "unknown",
+    };
+    let _ = message; // Apenas para evitar warnings
     result
 }
