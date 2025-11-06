@@ -8,6 +8,27 @@ use crate::{
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
+#[derive(Debug, Clone)]
+struct TraitMethodSignature {
+    params: Vec<ParameterInfo>,
+    return_type: Option<TypeAnnotationPattern>,
+    has_default_body: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ParameterInfo {
+    is_self: bool,
+    is_reference: bool,
+    is_mutable: bool,
+    ty: Option<TypeAnnotationPattern>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TypeAnnotationPattern {
+    Simple(Vec<String>),
+    Tuple(Vec<TypeAnnotationPattern>),
+}
+
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
 

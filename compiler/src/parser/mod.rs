@@ -5,7 +5,7 @@ mod statement;
 mod type_annotation;
 
 use crate::{
-    ast::Module,
+    ast::{Module, TypeAnnotation, TypeAnnotationKind},
     error::ParseError,
     span::Span,
     token::{Keyword, Token, TokenKind},
@@ -16,7 +16,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     errors: Vec<ParseError>,
-    trait_signatures: HashMap<String, Vec<String>>,
+    trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
 }
 
 impl Parser {
@@ -156,6 +156,52 @@ impl Parser {
             }
 
             self.advance();
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitMethodSignature {
+    pub params: Vec<ParameterSignature>,
+    pub return_type: Option<TypePattern>,
+    pub has_default_body: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParameterSignature {
+    pub is_self: bool,
+    pub is_reference: bool,
+    pub is_mutable: bool,
+    pub ty: Option<TypePattern>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypePattern {
+    Simple(Vec<String>),
+    Tuple(Vec<TypePattern>),
+}
+
+impl TypePattern {
+    pub fn from_annotation(annotation: &TypeAnnotation) -> Self {
+        match &annotation.kind {
+            TypeAnnotationKind::Simple { segments } => TypePattern::Simple(segments.clone()),
+            TypeAnnotationKind::Tuple { elements } => {
+                TypePattern::Tuple(elements.iter().map(TypePattern::from_annotation).collect())
+            }
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            TypePattern::Simple(segments) => segments.join("::"),
+            TypePattern::Tuple(elements) => {
+                let inner = elements
+                    .iter()
+                    .map(|elem| elem.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({})", inner)
+            }
         }
     }
 }

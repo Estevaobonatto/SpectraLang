@@ -6,9 +6,9 @@ use crate::{
     span::{span_union, Span},
     token::{Keyword, TokenKind},
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use super::Parser;
+use super::{ParameterSignature, Parser, TraitMethodSignature, TypePattern};
 
 impl Parser {
     pub(super) fn parse_item(&mut self) -> Result<Item, ()> {
@@ -584,14 +584,19 @@ impl Parser {
             span: span_union(start_span, end_span),
         };
 
-        self.trait_signatures.insert(
-            trait_decl.name.clone(),
-            trait_decl
-                .methods
-                .iter()
-                .map(|method| method.name.clone())
-                .collect(),
-        );
+        let signature_map: HashMap<String, TraitMethodSignature> = trait_decl
+            .methods
+            .iter()
+            .map(|method| {
+                (
+                    method.name.clone(),
+                    Self::trait_method_signature_from_decl(method),
+                )
+            })
+            .collect();
+
+        self.trait_signatures
+            .insert(trait_decl.name.clone(), signature_map);
 
         Ok(trait_decl)
     }
@@ -605,11 +610,7 @@ impl Parser {
     ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
-        let trait_methods_lookup = self
-            .trait_signatures
-            .get(&trait_name)
-            .cloned()
-            .map(|methods| methods.into_iter().collect::<HashSet<_>>());
+        let trait_methods_lookup = self.trait_signatures.get(&trait_name).cloned();
 
         if trait_methods_lookup.is_none() {
             let message = format!(
@@ -713,6 +714,13 @@ impl Parser {
             let body_end_span = body.span;
 
             let method_name_for_checks = method_name.clone();
+            let return_type_clone = return_type.clone();
+            let actual_param_signatures: Vec<ParameterSignature> = params
+                .iter()
+                .map(Self::parameter_signature_from_param)
+                .collect();
+            let actual_return_signature =
+                return_type_clone.as_ref().map(TypePattern::from_annotation);
 
             methods.push(Method {
                 name: method_name,
@@ -723,12 +731,24 @@ impl Parser {
             });
 
             if let Some(ref trait_methods) = trait_methods_lookup {
-                if !trait_methods.contains(&method_name_for_checks) {
-                    let message = format!(
-                        "Method '{}' is not declared in trait '{}'",
-                        method_name_for_checks, trait_name
-                    );
-                    self.error_at(&message, method_name_span);
+                match trait_methods.get(&method_name_for_checks) {
+                    Some(expected_signature) => {
+                        self.validate_trait_method_signature(
+                            &trait_name,
+                            &method_name_for_checks,
+                            expected_signature,
+                            &actual_param_signatures,
+                            actual_return_signature.as_ref(),
+                            method_name_span,
+                        );
+                    }
+                    None => {
+                        let message = format!(
+                            "Method '{}' is not declared in trait '{}'",
+                            method_name_for_checks, trait_name
+                        );
+                        self.error_at(&message, method_name_span);
+                    }
                 }
             }
 
@@ -810,5 +830,211 @@ impl Parser {
         self.consume_symbol('>', "Expected '>' to close type parameters")?;
 
         Ok(type_params)
+    }
+
+    fn trait_method_signature_from_decl(method: &TraitMethod) -> TraitMethodSignature {
+        TraitMethodSignature {
+            params: method
+                .params
+                .iter()
+                .map(Self::parameter_signature_from_param)
+                .collect(),
+            return_type: method
+                .return_type
+                .as_ref()
+                .map(TypePattern::from_annotation),
+            has_default_body: method.body.is_some(),
+        }
+    }
+
+    fn parameter_signature_from_param(param: &Parameter) -> ParameterSignature {
+        ParameterSignature {
+            is_self: param.is_self,
+            is_reference: param.is_reference,
+            is_mutable: param.is_mutable,
+            ty: param
+                .type_annotation
+                .as_ref()
+                .map(TypePattern::from_annotation),
+        }
+    }
+
+    fn validate_trait_method_signature(
+        &mut self,
+        trait_name: &str,
+        method_name: &str,
+        expected: &TraitMethodSignature,
+        actual_params: &[ParameterSignature],
+        actual_return: Option<&TypePattern>,
+        method_span: Span,
+    ) {
+        if expected.params.len() != actual_params.len() {
+            let message = format!(
+                "Method '{}' in impl for trait '{}' has {} parameter(s), but {} were expected",
+                method_name,
+                trait_name,
+                actual_params.len(),
+                expected.params.len()
+            );
+            self.error_at(&message, method_span);
+            return;
+        }
+
+        for (index, (expected_param, actual_param)) in
+            expected.params.iter().zip(actual_params.iter()).enumerate()
+        {
+            let position = index + 1;
+
+            if expected_param.is_self != actual_param.is_self {
+                let message = if expected_param.is_self {
+                    format!(
+                        "Method '{}' in impl for trait '{}' is missing self parameter at position {}",
+                        method_name, trait_name, position
+                    )
+                } else {
+                    format!(
+                        "Method '{}' in impl for trait '{}' should not have self parameter at position {}",
+                        method_name, trait_name, position
+                    )
+                };
+                self.error_at(&message, method_span);
+                continue;
+            }
+
+            if expected_param.is_self {
+                if expected_param.is_reference != actual_param.is_reference {
+                    let expected_kind = if expected_param.is_reference {
+                        if expected_param.is_mutable {
+                            "&mut self"
+                        } else {
+                            "&self"
+                        }
+                    } else if expected_param.is_mutable {
+                        "mut self"
+                    } else {
+                        "self"
+                    };
+
+                    let actual_kind = if actual_param.is_reference {
+                        if actual_param.is_mutable {
+                            "&mut self"
+                        } else {
+                            "&self"
+                        }
+                    } else if actual_param.is_mutable {
+                        "mut self"
+                    } else {
+                        "self"
+                    };
+
+                    let message = format!(
+                        "Method '{}' in impl for trait '{}' has mismatched receiver: expected {}, found {}",
+                        method_name, trait_name, expected_kind, actual_kind
+                    );
+                    self.error_at(&message, method_span);
+                } else if expected_param.is_mutable != actual_param.is_mutable {
+                    let expected_kind = if expected_param.is_reference {
+                        if expected_param.is_mutable {
+                            "&mut self"
+                        } else {
+                            "&self"
+                        }
+                    } else if expected_param.is_mutable {
+                        "mut self"
+                    } else {
+                        "self"
+                    };
+
+                    let actual_kind = if actual_param.is_reference {
+                        if actual_param.is_mutable {
+                            "&mut self"
+                        } else {
+                            "&self"
+                        }
+                    } else if actual_param.is_mutable {
+                        "mut self"
+                    } else {
+                        "self"
+                    };
+
+                    let message = format!(
+                        "Method '{}' in impl for trait '{}' has mismatched receiver mutability: expected {}, found {}",
+                        method_name, trait_name, expected_kind, actual_kind
+                    );
+                    self.error_at(&message, method_span);
+                }
+
+                continue;
+            }
+
+            match (&expected_param.ty, &actual_param.ty) {
+                (Some(expected_ty), Some(actual_ty)) if expected_ty == actual_ty => {}
+                (Some(expected_ty), Some(actual_ty)) => {
+                    let message = format!(
+                        "Method '{}' in impl for trait '{}' has mismatched type for parameter {}: expected {}, found {}",
+                        method_name,
+                        trait_name,
+                        position,
+                        expected_ty.to_string(),
+                        actual_ty.to_string()
+                    );
+                    self.error_at(&message, method_span);
+                }
+                (Some(expected_ty), None) => {
+                    let message = format!(
+                        "Method '{}' in impl for trait '{}' is missing type annotation for parameter {} (expected {})",
+                        method_name,
+                        trait_name,
+                        position,
+                        expected_ty.to_string()
+                    );
+                    self.error_at(&message, method_span);
+                }
+                (None, Some(actual_ty)) => {
+                    let message = format!(
+                        "Method '{}' in impl for trait '{}' should not specify a type for parameter {} (found {})",
+                        method_name,
+                        trait_name,
+                        position,
+                        actual_ty.to_string()
+                    );
+                    self.error_at(&message, method_span);
+                }
+                (None, None) => {}
+            }
+        }
+
+        match (&expected.return_type, actual_return) {
+            (Some(expected_ty), Some(actual_ty)) if expected_ty == actual_ty => {}
+            (Some(expected_ty), Some(actual_ty)) => {
+                let message = format!(
+                    "Method '{}' in impl for trait '{}' has mismatched return type: expected {}, found {}",
+                    method_name,
+                    trait_name,
+                    expected_ty.to_string(),
+                    actual_ty.to_string()
+                );
+                self.error_at(&message, method_span);
+            }
+            (Some(expected_ty), None) => {
+                let message = format!(
+                    "Method '{}' in impl for trait '{}' is missing return type (expected {})",
+                    method_name,
+                    trait_name,
+                    expected_ty.to_string()
+                );
+                self.error_at(&message, method_span);
+            }
+            (None, Some(actual_ty)) => {
+                let message = format!(
+                    "Method '{}' in impl for trait '{}' should not declare a return type (found {})",
+                    method_name,
+                    trait_name,
+                    actual_ty.to_string()
+                );
+                self.error_at(&message, method_span);
+            }
+            (None, None) => {}
+        }
     }
 }
