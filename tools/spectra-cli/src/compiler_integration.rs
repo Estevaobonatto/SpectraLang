@@ -1,12 +1,13 @@
 // Full compiler integration
 // Provides a backend driver that plugs midend + backend into the shared pipeline.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
-    error::MidendError, BackendDriver, BackendError, CompilationOptions, CompilationPipeline,
-    CompilerError,
+    error::MidendError, pipeline::CompilationMetrics, BackendDriver, BackendError,
+    CompilationOptions, CompilationPipeline, CompilationResult, CompilerError,
 };
 use spectra_midend::{
     ir::Module as IRModule,
@@ -22,6 +23,131 @@ struct PassReport {
     name: &'static str,
     duration: Duration,
     modified: bool,
+}
+
+#[derive(Default, Debug)]
+struct PassAggregate {
+    total_duration: Duration,
+    runs: usize,
+    modified_runs: usize,
+}
+
+#[derive(Default, Debug)]
+struct AggregateMetrics {
+    files: usize,
+    lowering_total: Duration,
+    codegen_total: Duration,
+    front_total: Duration,
+    lexing_total: Duration,
+    parsing_total: Duration,
+    semantic_total: Duration,
+    backend_total: Duration,
+    passes: HashMap<&'static str, PassAggregate>,
+}
+
+impl AggregateMetrics {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn record(
+        &mut self,
+        artifacts: &FullPipelineArtifacts,
+        front_metrics: Option<&CompilationMetrics>,
+    ) {
+        self.files += 1;
+        self.lowering_total += artifacts.lowering_duration;
+        self.codegen_total += artifacts.codegen_duration;
+
+        if let Some(metrics) = front_metrics {
+            self.front_total += metrics.total;
+            self.lexing_total += metrics.lexing;
+            self.parsing_total += metrics.parsing;
+            self.semantic_total += metrics.semantic;
+            self.backend_total += metrics.backend;
+        }
+
+        for pass in &artifacts.passes {
+            let entry = self
+                .passes
+                .entry(pass.name)
+                .or_insert_with(PassAggregate::default);
+            entry.total_duration += pass.duration;
+            entry.runs += 1;
+            if pass.modified {
+                entry.modified_runs += 1;
+            }
+        }
+    }
+
+    fn print_summary(&self) {
+        if self.files == 0 {
+            return;
+        }
+
+        fn average(duration: Duration, count: usize) -> Duration {
+            duration
+                .checked_div(count as u32)
+                .unwrap_or(Duration::ZERO)
+        }
+
+        println!(
+            "\n📊 Aggregated build metrics ({} file{}):",
+            self.files,
+            if self.files == 1 { "" } else { "s" }
+        );
+
+        println!(
+            "  • Front-end total: {:?} (avg {:?})",
+            self.front_total,
+            average(self.front_total, self.files)
+        );
+        println!(
+            "  • Lexing total:    {:?} (avg {:?})",
+            self.lexing_total,
+            average(self.lexing_total, self.files)
+        );
+        println!(
+            "  • Parsing total:   {:?} (avg {:?})",
+            self.parsing_total,
+            average(self.parsing_total, self.files)
+        );
+        println!(
+            "  • Semantic total:  {:?} (avg {:?})",
+            self.semantic_total,
+            average(self.semantic_total, self.files)
+        );
+        println!(
+            "  • Backend total:   {:?} (avg {:?})",
+            self.backend_total,
+            average(self.backend_total, self.files)
+        );
+        println!(
+            "  • Lowering total:  {:?} (avg {:?})",
+            self.lowering_total,
+            average(self.lowering_total, self.files)
+        );
+        println!(
+            "  • Codegen total:   {:?} (avg {:?})",
+            self.codegen_total,
+            average(self.codegen_total, self.files)
+        );
+
+        if !self.passes.is_empty() {
+            println!("  • Optimization passes:");
+            let mut entries: Vec<_> = self.passes.iter().collect();
+            entries.sort_by(|a, b| b.1.total_duration.cmp(&a.1.total_duration));
+            for (name, data) in entries {
+                println!(
+                    "      - {:<24} {:?} total (runs: {}, modified: {})",
+                    name,
+                    data.total_duration,
+                    data.runs,
+                    data.modified_runs
+                );
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -194,11 +320,18 @@ impl BackendDriver for FullPipelineBackend {
 /// Complete compiler that integrates all phases
 pub struct SpectraCompiler {
     options: CompilationOptions,
+    aggregate: Option<AggregateMetrics>,
 }
 
 impl SpectraCompiler {
     pub fn new(options: CompilationOptions) -> Self {
-        Self { options }
+        let aggregate = if options.collect_metrics {
+            Some(AggregateMetrics::new())
+        } else {
+            None
+        };
+
+        Self { options, aggregate }
     }
 
     /// Compile source code to native code
@@ -217,7 +350,19 @@ impl SpectraCompiler {
             error_msg
         })?;
 
-        let artifacts = compilation.backend_artifacts;
+        let CompilationResult {
+            backend_artifacts: artifacts,
+            metrics,
+            ..
+        } = compilation;
+
+        if let Some(aggregate) = self.aggregate.as_mut() {
+            aggregate.record(&artifacts, metrics.as_ref());
+        }
+
+        if let Some(aggregate) = self.aggregate.as_mut() {
+            aggregate.record(&artifacts, metrics.as_ref());
+        }
 
         if self.options.optimize {
             let modified_passes: Vec<_> = artifacts
@@ -237,7 +382,7 @@ impl SpectraCompiler {
             }
         }
 
-        if !artifacts.passes.is_empty() {
+        if self.options.collect_metrics && !artifacts.passes.is_empty() {
             println!("Pass timings:");
             for report in &artifacts.passes {
                 let status = if report.modified { "modified" } else { "no change" };
@@ -248,8 +393,19 @@ impl SpectraCompiler {
             }
         }
 
-        println!("Lowering time: {:?}", artifacts.lowering_duration);
-        println!("Code generation time: {:?}", artifacts.codegen_duration);
+        if self.options.collect_metrics {
+            println!("Lowering time: {:?}", artifacts.lowering_duration);
+            println!("Code generation time: {:?}", artifacts.codegen_duration);
+        }
+
+        if let Some(metrics) = metrics.as_ref() {
+            println!("Front-end timings:");
+            println!("  • Lexing:    {:?}", metrics.lexing);
+            println!("  • Parsing:   {:?}", metrics.parsing);
+            println!("  • Semantic:  {:?}", metrics.semantic);
+            println!("  • Backend:   {:?}", metrics.backend);
+            println!("  • Total:     {:?}", metrics.total);
+        }
 
         println!(
             "IR functions emitted: {}",
@@ -272,6 +428,12 @@ impl SpectraCompiler {
         Ok(())
     }
 
+    pub fn print_aggregate_summary(&self) {
+        if let Some(aggregate) = &self.aggregate {
+            aggregate.print_summary();
+        }
+    }
+
     /// Compile and execute (JIT)
     #[allow(dead_code)]
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), String> {
@@ -289,7 +451,11 @@ impl SpectraCompiler {
             error_msg
         })?;
 
-        let artifacts = &compilation.backend_artifacts;
+        let CompilationResult {
+            backend_artifacts: artifacts,
+            metrics,
+            ..
+        } = compilation;
 
         if self.options.optimize {
             let modified_passes: Vec<_> = artifacts
@@ -309,7 +475,7 @@ impl SpectraCompiler {
             }
         }
 
-        if !artifacts.passes.is_empty() {
+        if self.options.collect_metrics && !artifacts.passes.is_empty() {
             println!("Pass timings:");
             for report in &artifacts.passes {
                 let status = if report.modified { "modified" } else { "no change" };
@@ -320,15 +486,26 @@ impl SpectraCompiler {
             }
         }
 
-        println!("Lowering time: {:?}", artifacts.lowering_duration);
-        println!("Code generation time: {:?}", artifacts.codegen_duration);
+        if self.options.collect_metrics {
+            println!("Lowering time: {:?}", artifacts.lowering_duration);
+            println!("Code generation time: {:?}", artifacts.codegen_duration);
+        }
+
+        if let Some(metrics) = metrics.as_ref() {
+            println!("Front-end timings:");
+            println!("  • Lexing:    {:?}", metrics.lexing);
+            println!("  • Parsing:   {:?}", metrics.parsing);
+            println!("  • Semantic:  {:?}", metrics.semantic);
+            println!("  • Backend:   {:?}", metrics.backend);
+            println!("  • Total:     {:?}", metrics.total);
+        }
 
         println!(
             "IR functions emitted: {}",
             artifacts.ir_module.functions.len()
         );
 
-        pipeline.execute_artifacts(artifacts).map_err(|errors| {
+        pipeline.execute_artifacts(&artifacts).map_err(|errors| {
             let mut error_msg = String::from("Execution errors:\n");
             for error in errors {
                 error_msg.push_str(&format!("  • {}\n", error));
@@ -397,6 +574,7 @@ mod tests {
             dump_ir: false,
             dump_ast: false,
             run_jit: false,
+            collect_metrics: false,
         };
 
         let mut compiler = SpectraCompiler::new(options);

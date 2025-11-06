@@ -7,6 +7,7 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::SemanticAnalyzer;
 use std::fmt::Debug;
+use std::time::{Duration, Instant};
 
 /// Compilation options
 #[derive(Debug, Clone)]
@@ -21,6 +22,8 @@ pub struct CompilationOptions {
     pub dump_ast: bool,
     /// Execute compiled code via JIT after successful compilation
     pub run_jit: bool,
+    /// Collect timing metrics for each compilation stage
+    pub collect_metrics: bool,
 }
 
 impl Default for CompilationOptions {
@@ -31,8 +34,19 @@ impl Default for CompilationOptions {
             dump_ir: false,
             dump_ast: false,
             run_jit: false,
+            collect_metrics: false,
         }
     }
+}
+
+/// Wall-clock timings for each compilation stage
+#[derive(Debug, Clone, Default)]
+pub struct CompilationMetrics {
+    pub total: Duration,
+    pub lexing: Duration,
+    pub parsing: Duration,
+    pub semantic: Duration,
+    pub backend: Duration,
 }
 
 /// Trait implemented by backends that continue compilation beyond semantic analysis.
@@ -80,6 +94,7 @@ where
     pub errors: Vec<CompilerError>,
     pub warnings: Vec<String>,
     pub backend_artifacts: A,
+    pub metrics: Option<CompilationMetrics>,
 }
 
 /// Full compilation pipeline
@@ -120,23 +135,35 @@ where
         source: &str,
         _filename: &str,
     ) -> Result<CompilationResult<B::Artifacts>, Vec<CompilerError>> {
+        let collect_metrics = self.options.collect_metrics;
+        let total_start = collect_metrics.then(Instant::now);
+        let mut metrics = collect_metrics.then_some(CompilationMetrics::default());
+
         // Phase 1: Lexical Analysis
         let lexer = Lexer::new(source);
+        let lex_start = collect_metrics.then(Instant::now);
         let tokens = lexer.tokenize().map_err(|errors| {
             errors
                 .into_iter()
                 .map(CompilerError::Lexical)
                 .collect::<Vec<_>>()
         })?;
+        if let (Some(metrics), Some(start)) = (metrics.as_mut(), lex_start) {
+            metrics.lexing = start.elapsed();
+        }
 
         // Phase 2: Parsing
         let parser = Parser::new(tokens);
+        let parse_start = collect_metrics.then(Instant::now);
         let mut ast = parser.parse().map_err(|errors| {
             errors
                 .into_iter()
                 .map(CompilerError::Parse)
                 .collect::<Vec<_>>()
         })?;
+        if let (Some(metrics), Some(start)) = (metrics.as_mut(), parse_start) {
+            metrics.parsing = start.elapsed();
+        }
 
         if self.options.dump_ast {
             println!("=== AST ===");
@@ -146,7 +173,11 @@ where
 
         // Phase 3: Semantic Analysis
         let mut semantic = SemanticAnalyzer::new();
+        let semantic_start = collect_metrics.then(Instant::now);
         let semantic_errors = semantic.analyze_module(&mut ast);
+        if let (Some(metrics), Some(start)) = (metrics.as_mut(), semantic_start) {
+            metrics.semantic = start.elapsed();
+        }
 
         if !semantic_errors.is_empty() {
             return Err(semantic_errors
@@ -155,13 +186,22 @@ where
                 .collect());
         }
 
+        let backend_start = collect_metrics.then(Instant::now);
         let backend_artifacts = self.backend.run(&ast, &self.options)?;
+        if let (Some(metrics), Some(start)) = (metrics.as_mut(), backend_start) {
+            metrics.backend = start.elapsed();
+        }
+
+        if let (Some(metrics), Some(start)) = (metrics.as_mut(), total_start) {
+            metrics.total = start.elapsed();
+        }
 
         Ok(CompilationResult {
             ast,
             errors: vec![],
             warnings: vec![],
             backend_artifacts,
+            metrics,
         })
     }
 

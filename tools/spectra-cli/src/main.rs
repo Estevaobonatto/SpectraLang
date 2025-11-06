@@ -23,6 +23,9 @@ fn main() {
             "--dump-ir" => {
                 options.dump_ir = true;
             }
+            "--timings" | "-T" => {
+                options.collect_metrics = true;
+            }
             "--no-optimize" | "-O0" => {
                 options.optimize = false;
                 options.opt_level = 0;
@@ -85,6 +88,8 @@ fn main() {
         }
     }
 
+    compiler.print_aggregate_summary();
+
     if has_failures {
         eprintln!("\n💥 Compilation failed with errors");
         process::exit(1);
@@ -103,6 +108,7 @@ fn print_help() {
     println!("    -h, --help         Print this help message");
     println!("    --dump-ast         Print the AST for debugging");
     println!("    --dump-ir          Print the IR for debugging");
+    println!("    --timings, -T      Report compilation and execution timings");
     println!("    --no-optimize, -O0 Disable all optimizations");
     println!("    -O1                Enable basic optimizations");
     println!("    -O2                Enable moderate optimizations (default)");

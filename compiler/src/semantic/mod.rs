@@ -2138,6 +2138,7 @@ impl SemanticAnalyzer {
                     // Criar novo escopo para o arm
                     self.push_scope();
 
+                    self.validate_pattern_against_type(&arm.pattern, &scrutinee_type, expr.span);
                     // Registrar variáveis do pattern
                     self.register_pattern_bindings(&arm.pattern);
                     self.bind_pattern_types(&arm.pattern, &scrutinee_type);
@@ -2361,6 +2362,170 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// Ensure match arm patterns are compatible with the scrutinee type before binding names.
+    fn validate_pattern_against_type(
+        &mut self,
+        pattern: &Pattern,
+        scrutinee_type: &Type,
+        match_span: Span,
+    ) {
+        use crate::ast::Pattern;
+
+        match pattern {
+            Pattern::Wildcard | Pattern::Identifier(_) => {}
+            Pattern::Literal(expr) => {
+                if matches!(scrutinee_type, Type::Unknown) {
+                    return;
+                }
+
+                let literal_type = self.infer_expression_type(expr);
+                if matches!(literal_type, Type::Unknown) {
+                    return;
+                }
+
+                if !self.types_match(&literal_type, scrutinee_type) {
+                    self.error(
+                        format!(
+                            "Pattern literal of type {:?} cannot match value of type {:?}",
+                            literal_type, scrutinee_type
+                        ),
+                        expr.span,
+                    );
+                }
+            }
+            Pattern::EnumVariant {
+                enum_name,
+                type_args,
+                variant_name,
+                data,
+            } => {
+                let enum_info = match self.enum_infos.get(enum_name).cloned() {
+                    Some(info) => info,
+                    None => {
+                        self.error(
+                            format!("Enum '{}' is not defined", enum_name),
+                            match_span,
+                        );
+                        return;
+                    }
+                };
+
+                if !type_args.is_empty() {
+                    let expected_args = enum_info.type_params.len();
+                    if expected_args == 0 {
+                        self.error(
+                            format!(
+                                "Enum '{}' does not accept type arguments, but {} were provided in pattern",
+                                enum_name,
+                                type_args.len()
+                            ),
+                            match_span,
+                        );
+                    } else if type_args.len() != expected_args {
+                        self.error(
+                            format!(
+                                "Enum '{}' pattern expects {} type argument(s), but {} were provided",
+                                enum_name,
+                                expected_args,
+                                type_args.len()
+                            ),
+                            match_span,
+                        );
+                    }
+                }
+
+                match scrutinee_type {
+                    Type::Enum { name } if name == enum_name => {}
+                    Type::Unknown => {}
+                    Type::Enum { name } => {
+                        self.error(
+                            format!(
+                                "Pattern '{}::{}' cannot match enum value of type '{}'",
+                                enum_name, variant_name, name
+                            ),
+                            match_span,
+                        );
+                    }
+                    other => {
+                        self.error(
+                            format!(
+                                "Pattern '{}::{}' cannot match value of type {:?}",
+                                enum_name, variant_name, other
+                            ),
+                            match_span,
+                        );
+                        return;
+                    }
+                }
+
+                let variant_info = match enum_info.variants.get(variant_name).cloned() {
+                    Some(info) => info,
+                    None => {
+                        self.error(
+                            format!(
+                                "Enum '{}' has no variant named '{}'",
+                                enum_name, variant_name
+                            ),
+                            match_span,
+                        );
+                        return;
+                    }
+                };
+
+                match (&variant_info.data, data) {
+                    (Some(expected_types), Some(sub_patterns)) => {
+                        if expected_types.len() != sub_patterns.len() {
+                            self.error(
+                                format!(
+                                    "Pattern for variant '{}::{}' has {} field(s), but {} were expected",
+                                    enum_name,
+                                    variant_name,
+                                    sub_patterns.len(),
+                                    expected_types.len()
+                                ),
+                                match_span,
+                            );
+                            return;
+                        }
+
+                        for (sub_pattern, expected_ann) in
+                            sub_patterns.iter().zip(expected_types.iter())
+                        {
+                            let expected_ty =
+                                self.type_annotation_to_type(&Some(expected_ann.clone()));
+                            self.validate_pattern_against_type(
+                                sub_pattern,
+                                &expected_ty,
+                                match_span,
+                            );
+                        }
+                    }
+                    (Some(expected_types), None) => {
+                        self.error(
+                            format!(
+                                "Pattern for variant '{}::{}' is missing {} field(s)",
+                                enum_name,
+                                variant_name,
+                                expected_types.len()
+                            ),
+                            match_span,
+                        );
+                    }
+                    (None, Some(sub_patterns)) if !sub_patterns.is_empty() => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' does not contain any data",
+                                enum_name, variant_name
+                            ),
+                            match_span,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn infer_pattern_type(&mut self, pattern: &Pattern) -> Option<Type> {
         use crate::ast::Pattern;
 
@@ -2435,16 +2600,6 @@ impl SemanticAnalyzer {
 
                 if let (Some(sub_patterns), Some(field_types)) = (&data, &variant_info.data) {
                     if sub_patterns.len() != field_types.len() {
-                        self.error(
-                            format!(
-                                "Pattern for variant '{}::{}' has {} sub-pattern(s), but {} were expected",
-                                enum_name,
-                                variant_name,
-                                sub_patterns.len(),
-                                field_types.len()
-                            ),
-                            Span::dummy(),
-                        );
                         return;
                     }
 
