@@ -148,6 +148,8 @@ pub struct SemanticAnalyzer {
     // Track if we're inside a function (for return validation)
     current_function: Option<String>,
     current_return_type: Option<Type>,
+    // Stack of in-scope generic type parameters
+    generic_params: Vec<HashSet<String>>,
 }
 
 impl SemanticAnalyzer {
@@ -168,6 +170,7 @@ impl SemanticAnalyzer {
             current_function: None,
             trait_signatures: HashMap::new(),
             current_return_type: None,
+            generic_params: Vec::new(),
         }
     }
 
@@ -183,6 +186,29 @@ impl SemanticAnalyzer {
         self.symbols.pop();
     }
 
+    fn push_generic_params(&mut self, params: &[String]) -> bool {
+        if params.is_empty() {
+            return false;
+        }
+        let mut set = HashSet::new();
+        for param in params {
+            set.insert(param.clone());
+        }
+        self.generic_params.push(set);
+        true
+    }
+
+    fn pop_generic_params(&mut self) {
+        self.generic_params.pop();
+    }
+
+    fn is_generic_param(&self, name: &str) -> bool {
+        self.generic_params
+            .iter()
+            .rev()
+            .any(|params| params.contains(name))
+    }
+
     fn type_annotation_to_type(&self, type_ann: &Option<crate::ast::TypeAnnotation>) -> Type {
         use crate::ast::TypeAnnotationKind;
 
@@ -196,7 +222,15 @@ impl SemanticAnalyzer {
                         "string" => Type::String,
                         "char" => Type::Char,
                         "Self" => Type::SelfType, // Self type
-                        _ => Type::Unknown,
+                        other => {
+                            if self.is_generic_param(other) {
+                                Type::TypeParameter {
+                                    name: other.to_string(),
+                                }
+                            } else {
+                                Type::Unknown
+                            }
+                        }
                     }
                 }
                 TypeAnnotationKind::Tuple { elements } => {
@@ -323,6 +357,9 @@ impl SemanticAnalyzer {
                         .all(|(a, b)| self.types_match(a, b))
             }
 
+            // Generic type parameters are considered compatible with any type during alpha
+            (Type::TypeParameter { .. }, _) | (_, Type::TypeParameter { .. }) => true,
+
             // Arrays com tipos de elemento compatíveis
             (
                 Type::Array {
@@ -398,6 +435,13 @@ impl SemanticAnalyzer {
                             func.span,
                         );
                     } else {
+                        let type_param_names: Vec<String> = func
+                            .type_params
+                            .iter()
+                            .map(|tp| tp.name.clone())
+                            .collect();
+                        let pushed_generics = self.push_generic_params(&type_param_names);
+
                         // Extract parameter types
                         let params: Vec<Type> = func
                             .params
@@ -407,6 +451,10 @@ impl SemanticAnalyzer {
 
                         // Extract return type
                         let return_type = self.type_annotation_to_type(&func.return_type);
+
+                        if pushed_generics {
+                            self.pop_generic_params();
+                        }
 
                         let signature = FunctionSignature {
                             params,
@@ -604,6 +652,21 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_impl_block(&mut self, impl_block: &crate::ast::ImplBlock) {
+        let type_param_names = self
+            .generic_structs
+            .get(&impl_block.type_name)
+            .map(|(params, _)| params.clone())
+            .or_else(|| {
+                self.generic_enums
+                    .get(&impl_block.type_name)
+                    .map(|(params, _)| params.clone())
+            });
+        let pushed_generics = if let Some(ref params) = type_param_names {
+            self.push_generic_params(params)
+        } else {
+            false
+        };
+
         // Se for impl Trait for Type, validar que implementa todos os métodos
         if let Some(ref trait_name) = impl_block.trait_name {
             self.validate_trait_impl(impl_block, trait_name);
@@ -707,6 +770,10 @@ impl SemanticAnalyzer {
             self.pop_scope();
             self.current_function = None;
             self.current_return_type = previous_return;
+        }
+
+        if pushed_generics {
+            self.pop_generic_params();
         }
     }
 
@@ -1081,6 +1148,13 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_function(&mut self, func: &Function) {
+        let type_param_names: Vec<String> = func
+            .type_params
+            .iter()
+            .map(|tp| tp.name.clone())
+            .collect();
+        let pushed_generics = self.push_generic_params(&type_param_names);
+
         self.current_function = Some(func.name.clone());
         let expected_return = self
             .functions
@@ -1107,6 +1181,9 @@ impl SemanticAnalyzer {
         self.validate_function_block_return(&func.body, &expected_return, func.span);
 
         self.pop_scope();
+        if pushed_generics {
+            self.pop_generic_params();
+        }
         self.current_function = None;
         self.current_return_type = previous_return;
     }
