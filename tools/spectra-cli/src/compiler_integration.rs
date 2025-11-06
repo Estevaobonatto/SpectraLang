@@ -3,7 +3,8 @@
 
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
-    BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilerError,
+    error::MidendError, BackendDriver, BackendError, CompilationOptions, CompilationPipeline,
+    CompilerError,
 };
 use spectra_midend::{
     ir::Module as IRModule,
@@ -66,9 +67,23 @@ impl BackendDriver for FullPipelineBackend {
         }
 
         let mut loop_check = LoopStructureValidation::new();
-        if loop_check.run(&mut ir_module) {
-            applied_passes.push("Loop Structure Validation");
+        loop_check.run(&mut ir_module);
+
+        if loop_check.has_errors() {
+            let errors: Vec<CompilerError> = loop_check
+                .take_errors()
+                .into_iter()
+                .map(|err| {
+                    CompilerError::Midend(MidendError::new(format!(
+                        "Loop validation failed in function '{}' at block {} ('{}'): {}",
+                        err.function, err.header_block, err.header_label, err.message
+                    )))
+                })
+                .collect();
+            return Err(errors);
         }
+
+        applied_passes.push("Loop Structure Validation");
 
         if options.dump_ir {
             println!("=== IR (after optimization) ===");
