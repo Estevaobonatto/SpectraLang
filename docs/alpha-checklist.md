@@ -26,7 +26,7 @@
 - [ ] Implement SSA PHI handling instead of skipping in codegen
 - [ ] Expand Cranelift codegen to support strings, structs, enums, and tuples safely
 - [ ] Provide configurable optimization pipelines tied to `-O` levels with pass summaries
-- [ ] Add IR verification, pretty-printing, and debug hooks for developers
+- [x] Add IR verification, pretty-printing, and debug hooks for developers _(new `midend/src/passes/verification.rs` structural checks with tests, `midend/src/ir/pretty.rs` formatter, and CLI integration that runs verification and pretty dumps on `--dump-ir`)_
 
 ## Runtime & Memory Model
 - [ ] Define the SpectraLang memory strategy (hybrid GC/manual) and initial collector interface

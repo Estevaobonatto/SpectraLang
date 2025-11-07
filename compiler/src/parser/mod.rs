@@ -205,12 +205,7 @@ impl Parser {
         self.enabled_features.contains(feature)
     }
 
-    fn require_feature(
-        &mut self,
-        feature: &str,
-        span: Span,
-        description: &str,
-    ) -> Result<(), ()> {
+    fn require_feature(&mut self, feature: &str, span: Span, description: &str) -> Result<(), ()> {
         if self.is_feature_enabled(feature) {
             return Ok(());
         }
@@ -221,7 +216,8 @@ impl Parser {
         );
         let hint = format!(
             "Re-run with --enable-experimental {} to opt into {}.",
-            feature, description.to_lowercase()
+            feature,
+            description.to_lowercase()
         );
         let context = format!("feature '{}' is disabled for this compilation", feature);
         self.push_error(message, span, Some(hint), Some(context));
@@ -322,9 +318,7 @@ impl Parser {
                     | Keyword::Elif
                     | Keyword::ElseIf
             ),
-            TokenKind::Identifier(_)
-            | TokenKind::Number(_)
-            | TokenKind::StringLiteral(_) => true,
+            TokenKind::Identifier(_) | TokenKind::Number(_) | TokenKind::StringLiteral(_) => true,
             TokenKind::Symbol('(') | TokenKind::Symbol('{') => true,
             _ => false,
         }
@@ -411,15 +405,21 @@ impl Parser {
     fn keyword_hint(&self, keyword: Keyword) -> Option<String> {
         match keyword {
             Keyword::Module => Some("Start the file with `module <name>;`.".to_string()),
-            Keyword::Import => Some("Use `import path.to.module;` to bring other modules into scope.".to_string()),
+            Keyword::Import => {
+                Some("Use `import path.to.module;` to bring other modules into scope.".to_string())
+            }
             Keyword::Fn => Some("Function declarations start with `fn name(...)`.".to_string()),
-            Keyword::Trait => Some("Traits are declared with `trait TraitName { ... }`.".to_string()),
+            Keyword::Trait => {
+                Some("Traits are declared with `trait TraitName { ... }`.".to_string())
+            }
             Keyword::Impl => Some("Use `impl Type` to provide trait implementations.".to_string()),
             Keyword::Let => Some("Introduce bindings with `let name = expression;`.".to_string()),
-            Keyword::Return => Some("Use `return expression;` to exit a function early.".to_string()),
-            Keyword::While | Keyword::For | Keyword::Loop => {
-                Some("Loops require a control keyword such as `while`, `for`, or `loop`.".to_string())
+            Keyword::Return => {
+                Some("Use `return expression;` to exit a function early.".to_string())
             }
+            Keyword::While | Keyword::For | Keyword::Loop => Some(
+                "Loops require a control keyword such as `while`, `for`, or `loop`.".to_string(),
+            ),
             _ => None,
         }
     }
@@ -444,10 +444,7 @@ mod tests {
     use crate::lexer::Lexer;
     use std::collections::HashSet;
 
-    fn parse_with_features(
-        source: &str,
-        features: &[&str],
-    ) -> Result<Module, Vec<ParseError>> {
+    fn parse_with_features(source: &str, features: &[&str]) -> Result<Module, Vec<ParseError>> {
         let tokens = Lexer::new(source)
             .tokenize()
             .expect("lexer should not fail in parser tests");

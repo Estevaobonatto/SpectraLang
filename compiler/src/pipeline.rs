@@ -146,11 +146,9 @@ where
         let mut metrics = collect_metrics.then_some(CompilationMetrics::default());
 
         // Phases 1 & 2: Lexical Analysis + Parsing (with incremental cache)
-        let parse_outcome = self.module_loader.parse_module(
-            filename,
-            source,
-            &self.options.experimental_features,
-        );
+        let parse_outcome =
+            self.module_loader
+                .parse_module(filename, source, &self.options.experimental_features);
 
         let parse_outcome = parse_outcome.map_err(|error| match error {
             ModuleParseError::Lexical(errors) => errors

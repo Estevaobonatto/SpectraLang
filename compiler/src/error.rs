@@ -14,11 +14,30 @@ pub enum CompilerError {
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CompilerError::Lexical(e) => fmt_span_error(f, "Lexical", &e.message, &e.span, e.context.as_deref(), e.hint.as_deref()),
-            CompilerError::Parse(e) => fmt_span_error(f, "Parse", &e.message, &e.span, e.context.as_deref(), e.hint.as_deref()),
-            CompilerError::Semantic(e) => {
-                fmt_span_error(f, "Semantic", &e.message, &e.span, e.context.as_deref(), e.hint.as_deref())
-            }
+            CompilerError::Lexical(e) => fmt_span_error(
+                f,
+                "Lexical",
+                &e.message,
+                &e.span,
+                e.context.as_deref(),
+                e.hint.as_deref(),
+            ),
+            CompilerError::Parse(e) => fmt_span_error(
+                f,
+                "Parse",
+                &e.message,
+                &e.span,
+                e.context.as_deref(),
+                e.hint.as_deref(),
+            ),
+            CompilerError::Semantic(e) => fmt_span_error(
+                f,
+                "Semantic",
+                &e.message,
+                &e.span,
+                e.context.as_deref(),
+                e.hint.as_deref(),
+            ),
             CompilerError::Midend(e) => write!(f, "Midend error: {}", e.message),
             CompilerError::Backend(e) => write!(f, "Backend error: {}", e.message),
         }
@@ -36,10 +55,7 @@ fn fmt_span_error(
     write!(
         f,
         "{} error at line {}, column {}: {}",
-        phase,
-        span.start_location.line,
-        span.start_location.column,
-        message
+        phase, span.start_location.line, span.start_location.column, message
     )?;
 
     if let Some(context) = context {

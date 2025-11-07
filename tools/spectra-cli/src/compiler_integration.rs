@@ -7,22 +7,15 @@ use std::time::{Duration, Instant};
 
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
-    error::MidendError,
-    pipeline::CompilationMetrics,
-    span::Span,
-    BackendDriver,
-    BackendError,
-    CompilationOptions,
-    CompilationPipeline,
-    CompilationResult,
-    CompilerError,
+    error::MidendError, pipeline::CompilationMetrics, span::Span, BackendDriver, BackendError,
+    CompilationOptions, CompilationPipeline, CompilationResult, CompilerError,
 };
 use spectra_midend::{
-    ir::Module as IRModule,
+    ir::{pretty::format_module, Module as IRModule},
     lowering::ASTLowering,
     passes::{
         constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
-        validation::LoopStructureValidation, Pass,
+        validation::LoopStructureValidation, verification::verify_module, Pass,
     },
 };
 
@@ -184,13 +177,27 @@ impl BackendDriver for FullPipelineBackend {
         let mut ir_module = lowering.lower_module(ast);
         let lowering_duration = lowering_start.elapsed();
 
+        let mut pass_reports = Vec::new();
+
+        let verification_start = Instant::now();
+        if let Err(errors) = verify_module(&ir_module) {
+            let ir_errors = errors
+                .into_iter()
+                .map(|msg| CompilerError::Midend(MidendError::new(msg)))
+                .collect();
+            return Err(ir_errors);
+        }
+        pass_reports.push(PassReport {
+            name: "IR Verification (pre-opt)",
+            duration: verification_start.elapsed(),
+            modified: false,
+        });
+
         if options.dump_ir {
             println!("=== IR (before optimization) ===");
-            println!("{:#?}", ir_module);
+            println!("{}", format_module(&ir_module));
             println!();
         }
-
-        let mut pass_reports = Vec::new();
 
         if options.optimize {
             if options.opt_level >= 1 {
@@ -240,9 +247,23 @@ impl BackendDriver for FullPipelineBackend {
             modified: false,
         });
 
+        let verify_after_start = Instant::now();
+        if let Err(errors) = verify_module(&ir_module) {
+            let ir_errors = errors
+                .into_iter()
+                .map(|msg| CompilerError::Midend(MidendError::new(msg)))
+                .collect();
+            return Err(ir_errors);
+        }
+        pass_reports.push(PassReport {
+            name: "IR Verification (post-opt)",
+            duration: verify_after_start.elapsed(),
+            modified: false,
+        });
+
         if options.dump_ir {
             println!("=== IR (after optimization) ===");
-            println!("{:#?}", ir_module);
+            println!("{}", format_module(&ir_module));
             println!();
         }
 
@@ -333,8 +354,8 @@ impl SpectraCompiler {
             None
         };
 
-        let pipeline = CompilationPipeline::new(options.clone())
-            .with_backend(FullPipelineBackend::new());
+        let pipeline =
+            CompilationPipeline::new(options.clone()).with_backend(FullPipelineBackend::new());
 
         Self {
             options,
@@ -589,11 +610,7 @@ fn render_span_diagnostic(
     let _ = writeln!(
         &mut buf,
         "{}:{}:{}: {} error: {}",
-        filename,
-        span.start_location.line,
-        span.start_location.column,
-        phase,
-        message
+        filename, span.start_location.line, span.start_location.column, phase, message
     );
 
     if let Some(raw_line) = get_source_line(source, span.start_location.line) {
@@ -623,8 +640,7 @@ fn render_span_diagnostic(
         let _ = writeln!(
             &mut buf,
             "  = note: spans multiple lines ({} → {})",
-            span.start_location.line,
-            span.end_location.line
+            span.start_location.line, span.end_location.line
         );
     }
 

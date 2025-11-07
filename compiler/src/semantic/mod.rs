@@ -205,12 +205,7 @@ impl SemanticAnalyzer {
         self.push_semantic_error(message, span, None, None);
     }
 
-    fn error_with_hint(
-        &mut self,
-        message: impl Into<String>,
-        span: Span,
-        hint: impl Into<String>,
-    ) {
+    fn error_with_hint(&mut self, message: impl Into<String>, span: Span, hint: impl Into<String>) {
         self.push_semantic_error(message, span, None, Some(hint.into()));
     }
 
@@ -230,12 +225,7 @@ impl SemanticAnalyzer {
         context: impl Into<String>,
         hint: impl Into<String>,
     ) {
-        self.push_semantic_error(
-            message,
-            span,
-            Some(context.into()),
-            Some(hint.into()),
-        );
+        self.push_semantic_error(message, span, Some(context.into()), Some(hint.into()));
     }
 
     fn push_scope(&mut self) {
@@ -265,7 +255,10 @@ impl SemanticAnalyzer {
                             bound, param.name
                         ),
                         param.span,
-                        format!("generic bound `{}: {}` cannot be resolved", param.name, bound),
+                        format!(
+                            "generic bound `{}: {}` cannot be resolved",
+                            param.name, bound
+                        ),
                         format!(
                             "Declare `trait {}` or import it before using it as a bound.",
                             bound
@@ -379,10 +372,7 @@ impl SemanticAnalyzer {
                     arguments.len()
                 ),
                 call_span,
-                format!(
-                    "expected {} argument(s) after the receiver",
-                    expected_args
-                ),
+                format!("expected {} argument(s) after the receiver", expected_args),
                 "Review the method's signature and adjust the call arity.",
             );
         }
@@ -1611,10 +1601,7 @@ impl SemanticAnalyzer {
                         let index_type = self.infer_expression_type(index);
                         if !matches!(index_type, Type::Int | Type::Unknown) {
                             self.error_with_hint(
-                                format!(
-                                    "Array index must be an integer, found {:?}",
-                                    index_type
-                                ),
+                                format!("Array index must be an integer, found {:?}", index_type),
                                 assign_stmt.target_span,
                                 "Convert the index expression to `int` before indexing.",
                             );

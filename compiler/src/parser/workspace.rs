@@ -78,9 +78,7 @@ impl ModuleLoader {
                     CachedOutcome::Lexical(errors) => {
                         Err(ModuleParseError::Lexical(errors.clone()))
                     }
-                    CachedOutcome::Parse(errors) => {
-                        Err(ModuleParseError::Parse(errors.clone()))
-                    }
+                    CachedOutcome::Parse(errors) => Err(ModuleParseError::Parse(errors.clone())),
                 };
             }
         }

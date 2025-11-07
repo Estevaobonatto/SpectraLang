@@ -1,6 +1,8 @@
 // Spectra Intermediate Representation (IR)
 // SSA-based representation with explicit control flow
 
+pub mod pretty;
+
 /// IR Module - top level container
 #[derive(Debug, Clone)]
 pub struct Module {

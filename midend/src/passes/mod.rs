@@ -3,6 +3,7 @@
 pub mod constant_folding;
 pub mod dead_code_elimination;
 pub mod validation;
+pub mod verification;
 
 use crate::ir::Module;
 
