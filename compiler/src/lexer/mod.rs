@@ -146,10 +146,13 @@ impl<'source> Lexer<'source> {
                             index += 1;
                         }
                         let end_location = Location::new(line, column);
-                        errors.push(LexError::new(
-                            "unterminated string literal",
-                            Span::new(offset, self.source.len(), start_location, end_location),
-                        ));
+                        errors.push(
+                            LexError::new(
+                                "unterminated string literal",
+                                Span::new(offset, self.source.len(), start_location, end_location),
+                            )
+                            .with_hint("Close the string with a matching \" character."),
+                        );
                     }
                 }
                 ch if is_symbol_char(ch) => {
@@ -203,10 +206,15 @@ impl<'source> Lexer<'source> {
                     bump_position(ch, &mut line, &mut column);
                     let end_offset = offset + ch.len_utf8();
                     let end_location = Location::new(line, column);
-                    errors.push(LexError::new(
-                        format!("unexpected character `{}`", ch),
-                        Span::new(offset, end_offset, start_location, end_location),
-                    ));
+                    errors.push(
+                        LexError::new(
+                            format!("unexpected character `{}`", ch),
+                            Span::new(offset, end_offset, start_location, end_location),
+                        )
+                        .with_hint(
+                            "Remove this character or escape it if you intended it to appear literally.",
+                        ),
+                    );
                     index += 1;
                 }
             }

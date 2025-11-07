@@ -2,12 +2,20 @@
 // Provides a backend driver that plugs midend + backend into the shared pipeline.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
-    error::MidendError, pipeline::CompilationMetrics, BackendDriver, BackendError,
-    CompilationOptions, CompilationPipeline, CompilationResult, CompilerError,
+    error::MidendError,
+    pipeline::CompilationMetrics,
+    span::Span,
+    BackendDriver,
+    BackendError,
+    CompilationOptions,
+    CompilationPipeline,
+    CompilationResult,
+    CompilerError,
 };
 use spectra_midend::{
     ir::Module as IRModule,
@@ -335,23 +343,15 @@ impl SpectraCompiler {
 
         let pipeline = CompilationPipeline::new(self.options.clone());
         let mut pipeline = pipeline.with_backend(FullPipelineBackend::new());
-        let compilation = pipeline.compile(source, filename).map_err(|errors| {
-            let mut error_msg = String::from("Compilation errors:\n");
-            for error in errors {
-                error_msg.push_str(&format!("  • {}\n", error));
-            }
-            error_msg
-        })?;
+        let compilation = pipeline
+            .compile(source, filename)
+            .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
 
         let CompilationResult {
             backend_artifacts: artifacts,
             metrics,
             ..
         } = compilation;
-
-        if let Some(aggregate) = self.aggregate.as_mut() {
-            aggregate.record(&artifacts, metrics.as_ref());
-        }
 
         if let Some(aggregate) = self.aggregate.as_mut() {
             aggregate.record(&artifacts, metrics.as_ref());
@@ -410,13 +410,9 @@ impl SpectraCompiler {
         );
 
         if self.options.run_jit {
-            pipeline.execute_artifacts(&artifacts).map_err(|errors| {
-                let mut error_msg = String::from("Execution errors:\n");
-                for error in errors {
-                    error_msg.push_str(&format!("  • {}\n", error));
-                }
-                error_msg
-            })?;
+            pipeline
+                .execute_artifacts(&artifacts)
+                .map_err(|errors| render_errors(&errors, source, filename, "execution"))?;
         }
 
         println!("✨ Compilation successful!");
@@ -440,13 +436,9 @@ impl SpectraCompiler {
 
         let pipeline = CompilationPipeline::new(self.options.clone());
         let mut pipeline = pipeline.with_backend(FullPipelineBackend::new());
-        let compilation = pipeline.compile(source, "<jit>").map_err(|errors| {
-            let mut error_msg = String::from("Compilation errors:\n");
-            for error in errors {
-                error_msg.push_str(&format!("  • {}\n", error));
-            }
-            error_msg
-        })?;
+        let compilation = pipeline
+            .compile(source, "<jit>")
+            .map_err(|errors| render_errors(&errors, source, "<jit>", "compilation"))?;
 
         let CompilationResult {
             backend_artifacts: artifacts,
@@ -506,18 +498,198 @@ impl SpectraCompiler {
             artifacts.ir_module.functions.len()
         );
 
-        pipeline.execute_artifacts(&artifacts).map_err(|errors| {
-            let mut error_msg = String::from("Execution errors:\n");
-            for error in errors {
-                error_msg.push_str(&format!("  • {}\n", error));
-            }
-            error_msg
-        })?;
+        pipeline
+            .execute_artifacts(&artifacts)
+            .map_err(|errors| render_errors(&errors, source, "<jit>", "execution"))?;
 
         println!("✨ Compilation successful!");
         println!("━━━━━━━━━━━━━━━━━━━━");
 
         Ok(())
+    }
+}
+
+fn render_errors(errors: &[CompilerError], source: &str, filename: &str, stage: &str) -> String {
+    if errors.is_empty() {
+        return format!("{} failed with no diagnostics.", capitalize(stage));
+    }
+
+    let mut output = String::new();
+    let title = format!("{} errors:", capitalize(stage));
+    let _ = writeln!(&mut output, "{}", title);
+
+    for (idx, error) in errors.iter().enumerate() {
+        if idx > 0 {
+            output.push('\n');
+        }
+        output.push_str(&render_error(error, source, filename));
+    }
+
+    output
+}
+
+fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
+    match error {
+        CompilerError::Lexical(e) => render_span_diagnostic(
+            "lexical",
+            &e.message,
+            &e.span,
+            e.hint.as_deref(),
+            e.context.as_deref(),
+            source,
+            filename,
+        ),
+        CompilerError::Parse(e) => render_span_diagnostic(
+            "parse",
+            &e.message,
+            &e.span,
+            e.hint.as_deref(),
+            e.context.as_deref(),
+            source,
+            filename,
+        ),
+        CompilerError::Semantic(e) => render_span_diagnostic(
+            "semantic",
+            &e.message,
+            &e.span,
+            e.hint.as_deref(),
+            e.context.as_deref(),
+            source,
+            filename,
+        ),
+        CompilerError::Midend(e) => {
+            let mut buf = String::new();
+            let _ = writeln!(&mut buf, "midend error: {}", e.message);
+            buf
+        }
+        CompilerError::Backend(e) => {
+            let mut buf = String::new();
+            let _ = writeln!(&mut buf, "backend error: {}", e.message);
+            buf
+        }
+    }
+}
+
+fn render_span_diagnostic(
+    phase: &str,
+    message: &str,
+    span: &Span,
+    hint: Option<&str>,
+    context: Option<&str>,
+    source: &str,
+    filename: &str,
+) -> String {
+    let mut buf = String::new();
+    let _ = writeln!(
+        &mut buf,
+        "{}:{}:{}: {} error: {}",
+        filename,
+        span.start_location.line,
+        span.start_location.column,
+        phase,
+        message
+    );
+
+    if let Some(raw_line) = get_source_line(source, span.start_location.line) {
+        let line_text = raw_line.trim_end_matches('\r');
+        let gutter_width = span.start_location.line.to_string().len();
+        let _ = writeln!(&mut buf, "{:>width$} |", "", width = gutter_width);
+        let _ = writeln!(
+            &mut buf,
+            "{:>width$} | {}",
+            span.start_location.line,
+            line_text,
+            width = gutter_width
+        );
+
+        if let Some(marker_line) = build_highlight_line(span, line_text) {
+            let _ = writeln!(
+                &mut buf,
+                "{:>width$} | {}",
+                "",
+                marker_line,
+                width = gutter_width
+            );
+        }
+    }
+
+    if span.start_location.line != span.end_location.line {
+        let _ = writeln!(
+            &mut buf,
+            "  = note: spans multiple lines ({} → {})",
+            span.start_location.line,
+            span.end_location.line
+        );
+    }
+
+    if let Some(context) = context {
+        let _ = writeln!(&mut buf, "  = note: {}", context);
+    }
+
+    if let Some(hint) = hint {
+        let _ = writeln!(&mut buf, "  = help: {}", hint);
+    }
+
+    buf
+}
+
+fn get_source_line<'a>(source: &'a str, line_number: usize) -> Option<&'a str> {
+    if line_number == 0 {
+        return None;
+    }
+
+    source.lines().nth(line_number.saturating_sub(1))
+}
+
+fn build_highlight_line(span: &Span, line_text: &str) -> Option<String> {
+    if line_text.is_empty() {
+        return None;
+    }
+
+    let total_chars = line_text.chars().count();
+    let start_column = span.start_location.column.max(1);
+    let mut start_index = start_column.saturating_sub(1);
+    if start_index > total_chars {
+        start_index = total_chars;
+    }
+
+    let mut end_column = if span.start_location.line == span.end_location.line {
+        span.end_location.column.max(start_column)
+    } else {
+        total_chars + 1
+    };
+
+    let mut end_index = end_column.saturating_sub(1);
+    if end_index < start_index {
+        end_index = start_index;
+    }
+    if end_index > total_chars {
+        end_index = total_chars;
+    }
+
+    let span_width = end_index.saturating_sub(start_index);
+    let highlight_len = if span_width == 0 { 1 } else { span_width + 1 };
+
+    let mut marker = String::new();
+    for _ in 0..start_index {
+        marker.push(' ');
+    }
+    for _ in 0..highlight_len {
+        marker.push('^');
+    }
+
+    Some(marker)
+}
+
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => {
+            let mut result = first.to_uppercase().collect::<String>();
+            result.push_str(chars.as_str());
+            result
+        }
+        None => String::new(),
     }
 }
 

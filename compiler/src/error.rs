@@ -14,15 +14,43 @@ pub enum CompilerError {
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CompilerError::Lexical(e) => write!(f, "Lexical error at {:?}: {}", e.span, e.message),
-            CompilerError::Parse(e) => write!(f, "Parse error at {:?}: {}", e.span, e.message),
+            CompilerError::Lexical(e) => fmt_span_error(f, "Lexical", &e.message, &e.span, e.context.as_deref(), e.hint.as_deref()),
+            CompilerError::Parse(e) => fmt_span_error(f, "Parse", &e.message, &e.span, e.context.as_deref(), e.hint.as_deref()),
             CompilerError::Semantic(e) => {
-                write!(f, "Semantic error at {:?}: {}", e.span, e.message)
+                fmt_span_error(f, "Semantic", &e.message, &e.span, e.context.as_deref(), e.hint.as_deref())
             }
             CompilerError::Midend(e) => write!(f, "Midend error: {}", e.message),
             CompilerError::Backend(e) => write!(f, "Backend error: {}", e.message),
         }
     }
+}
+
+fn fmt_span_error(
+    f: &mut fmt::Formatter<'_>,
+    phase: &str,
+    message: &str,
+    span: &Span,
+    context: Option<&str>,
+    hint: Option<&str>,
+) -> fmt::Result {
+    write!(
+        f,
+        "{} error at line {}, column {}: {}",
+        phase,
+        span.start_location.line,
+        span.start_location.column,
+        message
+    )?;
+
+    if let Some(context) = context {
+        write!(f, " ({})", context)?;
+    }
+
+    if let Some(hint) = hint {
+        write!(f, " [hint: {}]", hint)?;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +83,8 @@ impl BackendError {
 pub struct LexError {
     pub message: String,
     pub span: Span,
+    pub context: Option<String>,
+    pub hint: Option<String>,
 }
 
 impl LexError {
@@ -62,7 +92,19 @@ impl LexError {
         Self {
             message: message.into(),
             span,
+            context: None,
+            hint: None,
         }
+    }
+
+    pub fn with_context(mut self, context: impl Into<String>) -> Self {
+        self.context = Some(context.into());
+        self
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 }
 
@@ -70,6 +112,8 @@ impl LexError {
 pub struct ParseError {
     pub message: String,
     pub span: Span,
+    pub context: Option<String>,
+    pub hint: Option<String>,
 }
 
 impl ParseError {
@@ -77,7 +121,19 @@ impl ParseError {
         Self {
             message: message.into(),
             span,
+            context: None,
+            hint: None,
         }
+    }
+
+    pub fn with_context(mut self, context: impl Into<String>) -> Self {
+        self.context = Some(context.into());
+        self
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 }
 
@@ -85,6 +141,8 @@ impl ParseError {
 pub struct SemanticError {
     pub message: String,
     pub span: Span,
+    pub context: Option<String>,
+    pub hint: Option<String>,
 }
 
 impl SemanticError {
@@ -92,6 +150,18 @@ impl SemanticError {
         Self {
             message: message.into(),
             span,
+            context: None,
+            hint: None,
         }
+    }
+
+    pub fn with_context(mut self, context: impl Into<String>) -> Self {
+        self.context = Some(context.into());
+        self
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 }

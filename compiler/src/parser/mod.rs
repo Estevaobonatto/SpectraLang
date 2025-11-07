@@ -93,7 +93,14 @@ impl Parser {
             self.advance();
             Ok(span)
         } else {
-            self.error(error_message);
+            let span = self.current().span;
+            let context = format!(
+                "expected keyword `{}`, found {}",
+                keyword,
+                Self::describe_token(self.current())
+            );
+            let hint = self.keyword_hint(keyword);
+            self.push_error(error_message, span, hint, Some(context));
             Err(())
         }
     }
@@ -104,7 +111,14 @@ impl Parser {
             self.advance();
             Ok(span)
         } else {
-            self.error(error_message);
+            let span = self.current().span;
+            let context = format!(
+                "expected symbol `{}`, found {}",
+                symbol,
+                Self::describe_token(self.current())
+            );
+            let hint = self.symbol_hint(symbol);
+            self.push_error(error_message, span, hint, Some(context));
             Err(())
         }
     }
@@ -116,7 +130,12 @@ impl Parser {
             self.advance();
             Ok((name, span))
         } else {
-            self.error(error_message);
+            let span = self.current().span;
+            let context = format!(
+                "expected identifier, found {}",
+                Self::describe_token(self.current())
+            );
+            self.push_error(error_message, span, None, Some(context));
             Err(())
         }
     }
@@ -125,12 +144,12 @@ impl Parser {
 
     fn error(&mut self, message: &str) {
         let span = self.current().span;
-        self.errors.push(ParseError::new(message, span));
+        self.push_error(message, span, None, None);
     }
 
     #[allow(dead_code)]
     fn error_at(&mut self, message: &str, span: Span) {
-        self.errors.push(ParseError::new(message, span));
+        self.push_error(message, span, None, None);
     }
 
     // === Synchronization ===
@@ -156,6 +175,77 @@ impl Parser {
             }
 
             self.advance();
+        }
+    }
+
+    fn push_error(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        hint: Option<String>,
+        context: Option<String>,
+    ) {
+        let mut error = ParseError::new(message, span);
+
+        if let Some(context) = context {
+            error = error.with_context(context);
+        } else {
+            error = error.with_context(format!("found {}", Self::describe_token(self.current())));
+        }
+
+        if let Some(hint) = hint {
+            error = error.with_hint(hint);
+        }
+
+        self.errors.push(error);
+    }
+
+    fn describe_token(token: &Token) -> String {
+        match &token.kind {
+            TokenKind::Identifier(name) => format!("identifier `{}`", name),
+            TokenKind::Number(value) => format!("number `{}`", value),
+            TokenKind::Keyword(keyword) => format!("keyword `{}`", keyword),
+            TokenKind::Symbol(symbol) => format!("symbol `{}`", symbol),
+            TokenKind::Operator(op) => format!("operator `{}`", op),
+            TokenKind::StringLiteral(value) => {
+                const MAX_PREVIEW: usize = 24;
+                if value.len() > MAX_PREVIEW {
+                    let mut preview = value[..MAX_PREVIEW].to_string();
+                    preview.push_str("…");
+                    format!("string literal \"{}\"", preview)
+                } else {
+                    format!("string literal \"{}\"", value)
+                }
+            }
+            TokenKind::EndOfFile => "end of file".to_string(),
+        }
+    }
+
+    fn keyword_hint(&self, keyword: Keyword) -> Option<String> {
+        match keyword {
+            Keyword::Module => Some("Start the file with `module <name>;`.".to_string()),
+            Keyword::Import => Some("Use `import path.to.module;` to bring other modules into scope.".to_string()),
+            Keyword::Fn => Some("Function declarations start with `fn name(...)`.".to_string()),
+            Keyword::Trait => Some("Traits are declared with `trait TraitName { ... }`.".to_string()),
+            Keyword::Impl => Some("Use `impl Type` to provide trait implementations.".to_string()),
+            Keyword::Let => Some("Introduce bindings with `let name = expression;`.".to_string()),
+            Keyword::Return => Some("Use `return expression;` to exit a function early.".to_string()),
+            Keyword::While | Keyword::For | Keyword::Loop => {
+                Some("Loops require a control keyword such as `while`, `for`, or `loop`.".to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn symbol_hint(&self, symbol: char) -> Option<String> {
+        match symbol {
+            ';' => Some("Add a `;` to terminate the previous statement.".to_string()),
+            ')' => Some("Close the parenthesis with `)`.".to_string()),
+            '}' => Some("Close the block with `}`.".to_string()),
+            ']' => Some("Close the bracket with `]`.".to_string()),
+            '{' => Some("Insert `{` to open a block.".to_string()),
+            '(' => Some("Insert `(` to start the parameter or argument list.".to_string()),
+            _ => None,
         }
     }
 }

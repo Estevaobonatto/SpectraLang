@@ -15,9 +15,9 @@
 - [x] Add type inference coverage tests for complex expressions and method calls _(new semantic fixtures cover numeric promotion, trait-bound dispatch, and diagnostic failures in `tests/semantic/type_inference_complex_expressions.spectra` and `tests/semantic/type_inference_method_errors.spectra`)_
 
 ## Frontend Robustness
-- [ ] Audit lexer and parser feature coverage versus the planned syntax (traits with inheritance, impl blocks, pattern ergonomics)
+- [x] Audit lexer and parser feature coverage versus the planned syntax (traits with inheritance, impl blocks, pattern ergonomics) _(see `docs/frontend/parser-coverage-audit.md`)_
 - [ ] Improve error recovery to continue after common syntax mistakes
-- [ ] Attach detailed span information and contextual hints to diagnostics
+- [x] Attach detailed span information and contextual hints to diagnostics _(CLI diagnostics now highlight source spans with contextual notes and actionable hints)_
 - [ ] Support incremental or module-aware parsing to prepare for multi-file projects
 - [ ] Verify CLI and compiler flags gate experimental syntax behind feature toggles when needed
 
