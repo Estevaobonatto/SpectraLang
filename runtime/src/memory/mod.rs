@@ -129,7 +129,11 @@ impl HybridMemory {
     where
         T: Trace + 'static,
     {
-        let mut inner = self.collector.inner.lock().expect("collector mutex poisoned");
+        let mut inner = self
+            .collector
+            .inner
+            .lock()
+            .expect("collector mutex poisoned");
         let id = inner.allocate(value);
         let should_collect = inner.should_collect();
         drop(inner);
@@ -275,7 +279,9 @@ impl CollectorInner {
     }
 
     fn slot_mut(&mut self, id: AllocationId) -> Option<&mut GcSlot> {
-        self.slots.get_mut(id.index()).and_then(|entry| entry.as_mut())
+        self.slots
+            .get_mut(id.index())
+            .and_then(|entry| entry.as_mut())
     }
 
     fn collect(&mut self, triggered_automatically: bool) -> CollectionOutcome {
@@ -348,10 +354,7 @@ impl CollectorInner {
         }
 
         if freed_allocations > 0 {
-            self.stats.allocations = self
-                .stats
-                .allocations
-                .saturating_sub(freed_allocations);
+            self.stats.allocations = self.stats.allocations.saturating_sub(freed_allocations);
             self.stats.bytes = self.stats.bytes.saturating_sub(freed_bytes);
         }
 
@@ -514,8 +517,7 @@ where
     }
 
     pub fn borrow(&self) -> GcBorrow<'_, T> {
-        self
-            .try_borrow()
+        self.try_borrow()
             .unwrap_or_else(|| panic!("attempted to borrow a collected allocation"))
     }
 
@@ -537,8 +539,7 @@ where
     }
 
     pub fn borrow_mut(&self) -> GcBorrowMut<'_, T> {
-        self
-            .try_borrow_mut()
+        self.try_borrow_mut()
             .unwrap_or_else(|| panic!("attempted to mutably borrow a collected allocation"))
     }
 
@@ -683,7 +684,11 @@ impl ManualHeap {
         }
     }
 
-    fn allocate<T>(&self, value: T, config: &MemoryConfig) -> Result<ManualBox<T>, AllocationError> {
+    fn allocate<T>(
+        &self,
+        value: T,
+        config: &MemoryConfig,
+    ) -> Result<ManualBox<T>, AllocationError> {
         let size = size_of::<T>();
         self.register(size, config)?;
         let boxed = Box::new(value);
@@ -762,10 +767,7 @@ impl<T> ManualBox<T> {
     }
 
     pub fn into_inner(mut self) -> T {
-        let boxed = self
-            .value
-            .take()
-            .expect("manual allocation already taken");
+        let boxed = self.value.take().expect("manual allocation already taken");
         self.heap.release(self.size);
         self.size = 0;
         *boxed
@@ -830,10 +832,23 @@ macro_rules! impl_trace_for_copy {
 }
 
 impl_trace_for_copy!(
-    (), bool, char,
-    i8, i16, i32, i64, i128, isize,
-    u8, u16, u32, u64, u128, usize,
-    f32, f64
+    (),
+    bool,
+    char,
+    i8,
+    i16,
+    i32,
+    i64,
+    i128,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    u128,
+    usize,
+    f32,
+    f64
 );
 
 impl Trace for String {
@@ -920,9 +935,13 @@ mod tests {
         let memory = HybridMemory::with_config(config);
 
         {
-            let first = memory.allocate_manual([0_u8; 16]).expect("first allocation");
+            let first = memory
+                .allocate_manual([0_u8; 16])
+                .expect("first allocation");
             assert_eq!(memory.stats().manual.bytes, 16);
-            let second = memory.allocate_manual([0_u8; 32]).expect("second allocation");
+            let second = memory
+                .allocate_manual([0_u8; 32])
+                .expect("second allocation");
             assert_eq!(memory.stats().manual.allocations, 2);
             drop(first);
             assert_eq!(memory.stats().manual.allocations, 1);
@@ -940,9 +959,7 @@ mod tests {
         };
         let memory = HybridMemory::with_config(config);
 
-        memory
-            .allocate_manual([0_u8; 16])
-            .expect("within limit");
+        memory.allocate_manual([0_u8; 16]).expect("within limit");
         assert!(memory
             .allocate_manual([0_u8; 24])
             .unwrap_err()
@@ -977,7 +994,10 @@ mod tests {
     fn traced_children_keep_each_other_alive() {
         let memory = HybridMemory::default();
         let parent = memory.allocate_traced(Node::default());
-        let child = memory.allocate_traced(Node { _value: 1, next: None });
+        let child = memory.allocate_traced(Node {
+            _value: 1,
+            next: None,
+        });
         {
             let mut borrow = parent.borrow_mut();
             borrow.next = Some(child.clone());

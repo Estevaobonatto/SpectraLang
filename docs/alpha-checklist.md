@@ -28,7 +28,7 @@
 ## Runtime & Memory Model
 
 - [x] Define the SpectraLang memory strategy (hybrid GC/manual) and initial collector interface _(documented in `docs/runtime/memory-strategy.md`; runtime exposes `HybridMemory`, `Gc`, and `ManualBox` APIs)_
-- [ ] Wire runtime allocation APIs used by generated code across platforms
+- [x] Wire runtime allocation APIs used by generated code across platforms _(JIT imports `spectra_rt_manual_alloc` and clears allocations via `spectra_rt_manual_clear`; see `backend/src/codegen.rs` and `runtime/src/ffi.rs`)_
 - [ ] Deliver a minimal standard library (math, collections, I/O) backed by runtime support
 - [ ] Establish FFI or host-call conventions for JITed functions interacting with the runtime
 - [ ] Create conformance tests ensuring runtime initialization and teardown semantics

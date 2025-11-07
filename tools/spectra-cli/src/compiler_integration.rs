@@ -317,6 +317,9 @@ impl BackendDriver for FullPipelineBackend {
         let return_value = unsafe { codegen.execute_entry_point("main", &artifacts.ir_module) };
         let execution_duration = execution_start.elapsed();
 
+        // Ensure manual allocations do not leak across invocation boundaries.
+        spectra_runtime::ffi::spectra_rt_manual_clear();
+
         let return_value =
             return_value.map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?;
 

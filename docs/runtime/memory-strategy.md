@@ -55,6 +55,10 @@ Manual allocations are targeted at host interop (FFI buffers, pinned memory) and
 - Dropping `ManualBox<T>` or extracting the value with `into_inner()` decrements the live allocation counters, keeping telemetry accurate.
 - Manual allocations are transparent to the GC and therefore never participate in tracing.
 
+### Compiler Integration
+
+The backend now imports `spectra_rt_manual_alloc(size: usize) -> *mut u8` from the runtime. Every IR `alloca` lowers to a call to this function, meaning generated code executes on top of the runtime's manual heap instead of relying on Cranelift stack slots. During JIT execution the CLI clears outstanding allocations via `spectra_rt_manual_clear()` after the program finishes, ensuring allocator telemetry reflects each compilation run without leak accumulation. These hooks prove out the FFI surface and let us validate allocation pressure through `RuntimeState::memory_stats()`.
+
 ## Configuration
 
 `MemoryConfig` currently exposes two high-impact knobs:

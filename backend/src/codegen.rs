@@ -2,7 +2,6 @@
 // Translates Spectra IR to native machine code
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::StackSlot;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use spectra_midend::ir::{
@@ -20,22 +19,86 @@ pub struct CodeGenerator {
     builder_context: FunctionBuilderContext,
     /// Mapping from IR function names to Cranelift function IDs
     function_map: HashMap<String, FuncId>,
+    /// Import for runtime-backed manual allocation
+    manual_alloc_func: FuncId,
+    /// Import for freeing manual allocations
+    manual_free_func: FuncId,
+    /// Import for starting a manual allocation frame
+    manual_frame_enter_func: FuncId,
+    /// Import for ending a manual allocation frame
+    manual_frame_exit_func: FuncId,
 }
 
 impl CodeGenerator {
     /// Create a new code generator
     pub fn new() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names())
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())
             .expect("Failed to create JIT builder");
 
-        let module = JITModule::new(builder);
+        builder.symbol(
+            "spectra_rt_manual_alloc",
+            spectra_runtime::ffi::spectra_rt_manual_alloc as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_manual_free",
+            spectra_runtime::ffi::spectra_rt_manual_free as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_manual_frame_enter",
+            spectra_runtime::ffi::spectra_rt_manual_frame_enter as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_manual_frame_exit",
+            spectra_runtime::ffi::spectra_rt_manual_frame_exit as *const u8,
+        );
+
+        let mut module = JITModule::new(builder);
         let ctx = module.make_context();
+
+        let mut alloc_sig = module.make_signature();
+        alloc_sig.params.push(AbiParam::new(types::I64));
+        alloc_sig.returns.push(AbiParam::new(types::I64));
+
+        let manual_alloc_func = module
+            .declare_function("spectra_rt_manual_alloc", Linkage::Import, &alloc_sig)
+            .expect("Failed to declare runtime allocation import");
+
+        let mut free_sig = module.make_signature();
+        free_sig.params.push(AbiParam::new(types::I64));
+
+        let manual_free_func = module
+            .declare_function("spectra_rt_manual_free", Linkage::Import, &free_sig)
+            .expect("Failed to declare runtime free import");
+
+        let mut frame_enter_sig = module.make_signature();
+        frame_enter_sig.returns.push(AbiParam::new(types::I64));
+        let manual_frame_enter_func = module
+            .declare_function(
+                "spectra_rt_manual_frame_enter",
+                Linkage::Import,
+                &frame_enter_sig,
+            )
+            .expect("Failed to declare runtime frame enter import");
+
+        let mut frame_exit_sig = module.make_signature();
+        frame_exit_sig.params.push(AbiParam::new(types::I64));
+        let manual_frame_exit_func = module
+            .declare_function(
+                "spectra_rt_manual_frame_exit",
+                Linkage::Import,
+                &frame_exit_sig,
+            )
+            .expect("Failed to declare runtime frame exit import");
 
         Self {
             module,
             ctx,
             builder_context: FunctionBuilderContext::new(),
             function_map: HashMap::new(),
+            manual_alloc_func,
+            manual_free_func,
+            manual_frame_enter_func,
+            manual_frame_exit_func,
         }
     }
 
@@ -113,11 +176,22 @@ impl CodeGenerator {
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
+        // Enter a runtime-managed manual allocation frame for this function invocation.
+        let frame_enter_ref = self
+            .module
+            .declare_func_in_func(self.manual_frame_enter_func, builder.func);
+        let frame_call = builder.ins().call(frame_enter_ref, &[]);
+        let frame_token = builder.inst_results(frame_call)[0];
+
         // Create value and block mappings
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
-        let mut stack_slot_map: HashMap<usize, StackSlot> = HashMap::new();
-
+        let mut allocation_vars: Vec<Variable> = Vec::new();
+        let mut next_alloc_var_index: u32 = 0;
+        let frame_var = Variable::from_u32(next_alloc_var_index);
+        next_alloc_var_index = next_alloc_var_index.wrapping_add(1);
+        builder.declare_var(frame_var, types::I64);
+        builder.def_var(frame_var, frame_token);
         // Map function parameters to Cranelift values
         let params = builder.block_params(entry_block).to_vec();
         for (idx, &cl_value) in params.iter().enumerate() {
@@ -141,10 +215,15 @@ impl CodeGenerator {
                 &mut builder,
                 ir_block,
                 &mut value_map,
-                &mut stack_slot_map,
                 &block_map,
                 &self.function_map,
                 &mut self.module,
+                self.manual_alloc_func,
+                self.manual_free_func,
+                self.manual_frame_exit_func,
+                &mut allocation_vars,
+                &mut next_alloc_var_index,
+                frame_var,
             )?;
         }
 
@@ -177,10 +256,15 @@ impl CodeGenerator {
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
-        stack_slot_map: &mut HashMap<usize, StackSlot>,
         block_map: &HashMap<usize, Block>,
         function_map: &HashMap<String, FuncId>,
         module: &mut JITModule,
+        manual_alloc_func: FuncId,
+        manual_free_func: FuncId,
+        manual_frame_exit_func: FuncId,
+        allocation_vars: &mut Vec<Variable>,
+        next_alloc_var_index: &mut u32,
+        frame_var: Variable,
     ) -> Result<(), String> {
         // Get Cranelift block
         let block = *block_map
@@ -193,20 +277,34 @@ impl CodeGenerator {
         }
 
         // Generate instructions
+        let track_allocations = ir_block.id == 0;
         for instr in &ir_block.instructions {
             Self::generate_instruction_static(
                 builder,
                 instr,
                 value_map,
-                stack_slot_map,
                 function_map,
                 module,
+                manual_alloc_func,
+                allocation_vars,
+                next_alloc_var_index,
+                track_allocations,
             )?;
         }
 
         // Generate terminator
         if let Some(ref terminator) = ir_block.terminator {
-            Self::generate_terminator_static(builder, terminator, value_map, block_map)?;
+            Self::generate_terminator_static(
+                builder,
+                terminator,
+                value_map,
+                block_map,
+                module,
+                manual_free_func,
+                manual_frame_exit_func,
+                allocation_vars.as_slice(),
+                frame_var,
+            )?;
         }
 
         Ok(())
@@ -217,9 +315,12 @@ impl CodeGenerator {
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
-        stack_slot_map: &mut HashMap<usize, StackSlot>,
         function_map: &HashMap<String, FuncId>,
         module: &mut JITModule,
+        manual_alloc_func: FuncId,
+        allocation_vars: &mut Vec<Variable>,
+        next_alloc_var_index: &mut u32,
+        track_allocations: bool,
     ) -> Result<(), String> {
         // Helper to get value from map
         let get_value = |v: &IRValue| -> Result<Value, String> {
@@ -339,25 +440,25 @@ impl CodeGenerator {
 
             // Memory operations
             InstructionKind::Alloca { result, ty } => {
-                // Calculate actual size in bytes (important for arrays)
-                let size_bytes = Self::type_size_bytes(ty) as u32;
-                // Use 8-byte alignment for better compatibility
-                let alignment = 8;
-                let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
-                    StackSlotKind::ExplicitSlot,
-                    size_bytes,
-                    alignment,
-                ));
+                let size_bytes = Self::type_size_bytes(ty) as i64;
+                let size_value = builder.ins().iconst(types::I64, size_bytes);
+                let func_ref = module.declare_func_in_func(manual_alloc_func, builder.func);
+                let call = builder.ins().call(func_ref, &[size_value]);
+                let results = builder.inst_results(call);
+                if let Some(&ptr) = results.first() {
+                    value_map.insert(result.id, ptr);
 
-                // ONLY store arrays in stack_slot_map (they need cross-block access)
-                // Regular mutable variables work fine with just value_map
-                if matches!(ty, IRType::Array { .. }) {
-                    stack_slot_map.insert(result.id, stack_slot);
+                    if track_allocations {
+                        let var = Variable::from_u32(*next_alloc_var_index);
+                        let next_index = (*next_alloc_var_index).wrapping_add(1);
+                        *next_alloc_var_index = next_index;
+                        builder.declare_var(var, types::I64);
+                        builder.def_var(var, ptr);
+                        allocation_vars.push(var);
+                    }
+                } else {
+                    return Err("runtime allocation did not return a pointer".to_string());
                 }
-
-                // For immediate use in the same block, always generate stack_addr
-                let addr = builder.ins().stack_addr(types::I64, stack_slot, 0);
-                value_map.insert(result.id, addr);
             }
 
             InstructionKind::Load { result, ptr } => {
@@ -378,13 +479,7 @@ impl CodeGenerator {
                 index,
                 element_type,
             } => {
-                // Check if ptr refers to a stack slot that needs regeneration
-                let ptr_val = if let Some(&stack_slot) = stack_slot_map.get(&ptr.id) {
-                    // Regenerate stack_addr in this block (solves SSA dominance issue)
-                    builder.ins().stack_addr(types::I64, stack_slot, 0)
-                } else {
-                    get_value(ptr)?
-                };
+                let ptr_val = get_value(ptr)?;
 
                 let index_val = get_value(index)?;
 
@@ -467,6 +562,11 @@ impl CodeGenerator {
         terminator: &Terminator,
         value_map: &HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
+        module: &mut JITModule,
+        manual_free_func: FuncId,
+        manual_frame_exit_func: FuncId,
+        allocation_vars: &[Variable],
+        frame_var: Variable,
     ) -> Result<(), String> {
         // Helper to get value from map
         let get_value = |v: &IRValue| -> Result<Value, String> {
@@ -484,11 +584,29 @@ impl CodeGenerator {
             }
 
             Terminator::Return { value } => {
+                let mut return_values: Vec<Value> = Vec::new();
                 if let Some(val) = value {
                     let return_val = get_value(val)?;
-                    builder.ins().return_(&[return_val]);
-                } else {
+                    return_values.push(return_val);
+                }
+
+                if !allocation_vars.is_empty() {
+                    let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
+                    for &var in allocation_vars {
+                        let ptr_val = builder.use_var(var);
+                        builder.ins().call(free_ref, &[ptr_val]);
+                    }
+                }
+
+                let frame_exit_ref =
+                    module.declare_func_in_func(manual_frame_exit_func, builder.func);
+                let frame_val = builder.use_var(frame_var);
+                builder.ins().call(frame_exit_ref, &[frame_val]);
+
+                if return_values.is_empty() {
                     builder.ins().return_(&[]);
+                } else {
+                    builder.ins().return_(&return_values);
                 }
             }
 

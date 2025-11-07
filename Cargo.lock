@@ -329,6 +329,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "spectra-midend",
+ "spectra-runtime",
  "target-lexicon",
 ]
 

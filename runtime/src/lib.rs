@@ -2,9 +2,12 @@ use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
+pub mod ffi;
 pub mod memory;
 
-pub use memory::{CollectionOutcome, HybridMemory, MemoryConfig, MemoryStats, TracedStats, ManualStats};
+pub use memory::{
+    CollectionOutcome, HybridMemory, ManualStats, MemoryConfig, MemoryStats, TracedStats,
+};
 
 static RUNTIME_STATE: OnceLock<RuntimeState> = OnceLock::new();
 

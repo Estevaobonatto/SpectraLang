@@ -12,3 +12,4 @@ cranelift-module = "0.109"
 cranelift-jit = "0.109"
 cranelift-native = "0.109"
 target-lexicon = "0.12"
+spectra-runtime = { path = "../runtime" }
