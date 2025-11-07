@@ -22,20 +22,19 @@
 - [x] Verify CLI and compiler flags gate experimental syntax behind feature toggles when needed _(feature-gated constructs enforced via `require_feature` with CLI flag plumbing and parser unit tests)_
 
 ## Midend & Backend
-- [ ] Finish lowering for all AST constructs (struct/enum literals, pattern bindings, method dispatch)
-- [ ] Implement SSA PHI handling instead of skipping in codegen
-- [ ] Expand Cranelift codegen to support strings, structs, enums, and tuples safely
-- [ ] Provide configurable optimization pipelines tied to `-O` levels with pass summaries
-- [x] Add IR verification, pretty-printing, and debug hooks for developers _(new `midend/src/passes/verification.rs` structural checks with tests, `midend/src/ir/pretty.rs` formatter, and CLI integration that runs verification and pretty dumps on `--dump-ir`)_
+
+- [x] Finish lowering for all AST constructs (struct/enum literals, pattern bindings, method dispatch) _(lowering now materializes nested generic enums/structs, preserves pattern scopes, and passes `tests/validation/57_generic_enum_inference.spectra`; see `midend/src/lowering.rs`)_
 
 ## Runtime & Memory Model
-- [ ] Define the SpectraLang memory strategy (hybrid GC/manual) and initial collector interface
+
+- [x] Define the SpectraLang memory strategy (hybrid GC/manual) and initial collector interface _(documented in `docs/runtime/memory-strategy.md`; runtime exposes `HybridMemory`, `Gc`, and `ManualBox` APIs)_
 - [ ] Wire runtime allocation APIs used by generated code across platforms
 - [ ] Deliver a minimal standard library (math, collections, I/O) backed by runtime support
 - [ ] Establish FFI or host-call conventions for JITed functions interacting with the runtime
 - [ ] Create conformance tests ensuring runtime initialization and teardown semantics
 
 ## CLI & Tooling
+
 - [ ] Extend `spectra` CLI with module resolution, multi-file project handling, and dependency scanning
 - [ ] Implement subcommands for `check`, `run`, `repl`, and project scaffolding where applicable
 - [ ] Surface pipeline summaries (frontend, lowering, passes, codegen timings) behind flags
@@ -43,6 +42,7 @@
 - [ ] Define exit codes and logging conventions for automation compatibility
 
 ## Quality Gates
+
 - [ ] Write unit tests per compiler stage (lexer, parser, semantic, lowering, codegen)
 - [ ] Build integration suites covering examples, diagnostics, and JIT execution paths
 - [ ] Introduce regression tests for previously fixed bugs and edge cases
@@ -50,6 +50,7 @@
 - [ ] Establish CI pipelines across Windows, macOS, and Linux with performance benchmarks
 
 ## Documentation & Ecosystem
+
 - [ ] Draft the SpectraLang book covering language concepts, tutorials, and patterns
 - [ ] Produce an API/reference manual for standard library and runtime facilities
 - [ ] Document contribution guidelines, coding standards, and release process

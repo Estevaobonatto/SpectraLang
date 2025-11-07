@@ -2,6 +2,10 @@ use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
+pub mod memory;
+
+pub use memory::{CollectionOutcome, HybridMemory, MemoryConfig, MemoryStats, TracedStats, ManualStats};
+
 static RUNTIME_STATE: OnceLock<RuntimeState> = OnceLock::new();
 
 /// Captures when and where the runtime became available.
@@ -10,14 +14,16 @@ pub struct RuntimeState {
     start_instant: Instant,
     start_time: SystemTime,
     init_thread: ThreadId,
+    memory: HybridMemory,
 }
 
 impl RuntimeState {
-    fn new() -> Self {
+    fn with_config(config: MemoryConfig) -> Self {
         Self {
             start_instant: Instant::now(),
             start_time: SystemTime::now(),
             init_thread: std::thread::current().id(),
+            memory: HybridMemory::with_config(config),
         }
     }
 
@@ -35,11 +41,36 @@ impl RuntimeState {
     pub fn init_thread_id(&self) -> ThreadId {
         self.init_thread
     }
+
+    /// Returns the hybrid memory manager associated with this runtime.
+    pub fn memory(&self) -> &HybridMemory {
+        &self.memory
+    }
+
+    /// Returns current memory statistics.
+    pub fn memory_stats(&self) -> MemoryStats {
+        self.memory.stats()
+    }
+
+    /// Returns the active memory configuration.
+    pub fn memory_config(&self) -> MemoryConfig {
+        self.memory.config()
+    }
+
+    /// Forces a garbage collection cycle via the hybrid memory manager.
+    pub fn collect_garbage(&self) -> CollectionOutcome {
+        self.memory.collect_garbage()
+    }
 }
 
 /// Ensures the runtime is initialised exactly once and returns its state.
 pub fn initialize() -> &'static RuntimeState {
-    RUNTIME_STATE.get_or_init(RuntimeState::new)
+    initialize_with_config(MemoryConfig::default())
+}
+
+/// Initialises the runtime using the specified memory configuration.
+pub fn initialize_with_config(config: MemoryConfig) -> &'static RuntimeState {
+    RUNTIME_STATE.get_or_init(move || RuntimeState::with_config(config))
 }
 
 /// Returns the runtime state if it has already been initialised.
