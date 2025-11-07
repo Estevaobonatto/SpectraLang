@@ -27,6 +27,14 @@ impl Parser {
                 self.parse_while_statement()?
             }
             crate::token::TokenKind::Keyword(Keyword::Do) => {
+                let feature_span = self.current().span;
+                if self
+                    .require_feature("do-while", feature_span, "Do-while loops")
+                    .is_err()
+                {
+                    self.synchronize();
+                    return Err(());
+                }
                 self.advance(); // consume 'do'
                 self.parse_do_while_statement()?
             }
@@ -35,10 +43,26 @@ impl Parser {
                 self.parse_for_statement()?
             }
             crate::token::TokenKind::Keyword(Keyword::Loop) => {
+                let feature_span = self.current().span;
+                if self
+                    .require_feature("loop", feature_span, "Loop statements")
+                    .is_err()
+                {
+                    self.synchronize();
+                    return Err(());
+                }
                 self.advance(); // consume 'loop'
                 self.parse_loop_statement()?
             }
             crate::token::TokenKind::Keyword(Keyword::Switch) => {
+                let feature_span = self.current().span;
+                if self
+                    .require_feature("switch", feature_span, "Switch statements")
+                    .is_err()
+                {
+                    self.synchronize();
+                    return Err(());
+                }
                 self.advance(); // consume 'switch'
                 self.parse_switch_statement()?
             }

@@ -3,6 +3,7 @@ mod item;
 mod module;
 mod statement;
 mod type_annotation;
+pub mod workspace;
 
 use crate::{
     ast::{Module, TypeAnnotation, TypeAnnotationKind},
@@ -10,22 +11,24 @@ use crate::{
     span::Span,
     token::{Keyword, Token, TokenKind},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     errors: Vec<ParseError>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
+    enabled_features: HashSet<String>,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>, enabled_features: HashSet<String>) -> Self {
         Self {
             tokens,
             position: 0,
             errors: Vec::new(),
             trait_signatures: HashMap::new(),
+            enabled_features,
         }
     }
 
@@ -88,7 +91,7 @@ impl Parser {
     // === Token Consumption Methods ===
 
     fn consume_keyword(&mut self, keyword: Keyword, error_message: &str) -> Result<Span, ()> {
-        if self.check_keyword(keyword) {
+        if self.check_keyword(keyword.clone()) {
             let span = self.current().span;
             self.advance();
             Ok(span)
@@ -99,7 +102,7 @@ impl Parser {
                 keyword,
                 Self::describe_token(self.current())
             );
-            let hint = self.keyword_hint(keyword);
+            let hint = self.keyword_hint(keyword.clone());
             self.push_error(error_message, span, hint, Some(context));
             Err(())
         }
@@ -110,6 +113,17 @@ impl Parser {
             let span = self.current().span;
             self.advance();
             Ok(span)
+        } else if let Some(recovery_span) = self.recover_missing_symbol(symbol) {
+            let context = format!(
+                "missing `{}` before {}",
+                symbol,
+                Self::describe_token(self.current())
+            );
+            let hint = self
+                .symbol_hint(symbol)
+                .or_else(|| Some(format!("Insert `{}` here.", symbol)));
+            self.push_error(error_message, recovery_span, hint, Some(context));
+            Ok(recovery_span)
         } else {
             let span = self.current().span;
             let context = format!(
@@ -163,6 +177,10 @@ impl Parser {
                 return;
             }
 
+            if self.check_symbol('}') {
+                return;
+            }
+
             match &self.current().kind {
                 TokenKind::Keyword(Keyword::Module)
                 | TokenKind::Keyword(Keyword::Import)
@@ -170,11 +188,180 @@ impl Parser {
                 | TokenKind::Keyword(Keyword::Class)
                 | TokenKind::Keyword(Keyword::Trait)
                 | TokenKind::Keyword(Keyword::Let)
-                | TokenKind::Keyword(Keyword::Return) => return,
+                | TokenKind::Keyword(Keyword::Return)
+                | TokenKind::Keyword(Keyword::Else)
+                | TokenKind::Keyword(Keyword::Elif)
+                | TokenKind::Keyword(Keyword::ElseIf)
+                | TokenKind::Keyword(Keyword::Case)
+                | TokenKind::Keyword(Keyword::Switch) => return,
                 _ => {}
             }
 
             self.advance();
+        }
+    }
+
+    fn is_feature_enabled(&self, feature: &str) -> bool {
+        self.enabled_features.contains(feature)
+    }
+
+    fn require_feature(
+        &mut self,
+        feature: &str,
+        span: Span,
+        description: &str,
+    ) -> Result<(), ()> {
+        if self.is_feature_enabled(feature) {
+            return Ok(());
+        }
+
+        let message = format!(
+            "{} require enabling the experimental '{}' feature",
+            description, feature
+        );
+        let hint = format!(
+            "Re-run with --enable-experimental {} to opt into {}.",
+            feature, description.to_lowercase()
+        );
+        let context = format!("feature '{}' is disabled for this compilation", feature);
+        self.push_error(message, span, Some(hint), Some(context));
+        Err(())
+    }
+
+    fn recover_missing_symbol(&self, symbol: char) -> Option<Span> {
+        match symbol {
+            ';' => {
+                if self.is_at_end() || self.is_statement_boundary_token() {
+                    return Some(self.synthetic_span_before_current());
+                }
+            }
+            '}' => {
+                if self.is_at_end() || self.is_block_terminator_token() {
+                    return Some(self.synthetic_span_before_current());
+                }
+            }
+            ')' => {
+                if self.is_at_end()
+                    || self.is_post_paren_boundary_token()
+                    || self.is_statement_boundary_token()
+                {
+                    return Some(self.synthetic_span_before_current());
+                }
+            }
+            _ => {}
+        }
+
+        None
+    }
+
+    fn recover_in_delimited_list(
+        &mut self,
+        terminator_symbols: &[char],
+        separator_symbols: &[char],
+    ) {
+        while !self.is_at_end() {
+            match &self.current().kind {
+                TokenKind::Symbol(symbol)
+                    if terminator_symbols.contains(symbol)
+                        || separator_symbols.contains(symbol)
+                        || matches!(symbol, '}' | ';') =>
+                {
+                    return;
+                }
+                TokenKind::Keyword(_) | TokenKind::EndOfFile => return,
+                _ => self.advance(),
+            }
+        }
+    }
+
+    fn synthetic_span_before_current(&self) -> Span {
+        if self.position == 0 {
+            return Span::dummy();
+        }
+
+        let prev_span = self.tokens[self.position - 1].span;
+        Span::new(
+            prev_span.end,
+            prev_span.end,
+            prev_span.end_location,
+            prev_span.end_location,
+        )
+    }
+
+    fn is_statement_boundary_token(&self) -> bool {
+        if self.is_at_end() {
+            return true;
+        }
+
+        match &self.current().kind {
+            TokenKind::Keyword(kw) => matches!(
+                kw,
+                Keyword::Let
+                    | Keyword::Return
+                    | Keyword::If
+                    | Keyword::Unless
+                    | Keyword::Match
+                    | Keyword::While
+                    | Keyword::Do
+                    | Keyword::For
+                    | Keyword::Loop
+                    | Keyword::Switch
+                    | Keyword::Break
+                    | Keyword::Continue
+                    | Keyword::Fn
+                    | Keyword::Struct
+                    | Keyword::Enum
+                    | Keyword::Impl
+                    | Keyword::Trait
+                    | Keyword::Class
+                    | Keyword::Module
+                    | Keyword::Import
+                    | Keyword::Pub
+                    | Keyword::Case
+                    | Keyword::Else
+                    | Keyword::Elif
+                    | Keyword::ElseIf
+            ),
+            TokenKind::Identifier(_)
+            | TokenKind::Number(_)
+            | TokenKind::StringLiteral(_) => true,
+            TokenKind::Symbol('(') | TokenKind::Symbol('{') => true,
+            _ => false,
+        }
+    }
+
+    fn is_block_terminator_token(&self) -> bool {
+        if self.is_at_end() {
+            return true;
+        }
+
+        match &self.current().kind {
+            TokenKind::Keyword(Keyword::Else)
+            | TokenKind::Keyword(Keyword::Elif)
+            | TokenKind::Keyword(Keyword::ElseIf)
+            | TokenKind::Keyword(Keyword::Case)
+            | TokenKind::Keyword(Keyword::Fn)
+            | TokenKind::Keyword(Keyword::Struct)
+            | TokenKind::Keyword(Keyword::Enum)
+            | TokenKind::Keyword(Keyword::Trait)
+            | TokenKind::Keyword(Keyword::Impl)
+            | TokenKind::Keyword(Keyword::Class)
+            | TokenKind::Keyword(Keyword::Module)
+            | TokenKind::Keyword(Keyword::Import)
+            | TokenKind::Keyword(Keyword::Return) => true,
+            _ => false,
+        }
+    }
+
+    fn is_post_paren_boundary_token(&self) -> bool {
+        if self.is_at_end() {
+            return true;
+        }
+
+        match &self.current().kind {
+            TokenKind::Symbol('{') | TokenKind::Symbol(')') => true,
+            TokenKind::Operator(crate::token::Operator::Arrow) => true,
+            _ => false,
         }
     }
 
@@ -247,6 +434,58 @@ impl Parser {
             '(' => Some("Insert `(` to start the parameter or argument list.".to_string()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::Module;
+    use crate::lexer::Lexer;
+    use std::collections::HashSet;
+
+    fn parse_with_features(
+        source: &str,
+        features: &[&str],
+    ) -> Result<Module, Vec<ParseError>> {
+        let tokens = Lexer::new(source)
+            .tokenize()
+            .expect("lexer should not fail in parser tests");
+        let mut feature_set = HashSet::new();
+        for feature in features {
+            feature_set.insert((*feature).to_string());
+        }
+        Parser::new(tokens, feature_set).parse()
+    }
+
+    #[test]
+    fn loop_feature_flag_gates_parsing() {
+        let source = r#"
+            module demo;
+
+            fn main() {
+                loop {
+                    break;
+                }
+            }
+        "#;
+
+        assert!(parse_with_features(source, &[]).is_err());
+        assert!(parse_with_features(source, &["loop"]).is_ok());
+    }
+
+    #[test]
+    fn unless_feature_flag_gates_parsing() {
+        let source = r#"
+            module demo;
+
+            fn main() {
+                let value = unless false { 1 };
+            }
+        "#;
+
+        assert!(parse_with_features(source, &[]).is_err());
+        assert!(parse_with_features(source, &["unless"]).is_ok());
     }
 }
 

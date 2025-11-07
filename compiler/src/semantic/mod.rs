@@ -184,8 +184,58 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn push_semantic_error(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        context: Option<String>,
+        hint: Option<String>,
+    ) {
+        let mut error = SemanticError::new(message, span);
+        if let Some(context) = context {
+            error = error.with_context(context);
+        }
+        if let Some(hint) = hint {
+            error = error.with_hint(hint);
+        }
+        self.errors.push(error);
+    }
+
     fn error(&mut self, message: impl Into<String>, span: Span) {
-        self.errors.push(SemanticError::new(message, span));
+        self.push_semantic_error(message, span, None, None);
+    }
+
+    fn error_with_hint(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        hint: impl Into<String>,
+    ) {
+        self.push_semantic_error(message, span, None, Some(hint.into()));
+    }
+
+    fn error_with_context(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        context: impl Into<String>,
+    ) {
+        self.push_semantic_error(message, span, Some(context.into()), None);
+    }
+
+    fn error_with_details(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        context: impl Into<String>,
+        hint: impl Into<String>,
+    ) {
+        self.push_semantic_error(
+            message,
+            span,
+            Some(context.into()),
+            Some(hint.into()),
+        );
     }
 
     fn push_scope(&mut self) {
@@ -209,12 +259,17 @@ impl SemanticAnalyzer {
 
             for bound in &param.bounds {
                 if !self.traits.contains_key(bound) {
-                    self.error(
+                    self.error_with_details(
                         format!(
                             "Trait '{}' referenced in bound for type parameter '{}' is not defined",
                             bound, param.name
                         ),
                         param.span,
+                        format!("generic bound `{}: {}` cannot be resolved", param.name, bound),
+                        format!(
+                            "Declare `trait {}` or import it before using it as a bound.",
+                            bound
+                        ),
                     );
                 }
             }
@@ -287,24 +342,27 @@ impl SemanticAnalyzer {
         let has_self = signature.self_kind.is_some();
 
         if !has_self {
-            self.error(
+            self.error_with_hint(
                 format!(
                     "Method '{}' does not take 'self'; call it as an associated function",
                     method_name
                 ),
                 call_span,
+                "Call this item as `Type::method(...)` or update the signature to accept `self`.",
             );
             return;
         }
 
         if let Some(expected_self_type) = signature.params.get(0) {
             if !self.types_match(receiver_type, expected_self_type) {
-                self.error(
+                self.error_with_details(
                     format!(
                         "Method '{}' expects receiver of type {:?}, but found {:?}",
                         method_name, expected_self_type, receiver_type
                     ),
                     call_span,
+                    format!("receiver expression resolved to {:?}", receiver_type),
+                    "Convert or borrow the receiver to match the method signature.",
                 );
             }
         }
@@ -313,7 +371,7 @@ impl SemanticAnalyzer {
         let expected_args = signature.params.len().saturating_sub(arg_offset);
 
         if arguments.len() != expected_args {
-            self.error(
+            self.error_with_details(
                 format!(
                     "Method '{}' expects {} argument(s), but {} were provided",
                     method_name,
@@ -321,6 +379,11 @@ impl SemanticAnalyzer {
                     arguments.len()
                 ),
                 call_span,
+                format!(
+                    "expected {} argument(s) after the receiver",
+                    expected_args
+                ),
+                "Review the method's signature and adjust the call arity.",
             );
         }
 
@@ -329,19 +392,19 @@ impl SemanticAnalyzer {
             let expected_index = i + arg_offset;
             if let Some(expected_type) = signature.params.get(expected_index) {
                 if !self.types_match(&arg_type, expected_type) {
-                    let mut message = format!(
-                        "Method '{}' argument {} has type {:?}, but {:?} was expected",
-                        method_name,
-                        i + 1,
-                        arg_type,
-                        expected_type
+                    let hint = self.conversion_hint(&arg_type, expected_type);
+                    self.push_semantic_error(
+                        format!(
+                            "Method '{}' argument {} has type {:?}, but {:?} was expected",
+                            method_name,
+                            i + 1,
+                            arg_type,
+                            expected_type
+                        ),
+                        arg.span,
+                        Some(format!("argument {} resolved to {:?}", i + 1, arg_type)),
+                        hint,
                     );
-                    if let Some(hint) = self.conversion_hint(&arg_type, expected_type) {
-                        message.push_str(" ");
-                        message.push_str(&hint);
-                    }
-
-                    self.error(message, arg.span);
                 }
             }
         }
@@ -523,12 +586,13 @@ impl SemanticAnalyzer {
 
                     if let Some(visibility) = self.lookup_type_visibility(name) {
                         if visibility == Visibility::Private {
-                            self.error(
+                            self.error_with_context(
                                 format!(
-                                    "{} references private type '{}'; mark the referenced type as public or keep this item private",
-                                    context, name
+                                    "Type '{}' is private but exposed through a public item",
+                                    name
                                 ),
                                 span,
+                                format!("{} cannot mention private types", context),
                             );
                         }
                     }
@@ -1511,12 +1575,13 @@ impl SemanticAnalyzer {
 
                 // Declare the variable with its type
                 if !self.declare_symbol(let_stmt.name.clone(), let_stmt.span, inferred_type) {
-                    self.error(
+                    self.error_with_hint(
                         format!(
                             "Variable '{}' is already declared in this scope",
                             let_stmt.name
                         ),
                         let_stmt.span,
+                        "Rename the new binding or remove the duplicate declaration.",
                     );
                 }
             }
@@ -1526,9 +1591,14 @@ impl SemanticAnalyzer {
                     crate::ast::LValue::Identifier(name) => {
                         // Check if variable exists
                         if self.lookup_symbol(name).is_none() {
-                            self.error(
+                            self.error_with_details(
                                 format!("Variable '{}' is not defined", name),
                                 assign_stmt.target_span,
+                                "no binding with this name exists in the current scope",
+                                format!(
+                                    "Declare `{}` before using it or fix the identifier spelling.",
+                                    name
+                                ),
                             );
                         }
                     }
@@ -1540,9 +1610,13 @@ impl SemanticAnalyzer {
                         // Check that index is an integer
                         let index_type = self.infer_expression_type(index);
                         if !matches!(index_type, Type::Int | Type::Unknown) {
-                            self.error(
-                                format!("Array index must be an integer, found {:?}", index_type),
+                            self.error_with_hint(
+                                format!(
+                                    "Array index must be an integer, found {:?}",
+                                    index_type
+                                ),
                                 assign_stmt.target_span,
+                                "Convert the index expression to `int` before indexing.",
                             );
                         }
                     }
@@ -1568,21 +1642,28 @@ impl SemanticAnalyzer {
                 let value_type = self.infer_expression_type(&assign_stmt.value);
 
                 if !self.types_match(&value_type, &target_type) {
-                    let mut message = format!(
-                        "Cannot assign value of type {:?} to target of type {:?}",
-                        value_type, target_type
+                    let hint = self.conversion_hint(&value_type, &target_type);
+                    self.push_semantic_error(
+                        format!(
+                            "Cannot assign value of type {:?} to target of type {:?}",
+                            value_type, target_type
+                        ),
+                        assign_stmt.value.span,
+                        Some(format!(
+                            "assignment target resolves to {:?} while the expression resolves to {:?}",
+                            target_type, value_type
+                        )),
+                        hint,
                     );
-                    if let Some(hint) = self.conversion_hint(&value_type, &target_type) {
-                        message.push_str(" ");
-                        message.push_str(&hint);
-                    }
-
-                    self.error(message, assign_stmt.value.span);
                 }
             }
             StatementKind::Return(ret_stmt) => {
                 if self.current_function.is_none() {
-                    self.error("Return statement outside of function", ret_stmt.span);
+                    self.error_with_hint(
+                        "Return statement outside of function",
+                        ret_stmt.span,
+                        "Move this return inside a function body.",
+                    );
                 }
 
                 if let Some(ref value) = ret_stmt.value {
@@ -3003,9 +3084,10 @@ impl SemanticAnalyzer {
         match value {
             Some(expr) => {
                 if matches!(expected, Type::Unit) {
-                    self.error(
+                    self.error_with_hint(
                         "Return statement in function with no return type",
                         expr.span,
+                        "Remove the returned value or declare an explicit return type.",
                     );
                     return;
                 }
@@ -3016,23 +3098,24 @@ impl SemanticAnalyzer {
                 }
 
                 if !self.types_match(&actual, &expected) {
-                    let mut message = format!(
-                        "Return type mismatch: expected {:?}, found {:?}",
-                        expected, actual
+                    let hint = self.conversion_hint(&actual, &expected);
+                    self.push_semantic_error(
+                        format!(
+                            "Return type mismatch: expected {:?}, found {:?}",
+                            expected, actual
+                        ),
+                        expr.span,
+                        Some(format!("function declared to return {:?}", expected)),
+                        hint,
                     );
-                    if let Some(hint) = self.conversion_hint(&actual, &expected) {
-                        message.push_str(" ");
-                        message.push_str(&hint);
-                    }
-
-                    self.error(message, expr.span);
                 }
             }
             None => {
                 if !matches!(expected, Type::Unit | Type::Unknown) {
-                    self.error(
+                    self.error_with_hint(
                         format!("Return statement missing value of type {:?}", expected),
                         span,
+                        "Supply a value or change the function's return type to `unit`.",
                     );
                 }
             }

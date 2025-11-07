@@ -3,9 +3,9 @@
 
 use crate::ast::Module as ASTModule;
 use crate::error::CompilerError;
-use crate::lexer::Lexer;
-use crate::parser::Parser;
+use crate::parser::workspace::{ModuleLoader, ModuleParseError};
 use crate::semantic::SemanticAnalyzer;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
 
@@ -24,6 +24,8 @@ pub struct CompilationOptions {
     pub run_jit: bool,
     /// Collect timing metrics for each compilation stage
     pub collect_metrics: bool,
+    /// Enabled experimental language features
+    pub experimental_features: HashSet<String>,
 }
 
 impl Default for CompilationOptions {
@@ -35,6 +37,7 @@ impl Default for CompilationOptions {
             dump_ast: false,
             run_jit: false,
             collect_metrics: false,
+            experimental_features: HashSet::new(),
         }
     }
 }
@@ -104,6 +107,7 @@ where
 {
     options: CompilationOptions,
     backend: B,
+    module_loader: ModuleLoader,
 }
 
 impl CompilationPipeline<NoopBackend> {
@@ -111,6 +115,7 @@ impl CompilationPipeline<NoopBackend> {
         Self {
             options,
             backend: NoopBackend::default(),
+            module_loader: ModuleLoader::new(),
         }
     }
 
@@ -121,6 +126,7 @@ impl CompilationPipeline<NoopBackend> {
         CompilationPipeline {
             options: self.options,
             backend,
+            module_loader: self.module_loader,
         }
     }
 }
@@ -133,37 +139,36 @@ where
     pub fn compile(
         &mut self,
         source: &str,
-        _filename: &str,
+        filename: &str,
     ) -> Result<CompilationResult<B::Artifacts>, Vec<CompilerError>> {
         let collect_metrics = self.options.collect_metrics;
         let total_start = collect_metrics.then(Instant::now);
         let mut metrics = collect_metrics.then_some(CompilationMetrics::default());
 
-        // Phase 1: Lexical Analysis
-        let lexer = Lexer::new(source);
-        let lex_start = collect_metrics.then(Instant::now);
-        let tokens = lexer.tokenize().map_err(|errors| {
-            errors
+        // Phases 1 & 2: Lexical Analysis + Parsing (with incremental cache)
+        let parse_outcome = self.module_loader.parse_module(
+            filename,
+            source,
+            &self.options.experimental_features,
+        );
+
+        let parse_outcome = parse_outcome.map_err(|error| match error {
+            ModuleParseError::Lexical(errors) => errors
                 .into_iter()
                 .map(CompilerError::Lexical)
-                .collect::<Vec<_>>()
-        })?;
-        if let (Some(metrics), Some(start)) = (metrics.as_mut(), lex_start) {
-            metrics.lexing = start.elapsed();
-        }
-
-        // Phase 2: Parsing
-        let parser = Parser::new(tokens);
-        let parse_start = collect_metrics.then(Instant::now);
-        let mut ast = parser.parse().map_err(|errors| {
-            errors
+                .collect::<Vec<_>>(),
+            ModuleParseError::Parse(errors) => errors
                 .into_iter()
                 .map(CompilerError::Parse)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         })?;
-        if let (Some(metrics), Some(start)) = (metrics.as_mut(), parse_start) {
-            metrics.parsing = start.elapsed();
+
+        if let Some(metrics) = metrics.as_mut() {
+            metrics.lexing = parse_outcome.lexing_duration;
+            metrics.parsing = parse_outcome.parsing_duration;
         }
+
+        let mut ast = parse_outcome.module;
 
         if self.options.dump_ast {
             println!("=== AST ===");

@@ -4,6 +4,8 @@ use compiler_integration::SpectraCompiler;
 use spectra_compiler::CompilationOptions;
 use std::{env, fs, process};
 
+const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
+
 fn main() {
     let mut args = env::args().skip(1);
 
@@ -44,6 +46,18 @@ fn main() {
             }
             "--run" | "-r" => {
                 options.run_jit = true;
+            }
+            "--enable-experimental" => {
+                if let Some(feature) = args.next() {
+                    options.experimental_features.insert(feature);
+                } else {
+                    eprintln!("Missing feature name after --enable-experimental");
+                    process::exit(1);
+                }
+            }
+            "--list-experimental" => {
+                print_experimental_features();
+                return;
             }
             arg if arg.starts_with('-') => {
                 eprintln!("Unknown option: {}", arg);
@@ -114,9 +128,21 @@ fn print_help() {
     println!("    -O2                Enable moderate optimizations (default)");
     println!("    -O3                Enable aggressive optimizations");
     println!("    --run, -r          Execute the program with the JIT after compiling");
+    println!("    --enable-experimental <feature>");
+    println!("                        Enable experimental language feature (may be repeated)");
+    println!("    --list-experimental Show the list of experimental feature flags and exit");
     println!();
     println!("EXAMPLES:");
     println!("    spectra program.spectra");
     println!("    spectra --dump-ir -O3 program.spectra");
     println!("    spectra file1.spectra file2.spectra");
+    println!();
+    print_experimental_features();
+}
+
+fn print_experimental_features() {
+    println!("Experimental features you can enable with --enable-experimental <feature>:");
+    for feature in KNOWN_EXPERIMENTAL_FEATURES {
+        println!("    - {}", feature);
+    }
 }

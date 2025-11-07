@@ -321,6 +321,7 @@ impl BackendDriver for FullPipelineBackend {
 /// Complete compiler that integrates all phases
 pub struct SpectraCompiler {
     options: CompilationOptions,
+    pipeline: CompilationPipeline<FullPipelineBackend>,
     aggregate: Option<AggregateMetrics>,
 }
 
@@ -332,7 +333,14 @@ impl SpectraCompiler {
             None
         };
 
-        Self { options, aggregate }
+        let pipeline = CompilationPipeline::new(options.clone())
+            .with_backend(FullPipelineBackend::new());
+
+        Self {
+            options,
+            pipeline,
+            aggregate,
+        }
     }
 
     /// Compile source code to native code
@@ -341,9 +349,8 @@ impl SpectraCompiler {
         println!("━━━━━━━━━━━━━━━━━━━━");
         println!();
 
-        let pipeline = CompilationPipeline::new(self.options.clone());
-        let mut pipeline = pipeline.with_backend(FullPipelineBackend::new());
-        let compilation = pipeline
+        let compilation = self
+            .pipeline
             .compile(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
 
@@ -410,7 +417,7 @@ impl SpectraCompiler {
         );
 
         if self.options.run_jit {
-            pipeline
+            self.pipeline
                 .execute_artifacts(&artifacts)
                 .map_err(|errors| render_errors(&errors, source, filename, "execution"))?;
         }
@@ -434,9 +441,8 @@ impl SpectraCompiler {
         println!("━━━━━━━━━━━━━━━━━━━━");
         println!();
 
-        let pipeline = CompilationPipeline::new(self.options.clone());
-        let mut pipeline = pipeline.with_backend(FullPipelineBackend::new());
-        let compilation = pipeline
+        let compilation = self
+            .pipeline
             .compile(source, "<jit>")
             .map_err(|errors| render_errors(&errors, source, "<jit>", "compilation"))?;
 
@@ -498,7 +504,7 @@ impl SpectraCompiler {
             artifacts.ir_module.functions.len()
         );
 
-        pipeline
+        self.pipeline
             .execute_artifacts(&artifacts)
             .map_err(|errors| render_errors(&errors, source, "<jit>", "execution"))?;
 
@@ -653,7 +659,7 @@ fn build_highlight_line(span: &Span, line_text: &str) -> Option<String> {
         start_index = total_chars;
     }
 
-    let mut end_column = if span.start_location.line == span.end_location.line {
+    let end_column = if span.start_location.line == span.end_location.line {
         span.end_location.column.max(start_column)
     } else {
         total_chars + 1
@@ -702,6 +708,7 @@ impl Default for SpectraCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn test_end_to_end_simple() {
@@ -748,6 +755,7 @@ mod tests {
             dump_ast: false,
             run_jit: false,
             collect_metrics: false,
+            experimental_features: HashSet::new(),
         };
 
         let mut compiler = SpectraCompiler::new(options);

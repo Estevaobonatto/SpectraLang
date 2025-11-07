@@ -200,11 +200,29 @@ impl Parser {
 
                 if !self.check_symbol(')') {
                     loop {
-                        arguments.push(self.parse_expression()?);
-                        if !self.check_symbol(',') {
+                        match self.parse_expression() {
+                            Ok(argument) => arguments.push(argument),
+                            Err(_) => {
+                                self.recover_in_delimited_list(&[')'], &[',']);
+                                if self.check_symbol(',') {
+                                    self.advance();
+                                    if self.check_symbol(')') {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                break;
+                            }
+                        }
+
+                        if self.check_symbol(',') {
+                            self.advance();
+                            if self.check_symbol(')') {
+                                break;
+                            }
+                        } else {
                             break;
                         }
-                        self.advance(); // consume ','
                     }
                 }
 
@@ -265,11 +283,29 @@ impl Parser {
                         let mut arguments = Vec::new();
                         if !self.check_symbol(')') {
                             loop {
-                                arguments.push(self.parse_expression()?);
-                                if !self.check_symbol(',') {
+                                match self.parse_expression() {
+                                    Ok(argument) => arguments.push(argument),
+                                    Err(_) => {
+                                        self.recover_in_delimited_list(&[')'], &[',']);
+                                        if self.check_symbol(',') {
+                                            self.advance();
+                                            if self.check_symbol(')') {
+                                                break;
+                                            }
+                                            continue;
+                                        }
+                                        break;
+                                    }
+                                }
+
+                                if self.check_symbol(',') {
+                                    self.advance();
+                                    if self.check_symbol(')') {
+                                        break;
+                                    }
+                                } else {
                                     break;
                                 }
-                                self.advance(); // consume ','
                             }
                         }
 
@@ -329,7 +365,16 @@ impl Parser {
                 })
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
-            TokenKind::Keyword(Keyword::Unless) => self.parse_unless_expression(),
+            TokenKind::Keyword(Keyword::Unless) => {
+                if self
+                    .require_feature("unless", span, "Unless expressions")
+                    .is_err()
+                {
+                    self.synchronize();
+                    return Err(());
+                }
+                self.parse_unless_expression()
+            }
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),
             TokenKind::Identifier(name) => {
                 let name = name.clone();
