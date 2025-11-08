@@ -524,6 +524,7 @@ where
     let mut check = false;
     let mut use_stdin = false;
     let mut write_stdout = false;
+    let mut stats = false;
     let mut explain = ExplainMode::None;
     let mut config_path: Option<PathBuf> = None;
 
@@ -578,6 +579,9 @@ where
                     return Err(usage_error("Missing path argument after '--config'."));
                 }
             }
+            "--stats" => {
+                stats = true;
+            }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown option: {}", flag)));
             }
@@ -603,6 +607,7 @@ where
         use_stdin,
         write_stdout,
         explain,
+        stats,
         config_path,
     })
 }
@@ -1293,6 +1298,7 @@ fn print_format_help() {
     println!("    --stdin              Read Spectra source from standard input");
     println!("    --stdout             Write the formatted result to stdout instead of files (single input file)");
     println!("    --explain[=json]     Show diffs (text by default, json for machine-readable) and implies --check");
+    println!("    --stats              Emit a JSON summary of the formatter run");
     println!("    --config <path>      Load formatter configuration from an explicit Spectra.toml");
     println!("    -h, --help          Show this help text");
     println!();

@@ -29,6 +29,8 @@
 - ✅ Token-aware CST formatting path introduced (with legacy fallback) to preserve trivia-aware spacing and unary operator handling.
 - ✅ `spectra fmt --explain` surfaces line-oriented diffs for files that need formatting and reuses the compiler exit codes for gating.
 - ✅ `spectra fmt --explain=json` emits structured diff payloads for editor and automation integrations.
+- ✅ Formatter guide documents the explain payload schema and new run-statistics output for downstream tooling.
+- ✅ `spectra fmt --stats` emits a JSON summary (processed, changed, cache hits/misses) for CI dashboards and editor integrations.
 
 ### Next Steps
 
@@ -36,8 +38,9 @@
    - Layer configurable policies (brace style, trailing commas, import ordering) on top of the CST traversal.
    - Expand AST-aware passes to cover doc comment wrapping, nested comment indentation, and trailing comma heuristics.
 2. **Editor & automation integration**
-   - Document the JSON explain schema and versioning, including examples in the CLI guide.
-   - Expose structured telemetry (formatted file counts, cache hits) for downstream integrations.
+   - Version the JSON explain and stats payloads so integrations can detect breaking changes.
+   - Provide CLI toggles or environment hooks for routing explain/stats output to specific log files.
+   - Publish sample scripts that consume `--stats` output to annotate CI runs or editor diagnostics.
 3. **Performance & UX**
    - Benchmark large workspaces and explore parallel formatting of independent files.
    - Reuse cached configuration state across successive CLI invocations (daemon or IPC-friendly mode).

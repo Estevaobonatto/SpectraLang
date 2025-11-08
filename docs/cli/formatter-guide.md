@@ -15,7 +15,74 @@ Key flags:
 - `--check`: verify formatting without writing changes. Returns exit code `65` if changes are needed.
 - `--stdin`: read source from standard input and emit the formatted version to standard output.
 - `--stdout`: format a single on-disk file and write the result to standard output rather than editing the file in place.
+- `--explain[=json]`: show diffs for any file that would change. Text output is default; `json` produces a machine-readable payload and implies `--check`.
+- `--stats`: print a JSON summary of the formatter run (processed, changed, cache hit metrics) after normal output.
 - `--config <path>`: load formatter settings from an explicit `Spectra.toml` file, useful when editors work on scratch copies outside the project tree.
+
+## Explain Output
+
+Use `spectra fmt --check --explain` to review differences without touching files. The text mode lists unified-style diffs for each file:
+
+```text
+diff --spectra src/main.spectra
+--- original
++++ formatted
+ fn main() {
+-    return 0;
++    return 1;
+ }
+```
+
+Switch to `--explain=json` for tool-friendly output. The CLI prints a JSON object with a `summary` and per-file `operations` stream. Each operation is tagged with an `op` of `equal`, `insert`, or `remove` so downstream tooling can rebuild the diff:
+
+```json
+{
+"summary": {
+"processed": 2,
+"changed": 1,
+"updated": 0,
+"unchanged": 1,
+"mode": "check",
+"config_cache_lookups": 2,
+"config_cache_hits": 1,
+"config_cache_misses": 1
+},
+"files": [
+{
+"path": "src/main.spectra",
+"operations": [
+{ "op": "equal", "text": "fn main() {" },
+{ "op": "remove", "text": "    return 0;" },
+{ "op": "insert", "text": "    return 1;" },
+{ "op": "equal", "text": "}" }
+]
+}
+]
+}
+```
+
+The formatter exits with code `0` when no files need changes and `65` when diffs are present.
+
+## Run Statistics
+
+Append `--stats` to any formatter invocation to receive a standalone JSON summary after the regular formatter output (diffs, status messages, or formatted source). The fields align with the explain summary:
+
+```json
+{
+	"processed": 5,
+	"changed": 2,
+	"updated": 2,
+	"unchanged": 3,
+	"mode": "write",
+	"config_cache_lookups": 4,
+	"config_cache_hits": 3,
+	"config_cache_misses": 1
+}
+```
+
+The `mode` indicates whether the formatter ran in `check` (verification) or `write` (in-place updates) mode. `updated` reports how many files were rewritten on disk (always `0` when `--check` is active) while the cache counters expose configuration lookups resolved from `Spectra.toml` manifests.
+
+When `--stats` and `--explain=json` are used together, the CLI prints the explain payload first and then emits the stats object on a new line so downstream tooling can parse each document independently.
 
 ## Configuration
 
@@ -61,5 +128,7 @@ spectra fmt --check .
 ```
 
 When the formatter reports changes, the command exits with code `65`, causing the build to fail until the author applies `spectra fmt` locally.
+
+For richer telemetry, add `--stats` so CI logs include machine-readable counts of processed and changed files. The JSON summary slots easily into dashboards or annotations.
 
 The repository includes an end-to-end example workflow at `tools/spectra-cli/.github/workflows/spectra-fmt-check.yml` that runs the formatter in CI and surfaces diffs when formatting fails.

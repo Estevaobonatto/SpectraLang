@@ -43,6 +43,7 @@ pub(crate) struct FormatOptions {
     pub use_stdin: bool,
     pub write_stdout: bool,
     pub explain: ExplainMode,
+    pub stats: bool,
     pub config_path: Option<PathBuf>,
 }
 
@@ -52,6 +53,66 @@ struct FormatterConfigResolver {
     manifest_cache: HashMap<PathBuf, Option<PathBuf>>,
     parsed_configs: HashMap<PathBuf, FormatterConfig>,
     default: FormatterConfig,
+    stats: ConfigStats,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct ConfigStats {
+    cache_lookups: usize,
+    cache_hits: usize,
+    cache_misses: usize,
+}
+
+impl ConfigStats {
+    fn record_hit(&mut self) {
+        self.cache_lookups += 1;
+        self.cache_hits += 1;
+    }
+
+    fn record_miss(&mut self) {
+        self.cache_lookups += 1;
+        self.cache_misses += 1;
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
+struct FormatterRunStats {
+    processed: usize,
+    changed: usize,
+    updated: usize,
+    unchanged: usize,
+    mode: FormatterMode,
+    config_cache_lookups: usize,
+    config_cache_hits: usize,
+    config_cache_misses: usize,
+}
+
+impl FormatterRunStats {
+    fn new(processed: usize, changed: usize, is_check: bool, config_stats: &ConfigStats) -> Self {
+        let unchanged = processed.saturating_sub(changed);
+        let updated = if is_check { 0 } else { changed };
+        Self {
+            processed,
+            changed,
+            updated,
+            unchanged,
+            mode: if is_check {
+                FormatterMode::Check
+            } else {
+                FormatterMode::Write
+            },
+            config_cache_lookups: config_stats.cache_lookups,
+            config_cache_hits: config_stats.cache_hits,
+            config_cache_misses: config_stats.cache_misses,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum FormatterMode {
+    Check,
+    Write,
 }
 
 impl FormatterConfigResolver {
@@ -80,6 +141,7 @@ impl FormatterConfigResolver {
                 manifest_cache: HashMap::new(),
                 parsed_configs: HashMap::new(),
                 default: FormatterConfig::default(),
+                stats: ConfigStats::default(),
             });
         }
 
@@ -89,6 +151,7 @@ impl FormatterConfigResolver {
             manifest_cache: HashMap::new(),
             parsed_configs: HashMap::new(),
             default: FormatterConfig::default(),
+            stats: ConfigStats::default(),
         })
     }
 
@@ -134,8 +197,11 @@ impl FormatterConfigResolver {
 
     fn config_for_directory(&mut self, directory: &Path) -> CliResult<FormatterConfig> {
         if let Some(config) = self.directory_cache.get(directory) {
+            self.stats.record_hit();
             return Ok(config.clone());
         }
+
+        self.stats.record_miss();
 
         let manifest = self.manifest_for_directory(directory)?;
 
@@ -156,6 +222,10 @@ impl FormatterConfigResolver {
             .insert(directory.to_path_buf(), config.clone());
 
         Ok(config)
+    }
+
+    fn stats(&self) -> ConfigStats {
+        self.stats.clone()
     }
 
     fn manifest_for_directory(&mut self, directory: &Path) -> CliResult<Option<PathBuf>> {
@@ -215,7 +285,33 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
 
     if options.use_stdin {
         let config = config_resolver.config_for_stdin()?;
-        return format_from_stdin(options.check, &config);
+        let mut input = String::new();
+        io::stdin()
+            .read_to_string(&mut input)
+            .map_err(|error| CliError::io(format!("Failed to read standard input: {}", error)))?;
+
+        let output = format_preserving_endings(&input, &config);
+        let changed = output != input;
+        let run_stats = {
+            let config_stats = config_resolver.stats();
+            FormatterRunStats::new(1, usize::from(changed), options.check, &config_stats)
+        };
+
+        if options.check {
+            if changed {
+                maybe_emit_stats(&options, &run_stats);
+                return Err(CliError::compilation(
+                    "Standard input is not properly formatted.\nRun 'spectra fmt --stdin' to rewrite the stream.",
+                ));
+            }
+
+            maybe_emit_stats(&options, &run_stats);
+            return Ok(());
+        }
+
+        print!("{}", output);
+        maybe_emit_stats(&options, &run_stats);
+        return Ok(());
     }
 
     if options.entries.is_empty() {
@@ -249,19 +345,27 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
         })?;
 
         let output = format_preserving_endings(&original, &config);
+        let changed = output != original;
+        let run_stats = {
+            let config_stats = config_resolver.stats();
+            FormatterRunStats::new(1, usize::from(changed), options.check, &config_stats)
+        };
 
         if options.check {
-            if output != original {
+            if changed {
+                maybe_emit_stats(&options, &run_stats);
                 return Err(CliError::compilation(format!(
                     "File '{}' is not properly formatted.\nRun 'spectra fmt {}' to produce the formatted output.",
                     path.display(),
                     path.display()
                 )));
             }
+            maybe_emit_stats(&options, &run_stats);
             return Ok(());
         }
 
         print!("{}", output);
+        maybe_emit_stats(&options, &run_stats);
         return Ok(());
     }
 
@@ -305,6 +409,11 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
         }
     }
 
+    let run_stats = {
+        let config_stats = config_resolver.stats();
+        FormatterRunStats::new(processed, changed.len(), options.check, &config_stats)
+    };
+
     match options.explain {
         ExplainMode::Text => {
             let diffs = text_diffs.unwrap_or_default();
@@ -314,6 +423,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
                     processed,
                     if processed == 1 { "" } else { "s" }
                 );
+                maybe_emit_stats(&options, &run_stats);
                 return Ok(());
             }
 
@@ -321,6 +431,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
                 println!("{}", diff);
             }
 
+            maybe_emit_stats(&options, &run_stats);
             return Err(CliError::compilation(format!(
                 "Formatting differences detected in {} file{}.",
                 changed.len(),
@@ -330,10 +441,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
         ExplainMode::Json => {
             let diffs = json_diffs.unwrap_or_default();
             let payload = JsonExplainPayload {
-                summary: JsonSummary {
-                    processed,
-                    changed: changed.len(),
-                },
+                summary: JsonSummary::from_stats(&run_stats),
                 files: diffs,
             };
 
@@ -344,9 +452,11 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
             println!("{}", serialized);
 
             if changed.is_empty() {
+                maybe_emit_stats(&options, &run_stats);
                 return Ok(());
             }
 
+            maybe_emit_stats(&options, &run_stats);
             return Err(CliError::compilation(format!(
                 "Formatting differences detected in {} file{}.",
                 changed.len(),
@@ -365,6 +475,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
             message.push('\n');
         }
         message.push_str("Run 'spectra fmt' to apply the required changes.");
+        maybe_emit_stats(&options, &run_stats);
         return Err(CliError::compilation(message));
     }
 
@@ -375,12 +486,14 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
             if processed == 1 { "" } else { "s" },
             processed - changed.len()
         );
+        maybe_emit_stats(&options, &run_stats);
     } else if changed.is_empty() {
         println!(
             "Formatted {} file{} (no changes needed).",
             processed,
             if processed == 1 { "" } else { "s" }
         );
+        maybe_emit_stats(&options, &run_stats);
     } else {
         println!(
             "Formatted {} file{} ({} updated, {} already formatted).",
@@ -389,6 +502,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
             changed.len(),
             processed - changed.len()
         );
+        maybe_emit_stats(&options, &run_stats);
     }
 
     Ok(())
@@ -488,27 +602,6 @@ fn format_preserving_endings(original: &str, config: &FormatterConfig) -> String
     } else {
         formatted
     }
-}
-
-fn format_from_stdin(check: bool, config: &FormatterConfig) -> CliResult<()> {
-    let mut input = String::new();
-    io::stdin()
-        .read_to_string(&mut input)
-        .map_err(|error| CliError::io(format!("Failed to read standard input: {}", error)))?;
-
-    let output = format_preserving_endings(&input, config);
-
-    if check {
-        if output != input {
-            return Err(CliError::compilation(
-                "Standard input is not properly formatted.\nRun 'spectra fmt --stdin' to rewrite the stream.",
-            ));
-        }
-        return Ok(());
-    }
-
-    print!("{}", output);
-    Ok(())
 }
 
 fn discover_sources(entries: &[PathBuf]) -> CliResult<Vec<PathBuf>> {
@@ -665,6 +758,27 @@ struct JsonExplainPayload {
 struct JsonSummary {
     processed: usize,
     changed: usize,
+    updated: usize,
+    unchanged: usize,
+    mode: FormatterMode,
+    config_cache_lookups: usize,
+    config_cache_hits: usize,
+    config_cache_misses: usize,
+}
+
+impl JsonSummary {
+    fn from_stats(stats: &FormatterRunStats) -> Self {
+        Self {
+            processed: stats.processed,
+            changed: stats.changed,
+            updated: stats.updated,
+            unchanged: stats.unchanged,
+            mode: stats.mode,
+            config_cache_lookups: stats.config_cache_lookups,
+            config_cache_hits: stats.config_cache_hits,
+            config_cache_misses: stats.config_cache_misses,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -710,6 +824,19 @@ fn render_json_diff(path: &Path, original: &str, formatted: &str) -> JsonFileDif
     JsonFileDiff {
         path: path.display().to_string(),
         operations,
+    }
+}
+
+fn maybe_emit_stats(options: &FormatOptions, stats: &FormatterRunStats) {
+    if options.stats {
+        emit_stats(stats);
+    }
+}
+
+fn emit_stats(stats: &FormatterRunStats) {
+    match serde_json::to_string_pretty(stats) {
+        Ok(serialized) => println!("{}", serialized),
+        Err(error) => eprintln!("Failed to serialize formatter stats: {}", error),
     }
 }
 
@@ -2464,5 +2591,37 @@ mod tests {
             .operations
             .iter()
             .any(|op| matches!(op.op, super::JsonOpKind::Insert) && op.text.contains("return 1")));
+    }
+
+    #[test]
+    fn formatter_run_stats_check_mode_reports_zero_updates() {
+        let mut config_stats = super::ConfigStats::default();
+        config_stats.record_miss();
+        let stats = super::FormatterRunStats::new(2, 1, true, &config_stats);
+        assert_eq!(stats.processed, 2);
+        assert_eq!(stats.changed, 1);
+        assert_eq!(stats.updated, 0);
+        assert_eq!(stats.unchanged, 1);
+        assert_eq!(stats.mode, super::FormatterMode::Check);
+        assert_eq!(stats.config_cache_lookups, 1);
+        assert_eq!(stats.config_cache_hits, 0);
+        assert_eq!(stats.config_cache_misses, 1);
+    }
+
+    #[test]
+    fn json_summary_reflects_run_stats() {
+        let mut config_stats = super::ConfigStats::default();
+        config_stats.record_hit();
+        let stats = super::FormatterRunStats::new(3, 2, false, &config_stats);
+        let summary = super::JsonSummary::from_stats(&stats);
+        assert_eq!(summary.processed, 3);
+        assert_eq!(summary.changed, 2);
+        assert_eq!(summary.updated, 2);
+        assert_eq!(summary.unchanged, 1);
+        assert_eq!(summary.mode, super::FormatterMode::Write);
+        assert_eq!(stats.config_cache_hits, 1);
+        assert_eq!(summary.config_cache_lookups, 1);
+        assert_eq!(summary.config_cache_hits, 1);
+        assert_eq!(summary.config_cache_misses, 0);
     }
 }
