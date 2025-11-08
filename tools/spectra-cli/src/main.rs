@@ -1078,6 +1078,15 @@ fn print_global_help() {
     println!("    spectra --list-experimental");
     println!();
     print_experimental_features();
+    println!();
+    println!("EXIT CODES:");
+    println!("    0   Success");
+    println!("    64  Usage error (invalid flags, missing inputs)");
+    println!("    65  Compilation failed");
+    println!("    74  I/O failure while reading or writing files");
+    println!();
+    println!("LOGGING:");
+    println!("    Errors are emitted as 'error: <message>' for easy parsing.");
 }
 
 fn print_build_help(command: BuildCommand) {
@@ -1191,4 +1200,39 @@ fn usage_error(message: &str) -> CliError {
     let trimmed = message.trim_end();
     let formatted = format!("{}\nUse 'spectra --help' for usage information.", trimmed);
     CliError::usage(formatted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_values_are_stable() {
+        assert_eq!(ExitCode::Success.as_i32(), 0);
+        assert_eq!(ExitCode::Usage.as_i32(), 64);
+        assert_eq!(ExitCode::CompilationFailed.as_i32(), 65);
+        assert_eq!(ExitCode::IoError.as_i32(), 74);
+    }
+
+    #[test]
+    fn usage_error_includes_help_hint() {
+        let error = usage_error("Missing source");
+        assert_eq!(error.code.as_i32(), ExitCode::Usage.as_i32());
+        assert!(error.message.contains("Missing source"));
+        assert!(error
+            .message
+            .contains("Use 'spectra --help' for usage information."));
+    }
+
+    #[test]
+    fn cli_error_builders_assign_codes() {
+        let compilation = CliError::compilation("failed");
+        assert_eq!(
+            compilation.code.as_i32(),
+            ExitCode::CompilationFailed.as_i32()
+        );
+
+        let io = CliError::io("io issue");
+        assert_eq!(io.code.as_i32(), ExitCode::IoError.as_i32());
+    }
 }
