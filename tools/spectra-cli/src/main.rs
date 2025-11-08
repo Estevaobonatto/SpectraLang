@@ -524,6 +524,7 @@ where
     let mut check = false;
     let mut use_stdin = false;
     let mut write_stdout = false;
+    let mut config_path: Option<PathBuf> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -536,6 +537,20 @@ where
             "--check" => check = true,
             "--stdin" => use_stdin = true,
             "--stdout" => write_stdout = true,
+            "--config" => {
+                if config_path.is_some() {
+                    return Err(usage_error(
+                        "Multiple --config options provided. Supply at most one configuration path.",
+                    ));
+                }
+                if let Some(value) = args.next() {
+                    config_path = Some(PathBuf::from(value));
+                } else {
+                    return Err(usage_error(
+                        "Missing path argument after '--config'.",
+                    ));
+                }
+            }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown option: {}", flag)));
             }
@@ -560,6 +575,7 @@ where
         check,
         use_stdin,
         write_stdout,
+        config_path,
     })
 }
 
@@ -1248,6 +1264,7 @@ fn print_format_help() {
     println!("    --check              Verify formatting without writing changes");
     println!("    --stdin              Read Spectra source from standard input");
     println!("    --stdout             Write the formatted result to stdout instead of files (single input file)");
+    println!("    --config <path>      Load formatter configuration from an explicit Spectra.toml");
     println!("    -h, --help          Show this help text");
     println!();
     println!("Examples:");

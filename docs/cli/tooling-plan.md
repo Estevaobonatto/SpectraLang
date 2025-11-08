@@ -16,16 +16,25 @@
 
 ## Formatter Roadmap
 
-1. **Core formatting rules**
-   - Reuse the parser to produce a concrete syntax tree with trivia (comments, whitespace).
-   - Implement a pretty-printer that normalizes indentation, line wrapping, and trailing whitespace.
-   - Provide configuration via `Spectra.toml` (indent width, max line length, brace style).
-2. **CLI integration**
-   - Add `spectra fmt <paths>` that runs in-place or with `--check` to validate formatting.
-   - Exit with code `65` when formatting changes are required (mirrors common formatter conventions).
-3. **Automation hooks**
-   - Implemented `--stdin`/`--stdout` mode for editor integration (`spectra fmt --stdin/--stdout`).
-   - Document formatter usage in project templates and contributor guides.
+### Status Overview
+
+- ✅ CLI command `spectra fmt` formats files in-place, supports `--check`, `--stdin`, and `--stdout`, and exits with `65` when changes are needed.
+- ✅ Formatter normalizes indentation, operator spacing, grouped `let` alignment (line-length aware), blank-line coalescing, and preserves line endings.
+- ✅ `[formatter]` section in `Spectra.toml` now supports `indent_width` and `max_line_length`; settings are auto-discovered from the nearest manifest.
+- ✅ `spectra fmt --config <path>` allows explicit config selection and reports unknown `[formatter]` keys as structured errors.
+- ✅ Added formatter-focused regression tests under `tools/spectra-cli`.
+- ✅ Usage and configuration documented in `docs/cli/formatter-guide.md`, including sample `Spectra.toml` snippets.
+
+### Next Steps
+
+1. **Syntax-aware rewriter**
+   - Reuse the parser to build a concrete syntax tree with trivia so spacing rules honor comments and complex constructs.
+   - Extend configuration to include brace style, trailing comma policy, and import sorting once CST support lands.
+2. **Editor & automation integration**
+   - Add CI gate (`spectra fmt --check`) and provide a sample GitHub Actions workflow.
+3. **Performance & UX**
+   - Cache parsed configs per workspace during multi-file runs to avoid redundant IO.
+   - Benchmark large projects and introduce parallelism or incremental formatting if needed.
 
 ## Linter Roadmap
 

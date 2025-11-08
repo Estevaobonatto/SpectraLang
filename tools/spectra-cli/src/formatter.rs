@@ -32,6 +32,7 @@ pub(crate) struct FormatOptions {
     pub check: bool,
     pub use_stdin: bool,
     pub write_stdout: bool,
+    pub config_path: Option<PathBuf>,
 }
 
 pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
@@ -149,6 +150,25 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
 }
 
 fn load_formatter_config(options: &FormatOptions) -> CliResult<FormatterConfig> {
+    if let Some(path) = &options.config_path {
+        let canonical = fs::canonicalize(path).map_err(|error| {
+            CliError::io(format!(
+                "Failed to resolve configuration path '{}': {}",
+                path.display(),
+                error
+            ))
+        })?;
+
+        if !canonical.is_file() {
+            return Err(CliError::usage(format!(
+                "Configuration override '{}' is not a file.",
+                canonical.display()
+            )));
+        }
+
+        return parse_formatter_config(&canonical);
+    }
+
     let mut search_roots = resolve_search_roots(options)?;
     search_roots.sort();
     search_roots.dedup();
@@ -166,8 +186,9 @@ fn resolve_search_roots(options: &FormatOptions) -> CliResult<Vec<PathBuf>> {
     let mut roots = Vec::new();
 
     if options.use_stdin {
-        let cwd = env::current_dir()
-            .map_err(|error| CliError::io(format!("Failed to determine current directory: {}", error)))?;
+        let cwd = env::current_dir().map_err(|error| {
+            CliError::io(format!("Failed to determine current directory: {}", error))
+        })?;
         roots.push(cwd);
     }
 
@@ -227,11 +248,7 @@ fn parse_formatter_config(path: &Path) -> CliResult<FormatterConfig> {
     })?;
 
     let value: Value = manifest.parse().map_err(|error| {
-        CliError::usage(format!(
-            "Failed to parse '{}': {}",
-            path.display(),
-            error
-        ))
+        CliError::usage(format!("Failed to parse '{}': {}", path.display(), error))
     })?;
 
     let formatter = match value.get("formatter") {
@@ -247,13 +264,34 @@ fn parse_formatter_config(path: &Path) -> CliResult<FormatterConfig> {
 
     let mut config = FormatterConfig::default();
 
-    if let Some(value) = formatter.get("indent_width") {
-        config.indent_width = parse_positive_usize(value, "indent_width", path, 1, MAX_SUPPORTED_INDENT)?;
-    }
-
-    if let Some(value) = formatter.get("max_line_length") {
-        config.max_line_length =
-            parse_positive_usize(value, "max_line_length", path, MIN_LINE_LENGTH, usize::MAX)?;
+    for (key, value) in formatter {
+        match key.as_str() {
+            "indent_width" => {
+                config.indent_width = parse_positive_usize(
+                    value,
+                    "indent_width",
+                    path,
+                    1,
+                    MAX_SUPPORTED_INDENT,
+                )?;
+            }
+            "max_line_length" => {
+                config.max_line_length = parse_positive_usize(
+                    value,
+                    "max_line_length",
+                    path,
+                    MIN_LINE_LENGTH,
+                    usize::MAX,
+                )?;
+            }
+            other => {
+                return Err(CliError::usage(format!(
+                    "Unknown formatter option '{}' in '{}'.",
+                    other,
+                    path.display()
+                )));
+            }
+        }
     }
 
     Ok(config)
@@ -628,8 +666,10 @@ fn normalize_spacing(content: &str) -> String {
             _ => {
                 if let Some(op) = read_operator(ch, &mut chars) {
                     let prev = previous_non_space(&result);
-                    let is_unary_minus = op == "-" && matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':' ));
-                    let is_unary_not = op == "!" && matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':' ));
+                    let is_unary_minus =
+                        op == "-" && matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':'));
+                    let is_unary_not =
+                        op == "!" && matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':'));
 
                     if is_unary_minus || is_unary_not {
                         push_pending_space(&mut result, &mut pending_space);
@@ -653,7 +693,10 @@ fn normalize_spacing(content: &str) -> String {
     result.trim_end().to_string()
 }
 
-fn read_operator(first: char, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+fn read_operator(
+    first: char,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Option<String> {
     let mut op = String::new();
     op.push(first);
 
@@ -785,7 +828,7 @@ fn align_let_bindings(lines: &mut [FormattedLine], config: &FormatterConfig) {
             .unwrap_or(0);
         let target_column = max_binding + 1;
 
-        let exceeds_limit = group.iter().any(|(_, before, after)| {
+        let exceeds_limit = group.iter().any(|(_, _, after)| {
             let line_length = indent * config.indent_width + target_column + 2 + after.len();
             line_length > config.max_line_length
         });
@@ -895,8 +938,7 @@ mod tests {
 
     #[test]
     fn inserts_spaces_around_binary_operators() {
-        let input =
-            "fn math(){\nlet sum=left+right*factor-3;\nlet cmp=a==b||a!=c&&d>=e;\n}\n";
+        let input = "fn math(){\nlet sum=left+right*factor-3;\nlet cmp=a==b||a!=c&&d>=e;\n}\n";
         let expected =
             "fn math() {\n    let sum = left + right * factor - 3;\n    let cmp = a == b || a != c && d >= e;\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
