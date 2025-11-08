@@ -1,0 +1,6 @@
+module Fixtures
+
+fun main() {
+  let value = error_trigger
+  value
+}

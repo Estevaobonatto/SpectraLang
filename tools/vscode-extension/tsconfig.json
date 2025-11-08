@@ -10,7 +10,7 @@
     "esModuleInterop": true,
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    "types": ["node", "vscode"]
+    "types": ["node", "vscode", "mocha", "chai"]
   },
   "include": ["src"],
   "exclude": ["node_modules", ".vscode-test"]

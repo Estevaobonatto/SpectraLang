@@ -82,15 +82,32 @@
 ### VS Code Extension Checklist
 
 - [x] Establish extension workspace scaffold (`tools/vscode-extension/`), select package manager, and document architecture in `ROADMAP.md`.
-- [ ] Register VS Code commands that shell out to `spectra repl --json`; handle process lifetime, cancellation, and JSON diagnostics parsing.
+- [x] Register VS Code commands that shell out to `spectra repl --json`; handle process lifetime, cancellation, and JSON diagnostics parsing with per-document execution and cancellation.
 - [x] Populate diagnostics via `vscode.DiagnosticCollection`, mapping Spectra spans to VS Code ranges with severity derived from CLI output.
 - [x] Generate and bundle the Spectra TextMate grammar from parser tokens; add language configuration (comments, brackets, indentation).
 - [x] Implement formatter integration invoking `spectra fmt` streaming modes, with stdin/stdout fallback and error propagation respecting exit codes.
-- [ ] Wire lint command execution to `spectra lint`, surface warnings/errors in the Problems view, and mirror CLI exit-code semantics. (Current implementation shells out to `spectra check --lint` per file; update to the dedicated CLI entrypoint once stable.)
+- [x] Wire lint command execution to `spectra lint`, surface warnings/errors in the Problems view, and mirror CLI exit-code semantics via the aggregated JSON report.
 - [x] Cache CLI capability probes (version, features, config paths) to avoid redundant process spawns during editor sessions.
 - [ ] Plan advanced language server features (hover, go-to-definition) and track parity items within the extension roadmap.
 - [ ] Add automated extension tests (colorization, command smoke tests) using `@vscode/test-electron` or equivalent harness.
 - [ ] Update `docs/cli` with installation, configuration, and troubleshooting guidance; align alpha checklist milestones before publishing.
+
+### Extension Smoke Test Outline
+
+1. **Activation & Command Wiring**
+   - Launch the extension in the VS Code Test Runner and confirm `spectra.diagnostics.run` and `spectra.lintWorkspace` commands resolve without throwing.
+   - Verify the output channel is created and logs CLI metadata after activation.
+2. **Diagnostics Flow**
+   - Open a fixture Spectra file with a known parser error and assert the diagnostics collection receives the expected severity, code, and message from the JSON payload.
+   - Ensure cancellation tokens cancel in-flight requests when a new diagnostics run starts.
+3. **Workspace Lint Flow**
+   - Execute the lint command against a multi-file fixture workspace and confirm aggregated diagnostics populate all targeted URIs.
+   - Check that the notification summary reflects the file count returned by the CLI report.
+4. **Formatter Smoke Check**
+   - Run the format command on a fixture file and assert the buffer content matches the CLI `stdout` result or that the command raises the expected error when the CLI exits non-zero.
+5. **Error Handling**
+   - Simulate missing CLI binary and confirm user-facing error messages surface while the extension avoids crashing.
+   - Feed malformed JSON to the diagnostics manager and ensure the error path logs the raw output and surfaces a VS Code notification.
 
 ## Automation & CI Considerations
 

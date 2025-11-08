@@ -1,0 +1,6 @@
+module Fixtures
+
+fun compute() {
+  let unused = 42
+  warn_trigger
+}

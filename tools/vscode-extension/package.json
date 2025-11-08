@@ -80,11 +80,18 @@
     "clean": "rimraf dist",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "prepublishOnly": "npm run compile"
+    "prepublishOnly": "npm run compile",
+    "pretest": "npm run compile",
+    "test": "node ./dist/test/runTest.js"
   },
   "devDependencies": {
+    "@types/chai": "^4.3.11",
+    "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.5",
     "@types/vscode": "^1.93.0",
+    "@vscode/test-electron": "^2.5.2",
+    "chai": "^4.4.1",
+    "mocha": "^10.6.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.5.4"
   }
