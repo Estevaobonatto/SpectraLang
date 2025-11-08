@@ -14,100 +14,136 @@ function normalizeFsPath(value: string): string {
   return path.normalize(normalized);
 }
 
-function inferSeverity(
-  explicit: string | undefined,
-  descriptor: string
-): vscode.DiagnosticSeverity {
-  if (explicit) {
-    return explicit.toLowerCase() === 'warning'
-      ? vscode.DiagnosticSeverity.Warning
-      : vscode.DiagnosticSeverity.Error;
-  }
-
-  const lower = descriptor.toLowerCase();
-  if (lower.includes(' warning')) {
-    return vscode.DiagnosticSeverity.Warning;
-  }
-  return vscode.DiagnosticSeverity.Error;
+interface SpectraJsonReport {
+  version: number;
+  success: boolean;
+  files: SpectraJsonFile[];
 }
 
-function extractDiagnosticCode(descriptor: string): string | undefined {
-  const lintMatch = descriptor.match(/lint\(([^)]+)\)/i);
-  if (lintMatch) {
-    return lintMatch[1];
-  }
-  const phaseMatch = descriptor.match(/^(lexical|parse|semantic)\b/i);
-  if (phaseMatch) {
-    return phaseMatch[1].toLowerCase();
-  }
-  return undefined;
+interface SpectraJsonFile {
+  path: string;
+  diagnostics: SpectraJsonDiagnostic[];
 }
 
-function parseDiagnostics(
-  output: string,
-  document: vscode.TextDocument
-): vscode.Diagnostic[] {
-  const diagnostics: vscode.Diagnostic[] = [];
-  const normalizedTarget = normalizeFsPath(document.fileName);
-  const lines = output.split(/\r?\n/);
+interface SpectraJsonDiagnostic {
+  severity: 'error' | 'warning';
+  code?: string;
+  message: string;
+  phase?: string;
+  hint?: string;
+  range: SpectraJsonRange;
+  related?: SpectraJsonRelated[];
+}
 
-  const patternWithSeverity = /^(warning|error):\s+(.+?):(\d+):(\d+):\s+(.*)$/i;
-  const patternWithoutSeverity = /^(.+?):(\d+):(\d+):\s+(.*)$/;
+interface SpectraJsonRange {
+  start: SpectraJsonPosition;
+  end: SpectraJsonPosition;
+}
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) {
-      continue;
-    }
+interface SpectraJsonPosition {
+  line: number;
+  column: number;
+}
 
-    let match = patternWithSeverity.exec(line);
-    let severityToken: string | undefined;
-    if (!match) {
-      match = patternWithoutSeverity.exec(line);
-    } else {
-      severityToken = match[1];
-    }
+interface SpectraJsonRelated {
+  message: string;
+  range?: SpectraJsonRange;
+}
 
-    if (!match) {
-      continue;
-    }
+interface DiagnosticEntry {
+  uri: vscode.Uri;
+  diagnostics: vscode.Diagnostic[];
+}
 
-    const [, filePathRaw, lineText, columnText, descriptor] = match;
-    const filePath = normalizeFsPath(filePathRaw);
-    if (filePath !== normalizedTarget) {
-      continue;
-    }
+function parseJsonDiagnostics(stdout: string): SpectraJsonReport {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    throw new Error('Spectra CLI returned no diagnostics.');
+  }
 
-    const lineIndex = Number(lineText) - 1;
-    const columnIndex = Math.max(0, Number(columnText) - 1);
-    if (!Number.isFinite(lineIndex) || !Number.isFinite(columnIndex)) {
-      continue;
-    }
+  let parsed: SpectraJsonReport;
+  try {
+    parsed = JSON.parse(trimmed) as SpectraJsonReport;
+  } catch (error) {
+    throw new Error(`Failed to parse Spectra diagnostics JSON: ${String(error)}`);
+  }
 
-    if (lineIndex < 0 || lineIndex >= document.lineCount) {
-      continue;
-    }
+  if (!Array.isArray(parsed.files)) {
+    throw new Error('Spectra diagnostics payload is missing file entries.');
+  }
 
-    const severity = inferSeverity(severityToken, descriptor);
-    const lineLength = document.lineAt(lineIndex).text.length;
-    const endColumn = Math.min(lineLength, columnIndex + 1);
+  return parsed;
+}
 
-    const diagnostic = new vscode.Diagnostic(
-      new vscode.Range(lineIndex, columnIndex, lineIndex, endColumn),
-      descriptor.trim(),
-      severity
+function toVscodeRange(jsonRange: SpectraJsonRange): vscode.Range {
+  const startLine = Math.max(0, Math.floor(jsonRange.start.line) - 1);
+  const startCharacter = Math.max(0, Math.floor(jsonRange.start.column) - 1);
+  const endLine = Math.max(0, Math.floor(jsonRange.end.line) - 1);
+  const endCharacter = Math.max(0, Math.floor(jsonRange.end.column) - 1);
+
+  if (endLine < startLine || (endLine === startLine && endCharacter < startCharacter)) {
+    return new vscode.Range(startLine, startCharacter, startLine, startCharacter);
+  }
+
+  return new vscode.Range(startLine, startCharacter, endLine, endCharacter);
+}
+
+function jsonDiagnosticToVscode(
+  diagnostic: SpectraJsonDiagnostic,
+  uri: vscode.Uri
+): vscode.Diagnostic {
+  const range = toVscodeRange(diagnostic.range);
+  const severity = diagnostic.severity === 'warning'
+    ? vscode.DiagnosticSeverity.Warning
+    : vscode.DiagnosticSeverity.Error;
+
+  const result = new vscode.Diagnostic(range, diagnostic.message, severity);
+  result.source = diagnostic.phase ? `spectra/${diagnostic.phase}` : 'spectra';
+
+  if (diagnostic.code) {
+    result.code = diagnostic.code;
+  }
+
+  const related: vscode.DiagnosticRelatedInformation[] = [];
+  if (diagnostic.hint) {
+    related.push(
+      new vscode.DiagnosticRelatedInformation(
+        new vscode.Location(uri, range),
+        diagnostic.hint
+      )
     );
-    diagnostic.source = 'spectra';
-
-    const code = extractDiagnosticCode(descriptor);
-    if (code) {
-      diagnostic.code = code;
-    }
-
-    diagnostics.push(diagnostic);
   }
 
-  return diagnostics;
+  if (diagnostic.related) {
+    for (const entry of diagnostic.related) {
+      const relatedRange = entry.range ? toVscodeRange(entry.range) : range;
+      related.push(
+        new vscode.DiagnosticRelatedInformation(
+          new vscode.Location(uri, relatedRange),
+          entry.message
+        )
+      );
+    }
+  }
+
+  if (related.length > 0) {
+    result.relatedInformation = related;
+  }
+
+  return result;
+}
+
+function convertReportToEntries(report: SpectraJsonReport): Map<string, DiagnosticEntry> {
+  const entries = new Map<string, DiagnosticEntry>();
+
+  for (const file of report.files) {
+    const normalizedPath = normalizeFsPath(file.path);
+    const uri = vscode.Uri.file(file.path);
+    const diagnostics = file.diagnostics.map((diag) => jsonDiagnosticToVscode(diag, uri));
+    entries.set(normalizedPath, { uri, diagnostics });
+  }
+
+  return entries;
 }
 
 export class SpectraDiagnosticsManager implements vscode.Disposable {
@@ -167,7 +203,7 @@ export class SpectraDiagnosticsManager implements vscode.Disposable {
     const cliPath = getCliPath();
 
     try {
-      const args = ['check', document.fileName, '--lint'];
+      const args = ['repl', '--json', document.fileName];
       this.output.appendLine(`▶ spectra ${args.join(' ')}`);
 
       const result = await runSpectraCli(args, {
@@ -176,15 +212,35 @@ export class SpectraDiagnosticsManager implements vscode.Disposable {
         token: cts.token,
       });
 
-      const combinedOutput = `${result.stdout}\n${result.stderr}`;
-      if (combinedOutput.trim().length > 0) {
-        this.output.appendLine(combinedOutput.trimEnd());
+      const stderr = result.stderr.trim();
+      if (stderr.length > 0) {
+        this.output.appendLine(stderr);
       }
 
-      const diagnostics = parseDiagnostics(combinedOutput, document);
-      this.collection.set(document.uri, diagnostics);
+      let report: SpectraJsonReport;
+      try {
+        report = parseJsonDiagnostics(result.stdout);
+      } catch (error) {
+        this.output.appendLine('Failed to parse Spectra diagnostics JSON output.');
+        if (result.stdout.trim().length > 0) {
+          this.output.appendLine(result.stdout.trimEnd());
+        }
+        vscode.window.showErrorMessage(String(error));
+        return;
+      }
 
-      if (result.exitCode !== 0 && diagnostics.length === 0) {
+      const entries = convertReportToEntries(report);
+      const normalizedDocPath = normalizeFsPath(document.fileName);
+
+      for (const entry of entries.values()) {
+        this.collection.set(entry.uri, entry.diagnostics);
+      }
+
+      if (!entries.has(normalizedDocPath)) {
+        this.collection.set(document.uri, []);
+      }
+
+      if (result.exitCode !== 0 && report.success) {
         vscode.window.showErrorMessage(
           `Spectra diagnostics failed (exit code ${result.exitCode}). See output for details.`
         );
@@ -197,6 +253,61 @@ export class SpectraDiagnosticsManager implements vscode.Disposable {
     } finally {
       this.running.delete(uriKey);
       cts.dispose();
+    }
+  }
+
+  async runWorkspaceLint(
+    folders: readonly vscode.WorkspaceFolder[]
+  ): Promise<number | undefined> {
+    if (!folders.length) {
+      return 0;
+    }
+
+    const cliPath = getCliPath();
+    const folderPaths = folders.map((folder) => folder.uri.fsPath);
+    const args = ['lint', '--json', ...folderPaths];
+    this.output.appendLine(`▶ spectra ${args.join(' ')}`);
+
+    try {
+      const result = await runSpectraCli(args, {
+        cliPath,
+        cwd: folderPaths[0],
+      });
+
+      const stderr = result.stderr.trim();
+      if (stderr.length > 0) {
+        this.output.appendLine(stderr);
+      }
+
+      let report: SpectraJsonReport;
+      try {
+        report = parseJsonDiagnostics(result.stdout);
+      } catch (error) {
+        this.output.appendLine('Failed to parse Spectra lint JSON output.');
+        if (result.stdout.trim().length > 0) {
+          this.output.appendLine(result.stdout.trimEnd());
+        }
+        vscode.window.showErrorMessage(String(error));
+        return undefined;
+      }
+
+      const entries = convertReportToEntries(report);
+      this.collection.clear();
+      for (const entry of entries.values()) {
+        this.collection.set(entry.uri, entry.diagnostics);
+      }
+
+      if (result.exitCode !== 0 && report.success) {
+        vscode.window.showErrorMessage(
+          `Spectra lint failed (exit code ${result.exitCode}). See output for details.`
+        );
+      }
+
+      return report.files.length;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to lint workspace: ${String(error)}`);
+      this.output.appendLine(String(error));
+      return undefined;
     }
   }
 

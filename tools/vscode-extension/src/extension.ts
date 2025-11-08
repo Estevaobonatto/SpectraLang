@@ -47,21 +47,13 @@ export function activate(context: vscode.ExtensionContext): void {
           cancellable: false,
         },
         async () => {
-          const files = await vscode.workspace.findFiles('**/*.spectra');
-          if (files.length === 0) {
-            vscode.window.showInformationMessage('No Spectra files found in workspace.');
-            return;
+          const lintedCount = await diagnosticsManager?.runWorkspaceLint(folders);
+          if (typeof lintedCount === 'number') {
+            const plural = lintedCount === 1 ? '' : 's';
+            vscode.window.showInformationMessage(
+              `Spectra lint completed for ${lintedCount} file${plural}.`
+            );
           }
-
-          for (const [index, uri] of files.entries()) {
-            const document = await vscode.workspace.openTextDocument(uri);
-            await diagnosticsManager?.runDiagnostics(document);
-            output.appendLine(`Linted ${uri.fsPath} (${index + 1}/${files.length})`);
-          }
-
-          vscode.window.showInformationMessage(
-            `Spectra lint completed for ${files.length} file${files.length === 1 ? '' : 's'}.`
-          );
         }
       );
     })

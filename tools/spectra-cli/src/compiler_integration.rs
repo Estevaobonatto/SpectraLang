@@ -43,6 +43,12 @@ pub struct ModulePipelineSummary {
     pub passes: Vec<PassSummary>,
 }
 
+struct CompilationReport {
+    artifacts: FullPipelineArtifacts,
+    metrics: Option<CompilationMetrics>,
+    warnings: Vec<LintDiagnostic>,
+}
+
 #[derive(Default, Debug)]
 struct PassAggregate {
     total_duration: Duration,
@@ -368,6 +374,7 @@ pub struct SpectraCompiler {
     aggregate: Option<AggregateMetrics>,
     last_summary: Option<ModulePipelineSummary>,
     emit_internal_metrics: bool,
+    emit_output: bool,
 }
 
 impl SpectraCompiler {
@@ -387,20 +394,104 @@ impl SpectraCompiler {
             aggregate,
             last_summary: None,
             emit_internal_metrics: true,
+            emit_output: true,
         }
     }
 
     /// Compile source code to native code
     pub fn compile(&mut self, source: &str, filename: &str) -> Result<(), String> {
-        self.last_summary = None;
-        println!("🚀 SpectraLang Compiler");
-        println!("━━━━━━━━━━━━━━━━━━━━");
-        println!();
+        if self.emit_output {
+            println!("🚀 SpectraLang Compiler");
+            println!("━━━━━━━━━━━━━━━━━━━━");
+            println!();
+        }
 
-        let compilation = self
-            .pipeline
-            .compile(source, filename)
+        let report = self
+            .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+
+        if self.emit_output {
+            self.emit_lint_warnings(&report.warnings, filename, source);
+
+            if self.options.optimize {
+                let modified_passes: Vec<_> = report
+                    .artifacts
+                    .passes
+                    .iter()
+                    .filter(|entry| entry.modified)
+                    .map(|entry| entry.name)
+                    .collect();
+
+                if modified_passes.is_empty() {
+                    println!("Optimization passes applied: none (IR unchanged)");
+                } else {
+                    println!(
+                        "Optimization passes applied: {}",
+                        modified_passes.join(", ")
+                    );
+                }
+            }
+
+            if self.options.collect_metrics
+                && self.emit_internal_metrics
+                && !report.artifacts.passes.is_empty()
+            {
+                println!("Pass timings:");
+                for entry in &report.artifacts.passes {
+                    let status = if entry.modified {
+                        "modified"
+                    } else {
+                        "no change"
+                    };
+                    println!(
+                        "  • {:<28} {:>10?} ({})",
+                        entry.name, entry.duration, status
+                    );
+                }
+            }
+
+            if self.options.collect_metrics && self.emit_internal_metrics {
+                println!("Lowering time: {:?}", report.artifacts.lowering_duration);
+                println!("Code generation time: {:?}", report.artifacts.codegen_duration);
+            }
+
+            if self.emit_internal_metrics {
+                if let Some(metrics) = report.metrics.as_ref() {
+                    println!("Front-end timings:");
+                    println!("  • Lexing:    {:?}", metrics.lexing);
+                    println!("  • Parsing:   {:?}", metrics.parsing);
+                    println!("  • Semantic:  {:?}", metrics.semantic);
+                    println!("  • Backend:   {:?}", metrics.backend);
+                    println!("  • Total:     {:?}", metrics.total);
+                }
+            }
+
+            println!(
+                "IR functions emitted: {}",
+                report.artifacts.ir_module.functions.len()
+            );
+
+            println!("✨ Compilation successful!");
+            println!("━━━━━━━━━━━━━━━━━━━━");
+        }
+
+        if self.options.run_jit {
+            self.pipeline
+                .execute_artifacts(&report.artifacts)
+                .map_err(|errors| render_errors(&errors, source, filename, "execution"))?;
+        }
+
+        Ok(())
+    }
+
+    fn compile_to_report(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<CompilationReport, Vec<CompilerError>> {
+        self.last_summary = None;
+
+        let compilation = self.pipeline.compile(source, filename)?;
 
         let CompilationResult {
             backend_artifacts: artifacts,
@@ -409,76 +500,17 @@ impl SpectraCompiler {
             ..
         } = compilation;
 
-        self.emit_lint_warnings(&warnings, filename, source);
-
         if let Some(aggregate) = self.aggregate.as_mut() {
             aggregate.record(&artifacts, metrics.as_ref());
         }
 
-        if self.options.optimize {
-            let modified_passes: Vec<_> = artifacts
-                .passes
-                .iter()
-                .filter(|report| report.modified)
-                .map(|report| report.name)
-                .collect();
-
-            if modified_passes.is_empty() {
-                println!("Optimization passes applied: none (IR unchanged)");
-            } else {
-                println!(
-                    "Optimization passes applied: {}",
-                    modified_passes.join(", ")
-                );
-            }
-        }
-
-        if self.options.collect_metrics
-            && self.emit_internal_metrics
-            && !artifacts.passes.is_empty()
-        {
-            println!("Pass timings:");
-            for report in &artifacts.passes {
-                let status = if report.modified {
-                    "modified"
-                } else {
-                    "no change"
-                };
-                println!(
-                    "  • {:<28} {:>10?} ({})",
-                    report.name, report.duration, status
-                );
-            }
-        }
-
-        if self.options.collect_metrics && self.emit_internal_metrics {
-            println!("Lowering time: {:?}", artifacts.lowering_duration);
-            println!("Code generation time: {:?}", artifacts.codegen_duration);
-        }
-
-        if self.emit_internal_metrics {
-            if let Some(metrics) = metrics.as_ref() {
-                println!("Front-end timings:");
-                println!("  • Lexing:    {:?}", metrics.lexing);
-                println!("  • Parsing:   {:?}", metrics.parsing);
-                println!("  • Semantic:  {:?}", metrics.semantic);
-                println!("  • Backend:   {:?}", metrics.backend);
-                println!("  • Total:     {:?}", metrics.total);
-            }
-        }
-
-        println!(
-            "IR functions emitted: {}",
-            artifacts.ir_module.functions.len()
-        );
-
         let pass_summaries = artifacts
             .passes
             .iter()
-            .map(|report| PassSummary {
-                name: report.name,
-                duration: report.duration,
-                modified: report.modified,
+            .map(|entry| PassSummary {
+                name: entry.name,
+                duration: entry.duration,
+                modified: entry.modified,
             })
             .collect();
 
@@ -490,16 +522,24 @@ impl SpectraCompiler {
             passes: pass_summaries,
         });
 
-        if self.options.run_jit {
-            self.pipeline
-                .execute_artifacts(&artifacts)
-                .map_err(|errors| render_errors(&errors, source, filename, "execution"))?;
-        }
+        Ok(CompilationReport {
+            artifacts,
+            metrics,
+            warnings,
+        })
+    }
 
-        println!("✨ Compilation successful!");
-        println!("━━━━━━━━━━━━━━━━━━━━");
+    pub fn set_emit_output(&mut self, emit: bool) {
+        self.emit_output = emit;
+    }
 
-        Ok(())
+    pub fn compile_for_diagnostics(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<Vec<LintDiagnostic>, Vec<CompilerError>> {
+        let report = self.compile_to_report(source, filename)?;
+        Ok(report.warnings)
     }
 
     pub fn print_aggregate_summary(&self) {
