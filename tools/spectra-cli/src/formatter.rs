@@ -1,6 +1,9 @@
 use crate::{CliError, CliResult};
+use diff::{lines, Result as DiffResult};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -26,12 +29,20 @@ impl Default for FormatterConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExplainMode {
+    None,
+    Text,
+    Json,
+}
+
 #[derive(Debug)]
 pub(crate) struct FormatOptions {
     pub entries: Vec<PathBuf>,
     pub check: bool,
     pub use_stdin: bool,
     pub write_stdout: bool,
+    pub explain: ExplainMode,
     pub config_path: Option<PathBuf>,
 }
 
@@ -188,6 +199,18 @@ impl FormatterConfigResolver {
 }
 
 pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
+    if options.explain != ExplainMode::None && options.use_stdin {
+        return Err(CliError::usage(
+            "--explain cannot be used with --stdin. Provide files or directories instead.",
+        ));
+    }
+
+    if options.explain != ExplainMode::None && options.write_stdout {
+        return Err(CliError::usage(
+            "--explain cannot be combined with --stdout. Use regular formatting or --check.",
+        ));
+    }
+
     let mut config_resolver = FormatterConfigResolver::new(&options)?;
 
     if options.use_stdin {
@@ -243,6 +266,16 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
     }
 
     let mut changed = Vec::new();
+    let mut text_diffs = if options.explain == ExplainMode::Text {
+        Some(Vec::new())
+    } else {
+        None
+    };
+    let mut json_diffs = if options.explain == ExplainMode::Json {
+        Some(Vec::new())
+    } else {
+        None
+    };
     let mut processed = 0usize;
 
     for path in &sources {
@@ -260,10 +293,67 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
 
         if output != original {
             changed.push(path.clone());
+            if let Some(diffs) = text_diffs.as_mut() {
+                diffs.push(render_diff(path, &original, &output));
+            }
+            if let Some(diffs) = json_diffs.as_mut() {
+                diffs.push(render_json_diff(path, &original, &output));
+            }
             if !options.check {
                 write_formatted(path, &output)?;
             }
         }
+    }
+
+    match options.explain {
+        ExplainMode::Text => {
+            let diffs = text_diffs.unwrap_or_default();
+            if changed.is_empty() {
+                println!(
+                    "No formatting changes detected across {} file{}.",
+                    processed,
+                    if processed == 1 { "" } else { "s" }
+                );
+                return Ok(());
+            }
+
+            for diff in diffs {
+                println!("{}", diff);
+            }
+
+            return Err(CliError::compilation(format!(
+                "Formatting differences detected in {} file{}.",
+                changed.len(),
+                if changed.len() == 1 { "" } else { "s" }
+            )));
+        }
+        ExplainMode::Json => {
+            let diffs = json_diffs.unwrap_or_default();
+            let payload = JsonExplainPayload {
+                summary: JsonSummary {
+                    processed,
+                    changed: changed.len(),
+                },
+                files: diffs,
+            };
+
+            let serialized = serde_json::to_string_pretty(&payload).map_err(|error| {
+                CliError::io(format!("Failed to serialize explain payload: {}", error))
+            })?;
+
+            println!("{}", serialized);
+
+            if changed.is_empty() {
+                return Ok(());
+            }
+
+            return Err(CliError::compilation(format!(
+                "Formatting differences detected in {} file{}.",
+                changed.len(),
+                if changed.len() == 1 { "" } else { "s" }
+            )));
+        }
+        ExplainMode::None => {}
     }
 
     if options.check && !changed.is_empty() {
@@ -540,6 +630,87 @@ fn write_formatted(path: &Path, contents: &str) -> CliResult<()> {
             error
         ))
     })
+}
+
+fn render_diff(path: &Path, original: &str, formatted: &str) -> String {
+    let mut buffer = String::new();
+    let _ = writeln!(buffer, "diff --spectra {}", path.display());
+    let _ = writeln!(buffer, "--- original");
+    let _ = writeln!(buffer, "+++ formatted");
+
+    for change in lines(original, formatted) {
+        match change {
+            DiffResult::Left(line) => {
+                let _ = writeln!(buffer, "-{}", line);
+            }
+            DiffResult::Right(line) => {
+                let _ = writeln!(buffer, "+{}", line);
+            }
+            DiffResult::Both(line, _) => {
+                let _ = writeln!(buffer, " {}", line);
+            }
+        }
+    }
+
+    buffer
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct JsonExplainPayload {
+    summary: JsonSummary,
+    files: Vec<JsonFileDiff>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct JsonSummary {
+    processed: usize,
+    changed: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct JsonFileDiff {
+    path: String,
+    operations: Vec<JsonDiffOp>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct JsonDiffOp {
+    op: JsonOpKind,
+    text: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum JsonOpKind {
+    Equal,
+    Insert,
+    Remove,
+}
+
+fn render_json_diff(path: &Path, original: &str, formatted: &str) -> JsonFileDiff {
+    let mut operations = Vec::new();
+
+    for change in lines(original, formatted) {
+        match change {
+            DiffResult::Left(line) => operations.push(JsonDiffOp {
+                op: JsonOpKind::Remove,
+                text: line.to_string(),
+            }),
+            DiffResult::Right(line) => operations.push(JsonDiffOp {
+                op: JsonOpKind::Insert,
+                text: line.to_string(),
+            }),
+            DiffResult::Both(line, _) => operations.push(JsonDiffOp {
+                op: JsonOpKind::Equal,
+                text: line.to_string(),
+            }),
+        }
+    }
+
+    JsonFileDiff {
+        path: path.display().to_string(),
+        operations,
+    }
 }
 
 fn format_source(input: &str, config: &FormatterConfig) -> String {
@@ -2170,6 +2341,8 @@ mod cst {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{format_source, FormatterConfig};
 
     #[test]
@@ -2263,5 +2436,33 @@ mod tests {
         let input = "fn classify(value){\nmatch value {\nAlpha=>1,\nBeta=>2,\nGamma=>3\n}\n}\n";
         let expected = "fn classify(value) {\n    match value {\n        Alpha => 1,\n        Beta => 2,\n        Gamma => 3\n    }\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
+    }
+
+    #[test]
+    fn render_diff_reports_changes() {
+        let original = "fn demo() {\n    return 0;\n}\n";
+        let formatted = "fn demo() {\n    return 1;\n}\n";
+        let diff = super::render_diff(Path::new("demo.spectra"), original, formatted);
+        assert!(diff.contains("diff --spectra demo.spectra"));
+        assert!(diff.contains("--- original"));
+        assert!(diff.contains("+++ formatted"));
+        assert!(diff.contains("-    return 0;"));
+        assert!(diff.contains("+    return 1;"));
+    }
+
+    #[test]
+    fn render_json_diff_reports_operations() {
+        let original = "fn demo() {\n    return 0;\n}\n";
+        let formatted = "fn demo() {\n    return 1;\n}\n";
+        let file_diff = super::render_json_diff(Path::new("demo.spectra"), original, formatted);
+        assert_eq!(file_diff.path, "demo.spectra");
+        assert!(file_diff
+            .operations
+            .iter()
+            .any(|op| matches!(op.op, super::JsonOpKind::Remove) && op.text.contains("return 0")));
+        assert!(file_diff
+            .operations
+            .iter()
+            .any(|op| matches!(op.op, super::JsonOpKind::Insert) && op.text.contains("return 1")));
     }
 }

@@ -3,7 +3,7 @@ mod formatter;
 mod project;
 
 use compiler_integration::{ModulePipelineSummary, SpectraCompiler};
-use formatter::{run as run_formatter, FormatOptions};
+use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use project::ProjectPlan;
 use spectra_compiler::CompilationOptions;
 use std::io::{self, Write};
@@ -524,6 +524,7 @@ where
     let mut check = false;
     let mut use_stdin = false;
     let mut write_stdout = false;
+    let mut explain = ExplainMode::None;
     let mut config_path: Option<PathBuf> = None;
 
     while let Some(arg) = args.next() {
@@ -537,6 +538,34 @@ where
             "--check" => check = true,
             "--stdin" => use_stdin = true,
             "--stdout" => write_stdout = true,
+            "--explain" => {
+                if explain != ExplainMode::None {
+                    return Err(usage_error(
+                        "Multiple --explain options provided. Specify it at most once.",
+                    ));
+                }
+                explain = ExplainMode::Text;
+                check = true;
+            }
+            flag if flag.starts_with("--explain=") => {
+                if explain != ExplainMode::None {
+                    return Err(usage_error(
+                        "Multiple --explain options provided. Specify it at most once.",
+                    ));
+                }
+                let value = &flag[10..];
+                explain = match value {
+                    "text" => ExplainMode::Text,
+                    "json" => ExplainMode::Json,
+                    other => {
+                        return Err(usage_error(&format!(
+                            "Unknown --explain mode '{}'. Use 'text' or 'json'.",
+                            other
+                        )))
+                    }
+                };
+                check = true;
+            }
             "--config" => {
                 if config_path.is_some() {
                     return Err(usage_error(
@@ -573,6 +602,7 @@ where
         check,
         use_stdin,
         write_stdout,
+        explain,
         config_path,
     })
 }
@@ -1262,6 +1292,7 @@ fn print_format_help() {
     println!("    --check              Verify formatting without writing changes");
     println!("    --stdin              Read Spectra source from standard input");
     println!("    --stdout             Write the formatted result to stdout instead of files (single input file)");
+    println!("    --explain[=json]     Show diffs (text by default, json for machine-readable) and implies --check");
     println!("    --config <path>      Load formatter configuration from an explicit Spectra.toml");
     println!("    -h, --help          Show this help text");
     println!();

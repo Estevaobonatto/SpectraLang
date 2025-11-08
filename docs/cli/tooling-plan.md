@@ -27,18 +27,21 @@
 - ✅ Usage and configuration documented in `docs/cli/formatter-guide.md`, including sample `Spectra.toml` snippets.
 - ✅ Sample GitHub Actions workflow (`tools/spectra-cli/.github/workflows/spectra-fmt-check.yml`) demonstrates `spectra fmt --check` gating.
 - ✅ Token-aware CST formatting path introduced (with legacy fallback) to preserve trivia-aware spacing and unary operator handling.
+- ✅ `spectra fmt --explain` surfaces line-oriented diffs for files that need formatting and reuses the compiler exit codes for gating.
+- ✅ `spectra fmt --explain=json` emits structured diff payloads for editor and automation integrations.
 
 ### Next Steps
 
-1. **Syntax-aware rewriter**
-   - Grow the new CST pipeline into a full concrete syntax tree backed by the parser (match arms, doc comments, trivia preservation).
+1. **CST policy extensions**
    - Layer configurable policies (brace style, trailing commas, import ordering) on top of the CST traversal.
+   - Expand AST-aware passes to cover doc comment wrapping, nested comment indentation, and trailing comma heuristics.
 2. **Editor & automation integration**
-   - Surface formatter decisions (`--explain` style diffs) for editor tooling and diagnostics.
+   - Document the JSON explain schema and versioning, including examples in the CLI guide.
    - Expose structured telemetry (formatted file counts, cache hits) for downstream integrations.
 3. **Performance & UX**
    - Benchmark large workspaces and explore parallel formatting of independent files.
    - Reuse cached configuration state across successive CLI invocations (daemon or IPC-friendly mode).
+   - Refine `--explain` presentation with hunked output and optional color for large diffs.
 
 ## Linter Roadmap
 
