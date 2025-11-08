@@ -44,7 +44,7 @@
 - [x] Extend `spectra` CLI with module resolution, multi-file project handling, and dependency scanning _(CLI planner now discovers modules, validates imports, and compiles in dependency order via `tools/spectra-cli/src/project.rs`)_
 - [x] Implement subcommands for `check`, `run`, `repl`, and project scaffolding where applicable _(CLI now offers `compile`/`check`/`run`, interactive `repl`, and `new` project scaffolding)_
 - [x] Surface pipeline summaries (frontend, lowering, passes, codegen timings) behind flags _(`--summary` option now prints per-module pipeline metrics with aggregated timings in `tools/spectra-cli`)_
-- [ ] Plan formatting, linting, and VS Code syntax/highlighting tooling integration
+- [x] Plan formatting, linting, and VS Code syntax/highlighting tooling integration _(tracking formatter smoke tests, navigation JSON contracts, and extension roadmap updates in `docs/cli/tooling-plan.md`)_
 - [x] Define exit codes and logging conventions for automation compatibility _(CLI now emits structured `error:` lines and maps failures to deterministic exit codes in `tools/spectra-cli/src/main.rs`)_
 
 ## Quality Gates
