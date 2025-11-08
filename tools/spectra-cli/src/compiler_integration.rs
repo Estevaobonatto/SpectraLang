@@ -27,6 +27,22 @@ struct PassReport {
     modified: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PassSummary {
+    pub name: &'static str,
+    pub duration: Duration,
+    pub modified: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModulePipelineSummary {
+    pub filename: String,
+    pub lowering_duration: Duration,
+    pub codegen_duration: Duration,
+    pub frontend_metrics: Option<CompilationMetrics>,
+    pub passes: Vec<PassSummary>,
+}
+
 #[derive(Default, Debug)]
 struct PassAggregate {
     total_duration: Duration,
@@ -145,22 +161,6 @@ impl AggregateMetrics {
             }
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct PassSummary {
-    pub name: &'static str,
-    pub duration: Duration,
-    pub modified: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ModulePipelineSummary {
-    pub filename: String,
-    pub lowering_duration: Duration,
-    pub codegen_duration: Duration,
-    pub frontend_metrics: Option<CompilationMetrics>,
-    pub passes: Vec<PassSummary>,
 }
 
 #[derive(Debug)]
@@ -409,7 +409,7 @@ impl SpectraCompiler {
             ..
         } = compilation;
 
-        self.emit_lint_warnings(&warnings, filename);
+        self.emit_lint_warnings(&warnings, filename, source);
 
         if let Some(aggregate) = self.aggregate.as_mut() {
             aggregate.record(&artifacts, metrics.as_ref());
@@ -516,27 +516,15 @@ impl SpectraCompiler {
         self.emit_internal_metrics = emit;
     }
 
-    fn emit_lint_warnings(&self, warnings: &[LintDiagnostic], filename: &str) {
+    fn emit_lint_warnings(&self, warnings: &[LintDiagnostic], filename: &str, source: &str) {
         if warnings.is_empty() {
             return;
         }
 
-        println!("⚠️  lint warnings detected ({}):", warnings.len());
         for warning in warnings {
-            println!(
-                "warning[{}] {}:{}:{} {}",
-                warning.rule.code(),
-                filename,
-                warning.span.start_location.line,
-                warning.span.start_location.column,
-                warning.message
-            );
-
-            if let Some(note) = &warning.note {
-                println!("    note: {}", note);
-            }
+            let message = render_lint_warning(warning, filename, source);
+            log_warning(&message);
         }
-        println!();
     }
 
     /// Compile and execute (JIT)
@@ -558,7 +546,7 @@ impl SpectraCompiler {
             ..
         } = compilation;
 
-        self.emit_lint_warnings(&warnings, "<jit>");
+        self.emit_lint_warnings(&warnings, "<jit>", source);
 
         if self.options.optimize {
             let modified_passes: Vec<_> = artifacts
@@ -642,10 +630,25 @@ fn render_errors(errors: &[CompilerError], source: &str, filename: &str, stage: 
     output
 }
 
+enum DiagnosticSeverity {
+    Error,
+    Warning,
+}
+
+impl DiagnosticSeverity {
+    fn as_str(&self) -> &'static str {
+        match self {
+            DiagnosticSeverity::Error => "error",
+            DiagnosticSeverity::Warning => "warning",
+        }
+    }
+}
+
 fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
     match error {
         CompilerError::Lexical(e) => render_span_diagnostic(
             "lexical",
+            DiagnosticSeverity::Error,
             &e.message,
             &e.span,
             e.hint.as_deref(),
@@ -655,6 +658,7 @@ fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
         ),
         CompilerError::Parse(e) => render_span_diagnostic(
             "parse",
+            DiagnosticSeverity::Error,
             &e.message,
             &e.span,
             e.hint.as_deref(),
@@ -664,6 +668,7 @@ fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
         ),
         CompilerError::Semantic(e) => render_span_diagnostic(
             "semantic",
+            DiagnosticSeverity::Error,
             &e.message,
             &e.span,
             e.hint.as_deref(),
@@ -686,6 +691,7 @@ fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
 
 fn render_span_diagnostic(
     phase: &str,
+    severity: DiagnosticSeverity,
     message: &str,
     span: &Span,
     hint: Option<&str>,
@@ -696,8 +702,13 @@ fn render_span_diagnostic(
     let mut buf = String::new();
     let _ = writeln!(
         &mut buf,
-        "{}:{}:{}: {} error: {}",
-        filename, span.start_location.line, span.start_location.column, phase, message
+        "{}:{}:{}: {} {}: {}",
+        filename,
+        span.start_location.line,
+        span.start_location.column,
+        phase,
+        severity.as_str(),
+        message
     );
 
     if let Some(raw_line) = get_source_line(source, span.start_location.line) {
@@ -740,6 +751,52 @@ fn render_span_diagnostic(
     }
 
     buf
+}
+
+fn render_lint_warning(diagnostic: &LintDiagnostic, filename: &str, source: &str) -> String {
+    let mut context = diagnostic.note.clone().unwrap_or_default();
+
+    if let Some(secondary) = diagnostic.secondary_span {
+        let related = format!(
+            "related location: {}:{}:{}",
+            filename,
+            secondary.start_location.line,
+            secondary.start_location.column
+        );
+
+        if context.is_empty() {
+            context = related;
+        } else {
+            context.push_str("; ");
+            context.push_str(&related);
+        }
+    }
+
+    let context_owned = if context.is_empty() { None } else { Some(context) };
+    let context_ref = context_owned.as_deref();
+
+    render_span_diagnostic(
+        &format!("lint({})", diagnostic.rule.code()),
+        DiagnosticSeverity::Warning,
+        &diagnostic.message,
+        &diagnostic.span,
+        None,
+        context_ref,
+        source,
+        filename,
+    )
+}
+
+fn log_warning(message: &str) {
+    for (index, line) in message.lines().enumerate() {
+        if index == 0 {
+            eprintln!("warning: {}", line);
+        } else if line.is_empty() {
+            eprintln!();
+        } else {
+            eprintln!("         {}", line);
+        }
+    }
 }
 
 fn get_source_line<'a>(source: &'a str, line_number: usize) -> Option<&'a str> {

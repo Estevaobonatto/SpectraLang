@@ -53,12 +53,19 @@
 
 - ✅ Rule engine foundation integrated into the semantic pipeline, covering `unused-binding`, `unreachable-code`, and `shadowing` with deny escalation support.
 - ✅ CLI surface in place: `spectra lint` command, `--lint` opt-in for build flows, and per-rule `--allow`/`--deny` switches with `[lint]` configuration in `Spectra.toml`.
+- ✅ Output conventions aligned with the shared reporter: lint diagnostics now reuse the `warning:`/`error:` prefixes and denied rules exit with code `65`.
 
 ### Next Steps
 
-1. **Output conventions**
-   - Emit diagnostics through the existing reporter so lint findings share the `error:`/`warning:` prefixes.
-   - Reserve exit code `65` when `--deny` escalates to hard failures; otherwise exit `0` with warnings logged.
+1. **Rule coverage expansion**
+   - Extend the rule set (imports, match exhaustiveness hints, redundant patterns) with focused regression suites.
+   - Annotate each rule with documentation links surfaced via `spectra lint --list`.
+2. **Configuration ergonomics**
+   - Introduce lint groups/presets in `[lint]` to simplify enabling common bundles.
+   - Allow per-module overrides and ignore directives for incremental adoption.
+3. **Automation integration**
+   - Emit optional JSON summaries for CI ingestion alongside the human-readable reporter output.
+   - Document the exit-code contract and reporter format in `docs/cli/tooling-plan.md` and the CLI help topics.
 
 ## VS Code Extension & Syntax Highlighting
 
