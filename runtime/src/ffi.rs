@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::ptr;
 use std::sync::{Mutex, OnceLock};
+use std::{ptr, slice, str};
 
 use crate::initialize;
 use crate::memory::ManualBox;
@@ -108,6 +108,60 @@ fn allocation_table() -> &'static Mutex<AllocationTable> {
     TABLE.get_or_init(|| Mutex::new(AllocationTable::new()))
 }
 
+struct HostRegistry {
+    functions: HashMap<String, usize>,
+}
+
+impl HostRegistry {
+    fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, name: &str, ptr: *const ()) -> bool {
+        self.functions
+            .insert(name.to_string(), ptr as usize)
+            .is_none()
+    }
+
+    fn remove(&mut self, name: &str) -> bool {
+        self.functions.remove(name).is_some()
+    }
+
+    fn lookup(&self, name: &str) -> *const () {
+        self.functions
+            .get(name)
+            .copied()
+            .and_then(|value| {
+                if value == 0 {
+                    None
+                } else {
+                    Some(value as *const ())
+                }
+            })
+            .unwrap_or(ptr::null())
+    }
+
+    fn clear(&mut self) {
+        self.functions.clear();
+    }
+}
+
+fn host_registry() -> &'static Mutex<HostRegistry> {
+    static REGISTRY: OnceLock<Mutex<HostRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HostRegistry::new()))
+}
+
+fn read_host_name(name_ptr: *const u8, name_len: usize) -> Option<String> {
+    if name_ptr.is_null() {
+        return None;
+    }
+
+    let bytes = unsafe { slice::from_raw_parts(name_ptr, name_len) };
+    str::from_utf8(bytes).ok().map(|s| s.to_string())
+}
+
 /// Begins a manual allocation frame and returns its identifier.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_frame_enter() -> usize {
@@ -198,4 +252,191 @@ pub extern "C" fn spectra_rt_manual_clear() {
         .lock()
         .expect("manual allocation table mutex poisoned");
     guard.clear_all();
+}
+
+/// Registers a host function that JITed code can invoke by name.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_register(
+    name_ptr: *const u8,
+    name_len: usize,
+    fn_ptr: *const (),
+) -> bool {
+    if fn_ptr.is_null() || name_len == 0 {
+        return false;
+    }
+
+    let Some(name) = read_host_name(name_ptr, name_len) else {
+        return false;
+    };
+
+    let registry = host_registry();
+    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    guard.insert(&name, fn_ptr)
+}
+
+/// Unregisters a previously registered host function.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_unregister(name_ptr: *const u8, name_len: usize) -> bool {
+    if name_len == 0 {
+        return false;
+    }
+
+    let Some(name) = read_host_name(name_ptr, name_len) else {
+        return false;
+    };
+
+    let registry = host_registry();
+    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    guard.remove(&name)
+}
+
+/// Looks up a host function by name, returning `NULL` if not found or invalid.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_lookup(name_ptr: *const u8, name_len: usize) -> *const () {
+    if name_len == 0 {
+        return ptr::null();
+    }
+
+    let Some(name) = read_host_name(name_ptr, name_len) else {
+        return ptr::null();
+    };
+
+    let registry = host_registry();
+    let guard = registry.lock().expect("host registry mutex poisoned");
+    guard.lookup(&name)
+}
+
+/// Clears all registered host functions.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_clear() {
+    let registry = host_registry();
+    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    guard.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{initialize, MemoryStats};
+    use std::mem;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn test_guard() -> MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test guard poisoned")
+    }
+
+    fn manual_stats() -> MemoryStats {
+        initialize().memory_stats()
+    }
+
+    #[test]
+    fn frame_exit_releases_manual_allocations() {
+        let _lock = test_guard();
+        spectra_rt_manual_clear();
+
+        let baseline = manual_stats().manual;
+
+        let frame = spectra_rt_manual_frame_enter();
+        let ptr = spectra_rt_manual_alloc(32);
+        assert!(!ptr.is_null());
+
+        let after_alloc = manual_stats().manual;
+        assert_eq!(after_alloc.allocations, baseline.allocations + 1);
+        assert!(after_alloc.bytes >= baseline.bytes);
+
+        spectra_rt_manual_frame_exit(frame);
+
+        let after_exit = manual_stats().manual;
+        assert_eq!(after_exit.allocations, baseline.allocations);
+        assert_eq!(after_exit.bytes, baseline.bytes);
+
+        spectra_rt_manual_clear();
+    }
+
+    #[test]
+    fn manual_clear_resets_frames_and_allocations() {
+        let _lock = test_guard();
+        spectra_rt_manual_clear();
+
+        let baseline = manual_stats().manual;
+
+        let _frame_one = spectra_rt_manual_frame_enter();
+        let _frame_two = spectra_rt_manual_frame_enter();
+        assert!(!spectra_rt_manual_alloc(8).is_null());
+        assert!(!spectra_rt_manual_alloc(16).is_null());
+
+        let raised = manual_stats().manual;
+        assert!(raised.allocations >= baseline.allocations + 2);
+        assert!(raised.bytes >= baseline.bytes);
+
+        spectra_rt_manual_clear();
+
+        let after_clear = manual_stats().manual;
+        assert_eq!(after_clear.allocations, baseline.allocations);
+        assert_eq!(after_clear.bytes, baseline.bytes);
+
+        let frame = spectra_rt_manual_frame_enter();
+        assert!(!spectra_rt_manual_alloc(24).is_null());
+        spectra_rt_manual_frame_exit(frame);
+
+        let after_reuse = manual_stats().manual;
+        assert_eq!(after_reuse.allocations, baseline.allocations);
+        assert_eq!(after_reuse.bytes, baseline.bytes);
+
+        spectra_rt_manual_clear();
+    }
+
+    extern "C" fn host_const() -> i64 {
+        42
+    }
+
+    extern "C" fn host_inc(value: i64) -> i64 {
+        value + 1
+    }
+
+    #[test]
+    fn host_register_lookup_and_clear() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let name = b"spectra.test.const";
+        let inserted = spectra_rt_host_register(name.as_ptr(), name.len(), host_const as *const ());
+        assert!(inserted);
+
+        let ptr = spectra_rt_host_lookup(name.as_ptr(), name.len());
+        assert!(!ptr.is_null());
+        let func: extern "C" fn() -> i64 = unsafe { mem::transmute(ptr) };
+        assert_eq!(func(), 42);
+
+        let replaced = spectra_rt_host_register(name.as_ptr(), name.len(), host_inc as *const ());
+        assert!(!replaced);
+
+        let ptr = spectra_rt_host_lookup(name.as_ptr(), name.len());
+        let func: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(ptr) };
+        assert_eq!(func(41), 42);
+
+        spectra_rt_host_clear();
+        assert!(spectra_rt_host_lookup(name.as_ptr(), name.len()).is_null());
+    }
+
+    #[test]
+    fn host_unregister_removes_entry() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let name = b"spectra.test.inc";
+        spectra_rt_host_register(name.as_ptr(), name.len(), host_inc as *const ());
+        assert!(!spectra_rt_host_lookup(name.as_ptr(), name.len()).is_null());
+
+        assert!(spectra_rt_host_unregister(name.as_ptr(), name.len()));
+        assert!(spectra_rt_host_lookup(name.as_ptr(), name.len()).is_null());
+
+        assert!(!spectra_rt_host_unregister(name.as_ptr(), name.len()));
+
+        spectra_rt_host_clear();
+    }
 }
