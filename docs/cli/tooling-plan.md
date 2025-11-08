@@ -79,6 +79,19 @@
    - Track editor features (hover, go-to-definition) in the same repo to keep parity with CLI improvements.
    - Document extension usage in `docs/cli` and update alpha checklist as milestones land.
 
+### VS Code Extension Checklist
+
+- [ ] Establish extension workspace scaffold (`tools/vscode-extension/`), select package manager, and document architecture in `ROADMAP.md`.
+- [ ] Register VS Code commands that shell out to `spectra repl --json`; handle process lifetime, cancellation, and JSON diagnostics parsing.
+- [ ] Populate diagnostics via `vscode.DiagnosticCollection`, mapping Spectra spans to VS Code ranges with severity derived from CLI output.
+- [ ] Generate and bundle the Spectra TextMate grammar from parser tokens; add language configuration (comments, brackets, indentation).
+- [ ] Implement formatter integration invoking `spectra fmt` streaming modes, with stdin/stdout fallback and error propagation respecting exit codes.
+- [ ] Wire lint command execution to `spectra lint`, surface warnings/errors in the Problems view, and mirror CLI exit-code semantics.
+- [ ] Cache CLI capability probes (version, features, config paths) to avoid redundant process spawns during editor sessions.
+- [ ] Plan advanced language server features (hover, go-to-definition) and track parity items within the extension roadmap.
+- [ ] Add automated extension tests (colorization, command smoke tests) using `@vscode/test-electron` or equivalent harness.
+- [ ] Update `docs/cli` with installation, configuration, and troubleshooting guidance; align alpha checklist milestones before publishing.
+
 ## Automation & CI Considerations
 
 - Add formatter/linter checks to CI once the commands are available, failing builds on exit codes `65`.
