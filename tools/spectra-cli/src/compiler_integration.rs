@@ -146,6 +146,22 @@ impl AggregateMetrics {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PassSummary {
+    pub name: &'static str,
+    pub duration: Duration,
+    pub modified: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModulePipelineSummary {
+    pub filename: String,
+    pub lowering_duration: Duration,
+    pub codegen_duration: Duration,
+    pub frontend_metrics: Option<CompilationMetrics>,
+    pub passes: Vec<PassSummary>,
+}
+
 #[derive(Debug)]
 struct FullPipelineArtifacts {
     ir_module: IRModule,
@@ -349,6 +365,8 @@ pub struct SpectraCompiler {
     options: CompilationOptions,
     pipeline: CompilationPipeline<FullPipelineBackend>,
     aggregate: Option<AggregateMetrics>,
+    last_summary: Option<ModulePipelineSummary>,
+    emit_internal_metrics: bool,
 }
 
 impl SpectraCompiler {
@@ -366,11 +384,14 @@ impl SpectraCompiler {
             options,
             pipeline,
             aggregate,
+            last_summary: None,
+            emit_internal_metrics: true,
         }
     }
 
     /// Compile source code to native code
     pub fn compile(&mut self, source: &str, filename: &str) -> Result<(), String> {
+        self.last_summary = None;
         println!("🚀 SpectraLang Compiler");
         println!("━━━━━━━━━━━━━━━━━━━━");
         println!();
@@ -408,7 +429,10 @@ impl SpectraCompiler {
             }
         }
 
-        if self.options.collect_metrics && !artifacts.passes.is_empty() {
+        if self.options.collect_metrics
+            && self.emit_internal_metrics
+            && !artifacts.passes.is_empty()
+        {
             println!("Pass timings:");
             for report in &artifacts.passes {
                 let status = if report.modified {
@@ -423,24 +447,44 @@ impl SpectraCompiler {
             }
         }
 
-        if self.options.collect_metrics {
+        if self.options.collect_metrics && self.emit_internal_metrics {
             println!("Lowering time: {:?}", artifacts.lowering_duration);
             println!("Code generation time: {:?}", artifacts.codegen_duration);
         }
 
-        if let Some(metrics) = metrics.as_ref() {
-            println!("Front-end timings:");
-            println!("  • Lexing:    {:?}", metrics.lexing);
-            println!("  • Parsing:   {:?}", metrics.parsing);
-            println!("  • Semantic:  {:?}", metrics.semantic);
-            println!("  • Backend:   {:?}", metrics.backend);
-            println!("  • Total:     {:?}", metrics.total);
+        if self.emit_internal_metrics {
+            if let Some(metrics) = metrics.as_ref() {
+                println!("Front-end timings:");
+                println!("  • Lexing:    {:?}", metrics.lexing);
+                println!("  • Parsing:   {:?}", metrics.parsing);
+                println!("  • Semantic:  {:?}", metrics.semantic);
+                println!("  • Backend:   {:?}", metrics.backend);
+                println!("  • Total:     {:?}", metrics.total);
+            }
         }
 
         println!(
             "IR functions emitted: {}",
             artifacts.ir_module.functions.len()
         );
+
+        let pass_summaries = artifacts
+            .passes
+            .iter()
+            .map(|report| PassSummary {
+                name: report.name,
+                duration: report.duration,
+                modified: report.modified,
+            })
+            .collect();
+
+        self.last_summary = Some(ModulePipelineSummary {
+            filename: filename.to_string(),
+            lowering_duration: artifacts.lowering_duration,
+            codegen_duration: artifacts.codegen_duration,
+            frontend_metrics: metrics.clone(),
+            passes: pass_summaries,
+        });
 
         if self.options.run_jit {
             self.pipeline
@@ -458,6 +502,14 @@ impl SpectraCompiler {
         if let Some(aggregate) = &self.aggregate {
             aggregate.print_summary();
         }
+    }
+
+    pub fn take_last_summary(&mut self) -> Option<ModulePipelineSummary> {
+        self.last_summary.take()
+    }
+
+    pub fn set_emit_internal_metrics(&mut self, emit: bool) {
+        self.emit_internal_metrics = emit;
     }
 
     /// Compile and execute (JIT)

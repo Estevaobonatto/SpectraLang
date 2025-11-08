@@ -1,7 +1,7 @@
 mod compiler_integration;
 mod project;
 
-use compiler_integration::SpectraCompiler;
+use compiler_integration::{ModulePipelineSummary, SpectraCompiler};
 use project::ProjectPlan;
 use spectra_compiler::CompilationOptions;
 use std::io::{self, Write};
@@ -14,6 +14,7 @@ const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "
 struct CliInvocation {
     entries: Vec<PathBuf>,
     options: CompilationOptions,
+    show_pipeline_summary: bool,
 }
 
 #[derive(Debug)]
@@ -21,6 +22,7 @@ struct ReplOptions {
     base_options: CompilationOptions,
     preload: Vec<PathBuf>,
     autorun: bool,
+    show_pipeline_summary: bool,
 }
 
 #[derive(Debug)]
@@ -68,9 +70,7 @@ impl BuildCommand {
     fn description(self) -> &'static str {
         match self {
             BuildCommand::Compile => "Compile Spectra modules (default).",
-            BuildCommand::Check => {
-                "Type-check modules and report diagnostics without executing."
-            }
+            BuildCommand::Check => "Type-check modules and report diagnostics without executing.",
             BuildCommand::Run => "Compile modules and execute the entry point via JIT.",
         }
     }
@@ -168,9 +168,7 @@ fn parse_cli() -> Result<CliAction, String> {
         Some("--list-experimental") => {
             args.next();
             if args.peek().is_some() {
-                return Err(usage_error(
-                    "--list-experimental must be used on its own.",
-                ));
+                return Err(usage_error("--list-experimental must be used on its own."));
             }
             return Ok(CliAction::ListExperimental);
         }
@@ -245,6 +243,7 @@ where
 {
     let mut options = CompilationOptions::default();
     let mut entries = Vec::new();
+    let mut show_pipeline_summary = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -256,7 +255,10 @@ where
             }
             "--dump-ast" => options.dump_ast = true,
             "--dump-ir" => options.dump_ir = true,
-            "--timings" | "-T" => options.collect_metrics = true,
+            "--timings" | "-T" => {
+                options.collect_metrics = true;
+                show_pipeline_summary = true;
+            }
             "--no-optimize" | "-O0" => {
                 options.optimize = false;
                 options.opt_level = 0;
@@ -281,6 +283,10 @@ where
                 }
                 options.run_jit = true;
             }
+            "--summary" | "--pipeline-summary" => {
+                options.collect_metrics = true;
+                show_pipeline_summary = true;
+            }
             "--enable-experimental" => {
                 if let Some(feature) = args.next() {
                     options.experimental_features.insert(feature);
@@ -303,9 +309,7 @@ where
     }
 
     if entries.is_empty() {
-        return Err(usage_error(
-            "No source files or directories were provided.",
-        ));
+        return Err(usage_error("No source files or directories were provided."));
     }
 
     match command {
@@ -314,18 +318,21 @@ where
         BuildCommand::Compile => {}
     }
 
-    Ok(CliInvocation { entries, options })
+    Ok(CliInvocation {
+        entries,
+        options,
+        show_pipeline_summary,
+    })
 }
 
-fn parse_repl_invocation<I>(
-    args: &mut std::iter::Peekable<I>,
-) -> Result<ReplOptions, String>
+fn parse_repl_invocation<I>(args: &mut std::iter::Peekable<I>) -> Result<ReplOptions, String>
 where
     I: Iterator<Item = String>,
 {
     let mut options = CompilationOptions::default();
     let mut preload = Vec::new();
     let mut autorun = false;
+    let mut show_pipeline_summary = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -337,7 +344,10 @@ where
             }
             "--dump-ast" => options.dump_ast = true,
             "--dump-ir" => options.dump_ir = true,
-            "--timings" | "-T" => options.collect_metrics = true,
+            "--timings" | "-T" => {
+                options.collect_metrics = true;
+                show_pipeline_summary = true;
+            }
             "--no-optimize" | "-O0" => {
                 options.optimize = false;
                 options.opt_level = 0;
@@ -357,6 +367,10 @@ where
             "--run" | "-r" => {
                 autorun = true;
                 options.run_jit = true;
+            }
+            "--summary" | "--pipeline-summary" => {
+                options.collect_metrics = true;
+                show_pipeline_summary = true;
             }
             "--enable-experimental" => {
                 if let Some(feature) = args.next() {
@@ -383,6 +397,7 @@ where
         base_options: options,
         preload,
         autorun,
+        show_pipeline_summary,
     })
 }
 
@@ -418,8 +433,19 @@ where
 }
 
 fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Result<(), i32> {
-    let CliInvocation { entries, options } = invocation;
-    match execute_plan_with_options(kind, options, entries, true, true) {
+    let CliInvocation {
+        entries,
+        options,
+        show_pipeline_summary,
+    } = invocation;
+    match execute_plan_with_options(
+        kind,
+        options,
+        entries,
+        show_pipeline_summary,
+        show_pipeline_summary,
+        true,
+    ) {
         Ok(()) => Ok(()),
         Err(message) => {
             eprintln!("{}", message);
@@ -428,7 +454,12 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Resul
     }
 }
 
-fn compile_plan(kind: BuildCommand, compiler: &mut SpectraCompiler, plan: &ProjectPlan) -> bool {
+fn compile_plan(
+    kind: BuildCommand,
+    compiler: &mut SpectraCompiler,
+    plan: &ProjectPlan,
+    show_pipeline_summary: bool,
+) -> bool {
     let mut has_failures = false;
 
     for module in plan.modules() {
@@ -448,6 +479,11 @@ fn compile_plan(kind: BuildCommand, compiler: &mut SpectraCompiler, plan: &Proje
                         kind.module_success_verb(),
                         module.name
                     );
+                    if show_pipeline_summary {
+                        if let Some(summary) = compiler.take_last_summary() {
+                            print_pipeline_summary(&summary);
+                        }
+                    }
                 }
                 Err(error) => {
                     has_failures = true;
@@ -474,11 +510,45 @@ fn compile_plan(kind: BuildCommand, compiler: &mut SpectraCompiler, plan: &Proje
     has_failures
 }
 
+fn print_pipeline_summary(summary: &ModulePipelineSummary) {
+    println!("    Pipeline summary:");
+    println!("      Source: {}", summary.filename);
+
+    if let Some(metrics) = &summary.frontend_metrics {
+        println!("      Front-end total: {:?}", metrics.total);
+        println!("        • Lexing:    {:?}", metrics.lexing);
+        println!("        • Parsing:   {:?}", metrics.parsing);
+        println!("        • Semantic:  {:?}", metrics.semantic);
+        println!("        • Backend:   {:?}", metrics.backend);
+    } else {
+        println!("      Front-end timings unavailable (enable --timings to collect).");
+    }
+
+    println!("      Lowering: {:?}", summary.lowering_duration);
+    println!("      Codegen:  {:?}", summary.codegen_duration);
+
+    if !summary.passes.is_empty() {
+        println!("      Passes:");
+        for pass in &summary.passes {
+            let status = if pass.modified {
+                "modified"
+            } else {
+                "no change"
+            };
+            println!(
+                "        - {:<24} {:>10?} ({})",
+                pass.name, pass.duration, status
+            );
+        }
+    }
+}
+
 fn execute_plan_with_options(
     kind: BuildCommand,
     options: CompilationOptions,
     entries: Vec<PathBuf>,
-    print_summary: bool,
+    show_pipeline_summary: bool,
+    show_aggregate_summary: bool,
     print_success: bool,
 ) -> Result<(), String> {
     let plan = ProjectPlan::build(entries).map_err(|error| error.to_string())?;
@@ -488,14 +558,22 @@ fn execute_plan_with_options(
     }
 
     let mut compiler = SpectraCompiler::new(options);
-    let has_failures = compile_plan(kind, &mut compiler, &plan);
 
-    if print_summary {
+    if show_pipeline_summary {
+        compiler.set_emit_internal_metrics(false);
+    }
+
+    let has_failures = compile_plan(kind, &mut compiler, &plan, show_pipeline_summary);
+
+    if show_aggregate_summary {
         compiler.print_aggregate_summary();
     }
 
     if has_failures {
-        Err(format!("\n💥 Command '{}' completed with errors", kind.name()))
+        Err(format!(
+            "\n💥 Command '{}' completed with errors",
+            kind.name()
+        ))
     } else {
         if print_success {
             println!("\n{}", kind.success_message());
@@ -509,9 +587,10 @@ fn execute_repl(options: ReplOptions) -> Result<(), i32> {
         base_options,
         preload,
         autorun,
+        show_pipeline_summary,
     } = options;
 
-    let session = ReplSession::new(base_options, autorun);
+    let session = ReplSession::new(base_options, autorun, show_pipeline_summary);
 
     if !preload.is_empty() {
         if let Err(message) = session.compile_entries(preload, session.default_command(), true) {
@@ -531,13 +610,15 @@ fn execute_repl(options: ReplOptions) -> Result<(), i32> {
 struct ReplSession {
     base_options: CompilationOptions,
     autorun: bool,
+    show_pipeline_summary: bool,
 }
 
 impl ReplSession {
-    fn new(base_options: CompilationOptions, autorun: bool) -> Self {
+    fn new(base_options: CompilationOptions, autorun: bool, show_pipeline_summary: bool) -> Self {
         Self {
             base_options,
             autorun,
+            show_pipeline_summary,
         }
     }
 
@@ -570,7 +651,8 @@ impl ReplSession {
             command,
             options,
             entries,
-            self.base_options.collect_metrics,
+            self.show_pipeline_summary,
+            false,
             print_success,
         )
     }
@@ -608,10 +690,7 @@ impl ReplSession {
                 continue;
             }
 
-            let entries: Vec<PathBuf> = trimmed
-                .split_whitespace()
-                .map(PathBuf::from)
-                .collect();
+            let entries: Vec<PathBuf> = trimmed.split_whitespace().map(PathBuf::from).collect();
 
             if let Err(message) = self.compile_entries(entries, self.default_command(), true) {
                 eprintln!("{}", message);
@@ -679,7 +758,10 @@ impl ReplSession {
                 Ok(true)
             }
             unknown => {
-                println!("Unknown REPL command ':{}'. Type ':help' for assistance.", unknown);
+                println!(
+                    "Unknown REPL command ':{}'. Type ':help' for assistance.",
+                    unknown
+                );
                 Ok(true)
             }
         }
@@ -707,9 +789,10 @@ fn create_new_project(options: NewProjectOptions) -> Result<(), String> {
             ));
         }
 
-        if !force && !is_directory_empty(&path).map_err(|error| {
-            format!("Failed to inspect '{}': {}", path.display(), error)
-        })? {
+        if !force
+            && !is_directory_empty(&path)
+                .map_err(|error| format!("Failed to inspect '{}': {}", path.display(), error))?
+        {
             return Err(format!(
                 "Directory '{}' already exists. Use '--force' to scaffold anyway.",
                 path.display()
@@ -862,10 +945,7 @@ fn print_build_help(command: BuildCommand) {
     println!("SpectraLang CLI – '{}' command", command.name());
     println!();
     println!("USAGE:");
-    println!(
-        "    spectra {} [OPTIONS] <paths>...",
-        command.name()
-    );
+    println!("    spectra {} [OPTIONS] <paths>...", command.name());
     println!();
     println!("{}", command.description());
     println!();
@@ -902,6 +982,7 @@ fn print_repl_help() {
     println!("    --dump-ast             Print the AST for debugging when compiling");
     println!("    --dump-ir              Print the IR for debugging when compiling");
     println!("    --timings, -T          Report compilation and execution timings");
+    println!("    --summary              Show pipeline summaries for compiled modules");
     println!("    --no-optimize, -O0     Disable all optimizations");
     println!("    -O1/-O2/-O3            Set optimization level");
     println!("    --run, -r              Automatically run modules after compiling");
@@ -938,6 +1019,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    --dump-ast             Print the AST for debugging");
     println!("    --dump-ir              Print the IR for debugging");
     println!("    --timings, -T          Report compilation and execution timings");
+    println!("    --summary              Show pipeline summaries for compiled modules");
     println!("    --no-optimize, -O0     Disable all optimizations");
     println!("    -O1                    Enable basic optimizations");
     println!("    -O2                    Enable moderate optimizations (default)");
@@ -950,9 +1032,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
             println!("    --run, -r              Redundant; 'run' always executes after compiling");
         }
         _ => {
-            println!(
-                "    --run, -r              Execute the program with the JIT after compiling"
-            );
+            println!("    --run, -r              Execute the program with the JIT after compiling");
         }
     }
     println!("    --enable-experimental <feature>");
@@ -968,8 +1048,5 @@ fn print_experimental_features() {
 
 fn usage_error(message: &str) -> String {
     let trimmed = message.trim_end();
-    format!(
-        "{}\nUse 'spectra --help' for usage information.",
-        trimmed
-    )
+    format!("{}\nUse 'spectra --help' for usage information.", trimmed)
 }
