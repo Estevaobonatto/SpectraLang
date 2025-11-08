@@ -26,9 +26,10 @@
 1. Routed diagnostics through the CLI's JSON channels (`spectra repl --json`) to capture richer metadata and related hints.
 2. Aligned the workspace lint command with `spectra lint --json`, reusing the aggregated report to update VS Code diagnostics.
 3. Added an automated smoke-test harness (`npm test`) powered by `@vscode/test-electron` and a mock Spectra CLI.
+4. Authored `docs/cli/vscode-extension-guide.md` covering installation, configuration, commands, and troubleshooting.
 
 ### In Flight
 
-1. Document installation, configuration, and troubleshooting steps in `docs/cli`, linking to the extension roadmap and grammar status.
-2. Expand the smoke tests to cover formatter round-trips, malformed JSON handling, and missing-CLI error paths.
-3. Track hover and go-to-definition requirements, feeding discoveries back into the Spectra compiler roadmap.
+1. Extend the smoke tests to validate malformed JSON handling and missing-CLI error paths.
+2. Prototype hover and go-to-definition flows using the compiler's semantic metadata; feed findings back into CLI transport planning.
+3. Prepare packaging scripts (VSIX) once publishing targets are agreed upon.

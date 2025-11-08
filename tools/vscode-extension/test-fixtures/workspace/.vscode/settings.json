@@ -1,4 +1,5 @@
 {
   "spectra.lintOnSave": false,
-  "spectra.formatOnSave": false
+  "spectra.formatOnSave": false,
+  "spectra.cliPath": "d:\\Projetos\\SpectraLang\\tools\\vscode-extension\\test-fixtures\\mock-cli\\mock-spectra-cli.cmd"
 }

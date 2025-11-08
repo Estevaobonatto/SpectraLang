@@ -88,16 +88,24 @@
 - [x] Implement formatter integration invoking `spectra fmt` streaming modes, with stdin/stdout fallback and error propagation respecting exit codes.
 - [x] Wire lint command execution to `spectra lint`, surface warnings/errors in the Problems view, and mirror CLI exit-code semantics via the aggregated JSON report.
 - [x] Cache CLI capability probes (version, features, config paths) to avoid redundant process spawns during editor sessions.
-- [ ] Plan advanced language server features (hover, go-to-definition) and track parity items within the extension roadmap.
+- [x] Plan advanced language server features (hover, go-to-definition) and track parity items within the extension roadmap.
 - [x] Add automated extension tests (colorization, command smoke tests) using `@vscode/test-electron` or equivalent harness.
-- [ ] Update `docs/cli` with installation, configuration, and troubleshooting guidance; align alpha checklist milestones before publishing.
+- [x] Update `docs/cli` with installation, configuration, and troubleshooting guidance; align alpha checklist milestones before publishing.
 
 ### Extension Smoke Tests
 
 - `npm test` compiles the extension and launches `@vscode/test-electron` against a curated Spectra workspace fixture.
 - A cross-platform mock CLI emits deterministic JSON diagnostics for `repl --json` and `lint --json`, ensuring consistent verification without the real Spectra toolchain.
-- Mocha-based assertions cover activation, command registration, document diagnostics, and aggregated workspace lint reporting.
-- Upcoming additions: formatter round-trips, malformed JSON handling, and missing-CLI error surfacing.
+- Mocha-based assertions cover activation, command registration, document diagnostics, aggregated workspace lint reporting, and formatter round-trips via `editor.action.formatDocument`.
+- Upcoming additions: malformed JSON handling and missing-CLI error surfacing.
+
+### Language Server Planning
+
+- **Hover:** consume the compiler's semantic metadata to surface symbol type and documentation strings. Prototype by extending the existing CLI bridge with a `spectra repl --hover-json` variant that prints symbol info for a location.
+- **Go to Definition:** map spans returned by the compiler's binding phase to VS Code locations, caching per-file binding tables to avoid repeated CLI invocations.
+- **Symbol Indexing:** build a lightweight index over module exports so cross-file navigation remains responsive without full compilation on each request.
+- **Diagnostics Parity:** reuse the JSON reporter to ensure hover/definition entry points share consistent span normalization and related metadata.
+- **Testing:** extend the Electron harness with synthetic workspaces that assert hover text and definition navigation against the mock CLI once it supports the necessary payloads.
 
 ## Automation & CI Considerations
 

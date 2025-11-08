@@ -27,6 +27,21 @@ async function waitForDiagnostics(
   throw new Error(`Timed out waiting for diagnostics for ${uri.fsPath}`);
 }
 
+async function waitForDocumentText(
+  document: vscode.TextDocument,
+  expected: string,
+  timeoutMs = 5000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (document.getText() === expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('Timed out waiting for formatted document content.');
+}
+
 suite('Spectra VS Code Extension', () => {
   const workspaceRoot = path.resolve(__dirname, '../../../test-fixtures/workspace');
   let extension: vscode.Extension<unknown> | undefined;
@@ -75,5 +90,19 @@ suite('Spectra VS Code Extension', () => {
 
     expect(errorDiagnostics.some((diag) => diag.severity === vscode.DiagnosticSeverity.Error)).to.be.true;
     expect(warningDiagnostics.some((diag) => diag.severity === vscode.DiagnosticSeverity.Warning)).to.be.true;
+  });
+
+  test('formatter applies CLI output to the active document', async () => {
+    const documentUri = vscode.Uri.file(path.join(workspaceRoot, 'src', 'needs_formatting.spectra'));
+    const raw = await vscode.workspace.fs.readFile(documentUri);
+    const original = Buffer.from(raw).toString('utf8');
+    const expected = original.replace(/value=1/g, 'value = 1');
+
+    const document = await vscode.workspace.openTextDocument(documentUri);
+    await vscode.window.showTextDocument(document);
+
+    await vscode.commands.executeCommand('editor.action.formatDocument');
+
+    await waitForDocumentText(document, expected);
   });
 });

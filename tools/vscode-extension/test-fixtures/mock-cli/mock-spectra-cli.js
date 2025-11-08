@@ -74,6 +74,11 @@ function outputReport(files) {
   process.exit(hasError ? 65 : 0);
 }
 
+function formatSource(content) {
+  const formatted = content.replace(/value=1/g, 'value = 1');
+  return formatted.endsWith('\n') ? formatted : `${formatted}\n`;
+}
+
 function main() {
   const args = process.argv.slice(2);
   if (args.length === 0) {
@@ -92,6 +97,21 @@ function main() {
     const targets = args.slice(2).map((value) => path.resolve(value));
     const files = expandTargets(targets).map((filePath) => analyzeFile(filePath));
     outputReport(files);
+    return;
+  }
+
+  if (args[0] === 'fmt' && args[1] === '--stdin') {
+    let input = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      input += chunk;
+    });
+    process.stdin.on('end', () => {
+      const output = formatSource(input);
+      process.stdout.write(output);
+      process.exit(0);
+    });
+    process.stdin.resume();
     return;
   }
 
