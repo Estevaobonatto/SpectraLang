@@ -5,7 +5,7 @@
 ## Fundação e Documentação
 
 - [x] Registrar stdlib mínima via `register_standard_library()` e documentar funções atuais
-- [ ] Especificar formato de versionamento e política de breaking changes da stdlib
+- [x] Especificar formato de versionamento e política de breaking changes da stdlib
 - [ ] Criar guia de integração para bibliotecas de terceiros consumirem/estenderem a stdlib
 - [ ] Automatizar geração de documentação a partir das assinaturas das funções host
 
@@ -13,19 +13,34 @@
 
 - [x] Disponibilizar `abs`, `min`, `max` para inteiros
 - [x] Implementar operações básicas adicionais (`add`, `sub`, `mul`, `div`, `mod`, `pow`)
-- [ ] Suportar floats com conversões e funções trigonométricas, validando NaN/Inf
+- [x] Suportar floats com conversões e funções trigonométricas, validando NaN/Inf
+  - [x] Conversões `int_to_float` / `float_to_int` com saturação
+  - [x] Operações básicas (`float_add`, `float_sub`, `float_mul`, `float_div`, `float_pow`)
+  - [x] Funções auxiliares (`float_abs`, `float_sqrt`, `float_exp`, `float_ln`)
+  - [x] Trigonometria (`trig_sin`, `trig_cos`, `trig_tan`, `trig_atan2`)
 - [x] Fornecer utilitários de estatística simples (média, `clamp`, geração determinística de números aleatórios)
   - [x] `std.math.clamp`
   - [x] `std.math.mean`
   - [x] RNG determinístico (`rng_seed`, `rng_next`, `rng_next_range`, `rng_free`, `rng_free_all`)
-  - [x] utilitários adicionais (`median`, `variance`, `std_dev`)
+  - [x] utilitários adicionais (`median`, `variance`, `std_dev`, `mode`)
 
 ## I/O e Sistema
 
 - [x] Expor `print` e `flush` síncronos
-- [ ] Adicionar escrita/leitura direcionada (stdout/stderr, arquivos, buffers)
+- [x] Adicionar escrita/leitura direcionada (stdout/stderr, arquivos, buffers)
+  - [x] Escrita em stderr (`std.io.print_err`)
+  - [x] Escrita para buffer (`std.io.print_to_buffer`)
+  - [x] Escrita em arquivo (`std.io.write_file`)
+  - [x] Leitura de arquivo (`std.io.read_file`)
 - [ ] Planejar API de logging estruturado com níveis e destinos configuráveis
-- [ ] Definir API de tempo (timestamp, `sleep`) com garantias multiplataforma
+  - [x] Definir níveis padrão (TRACE/DEBUG/INFO/WARN/ERROR)
+  - [x] Implementar sinks configuráveis iniciais (stdout, stderr, arquivo, buffer)
+  - [x] Registrar host calls (`set_level`, `add_sink`, `clear_sinks`, `record`) e documentar uso
+  - [ ] Expandir suporte para campos estruturados/destinos personalizados
+- [x] Definir API de tempo (timestamp, `sleep`) com garantias multiplataforma
+  - [x] Timestamp UTC (`std.time.now`)
+  - [x] Relógio monotônico (`std.time.now_monotonic`)
+  - [x] Suspensão controlada (`std.time.sleep`)
 
 ## Strings e Texto
 

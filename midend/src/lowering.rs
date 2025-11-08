@@ -3536,6 +3536,81 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("math", "float_to_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_to_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "int_to_float") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.int_to_float",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_add") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_add",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_sub") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_sub",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_mul") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_mul",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_div") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_div",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_abs") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_abs",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_sqrt") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_sqrt",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_exp") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_exp",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_ln") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_ln",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "float_pow") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.float_pow",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "trig_sin") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.trig_sin",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "trig_cos") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.trig_cos",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "trig_tan") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.trig_tan",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "trig_atan2") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.trig_atan2",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
             ("math", "rng_seed") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.rng_seed",
                 return_type: IRType::Int,
@@ -3576,6 +3651,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("math", "mode") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.mode",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("math", "mean") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.mean",
                 return_type: IRType::Int,
@@ -3588,6 +3668,61 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("io", "flush") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.io.flush",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "print_err") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.print_err",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "print_to_buffer") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.print_to_buffer",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "write_file") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.write_file",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "read_file") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.read_file",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("log", "set_level") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.log.set_level",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("log", "add_sink") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.log.add_sink",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("log", "clear_sinks") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.log.clear_sinks",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("log", "record") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.log.record",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "now") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.now",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "now_monotonic") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.now_monotonic",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "sleep") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.sleep",
                 return_type: IRType::Int,
                 returns_value: true,
             }),

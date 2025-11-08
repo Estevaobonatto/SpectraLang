@@ -18,6 +18,11 @@ pub fn main() {
     let median_value = std.math.median(a, b, 6, -3, 0);
     let variance_value = std.math.variance(a, b, 6, -3, 0);
     let std_dev_value = std.math.std_dev(a, b, 6, -3, 0);
+    let mode_value = std.math.mode(a, b, 6, -3, 0, 6);
+    let float_one = std.math.int_to_float(1);
+    let float_two = std.math.int_to_float(2);
+    let float_sum = std.math.float_add(float_one, float_two);
+    let sinus = std.math.trig_sin(float_one);
     let rng_handle = std.math.rng_seed(1337);
     let random_any = std.math.rng_next(rng_handle);
     let random_range = std.math.rng_next_range(rng_handle, -10, 10);
@@ -36,6 +41,9 @@ pub fn main() {
         median_value,
         variance_value,
         std_dev_value,
+        mode_value,
+        float_sum,
+        sinus,
         random_any,
         random_range,
     );

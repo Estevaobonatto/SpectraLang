@@ -9,6 +9,23 @@ All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.m
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
 64-bit values (`SpectraHostValue`).
 
+## Versioning
+
+The standard library follows semantic versioning aligned with the Spectra runtime release train:
+
+- **MAJOR** versions bump when breaking API or behavioral changes are introduced (e.g., incompatible
+  host-call signatures, altered error semantics). Breaking updates only ship alongside a runtime
+  MAJOR release and require explicit opt-in flags when available.
+- **MINOR** versions add backwards-compatible functionality such as new host calls, optional
+  arguments, or improved documentation. Minor updates are the default cadence between runtime
+  feature releases.
+- **PATCH** versions are reserved for bug fixes or clarifications that do not alter public
+  contracts.
+
+Host-call symbols remain stable within a MAJOR line. Deprecations progress through documentation
+  warnings before removal; removal occurs only with a subsequent MAJOR bump. Tooling discovering the
+  stdlib should rely on the runtime/CLI version string to determine compatibility.
+
 ## math namespace
 
 | Host call | Description | Arguments | Results |
@@ -23,10 +40,26 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 | `spectra.std.math.div` | Integer division rejecting division by zero. | `numerator`, `denominator` | `numerator / denominator` |
 | `spectra.std.math.mod` | Remainder operation rejecting division by zero. | `numerator`, `denominator` | `numerator % denominator` |
 | `spectra.std.math.pow` | Integer exponentiation for non-negative exponents. | `base`, `exponent` | `base^exponent` |
+| `spectra.std.math.float_to_int` | Converts a 64-bit float to a 64-bit integer with saturation. | `value` | saturated integer |
+| `spectra.std.math.int_to_float` | Converts a 64-bit integer to a 64-bit float. | `value` | float64 |
+| `spectra.std.math.float_add` | Adds two 64-bit floats. | `lhs`, `rhs` | float64 |
+| `spectra.std.math.float_sub` | Subtracts two 64-bit floats. | `lhs`, `rhs` | float64 |
+| `spectra.std.math.float_mul` | Multiplies two 64-bit floats. | `lhs`, `rhs` | float64 |
+| `spectra.std.math.float_div` | Divides two 64-bit floats (propagates NaN, Inf). | `lhs`, `rhs` | float64 |
+| `spectra.std.math.trig_sin` | Computes the sine of a 64-bit float angle in radians. | `radians` | float64 |
+| `spectra.std.math.trig_cos` | Computes the cosine of a 64-bit float angle in radians. | `radians` | float64 |
+| `spectra.std.math.trig_tan` | Computes the tangent of a 64-bit float angle in radians. | `radians` | float64 |
+| `spectra.std.math.trig_atan2` | Computes the arctangent of `y/x` using signs to determine the quadrant. | `y`, `x` | float64 |
+| `spectra.std.math.float_abs` | Absolute value for 64-bit floats. | `value` | float64 |
+| `spectra.std.math.float_sqrt` | Square root of a 64-bit float (domain errors yield NaN). | `value` | float64 |
+| `spectra.std.math.float_exp` | Natural exponential of a 64-bit float. | `value` | float64 |
+| `spectra.std.math.float_ln` | Natural logarithm of a 64-bit float (non-positive inputs yield NaN). | `value` | float64 |
+| `spectra.std.math.float_pow` | Raises a float base to a float exponent using `powf`. | `base`, `exponent` | float64 |
 | `spectra.std.math.mean` | Arithmetic mean of one or more integers (integer division, truncates toward zero). | variadic | floor(mean(values)) |
 | `spectra.std.math.median` | Median of the provided integers (even counts yield the truncated average of the middle pair). | variadic | median value |
 | `spectra.std.math.variance` | Population variance of the provided integers (integer division, truncates toward zero). | variadic | variance value |
 | `spectra.std.math.std_dev` | Population standard deviation of the provided integers (integer arithmetic with floor square root). | variadic | floor(std_dev(values)) |
+| `spectra.std.math.mode` | Most frequent integer (ties pick the smallest value). | variadic | mode value |
 | `spectra.std.math.rng_seed` | Creates a deterministic RNG handle seeded with the provided value. | `seed` | RNG handle |
 | `spectra.std.math.rng_next` | Advances the RNG and yields the next pseudo-random integer. | `handle` | pseudo-random `int` |
 | `spectra.std.math.rng_next_range` | Advances the RNG and yields a value in the inclusive range. | `handle`, `min`, `max` | pseudo-random `int` within `[min, max]` |
@@ -37,6 +70,17 @@ Overflow yields `HOST_STATUS_ARITHMETIC_ERROR`; invalid input (division by zero,
 `spectra.std.math.median` requires at least one argument and, for even-sized inputs, returns the truncated mean of the two middle values.
 `spectra.std.math.variance` computes the population variance and truncates toward zero when dividing the accumulated sum of squared differences by the input count.
 `spectra.std.math.std_dev` derives its result from the population variance and applies an integer square root, truncating fractional parts.
+`spectra.std.math.mode` returns the smallest integer among the most frequent values when multiple modes exist.
+Floating-point host calls treat `SpectraHostValue` payloads as IEEE-754 `f64` bit patterns. Use `std.math.int_to_float` and `std.math.float_to_int` to bridge between integer and floating-point domains.
+`spectra.std.math.float_to_int` truncates toward zero and saturates to `i64::MIN`/`i64::MAX`; it yields `0` for NaN inputs. Other floating-point operations bubble standard IEEE-754 NaN/±Inf values without returning host errors.
+
+```spectra
+let angle = std.math.int_to_float(1);
+let doubled = std.math.float_add(angle, angle);
+let sine = std.math.trig_sin(angle);
+let magnitude = std.math.float_sqrt(std.math.float_mul(sine, sine));
+let back_to_int = std.math.float_to_int(doubled);
+```
 
 RNG handles are opaque identifiers; free them explicitly with `rng_free` (or `rng_free_all`) to avoid leaking manual allocations.
 
@@ -45,7 +89,30 @@ RNG handles are opaque identifiers; free them explicitly with `rng_free` (or `rn
 | Host call | Description | Arguments | Results |
 |-----------|-------------|-----------|---------|
 | `spectra.std.io.print` | Prints all arguments as integers separated by spaces and terminates with a newline. | variadic | argument count written to `results[0]` when available |
+| `spectra.std.io.print_err` | Same contract as `print`, but writes to the process stderr stream. | variadic | argument count written to `results[0]` when available |
+| `spectra.std.io.print_to_buffer` | Formats arguments like `print` and appends the resulting UTF-8 line (with trailing `\n`) to a list handle representing a byte buffer. | `buffer_handle`, variadic | new buffer length in bytes written to `results[0]` when available |
+| `spectra.std.io.write_file` | Writes the UTF-8 bytes stored in a list handle to the target path (also provided as a list handle). Optional third argument appends instead of truncating. | `path_handle`, `data_handle`, `[append_flag]` | bytes written in `results[0]` when available |
+| `spectra.std.io.read_file` | Reads an entire file into a list handle. When a target buffer handle is provided the contents replace it; otherwise a fresh buffer handle is allocated. | `path_handle`, `[target_buffer_handle]` | `results[0]` = buffer handle, `results[1]` = byte length |
 | `spectra.std.io.flush` | Flushes the process stdout stream. | *(none)* | `0` when `results` is provided |
+
+## log namespace
+
+Structured logging uses numeric levels: `TRACE = 0`, `DEBUG = 1`, `INFO = 2`, `WARN = 3`, `ERROR = 4`.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.log.set_level` | Sets the global minimum level; entries below this threshold are discarded. | `level` | new global level |
+| `spectra.std.log.add_sink` | Registers a sink with an optional minimum level. Sink kinds: `0 = stdout`, `1 = stderr`, `2 = file (path handle)`, `3 = buffer (list handle)`. | `kind`, `[config_handle]`, `[min_level]` | total number of sinks |
+| `spectra.std.log.clear_sinks` | Removes all configured sinks. | *(none)* | cleared sink count |
+| `spectra.std.log.record` | Emits an entry with the provided level, message, and optional metadata payload. | `level`, `message_handle`, `[metadata_handle]` | number of sinks that accepted the entry |
+
+## time namespace
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.time.now` | Returns the current UTC time since the Unix epoch encoded as seconds and sub-second nanoseconds. | *(none)* | `results[0]` = seconds, `results[1]` = nanoseconds |
+| `spectra.std.time.now_monotonic` | Reads a monotonic clock relative to the first invocation, suitable for measuring durations. | *(none)* | `results[0]` = seconds, `results[1]` = nanoseconds |
+| `spectra.std.time.sleep` | Suspends execution for the provided duration. The first argument encodes whole seconds; an optional second argument supplies additional nanoseconds (0–999,999,999). | `seconds`, `[nanoseconds]` | `0` when `results` is provided |
 
 ## collections namespace
 
@@ -75,3 +142,10 @@ terminates.
   `spectra.std.math.rng_free_all`) to release manual allocations when finished.
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.
+- `spectra.std.io.print_err` mirrors `print` but targets stderr, making it suitable for diagnostics
+  without interleaving regular program output.
+- `spectra.std.io.write_file`/`read_file` expect paths encoded as UTF-8 bytes within a `std.collections` list. File contents are produced/consumed as raw bytes (0–255) and stored in the same data structure for reuse across host calls.
+- `spectra.std.io.print_to_buffer` is useful for capturing textual output in-memory; it emits UTF-8 bytes matching the console formatting of `print`.
+- Logging sinks accept the formatted entry with a trailing newline. Buffer and file sinks reuse list handles to exchange UTF-8 bytes; metadata strings are appended verbatim after the message so callers can inject JSON or key-value payloads.
+- `spectra.std.time.now` reports wall-clock seconds/nanoseconds since the Unix epoch, while `now_monotonic` is stable across clock adjustments and only advances. Both always return non-negative components encoded as `int` values.
+- `spectra.std.time.sleep` relies on the operating system scheduler; it blocks for at least the requested duration but may resume slightly later depending on timer precision.
