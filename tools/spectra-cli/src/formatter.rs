@@ -1,5 +1,5 @@
 use crate::{CliError, CliResult};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{self, Read};
@@ -35,10 +35,163 @@ pub(crate) struct FormatOptions {
     pub config_path: Option<PathBuf>,
 }
 
+struct FormatterConfigResolver {
+    override_config: Option<FormatterConfig>,
+    directory_cache: HashMap<PathBuf, FormatterConfig>,
+    manifest_cache: HashMap<PathBuf, Option<PathBuf>>,
+    parsed_configs: HashMap<PathBuf, FormatterConfig>,
+    default: FormatterConfig,
+}
+
+impl FormatterConfigResolver {
+    fn new(options: &FormatOptions) -> CliResult<Self> {
+        if let Some(path) = &options.config_path {
+            let canonical = fs::canonicalize(path).map_err(|error| {
+                CliError::io(format!(
+                    "Failed to resolve configuration path '{}': {}",
+                    path.display(),
+                    error
+                ))
+            })?;
+
+            if !canonical.is_file() {
+                return Err(CliError::usage(format!(
+                    "Configuration override '{}' is not a file.",
+                    canonical.display()
+                )));
+            }
+
+            let config = parse_formatter_config(&canonical)?;
+
+            return Ok(Self {
+                override_config: Some(config),
+                directory_cache: HashMap::new(),
+                manifest_cache: HashMap::new(),
+                parsed_configs: HashMap::new(),
+                default: FormatterConfig::default(),
+            });
+        }
+
+        Ok(Self {
+            override_config: None,
+            directory_cache: HashMap::new(),
+            manifest_cache: HashMap::new(),
+            parsed_configs: HashMap::new(),
+            default: FormatterConfig::default(),
+        })
+    }
+
+    fn config_for_stdin(&mut self) -> CliResult<FormatterConfig> {
+        if let Some(config) = &self.override_config {
+            return Ok(config.clone());
+        }
+
+        let cwd = env::current_dir().map_err(|error| {
+            CliError::io(format!("Failed to determine current directory: {}", error))
+        })?;
+        let canonical = fs::canonicalize(&cwd).map_err(|error| {
+            CliError::io(format!(
+                "Failed to resolve current directory '{}': {}",
+                cwd.display(),
+                error
+            ))
+        })?;
+
+        self.config_for_directory(&canonical)
+    }
+
+    fn config_for_path(&mut self, path: &Path) -> CliResult<FormatterConfig> {
+        if let Some(config) = &self.override_config {
+            return Ok(config.clone());
+        }
+
+        let canonical = fs::canonicalize(path).map_err(|error| {
+            CliError::io(format!(
+                "Failed to resolve path '{}': {}",
+                path.display(),
+                error
+            ))
+        })?;
+
+        let directory = canonical
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        self.config_for_directory(&directory)
+    }
+
+    fn config_for_directory(&mut self, directory: &Path) -> CliResult<FormatterConfig> {
+        if let Some(config) = self.directory_cache.get(directory) {
+            return Ok(config.clone());
+        }
+
+        let manifest = self.manifest_for_directory(directory)?;
+
+        let config = if let Some(manifest_path) = manifest {
+            if let Some(existing) = self.parsed_configs.get(&manifest_path) {
+                existing.clone()
+            } else {
+                let parsed = parse_formatter_config(&manifest_path)?;
+                self.parsed_configs
+                    .insert(manifest_path.clone(), parsed.clone());
+                parsed
+            }
+        } else {
+            self.default.clone()
+        };
+
+        self.directory_cache
+            .insert(directory.to_path_buf(), config.clone());
+
+        Ok(config)
+    }
+
+    fn manifest_for_directory(&mut self, directory: &Path) -> CliResult<Option<PathBuf>> {
+        if let Some(cached) = self.manifest_cache.get(directory) {
+            return Ok(cached.clone());
+        }
+
+        let mut current = Some(directory.to_path_buf());
+        let mut visited = Vec::new();
+        let mut result = None;
+
+        while let Some(dir) = current {
+            if let Some(cached) = self.manifest_cache.get(&dir) {
+                result = cached.clone();
+                break;
+            }
+
+            visited.push(dir.clone());
+            let candidate = dir.join("Spectra.toml");
+            if candidate.is_file() {
+                let canonical = fs::canonicalize(&candidate).map_err(|error| {
+                    CliError::io(format!(
+                        "Failed to resolve configuration '{}': {}",
+                        candidate.display(),
+                        error
+                    ))
+                })?;
+                result = Some(canonical);
+                break;
+            }
+
+            current = dir.parent().map(Path::to_path_buf);
+        }
+
+        for dir in visited {
+            self.manifest_cache.insert(dir, result.clone());
+        }
+
+        Ok(result)
+    }
+}
+
 pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
-    let config = load_formatter_config(&options)?;
+    let mut config_resolver = FormatterConfigResolver::new(&options)?;
 
     if options.use_stdin {
+        let config = config_resolver.config_for_stdin()?;
         return format_from_stdin(options.check, &config);
     }
 
@@ -63,6 +216,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
 
     if options.write_stdout {
         let path = &sources[0];
+        let config = config_resolver.config_for_path(path)?;
         let original = fs::read_to_string(path).map_err(|error| {
             CliError::io(format!(
                 "Failed to read source '{}' for formatting: {}",
@@ -93,6 +247,7 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
 
     for path in &sources {
         processed += 1;
+        let config = config_resolver.config_for_path(path)?;
         let original = fs::read_to_string(path).map_err(|error| {
             CliError::io(format!(
                 "Failed to read source '{}' for formatting: {}",
@@ -148,96 +303,6 @@ pub(crate) fn run(options: FormatOptions) -> CliResult<()> {
 
     Ok(())
 }
-
-fn load_formatter_config(options: &FormatOptions) -> CliResult<FormatterConfig> {
-    if let Some(path) = &options.config_path {
-        let canonical = fs::canonicalize(path).map_err(|error| {
-            CliError::io(format!(
-                "Failed to resolve configuration path '{}': {}",
-                path.display(),
-                error
-            ))
-        })?;
-
-        if !canonical.is_file() {
-            return Err(CliError::usage(format!(
-                "Configuration override '{}' is not a file.",
-                canonical.display()
-            )));
-        }
-
-        return parse_formatter_config(&canonical);
-    }
-
-    let mut search_roots = resolve_search_roots(options)?;
-    search_roots.sort();
-    search_roots.dedup();
-
-    for root in search_roots {
-        if let Some(config_path) = find_config_file(&root) {
-            return parse_formatter_config(&config_path);
-        }
-    }
-
-    Ok(FormatterConfig::default())
-}
-
-fn resolve_search_roots(options: &FormatOptions) -> CliResult<Vec<PathBuf>> {
-    let mut roots = Vec::new();
-
-    if options.use_stdin {
-        let cwd = env::current_dir().map_err(|error| {
-            CliError::io(format!("Failed to determine current directory: {}", error))
-        })?;
-        roots.push(cwd);
-    }
-
-    for entry in &options.entries {
-        let canonical = fs::canonicalize(entry).map_err(|error| {
-            CliError::io(format!(
-                "Failed to resolve path '{}': {}",
-                entry.display(),
-                error
-            ))
-        })?;
-
-        let metadata = fs::symlink_metadata(&canonical).map_err(|error| {
-            CliError::io(format!(
-                "Failed to inspect '{}': {}",
-                canonical.display(),
-                error
-            ))
-        })?;
-
-        let base = if metadata.is_file() {
-            canonical
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("."))
-        } else {
-            canonical
-        };
-
-        roots.push(base);
-    }
-
-    Ok(roots)
-}
-
-fn find_config_file(start: &Path) -> Option<PathBuf> {
-    let mut current = Some(start);
-
-    while let Some(dir) = current {
-        let candidate = dir.join("Spectra.toml");
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        current = dir.parent();
-    }
-
-    None
-}
-
 fn parse_formatter_config(path: &Path) -> CliResult<FormatterConfig> {
     let manifest = fs::read_to_string(path).map_err(|error| {
         CliError::io(format!(
@@ -267,13 +332,8 @@ fn parse_formatter_config(path: &Path) -> CliResult<FormatterConfig> {
     for (key, value) in formatter {
         match key.as_str() {
             "indent_width" => {
-                config.indent_width = parse_positive_usize(
-                    value,
-                    "indent_width",
-                    path,
-                    1,
-                    MAX_SUPPORTED_INDENT,
-                )?;
+                config.indent_width =
+                    parse_positive_usize(value, "indent_width", path, 1, MAX_SUPPORTED_INDENT)?;
             }
             "max_line_length" => {
                 config.max_line_length = parse_positive_usize(
@@ -482,6 +542,13 @@ fn write_formatted(path: &Path, contents: &str) -> CliResult<()> {
     })
 }
 
+fn format_source(input: &str, config: &FormatterConfig) -> String {
+    match cst::format_with_cst(input, config) {
+        Ok(formatted) => formatted,
+        Err(_) => legacy_format_source(input, config),
+    }
+}
+
 #[derive(Debug, Clone)]
 struct FormattedLine {
     indent_level: usize,
@@ -507,7 +574,7 @@ impl FormattedLine {
     }
 }
 
-fn format_source(input: &str, config: &FormatterConfig) -> String {
+fn legacy_format_source(input: &str, config: &FormatterConfig) -> String {
     let mut indent_level: usize = 0;
     let mut lines = Vec::new();
 
@@ -535,6 +602,10 @@ fn format_source(input: &str, config: &FormatterConfig) -> String {
         indent_level = indent_level.saturating_sub(closes);
     }
 
+    finalize_output(lines, config)
+}
+
+fn finalize_output(mut lines: Vec<FormattedLine>, config: &FormatterConfig) -> String {
     align_let_bindings(&mut lines, config);
 
     let mut output_lines = Vec::new();
@@ -915,6 +986,452 @@ fn count_brace_transitions(line: &str, mut skip_closing: usize) -> (usize, usize
     (opens, closes)
 }
 
+mod cst {
+    use super::{
+        count_brace_transitions, count_leading_closing_braces, finalize_output, normalize_spacing,
+        FormattedLine, FormatterConfig,
+    };
+    use spectra_compiler::token::{Keyword, Token, TokenKind};
+    use spectra_compiler::Lexer;
+    use std::mem;
+
+    pub(super) fn format_with_cst(input: &str, config: &FormatterConfig) -> Result<String, ()> {
+        let tokens = Lexer::new(input).tokenize().map_err(|_| ())?;
+        let lines = build_lines(input, &tokens)?;
+
+        let mut formatted = Vec::new();
+        let mut indent_level = 0usize;
+
+        for line in lines {
+            match line {
+                CstLine::Blank => formatted.push(FormattedLine::blank()),
+                CstLine::Content(elements) => {
+                    let raw_line = build_line_text(&elements);
+                    if raw_line.trim().is_empty() {
+                        formatted.push(FormattedLine::blank());
+                        continue;
+                    }
+
+                    let normalized = normalize_spacing(&raw_line);
+                    let trimmed = normalized.trim_start();
+                    let mut dedent = count_leading_closing_braces(trimmed);
+                    if dedent > indent_level {
+                        dedent = indent_level;
+                    }
+                    let indent_for_line = indent_level.saturating_sub(dedent);
+
+                    let (opens, closes) = count_brace_transitions(trimmed, dedent);
+                    formatted.push(FormattedLine::new(indent_for_line, normalized));
+                    indent_level = indent_for_line + opens;
+                    indent_level = indent_level.saturating_sub(closes);
+                }
+            }
+        }
+
+        Ok(finalize_output(formatted, config))
+    }
+
+    enum CstLine {
+        Blank,
+        Content(Vec<LineElement>),
+    }
+
+    #[derive(Clone)]
+    struct LineToken {
+        kind: TokenKind,
+        lexeme: String,
+    }
+
+    enum LineElement {
+        Token(LineToken),
+        Comment(String),
+    }
+
+    #[derive(Default)]
+    struct LineAccumulator {
+        elements: Vec<LineElement>,
+    }
+
+    impl LineAccumulator {
+        fn push_token(&mut self, token: LineToken) {
+            self.elements.push(LineElement::Token(token));
+        }
+
+        fn push_comment(&mut self, comment: String) {
+            self.elements.push(LineElement::Comment(comment));
+        }
+
+        fn finish_into(&mut self, lines: &mut Vec<CstLine>) {
+            if self.elements.is_empty() {
+                return;
+            }
+            lines.push(CstLine::Content(mem::take(&mut self.elements)));
+        }
+
+        fn consume_into_blank(&mut self, lines: &mut Vec<CstLine>) {
+            if self.elements.is_empty() {
+                lines.push(CstLine::Blank);
+            } else {
+                lines.push(CstLine::Content(mem::take(&mut self.elements)));
+            }
+        }
+    }
+
+    fn build_lines(source: &str, tokens: &[Token]) -> Result<Vec<CstLine>, ()> {
+        let mut lines = Vec::new();
+        let mut current = LineAccumulator::default();
+        let mut previous_end = 0usize;
+
+        for token in tokens {
+            if matches!(token.kind, TokenKind::EndOfFile) {
+                break;
+            }
+
+            let start = token.span.start;
+            let end = token.span.end;
+
+            if start > end || end > source.len() {
+                return Err(());
+            }
+
+            let trivia = &source[previous_end..start];
+            process_trivia(trivia, &mut lines, &mut current);
+
+            let lexeme = source[start..end].to_string();
+            current.push_token(LineToken {
+                kind: token.kind.clone(),
+                lexeme,
+            });
+
+            previous_end = end;
+        }
+
+        let trailing = &source[previous_end..];
+        process_trivia(trailing, &mut lines, &mut current);
+        current.finish_into(&mut lines);
+
+        Ok(lines)
+    }
+
+    fn process_trivia(text: &str, lines: &mut Vec<CstLine>, current: &mut LineAccumulator) {
+        let mut chars = text.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\r' => {}
+                '\n' => current.consume_into_blank(lines),
+                '/' if matches!(chars.peek(), Some('/')) => {
+                    chars.next();
+                    let mut comment = String::from("//");
+                    while let Some(&next) = chars.peek() {
+                        if next == '\n' {
+                            break;
+                        }
+                        comment.push(next);
+                        chars.next();
+                    }
+                    current.push_comment(comment.trim_end().to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn build_line_text(elements: &[LineElement]) -> String {
+        let mut result = String::new();
+        let mut pending_space = false;
+        let mut prev_token: Option<&LineToken> = None;
+
+        for (index, element) in elements.iter().enumerate() {
+            match element {
+                LineElement::Token(token) => {
+                    let next_token = next_token(elements, index + 1);
+                    apply_token(
+                        &mut result,
+                        &mut pending_space,
+                        token,
+                        prev_token,
+                        next_token,
+                    );
+                    prev_token = Some(token);
+                }
+                LineElement::Comment(comment) => {
+                    if !result.is_empty() && !result.ends_with(' ') {
+                        result.push(' ');
+                    }
+                    result.push_str(comment);
+                    break;
+                }
+            }
+        }
+
+        result.trim_end().to_string()
+    }
+
+    fn next_token<'a>(elements: &'a [LineElement], start: usize) -> Option<&'a LineToken> {
+        elements
+            .get(start..)?
+            .iter()
+            .find_map(|element| match element {
+                LineElement::Token(token) => Some(token),
+                _ => None,
+            })
+    }
+
+    fn apply_token(
+        result: &mut String,
+        pending_space: &mut bool,
+        token: &LineToken,
+        prev: Option<&LineToken>,
+        next: Option<&LineToken>,
+    ) {
+        let decision = space_before_decision(token, prev, next);
+        let mut insert_space = match decision {
+            SpaceDecision::Force => true,
+            SpaceDecision::Suppress => false,
+            SpaceDecision::Inherit => *pending_space,
+        };
+        *pending_space = false;
+
+        if disallow_space_before(token) || matches!(decision, SpaceDecision::Suppress) {
+            insert_space = false;
+            while result.ends_with(' ') {
+                result.pop();
+            }
+        }
+
+        if insert_space && !result.is_empty() && !result.ends_with(' ') {
+            result.push(' ');
+        }
+
+        result.push_str(&token.lexeme);
+
+        if should_force_space_after(token, prev, next) {
+            *pending_space = true;
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum SpaceDecision {
+        Inherit,
+        Force,
+        Suppress,
+    }
+
+    fn disallow_space_before(token: &LineToken) -> bool {
+        matches!(
+            token.kind,
+            TokenKind::Symbol(ch) if matches!(ch, ',' | ';' | ')' | ']' | '}' | '.' | ':')
+        )
+    }
+
+    fn space_before_decision(
+        token: &LineToken,
+        prev: Option<&LineToken>,
+        next: Option<&LineToken>,
+    ) -> SpaceDecision {
+        match &token.kind {
+            TokenKind::Symbol('(') => {
+                if let Some(prev) = prev {
+                    if let TokenKind::Keyword(keyword) = &prev.kind {
+                        if keyword_requires_paren_space(keyword) {
+                            return SpaceDecision::Force;
+                        }
+                    }
+                    if matches!(
+                        prev.kind,
+                        TokenKind::Identifier(_)
+                            | TokenKind::Number(_)
+                            | TokenKind::StringLiteral(_)
+                            | TokenKind::Symbol(')' | ']' | '}')
+                    ) {
+                        return SpaceDecision::Suppress;
+                    }
+                }
+                SpaceDecision::Suppress
+            }
+            TokenKind::Symbol('[') => SpaceDecision::Suppress,
+            TokenKind::Symbol('{') => {
+                if prev.is_some() {
+                    SpaceDecision::Force
+                } else {
+                    SpaceDecision::Inherit
+                }
+            }
+            TokenKind::Symbol('-') | TokenKind::Symbol('!') => {
+                if is_unary_operator(token, prev) {
+                    SpaceDecision::Suppress
+                } else {
+                    SpaceDecision::Force
+                }
+            }
+            TokenKind::Symbol(ch) if is_binary_symbol(*ch) => SpaceDecision::Force,
+            TokenKind::Operator(_) => {
+                if is_unary_operator(token, prev) {
+                    SpaceDecision::Suppress
+                } else {
+                    SpaceDecision::Force
+                }
+            }
+            TokenKind::Keyword(_) => {
+                if prev.is_some() {
+                    SpaceDecision::Force
+                } else {
+                    SpaceDecision::Inherit
+                }
+            }
+            TokenKind::Identifier(_) | TokenKind::Number(_) | TokenKind::StringLiteral(_) => {
+                if let Some(prev_token) = prev {
+                    if requires_space_between(prev_token) {
+                        SpaceDecision::Force
+                    } else {
+                        SpaceDecision::Inherit
+                    }
+                } else {
+                    SpaceDecision::Inherit
+                }
+            }
+            TokenKind::Symbol(':') => {
+                if let Some(next_token) = next {
+                    if matches!(next_token.kind, TokenKind::Symbol(':')) {
+                        SpaceDecision::Suppress
+                    } else {
+                        SpaceDecision::Suppress
+                    }
+                } else {
+                    SpaceDecision::Suppress
+                }
+            }
+            TokenKind::Symbol('.') | TokenKind::Symbol(',') | TokenKind::Symbol(';') => {
+                SpaceDecision::Suppress
+            }
+            TokenKind::Symbol(')') | TokenKind::Symbol(']') | TokenKind::Symbol('}') => {
+                SpaceDecision::Suppress
+            }
+            _ => SpaceDecision::Inherit,
+        }
+    }
+
+    fn is_binary_symbol(ch: char) -> bool {
+        matches!(ch, '=' | '+' | '*' | '/' | '%' | '<' | '>' | '&' | '|')
+    }
+
+    fn requires_space_between(token: &LineToken) -> bool {
+        matches!(
+            token.kind,
+            TokenKind::Identifier(_)
+                | TokenKind::Number(_)
+                | TokenKind::StringLiteral(_)
+                | TokenKind::Keyword(_)
+                | TokenKind::Symbol(')' | ']' | '}')
+        )
+    }
+
+    fn should_force_space_after(
+        token: &LineToken,
+        prev: Option<&LineToken>,
+        next: Option<&LineToken>,
+    ) -> bool {
+        match &token.kind {
+            TokenKind::Operator(_) => !is_unary_operator(token, prev),
+            TokenKind::Symbol(ch) if is_binary_symbol(*ch) => !is_unary_operator(token, prev),
+            TokenKind::Symbol('-') => !is_unary_operator(token, prev),
+            TokenKind::Symbol(',') | TokenKind::Symbol(';') => true,
+            TokenKind::Symbol(':') => {
+                if let Some(next_token) = next {
+                    !matches!(next_token.kind, TokenKind::Symbol(':'))
+                } else {
+                    false
+                }
+            }
+            TokenKind::Keyword(keyword) => keyword_requires_space_after(keyword),
+            TokenKind::Symbol('{') => true,
+            _ => false,
+        }
+    }
+
+    fn is_unary_operator(token: &LineToken, prev: Option<&LineToken>) -> bool {
+        match &token.kind {
+            TokenKind::Symbol('-') | TokenKind::Symbol('!') => previous_allows_unary(prev),
+            _ => false,
+        }
+    }
+
+    fn previous_allows_unary(prev: Option<&LineToken>) -> bool {
+        match prev {
+            None => true,
+            Some(token) => match &token.kind {
+                TokenKind::Symbol(ch)
+                    if matches!(
+                        ch,
+                        '(' | '[' | '{' | '=' | ',' | ':' | '+' | '-' | '*' | '/' | '%'
+                    ) =>
+                {
+                    true
+                }
+                TokenKind::Operator(_) => true,
+                TokenKind::Keyword(keyword) => keyword_expects_expression(keyword),
+                _ => false,
+            },
+        }
+    }
+
+    fn keyword_requires_paren_space(keyword: &Keyword) -> bool {
+        matches!(
+            keyword,
+            Keyword::If
+                | Keyword::While
+                | Keyword::For
+                | Keyword::Switch
+                | Keyword::Match
+                | Keyword::Unless
+        )
+    }
+
+    fn keyword_requires_space_after(keyword: &Keyword) -> bool {
+        matches!(
+            keyword,
+            Keyword::Fn
+                | Keyword::Let
+                | Keyword::If
+                | Keyword::Else
+                | Keyword::Elif
+                | Keyword::ElseIf
+                | Keyword::While
+                | Keyword::For
+                | Keyword::Match
+                | Keyword::Switch
+                | Keyword::Unless
+                | Keyword::Return
+                | Keyword::Struct
+                | Keyword::Enum
+                | Keyword::Impl
+                | Keyword::Trait
+                | Keyword::Class
+                | Keyword::Pub
+                | Keyword::Mut
+        )
+    }
+
+    fn keyword_expects_expression(keyword: &Keyword) -> bool {
+        matches!(
+            keyword,
+            Keyword::Return
+                | Keyword::If
+                | Keyword::Else
+                | Keyword::Elif
+                | Keyword::ElseIf
+                | Keyword::While
+                | Keyword::For
+                | Keyword::Match
+                | Keyword::Switch
+                | Keyword::Unless
+                | Keyword::Case
+                | Keyword::Cond
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{format_source, FormatterConfig};
@@ -971,5 +1488,32 @@ mod tests {
         let expected =
             "fn wide() {\n    let short = call();\n    let very_very_long_identifier = call_with_many_arguments();\n}\n";
         assert_eq!(format_source(input, &config), expected);
+    }
+
+    #[test]
+    fn keeps_else_if_spacing() {
+        let input =
+            "fn flag(){\nif ready {\nreturn;\n}else if pending {\nreturn;\n}else{\nreturn;\n}\n}\n";
+        let expected =
+            "fn flag() {\n    if ready {\n        return;\n    } else if pending {\n        return;\n    } else {\n        return;\n    }\n}\n";
+        assert_eq!(format_source(input, &FormatterConfig::default()), expected);
+    }
+
+    #[test]
+    fn preserves_double_colon_compact() {
+        let input =
+            "fn main(){\nlet value=Namespace::member();\nreturn value;\n}\n";
+        let expected =
+            "fn main() {\n    let value = Namespace::member();\n    return value;\n}\n";
+        assert_eq!(format_source(input, &FormatterConfig::default()), expected);
+    }
+
+    #[test]
+    fn keeps_unary_minus_tight() {
+        let input =
+            "fn eval(flag: bool){\nif flag {\nreturn -value;\n}else{\nreturn !flag;\n}\n}\n";
+        let expected =
+            "fn eval(flag: bool) {\n    if flag {\n        return -value;\n    } else {\n        return !flag;\n    }\n}\n";
+        assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 }

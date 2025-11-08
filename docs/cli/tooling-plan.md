@@ -22,19 +22,23 @@
 - ✅ Formatter normalizes indentation, operator spacing, grouped `let` alignment (line-length aware), blank-line coalescing, and preserves line endings.
 - ✅ `[formatter]` section in `Spectra.toml` now supports `indent_width` and `max_line_length`; settings are auto-discovered from the nearest manifest.
 - ✅ `spectra fmt --config <path>` allows explicit config selection and reports unknown `[formatter]` keys as structured errors.
+- ✅ Formatter caches `Spectra.toml` lookups per directory to avoid redundant IO across large projects.
 - ✅ Added formatter-focused regression tests under `tools/spectra-cli`.
 - ✅ Usage and configuration documented in `docs/cli/formatter-guide.md`, including sample `Spectra.toml` snippets.
 - ✅ Sample GitHub Actions workflow (`tools/spectra-cli/.github/workflows/spectra-fmt-check.yml`) demonstrates `spectra fmt --check` gating.
+- ✅ Token-aware CST formatting path introduced (with legacy fallback) to preserve trivia-aware spacing and unary operator handling.
 
 ### Next Steps
 
 1. **Syntax-aware rewriter**
-   - Reuse the parser to build a concrete syntax tree with trivia so spacing rules honor comments and complex constructs.
-   - Extend configuration to include brace style, trailing comma policy, and import sorting once CST support lands.
+   - Grow the new CST pipeline into a full concrete syntax tree backed by the parser (match arms, doc comments, trivia preservation).
+   - Layer configurable policies (brace style, trailing commas, import ordering) on top of the CST traversal.
 2. **Editor & automation integration**
+   - Surface formatter decisions (`--explain` style diffs) for editor tooling and diagnostics.
+   - Expose structured telemetry (formatted file counts, cache hits) for downstream integrations.
 3. **Performance & UX**
-   - Cache parsed configs per workspace during multi-file runs to avoid redundant IO.
-   - Benchmark large projects and introduce parallelism or incremental formatting if needed.
+   - Benchmark large workspaces and explore parallel formatting of independent files.
+   - Reuse cached configuration state across successive CLI invocations (daemon or IPC-friendly mode).
 
 ## Linter Roadmap
 

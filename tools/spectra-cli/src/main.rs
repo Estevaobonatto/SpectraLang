@@ -546,9 +546,7 @@ where
                 if let Some(value) = args.next() {
                     config_path = Some(PathBuf::from(value));
                 } else {
-                    return Err(usage_error(
-                        "Missing path argument after '--config'.",
-                    ));
+                    return Err(usage_error("Missing path argument after '--config'."));
                 }
             }
             flag if flag.starts_with('-') => {
