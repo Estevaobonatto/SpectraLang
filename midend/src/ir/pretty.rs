@@ -213,7 +213,9 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     .collect::<Vec<_>>()
                     .join(", ");
                 match result {
-                    Some(value) => format!("{} = hostcall {}({})", fmt_value(*value), host, arg_list),
+                    Some(value) => {
+                        format!("{} = hostcall {}({})", fmt_value(*value), host, arg_list)
+                    }
                     None => format!("hostcall {}({})", host, arg_list),
                 }
             }

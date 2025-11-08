@@ -1,8 +1,11 @@
 mod compiler_integration;
+mod project;
 
 use compiler_integration::SpectraCompiler;
 use spectra_compiler::CompilationOptions;
-use std::{env, fs, process};
+use std::{env, fs, path::PathBuf, process};
+
+use project::ProjectPlan;
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
 
@@ -76,27 +79,53 @@ fn main() {
         process::exit(1);
     }
 
-    // Compile each file
+    let entry_paths: Vec<PathBuf> = file_paths.iter().map(PathBuf::from).collect();
+    let plan = match ProjectPlan::build(entry_paths) {
+        Ok(plan) if !plan.modules().is_empty() => plan,
+        Ok(_) => {
+            eprintln!("No Spectra source files found to compile");
+            process::exit(1);
+        }
+        Err(error) => {
+            eprintln!("{}", error);
+            process::exit(1);
+        }
+    };
+
+    // Compile each module in dependency order
     let mut compiler = SpectraCompiler::new(options);
     let mut has_failures = false;
 
-    for path in &file_paths {
-        println!("\nCompiling: {}", path);
+    for module in plan.modules() {
+        println!(
+            "\nCompiling module: {} ({})",
+            module.name,
+            module.path.display()
+        );
 
-        match fs::read_to_string(path) {
-            Ok(source) => match compiler.compile(&source, path) {
+        let filename = module.path.to_string_lossy().to_string();
+        match fs::read_to_string(&module.path) {
+            Ok(source) => match compiler.compile(&source, &filename) {
                 Ok(()) => {
-                    println!("\nSuccessfully compiled: {}", path);
+                    println!("\nSuccessfully compiled module '{}'", module.name);
                 }
                 Err(error) => {
                     has_failures = true;
-                    eprintln!("\nCompilation failed: {}", path);
+                    eprintln!(
+                        "\nCompilation failed for module '{}' ({})",
+                        module.name,
+                        module.path.display()
+                    );
                     eprintln!("{}", error);
                 }
             },
             Err(error) => {
                 has_failures = true;
-                eprintln!("\nFailed to read file: {}", path);
+                eprintln!(
+                    "\nFailed to read file for module '{}' ({}):",
+                    module.name,
+                    module.path.display()
+                );
                 eprintln!("Error: {}", error);
             }
         }

@@ -28,6 +28,7 @@
 
 
 - [x] Finish lowering for all AST constructs (struct/enum literals, pattern bindings, method dispatch) _(lowering now materializes nested generic enums/structs, preserves pattern scopes, and passes `tests/validation/57_generic_enum_inference.spectra`; see `midend/src/lowering.rs`)_
+- [x] Lower host-call instructions end-to-end, interning names for the JIT and trapping on runtime failures _(backend code now materializes argument/result buffers, dispatches `spectra_rt_host_invoke`, and raises `TrapCode::User(0)` on non-zero statuses; see `backend/src/codegen.rs`)_
 
 ## Runtime & Memory Model
 

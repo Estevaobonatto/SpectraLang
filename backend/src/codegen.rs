@@ -134,11 +134,7 @@ impl CodeGenerator {
         host_invoke_sig.returns.push(AbiParam::new(types::I32));
 
         let host_invoke_func = module
-            .declare_function(
-                "spectra_rt_host_invoke",
-                Linkage::Import,
-                &host_invoke_sig,
-            )
+            .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare runtime host invoke import");
 
         Self {
@@ -597,7 +593,11 @@ impl CodeGenerator {
                 let name_len = builder.ins().iconst(types::I64, record.len as i64);
 
                 let (args_ptr, args_count, args_allocation) = if args.is_empty() {
-                    (builder.ins().iconst(types::I64, 0), builder.ins().iconst(types::I64, 0), None)
+                    (
+                        builder.ins().iconst(types::I64, 0),
+                        builder.ins().iconst(types::I64, 0),
+                        None,
+                    )
                 } else {
                     let size = builder.ins().iconst(types::I64, (args.len() as i64) * 8);
                     let alloc_ref = module.declare_func_in_func(manual_alloc_func, builder.func);
@@ -645,9 +645,40 @@ impl CodeGenerator {
                 let func_ref = module.declare_func_in_func(host_invoke_func, builder.func);
                 let call = builder.ins().call(
                     func_ref,
-                    &[name_ptr, name_len, args_ptr, args_count, results_ptr, result_len_val],
+                    &[
+                        name_ptr,
+                        name_len,
+                        args_ptr,
+                        args_count,
+                        results_ptr,
+                        result_len_val,
+                    ],
                 );
-                let _status = builder.inst_results(call)[0];
+                let status = builder.inst_results(call)[0];
+
+                let zero = builder.ins().iconst(types::I32, 0);
+                let is_ok = builder.ins().icmp(IntCC::Equal, status, zero);
+                let success_block = builder.create_block();
+                let failure_block = builder.create_block();
+                builder
+                    .ins()
+                    .brif(is_ok, success_block, &[], failure_block, &[]);
+
+                builder.switch_to_block(failure_block);
+                if let Some(ptr) = result_allocation {
+                    let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
+                    builder.ins().call(free_ref, &[ptr]);
+                }
+                if let Some(ptr) = args_allocation {
+                    let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
+                    builder.ins().call(free_ref, &[ptr]);
+                }
+                builder
+                    .ins()
+                    .trap(cranelift::codegen::ir::TrapCode::User(0));
+                builder.seal_block(failure_block);
+
+                builder.switch_to_block(success_block);
 
                 if let (Some(result_value), Some(ptr)) = (result, result_allocation) {
                     let value = builder.ins().load(types::I64, MemFlags::new(), ptr, 0);
