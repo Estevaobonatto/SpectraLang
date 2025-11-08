@@ -24,6 +24,11 @@ const MATH_MUL: &str = "spectra.std.math.mul";
 const MATH_DIV: &str = "spectra.std.math.div";
 const MATH_MOD: &str = "spectra.std.math.mod";
 const MATH_POW: &str = "spectra.std.math.pow";
+const MATH_RNG_SEED: &str = "spectra.std.math.rng_seed";
+const MATH_RNG_NEXT: &str = "spectra.std.math.rng_next";
+const MATH_RNG_NEXT_RANGE: &str = "spectra.std.math.rng_next_range";
+const MATH_RNG_FREE: &str = "spectra.std.math.rng_free";
+const MATH_RNG_FREE_ALL: &str = "spectra.std.math.rng_free_all";
 const MATH_CLAMP: &str = "spectra.std.math.clamp";
 const MATH_MEAN: &str = "spectra.std.math.mean";
 
@@ -56,6 +61,11 @@ fn register_math() {
     register_host_function(MATH_POW, std_math_pow);
     register_host_function(MATH_CLAMP, std_math_clamp);
     register_host_function(MATH_MEAN, std_math_mean);
+    register_host_function(MATH_RNG_SEED, std_math_rng_seed);
+    register_host_function(MATH_RNG_NEXT, std_math_rng_next);
+    register_host_function(MATH_RNG_NEXT_RANGE, std_math_rng_next_range);
+    register_host_function(MATH_RNG_FREE, std_math_rng_free);
+    register_host_function(MATH_RNG_FREE_ALL, std_math_rng_free_all);
 }
 
 fn register_io() {
@@ -404,6 +414,151 @@ extern "C" fn std_math_mean(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+extern "C" fn std_math_rng_seed(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let seed = args[0] as u64;
+
+        let memory = initialize().memory();
+        let rng = match memory.allocate_manual(StdRng::new(seed)) {
+            Ok(rng) => rng,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+
+        let handle = with_rng_registry(|registry| registry.insert(rng));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_math_rng_next(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+
+        match with_rng_registry(|registry| registry.next_value(handle)) {
+            Ok(value) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = value;
+                HOST_STATUS_SUCCESS
+            }
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_math_rng_next_range(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let min = args[1];
+        let max = args[2];
+
+        match with_rng_registry(|registry| registry.next_in_range(handle, min, max)) {
+            Ok(value) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = value;
+                HOST_STATUS_SUCCESS
+            }
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_math_rng_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+
+        match with_rng_registry(|registry| registry.remove(handle)) {
+            Ok(_) => {
+                if ctx_ref.result_len > 0 {
+                    if ctx_ref.results.is_null() {
+                        return HOST_STATUS_INVALID_ARGUMENT;
+                    }
+                    let results =
+                        slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                    if !results.is_empty() {
+                        results[0] = 0;
+                    }
+                }
+                HOST_STATUS_SUCCESS
+            }
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_math_rng_free_all(ctx: *mut SpectraHostCallContext) -> i32 {
+    let freed = with_rng_registry(|registry| registry.clear_all());
+
+    if ctx.is_null() {
+        return HOST_STATUS_SUCCESS;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len > 0 {
+            if ctx_ref.results.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            if !results.is_empty() {
+                results[0] = freed as SpectraHostValue;
+            }
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
 extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -658,6 +813,137 @@ where
 fn list_registry() -> &'static Mutex<ListRegistry> {
     static REGISTRY: OnceLock<Mutex<ListRegistry>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(ListRegistry::new()))
+}
+
+struct StdRng {
+    state: u64,
+}
+
+impl StdRng {
+    fn new(seed: u64) -> Self {
+        let mixed = seed ^ 0x5deece66d;
+        let initial = if mixed == 0 {
+            0x2545f4914f6cdd1d
+        } else {
+            mixed
+        };
+        Self { state: initial }
+    }
+
+    fn advance(&mut self) -> u64 {
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1);
+        self.state
+    }
+
+    fn next_value(&mut self) -> SpectraHostValue {
+        (self.advance() >> 1) as SpectraHostValue
+    }
+
+    fn next_in_range(
+        &mut self,
+        min: SpectraHostValue,
+        max: SpectraHostValue,
+    ) -> Result<SpectraHostValue, i32> {
+        if min > max {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        let span = (max as i128) - (min as i128) + 1;
+        if span <= 0 {
+            return Err(HOST_STATUS_ARITHMETIC_ERROR);
+        }
+
+        let raw = self.advance();
+        let span_u128 = span as u128;
+        let offset = (raw as u128 % span_u128) as i128;
+        let value = (min as i128) + offset;
+
+        if value < i64::MIN as i128 || value > i64::MAX as i128 {
+            return Err(HOST_STATUS_ARITHMETIC_ERROR);
+        }
+
+        Ok(value as SpectraHostValue)
+    }
+}
+
+struct RngRegistry {
+    next_id: usize,
+    rngs: HashMap<usize, ManualBox<StdRng>>,
+}
+
+impl RngRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            rngs: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, rng: ManualBox<StdRng>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.rngs.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.rngs.insert(handle, rng);
+        handle
+    }
+
+    fn next_value(&mut self, handle: usize) -> Result<SpectraHostValue, i32> {
+        match self.rngs.get_mut(&handle) {
+            Some(rng) => Ok(rng.next_value()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn next_in_range(
+        &mut self,
+        handle: usize,
+        min: SpectraHostValue,
+        max: SpectraHostValue,
+    ) -> Result<SpectraHostValue, i32> {
+        match self.rngs.get_mut(&handle) {
+            Some(rng) => rng.next_in_range(min, max),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<(), i32> {
+        if self.rngs.remove(&handle).is_some() {
+            Ok(())
+        } else {
+            Err(HOST_STATUS_NOT_FOUND)
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.rngs.len();
+        self.rngs.clear();
+        self.next_id = 1;
+        count
+    }
+}
+
+fn with_rng_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut RngRegistry) -> R,
+{
+    let registry = rng_registry();
+    let mut guard = registry
+        .lock()
+        .expect("rng registry mutex poisoned");
+    action(&mut guard)
+}
+
+fn rng_registry() -> &'static Mutex<RngRegistry> {
+    static REGISTRY: OnceLock<Mutex<RngRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(RngRegistry::new()))
 }
 
 #[derive(Default)]
@@ -973,6 +1259,126 @@ mod tests {
         };
 
         assert_eq!(mean(&mut empty_ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_rng_seed_is_deterministic() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        let seed_fn = lookup_host_function(MATH_RNG_SEED).expect("rng_seed not registered");
+        let next_fn = lookup_host_function(MATH_RNG_NEXT).expect("rng_next not registered");
+
+        let seed_args = [12345];
+        let mut handle_result = [0];
+        let mut seed_ctx = SpectraHostCallContext {
+            args: seed_args.as_ptr(),
+            arg_len: 1,
+            results: handle_result.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(seed_fn(&mut seed_ctx), HOST_STATUS_SUCCESS);
+        let mut next_results = [0];
+        let mut next_ctx = SpectraHostCallContext {
+            args: handle_result.as_ptr(),
+            arg_len: 1,
+            results: next_results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(next_fn(&mut next_ctx), HOST_STATUS_SUCCESS);
+        let first = next_results[0];
+        assert_eq!(next_fn(&mut next_ctx), HOST_STATUS_SUCCESS);
+        let second = next_results[0];
+
+        let seed_args_again = [12345];
+        let mut handle_again = [0];
+        let mut seed_ctx_again = SpectraHostCallContext {
+            args: seed_args_again.as_ptr(),
+            arg_len: 1,
+            results: handle_again.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(seed_fn(&mut seed_ctx_again), HOST_STATUS_SUCCESS);
+
+        let mut next_ctx_again = SpectraHostCallContext {
+            args: handle_again.as_ptr(),
+            arg_len: 1,
+            results: next_results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(next_fn(&mut next_ctx_again), HOST_STATUS_SUCCESS);
+        assert_eq!(next_results[0], first);
+        assert_eq!(next_fn(&mut next_ctx_again), HOST_STATUS_SUCCESS);
+        assert_eq!(next_results[0], second);
+
+        let mut free_ctx = SpectraHostCallContext {
+            args: handle_result.as_ptr(),
+            arg_len: 1,
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        let free_fn = lookup_host_function(MATH_RNG_FREE).expect("rng_free not registered");
+        assert_eq!(free_fn(&mut free_ctx), HOST_STATUS_SUCCESS);
+    }
+
+    #[test]
+    fn math_rng_next_range_obeys_bounds() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        let seed_fn = lookup_host_function(MATH_RNG_SEED).expect("rng_seed not registered");
+        let range_fn =
+            lookup_host_function(MATH_RNG_NEXT_RANGE).expect("rng_next_range not registered");
+
+        let seed_args = [2024];
+        let mut handle_result = [0];
+        let mut seed_ctx = SpectraHostCallContext {
+            args: seed_args.as_ptr(),
+            arg_len: 1,
+            results: handle_result.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(seed_fn(&mut seed_ctx), HOST_STATUS_SUCCESS);
+
+        let handle = handle_result[0];
+        let mut range_results = [0];
+        let range_args = [handle, -5, 5];
+        let mut range_ctx = SpectraHostCallContext {
+            args: range_args.as_ptr(),
+            arg_len: 3,
+            results: range_results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        for _ in 0..10 {
+            assert_eq!(range_fn(&mut range_ctx), HOST_STATUS_SUCCESS);
+            assert!((-5..=5).contains(&range_results[0]));
+        }
+
+        let invalid_args = [handle, 10, -10];
+        let mut invalid_ctx = SpectraHostCallContext {
+            args: invalid_args.as_ptr(),
+            arg_len: 3,
+            results: range_results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(range_fn(&mut invalid_ctx), HOST_STATUS_INVALID_ARGUMENT);
+
+        let free_all = lookup_host_function(MATH_RNG_FREE_ALL).expect("rng_free_all not registered");
+        let mut free_all_results = [0];
+        let mut free_all_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: free_all_results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(free_all(&mut free_all_ctx), HOST_STATUS_SUCCESS);
+        assert!(free_all_results[0] >= 1);
     }
 
     #[test]

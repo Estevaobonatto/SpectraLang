@@ -17,7 +17,8 @@
 - [ ] Fornecer utilitários de estatística simples (média, `clamp`, geração determinística de números aleatórios)
   - [x] `std.math.clamp`
   - [x] `std.math.mean`
-  - [ ] RNG determinístico e utilitários adicionais (`median`, `variance`, etc.)
+  - [x] RNG determinístico (`rng_seed`, `rng_next`, `rng_next_range`, `rng_free`, `rng_free_all`)
+  - [ ] utilitários adicionais (`median`, `variance`, etc.)
 
 ## I/O e Sistema
 

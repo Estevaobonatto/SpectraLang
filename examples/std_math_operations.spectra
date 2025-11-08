@@ -15,6 +15,10 @@ pub fn main() {
     let abs_value = std.math.abs(b);
     let clamped = std.math.clamp(b, -2, 2);
     let mean_value = std.math.mean(a, b, 6, -3);
+    let rng_handle = std.math.rng_seed(1337);
+    let random_any = std.math.rng_next(rng_handle);
+    let random_range = std.math.rng_next_range(rng_handle, -10, 10);
+    std.math.rng_free(rng_handle);
 
     std.io.print(
         sum,
@@ -26,6 +30,8 @@ pub fn main() {
         abs_value,
         clamped,
         mean_value,
+        random_any,
+        random_range,
     );
     std.io.flush();
 

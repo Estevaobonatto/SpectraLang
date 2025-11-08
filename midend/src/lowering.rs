@@ -3536,6 +3536,31 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("math", "rng_seed") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.rng_seed",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "rng_next") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.rng_next",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "rng_next_range") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.rng_next_range",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "rng_free") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.rng_free",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "rng_free_all") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.rng_free_all",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("math", "mean") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.mean",
                 return_type: IRType::Int,
