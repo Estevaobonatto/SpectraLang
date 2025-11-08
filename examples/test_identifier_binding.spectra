@@ -1,0 +1,30 @@
+module test;
+
+// Test: Identifier binding captura qualquer valor
+fn test_simple() -> int {
+    let x = 42;
+    match x {
+        value => value + 10
+    }
+}
+
+// Test: Múltiplos arms com identifiers
+fn test_multiple_arms() -> int {
+    let x = 5;
+    match x {
+        first => first * 2
+    }
+}
+
+// Test: Identifier com underscore ignora
+fn test_wildcard_vs_identifier() -> int {
+    let x = 100;
+    match x {
+        _ => 1,
+        y => y  // Este nunca será alcançado devido ao wildcard antes
+    }
+}
+
+fn main() -> int {
+    test_simple()  // 52
+}

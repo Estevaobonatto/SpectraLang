@@ -1,0 +1,18 @@
+// Teste 15: Expressões complexas
+module complex_expressions;
+
+fn test_complex() -> int {
+    let a = 10;
+    let b = 5;
+    let c = 3;
+    
+    let result = (a + b) * c - (a / b) + (b % c);
+    let comparison = (a > b) && (b > c) || (a == 10);
+    let negation = !(a < b);
+    
+    return result;
+}
+
+fn main() -> int {
+    return test_complex();
+}

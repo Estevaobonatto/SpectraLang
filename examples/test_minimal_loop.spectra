@@ -1,0 +1,11 @@
+module test_minimal;
+
+fn test() -> int {
+    let arr = [1, 2, 3];
+    
+    while 0 < 1 {
+        let x = arr[0];
+    }
+    
+    42
+}

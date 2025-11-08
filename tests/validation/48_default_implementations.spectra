@@ -1,0 +1,36 @@
+// Teste de default implementations em traits
+module test48;
+
+trait Calculator {
+    // Método sem default (deve ser implementado)
+    fn get_value(&self) -> int;
+    
+    // Método com default implementation
+    fn double(&self) -> int {
+        self.get_value() * 2
+    }
+    
+    // Outro método com default
+    fn triple(&self) -> int {
+        self.get_value() * 3
+    }
+}
+
+struct Number {
+    value: int
+}
+
+// Implementa apenas get_value, usa os defaults para double e triple
+impl Calculator for Number {
+    fn get_value(&self) -> int {
+        self.value
+    }
+}
+
+fn main() -> int {
+    let num = Number { value: 10 };
+    let val = num.get_value();    // 10 (implementado)
+    let dbl = num.double();       // 20 (default)
+    let trp = num.triple();       // 30 (default)
+    val + dbl + trp               // 60
+}

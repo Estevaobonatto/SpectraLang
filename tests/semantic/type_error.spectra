@@ -1,0 +1,12 @@
+// Teste: Erro de tipo - operação inválida
+module test_type_error;
+
+pub fn main() {
+    let x = 10;
+    let name = "Alice";
+    
+    // Isso deve gerar um erro: não pode somar int com string
+    let invalid = x + name;
+    
+    return;
+}

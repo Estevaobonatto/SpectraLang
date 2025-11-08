@@ -1,0 +1,15 @@
+module test_opt;
+
+pub fn main() {
+    // Teste de constant folding
+    let a = 5 + 3;        // Deve ser otimizado para 8
+    let b = 10 * 2;       // Deve ser otimizado para 20
+    let c = a + b;        // Usa valores computados
+    
+    // Teste de controle de fluxo
+    if c > 20 {
+        let x = 100;
+    }
+    
+    return;
+}

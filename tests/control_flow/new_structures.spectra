@@ -1,0 +1,83 @@
+// Teste: Novos controles de fluxo - loop, do-while, switch, unless
+module test_new_control_flow;
+
+pub fn main() {
+    // Test 1: Loop infinito com break
+    let counter = 0;
+    loop {
+        counter = counter + 1;
+        
+        let should_break = counter >= 5;
+        unless should_break {
+            continue;
+        }
+        
+        break;
+    }
+    
+    // Test 2: Do-while
+    let x = 0;
+    do {
+        x = x + 1;
+    } while x < 3;
+    
+    // Test 3: Unless (negação de if)
+    let value = 10;
+    unless value < 5 {
+        let result = value * 2;
+    }
+    
+    unless value > 20 {
+        let other = value + 5;
+    } else {
+        let alternative = value - 5;
+    }
+    
+    // Test 4: Switch statement
+    let number = 2;
+    switch number {
+        case 1 => {
+            let msg = "one";
+        }
+        case 2 => {
+            let msg = "two";
+        }
+        case 3 => {
+            let msg = "three";
+        }
+        else => {
+            let msg = "other";
+        }
+    }
+    
+    return;
+}
+
+fn test_loop_with_condition() -> int {
+    let sum = 0;
+    let i = 0;
+    
+    loop {
+        let should_continue = i < 10;
+        unless should_continue {
+            break;
+        }
+        
+        sum = sum + i;
+        i = i + 1;
+    }
+    
+    return sum;
+}
+
+fn test_do_while_sum() -> int {
+    let total = 0;
+    let count = 1;
+    
+    do {
+        total = total + count;
+        count = count + 1;
+    } while count <= 5;
+    
+    return total;
+}

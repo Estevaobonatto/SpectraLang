@@ -1,0 +1,138 @@
+module test;
+
+// Bubble Sort implementation
+fn bubble_sort(arr_size: int) -> int {
+    // Simulate sorting by counting operations
+    let operations = 0;
+    let i = 0;
+    
+    while i < arr_size {
+        let j = 0;
+        while j < arr_size - i - 1 {
+            operations = operations + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    return operations;
+}
+
+// Greatest Common Divisor (Euclidean algorithm)
+fn gcd(a: int, b: int) -> int {
+    let temp_a = a;
+    let temp_b = b;
+    
+    while temp_b != 0 {
+        let temp = temp_b;
+        temp_b = temp_a % temp_b;
+        temp_a = temp;
+    }
+    
+    return temp_a;
+}
+
+// Prime number checker
+fn is_prime(n: int) -> bool {
+    if n <= 1 {
+        return false;
+    }
+    
+    if n <= 3 {
+        return true;
+    }
+    
+    if n % 2 == 0 {
+        return false;
+    }
+    
+    let i = 3;
+    while i * i <= n {
+        if n % i == 0 {
+            return false;
+        }
+        i = i + 2;
+    }
+    
+    return true;
+}
+
+// Count primes up to n
+fn count_primes(n: int) -> int {
+    let count = 0;
+    let i = 2;
+    
+    while i <= n {
+        if is_prime(i) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    
+    return count;
+}
+
+// Power function (iterative)
+fn power(base: int, exp: int) -> int {
+    let result = 1;
+    let counter = 0;
+    
+    while counter < exp {
+        result = result * base;
+        counter = counter + 1;
+    }
+    
+    return result;
+}
+
+// Sum of digits
+fn sum_of_digits(n: int) -> int {
+    let sum = 0;
+    let num = n;
+    
+    while num > 0 {
+        sum = sum + (num % 10);
+        num = num / 10;
+    }
+    
+    return sum;
+}
+
+// Reverse number
+fn reverse_number(n: int) -> int {
+    let reversed = 0;
+    let num = n;
+    
+    while num > 0 {
+        reversed = reversed * 10 + (num % 10);
+        num = num / 10;
+    }
+    
+    return reversed;
+}
+
+pub fn main() {
+    // Test bubble sort operations count
+    let ops = bubble_sort(10);
+    
+    // Test GCD
+    let g = gcd(48, 18);  // Should be 6
+    
+    // Test prime checking
+    let is_17_prime = is_prime(17);  // Should be true
+    let is_18_prime = is_prime(18);  // Should be false
+    
+    // Count primes up to 20
+    let prime_count = count_primes(20);  // Should be 8
+    
+    // Test power
+    let power_result = power(2, 10);  // Should be 1024
+    
+    // Test sum of digits
+    let digit_sum = sum_of_digits(12345);  // Should be 15
+    
+    // Test reverse
+    let reversed = reverse_number(12345);  // Should be 54321
+    
+    return;
+}

@@ -1,0 +1,7 @@
+// Teste: Função não definida
+module test_undefined_function;
+
+pub fn main() {
+    let result = undefined_function(10); // ERRO: função não definida
+    return;
+}

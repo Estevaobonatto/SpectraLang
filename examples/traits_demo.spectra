@@ -1,0 +1,141 @@
+// Demonstração completa do sistema de Traits do SpectraLang
+module traits_demo;
+
+// ============================================
+// 1. TRAIT BÁSICO - Interface para impressão
+// ============================================
+
+trait Printable {
+    fn to_string(&self) -> int;
+    fn debug(&self) -> int;
+}
+
+// ============================================
+// 2. TRAIT PARA OPERAÇÕES MATEMÁTICAS
+// ============================================
+
+trait Calculable {
+    fn add(&self, x: int, y: int) -> int;
+    fn multiply(&self, x: int, y: int) -> int;
+    fn get_value(&self) -> int;
+}
+
+// ============================================
+// 3. STRUCTS QUE IMPLEMENTAM TRAITS
+// ============================================
+
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Calculator {
+    base: int
+}
+
+// ============================================
+// 4. IMPLEMENTAÇÕES
+// ============================================
+
+// Point implementa Printable
+impl Printable for Point {
+    fn to_string(&self) -> int {
+        // Retorna soma das coordenadas (simulação)
+        self.x + self.y
+    }
+    
+    fn debug(&self) -> int {
+        // Retorna produto das coordenadas
+        self.x * self.y
+    }
+}
+
+// Calculator implementa Calculable
+impl Calculable for Calculator {
+    fn add(&self, x: int, y: int) -> int {
+        // Soma com valor base
+        self.base + x + y
+    }
+    
+    fn multiply(&self, x: int, y: int) -> int {
+        // Multiplica com valor base
+        self.base * x * y
+    }
+    
+    fn get_value(&self) -> int {
+        self.base
+    }
+}
+
+// Calculator também implementa Printable
+impl Printable for Calculator {
+    fn to_string(&self) -> int {
+        self.base
+    }
+    
+    fn debug(&self) -> int {
+        self.base * 10
+    }
+}
+
+// ============================================
+// 5. MÚLTIPLOS TRAITS NO MESMO TIPO
+// ============================================
+
+struct MultiTrait {
+    value: int
+}
+
+impl Printable for MultiTrait {
+    fn to_string(&self) -> int {
+        self.value
+    }
+    
+    fn debug(&self) -> int {
+        self.value * 2
+    }
+}
+
+impl Calculable for MultiTrait {
+    fn add(&self, x: int, y: int) -> int {
+        self.value + x + y
+    }
+    
+    fn multiply(&self, x: int, y: int) -> int {
+        self.value * x * y
+    }
+    
+    fn get_value(&self) -> int {
+        self.value
+    }
+}
+
+// ============================================
+// 6. FUNÇÃO PRINCIPAL - DEMONSTRAÇÃO
+// ============================================
+
+fn main() -> int {
+    // Teste 1: Point com Printable
+    let p = Point { x: 10, y: 20 };
+    let p_string = p.to_string();    // 30 (10 + 20)
+    let p_debug = p.debug();         // 200 (10 * 20)
+    
+    // Teste 2: Calculator com ambos traits
+    let calc = Calculator { base: 5 };
+    let calc_add = calc.add(3, 7);           // 15 (5 + 3 + 7)
+    let calc_mul = calc.multiply(2, 4);      // 40 (5 * 2 * 4)
+    let calc_str = calc.to_string();         // 5
+    let calc_dbg = calc.debug();             // 50 (5 * 10)
+    
+    // Teste 3: MultiTrait com múltiplos traits
+    let multi = MultiTrait { value: 3 };
+    let multi_str = multi.to_string();       // 3
+    let multi_dbg = multi.debug();           // 6 (3 * 2)
+    let multi_add = multi.add(10, 20);       // 33 (3 + 10 + 20)
+    let multi_mul = multi.multiply(2, 5);    // 30 (3 * 2 * 5)
+    
+    // Resultado: soma de todos os testes
+    // 30 + 200 + 15 + 40 + 5 + 50 + 3 + 6 + 33 + 30 = 412
+    p_string + p_debug + calc_add + calc_mul + calc_str + calc_dbg + 
+    multi_str + multi_dbg + multi_add + multi_mul
+}

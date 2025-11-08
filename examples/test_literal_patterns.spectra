@@ -1,0 +1,51 @@
+module test;
+
+// Test: Match com literal int
+fn test_int_literal() -> int {
+    let x = 42;
+    match x {
+        42 => 100,
+        0 => 200,
+        _ => 300
+    }
+}
+
+// Test: Match com literal bool
+fn test_bool_literal() -> int {
+    let flag = true;
+    match flag {
+        true => 1,
+        false => 0
+    }
+}
+
+// Test: Match com múltiplos literais
+fn test_multiple_literals() -> int {
+    let x = 5;
+    match x {
+        1 => 10,
+        2 => 20,
+        3 => 30,
+        5 => 50,
+        _ => 999
+    }
+}
+
+// Test: Match com expressões após literal
+fn test_literal_with_expression() -> int {
+    let x = 10;
+    match x {
+        10 => x * 2,
+        20 => x + 5,
+        _ => 0
+    }
+}
+
+fn main() -> int {
+    let a = test_int_literal();           // 100
+    let b = test_bool_literal();          // 1
+    let c = test_multiple_literals();     // 50
+    let d = test_literal_with_expression(); // 20
+    
+    a + b + c + d  // 171
+}

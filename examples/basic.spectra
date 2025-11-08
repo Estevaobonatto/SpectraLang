@@ -1,0 +1,44 @@
+// SpectraLang - Exemplo Básico
+// Sintaxe simples e funcional
+
+module basic;
+
+pub fn main() {
+    let x = 10;
+    let y = 20;
+    let sum = x + y;
+    let product = x * y;
+    let is_positive = x > 0;
+    let is_equal = x == 10;
+    let is_different = x != y;
+    let check = is_positive && is_equal;
+    
+    return;
+}
+
+fn add(a: int, b: int) -> int {
+    let result = a + b;
+    return result;
+}
+
+fn multiply(a: int, b: int) -> int {
+    return a * b;
+}
+
+fn is_even(n: int) -> bool {
+    let remainder = n % 2;
+    let result = remainder == 0;
+    return result;
+}
+
+fn max(a: int, b: int) -> int {
+    let greater = a > b;
+    return a;
+}
+
+fn calculate(x: int, y: int, z: int) -> int {
+    let temp1 = x + y;
+    let temp2 = temp1 * z;
+    let result = temp2 - 10;
+    return result;
+}

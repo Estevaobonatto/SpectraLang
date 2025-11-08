@@ -1,0 +1,7 @@
+module test_tuple_int_string;
+
+fn main() -> int {
+    let data = (42, "hello");
+    let x = data.0;
+    x
+}

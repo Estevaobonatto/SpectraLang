@@ -1,0 +1,8 @@
+// Teste de erros: break fora de loop
+module test_break_error;
+
+fn test() -> int {
+    let x = 10;
+    break; // Erro: break fora de loop
+    return x;
+}

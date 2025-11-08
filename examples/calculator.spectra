@@ -1,0 +1,149 @@
+// SpectraLang - Exemplo Prático: Calculadora
+// Demonstra sintaxe simples em um caso de uso real
+
+module calculator;
+
+pub fn main() {
+    print("=== Simple Calculator ===");
+    
+    // Testes de operações
+    test_addition();
+    test_subtraction();
+    test_multiplication();
+    test_division();
+    test_complex();
+    
+    return;
+}
+
+fn test_addition() {
+    print("Testing Addition:");
+    let result = add(5, 3);
+    print(result); // Expected: 8
+    return;
+}
+
+fn test_subtraction() {
+    print("Testing Subtraction:");
+    let result = subtract(10, 4);
+    print(result); // Expected: 6
+    return;
+}
+
+fn test_multiplication() {
+    print("Testing Multiplication:");
+    let result = multiply(6, 7);
+    print(result); // Expected: 42
+    return;
+}
+
+fn test_division() {
+    print("Testing Division:");
+    let result = divide(20, 4);
+    print(result); // Expected: 5
+    return;
+}
+
+fn test_complex() {
+    print("Testing Complex Expression:");
+    let result = calculate_complex(10, 5, 2);
+    print(result); // Expected: ((10 + 5) * 2) - 5 = 25
+    return;
+}
+
+// Operações básicas
+fn add(a: int, b: int) -> int {
+    return a + b;
+}
+
+fn subtract(a: int, b: int) -> int {
+    return a - b;
+}
+
+fn multiply(a: int, b: int) -> int {
+    return a * b;
+}
+
+fn divide(a: int, b: int) -> int {
+    if b == 0 {
+        print("Error: Division by zero!");
+        return 0;
+    }
+    return a / b;
+}
+
+// Operação complexa
+fn calculate_complex(a: int, b: int, c: int) -> int {
+    let sum = add(a, b);
+    let product = multiply(sum, c);
+    let result = subtract(product, 5);
+    return result;
+}
+
+// Verifica se número é par
+fn is_even(n: int) -> bool {
+    return n % 2 == 0;
+}
+
+// Verifica se número é positivo
+fn is_positive(n: int) -> bool {
+    return n > 0;
+}
+
+// Calcula fatorial de forma iterativa
+fn factorial(n: int) -> int {
+    if n <= 1 {
+        return 1;
+    }
+    
+    let result = 1;
+    let i = 2;
+    
+    while i <= n {
+        result = result * i;
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// Calcula potência
+fn power(base: int, exponent: int) -> int {
+    if exponent == 0 {
+        return 1;
+    }
+    
+    let result = base;
+    let i = 1;
+    
+    while i < exponent {
+        result = result * base;
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// Encontra o maior entre dois números
+fn max(a: int, b: int) -> int {
+    if a > b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// Encontra o menor entre dois números
+fn min(a: int, b: int) -> int {
+    if a < b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// Calcula média de três números
+fn average_three(a: int, b: int, c: int) -> int {
+    let sum = a + b + c;
+    return sum / 3;
+}

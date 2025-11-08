@@ -1,0 +1,39 @@
+module test_complex_array;
+
+fn test_nested_loops() -> int {
+    let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let sum = 0;
+    let i = 0;
+    
+    while i < 10 {
+        let j = 0;
+        while j < i {
+            sum = sum + arr[j];
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    return sum;
+}
+
+fn test_array_modification_in_loop() -> int {
+    let arr = [0, 0, 0, 0, 0];
+    let i = 0;
+    
+    // Fill array
+    while i < 5 {
+        arr[i] = i * 10;
+        i = i + 1;
+    }
+    
+    // Sum array
+    let sum = 0;
+    i = 0;
+    while i < 5 {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    return sum; // Should be 0+10+20+30+40 = 100
+}

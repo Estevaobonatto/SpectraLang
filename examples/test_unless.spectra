@@ -1,0 +1,16 @@
+module test;
+
+fn unless_test(x: int) -> int {
+    let result = 0;
+    
+    unless x < 0 {
+        result = x * 2;
+    }
+    
+    return result;
+}
+
+pub fn main() {
+    let r = unless_test(5);
+    return;
+}

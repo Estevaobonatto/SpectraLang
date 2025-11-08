@@ -1,0 +1,16 @@
+// Test: Method call validation - should fail with error
+// Expected: Semantic error - method not found
+module method_error_test;
+
+fn create_value() -> int {
+    42
+}
+
+fn main() -> int {
+    let x = create_value();
+    
+    // Isso deve gerar erro: int não tem método 'nonexistent'
+    // x.nonexistent()
+    
+    x
+}

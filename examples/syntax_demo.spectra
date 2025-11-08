@@ -1,0 +1,162 @@
+// SpectraLang - Exemplo de Sintaxe Simples
+// Demonstra operadores, condicionais e loops
+
+module syntax;
+
+import std.io;
+
+// Função principal com sintaxe limpa
+pub fn main() {
+    print("=== SpectraLang Syntax Demo ===");
+    
+    // Variáveis com tipos opcionais
+    let x: int = 10;
+    let y = 20;
+    let name = "SpectraLang";
+    
+    // Operadores aritméticos
+    let sum = x + y;
+    let diff = y - x;
+    let product = x * 3;
+    let quotient = y / 2;
+    let remainder = y % 3;
+    
+    print("Arithmetic:");
+    print(sum);
+    print(diff);
+    
+    // Operadores de comparação
+    let is_equal = x == 10;
+    let is_greater = y > x;
+    let is_less_equal = x <= y;
+    
+    // Operadores lógicos
+    let condition = is_equal && is_greater;
+    let alt_condition = is_equal || is_less_equal;
+    
+    // Condicional if/else simples
+    if x < y {
+        print("x is less than y");
+    } else {
+        print("x is greater or equal to y");
+    }
+    
+    // Condicional com elif
+    if x > 100 {
+        print("Large number");
+    } elif x > 50 {
+        print("Medium number");
+    } elif x > 10 {
+        print("Small number");
+    } else {
+        print("Very small number");
+    }
+    
+    // Loop while
+    let counter = 0;
+    while counter < 5 {
+        print(counter);
+        counter = counter + 1;
+    }
+    
+    // Loop for...in
+    for i in numbers {
+        print(i);
+    }
+    
+    // Loop for...of
+    for item of collection {
+        print(item);
+    }
+    
+    // Expressões aninhadas
+    let result = (x + y) * 2 - 10;
+    let complex = (a + b) * (c - d) / (e + 1);
+    
+    // Expressão booleana
+    let can_proceed = (x > 0) && (y < 100) || (condition == true);
+    
+    // If como expressão
+    let message = if can_proceed {
+        print("Can proceed!");
+    } else {
+        print("Cannot proceed!");
+    };
+    
+    return;
+}
+
+// Função com operações matemáticas
+fn calculate(a: int, b: int) -> int {
+    let temp = a * 2;
+    let result = temp + b * 3;
+    return result;
+}
+
+// Função com loop e break
+fn find_first_even(numbers) {
+    for num in numbers {
+        if num % 2 == 0 {
+            return num;
+        }
+    }
+    return -1;
+}
+
+// Função com while e continue
+fn count_positives(values) {
+    let count = 0;
+    let i = 0;
+    
+    while i < length(values) {
+        let val = get(values, i);
+        i = i + 1;
+        
+        if val <= 0 {
+            continue;
+        }
+        
+        count = count + 1;
+    }
+    
+    return count;
+}
+
+// Função demonstrando precedência de operadores
+fn precedence_demo(a: int, b: int, c: int) -> int {
+    // Multiplica primeiro, depois soma
+    let result1 = a + b * c;
+    
+    // Parênteses alteram a precedência
+    let result2 = (a + b) * c;
+    
+    // Operadores lógicos
+    let check = a > 0 && b < 10 || c == 5;
+    
+    // Negação unária
+    let negative = -a;
+    let inverted = !check;
+    
+    return result1 + result2;
+}
+
+// Função com nested if e loops
+fn complex_logic(data) {
+    for item in data {
+        if item > 0 {
+            let squared = item * item;
+            
+            if squared > 100 {
+                print("Large squared value");
+                break;
+            } elif squared > 50 {
+                print("Medium squared value");
+            } else {
+                print("Small squared value");
+                continue;
+            }
+        }
+    }
+    
+    return;
+}

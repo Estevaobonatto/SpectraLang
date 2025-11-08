@@ -1,0 +1,7 @@
+module test_tuple_simple;
+
+fn main() -> int {
+    let tuple = (1, 2);
+    let x = tuple.0;
+    x
+}

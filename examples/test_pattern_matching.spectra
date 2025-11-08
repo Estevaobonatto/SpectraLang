@@ -1,0 +1,51 @@
+module test;
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+enum Result<T> {
+    Ok(T),
+    Err(T)
+}
+
+// Teste básico de match
+fn unwrap_or(opt: Option, default: int) -> int {
+    match opt {
+        Option::Some(value) => value,
+        Option::None => default
+    }
+}
+
+// Match com Result
+fn handle_result(res: Result) -> int {
+    match res {
+        Result::Ok(value) => value,
+        Result::Err(code) => code * -1
+    }
+}
+
+// Match aninhado
+fn process(opt: Option) -> int {
+    match opt {
+        Option::Some(x) => {
+            match x {
+                _ => x + 10
+            }
+        },
+        Option::None => 0
+    }
+}
+
+fn main() -> int {
+    let some_val = Option::Some(42);
+    let result = unwrap_or(some_val, 0);
+    let status = Option::Some("ready");
+    let message = match status {
+        Option::Some(text) => text,
+        Option::None => "unknown",
+    };
+    let _ = message; // Apenas para evitar warnings
+    result
+}

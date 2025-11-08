@@ -1,0 +1,22 @@
+// Teste 18: Escopos
+module scopes;
+
+fn test_scopes() -> int {
+    let x = 10;
+    
+    if true {
+        let y = 20;
+        let x = 30;
+        
+        if true {
+            let z = 40;
+            let x = 50;
+        }
+    }
+    
+    return x;
+}
+
+fn main() -> int {
+    return test_scopes();
+}

@@ -1,0 +1,9 @@
+module test_tuple_numbers;
+
+fn main() -> int {
+    let data = (10, 20, 30);
+    let x = data.0;
+    let y = data.1;
+    let z = data.2;
+    x + y + z
+}

@@ -1,0 +1,14 @@
+// Teste de atribuições
+module test_assignment;
+
+fn test_assignments() -> int {
+    let x = 10;
+    x = 20;
+    x = x + 5;
+    return x;
+}
+
+fn main() -> int {
+    let result = test_assignments();
+    return result;
+}

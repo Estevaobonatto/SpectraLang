@@ -1,0 +1,22 @@
+// Teste 17: Inferência de tipos
+module type_inference;
+
+fn test_inference() -> int {
+    let x = 42;
+    let y = x + 10;
+    let z = y * 2;
+    
+    let a = 3.14;
+    let b = a + 1.0;
+    
+    let flag = true;
+    let another = flag && false;
+    
+    let text = "hello";
+    
+    return z;
+}
+
+fn main() -> int {
+    return test_inference();
+}

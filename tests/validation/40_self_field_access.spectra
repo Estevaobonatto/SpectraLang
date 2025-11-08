@@ -1,0 +1,29 @@
+// Teste de self.field access
+module test40;
+
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Point {
+    fn get_x(&self) -> int {
+        self.x  // Acesso direto ao campo
+    }
+    
+    fn get_y(&self) -> int {
+        self.y
+    }
+    
+    fn sum(&self) -> int {
+        self.x + self.y
+    }
+}
+
+fn main() -> int {
+    let p = Point { x: 10, y: 20 };
+    let x = p.get_x();
+    let y = p.get_y();
+    let s = p.sum();
+    x + y + s
+}

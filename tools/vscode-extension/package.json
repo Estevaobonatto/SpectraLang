@@ -1,0 +1,91 @@
+{
+  "name": "spectra-vscode-extension",
+  "displayName": "SpectraLang",
+  "description": "VS Code support for SpectraLang syntax, formatting, and diagnostics.",
+  "version": "0.0.1",
+  "publisher": "spectralang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Estevaobonatto/SpectraLang"
+  },
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "spectra",
+        "aliases": ["Spectra", "SpectraLang"],
+        "extensions": [".spectra"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "spectra",
+        "scopeName": "source.spectra",
+        "path": "./syntaxes/spectra.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "spectra.diagnostics.run",
+        "title": "Spectra: Run Diagnostics for Current File"
+      },
+      {
+        "command": "spectra.lintWorkspace",
+        "title": "Spectra: Lint Workspace"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "spectra.diagnostics.run",
+          "when": "editorLangId == spectra"
+        },
+        {
+          "command": "spectra.lintWorkspace"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Spectra",
+      "properties": {
+        "spectra.cliPath": {
+          "type": "string",
+          "default": "spectra",
+          "description": "Path to the Spectra CLI executable used for formatting, linting, and diagnostics."
+        },
+        "spectra.lintOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run Spectra diagnostics when a Spectra file is saved."
+        },
+        "spectra.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Format Spectra files on save using 'spectra fmt'."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "prepublishOnly": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/vscode": "^1.93.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.5.4"
+  }
+}

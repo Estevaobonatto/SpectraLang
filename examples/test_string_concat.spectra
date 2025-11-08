@@ -1,0 +1,13 @@
+module test_strings;
+
+fn test_concat() -> string {
+    let s1 = "Hello";
+    let s2 = " World";
+    let result = s1 + s2;
+    result
+}
+
+fn test_multi_concat() -> string {
+    let greeting = "Hello" + " " + "World" + "!";
+    greeting
+}

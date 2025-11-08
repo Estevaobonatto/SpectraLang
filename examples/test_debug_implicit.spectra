@@ -1,0 +1,6 @@
+module test_debug;
+
+fn test_simple() -> int {
+    let x = 42;
+    x
+}

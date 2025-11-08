@@ -1,0 +1,35 @@
+// Teste de trait inheritance
+module test46;
+
+// Trait base
+trait Printable {
+    fn to_string(&self) -> int;
+}
+
+// Trait que herda de Printable
+trait Debug: Printable {
+    fn debug(&self) -> int;
+}
+
+// Struct que implementa Debug (deve implementar ambos Printable e Debug)
+struct Point {
+    x: int,
+    y: int
+}
+
+impl Debug for Point {
+    fn to_string(&self) -> int {
+        self.x + self.y
+    }
+    
+    fn debug(&self) -> int {
+        self.x * self.y
+    }
+}
+
+fn main() -> int {
+    let p = Point { x: 10, y: 20 };
+    let str = p.to_string();    // 30 (10 + 20)
+    let dbg = p.debug();        // 200 (10 * 20)
+    str + dbg                   // 230
+}

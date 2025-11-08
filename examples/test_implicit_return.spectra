@@ -1,0 +1,22 @@
+module test_implicit;
+
+fn test_after_loop() -> int {
+    let i = 0;
+    while i < 3 {
+        i = i + 1;
+    }
+    i  // Deve funcionar como implicit return
+}
+
+fn test_after_if() -> int {
+    let x = 10;
+    if x > 5 {
+        x = x + 1;
+    }
+    x  // Deve funcionar
+}
+
+fn test_simple() -> int {
+    let x = 42;
+    x  // Já funciona
+}

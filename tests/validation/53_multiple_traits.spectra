@@ -1,0 +1,38 @@
+// Teste: Múltiplos traits implementados
+// Testa um tipo implementando vários traits simultaneamente
+module test53;
+
+// Trait Clone
+trait Clone {
+    fn clone(self) -> Self;
+}
+
+// Trait Debug
+trait Debug {
+    fn debug(self) -> int;
+}
+
+// Struct que implementa ambos os traits
+struct Value {
+    data: int
+}
+
+impl Clone for Value {
+    fn clone(self) -> Value {
+        return self;
+    }
+}
+
+impl Debug for Value {
+    fn debug(self) -> int {
+        return self.data;
+    }
+}
+
+fn main() -> int {
+    let v: Value = Value { data: 42 };
+    let copy: Value = v.clone();
+    let debug_val: int = copy.debug();
+    
+    return debug_val;  // Deve retornar 42
+}

@@ -1,0 +1,26 @@
+module test_lint_warnings;
+
+fn unused_params(x: int, y: int, z: int) -> int {
+    return x;
+}
+
+fn unreachable_after_return() -> int {
+    return 42;
+    let dead = 10;
+    return dead;
+}
+
+fn shadowing_example() -> int {
+    let x = 10;
+    if true {
+        let x = 20;
+        return x;
+    }
+    return x;
+}
+
+fn main() {
+    let unused_var = 100;
+    let result = unused_params(1, 2, 3);
+    return;
+}

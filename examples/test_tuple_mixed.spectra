@@ -1,0 +1,7 @@
+module test_tuple_mixed;
+
+fn main() -> int {
+    let data = (42, "hello", true);
+    let num = data.0;
+    num
+}

@@ -1,0 +1,19 @@
+// Teste 2: Operações aritméticas
+module arithmetic;
+
+fn test_arithmetic() -> int {
+    let a = 10;
+    let b = 5;
+    
+    let sum = a + b;
+    let diff = a - b;
+    let prod = a * b;
+    let quot = a / b;
+    let rem = a % b;
+    
+    return sum + diff + prod + quot + rem;
+}
+
+fn main() -> int {
+    return test_arithmetic();
+}

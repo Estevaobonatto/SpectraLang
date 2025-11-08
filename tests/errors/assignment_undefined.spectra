@@ -1,0 +1,7 @@
+// Teste de erros: atribuição a variável não definida
+module test_assignment_error;
+
+fn test() -> int {
+    undefined_var = 10; // Erro: variável não definida
+    return 0;
+}
