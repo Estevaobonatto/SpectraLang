@@ -1,0 +1,48 @@
+name: Spectra Formatter Check
+
+on:
+  pull_request:
+    paths:
+      - '**/*.spectra'
+      - 'Spectra.toml'
+      - 'tools/spectra-cli/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.spectra'
+      - 'Spectra.toml'
+      - 'tools/spectra-cli/**'
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: fmt-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run formatter check
+        run: cargo run -p spectra-cli -- fmt --check .
+
+      - name: Upload formatting diff
+        if: failure()
+        run: |
+          git status --short
+          git diff > formatting.diff
+          if [ -s formatting.diff ]; then
+            echo "Diff written to formatting.diff"
+          else
+            echo "No diff generated"
+          fi

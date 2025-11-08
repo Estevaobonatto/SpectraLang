@@ -24,6 +24,7 @@
 - ✅ `spectra fmt --config <path>` allows explicit config selection and reports unknown `[formatter]` keys as structured errors.
 - ✅ Added formatter-focused regression tests under `tools/spectra-cli`.
 - ✅ Usage and configuration documented in `docs/cli/formatter-guide.md`, including sample `Spectra.toml` snippets.
+- ✅ Sample GitHub Actions workflow (`tools/spectra-cli/.github/workflows/spectra-fmt-check.yml`) demonstrates `spectra fmt --check` gating.
 
 ### Next Steps
 
@@ -31,7 +32,6 @@
    - Reuse the parser to build a concrete syntax tree with trivia so spacing rules honor comments and complex constructs.
    - Extend configuration to include brace style, trailing comma policy, and import sorting once CST support lands.
 2. **Editor & automation integration**
-   - Add CI gate (`spectra fmt --check`) and provide a sample GitHub Actions workflow.
 3. **Performance & UX**
    - Cache parsed configs per workspace during multi-file runs to avoid redundant IO.
    - Benchmark large projects and introduce parallelism or incremental formatting if needed.

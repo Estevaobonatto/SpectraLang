@@ -61,3 +61,5 @@ spectra fmt --check .
 ```
 
 When the formatter reports changes, the command exits with code `65`, causing the build to fail until the author applies `spectra fmt` locally.
+
+The repository includes an end-to-end example workflow at `tools/spectra-cli/.github/workflows/spectra-fmt-check.yml` that runs the formatter in CI and surfaces diffs when formatting fails.
