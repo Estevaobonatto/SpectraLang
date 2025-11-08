@@ -15,6 +15,7 @@ struct CliInvocation {
     entries: Vec<PathBuf>,
     options: CompilationOptions,
     show_pipeline_summary: bool,
+    verbose: bool,
 }
 
 #[derive(Debug)]
@@ -23,6 +24,7 @@ struct ReplOptions {
     preload: Vec<PathBuf>,
     autorun: bool,
     show_pipeline_summary: bool,
+    verbose: bool,
 }
 
 #[derive(Debug)]
@@ -244,6 +246,7 @@ where
     let mut options = CompilationOptions::default();
     let mut entries = Vec::new();
     let mut show_pipeline_summary = false;
+    let mut verbose = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -275,6 +278,7 @@ where
                 options.optimize = true;
                 options.opt_level = 3;
             }
+            "--verbose" | "-v" => verbose = true,
             "--run" | "-r" => {
                 if command == BuildCommand::Check {
                     return Err(usage_error(
@@ -322,6 +326,7 @@ where
         entries,
         options,
         show_pipeline_summary,
+        verbose,
     })
 }
 
@@ -333,6 +338,7 @@ where
     let mut preload = Vec::new();
     let mut autorun = false;
     let mut show_pipeline_summary = false;
+    let mut verbose = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -372,6 +378,7 @@ where
                 options.collect_metrics = true;
                 show_pipeline_summary = true;
             }
+            "--verbose" | "-v" => verbose = true,
             "--enable-experimental" => {
                 if let Some(feature) = args.next() {
                     options.experimental_features.insert(feature);
@@ -398,6 +405,7 @@ where
         preload,
         autorun,
         show_pipeline_summary,
+        verbose,
     })
 }
 
@@ -437,7 +445,9 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Resul
         entries,
         options,
         show_pipeline_summary,
+        verbose,
     } = invocation;
+
     match execute_plan_with_options(
         kind,
         options,
@@ -445,6 +455,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Resul
         show_pipeline_summary,
         show_pipeline_summary,
         true,
+        verbose,
     ) {
         Ok(()) => Ok(()),
         Err(message) => {
@@ -459,6 +470,7 @@ fn compile_plan(
     compiler: &mut SpectraCompiler,
     plan: &ProjectPlan,
     show_pipeline_summary: bool,
+    verbose: bool,
 ) -> bool {
     let mut has_failures = false;
 
@@ -469,6 +481,14 @@ fn compile_plan(
             module.name,
             module.path.display()
         );
+
+        if verbose {
+            if module.imports.is_empty() {
+                println!("    imports: (none)");
+            } else {
+                println!("    imports: {}", module.imports.join(", "));
+            }
+        }
 
         let filename = module.path.to_string_lossy().to_string();
         match fs::read_to_string(&module.path) {
@@ -521,7 +541,7 @@ fn print_pipeline_summary(summary: &ModulePipelineSummary) {
         println!("        • Semantic:  {:?}", metrics.semantic);
         println!("        • Backend:   {:?}", metrics.backend);
     } else {
-        println!("      Front-end timings unavailable (enable --timings to collect).");
+        println!("      Front-end timings unavailable (enable --timings to collect).",);
     }
 
     println!("      Lowering: {:?}", summary.lowering_duration);
@@ -550,11 +570,33 @@ fn execute_plan_with_options(
     show_pipeline_summary: bool,
     show_aggregate_summary: bool,
     print_success: bool,
+    verbose: bool,
 ) -> Result<(), String> {
     let plan = ProjectPlan::build(entries).map_err(|error| error.to_string())?;
 
     if plan.modules().is_empty() {
         return Err("No Spectra source files found to compile.".to_string());
+    }
+
+    if verbose {
+        print_verbose_configuration(kind, &options);
+        println!();
+        println!(
+            "Project plan contains {} module{}:",
+            plan.modules().len(),
+            if plan.modules().len() == 1 { "" } else { "s" }
+        );
+        for (index, module) in plan.modules().iter().enumerate() {
+            println!(
+                "  {:>2}. {} ({})",
+                index + 1,
+                module.name,
+                module.path.display()
+            );
+            if !module.imports.is_empty() {
+                println!("       imports: {}", module.imports.join(", "));
+            }
+        }
     }
 
     let mut compiler = SpectraCompiler::new(options);
@@ -563,7 +605,7 @@ fn execute_plan_with_options(
         compiler.set_emit_internal_metrics(false);
     }
 
-    let has_failures = compile_plan(kind, &mut compiler, &plan, show_pipeline_summary);
+    let has_failures = compile_plan(kind, &mut compiler, &plan, show_pipeline_summary, verbose);
 
     if show_aggregate_summary {
         compiler.print_aggregate_summary();
@@ -582,15 +624,61 @@ fn execute_plan_with_options(
     }
 }
 
+fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions) {
+    println!("Verbose mode enabled");
+    println!("  • Command: {}", kind.name());
+    println!(
+        "  • Optimization level: O{} ({})",
+        options.opt_level,
+        if options.optimize {
+            "optimizations on"
+        } else {
+            "optimizations off"
+        }
+    );
+    println!(
+        "  • Dump AST: {}",
+        if options.dump_ast { "yes" } else { "no" }
+    );
+    println!(
+        "  • Dump IR: {}",
+        if options.dump_ir { "yes" } else { "no" }
+    );
+    println!(
+        "  • Collect metrics: {}",
+        if options.collect_metrics { "yes" } else { "no" }
+    );
+    println!(
+        "  • Run JIT after build: {}",
+        if options.run_jit { "yes" } else { "no" }
+    );
+
+    let mut features: Vec<_> = options.experimental_features.iter().collect();
+    features.sort();
+    if features.is_empty() {
+        println!("  • Experimental features: (none)");
+    } else {
+        println!(
+            "  • Experimental features: {}",
+            features
+                .into_iter()
+                .map(|feature| feature.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+}
+
 fn execute_repl(options: ReplOptions) -> Result<(), i32> {
     let ReplOptions {
         base_options,
         preload,
         autorun,
         show_pipeline_summary,
+        verbose,
     } = options;
 
-    let session = ReplSession::new(base_options, autorun, show_pipeline_summary);
+    let session = ReplSession::new(base_options, autorun, show_pipeline_summary, verbose);
 
     if !preload.is_empty() {
         if let Err(message) = session.compile_entries(preload, session.default_command(), true) {
@@ -611,14 +699,21 @@ struct ReplSession {
     base_options: CompilationOptions,
     autorun: bool,
     show_pipeline_summary: bool,
+    verbose: bool,
 }
 
 impl ReplSession {
-    fn new(base_options: CompilationOptions, autorun: bool, show_pipeline_summary: bool) -> Self {
+    fn new(
+        base_options: CompilationOptions,
+        autorun: bool,
+        show_pipeline_summary: bool,
+        verbose: bool,
+    ) -> Self {
         Self {
             base_options,
             autorun,
             show_pipeline_summary,
+            verbose,
         }
     }
 
@@ -654,6 +749,7 @@ impl ReplSession {
             self.show_pipeline_summary,
             false,
             print_success,
+            self.verbose,
         )
     }
 
@@ -983,6 +1079,7 @@ fn print_repl_help() {
     println!("    --dump-ir              Print the IR for debugging when compiling");
     println!("    --timings, -T          Report compilation and execution timings");
     println!("    --summary              Show pipeline summaries for compiled modules");
+    println!("    --verbose, -v          Print additional build details");
     println!("    --no-optimize, -O0     Disable all optimizations");
     println!("    -O1/-O2/-O3            Set optimization level");
     println!("    --run, -r              Automatically run modules after compiling");
@@ -1020,6 +1117,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    --dump-ir              Print the IR for debugging");
     println!("    --timings, -T          Report compilation and execution timings");
     println!("    --summary              Show pipeline summaries for compiled modules");
+    println!("    --verbose, -v          Print additional build details");
     println!("    --no-optimize, -O0     Disable all optimizations");
     println!("    -O1                    Enable basic optimizations");
     println!("    -O2                    Enable moderate optimizations (default)");
