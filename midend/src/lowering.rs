@@ -3561,6 +3561,16 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("math", "median") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.median",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "variance") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.variance",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("math", "mean") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.mean",
                 return_type: IRType::Int,

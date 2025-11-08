@@ -23,14 +23,18 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 | `spectra.std.math.div` | Integer division rejecting division by zero. | `numerator`, `denominator` | `numerator / denominator` |
 | `spectra.std.math.mod` | Remainder operation rejecting division by zero. | `numerator`, `denominator` | `numerator % denominator` |
 | `spectra.std.math.pow` | Integer exponentiation for non-negative exponents. | `base`, `exponent` | `base^exponent` |
+| `spectra.std.math.mean` | Arithmetic mean of one or more integers (integer division, truncates toward zero). | variadic | floor(mean(values)) |
+| `spectra.std.math.median` | Median of the provided integers (even counts yield the truncated average of the middle pair). | variadic | median value |
+| `spectra.std.math.variance` | Population variance of the provided integers (integer division, truncates toward zero). | variadic | variance value |
 | `spectra.std.math.rng_seed` | Creates a deterministic RNG handle seeded with the provided value. | `seed` | RNG handle |
 | `spectra.std.math.rng_next` | Advances the RNG and yields the next pseudo-random integer. | `handle` | pseudo-random `int` |
 | `spectra.std.math.rng_next_range` | Advances the RNG and yields a value in the inclusive range. | `handle`, `min`, `max` | pseudo-random `int` within `[min, max]` |
 | `spectra.std.math.rng_free` | Releases an RNG handle and its associated state. | `handle` | `0` when `results` is provided |
 | `spectra.std.math.rng_free_all` | Releases all RNG handles tracked by the runtime. | *(none)* | number of freed handles |
-| `spectra.std.math.mean` | Arithmetic mean of one or more integers (integer division, truncates toward zero). | variadic | floor(mean(values)) |
 
 Overflow yields `HOST_STATUS_ARITHMETIC_ERROR`; invalid input (division by zero, negative exponents, inverted ranges, empty argument lists) returns `HOST_STATUS_INVALID_ARGUMENT`.
+`spectra.std.math.median` requires at least one argument and, for even-sized inputs, returns the truncated mean of the two middle values.
+`spectra.std.math.variance` computes the population variance and truncates toward zero when dividing the accumulated sum of squared differences by the input count.
 
 RNG handles are opaque identifiers; free them explicitly with `rng_free` (or `rng_free_all`) to avoid leaking manual allocations.
 

@@ -18,7 +18,7 @@
   - [x] `std.math.clamp`
   - [x] `std.math.mean`
   - [x] RNG determinístico (`rng_seed`, `rng_next`, `rng_next_range`, `rng_free`, `rng_free_all`)
-  - [ ] utilitários adicionais (`median`, `variance`, etc.)
+  - [x] utilitários adicionais (`median`, `variance`)
 
 ## I/O e Sistema
 

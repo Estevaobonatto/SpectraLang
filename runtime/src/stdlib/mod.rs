@@ -29,6 +29,8 @@ const MATH_RNG_NEXT: &str = "spectra.std.math.rng_next";
 const MATH_RNG_NEXT_RANGE: &str = "spectra.std.math.rng_next_range";
 const MATH_RNG_FREE: &str = "spectra.std.math.rng_free";
 const MATH_RNG_FREE_ALL: &str = "spectra.std.math.rng_free_all";
+const MATH_MEDIAN: &str = "spectra.std.math.median";
+const MATH_VARIANCE: &str = "spectra.std.math.variance";
 const MATH_CLAMP: &str = "spectra.std.math.clamp";
 const MATH_MEAN: &str = "spectra.std.math.mean";
 
@@ -66,6 +68,8 @@ fn register_math() {
     register_host_function(MATH_RNG_NEXT_RANGE, std_math_rng_next_range);
     register_host_function(MATH_RNG_FREE, std_math_rng_free);
     register_host_function(MATH_RNG_FREE_ALL, std_math_rng_free_all);
+    register_host_function(MATH_MEDIAN, std_math_median);
+    register_host_function(MATH_VARIANCE, std_math_variance);
 }
 
 fn register_io() {
@@ -409,6 +413,96 @@ extern "C" fn std_math_mean(ctx: *mut SpectraHostCallContext) -> i32 {
 
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = clamped_mean;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_math_median(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len == 0 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let mut values: Vec<SpectraHostValue> = args.to_vec();
+        values.sort();
+
+        let len = values.len();
+        let median = if len % 2 == 1 {
+            values[len / 2]
+        } else {
+            let upper = values[len / 2] as i128;
+            let lower = values[(len / 2) - 1] as i128;
+            match upper.checked_add(lower) {
+                Some(sum) => (sum / 2) as SpectraHostValue,
+                None => return HOST_STATUS_ARITHMETIC_ERROR,
+            }
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = median;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_math_variance(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len == 0 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let mut sum: i128 = 0;
+        for value in args {
+            sum += *value as i128;
+        }
+
+        let count = args.len() as i128;
+        if count == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let mean = sum / count;
+        let mut variance_acc: i128 = 0;
+        for value in args {
+            let diff = (*value as i128) - mean;
+            match diff.checked_mul(diff) {
+                Some(square) => {
+                    variance_acc = match variance_acc.checked_add(square) {
+                        Some(val) => val,
+                        None => return HOST_STATUS_ARITHMETIC_ERROR,
+                    };
+                }
+                None => return HOST_STATUS_ARITHMETIC_ERROR,
+            }
+        }
+
+        let variance = variance_acc / count;
+        let variance_i64 = match i64::try_from(variance) {
+            Ok(val) => val,
+            Err(_) => return HOST_STATUS_ARITHMETIC_ERROR,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = variance_i64;
     }
 
     HOST_STATUS_SUCCESS
@@ -1259,6 +1353,82 @@ mod tests {
         };
 
         assert_eq!(mean(&mut empty_ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_median_handles_even_and_odd_inputs() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let median_fn = lookup_host_function(MATH_MEDIAN).expect("math median not registered");
+
+        let odd_args = [9, 1, 5];
+        let mut results = [0];
+        let mut odd_ctx = SpectraHostCallContext {
+            args: odd_args.as_ptr(),
+            arg_len: odd_args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(median_fn(&mut odd_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 5);
+
+        let even_args = [10, 2, 8, 1];
+        let mut even_ctx = SpectraHostCallContext {
+            args: even_args.as_ptr(),
+            arg_len: even_args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(median_fn(&mut even_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 5);
+
+        let mut empty_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(median_fn(&mut empty_ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_variance_handles_values() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let variance_fn = lookup_host_function(MATH_VARIANCE).expect("math variance not registered");
+
+        let args = [1, 3, 5];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(variance_fn(&mut ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 2);
+
+        let constant_args = [42, 42, 42];
+        let mut constant_ctx = SpectraHostCallContext {
+            args: constant_args.as_ptr(),
+            arg_len: constant_args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(variance_fn(&mut constant_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 0);
+
+        let mut empty_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(variance_fn(&mut empty_ctx), HOST_STATUS_INVALID_ARGUMENT);
     }
 
     #[test]
