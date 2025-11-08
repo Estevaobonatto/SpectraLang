@@ -10,6 +10,31 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
+#[derive(Clone, Copy)]
+struct HostNameRecord {
+    ptr: u64,
+    len: usize,
+}
+
+fn intern_host_name(
+    host_name_data: &mut HashMap<String, HostNameRecord>,
+    host_name_storage: &mut Vec<Box<[u8]>>,
+    name: &str,
+) -> HostNameRecord {
+    if let Some(record) = host_name_data.get(name) {
+        return *record;
+    }
+
+    let boxed = name.as_bytes().to_vec().into_boxed_slice();
+    let ptr = boxed.as_ptr() as u64;
+    let len = boxed.len();
+    host_name_storage.push(boxed);
+
+    let record = HostNameRecord { ptr, len };
+    host_name_data.insert(name.to_string(), record);
+    record
+}
+
 pub struct CodeGenerator {
     /// Cranelift JIT module
     module: JITModule,
@@ -27,6 +52,11 @@ pub struct CodeGenerator {
     manual_frame_enter_func: FuncId,
     /// Import for ending a manual allocation frame
     manual_frame_exit_func: FuncId,
+    /// Import for invoking host functions by name
+    host_invoke_func: FuncId,
+    /// Cached host name pointers and backing storage
+    host_name_data: HashMap<String, HostNameRecord>,
+    host_name_storage: Vec<Box<[u8]>>,
 }
 
 impl CodeGenerator {
@@ -50,6 +80,10 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_manual_frame_exit",
             spectra_runtime::ffi::spectra_rt_manual_frame_exit as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_host_invoke",
+            spectra_runtime::ffi::spectra_rt_host_invoke as *const u8,
         );
 
         let mut module = JITModule::new(builder);
@@ -90,6 +124,23 @@ impl CodeGenerator {
             )
             .expect("Failed to declare runtime frame exit import");
 
+        let mut host_invoke_sig = module.make_signature();
+        host_invoke_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_sig.returns.push(AbiParam::new(types::I32));
+
+        let host_invoke_func = module
+            .declare_function(
+                "spectra_rt_host_invoke",
+                Linkage::Import,
+                &host_invoke_sig,
+            )
+            .expect("Failed to declare runtime host invoke import");
+
         Self {
             module,
             ctx,
@@ -99,6 +150,9 @@ impl CodeGenerator {
             manual_free_func,
             manual_frame_enter_func,
             manual_frame_exit_func,
+            host_invoke_func,
+            host_name_data: HashMap::new(),
+            host_name_storage: Vec::new(),
         }
     }
 
@@ -211,16 +265,19 @@ impl CodeGenerator {
         // Generate code for each block
         let blocks = ir_func.blocks.clone();
         for ir_block in &blocks {
-            Self::generate_block_static(
+            Self::generate_block(
+                &mut self.module,
+                &self.function_map,
+                &mut self.host_name_data,
+                &mut self.host_name_storage,
+                self.manual_alloc_func,
+                self.manual_free_func,
+                self.manual_frame_exit_func,
+                self.host_invoke_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
                 &block_map,
-                &self.function_map,
-                &mut self.module,
-                self.manual_alloc_func,
-                self.manual_free_func,
-                self.manual_frame_exit_func,
                 &mut allocation_vars,
                 &mut next_alloc_var_index,
                 frame_var,
@@ -252,16 +309,19 @@ impl CodeGenerator {
     }
 
     /// Generate code for a basic block
-    fn generate_block_static(
+    fn generate_block(
+        module: &mut JITModule,
+        function_map: &HashMap<String, FuncId>,
+        host_name_data: &mut HashMap<String, HostNameRecord>,
+        host_name_storage: &mut Vec<Box<[u8]>>,
+        manual_alloc_func: FuncId,
+        manual_free_func: FuncId,
+        manual_frame_exit_func: FuncId,
+        host_invoke_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
-        function_map: &HashMap<String, FuncId>,
-        module: &mut JITModule,
-        manual_alloc_func: FuncId,
-        manual_free_func: FuncId,
-        manual_frame_exit_func: FuncId,
         allocation_vars: &mut Vec<Variable>,
         next_alloc_var_index: &mut u32,
         frame_var: Variable,
@@ -279,13 +339,17 @@ impl CodeGenerator {
         // Generate instructions
         let track_allocations = ir_block.id == 0;
         for instr in &ir_block.instructions {
-            Self::generate_instruction_static(
+            Self::generate_instruction(
+                module,
+                function_map,
+                host_name_data,
+                host_name_storage,
+                manual_alloc_func,
+                manual_free_func,
+                host_invoke_func,
                 builder,
                 instr,
                 value_map,
-                function_map,
-                module,
-                manual_alloc_func,
                 allocation_vars,
                 next_alloc_var_index,
                 track_allocations,
@@ -311,13 +375,17 @@ impl CodeGenerator {
     }
 
     /// Generate a single instruction
-    fn generate_instruction_static(
+    fn generate_instruction(
+        module: &mut JITModule,
+        function_map: &HashMap<String, FuncId>,
+        host_name_data: &mut HashMap<String, HostNameRecord>,
+        host_name_storage: &mut Vec<Box<[u8]>>,
+        manual_alloc_func: FuncId,
+        manual_free_func: FuncId,
+        host_invoke_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
-        function_map: &HashMap<String, FuncId>,
-        module: &mut JITModule,
-        manual_alloc_func: FuncId,
         allocation_vars: &mut Vec<Variable>,
         next_alloc_var_index: &mut u32,
         track_allocations: bool,
@@ -521,6 +589,77 @@ impl CodeGenerator {
                     if !results.is_empty() {
                         value_map.insert(result.id, results[0]);
                     }
+                }
+            }
+            InstructionKind::HostCall { result, host, args } => {
+                let record = intern_host_name(host_name_data, host_name_storage, host);
+                let name_ptr = builder.ins().iconst(types::I64, record.ptr as i64);
+                let name_len = builder.ins().iconst(types::I64, record.len as i64);
+
+                let (args_ptr, args_count, args_allocation) = if args.is_empty() {
+                    (builder.ins().iconst(types::I64, 0), builder.ins().iconst(types::I64, 0), None)
+                } else {
+                    let size = builder.ins().iconst(types::I64, (args.len() as i64) * 8);
+                    let alloc_ref = module.declare_func_in_func(manual_alloc_func, builder.func);
+                    let call = builder.ins().call(alloc_ref, &[size]);
+                    let ptr = builder.inst_results(call)[0];
+
+                    for (idx, arg) in args.iter().enumerate() {
+                        let mut value = get_value(arg)?;
+                        let ty = builder.func.dfg.value_type(value);
+                        value = match ty {
+                            types::I64 => value,
+                            types::I8 | types::I16 | types::I32 => {
+                                builder.ins().sextend(types::I64, value)
+                            }
+                            other => {
+                                return Err(format!(
+                                    "Unsupported host call argument type {:?}",
+                                    other
+                                ))
+                            }
+                        };
+                        let offset = (idx as i32) * 8;
+                        builder.ins().store(MemFlags::new(), value, ptr, offset);
+                    }
+
+                    let count = builder.ins().iconst(types::I64, args.len() as i64);
+                    (ptr, count, Some(ptr))
+                };
+
+                let (results_ptr, result_len_val, result_allocation) = if result.is_some() {
+                    let size = builder.ins().iconst(types::I64, 8);
+                    let alloc_ref = module.declare_func_in_func(manual_alloc_func, builder.func);
+                    let call = builder.ins().call(alloc_ref, &[size]);
+                    let ptr = builder.inst_results(call)[0];
+                    let len = builder.ins().iconst(types::I64, 1);
+                    (ptr, len, Some(ptr))
+                } else {
+                    (
+                        builder.ins().iconst(types::I64, 0),
+                        builder.ins().iconst(types::I64, 0),
+                        None,
+                    )
+                };
+
+                let func_ref = module.declare_func_in_func(host_invoke_func, builder.func);
+                let call = builder.ins().call(
+                    func_ref,
+                    &[name_ptr, name_len, args_ptr, args_count, results_ptr, result_len_val],
+                );
+                let _status = builder.inst_results(call)[0];
+
+                if let (Some(result_value), Some(ptr)) = (result, result_allocation) {
+                    let value = builder.ins().load(types::I64, MemFlags::new(), ptr, 0);
+                    value_map.insert(result_value.id, value);
+
+                    let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
+                    builder.ins().call(free_ref, &[ptr]);
+                }
+
+                if let Some(ptr) = args_allocation {
+                    let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
+                    builder.ins().call(free_ref, &[ptr]);
                 }
             }
 

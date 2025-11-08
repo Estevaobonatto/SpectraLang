@@ -159,6 +159,12 @@ pub enum InstructionKind {
         function: String,
         args: Vec<Value>,
     },
+    // Host function invocation
+    HostCall {
+        result: Option<Value>,
+        host: String,
+        args: Vec<Value>,
+    },
 
     // PHI node for SSA
     Phi {

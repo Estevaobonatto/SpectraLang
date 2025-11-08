@@ -312,6 +312,8 @@ impl BackendDriver for FullPipelineBackend {
         }
 
         let runtime_state = spectra_runtime::initialize();
+        // Ensure stdlib host calls are registered before bridging into JITed code.
+        spectra_runtime::register_standard_library();
         let execution_start = Instant::now();
 
         let return_value = unsafe { codegen.execute_entry_point("main", &artifacts.ir_module) };

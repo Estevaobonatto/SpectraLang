@@ -328,6 +328,32 @@ impl IRBuilder {
 
         result
     }
+
+    pub fn build_host_call(
+        &self,
+        func: &mut Function,
+        host_name: String,
+        args: Vec<Value>,
+        has_return: bool,
+    ) -> Option<Value> {
+        let result = if has_return {
+            Some(func.next_value())
+        } else {
+            None
+        };
+
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::HostCall {
+                    result,
+                    host: host_name,
+                    args,
+                });
+            }
+        }
+
+        result
+    }
 }
 
 impl Default for IRBuilder {

@@ -205,6 +205,13 @@ struct LoopContext {
     exit_block: usize,
 }
 
+#[derive(Clone)]
+struct HostFunctionDescriptor {
+    runtime_name: &'static str,
+    return_type: IRType,
+    returns_value: bool,
+}
+
 /// Represents a needed specialization of a generic function
 #[derive(Debug, Clone)]
 struct MonomorphizationRequest {
@@ -1198,6 +1205,10 @@ impl ASTLowering {
                 _ => IRType::Int,
             },
             ExpressionKind::Call { callee, arguments } => {
+                if let Some(descriptor) = self.host_function_descriptor(callee) {
+                    return descriptor.return_type.clone();
+                }
+
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(ret) = self.function_return_types.get(name) {
                         return ret.clone();
@@ -2122,6 +2133,23 @@ impl ASTLowering {
             .collect()
     }
 
+    fn resolve_call_path(&self, callee: &Expression) -> Option<Vec<String>> {
+        match &callee.kind {
+            ExpressionKind::Identifier(name) => Some(vec![name.clone()]),
+            ExpressionKind::FieldAccess { object, field } => {
+                let mut path = self.resolve_call_path(object)?;
+                path.push(field.clone());
+                Some(path)
+            }
+            _ => None,
+        }
+    }
+
+    fn host_function_descriptor(&self, callee: &Expression) -> Option<HostFunctionDescriptor> {
+        let path = self.resolve_call_path(callee)?;
+        lookup_std_host_function(&path)
+    }
+
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
         match &expr.kind {
             ExpressionKind::NumberLiteral(n) => {
@@ -2201,6 +2229,16 @@ impl ASTLowering {
                     .iter()
                     .map(|arg| self.lower_expression(arg, ir_func))
                     .collect();
+
+                if let Some(descriptor) = self.host_function_descriptor(callee) {
+                    let result_value = self.builder.build_host_call(
+                        ir_func,
+                        descriptor.runtime_name.to_string(),
+                        arg_values.clone(),
+                        descriptor.returns_value,
+                    );
+                    return result_value.unwrap_or_else(|| ir_func.next_value());
+                }
 
                 // Extract function name from callee
                 let function_name = if let ExpressionKind::Identifier(name) = &callee.kind {
@@ -3421,6 +3459,72 @@ impl ASTLowering {
             kind: substituted_kind,
             span: ty.span,
         }
+    }
+}
+
+fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
+    match path {
+        [] => None,
+        [first, ..] if first != "std" => None,
+        [_, module, function] => match (module.as_str(), function.as_str()) {
+            ("math", "abs") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.abs",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "min") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.min",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "max") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.max",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "print") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.print",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "flush") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.flush",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_new") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_new",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_push") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_push",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_clear") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_clear",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_free") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_free",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_free_all") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_free_all",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

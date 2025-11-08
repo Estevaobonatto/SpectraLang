@@ -386,6 +386,48 @@ pub extern "C" fn spectra_rt_host_lookup(name_ptr: *const u8, name_len: usize) -
     guard.lookup(&name)
 }
 
+/// Looks up a host function and invokes it with the provided context buffers.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_invoke(
+    name_ptr: *const u8,
+    name_len: usize,
+    args_ptr: *const SpectraHostValue,
+    arg_len: usize,
+    results_ptr: *mut SpectraHostValue,
+    result_len: usize,
+) -> i32 {
+    if name_len == 0 || name_ptr.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (arg_len > 0 && args_ptr.is_null()) || (result_len > 0 && results_ptr.is_null()) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    let Some(name) = read_host_name(name_ptr, name_len) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+
+    let registry = host_registry();
+    let guard = registry.lock().expect("host registry mutex poisoned");
+    let func_ptr = guard.lookup(&name);
+    drop(guard);
+
+    if func_ptr.is_null() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+
+    let func: HostFunction = unsafe { mem::transmute(func_ptr) };
+    let mut ctx = SpectraHostCallContext {
+        args: args_ptr,
+        arg_len,
+        results: results_ptr,
+        result_len,
+    };
+
+    func(&mut ctx as *mut _)
+}
+
 /// Clears all registered host functions.
 #[no_mangle]
 pub extern "C" fn spectra_rt_host_clear() {

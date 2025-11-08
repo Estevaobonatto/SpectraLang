@@ -206,6 +206,17 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     None => format!("call {}({})", function, arg_list),
                 }
             }
+            InstructionKind::HostCall { result, host, args } => {
+                let arg_list = args
+                    .iter()
+                    .map(|arg| fmt_value(*arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                match result {
+                    Some(value) => format!("{} = hostcall {}({})", fmt_value(*value), host, arg_list),
+                    None => format!("hostcall {}({})", host, arg_list),
+                }
+            }
             InstructionKind::Phi { result, incoming } => {
                 let incoming_str = incoming
                     .iter()
