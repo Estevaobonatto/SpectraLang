@@ -1,6 +1,7 @@
 use crate::ffi::{
-    register_host_function, SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INTERNAL_ERROR,
-    HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_NOT_FOUND, HOST_STATUS_SUCCESS,
+    register_host_function, SpectraHostCallContext, SpectraHostValue, HOST_STATUS_ARITHMETIC_ERROR,
+    HOST_STATUS_INTERNAL_ERROR, HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_NOT_FOUND,
+    HOST_STATUS_SUCCESS,
 };
 use crate::initialize;
 use crate::memory::ManualBox;
@@ -170,7 +171,7 @@ extern "C" fn std_math_add(ctx: *mut SpectraHostCallContext) -> i32 {
                 results[0] = sum;
                 HOST_STATUS_SUCCESS
             }
-            None => HOST_STATUS_INTERNAL_ERROR,
+            None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
 }
@@ -197,7 +198,7 @@ extern "C" fn std_math_sub(ctx: *mut SpectraHostCallContext) -> i32 {
                 results[0] = diff;
                 HOST_STATUS_SUCCESS
             }
-            None => HOST_STATUS_INTERNAL_ERROR,
+            None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
 }
@@ -224,7 +225,7 @@ extern "C" fn std_math_mul(ctx: *mut SpectraHostCallContext) -> i32 {
                 results[0] = prod;
                 HOST_STATUS_SUCCESS
             }
-            None => HOST_STATUS_INTERNAL_ERROR,
+            None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
 }
@@ -255,7 +256,7 @@ extern "C" fn std_math_div(ctx: *mut SpectraHostCallContext) -> i32 {
                 results[0] = quot;
                 HOST_STATUS_SUCCESS
             }
-            None => HOST_STATUS_INTERNAL_ERROR,
+            None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
 }
@@ -286,7 +287,7 @@ extern "C" fn std_math_mod(ctx: *mut SpectraHostCallContext) -> i32 {
                 results[0] = rem;
                 HOST_STATUS_SUCCESS
             }
-            None => HOST_STATUS_INTERNAL_ERROR,
+            None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
 }
@@ -324,7 +325,7 @@ extern "C" fn std_math_pow(ctx: *mut SpectraHostCallContext) -> i32 {
                 results[0] = power;
                 HOST_STATUS_SUCCESS
             }
-            None => HOST_STATUS_INTERNAL_ERROR,
+            None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
 }
@@ -777,6 +778,25 @@ mod tests {
         };
 
         assert_eq!(div(&mut ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_overflow_returns_arithmetic_error() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let add = lookup_host_function(MATH_ADD).expect("math add not registered");
+        let args = [i64::MAX, 1];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: 2,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(add(&mut ctx), HOST_STATUS_ARITHMETIC_ERROR);
     }
 
     #[test]

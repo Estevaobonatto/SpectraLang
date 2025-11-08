@@ -45,7 +45,7 @@ typedef int32_t (*SpectraHostFn)(SpectraHostCallContext *ctx);
 ```
 
 - Arguments and results are ABI-aligned 64-bit slots that mirror Spectra's primitive representation.
-- The callee writes return values into `results` and returns `HOST_STATUS_SUCCESS` (`0`) on success. The runtime also exposes `HOST_STATUS_INVALID_ARGUMENT`, `HOST_STATUS_NOT_FOUND`, and `HOST_STATUS_INTERNAL_ERROR` for common failure modes.
+- The callee writes return values into `results` and returns `HOST_STATUS_SUCCESS` (`0`) on success. The runtime also exposes `HOST_STATUS_INVALID_ARGUMENT`, `HOST_STATUS_NOT_FOUND`, `HOST_STATUS_ARITHMETIC_ERROR`, and `HOST_STATUS_INTERNAL_ERROR` for common failure modes.
 - Host code may ignore fields it does not need, but must treat the context pointer as mutable.
 
 Future milestones may introduce richer metadata, but compiled alpha releases must continue honouring this contract to remain compatible.

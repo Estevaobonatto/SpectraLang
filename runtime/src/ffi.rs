@@ -116,6 +116,7 @@ pub const HOST_STATUS_SUCCESS: i32 = 0;
 pub const HOST_STATUS_INVALID_ARGUMENT: i32 = 1;
 pub const HOST_STATUS_NOT_FOUND: i32 = 2;
 pub const HOST_STATUS_INTERNAL_ERROR: i32 = 3;
+pub const HOST_STATUS_ARITHMETIC_ERROR: i32 = 4;
 
 /// Context passed to host functions containing argument and result buffers.
 #[repr(C)]

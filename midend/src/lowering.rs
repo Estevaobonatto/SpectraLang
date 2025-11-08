@@ -3482,6 +3482,36 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("math", "add") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.add",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "sub") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.sub",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "mul") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.mul",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "div") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.div",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "mod") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.mod",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "pow") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.pow",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("io", "print") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.io.print",
                 return_type: IRType::Int,

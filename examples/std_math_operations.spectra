@@ -1,0 +1,21 @@
+// Demonstração do uso das funções de stdlib matemática
+// Nota: requer resolução da namespace `std` pelo frontend para compilar sem erros.
+module std_math_operations;
+
+pub fn main() {
+    let a = 12;
+    let b = -5;
+
+    let sum = std.math.add(a, b);
+    let difference = std.math.sub(a, b);
+    let product = std.math.mul(a, b);
+    let quotient = std.math.div(a, 3);
+    let remainder = std.math.mod(a, 5);
+    let pow_result = std.math.pow(3, 4);
+    let abs_value = std.math.abs(b);
+
+    std.io.print(sum, difference, product, quotient, remainder, pow_result, abs_value);
+    std.io.flush();
+
+    return;
+}

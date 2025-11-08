@@ -45,7 +45,7 @@
 
 ## Erros e Resultados
 
-- [ ] Padronizar códigos de erro específicos por namespace (math/io/collections)
+- [ ] Padronizar códigos de erro específicos por namespace (math/io/collections) _(math usa `HOST_STATUS_ARITHMETIC_ERROR`)_
 - [ ] Adicionar APIs que retornem `Result` estruturado ou enum de erro para Spectra
 - [ ] Expor utilitários para gerar mensagens de erro amigáveis no nível Spectra
 
@@ -57,7 +57,7 @@
 ## Testes e Qualidade
 
 - [x] Cobertura básica via testes unitários host (math/io/listas)
-- [ ] Criar suíte de integração Spectra exercendo cada função da stdlib
+- [ ] Criar suíte de integração Spectra exercendo cada função da stdlib _(exemplo `examples/std_math_operations.spectra` criado como ponto de partida)_
 - [ ] Adicionar testes de carga/fuzzing para coleções e I/O
 - [ ] Validar comportamento cruzado em Windows/macOS/Linux com scripts dedicados
 

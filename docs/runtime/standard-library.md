@@ -23,7 +23,7 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 | `spectra.std.math.mod` | Remainder operation rejecting division by zero. | `numerator`, `denominator` | `numerator % denominator` |
 | `spectra.std.math.pow` | Integer exponentiation for non-negative exponents. | `base`, `exponent` | `base^exponent` |
 
-Overflow or invalid input (division by zero, negative exponents) results in `HOST_STATUS_INVALID_ARGUMENT` or `HOST_STATUS_INTERNAL_ERROR` depending on the failure mode.
+Overflow yields `HOST_STATUS_ARITHMETIC_ERROR`; invalid input (division by zero, negative exponents) returns `HOST_STATUS_INVALID_ARGUMENT`.
 
 ## io namespace
 
