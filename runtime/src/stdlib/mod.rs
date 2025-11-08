@@ -17,6 +17,12 @@ use std::ptr;
 const MATH_ABS: &str = "spectra.std.math.abs";
 const MATH_MIN: &str = "spectra.std.math.min";
 const MATH_MAX: &str = "spectra.std.math.max";
+const MATH_ADD: &str = "spectra.std.math.add";
+const MATH_SUB: &str = "spectra.std.math.sub";
+const MATH_MUL: &str = "spectra.std.math.mul";
+const MATH_DIV: &str = "spectra.std.math.div";
+const MATH_MOD: &str = "spectra.std.math.mod";
+const MATH_POW: &str = "spectra.std.math.pow";
 
 const IO_PRINT: &str = "spectra.std.io.print";
 const IO_FLUSH: &str = "spectra.std.io.flush";
@@ -39,6 +45,12 @@ fn register_math() {
     register_host_function(MATH_ABS, std_math_abs);
     register_host_function(MATH_MIN, std_math_min);
     register_host_function(MATH_MAX, std_math_max);
+    register_host_function(MATH_ADD, std_math_add);
+    register_host_function(MATH_SUB, std_math_sub);
+    register_host_function(MATH_MUL, std_math_mul);
+    register_host_function(MATH_DIV, std_math_div);
+    register_host_function(MATH_MOD, std_math_mod);
+    register_host_function(MATH_POW, std_math_pow);
 }
 
 fn register_io() {
@@ -134,6 +146,187 @@ extern "C" fn std_math_max(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_math_add(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        match args[0].checked_add(args[1]) {
+            Some(sum) => {
+                results[0] = sum;
+                HOST_STATUS_SUCCESS
+            }
+            None => HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
+}
+
+extern "C" fn std_math_sub(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        match args[0].checked_sub(args[1]) {
+            Some(diff) => {
+                results[0] = diff;
+                HOST_STATUS_SUCCESS
+            }
+            None => HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
+}
+
+extern "C" fn std_math_mul(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        match args[0].checked_mul(args[1]) {
+            Some(prod) => {
+                results[0] = prod;
+                HOST_STATUS_SUCCESS
+            }
+            None => HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
+}
+
+extern "C" fn std_math_div(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        if args[1] == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        match args[0].checked_div(args[1]) {
+            Some(quot) => {
+                results[0] = quot;
+                HOST_STATUS_SUCCESS
+            }
+            None => HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
+}
+
+extern "C" fn std_math_mod(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        if args[1] == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        match args[0].checked_rem(args[1]) {
+            Some(rem) => {
+                results[0] = rem;
+                HOST_STATUS_SUCCESS
+            }
+            None => HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
+}
+
+extern "C" fn std_math_pow(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let base = args[0];
+        let exponent = args[1];
+
+        if exponent < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let exponent = match u32::try_from(exponent) {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+
+        match base.checked_pow(exponent) {
+            Some(power) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = power;
+                HOST_STATUS_SUCCESS
+            }
+            None => HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
 }
 
 extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -497,6 +690,112 @@ mod tests {
         let status = func(&mut ctx);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert_eq!(results[0], 42);
+    }
+
+    #[test]
+    fn math_add_sub_mul_register_correct_results() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let add = lookup_host_function(MATH_ADD).expect("math add not registered");
+        let sub = lookup_host_function(MATH_SUB).expect("math sub not registered");
+        let mul = lookup_host_function(MATH_MUL).expect("math mul not registered");
+
+        for (func, expected) in [(add, 12), (sub, 2), (mul, 35)] {
+            let args = [7, 5];
+            let mut results = [0];
+            let mut ctx = SpectraHostCallContext {
+                args: args.as_ptr(),
+                arg_len: 2,
+                results: results.as_mut_ptr(),
+                result_len: 1,
+            };
+
+            assert_eq!(func(&mut ctx), HOST_STATUS_SUCCESS);
+            assert_eq!(results[0], expected);
+        }
+    }
+
+    #[test]
+    fn math_div_mod_pow_cover_common_cases() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let div = lookup_host_function(MATH_DIV).expect("math div not registered");
+        let modulo = lookup_host_function(MATH_MOD).expect("math mod not registered");
+        let pow = lookup_host_function(MATH_POW).expect("math pow not registered");
+
+        let mut results = [0];
+
+        let args_div = [21, 7];
+        let mut div_ctx = SpectraHostCallContext {
+            args: args_div.as_ptr(),
+            arg_len: 2,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(div(&mut div_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 3);
+
+        let args_mod = [23, 6];
+        let mut mod_ctx = SpectraHostCallContext {
+            args: args_mod.as_ptr(),
+            arg_len: 2,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(modulo(&mut mod_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 5);
+
+        let args_pow = [3, 4];
+        let mut pow_ctx = SpectraHostCallContext {
+            args: args_pow.as_ptr(),
+            arg_len: 2,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(pow(&mut pow_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 81);
+    }
+
+    #[test]
+    fn math_division_by_zero_returns_invalid_argument() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let div = lookup_host_function(MATH_DIV).expect("math div not registered");
+        let args = [10, 0];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: 2,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(div(&mut ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_pow_negative_exponent_is_invalid_argument() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let pow = lookup_host_function(MATH_POW).expect("math pow not registered");
+        let args = [2, -1];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: 2,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(pow(&mut ctx), HOST_STATUS_INVALID_ARGUMENT);
     }
 
     #[test]

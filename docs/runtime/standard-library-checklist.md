@@ -12,7 +12,7 @@
 ## Matemática e Numérico
 
 - [x] Disponibilizar `abs`, `min`, `max` para inteiros
-- [ ] Implementar operações básicas adicionais (`add`, `sub`, `mul`, `div`, `mod`, `pow`)
+- [x] Implementar operações básicas adicionais (`add`, `sub`, `mul`, `div`, `mod`, `pow`)
 - [ ] Suportar floats com conversões e funções trigonométricas, validando NaN/Inf
 - [ ] Fornecer utilitários de estatística simples (média, `clamp`, geração determinística de números aleatórios)
 

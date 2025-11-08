@@ -16,6 +16,14 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 | `spectra.std.math.abs` | Absolute value for signed integers. | `x` | `abs(x)` |
 | `spectra.std.math.min` | Returns the smaller of two integers. | `lhs`, `rhs` | `min(lhs, rhs)` |
 | `spectra.std.math.max` | Returns the larger of two integers. | `lhs`, `rhs` | `max(lhs, rhs)` |
+| `spectra.std.math.add` | Integer addition with overflow checking. | `lhs`, `rhs` | `lhs + rhs` |
+| `spectra.std.math.sub` | Integer subtraction with overflow checking. | `lhs`, `rhs` | `lhs - rhs` |
+| `spectra.std.math.mul` | Integer multiplication with overflow checking. | `lhs`, `rhs` | `lhs * rhs` |
+| `spectra.std.math.div` | Integer division rejecting division by zero. | `numerator`, `denominator` | `numerator / denominator` |
+| `spectra.std.math.mod` | Remainder operation rejecting division by zero. | `numerator`, `denominator` | `numerator % denominator` |
+| `spectra.std.math.pow` | Integer exponentiation for non-negative exponents. | `base`, `exponent` | `base^exponent` |
+
+Overflow or invalid input (division by zero, negative exponents) results in `HOST_STATUS_INVALID_ARGUMENT` or `HOST_STATUS_INTERNAL_ERROR` depending on the failure mode.
 
 ## io namespace
 
