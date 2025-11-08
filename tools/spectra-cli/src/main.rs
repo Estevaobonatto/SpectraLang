@@ -4,7 +4,9 @@ mod project;
 use compiler_integration::SpectraCompiler;
 use project::ProjectPlan;
 use spectra_compiler::CompilationOptions;
-use std::{env, fs, path::PathBuf, process};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::{env, fs, process};
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
 
@@ -15,55 +17,83 @@ struct CliInvocation {
 }
 
 #[derive(Debug)]
+struct ReplOptions {
+    base_options: CompilationOptions,
+    preload: Vec<PathBuf>,
+    autorun: bool,
+}
+
+#[derive(Debug)]
+struct NewProjectOptions {
+    path: PathBuf,
+    force: bool,
+}
+
+#[derive(Debug)]
 enum CliAction {
-    Help(Option<CommandKind>),
+    Help(HelpTopic),
     ListExperimental,
-    Command { kind: CommandKind, invocation: CliInvocation },
+    Build {
+        kind: BuildCommand,
+        invocation: CliInvocation,
+    },
+    Repl(ReplOptions),
+    NewProject(NewProjectOptions),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum CommandKind {
+enum HelpTopic {
+    Global,
+    Build(BuildCommand),
+    Repl,
+    NewProject,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum BuildCommand {
     Compile,
     Check,
     Run,
 }
 
-impl CommandKind {
+impl BuildCommand {
     fn name(self) -> &'static str {
         match self {
-            CommandKind::Compile => "compile",
-            CommandKind::Check => "check",
-            CommandKind::Run => "run",
+            BuildCommand::Compile => "compile",
+            BuildCommand::Check => "check",
+            BuildCommand::Run => "run",
         }
     }
 
     fn description(self) -> &'static str {
         match self {
-            CommandKind::Compile => "Compile Spectra modules (default).",
-            CommandKind::Check => "Type-check modules and report diagnostics without executing.",
-            CommandKind::Run => "Compile modules and execute the entry point via JIT.",
+            BuildCommand::Compile => "Compile Spectra modules (default).",
+            BuildCommand::Check => {
+                "Type-check modules and report diagnostics without executing."
+            }
+            BuildCommand::Run => "Compile modules and execute the entry point via JIT.",
         }
     }
 
     fn success_message(self) -> &'static str {
         match self {
-            CommandKind::Compile => "All files compiled successfully!",
-            CommandKind::Check => "Check completed. No errors detected.",
-            CommandKind::Run => "Compilation and execution finished successfully.",
+            BuildCommand::Compile => "All files compiled successfully!",
+            BuildCommand::Check => "Check completed. No errors detected.",
+            BuildCommand::Run => "Compilation and execution finished successfully.",
         }
     }
 
     fn module_verb(self) -> &'static str {
         match self {
-            CommandKind::Check => "Checking",
-            CommandKind::Compile | CommandKind::Run => "Compiling",
+            BuildCommand::Check => "Checking",
+            BuildCommand::Compile | BuildCommand::Run => "Compiling",
         }
     }
 
     fn module_success_verb(self) -> &'static str {
         match self {
-            CommandKind::Check => "checked",
-            CommandKind::Compile | CommandKind::Run => "compiled",
+            BuildCommand::Check => "checked",
+            BuildCommand::Compile | BuildCommand::Run => "compiled",
         }
     }
 }
@@ -78,17 +108,27 @@ fn main() {
     };
 
     match action {
-        CliAction::Help(Some(command)) => {
-            print_command_help(command);
-        }
-        CliAction::Help(None) => {
-            print_global_help();
-        }
+        CliAction::Help(topic) => match topic {
+            HelpTopic::Global => print_global_help(),
+            HelpTopic::Build(command) => print_build_help(command),
+            HelpTopic::Repl => print_repl_help(),
+            HelpTopic::NewProject => print_new_help(),
+        },
         CliAction::ListExperimental => {
             print_experimental_features();
         }
-        CliAction::Command { kind, invocation } => {
-            if let Err(code) = execute_command(kind, invocation) {
+        CliAction::Build { kind, invocation } => {
+            if let Err(code) = execute_build_command(kind, invocation) {
+                process::exit(code);
+            }
+        }
+        CliAction::Repl(options) => {
+            if let Err(code) = execute_repl(options) {
+                process::exit(code);
+            }
+        }
+        CliAction::NewProject(options) => {
+            if let Err(code) = execute_new_project(options) {
                 process::exit(code);
             }
         }
@@ -105,18 +145,24 @@ fn parse_cli() -> Result<CliAction, String> {
     match args.peek().map(|value| value.as_str()) {
         Some("--help") | Some("-h") => {
             args.next();
-            return Ok(CliAction::Help(None));
+            return Ok(CliAction::Help(HelpTopic::Global));
         }
         Some("help") => {
             args.next();
             if let Some(target) = args.next() {
-                if let Some(kind) = parse_command_name(&target) {
-                    return Ok(CliAction::Help(Some(kind)));
-                } else {
-                    return Err(usage_error(&format!("Unknown command '{}'.", target)));
-                }
+                return match target.as_str() {
+                    "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
+                    "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
+                    other => {
+                        if let Some(kind) = parse_build_command_name(other) {
+                            Ok(CliAction::Help(HelpTopic::Build(kind)))
+                        } else {
+                            Err(usage_error(&format!("Unknown command '{}'.", other)))
+                        }
+                    }
+                };
             } else {
-                return Ok(CliAction::Help(None));
+                return Ok(CliAction::Help(HelpTopic::Global));
             }
         }
         Some("--list-experimental") => {
@@ -128,14 +174,38 @@ fn parse_cli() -> Result<CliAction, String> {
             }
             return Ok(CliAction::ListExperimental);
         }
+        Some("repl") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::Repl));
+                }
+            }
+
+            let options = parse_repl_invocation(&mut args)?;
+            return Ok(CliAction::Repl(options));
+        }
+        Some("new") | Some("new-project") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::NewProject));
+                }
+            }
+
+            let options = parse_new_project_invocation(&mut args)?;
+            return Ok(CliAction::NewProject(options));
+        }
         _ => {}
     }
 
-    let mut command = CommandKind::Compile;
+    let mut command = BuildCommand::Compile;
 
     if let Some(value) = args.peek() {
         if !value.starts_with('-') {
-            if let Some(kind) = parse_command_name(value) {
+            if let Some(kind) = parse_build_command_name(value) {
                 command = kind;
                 args.next();
             }
@@ -145,30 +215,30 @@ fn parse_cli() -> Result<CliAction, String> {
     if let Some(flag) = args.peek() {
         if matches!(flag.as_str(), "--help" | "-h") {
             args.next();
-            return Ok(CliAction::Help(Some(command)));
+            return Ok(CliAction::Help(HelpTopic::Build(command)));
         }
     }
 
     let invocation = parse_compilation_invocation(&mut args, command)?;
 
-    Ok(CliAction::Command {
+    Ok(CliAction::Build {
         kind: command,
         invocation,
     })
 }
 
-fn parse_command_name(value: &str) -> Option<CommandKind> {
+fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
     match value {
-        "compile" | "build" => Some(CommandKind::Compile),
-        "check" => Some(CommandKind::Check),
-        "run" => Some(CommandKind::Run),
+        "compile" | "build" => Some(BuildCommand::Compile),
+        "check" => Some(BuildCommand::Check),
+        "run" => Some(BuildCommand::Run),
         _ => None,
     }
 }
 
 fn parse_compilation_invocation<I>(
     args: &mut std::iter::Peekable<I>,
-    command: CommandKind,
+    command: BuildCommand,
 ) -> Result<CliInvocation, String>
 where
     I: Iterator<Item = String>,
@@ -204,7 +274,7 @@ where
                 options.opt_level = 3;
             }
             "--run" | "-r" => {
-                if command == CommandKind::Check {
+                if command == BuildCommand::Check {
                     return Err(usage_error(
                         "'--run' cannot be used with the 'check' command.",
                     ));
@@ -239,31 +309,126 @@ where
     }
 
     match command {
-        CommandKind::Run => options.run_jit = true,
-        CommandKind::Check => options.run_jit = false,
-        CommandKind::Compile => {}
+        BuildCommand::Run => options.run_jit = true,
+        BuildCommand::Check => options.run_jit = false,
+        BuildCommand::Compile => {}
     }
 
     Ok(CliInvocation { entries, options })
 }
 
-fn execute_command(kind: CommandKind, invocation: CliInvocation) -> Result<(), i32> {
-    let CliInvocation { entries, options } = invocation;
+fn parse_repl_invocation<I>(
+    args: &mut std::iter::Peekable<I>,
+) -> Result<ReplOptions, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut options = CompilationOptions::default();
+    let mut preload = Vec::new();
+    let mut autorun = false;
 
-    let plan = match ProjectPlan::build(entries) {
-        Ok(plan) => plan,
-        Err(error) => {
-            eprintln!("{}", error);
-            return Err(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--" => {
+                for remaining in args {
+                    preload.push(PathBuf::from(remaining));
+                }
+                break;
+            }
+            "--dump-ast" => options.dump_ast = true,
+            "--dump-ir" => options.dump_ir = true,
+            "--timings" | "-T" => options.collect_metrics = true,
+            "--no-optimize" | "-O0" => {
+                options.optimize = false;
+                options.opt_level = 0;
+            }
+            "-O1" => {
+                options.optimize = true;
+                options.opt_level = 1;
+            }
+            "-O2" => {
+                options.optimize = true;
+                options.opt_level = 2;
+            }
+            "-O3" => {
+                options.optimize = true;
+                options.opt_level = 3;
+            }
+            "--run" | "-r" => {
+                autorun = true;
+                options.run_jit = true;
+            }
+            "--enable-experimental" => {
+                if let Some(feature) = args.next() {
+                    options.experimental_features.insert(feature);
+                } else {
+                    return Err(usage_error(
+                        "Missing feature name after '--enable-experimental'.",
+                    ));
+                }
+            }
+            "--list-experimental" => {
+                return Err(usage_error(
+                    "--list-experimental must appear before any command.",
+                ));
+            }
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("Unknown option: {}", flag)));
+            }
+            _ => preload.push(PathBuf::from(arg)),
         }
-    };
-
-    if plan.modules().is_empty() {
-        eprintln!("No Spectra source files found to compile.");
-        return Err(1);
     }
 
-    let mut compiler = SpectraCompiler::new(options);
+    Ok(ReplOptions {
+        base_options: options,
+        preload,
+        autorun,
+    })
+}
+
+fn parse_new_project_invocation<I>(
+    args: &mut std::iter::Peekable<I>,
+) -> Result<NewProjectOptions, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut path: Option<PathBuf> = None;
+    let mut force = false;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--force" | "-f" => force = true,
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("Unknown option: {}", flag)));
+            }
+            value => {
+                if path.is_some() {
+                    return Err(usage_error(
+                        "Multiple locations provided. Supply exactly one project path.",
+                    ));
+                }
+                path = Some(PathBuf::from(value));
+            }
+        }
+    }
+
+    let path = path.ok_or_else(|| usage_error("No project path supplied."))?;
+
+    Ok(NewProjectOptions { path, force })
+}
+
+fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Result<(), i32> {
+    let CliInvocation { entries, options } = invocation;
+    match execute_plan_with_options(kind, options, entries, true, true) {
+        Ok(()) => Ok(()),
+        Err(message) => {
+            eprintln!("{}", message);
+            Err(1)
+        }
+    }
+}
+
+fn compile_plan(kind: BuildCommand, compiler: &mut SpectraCompiler, plan: &ProjectPlan) -> bool {
     let mut has_failures = false;
 
     for module in plan.modules() {
@@ -306,15 +471,360 @@ fn execute_command(kind: CommandKind, invocation: CliInvocation) -> Result<(), i
         }
     }
 
-    compiler.print_aggregate_summary();
+    has_failures
+}
+
+fn execute_plan_with_options(
+    kind: BuildCommand,
+    options: CompilationOptions,
+    entries: Vec<PathBuf>,
+    print_summary: bool,
+    print_success: bool,
+) -> Result<(), String> {
+    let plan = ProjectPlan::build(entries).map_err(|error| error.to_string())?;
+
+    if plan.modules().is_empty() {
+        return Err("No Spectra source files found to compile.".to_string());
+    }
+
+    let mut compiler = SpectraCompiler::new(options);
+    let has_failures = compile_plan(kind, &mut compiler, &plan);
+
+    if print_summary {
+        compiler.print_aggregate_summary();
+    }
 
     if has_failures {
-        eprintln!("\n💥 Command '{}' completed with errors", kind.name());
-        Err(1)
+        Err(format!("\n💥 Command '{}' completed with errors", kind.name()))
     } else {
-        println!("\n{}", kind.success_message());
+        if print_success {
+            println!("\n{}", kind.success_message());
+        }
         Ok(())
     }
+}
+
+fn execute_repl(options: ReplOptions) -> Result<(), i32> {
+    let ReplOptions {
+        base_options,
+        preload,
+        autorun,
+    } = options;
+
+    let session = ReplSession::new(base_options, autorun);
+
+    if !preload.is_empty() {
+        if let Err(message) = session.compile_entries(preload, session.default_command(), true) {
+            eprintln!("{}", message);
+        }
+    }
+
+    match session.run() {
+        Ok(()) => Ok(()),
+        Err(message) => {
+            eprintln!("{}", message);
+            Err(1)
+        }
+    }
+}
+
+struct ReplSession {
+    base_options: CompilationOptions,
+    autorun: bool,
+}
+
+impl ReplSession {
+    fn new(base_options: CompilationOptions, autorun: bool) -> Self {
+        Self {
+            base_options,
+            autorun,
+        }
+    }
+
+    fn default_command(&self) -> BuildCommand {
+        if self.autorun {
+            BuildCommand::Run
+        } else {
+            BuildCommand::Compile
+        }
+    }
+
+    fn compile_entries(
+        &self,
+        entries: Vec<PathBuf>,
+        command: BuildCommand,
+        print_success: bool,
+    ) -> Result<(), String> {
+        if entries.is_empty() {
+            return Err("Provide one or more paths to compile.".to_string());
+        }
+
+        let mut options = self.base_options.clone();
+        match command {
+            BuildCommand::Run => options.run_jit = true,
+            BuildCommand::Check => options.run_jit = false,
+            BuildCommand::Compile => options.run_jit = false,
+        }
+
+        execute_plan_with_options(
+            command,
+            options,
+            entries,
+            self.base_options.collect_metrics,
+            print_success,
+        )
+    }
+
+    fn run(&self) -> Result<(), String> {
+        println!("SpectraLang REPL (type ':help' for commands)");
+
+        let stdin = io::stdin();
+
+        loop {
+            print!("spectra> ");
+            io::stdout()
+                .flush()
+                .map_err(|error| format!("Failed to flush prompt: {}", error))?;
+
+            let mut line = String::new();
+            let bytes = stdin
+                .read_line(&mut line)
+                .map_err(|error| format!("Failed to read input: {}", error))?;
+
+            if bytes == 0 {
+                println!();
+                break;
+            }
+
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if trimmed.starts_with(':') {
+                if !self.handle_command(trimmed)? {
+                    break;
+                }
+                continue;
+            }
+
+            let entries: Vec<PathBuf> = trimmed
+                .split_whitespace()
+                .map(PathBuf::from)
+                .collect();
+
+            if let Err(message) = self.compile_entries(entries, self.default_command(), true) {
+                eprintln!("{}", message);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_command(&self, input: &str) -> Result<bool, String> {
+        let command = input[1..].trim();
+        if command.is_empty() {
+            print_repl_help();
+            return Ok(true);
+        }
+
+        let mut parts = command.split_whitespace();
+        let keyword = parts.next().unwrap();
+        let args: Vec<PathBuf> = parts.map(PathBuf::from).collect();
+
+        match keyword {
+            "help" | "h" => {
+                print_repl_help();
+                Ok(true)
+            }
+            "quit" | "q" | "exit" => Ok(false),
+            "load" | "l" => {
+                if args.is_empty() {
+                    println!("Usage: :load <paths>...");
+                    return Ok(true);
+                }
+                if let Err(message) = self.compile_entries(args, BuildCommand::Compile, true) {
+                    eprintln!("{}", message);
+                }
+                Ok(true)
+            }
+            "run" => {
+                if args.is_empty() {
+                    println!("Usage: :run <paths>...");
+                    return Ok(true);
+                }
+                if let Err(message) = self.compile_entries(args, BuildCommand::Run, true) {
+                    eprintln!("{}", message);
+                }
+                Ok(true)
+            }
+            "check" => {
+                if args.is_empty() {
+                    println!("Usage: :check <paths>...");
+                    return Ok(true);
+                }
+                if let Err(message) = self.compile_entries(args, BuildCommand::Check, true) {
+                    eprintln!("{}", message);
+                }
+                Ok(true)
+            }
+            "compile" | "build" => {
+                if args.is_empty() {
+                    println!("Usage: :compile <paths>...");
+                    return Ok(true);
+                }
+                if let Err(message) = self.compile_entries(args, BuildCommand::Compile, true) {
+                    eprintln!("{}", message);
+                }
+                Ok(true)
+            }
+            unknown => {
+                println!("Unknown REPL command ':{}'. Type ':help' for assistance.", unknown);
+                Ok(true)
+            }
+        }
+    }
+}
+
+fn execute_new_project(options: NewProjectOptions) -> Result<(), i32> {
+    match create_new_project(options) {
+        Ok(()) => Ok(()),
+        Err(message) => {
+            eprintln!("{}", message);
+            Err(1)
+        }
+    }
+}
+
+fn create_new_project(options: NewProjectOptions) -> Result<(), String> {
+    let NewProjectOptions { path, force } = options;
+
+    if path.exists() {
+        if !path.is_dir() {
+            return Err(format!(
+                "Path '{}' exists and is not a directory.",
+                path.display()
+            ));
+        }
+
+        if !force && !is_directory_empty(&path).map_err(|error| {
+            format!("Failed to inspect '{}': {}", path.display(), error)
+        })? {
+            return Err(format!(
+                "Directory '{}' already exists. Use '--force' to scaffold anyway.",
+                path.display()
+            ));
+        }
+    }
+
+    fs::create_dir_all(path.join("src")).map_err(|error| {
+        format!(
+            "Failed to create project directories under '{}': {}",
+            path.display(),
+            error
+        )
+    })?;
+
+    let (project_name, module_name) = derive_project_identifiers(&path);
+    let manifest_path = path.join("Spectra.toml");
+    let main_source_path = path.join("src").join("main.spectra");
+
+    let manifest_contents = format!(
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.spectra\"\n",
+        project_name
+    );
+
+    let main_source = format!(
+        "// SpectraLang starter module\n// Generated by `spectra new`\n\nmodule {};\n\nfn add(lhs: int, rhs: int) -> int {{\n    return lhs + rhs;\n}}\n\npub fn main() -> int {{\n    let first = 21;\n    let second = 21;\n    let total = add(first, second);\n    return total;\n}}\n",
+        module_name
+    );
+
+    fs::write(&manifest_path, manifest_contents).map_err(|error| {
+        format!(
+            "Failed to write manifest '{}': {}",
+            manifest_path.display(),
+            error
+        )
+    })?;
+
+    fs::write(&main_source_path, main_source).map_err(|error| {
+        format!(
+            "Failed to write source file '{}': {}",
+            main_source_path.display(),
+            error
+        )
+    })?;
+
+    println!("✨ Created Spectra project at '{}'", path.display());
+    println!("   • Manifest: {}", manifest_path.display());
+    println!("   • Entry:    {}", main_source_path.display());
+    println!();
+    println!("Next steps:");
+    println!("  1. spectra run {}", main_source_path.display());
+    println!("  2. Explore and adjust 'Spectra.toml' to suit your project.");
+
+    Ok(())
+}
+
+fn derive_project_identifiers(path: &Path) -> (String, String) {
+    let raw_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("spectra_app");
+
+    let project_name = sanitize_project_name(raw_name);
+    let module_name = sanitize_module_name(&project_name);
+
+    (project_name, module_name)
+}
+
+fn sanitize_project_name(raw: &str) -> String {
+    let mut result = String::new();
+
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            result.push(ch.to_ascii_lowercase());
+        } else if matches!(ch, '_' | '-' | ' ') {
+            if !result.ends_with('_') && !result.is_empty() {
+                result.push('_');
+            }
+        }
+    }
+
+    let trimmed = result.trim_matches('_');
+    if trimmed.is_empty() {
+        "spectra_app".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn sanitize_module_name(project_name: &str) -> String {
+    let mut result = String::new();
+
+    for ch in project_name.chars() {
+        if result.is_empty() {
+            if ch.is_ascii_alphabetic() {
+                result.push(ch);
+            } else if ch.is_ascii_digit() {
+                result.push('m');
+                result.push(ch);
+            }
+        } else if ch.is_ascii_alphanumeric() || ch == '_' {
+            result.push(ch);
+        }
+    }
+
+    if result.is_empty() {
+        "app".to_string()
+    } else {
+        result
+    }
+}
+
+fn is_directory_empty(path: &Path) -> Result<bool, io::Error> {
+    let mut entries = fs::read_dir(path)?;
+    Ok(entries.next().transpose()?.is_none())
 }
 
 fn print_global_help() {
@@ -327,6 +837,8 @@ fn print_global_help() {
     println!("    compile    Compile Spectra modules (default)");
     println!("    check      Type-check modules and report diagnostics");
     println!("    run        Compile modules and execute the entry point via JIT");
+    println!("    repl       Start an interactive Spectra prompt");
+    println!("    new        Scaffold a new Spectra project");
     println!("    help       Print this help message");
     println!();
     println!("GLOBAL OPTIONS:");
@@ -339,12 +851,14 @@ fn print_global_help() {
     println!("    spectra compile src/main.spectra");
     println!("    spectra check examples/");
     println!("    spectra run -O3 app.spectra");
+    println!("    spectra repl --run");
+    println!("    spectra new my-project");
     println!("    spectra --list-experimental");
     println!();
     print_experimental_features();
 }
 
-fn print_command_help(command: CommandKind) {
+fn print_build_help(command: BuildCommand) {
     println!("SpectraLang CLI – '{}' command", command.name());
     println!();
     println!("USAGE:");
@@ -359,15 +873,15 @@ fn print_command_help(command: CommandKind) {
     println!();
     println!("Examples:");
     match command {
-        CommandKind::Compile => {
+        BuildCommand::Compile => {
             println!("    spectra compile src/main.spectra");
             println!("    spectra compile --dump-ir project/");
         }
-        CommandKind::Check => {
+        BuildCommand::Check => {
             println!("    spectra check src/");
             println!("    spectra check --dump-ast main.spectra");
         }
-        CommandKind::Run => {
+        BuildCommand::Run => {
             println!("    spectra run app.spectra");
             println!("    spectra run --timings src/main.spectra");
         }
@@ -376,7 +890,50 @@ fn print_command_help(command: CommandKind) {
     println!("Use 'spectra --list-experimental' to see available experimental features.");
 }
 
-fn print_compilation_options(command: Option<CommandKind>) {
+fn print_repl_help() {
+    println!("SpectraLang CLI – 'repl' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectra repl [OPTIONS] [paths]...");
+    println!();
+    println!("Starts an interactive prompt that can compile, check, or run Spectra modules.");
+    println!();
+    println!("OPTIONS:");
+    println!("    --dump-ast             Print the AST for debugging when compiling");
+    println!("    --dump-ir              Print the IR for debugging when compiling");
+    println!("    --timings, -T          Report compilation and execution timings");
+    println!("    --no-optimize, -O0     Disable all optimizations");
+    println!("    -O1/-O2/-O3            Set optimization level");
+    println!("    --run, -r              Automatically run modules after compiling");
+    println!("    --enable-experimental <feature>");
+    println!("                           Enable experimental language feature (may be repeated)");
+    println!();
+    println!("Interactive commands:");
+    println!("    :load <paths>...       Compile modules without executing");
+    println!("    :run <paths>...        Compile and execute modules");
+    println!("    :check <paths>...      Type-check modules only");
+    println!("    :compile <paths>...    Alias for :load");
+    println!("    :help                  Show this help text");
+    println!("    :quit                  Exit the REPL");
+}
+
+fn print_new_help() {
+    println!("SpectraLang CLI – 'new' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectra new [OPTIONS] <path>");
+    println!();
+    println!("Create a new Spectra project with a starter module and manifest.");
+    println!();
+    println!("OPTIONS:");
+    println!("    -f, --force        Scaffold even if the directory already exists");
+    println!();
+    println!("Examples:");
+    println!("    spectra new hello-world");
+    println!("    spectra new --force .");
+}
+
+fn print_compilation_options(command: Option<BuildCommand>) {
     println!("COMPILATION OPTIONS:");
     println!("    --dump-ast             Print the AST for debugging");
     println!("    --dump-ir              Print the IR for debugging");
@@ -386,10 +943,10 @@ fn print_compilation_options(command: Option<CommandKind>) {
     println!("    -O2                    Enable moderate optimizations (default)");
     println!("    -O3                    Enable aggressive optimizations");
     match command {
-        Some(CommandKind::Check) => {
+        Some(BuildCommand::Check) => {
             println!("    --run, -r              Not available for the 'check' command");
         }
-        Some(CommandKind::Run) => {
+        Some(BuildCommand::Run) => {
             println!("    --run, -r              Redundant; 'run' always executes after compiling");
         }
         _ => {
