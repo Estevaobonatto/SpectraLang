@@ -17,6 +17,7 @@ pub fn main() {
     let mean_value = std.math.mean(a, b, 6, -3);
     let median_value = std.math.median(a, b, 6, -3, 0);
     let variance_value = std.math.variance(a, b, 6, -3, 0);
+    let std_dev_value = std.math.std_dev(a, b, 6, -3, 0);
     let rng_handle = std.math.rng_seed(1337);
     let random_any = std.math.rng_next(rng_handle);
     let random_range = std.math.rng_next_range(rng_handle, -10, 10);
@@ -34,6 +35,7 @@ pub fn main() {
         mean_value,
         median_value,
         variance_value,
+        std_dev_value,
         random_any,
         random_range,
     );

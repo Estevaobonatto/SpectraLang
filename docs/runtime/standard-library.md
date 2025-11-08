@@ -26,6 +26,7 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 | `spectra.std.math.mean` | Arithmetic mean of one or more integers (integer division, truncates toward zero). | variadic | floor(mean(values)) |
 | `spectra.std.math.median` | Median of the provided integers (even counts yield the truncated average of the middle pair). | variadic | median value |
 | `spectra.std.math.variance` | Population variance of the provided integers (integer division, truncates toward zero). | variadic | variance value |
+| `spectra.std.math.std_dev` | Population standard deviation of the provided integers (integer arithmetic with floor square root). | variadic | floor(std_dev(values)) |
 | `spectra.std.math.rng_seed` | Creates a deterministic RNG handle seeded with the provided value. | `seed` | RNG handle |
 | `spectra.std.math.rng_next` | Advances the RNG and yields the next pseudo-random integer. | `handle` | pseudo-random `int` |
 | `spectra.std.math.rng_next_range` | Advances the RNG and yields a value in the inclusive range. | `handle`, `min`, `max` | pseudo-random `int` within `[min, max]` |
@@ -35,6 +36,7 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 Overflow yields `HOST_STATUS_ARITHMETIC_ERROR`; invalid input (division by zero, negative exponents, inverted ranges, empty argument lists) returns `HOST_STATUS_INVALID_ARGUMENT`.
 `spectra.std.math.median` requires at least one argument and, for even-sized inputs, returns the truncated mean of the two middle values.
 `spectra.std.math.variance` computes the population variance and truncates toward zero when dividing the accumulated sum of squared differences by the input count.
+`spectra.std.math.std_dev` derives its result from the population variance and applies an integer square root, truncating fractional parts.
 
 RNG handles are opaque identifiers; free them explicitly with `rng_free` (or `rng_free_all`) to avoid leaking manual allocations.
 

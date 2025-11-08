@@ -14,11 +14,11 @@
 - [x] Disponibilizar `abs`, `min`, `max` para inteiros
 - [x] Implementar operações básicas adicionais (`add`, `sub`, `mul`, `div`, `mod`, `pow`)
 - [ ] Suportar floats com conversões e funções trigonométricas, validando NaN/Inf
-- [ ] Fornecer utilitários de estatística simples (média, `clamp`, geração determinística de números aleatórios)
+- [x] Fornecer utilitários de estatística simples (média, `clamp`, geração determinística de números aleatórios)
   - [x] `std.math.clamp`
   - [x] `std.math.mean`
   - [x] RNG determinístico (`rng_seed`, `rng_next`, `rng_next_range`, `rng_free`, `rng_free_all`)
-  - [x] utilitários adicionais (`median`, `variance`)
+  - [x] utilitários adicionais (`median`, `variance`, `std_dev`)
 
 ## I/O e Sistema
 
