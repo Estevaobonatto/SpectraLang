@@ -1,7 +1,9 @@
 mod compiler_integration;
+mod formatter;
 mod project;
 
 use compiler_integration::{ModulePipelineSummary, SpectraCompiler};
+use formatter::{run as run_formatter, FormatOptions};
 use project::ProjectPlan;
 use spectra_compiler::CompilationOptions;
 use std::io::{self, Write};
@@ -99,6 +101,7 @@ enum CliAction {
     },
     Repl(ReplOptions),
     NewProject(NewProjectOptions),
+    Format(FormatOptions),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -107,6 +110,7 @@ enum HelpTopic {
     Build(BuildCommand),
     Repl,
     NewProject,
+    Format,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -181,6 +185,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
                 HelpTopic::Build(command) => print_build_help(command),
                 HelpTopic::Repl => print_repl_help(),
                 HelpTopic::NewProject => print_new_help(),
+                HelpTopic::Format => print_format_help(),
             }
             Ok(())
         }
@@ -191,6 +196,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
         CliAction::Build { kind, invocation } => execute_build_command(kind, invocation),
         CliAction::Repl(options) => execute_repl(options),
         CliAction::NewProject(options) => execute_new_project(options),
+        CliAction::Format(options) => execute_format(options),
     }
 }
 
@@ -212,6 +218,7 @@ fn parse_cli() -> CliResult<CliAction> {
                 return match target.as_str() {
                     "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
+                    "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
                     other => {
                         if let Some(kind) = parse_build_command_name(other) {
                             Ok(CliAction::Help(HelpTopic::Build(kind)))
@@ -254,6 +261,18 @@ fn parse_cli() -> CliResult<CliAction> {
 
             let options = parse_new_project_invocation(&mut args)?;
             return Ok(CliAction::NewProject(options));
+        }
+        Some("fmt") | Some("format") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::Format));
+                }
+            }
+
+            let options = parse_format_invocation(&mut args)?;
+            return Ok(CliAction::Format(options));
         }
         _ => {}
     }
@@ -495,6 +514,53 @@ where
     let path = path.ok_or_else(|| usage_error("No project path supplied."))?;
 
     Ok(NewProjectOptions { path, force })
+}
+
+fn parse_format_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<FormatOptions>
+where
+    I: Iterator<Item = String>,
+{
+    let mut entries = Vec::new();
+    let mut check = false;
+    let mut use_stdin = false;
+    let mut write_stdout = false;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--" => {
+                for value in args {
+                    entries.push(PathBuf::from(value));
+                }
+                break;
+            }
+            "--check" => check = true,
+            "--stdin" => use_stdin = true,
+            "--stdout" => write_stdout = true,
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("Unknown option: {}", flag)));
+            }
+            _ => entries.push(PathBuf::from(arg)),
+        }
+    }
+
+    if use_stdin && !entries.is_empty() {
+        return Err(usage_error(
+            "--stdin cannot be combined with explicit file or directory paths.",
+        ));
+    }
+
+    if !use_stdin && entries.is_empty() {
+        return Err(usage_error(
+            "No source files or directories were provided for formatting.",
+        ));
+    }
+
+    Ok(FormatOptions {
+        entries,
+        check,
+        use_stdin,
+        write_stdout,
+    })
 }
 
 fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliResult<()> {
@@ -988,6 +1054,10 @@ fn create_new_project(options: NewProjectOptions) -> CliResult<()> {
     Ok(())
 }
 
+fn execute_format(options: FormatOptions) -> CliResult<()> {
+    run_formatter(options)
+}
+
 fn derive_project_identifiers(path: &Path) -> (String, String) {
     let raw_name = path
         .file_name()
@@ -1061,6 +1131,7 @@ fn print_global_help() {
     println!("    run        Compile modules and execute the entry point via JIT");
     println!("    repl       Start an interactive Spectra prompt");
     println!("    new        Scaffold a new Spectra project");
+    println!("    fmt        Format Spectra source files");
     println!("    help       Print this help message");
     println!();
     println!("GLOBAL OPTIONS:");
@@ -1076,6 +1147,8 @@ fn print_global_help() {
     println!("    spectra repl --run");
     println!("    spectra new my-project");
     println!("    spectra --list-experimental");
+    println!("    spectra fmt src/");
+    println!("    spectra fmt --stdin < file.spectra");
     println!();
     print_experimental_features();
     println!();
@@ -1161,6 +1234,27 @@ fn print_new_help() {
     println!("Examples:");
     println!("    spectra new hello-world");
     println!("    spectra new --force .");
+}
+
+fn print_format_help() {
+    println!("SpectraLang CLI – 'fmt' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectra fmt [OPTIONS] <paths>...");
+    println!();
+    println!("Format Spectra source files in-place or verify formatting with --check.");
+    println!();
+    println!("OPTIONS:");
+    println!("    --check              Verify formatting without writing changes");
+    println!("    --stdin              Read Spectra source from standard input");
+    println!("    --stdout             Write the formatted result to stdout instead of files (single input file)");
+    println!("    -h, --help          Show this help text");
+    println!();
+    println!("Examples:");
+    println!("    spectra fmt src/");
+    println!("    spectra fmt --check examples/test.spectra");
+    println!("    spectra fmt --stdin < script.spectra");
+    println!("    spectra fmt --stdout src/main.spectra");
 }
 
 fn print_compilation_options(command: Option<BuildCommand>) {

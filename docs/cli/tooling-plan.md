@@ -24,7 +24,7 @@
    - Add `spectra fmt <paths>` that runs in-place or with `--check` to validate formatting.
    - Exit with code `65` when formatting changes are required (mirrors common formatter conventions).
 3. **Automation hooks**
-   - Offer `--stdin`/`--stdout` mode for editor integration.
+   - Implemented `--stdin`/`--stdout` mode for editor integration (`spectra fmt --stdin/--stdout`).
    - Document formatter usage in project templates and contributor guides.
 
 ## Linter Roadmap
@@ -45,7 +45,7 @@
    - Publish a minimal VS Code extension that shells out to `spectra repl --json` to provide diagnostics.
    - Ship Spectra grammar for TextMate highlighting, generated from parser tokens.
 2. **Formatter & linter wiring**
-   - Expose `Format Document` and `Lint` commands by invoking the new CLI subcommands.
+   - Expose `Format Document` and `Lint` commands by invoking the new CLI subcommands (formatter streaming modes now available for editors).
    - Cache CLI lookups and present errors using the CLI exit codes to differentiate failures.
 3. **Roadmap alignment**
    - Track editor features (hover, go-to-definition) in the same repo to keep parity with CLI improvements.
