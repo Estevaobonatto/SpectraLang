@@ -40,6 +40,7 @@
 2. **Editor & automation integration**
    - Version the JSON explain and stats payloads so integrations can detect breaking changes.
    - Provide CLI toggles or environment hooks for routing explain/stats output to specific log files.
+   - Update the sample GitHub Actions workflow to capture explain/stats JSON payloads as build artifacts for regression analysis.
    - Publish sample scripts that consume `--stats` output to annotate CI runs or editor diagnostics.
 3. **Performance & UX**
    - Benchmark large workspaces and explore parallel formatting of independent files.
@@ -74,4 +75,5 @@
 
 - Add formatter/linter checks to CI once the commands are available, failing builds on exit codes `65`.
 - Provide sample GitHub Actions workflow in `tools/spectra-cli` to demonstrate format/lint gating.
+- Capture `spectra fmt --stats` output in CI logs or artifacts so teams can track formatting drift over time.
 - Encourage projects to use `spectra fmt --check` before publishing to maintain consistent style.

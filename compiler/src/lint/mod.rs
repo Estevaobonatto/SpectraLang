@@ -1,0 +1,520 @@
+use crate::ast::{
+    self, Block, Expression, ExpressionKind, Function, FunctionParam, ImplBlock, Item, LValue,
+    Method, Module, Parameter, Statement, StatementKind, TraitDeclaration, TraitImpl, TraitMethod,
+};
+use crate::span::Span;
+use std::collections::{HashMap, HashSet};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LintRule {
+    UnusedBinding,
+    UnreachableCode,
+    Shadowing,
+}
+
+impl LintRule {
+    pub fn code(&self) -> &'static str {
+        match self {
+            LintRule::UnusedBinding => "unused-binding",
+            LintRule::UnreachableCode => "unreachable-code",
+            LintRule::Shadowing => "shadowing",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            LintRule::UnusedBinding => "unused binding",
+            LintRule::UnreachableCode => "unreachable code",
+            LintRule::Shadowing => "shadowed binding",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LintDiagnostic {
+    pub rule: LintRule,
+    pub message: String,
+    pub span: Span,
+    pub note: Option<String>,
+    pub secondary_span: Option<Span>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LintOptions {
+    pub enabled: HashSet<LintRule>,
+    pub deny: HashSet<LintRule>,
+}
+
+impl Default for LintOptions {
+    fn default() -> Self {
+        let enabled: HashSet<LintRule> = [
+            LintRule::UnusedBinding,
+            LintRule::UnreachableCode,
+            LintRule::Shadowing,
+        ]
+        .into_iter()
+        .collect();
+
+        Self {
+            enabled,
+            deny: HashSet::new(),
+        }
+    }
+}
+
+impl LintOptions {
+    pub fn is_enabled(&self, rule: LintRule) -> bool {
+        self.enabled.contains(&rule)
+    }
+
+    pub fn is_denied(&self, rule: LintRule) -> bool {
+        self.deny.contains(&rule)
+    }
+}
+
+pub fn lint_module(module: &Module, options: &LintOptions) -> Vec<LintDiagnostic> {
+    if options.enabled.is_empty() {
+        return Vec::new();
+    }
+
+    LintRunner::new(options).run(module)
+}
+
+struct LintRunner<'a> {
+    options: &'a LintOptions,
+    diagnostics: Vec<LintDiagnostic>,
+    scope_stack: Vec<Scope>,
+}
+
+impl<'a> LintRunner<'a> {
+    fn new(options: &'a LintOptions) -> Self {
+        Self {
+            options,
+            diagnostics: Vec::new(),
+            scope_stack: Vec::new(),
+        }
+    }
+
+    fn run(mut self, module: &Module) -> Vec<LintDiagnostic> {
+        for item in &module.items {
+            self.visit_item(item);
+        }
+
+        self.diagnostics
+    }
+
+    fn visit_item(&mut self, item: &Item) {
+        match item {
+            Item::Function(function) => self.visit_function(function),
+            Item::Impl(impl_block) => self.visit_impl_block(impl_block),
+            Item::TraitImpl(trait_impl) => self.visit_trait_impl(trait_impl),
+            Item::Trait(trait_decl) => self.visit_trait(trait_decl),
+            Item::Import(_) | Item::Struct(_) | Item::Enum(_) => {}
+        }
+    }
+
+    fn visit_function(&mut self, function: &Function) {
+        self.enter_scope();
+        for param in &function.params {
+            self.declare_binding(param.name.clone(), param.span, BindingKind::Parameter);
+        }
+        self.visit_block(&function.body, false);
+        self.exit_scope();
+    }
+
+    fn visit_impl_block(&mut self, impl_block: &ImplBlock) {
+        for method in &impl_block.methods {
+            self.visit_method(method);
+        }
+    }
+
+    fn visit_trait_impl(&mut self, trait_impl: &TraitImpl) {
+        for method in &trait_impl.methods {
+            self.visit_method(method);
+        }
+    }
+
+    fn visit_trait(&mut self, trait_decl: &TraitDeclaration) {
+        for method in &trait_decl.methods {
+            if let Some(body) = &method.body {
+                self.visit_trait_method(method, body);
+            }
+        }
+    }
+
+    fn visit_trait_method(&mut self, method: &TraitMethod, body: &Block) {
+        self.enter_scope();
+        for param in &method.params {
+            if param.is_self {
+                continue;
+            }
+            self.declare_binding(param.name.clone(), param.span, BindingKind::Parameter);
+        }
+        self.visit_block(body, false);
+        self.exit_scope();
+    }
+
+    fn visit_method(&mut self, method: &Method) {
+        self.enter_scope();
+        for param in &method.params {
+            if param.is_self {
+                continue;
+            }
+            self.declare_binding(param.name.clone(), param.span, BindingKind::Parameter);
+        }
+        self.visit_block(&method.body, false);
+        self.exit_scope();
+    }
+
+    fn visit_block(&mut self, block: &Block, introduce_scope: bool) -> bool {
+        if introduce_scope {
+            self.enter_scope();
+        }
+
+        let mut reachable = true;
+        let mut last_terminator: Option<Span> = None;
+        for statement in &block.statements {
+            if !reachable {
+                self.emit_unreachable(statement.span, last_terminator);
+                continue;
+            }
+
+            let fallthrough = self.visit_statement(statement);
+            if !fallthrough {
+                reachable = false;
+                last_terminator = Some(statement.span);
+            }
+        }
+
+        if introduce_scope {
+            self.exit_scope();
+        }
+
+        reachable
+    }
+
+    fn visit_statement(&mut self, statement: &Statement) -> bool {
+        match &statement.kind {
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &let_stmt.value {
+                    self.visit_expression(value);
+                }
+                self.declare_binding(let_stmt.name.clone(), let_stmt.span, BindingKind::Variable);
+                true
+            }
+            StatementKind::Assignment(assign_stmt) => {
+                self.visit_assignment(assign_stmt);
+                true
+            }
+            StatementKind::Return(ret_stmt) => {
+                if let Some(value) = &ret_stmt.value {
+                    self.visit_expression(value);
+                }
+                false
+            }
+            StatementKind::Expression(expr) => {
+                self.visit_expression(expr);
+                true
+            }
+            StatementKind::While(while_loop) => {
+                self.visit_expression(&while_loop.condition);
+                self.visit_block(&while_loop.body, true);
+                true
+            }
+            StatementKind::DoWhile(do_while_loop) => {
+                self.visit_block(&do_while_loop.body, true);
+                self.visit_expression(&do_while_loop.condition);
+                true
+            }
+            StatementKind::For(for_loop) => {
+                self.visit_expression(&for_loop.iterable);
+                self.enter_scope();
+                self.declare_binding(
+                    for_loop.iterator.clone(),
+                    for_loop.span,
+                    BindingKind::ForIterator,
+                );
+                self.visit_block(&for_loop.body, false);
+                self.exit_scope();
+                true
+            }
+            StatementKind::Loop(loop_stmt) => {
+                self.visit_block(&loop_stmt.body, true);
+                true
+            }
+            StatementKind::Switch(switch_stmt) => {
+                self.visit_expression(&switch_stmt.value);
+                for case in &switch_stmt.cases {
+                    self.enter_scope();
+                    self.visit_expression(&case.pattern);
+                    self.visit_block(&case.body, true);
+                    self.exit_scope();
+                }
+                if let Some(default_block) = &switch_stmt.default {
+                    self.visit_block(default_block, true);
+                }
+                true
+            }
+            StatementKind::Break | StatementKind::Continue => false,
+        }
+    }
+
+    fn visit_assignment(&mut self, assignment: &ast::AssignmentStatement) {
+        match &assignment.target {
+            LValue::Identifier(name) => {
+                self.mark_binding_use(name);
+            }
+            LValue::IndexAccess { array, index } => {
+                self.visit_expression(array);
+                self.visit_expression(index);
+            }
+        }
+        self.visit_expression(&assignment.value);
+    }
+
+    fn visit_expression(&mut self, expression: &Expression) {
+        match &expression.kind {
+            ExpressionKind::Identifier(name) => {
+                self.mark_binding_use(name);
+            }
+            ExpressionKind::NumberLiteral(_)
+            | ExpressionKind::StringLiteral(_)
+            | ExpressionKind::BoolLiteral(_) => {}
+            ExpressionKind::Binary { left, right, .. } => {
+                self.visit_expression(left);
+                self.visit_expression(right);
+            }
+            ExpressionKind::Unary { operand, .. } => {
+                self.visit_expression(operand);
+            }
+            ExpressionKind::Call { callee, arguments } => {
+                self.visit_expression(callee);
+                for arg in arguments {
+                    self.visit_expression(arg);
+                }
+            }
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
+                self.visit_expression(condition);
+                self.visit_block(then_block, true);
+                for (elif_condition, elif_block) in elif_blocks {
+                    self.visit_expression(elif_condition);
+                    self.visit_block(elif_block, true);
+                }
+                if let Some(block) = else_block {
+                    self.visit_block(block, true);
+                }
+            }
+            ExpressionKind::Unless {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.visit_expression(condition);
+                self.visit_block(then_block, true);
+                if let Some(block) = else_block {
+                    self.visit_block(block, true);
+                }
+            }
+            ExpressionKind::Grouping(inner) => {
+                self.visit_expression(inner);
+            }
+            ExpressionKind::ArrayLiteral { elements } => {
+                for element in elements {
+                    self.visit_expression(element);
+                }
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.visit_expression(array);
+                self.visit_expression(index);
+            }
+            ExpressionKind::TupleLiteral { elements } => {
+                for element in elements {
+                    self.visit_expression(element);
+                }
+            }
+            ExpressionKind::TupleAccess { tuple, .. } => {
+                self.visit_expression(tuple);
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    self.visit_expression(value);
+                }
+            }
+            ExpressionKind::FieldAccess { object, .. } => {
+                self.visit_expression(object);
+            }
+            ExpressionKind::EnumVariant { data, .. } => {
+                if let Some(values) = data {
+                    for value in values {
+                        self.visit_expression(value);
+                    }
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.visit_expression(scrutinee);
+                for arm in arms {
+                    self.enter_scope();
+                    self.visit_expression(&arm.body);
+                    self.exit_scope();
+                }
+            }
+            ExpressionKind::MethodCall {
+                object,
+                arguments,
+                ..
+            } => {
+                self.visit_expression(object);
+                for argument in arguments {
+                    self.visit_expression(argument);
+                }
+            }
+        }
+    }
+
+    fn declare_binding(&mut self, name: String, span: Span, kind: BindingKind) {
+        if self.scope_stack.is_empty() {
+            self.enter_scope();
+        }
+
+        if name.starts_with('_') {
+            let binding = Binding {
+                span,
+                kind,
+                used: false,
+                allow_unused: true,
+            };
+            if let Some(scope) = self.scope_stack.last_mut() {
+                scope.bindings.insert(name, binding);
+            }
+            return;
+        }
+
+        if self.options.is_enabled(LintRule::Shadowing) {
+            if let Some(previous) = self.find_in_outer_scopes(&name) {
+                let note = format!(
+                    "previous binding declared at line {}",
+                    previous.span.start_location.line
+                );
+                self.diagnostics.push(LintDiagnostic {
+                    rule: LintRule::Shadowing,
+                    message: format!("binding '{}' shadows a previous binding", name),
+                    span,
+                    note: Some(note),
+                    secondary_span: Some(previous.span),
+                });
+            }
+        }
+
+        let allow_unused = name == "_";
+        let binding = Binding {
+            span,
+            kind,
+            used: false,
+            allow_unused,
+        };
+
+        if let Some(scope) = self.scope_stack.last_mut() {
+            scope.bindings.insert(name, binding);
+        }
+    }
+
+    fn mark_binding_use(&mut self, name: &str) {
+        for scope in self.scope_stack.iter_mut().rev() {
+            if let Some(binding) = scope.bindings.get_mut(name) {
+                binding.used = true;
+                break;
+            }
+        }
+    }
+
+    fn enter_scope(&mut self) {
+        self.scope_stack.push(Scope::default());
+    }
+
+    fn exit_scope(&mut self) {
+        if let Some(scope) = self.scope_stack.pop() {
+            if self.options.is_enabled(LintRule::UnusedBinding) {
+                for (name, binding) in scope.bindings.iter() {
+                    if binding.used || binding.allow_unused {
+                        continue;
+                    }
+
+                    self.diagnostics.push(LintDiagnostic {
+                        rule: LintRule::UnusedBinding,
+                        message: format!(
+                            "{} '{}' is never used",
+                            binding.kind.description(),
+                            name
+                        ),
+                        span: binding.span,
+                        note: None,
+                        secondary_span: None,
+                    });
+                }
+            }
+        }
+    }
+
+    fn emit_unreachable(&mut self, span: Span, cause: Option<Span>) {
+        if !self.options.is_enabled(LintRule::UnreachableCode) {
+            return;
+        }
+
+        let note = cause.map(|terminator| {
+            format!(
+                "control flow never reaches this statement because the previous statement at line {} terminates the block",
+                terminator.start_location.line
+            )
+        });
+
+        self.diagnostics.push(LintDiagnostic {
+            rule: LintRule::UnreachableCode,
+            message: "unreachable code".to_string(),
+            span,
+            note,
+            secondary_span: cause,
+        });
+    }
+
+    fn find_in_outer_scopes(&self, name: &str) -> Option<&Binding> {
+        self.scope_stack
+            .iter()
+            .rev()
+            .skip(1)
+            .find_map(|scope| scope.bindings.get(name))
+    }
+}
+
+#[derive(Default)]
+struct Scope {
+    bindings: HashMap<String, Binding>,
+}
+
+struct Binding {
+    span: Span,
+    kind: BindingKind,
+    used: bool,
+    allow_unused: bool,
+}
+
+#[derive(Clone, Copy)]
+enum BindingKind {
+    Parameter,
+    Variable,
+    ForIterator,
+}
+
+impl BindingKind {
+    fn description(&self) -> &'static str {
+        match self {
+            BindingKind::Parameter => "parameter",
+            BindingKind::Variable => "variable",
+            BindingKind::ForIterator => "loop variable",
+        }
+    }
+}

@@ -2,7 +2,8 @@
 // Orchestrates all compilation phases: Lexer → Parser → Semantic → Midend → Backend
 
 use crate::ast::Module as ASTModule;
-use crate::error::CompilerError;
+use crate::error::{CompilerError, SemanticError};
+use crate::lint::{lint_module, LintDiagnostic, LintOptions};
 use crate::parser::workspace::{ModuleLoader, ModuleParseError};
 use crate::semantic::SemanticAnalyzer;
 use std::collections::HashSet;
@@ -26,6 +27,8 @@ pub struct CompilationOptions {
     pub collect_metrics: bool,
     /// Enabled experimental language features
     pub experimental_features: HashSet<String>,
+    /// Lint configuration for the semantic pipeline
+    pub lint: LintOptions,
 }
 
 impl Default for CompilationOptions {
@@ -38,6 +41,7 @@ impl Default for CompilationOptions {
             run_jit: false,
             collect_metrics: false,
             experimental_features: HashSet::new(),
+            lint: LintOptions::default(),
         }
     }
 }
@@ -95,7 +99,7 @@ where
 {
     pub ast: ASTModule,
     pub errors: Vec<CompilerError>,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<LintDiagnostic>,
     pub backend_artifacts: A,
     pub metrics: Option<CompilationMetrics>,
 }
@@ -189,6 +193,35 @@ where
                 .collect());
         }
 
+        let lint_diagnostics = lint_module(&ast, &self.options.lint);
+        let mut lint_warnings: Vec<LintDiagnostic> = Vec::new();
+        let mut lint_errors: Vec<CompilerError> = Vec::new();
+
+        for diagnostic in lint_diagnostics {
+            if self.options.lint.is_denied(diagnostic.rule) {
+                let mut error = SemanticError::new(
+                    format!("lint({}): {}", diagnostic.rule.code(), diagnostic.message),
+                    diagnostic.span,
+                )
+                .with_context(format!(
+                    "lint rule '{}' escalated to error",
+                    diagnostic.rule.code()
+                ));
+
+                if let Some(note) = &diagnostic.note {
+                    error = error.with_hint(note.clone());
+                }
+
+                lint_errors.push(CompilerError::Semantic(error));
+            } else {
+                lint_warnings.push(diagnostic);
+            }
+        }
+
+        if !lint_errors.is_empty() {
+            return Err(lint_errors);
+        }
+
         let backend_start = collect_metrics.then(Instant::now);
         let backend_artifacts = self.backend.run(&ast, &self.options)?;
         if let (Some(metrics), Some(start)) = (metrics.as_mut(), backend_start) {
@@ -202,7 +235,7 @@ where
         Ok(CompilationResult {
             ast,
             errors: vec![],
-            warnings: vec![],
+            warnings: lint_warnings,
             backend_artifacts,
             metrics,
         })

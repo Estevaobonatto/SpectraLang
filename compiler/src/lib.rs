@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod error;
+pub mod lint;
 pub mod lexer;
 pub mod parser;
 pub mod pipeline;
@@ -9,6 +10,7 @@ pub mod token;
 
 pub use ast::{BinaryOperator, Module, UnaryOperator};
 pub use error::{BackendError, CompilerError, LexError, MidendError, ParseError, SemanticError};
+pub use lint::{LintDiagnostic, LintOptions, LintRule};
 pub use lexer::Lexer;
 pub use parser::Parser;
 pub use pipeline::{

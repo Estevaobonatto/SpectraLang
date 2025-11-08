@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
     error::MidendError, pipeline::CompilationMetrics, span::Span, BackendDriver, BackendError,
-    CompilationOptions, CompilationPipeline, CompilationResult, CompilerError,
+    lint::LintDiagnostic, CompilationOptions, CompilationPipeline, CompilationResult,
+    CompilerError,
 };
 use spectra_midend::{
     ir::{pretty::format_module, Module as IRModule},
@@ -404,8 +405,11 @@ impl SpectraCompiler {
         let CompilationResult {
             backend_artifacts: artifacts,
             metrics,
+            warnings,
             ..
         } = compilation;
+
+        self.emit_lint_warnings(&warnings, filename);
 
         if let Some(aggregate) = self.aggregate.as_mut() {
             aggregate.record(&artifacts, metrics.as_ref());
@@ -512,6 +516,29 @@ impl SpectraCompiler {
         self.emit_internal_metrics = emit;
     }
 
+    fn emit_lint_warnings(&self, warnings: &[LintDiagnostic], filename: &str) {
+        if warnings.is_empty() {
+            return;
+        }
+
+        println!("⚠️  lint warnings detected ({}):", warnings.len());
+        for warning in warnings {
+            println!(
+                "warning[{}] {}:{}:{} {}",
+                warning.rule.code(),
+                filename,
+                warning.span.start_location.line,
+                warning.span.start_location.column,
+                warning.message
+            );
+
+            if let Some(note) = &warning.note {
+                println!("    note: {}", note);
+            }
+        }
+        println!();
+    }
+
     /// Compile and execute (JIT)
     #[allow(dead_code)]
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), String> {
@@ -527,8 +554,11 @@ impl SpectraCompiler {
         let CompilationResult {
             backend_artifacts: artifacts,
             metrics,
+            warnings,
             ..
         } = compilation;
+
+        self.emit_lint_warnings(&warnings, "<jit>");
 
         if self.options.optimize {
             let modified_passes: Vec<_> = artifacts
@@ -782,6 +812,7 @@ impl Default for SpectraCompiler {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use spectra_compiler::lint::LintOptions;
 
     #[test]
     fn test_end_to_end_simple() {
@@ -829,6 +860,7 @@ mod tests {
             run_jit: false,
             collect_metrics: false,
             experimental_features: HashSet::new(),
+            lint: LintOptions::default(),
         };
 
         let mut compiler = SpectraCompiler::new(options);
