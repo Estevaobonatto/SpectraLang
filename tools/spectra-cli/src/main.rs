@@ -1,18 +1,18 @@
 mod compiler_integration;
 mod formatter;
+mod navigation;
 mod project;
 
 use compiler_integration::{ModulePipelineSummary, SpectraCompiler};
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
+use navigation::{resolve_symbol, NavigationError, ResolvedSymbol};
 use project::ProjectPlan;
 use serde::{Deserialize, Serialize};
 use spectra_compiler::{
     error::CompilerError,
     lint::LintDiagnostic,
-    span::Span,
-    CompilationOptions,
-    LintOptions,
-    LintRule,
+    span::{Location, Span},
+    CompilationOptions, LintOptions, LintRule,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -104,6 +104,13 @@ struct NewProjectOptions {
 }
 
 #[derive(Debug)]
+struct NavigationOptions {
+    path: PathBuf,
+    position: Location,
+    json_output: bool,
+}
+
+#[derive(Debug)]
 enum CliAction {
     Help(HelpTopic),
     ListExperimental,
@@ -114,6 +121,8 @@ enum CliAction {
     Repl(ReplOptions),
     NewProject(NewProjectOptions),
     Format(FormatOptions),
+    Hover(NavigationOptions),
+    GotoDefinition(NavigationOptions),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -217,6 +226,8 @@ fn execute_action(action: CliAction) -> CliResult<()> {
         CliAction::Repl(options) => execute_repl(options),
         CliAction::NewProject(options) => execute_new_project(options),
         CliAction::Format(options) => execute_format(options),
+        CliAction::Hover(options) => execute_hover(options),
+        CliAction::GotoDefinition(options) => execute_goto_definition(options),
     }
 }
 
@@ -310,6 +321,16 @@ fn parse_cli() -> CliResult<CliAction> {
                 invocation,
             });
         }
+        Some("hover") => {
+            args.next();
+            let options = parse_navigation_command(&mut args)?;
+            return Ok(CliAction::Hover(options));
+        }
+        Some("goto-def") | Some("definition") => {
+            args.next();
+            let options = parse_navigation_command(&mut args)?;
+            return Ok(CliAction::GotoDefinition(options));
+        }
         _ => {}
     }
 
@@ -348,6 +369,100 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
         "lint" => Some(BuildCommand::Lint),
         _ => None,
     }
+}
+
+fn parse_navigation_command<I>(args: &mut std::iter::Peekable<I>) -> CliResult<NavigationOptions>
+where
+    I: Iterator<Item = String>,
+{
+    let mut json_output = false;
+    let mut position: Option<Location> = None;
+    let mut path: Option<PathBuf> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--json" => json_output = true,
+            "--position" => {
+                let raw = args.next().ok_or_else(|| {
+                    CliError::usage("--position requires a value like <line>:<column>.")
+                })?;
+                position = Some(parse_position(&raw)?);
+            }
+            "--" => {
+                if let Some(next) = args.next() {
+                    if path.is_some() {
+                        return Err(CliError::usage(
+                            "Only a single file path can be provided for navigation commands.",
+                        ));
+                    }
+                    path = Some(PathBuf::from(next));
+                }
+
+                for remaining in args {
+                    if path.is_some() {
+                        return Err(CliError::usage(
+                            "Only a single file path can be provided for navigation commands.",
+                        ));
+                    }
+                    path = Some(PathBuf::from(remaining));
+                }
+                break;
+            }
+            value if value.starts_with('-') => {
+                return Err(CliError::usage(format!(
+                    "Unknown flag '{}' for navigation command.",
+                    value
+                )));
+            }
+            value => {
+                if path.is_none() {
+                    path = Some(PathBuf::from(value));
+                } else {
+                    return Err(CliError::usage(
+                        "Only a single file path can be provided for navigation commands.",
+                    ));
+                }
+            }
+        }
+    }
+
+    let path = path.ok_or_else(|| CliError::usage("Expected a Spectra source file path."))?;
+    let position =
+        position.ok_or_else(|| CliError::usage("--position <line>:<column> is required."))?;
+
+    Ok(NavigationOptions {
+        path,
+        position,
+        json_output,
+    })
+}
+
+fn parse_position(raw: &str) -> CliResult<Location> {
+    let mut parts = raw.split(':');
+    let line = parts
+        .next()
+        .ok_or_else(|| CliError::usage("--position requires <line>:<column>"))?
+        .parse::<usize>()
+        .map_err(|_| CliError::usage("Line must be a positive integer."))?;
+    let column = parts
+        .next()
+        .ok_or_else(|| CliError::usage("--position requires <line>:<column>"))?
+        .parse::<usize>()
+        .map_err(|_| CliError::usage("Column must be a positive integer."))?;
+
+    if line == 0 || column == 0 {
+        return Err(CliError::usage(
+            "Line and column must be 1-based positive values.",
+        ));
+    }
+
+    if parts.next().is_some() {
+        return Err(CliError::usage(
+            "--position must be in the form <line>:<column> without extra segments.",
+        ));
+    }
+
+    Ok(Location::new(line, column))
 }
 
 fn parse_compilation_invocation<I>(
@@ -456,7 +571,9 @@ where
             }
             "--json" => {
                 if command != BuildCommand::Lint {
-                    return Err(usage_error("'--json' is only supported with the 'lint' command."));
+                    return Err(usage_error(
+                        "'--json' is only supported with the 'lint' command.",
+                    ));
                 }
                 json_output = true;
             }
@@ -1362,6 +1479,158 @@ fn execute_format(options: FormatOptions) -> CliResult<()> {
     run_formatter(options)
 }
 
+fn execute_hover(options: NavigationOptions) -> CliResult<()> {
+    let source = fs::read_to_string(&options.path).map_err(|error| {
+        CliError::io(format!(
+            "Failed to read '{}': {}",
+            options.path.display(),
+            error
+        ))
+    })?;
+
+    match resolve_symbol(&source, options.position) {
+        Ok(Some(symbol)) => {
+            if options.json_output {
+                let reference_range = span_to_range(&symbol.reference_span);
+                let definition = make_definition_location(&options.path, &symbol);
+                let detail_text = definition.detail.clone();
+                let symbol_name = symbol.name.clone();
+                let symbol_kind = symbol.kind.as_str().to_string();
+                let report = JsonHoverReport {
+                    version: 1,
+                    success: true,
+                    message: None,
+                    hover: Some(JsonHover {
+                        symbol: symbol_name,
+                        kind: symbol_kind,
+                        detail: detail_text.clone(),
+                        contents: format!("```spectra\n{}\n```", detail_text),
+                        range: reference_range,
+                        definition,
+                    }),
+                };
+                emit_json_report(&report, false)?;
+            } else {
+                let location = &symbol.definition_span.start_location;
+                println!(
+                    "{} (defined at {}:{})",
+                    symbol.detail, location.line, location.column
+                );
+            }
+            Ok(())
+        }
+        Ok(None) => {
+            if options.json_output {
+                let report = JsonHoverReport {
+                    version: 1,
+                    success: false,
+                    message: Some("Symbol not found at requested position.".to_string()),
+                    hover: None,
+                };
+                emit_json_report(&report, false)?;
+            } else {
+                println!("Symbol not found at requested position.");
+            }
+            Ok(())
+        }
+        Err(error) => Err(convert_navigation_error(error, &options.path)),
+    }
+}
+
+fn execute_goto_definition(options: NavigationOptions) -> CliResult<()> {
+    let source = fs::read_to_string(&options.path).map_err(|error| {
+        CliError::io(format!(
+            "Failed to read '{}': {}",
+            options.path.display(),
+            error
+        ))
+    })?;
+
+    match resolve_symbol(&source, options.position) {
+        Ok(Some(symbol)) => {
+            let definition = make_definition_location(&options.path, &symbol);
+            if options.json_output {
+                let report = JsonDefinitionReport {
+                    version: 1,
+                    success: true,
+                    message: None,
+                    definitions: vec![definition],
+                };
+                emit_json_report(&report, false)?;
+            } else {
+                println!(
+                    "{}:{}:{}",
+                    definition.path,
+                    symbol.definition_span.start_location.line,
+                    symbol.definition_span.start_location.column
+                );
+            }
+            Ok(())
+        }
+        Ok(None) => {
+            if options.json_output {
+                let report = JsonDefinitionReport {
+                    version: 1,
+                    success: false,
+                    message: Some("Definition not found at requested position.".to_string()),
+                    definitions: Vec::new(),
+                };
+                emit_json_report(&report, false)?;
+            } else {
+                println!("Definition not found at requested position.");
+            }
+            Ok(())
+        }
+        Err(error) => Err(convert_navigation_error(error, &options.path)),
+    }
+}
+
+fn make_definition_location(path: &Path, symbol: &ResolvedSymbol) -> JsonDefinitionLocation {
+    JsonDefinitionLocation {
+        path: path_to_string(path),
+        range: span_to_range(&symbol.definition_span),
+        detail: symbol.detail.clone(),
+        kind: symbol.kind.as_str().to_string(),
+    }
+}
+
+fn convert_navigation_error(error: NavigationError, path: &Path) -> CliError {
+    match error {
+        NavigationError::Lex(errors) => {
+            if let Some(first) = errors.first() {
+                CliError::compilation(format!(
+                    "Lexing failed for '{}': {} (line {}, column {})",
+                    path.display(),
+                    first.message,
+                    first.span.start_location.line,
+                    first.span.start_location.column
+                ))
+            } else {
+                CliError::compilation(format!(
+                    "Lexing failed for '{}' with unknown error.",
+                    path.display()
+                ))
+            }
+        }
+        NavigationError::Parse(errors) => {
+            if let Some(first) = errors.first() {
+                CliError::compilation(format!(
+                    "Parsing failed for '{}': {} (line {}, column {})",
+                    path.display(),
+                    first.message,
+                    first.span.start_location.line,
+                    first.span.start_location.column
+                ))
+            } else {
+                CliError::compilation(format!(
+                    "Parsing failed for '{}' with unknown error.",
+                    path.display()
+                ))
+            }
+        }
+    }
+}
+
 fn execute_lint_json(entries: Vec<PathBuf>, mut options: CompilationOptions) -> CliResult<()> {
     if entries.is_empty() {
         return Err(CliError::usage(
@@ -1373,10 +1642,7 @@ fn execute_lint_json(entries: Vec<PathBuf>, mut options: CompilationOptions) -> 
     run_json_diagnostics(entries, options)
 }
 
-fn execute_repl_json(
-    mut options: CompilationOptions,
-    preload: Vec<PathBuf>,
-) -> CliResult<()> {
+fn execute_repl_json(mut options: CompilationOptions, preload: Vec<PathBuf>) -> CliResult<()> {
     if preload.is_empty() {
         return Err(CliError::usage(
             "Provide one or more paths when using 'spectra repl --json'.",
@@ -1402,10 +1668,7 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
                 success: false,
                 files: vec![JsonFileDiagnostics {
                     path: path_to_string(&path),
-                    diagnostics: vec![generic_error_diagnostic(
-                        format!("{}", error),
-                        Some("cli"),
-                    )],
+                    diagnostics: vec![generic_error_diagnostic(format!("{}", error), Some("cli"))],
                 }],
             };
 
@@ -1477,10 +1740,13 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
     emit_json_report(&report, has_errors)
 }
 
-fn emit_json_report(report: &JsonDiagnosticReport, has_errors: bool) -> CliResult<()> {
+fn emit_json_report<T: Serialize>(report: &T, has_errors: bool) -> CliResult<()> {
     let mut stdout = io::stdout();
     serde_json::to_writer(&mut stdout, report).map_err(|error| {
-        CliError::io(format!("Failed to serialize diagnostics to JSON: {}", error))
+        CliError::io(format!(
+            "Failed to serialize diagnostics to JSON: {}",
+            error
+        ))
     })?;
     stdout
         .write_all(b"\n")
@@ -1526,19 +1792,21 @@ fn convert_lint_diagnostic(diagnostic: LintDiagnostic) -> JsonDiagnostic {
 
 fn convert_compiler_error(error: CompilerError) -> JsonDiagnostic {
     match error {
-        CompilerError::Lexical(e) => span_error_to_json("lexical", e.message, e.span, e.context, e.hint),
-        CompilerError::Parse(e) => span_error_to_json("parse", e.message, e.span, e.context, e.hint),
+        CompilerError::Lexical(e) => {
+            span_error_to_json("lexical", e.message, e.span, e.context, e.hint)
+        }
+        CompilerError::Parse(e) => {
+            span_error_to_json("parse", e.message, e.span, e.context, e.hint)
+        }
         CompilerError::Semantic(e) => {
             span_error_to_json("semantic", e.message, e.span, e.context, e.hint)
         }
-        CompilerError::Midend(e) => generic_error_diagnostic(
-            format!("midend error: {}", e.message),
-            Some("midend"),
-        ),
-        CompilerError::Backend(e) => generic_error_diagnostic(
-            format!("backend error: {}", e.message),
-            Some("backend"),
-        ),
+        CompilerError::Midend(e) => {
+            generic_error_diagnostic(format!("midend error: {}", e.message), Some("midend"))
+        }
+        CompilerError::Backend(e) => {
+            generic_error_diagnostic(format!("backend error: {}", e.message), Some("backend"))
+        }
     }
 }
 
@@ -1608,6 +1876,40 @@ fn path_to_string(path: &Path) -> String {
     fs::canonicalize(path)
         .map(|value| value.to_string_lossy().to_string())
         .unwrap_or_else(|_| path.to_string_lossy().to_string())
+}
+
+#[derive(Serialize)]
+struct JsonHoverReport {
+    version: u8,
+    success: bool,
+    message: Option<String>,
+    hover: Option<JsonHover>,
+}
+
+#[derive(Serialize)]
+struct JsonHover {
+    symbol: String,
+    kind: String,
+    detail: String,
+    contents: String,
+    range: JsonRange,
+    definition: JsonDefinitionLocation,
+}
+
+#[derive(Serialize)]
+struct JsonDefinitionReport {
+    version: u8,
+    success: bool,
+    message: Option<String>,
+    definitions: Vec<JsonDefinitionLocation>,
+}
+
+#[derive(Serialize)]
+struct JsonDefinitionLocation {
+    path: String,
+    range: JsonRange,
+    detail: String,
+    kind: String,
 }
 
 #[derive(Serialize)]

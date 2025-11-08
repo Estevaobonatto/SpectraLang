@@ -452,7 +452,10 @@ impl SpectraCompiler {
 
             if self.options.collect_metrics && self.emit_internal_metrics {
                 println!("Lowering time: {:?}", report.artifacts.lowering_duration);
-                println!("Code generation time: {:?}", report.artifacts.codegen_duration);
+                println!(
+                    "Code generation time: {:?}",
+                    report.artifacts.codegen_duration
+                );
             }
 
             if self.emit_internal_metrics {
@@ -799,9 +802,7 @@ fn render_lint_warning(diagnostic: &LintDiagnostic, filename: &str, source: &str
     if let Some(secondary) = diagnostic.secondary_span {
         let related = format!(
             "related location: {}:{}:{}",
-            filename,
-            secondary.start_location.line,
-            secondary.start_location.column
+            filename, secondary.start_location.line, secondary.start_location.column
         );
 
         if context.is_empty() {
@@ -812,7 +813,11 @@ fn render_lint_warning(diagnostic: &LintDiagnostic, filename: &str, source: &str
         }
     }
 
-    let context_owned = if context.is_empty() { None } else { Some(context) };
+    let context_owned = if context.is_empty() {
+        None
+    } else {
+        Some(context)
+    };
     let context_ref = context_owned.as_deref();
 
     render_span_diagnostic(
