@@ -2919,6 +2919,25 @@ impl ASTLowering {
                 arguments,
                 type_name,
             } => {
+                if let Some(mut path) = self.resolve_call_path(object) {
+                    path.push(method_name.clone());
+                    if let Some(descriptor) = lookup_std_host_function(&path) {
+                        let arg_values: Vec<Value> = arguments
+                            .iter()
+                            .map(|arg| self.lower_expression(arg, ir_func))
+                            .collect();
+                        return self
+                            .builder
+                            .build_host_call(
+                                ir_func,
+                                descriptor.runtime_name.to_string(),
+                                arg_values,
+                                descriptor.returns_value,
+                            )
+                            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    }
+                }
+
                 // Lower method call to function call: obj.method(args) -> Type_method(obj, args)
 
                 // 1. Lower o objeto (self será o primeiro argumento)

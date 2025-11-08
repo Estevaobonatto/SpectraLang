@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use spectra_compiler::{
     ast::{
         AssignmentStatement, Block, Expression, ExpressionKind, Function, FunctionParam, Item,
-        LetStatement, LValue, Module, Statement, StatementKind, TypeAnnotation, TypeAnnotationKind,
+        LValue, LetStatement, Module, Statement, StatementKind, TypeAnnotation, TypeAnnotationKind,
     },
     error::{LexError, ParseError},
     lexer::Lexer,

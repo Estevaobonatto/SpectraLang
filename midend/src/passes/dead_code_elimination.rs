@@ -112,6 +112,11 @@ impl DeadCodeElimination {
                     used.insert(arg.id);
                 }
             }
+            InstructionKind::HostCall { args, .. } => {
+                for arg in args {
+                    used.insert(arg.id);
+                }
+            }
             InstructionKind::Copy { source, .. } => {
                 used.insert(source.id);
             }
@@ -148,6 +153,7 @@ impl DeadCodeElimination {
             | InstructionKind::ConstFloat { result, .. }
             | InstructionKind::ConstBool { result, .. } => Some(result.id),
             InstructionKind::Call { result, .. } => result.as_ref().map(|r| r.id),
+            InstructionKind::HostCall { result, .. } => result.as_ref().map(|r| r.id),
             _ => None,
         }
     }
@@ -155,7 +161,9 @@ impl DeadCodeElimination {
     fn has_side_effects(instr: &InstructionKind) -> bool {
         matches!(
             instr,
-            InstructionKind::Store { .. } | InstructionKind::Call { .. }
+            InstructionKind::Store { .. }
+                | InstructionKind::Call { .. }
+                | InstructionKind::HostCall { .. }
         )
     }
 }

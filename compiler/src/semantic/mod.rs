@@ -184,6 +184,10 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn is_builtin_namespace(&self, name: &str) -> bool {
+        matches!(name, "std")
+    }
+
     fn push_semantic_error(
         &mut self,
         message: impl Into<String>,
@@ -1978,7 +1982,10 @@ impl SemanticAnalyzer {
         match &expr.kind {
             ExpressionKind::Identifier(name) => {
                 // Check if identifier is declared
-                if self.lookup_symbol(name).is_none() && !self.functions.contains_key(name) {
+                if self.lookup_symbol(name).is_none()
+                    && !self.functions.contains_key(name)
+                    && !self.is_builtin_namespace(name)
+                {
                     self.error(
                         format!("Undefined variable or function '{}'", name),
                         expr.span,
