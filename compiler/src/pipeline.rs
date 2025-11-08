@@ -41,7 +41,7 @@ impl Default for CompilationOptions {
             run_jit: false,
             collect_metrics: false,
             experimental_features: HashSet::new(),
-            lint: LintOptions::default(),
+            lint: LintOptions::disabled(),
         }
     }
 }

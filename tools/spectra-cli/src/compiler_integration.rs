@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use spectra_backend::CodeGenerator;
 use spectra_compiler::{
-    error::MidendError, pipeline::CompilationMetrics, span::Span, BackendDriver, BackendError,
-    lint::LintDiagnostic, CompilationOptions, CompilationPipeline, CompilationResult,
+    error::MidendError, lint::LintDiagnostic, pipeline::CompilationMetrics, span::Span,
+    BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilationResult,
     CompilerError,
 };
 use spectra_midend::{
@@ -811,8 +811,8 @@ impl Default for SpectraCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
     use spectra_compiler::lint::LintOptions;
+    use std::collections::HashSet;
 
     #[test]
     fn test_end_to_end_simple() {

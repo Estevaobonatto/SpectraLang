@@ -5,9 +5,11 @@ mod project;
 use compiler_integration::{ModulePipelineSummary, SpectraCompiler};
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use project::ProjectPlan;
-use spectra_compiler::CompilationOptions;
+use serde::Deserialize;
+use spectra_compiler::{CompilationOptions, LintOptions, LintRule};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::{env, fs, process};
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
@@ -111,6 +113,7 @@ enum HelpTopic {
     Repl,
     NewProject,
     Format,
+    Lint,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -118,6 +121,7 @@ enum BuildCommand {
     Compile,
     Check,
     Run,
+    Lint,
 }
 
 impl BuildCommand {
@@ -126,6 +130,7 @@ impl BuildCommand {
             BuildCommand::Compile => "compile",
             BuildCommand::Check => "check",
             BuildCommand::Run => "run",
+            BuildCommand::Lint => "lint",
         }
     }
 
@@ -134,6 +139,7 @@ impl BuildCommand {
             BuildCommand::Compile => "Compile Spectra modules (default).",
             BuildCommand::Check => "Type-check modules and report diagnostics without executing.",
             BuildCommand::Run => "Compile modules and execute the entry point via JIT.",
+            BuildCommand::Lint => "Run lint checks and report warnings or denied rules.",
         }
     }
 
@@ -142,12 +148,14 @@ impl BuildCommand {
             BuildCommand::Compile => "All files compiled successfully!",
             BuildCommand::Check => "Check completed. No errors detected.",
             BuildCommand::Run => "Compilation and execution finished successfully.",
+            BuildCommand::Lint => "Lint checks completed without findings.",
         }
     }
 
     fn module_verb(self) -> &'static str {
         match self {
             BuildCommand::Check => "Checking",
+            BuildCommand::Lint => "Linting",
             BuildCommand::Compile | BuildCommand::Run => "Compiling",
         }
     }
@@ -155,6 +163,7 @@ impl BuildCommand {
     fn module_success_verb(self) -> &'static str {
         match self {
             BuildCommand::Check => "checked",
+            BuildCommand::Lint => "linted",
             BuildCommand::Compile | BuildCommand::Run => "compiled",
         }
     }
@@ -186,6 +195,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
                 HelpTopic::Repl => print_repl_help(),
                 HelpTopic::NewProject => print_new_help(),
                 HelpTopic::Format => print_format_help(),
+                HelpTopic::Lint => print_lint_help(),
             }
             Ok(())
         }
@@ -219,6 +229,7 @@ fn parse_cli() -> CliResult<CliAction> {
                     "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
                     "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
+                    "lint" => Ok(CliAction::Help(HelpTopic::Lint)),
                     other => {
                         if let Some(kind) = parse_build_command_name(other) {
                             Ok(CliAction::Help(HelpTopic::Build(kind)))
@@ -274,6 +285,21 @@ fn parse_cli() -> CliResult<CliAction> {
             let options = parse_format_invocation(&mut args)?;
             return Ok(CliAction::Format(options));
         }
+        Some("lint") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::Lint));
+                }
+            }
+
+            let invocation = parse_compilation_invocation(&mut args, BuildCommand::Lint, true)?;
+            return Ok(CliAction::Build {
+                kind: BuildCommand::Lint,
+                invocation,
+            });
+        }
         _ => {}
     }
 
@@ -295,7 +321,8 @@ fn parse_cli() -> CliResult<CliAction> {
         }
     }
 
-    let invocation = parse_compilation_invocation(&mut args, command)?;
+    let invocation =
+        parse_compilation_invocation(&mut args, command, matches!(command, BuildCommand::Lint))?;
 
     Ok(CliAction::Build {
         kind: command,
@@ -308,6 +335,7 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
         "compile" | "build" => Some(BuildCommand::Compile),
         "check" => Some(BuildCommand::Check),
         "run" => Some(BuildCommand::Run),
+        "lint" => Some(BuildCommand::Lint),
         _ => None,
     }
 }
@@ -315,11 +343,15 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
 fn parse_compilation_invocation<I>(
     args: &mut std::iter::Peekable<I>,
     command: BuildCommand,
+    lint_default: bool,
 ) -> CliResult<CliInvocation>
 where
     I: Iterator<Item = String>,
 {
     let mut options = CompilationOptions::default();
+    let mut lint_enabled_cli = lint_default;
+    let mut lint_allow_cli: Vec<LintRule> = Vec::new();
+    let mut lint_deny_cli: Vec<LintRule> = Vec::new();
     let mut entries = Vec::new();
     let mut show_pipeline_summary = false;
     let mut verbose = false;
@@ -381,6 +413,33 @@ where
                     "--list-experimental must appear before any command.",
                 ));
             }
+            flag if flag.starts_with("--allow=") => {
+                let value = flag.trim_start_matches("--allow=");
+                let rule = parse_lint_rule_cli(value)?;
+                lint_allow_cli.push(rule);
+            }
+            flag if flag.starts_with("--deny=") => {
+                let value = flag.trim_start_matches("--deny=");
+                let rule = parse_lint_rule_cli(value)?;
+                lint_deny_cli.push(rule);
+            }
+            "--lint" => {
+                lint_enabled_cli = true;
+            }
+            "--allow" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing rule name after '--allow'."))?;
+                let rule = parse_lint_rule_cli(&value)?;
+                lint_allow_cli.push(rule);
+            }
+            "--deny" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing rule name after '--deny'."))?;
+                let rule = parse_lint_rule_cli(&value)?;
+                lint_deny_cli.push(rule);
+            }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown option: {}", flag)));
             }
@@ -394,9 +453,17 @@ where
 
     match command {
         BuildCommand::Run => options.run_jit = true,
-        BuildCommand::Check => options.run_jit = false,
+        BuildCommand::Check | BuildCommand::Lint => options.run_jit = false,
         BuildCommand::Compile => {}
     }
+
+    configure_lint_options(
+        &mut options,
+        &entries,
+        lint_enabled_cli,
+        &lint_allow_cli,
+        &lint_deny_cli,
+    )?;
 
     Ok(CliInvocation {
         entries,
@@ -404,6 +471,147 @@ where
         show_pipeline_summary,
         verbose,
     })
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ManifestLintSection {
+    enabled: Option<bool>,
+    #[serde(default)]
+    allow: Vec<String>,
+    #[serde(default)]
+    deny: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SpectraManifest {
+    #[serde(default)]
+    lint: Option<ManifestLintSection>,
+}
+
+fn parse_raw_lint_rule(value: &str) -> Result<LintRule, String> {
+    LintRule::from_str(value).map_err(|_| {
+        format!(
+            "Unknown lint rule '{}' (valid rules: {}).",
+            value,
+            lint_rule_list()
+        )
+    })
+}
+
+fn parse_lint_rule_cli(value: &str) -> CliResult<LintRule> {
+    parse_raw_lint_rule(value).map_err(|message| usage_error(&message))
+}
+
+fn parse_lint_rule_config(value: &str, path: &Path) -> CliResult<LintRule> {
+    parse_raw_lint_rule(value)
+        .map_err(|message| CliError::usage(format!("{} (found in '{}').", message, path.display())))
+}
+
+fn lint_rule_list() -> String {
+    LintRule::all()
+        .iter()
+        .map(LintRule::code)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn configure_lint_options(
+    options: &mut CompilationOptions,
+    entries: &[PathBuf],
+    lint_enabled_cli: bool,
+    cli_allow: &[LintRule],
+    cli_deny: &[LintRule],
+) -> CliResult<()> {
+    let manifest_path = locate_manifest(entries)?;
+
+    let mut manifest_enabled = None;
+    let mut manifest_allow: Vec<LintRule> = Vec::new();
+    let mut manifest_deny: Vec<LintRule> = Vec::new();
+
+    if let Some(path) = &manifest_path {
+        let contents = fs::read_to_string(path).map_err(|error| {
+            CliError::io(format!("Failed to read '{}': {}", path.display(), error))
+        })?;
+
+        let manifest: SpectraManifest = toml::from_str(&contents).map_err(|error| {
+            CliError::io(format!("Failed to parse '{}': {}", path.display(), error))
+        })?;
+
+        if let Some(lint) = manifest.lint {
+            manifest_enabled = lint.enabled;
+            for rule in lint.allow {
+                manifest_allow.push(parse_lint_rule_config(&rule, path)?);
+            }
+            for rule in lint.deny {
+                manifest_deny.push(parse_lint_rule_config(&rule, path)?);
+            }
+        }
+    }
+
+    let mut enable_lints = lint_enabled_cli;
+    if let Some(flag) = manifest_enabled {
+        enable_lints = flag;
+    }
+    if lint_enabled_cli {
+        enable_lints = true;
+    }
+
+    if enable_lints {
+        options.lint = LintOptions::all();
+    } else {
+        options.lint = LintOptions::disabled();
+    }
+
+    for rule in manifest_allow {
+        options.lint.disable_rule(rule);
+    }
+    for &rule in cli_allow {
+        options.lint.disable_rule(rule);
+    }
+
+    for rule in manifest_deny {
+        options.lint.deny_rule(rule);
+    }
+    for &rule in cli_deny {
+        options.lint.deny_rule(rule);
+    }
+
+    Ok(())
+}
+
+fn locate_manifest(entries: &[PathBuf]) -> CliResult<Option<PathBuf>> {
+    for entry in entries {
+        let metadata = fs::metadata(entry).map_err(|error| {
+            CliError::io(format!(
+                "Failed to inspect '{}': {}",
+                entry.display(),
+                error
+            ))
+        })?;
+
+        let mut current = if metadata.is_dir() {
+            Some(entry.clone())
+        } else {
+            entry.parent().map(Path::to_path_buf)
+        };
+
+        while let Some(dir) = current {
+            let candidate = dir.join("Spectra.toml");
+            if candidate.is_file() {
+                let canonical = fs::canonicalize(&candidate).map_err(|error| {
+                    CliError::io(format!(
+                        "Failed to resolve configuration '{}': {}",
+                        candidate.display(),
+                        error
+                    ))
+                })?;
+                return Ok(Some(canonical));
+            }
+            current = dir.parent().map(Path::to_path_buf);
+        }
+    }
+
+    Ok(None)
 }
 
 fn parse_repl_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<ReplOptions>
@@ -822,6 +1030,19 @@ fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions)
         if options.run_jit { "yes" } else { "no" }
     );
 
+    if options.lint.enabled.is_empty() {
+        println!("  • Linting: disabled");
+    } else {
+        let mut denied: Vec<_> = options.lint.deny.iter().map(|rule| rule.code()).collect();
+        denied.sort();
+        let denied_display = if denied.is_empty() {
+            "none".to_string()
+        } else {
+            denied.join(", ")
+        };
+        println!("  • Linting: enabled (denied rules: {})", denied_display);
+    }
+
     let mut features: Vec<_> = options.experimental_features.iter().collect();
     features.sort();
     if features.is_empty() {
@@ -901,8 +1122,9 @@ impl ReplSession {
         let mut options = self.base_options.clone();
         match command {
             BuildCommand::Run => options.run_jit = true,
-            BuildCommand::Check => options.run_jit = false,
-            BuildCommand::Compile => options.run_jit = false,
+            BuildCommand::Check | BuildCommand::Lint | BuildCommand::Compile => {
+                options.run_jit = false
+            }
         }
 
         execute_plan_with_options(
@@ -1178,6 +1400,7 @@ fn print_global_help() {
     println!("    compile    Compile Spectra modules (default)");
     println!("    check      Type-check modules and report diagnostics");
     println!("    run        Compile modules and execute the entry point via JIT");
+    println!("    lint       Run lint checks across Spectra modules");
     println!("    repl       Start an interactive Spectra prompt");
     println!("    new        Scaffold a new Spectra project");
     println!("    fmt        Format Spectra source files");
@@ -1193,6 +1416,7 @@ fn print_global_help() {
     println!("    spectra compile src/main.spectra");
     println!("    spectra check examples/");
     println!("    spectra run -O3 app.spectra");
+    println!("    spectra lint src/");
     println!("    spectra repl --run");
     println!("    spectra new my-project");
     println!("    spectra --list-experimental");
@@ -1234,6 +1458,10 @@ fn print_build_help(command: BuildCommand) {
         BuildCommand::Run => {
             println!("    spectra run app.spectra");
             println!("    spectra run --timings src/main.spectra");
+        }
+        BuildCommand::Lint => {
+            println!("    spectra lint src/");
+            println!("    spectra lint --deny shadowing examples/");
         }
     }
     println!();
@@ -1309,6 +1537,36 @@ fn print_format_help() {
     println!("    spectra fmt --stdout src/main.spectra");
 }
 
+fn print_lint_help() {
+    println!("SpectraLang CLI – 'lint' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectra lint [OPTIONS] <paths>...");
+    println!();
+    println!("Run Spectra's lint checks across the provided files or directories.");
+    println!("Warnings are reported to stdout; denied rules cause the command to fail with exit code 65.");
+    println!();
+    println!("OPTIONS:");
+    println!("    --lint              Redundant; 'lint' always enables lint rules");
+    println!("    --allow <rule>      Allow (suppress) a lint rule (may be repeated)");
+    println!("    --deny <rule>       Deny a lint rule and escalate matches to errors");
+    println!("    --dump-ast          Dump the parsed AST for debugging");
+    println!("    --timings, -T       Collect front-end timings");
+    println!("    --summary           Print pipeline summaries (semantic + lint)");
+    println!("    --verbose, -v       Print additional plan diagnostics");
+    println!("    --enable-experimental <feature>");
+    println!("                        Enable experimental language feature (may repeat)");
+    println!(
+        "    -O0/-O1/-O2/-O3     Set optimization level (ignored by lint but accepted for parity)"
+    );
+    println!();
+    println!("Available lint rules: {}", lint_rule_list());
+    println!();
+    println!("Examples:");
+    println!("    spectra lint src/");
+    println!("    spectra lint --deny shadowing examples/");
+}
+
 fn print_compilation_options(command: Option<BuildCommand>) {
     println!("COMPILATION OPTIONS:");
     println!("    --dump-ast             Print the AST for debugging");
@@ -1321,7 +1579,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    -O2                    Enable moderate optimizations (default)");
     println!("    -O3                    Enable aggressive optimizations");
     match command {
-        Some(BuildCommand::Check) => {
+        Some(BuildCommand::Check) | Some(BuildCommand::Lint) => {
             println!("    --run, -r              Not available for the 'check' command");
         }
         Some(BuildCommand::Run) => {
@@ -1333,6 +1591,17 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     }
     println!("    --enable-experimental <feature>");
     println!("                           Enable experimental language feature (may be repeated)");
+    if matches!(command, Some(BuildCommand::Lint)) {
+        println!("    --lint                 Redundant; 'lint' always enables lint rules");
+    } else {
+        println!("    --lint                 Enable lint checks for the selected command");
+    }
+    println!("    --allow <rule>         Allow (suppress) a lint rule (may be repeated)");
+    println!("    --deny <rule>          Deny a lint rule and escalate matches to errors");
+    println!(
+        "                           Available rules: {}",
+        lint_rule_list()
+    );
 }
 
 fn print_experimental_features() {

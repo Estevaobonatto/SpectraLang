@@ -16,7 +16,7 @@
 
 ## Formatter Roadmap
 
-### Status Overview
+### Current Status
 
 - ✅ CLI command `spectra fmt` formats files in-place, supports `--check`, `--stdin`, and `--stdout`, and exits with `65` when changes are needed.
 - ✅ Formatter normalizes indentation, operator spacing, grouped `let` alignment (line-length aware), blank-line coalescing, and preserves line endings.
@@ -32,7 +32,7 @@
 - ✅ Formatter guide documents the explain payload schema and new run-statistics output for downstream tooling.
 - ✅ `spectra fmt --stats` emits a JSON summary (processed, changed, cache hits/misses) for CI dashboards and editor integrations.
 
-### Next Steps
+### Upcoming Work
 
 1. **CST policy extensions**
    - Layer configurable policies (brace style, trailing commas, import ordering) on top of the CST traversal.
@@ -49,13 +49,14 @@
 
 ## Linter Roadmap
 
-1. **Rule engine foundation**
-   - Introduce lint pass in the semantic pipeline, emitting warnings and configurable error escalation.
-   - Start with high-signal rules (unused bindings, unreachable code, shadowing).
-2. **CLI surface**
-   - Add `spectra lint` command plus `--lint` flag for build commands to enable linting during compilation.
-   - Support `--allow`/`--deny` per rule via `Spectra.toml` and command-line overrides.
-3. **Output conventions**
+### Status Overview
+
+- ✅ Rule engine foundation integrated into the semantic pipeline, covering `unused-binding`, `unreachable-code`, and `shadowing` with deny escalation support.
+- ✅ CLI surface in place: `spectra lint` command, `--lint` opt-in for build flows, and per-rule `--allow`/`--deny` switches with `[lint]` configuration in `Spectra.toml`.
+
+### Next Steps
+
+1. **Output conventions**
    - Emit diagnostics through the existing reporter so lint findings share the `error:`/`warning:` prefixes.
    - Reserve exit code `65` when `--deny` escalates to hard failures; otherwise exit `0` with warnings logged.
 

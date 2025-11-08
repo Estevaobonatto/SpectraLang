@@ -4,6 +4,7 @@ use crate::ast::{
 };
 use crate::span::Span;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LintRule {
@@ -28,6 +29,33 @@ impl LintRule {
             LintRule::Shadowing => "shadowed binding",
         }
     }
+
+    pub fn all() -> &'static [LintRule] {
+        const ALL: &[LintRule] = &[
+            LintRule::UnusedBinding,
+            LintRule::UnreachableCode,
+            LintRule::Shadowing,
+        ];
+        ALL
+    }
+
+    pub fn from_code(value: &str) -> Option<Self> {
+        match value {
+            "unused-binding" | "unused_binding" => Some(LintRule::UnusedBinding),
+            "unreachable-code" | "unreachable_code" => Some(LintRule::UnreachableCode),
+            "shadowing" => Some(LintRule::Shadowing),
+            _ => None,
+        }
+    }
+}
+
+impl FromStr for LintRule {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let normalized = value.trim().to_ascii_lowercase();
+        LintRule::from_code(&normalized).ok_or(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -47,28 +75,47 @@ pub struct LintOptions {
 
 impl Default for LintOptions {
     fn default() -> Self {
-        let enabled: HashSet<LintRule> = [
-            LintRule::UnusedBinding,
-            LintRule::UnreachableCode,
-            LintRule::Shadowing,
-        ]
-        .into_iter()
-        .collect();
+        Self::all()
+    }
+}
 
+impl LintOptions {
+    pub fn disabled() -> Self {
+        Self {
+            enabled: HashSet::new(),
+            deny: HashSet::new(),
+        }
+    }
+
+    pub fn all() -> Self {
+        let enabled: HashSet<LintRule> = LintRule::all().iter().copied().collect();
         Self {
             enabled,
             deny: HashSet::new(),
         }
     }
-}
 
-impl LintOptions {
     pub fn is_enabled(&self, rule: LintRule) -> bool {
         self.enabled.contains(&rule)
     }
 
     pub fn is_denied(&self, rule: LintRule) -> bool {
         self.deny.contains(&rule)
+    }
+
+    pub fn enable_rule(&mut self, rule: LintRule) {
+        self.enabled.insert(rule);
+        self.deny.remove(&rule);
+    }
+
+    pub fn disable_rule(&mut self, rule: LintRule) {
+        self.enabled.remove(&rule);
+        self.deny.remove(&rule);
+    }
+
+    pub fn deny_rule(&mut self, rule: LintRule) {
+        self.enabled.insert(rule);
+        self.deny.insert(rule);
     }
 }
 
@@ -364,9 +411,7 @@ impl<'a> LintRunner<'a> {
                 }
             }
             ExpressionKind::MethodCall {
-                object,
-                arguments,
-                ..
+                object, arguments, ..
             } => {
                 self.visit_expression(object);
                 for argument in arguments {
@@ -446,11 +491,7 @@ impl<'a> LintRunner<'a> {
 
                     self.diagnostics.push(LintDiagnostic {
                         rule: LintRule::UnusedBinding,
-                        message: format!(
-                            "{} '{}' is never used",
-                            binding.kind.description(),
-                            name
-                        ),
+                        message: format!("{} '{}' is never used", binding.kind.description(), name),
                         span: binding.span,
                         note: None,
                         secondary_span: None,
