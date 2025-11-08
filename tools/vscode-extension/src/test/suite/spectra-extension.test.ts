@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { expect } from 'chai';
 import * as vscode from 'vscode';
+import { suite, suiteSetup, test } from 'mocha';
 
 function getMockCliPath(): string {
   const base = path.resolve(__dirname, '../../../test-fixtures/mock-cli');

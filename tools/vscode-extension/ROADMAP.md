@@ -21,8 +21,14 @@
 
 ## Near-Term Tasks
 
-1. Route diagnostics through the CLI's JSON channels (e.g., `spectra repl --json`) to capture richer metadata and related quick fixes.
-2. Align the workspace lint command with `spectra lint` once its reporter guarantees per-file locations across the project graph.
-3. Document installation, configuration, and troubleshooting steps in `docs/cli`, linking to the extension roadmap and grammar status.
-4. Add automated smoke tests using `@vscode/test-electron` covering formatter, diagnostics, and command availability.
-5. Track hover and go-to-definition requirements, feeding discoveries back into the Spectra compiler roadmap.
+### Recently Completed
+
+1. Routed diagnostics through the CLI's JSON channels (`spectra repl --json`) to capture richer metadata and related hints.
+2. Aligned the workspace lint command with `spectra lint --json`, reusing the aggregated report to update VS Code diagnostics.
+3. Added an automated smoke-test harness (`npm test`) powered by `@vscode/test-electron` and a mock Spectra CLI.
+
+### In Flight
+
+1. Document installation, configuration, and troubleshooting steps in `docs/cli`, linking to the extension roadmap and grammar status.
+2. Expand the smoke tests to cover formatter round-trips, malformed JSON handling, and missing-CLI error paths.
+3. Track hover and go-to-definition requirements, feeding discoveries back into the Spectra compiler roadmap.
