@@ -4,10 +4,12 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub mod ffi;
 pub mod memory;
+pub mod stdlib;
 
 pub use memory::{
     CollectionOutcome, HybridMemory, ManualStats, MemoryConfig, MemoryStats, TracedStats,
 };
+pub use stdlib::register as register_standard_library;
 
 static RUNTIME_STATE: OnceLock<RuntimeState> = OnceLock::new();
 

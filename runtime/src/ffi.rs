@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::{ptr, slice, str};
+use std::{mem, ptr, slice, str};
 
 use crate::initialize;
 use crate::memory::ManualBox;
@@ -108,6 +108,47 @@ fn allocation_table() -> &'static Mutex<AllocationTable> {
     TABLE.get_or_init(|| Mutex::new(AllocationTable::new()))
 }
 
+/// Primary scalar type exchanged through host call contexts.
+pub type SpectraHostValue = i64;
+
+/// Status codes returned by host functions.
+pub const HOST_STATUS_SUCCESS: i32 = 0;
+pub const HOST_STATUS_INVALID_ARGUMENT: i32 = 1;
+pub const HOST_STATUS_NOT_FOUND: i32 = 2;
+pub const HOST_STATUS_INTERNAL_ERROR: i32 = 3;
+
+/// Context passed to host functions containing argument and result buffers.
+#[repr(C)]
+pub struct SpectraHostCallContext {
+    pub args: *const SpectraHostValue,
+    pub arg_len: usize,
+    pub results: *mut SpectraHostValue,
+    pub result_len: usize,
+}
+
+impl SpectraHostCallContext {
+    /// Returns a slice view over the argument buffer.
+    pub unsafe fn args_slice(&self) -> &[SpectraHostValue] {
+        if self.args.is_null() || self.arg_len == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(self.args, self.arg_len)
+        }
+    }
+
+    /// Returns a mutable slice view over the result buffer.
+    pub unsafe fn results_slice_mut(&mut self) -> &mut [SpectraHostValue] {
+        if self.results.is_null() || self.result_len == 0 {
+            &mut []
+        } else {
+            slice::from_raw_parts_mut(self.results, self.result_len)
+        }
+    }
+}
+
+/// Signature expected for runtime host functions.
+pub type HostFunction = extern "C" fn(*mut SpectraHostCallContext) -> i32;
+
 struct HostRegistry {
     functions: HashMap<String, usize>,
 }
@@ -160,6 +201,45 @@ fn read_host_name(name_ptr: *const u8, name_len: usize) -> Option<String> {
 
     let bytes = unsafe { slice::from_raw_parts(name_ptr, name_len) };
     str::from_utf8(bytes).ok().map(|s| s.to_string())
+}
+
+/// Registers a host function accessible to JITed code.
+pub fn register_host_function(name: &str, func: HostFunction) -> bool {
+    let registry = host_registry();
+    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    guard.insert(name, func as *const ())
+}
+
+/// Removes a previously registered host function.
+pub fn unregister_host_function(name: &str) -> bool {
+    let registry = host_registry();
+    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    guard.remove(name)
+}
+
+/// Returns the host function pointer associated with the provided name.
+pub fn lookup_host_function(name: &str) -> Option<HostFunction> {
+    let registry = host_registry();
+    let guard = registry.lock().expect("host registry mutex poisoned");
+    let ptr = guard.lookup(name);
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { mem::transmute(ptr) })
+    }
+}
+
+/// Clears all registered host functions.
+pub fn clear_host_functions() {
+    let registry = host_registry();
+    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    guard.clear();
+}
+
+/// Registers the built-in standard library host calls.
+#[no_mangle]
+pub extern "C" fn spectra_rt_std_register() {
+    crate::stdlib::register();
 }
 
 /// Begins a manual allocation frame and returns its identifier.

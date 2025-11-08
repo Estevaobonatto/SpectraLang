@@ -5,10 +5,10 @@ This document defines how native host functions are exposed to JIT-compiled Spec
 ## Registration Lifecycle
 
 1. Initialise the runtime (or allow lazy initialisation) before launching JIT code.
-2. Register each host function exactly once per process by calling `spectra_rt_host_register(name_ptr, name_len, fn_ptr)`.
-   - `name_ptr`/`name_len` identify the function using a UTF-8 name (for example `b"spectra.io.print"`).
-   - `fn_ptr` must be an `extern "C"` function pointer cast to `*const ()`.
-   - The call returns `true` when the name was newly inserted and `false` when an existing entry was replaced.
+2. Register each host function exactly once per process by calling `spectra_rt_host_register(name_ptr, name_len, fn_ptr)` (or, from Rust, `spectra_runtime::ffi::register_host_function(name, func)`).
+    - `name_ptr`/`name_len` identify the function using a UTF-8 name (for example `b"spectra.std.io.print"`).
+    - `fn_ptr` must be an `extern "C"` function pointer cast to `*const ()`.
+    - The call returns `true` when the name was newly inserted and `false` when an existing entry was replaced.
 3. When a host function should be removed, call `spectra_rt_host_unregister` with the same name. The function returns `true` if a registration existed.
 4. To reset the registry (typically in tests or process teardown) invoke `spectra_rt_host_clear`.
 
@@ -30,14 +30,14 @@ if (fn == NULL) {
 
 ## Calling Convention
 
-Host functions are treated as raw pointers; Spectra does not impose a fixed signature yet. For the alpha milestone we standardise on the following default signature, which matches the current backend expectations:
+Host functions are treated as raw pointers; Spectra does not impose a fixed signature yet. For the alpha milestone we standardise on the following default signature, which matches the current backend expectations and mirrors the symbols exported from `runtime::ffi`:
 
 ```c
-typedef int64_t SpectraValue;
+typedef int64_t SpectraHostValue;
 typedef struct SpectraHostCallContext {
-    const SpectraValue *args;
+    const SpectraHostValue *args;
     size_t arg_len;
-    SpectraValue *results;
+    SpectraHostValue *results;
     size_t result_len;
 } SpectraHostCallContext;
 
@@ -45,7 +45,7 @@ typedef int32_t (*SpectraHostFn)(SpectraHostCallContext *ctx);
 ```
 
 - Arguments and results are ABI-aligned 64-bit slots that mirror Spectra's primitive representation.
-- The callee writes return values into `results` and returns `0` on success or a non-zero status code on failure.
+- The callee writes return values into `results` and returns `HOST_STATUS_SUCCESS` (`0`) on success. The runtime also exposes `HOST_STATUS_INVALID_ARGUMENT`, `HOST_STATUS_NOT_FOUND`, and `HOST_STATUS_INTERNAL_ERROR` for common failure modes.
 - Host code may ignore fields it does not need, but must treat the context pointer as mutable.
 
 Future milestones may introduce richer metadata, but compiled alpha releases must continue honouring this contract to remain compatible.
@@ -53,23 +53,25 @@ Future milestones may introduce richer metadata, but compiled alpha releases mus
 ## Example: Registering a Native Function
 
 ```rust
-use spectra_runtime::ffi::{spectra_rt_host_clear, spectra_rt_host_register};
+use spectra_runtime::ffi::{
+    clear_host_functions,
+    register_host_function,
+    SpectraHostCallContext,
+    HOST_STATUS_SUCCESS,
+};
 
 extern "C" fn host_print(ctx: *mut SpectraHostCallContext) -> i32 {
     // Implementation elided – decode ctx->args and print to stdout.
-    0
+    HOST_STATUS_SUCCESS
 }
 
 pub fn install_io_host_calls() {
     // Ensure a clean slate when embedding in tests.
-    unsafe { spectra_rt_host_clear() };
+    clear_host_functions();
 
-    let name = b"spectra.io.print";
-    let inserted = unsafe {
-        spectra_rt_host_register(name.as_ptr(), name.len(), host_print as *const ())
-    };
+    let inserted = register_host_function("spectra.std.io.print", host_print);
     assert!(inserted);
 }
 ```
 
-The backend can now emit a lookup for `spectra.io.print` and patch the resulting function pointer into the generated machine code.
+The backend can now emit a lookup for `spectra.std.io.print` and patch the resulting function pointer into the generated machine code.
