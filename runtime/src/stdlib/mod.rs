@@ -24,6 +24,8 @@ const MATH_MUL: &str = "spectra.std.math.mul";
 const MATH_DIV: &str = "spectra.std.math.div";
 const MATH_MOD: &str = "spectra.std.math.mod";
 const MATH_POW: &str = "spectra.std.math.pow";
+const MATH_CLAMP: &str = "spectra.std.math.clamp";
+const MATH_MEAN: &str = "spectra.std.math.mean";
 
 const IO_PRINT: &str = "spectra.std.io.print";
 const IO_FLUSH: &str = "spectra.std.io.flush";
@@ -52,6 +54,8 @@ fn register_math() {
     register_host_function(MATH_DIV, std_math_div);
     register_host_function(MATH_MOD, std_math_mod);
     register_host_function(MATH_POW, std_math_pow);
+    register_host_function(MATH_CLAMP, std_math_clamp);
+    register_host_function(MATH_MEAN, std_math_mean);
 }
 
 fn register_io() {
@@ -328,6 +332,76 @@ extern "C" fn std_math_pow(ctx: *mut SpectraHostCallContext) -> i32 {
             None => HOST_STATUS_ARITHMETIC_ERROR,
         }
     }
+}
+
+extern "C" fn std_math_clamp(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        let value = args[0];
+        let min = args[1];
+        let max = args[2];
+
+        if min > max {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        results[0] = value.clamp(min, max);
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_math_mean(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len == 0 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let mut sum: i128 = 0;
+        for value in args {
+            sum += *value as i128;
+        }
+
+        let count = args.len() as i128;
+        if count == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let mean = sum / count;
+
+        let clamped_mean = match i64::try_from(mean) {
+            Ok(val) => val,
+            Err(_) => return HOST_STATUS_ARITHMETIC_ERROR,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = clamped_mean;
+    }
+
+    HOST_STATUS_SUCCESS
 }
 
 extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -816,6 +890,89 @@ mod tests {
         };
 
         assert_eq!(pow(&mut ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_clamp_respects_bounds() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let clamp = lookup_host_function(MATH_CLAMP).expect("math clamp not registered");
+
+        let args = [10, 0, 5];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: 3,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(clamp(&mut ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 5);
+
+        let args_below = [-10, -4, 3];
+        let mut below_ctx = SpectraHostCallContext {
+            args: args_below.as_ptr(),
+            arg_len: 3,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(clamp(&mut below_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], -4);
+
+        let args_invalid = [1, 5, 2];
+        let mut invalid_ctx = SpectraHostCallContext {
+            args: args_invalid.as_ptr(),
+            arg_len: 3,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(clamp(&mut invalid_ctx), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn math_mean_handles_multiple_values() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let mean = lookup_host_function(MATH_MEAN).expect("math mean not registered");
+
+        let args = [10, 20, 30];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(mean(&mut ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 20);
+
+        let args_single = [-3];
+        let mut single_ctx = SpectraHostCallContext {
+            args: args_single.as_ptr(),
+            arg_len: 1,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(mean(&mut single_ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], -3);
+
+        let mut empty_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(mean(&mut empty_ctx), HOST_STATUS_INVALID_ARGUMENT);
     }
 
     #[test]

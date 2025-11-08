@@ -13,8 +13,20 @@ pub fn main() {
     let remainder = std.math.mod(a, 5);
     let pow_result = std.math.pow(3, 4);
     let abs_value = std.math.abs(b);
+    let clamped = std.math.clamp(b, -2, 2);
+    let mean_value = std.math.mean(a, b, 6, -3);
 
-    std.io.print(sum, difference, product, quotient, remainder, pow_result, abs_value);
+    std.io.print(
+        sum,
+        difference,
+        product,
+        quotient,
+        remainder,
+        pow_result,
+        abs_value,
+        clamped,
+        mean_value,
+    );
     std.io.flush();
 
     return;

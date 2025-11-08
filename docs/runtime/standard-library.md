@@ -16,14 +16,16 @@ status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results 
 | `spectra.std.math.abs` | Absolute value for signed integers. | `x` | `abs(x)` |
 | `spectra.std.math.min` | Returns the smaller of two integers. | `lhs`, `rhs` | `min(lhs, rhs)` |
 | `spectra.std.math.max` | Returns the larger of two integers. | `lhs`, `rhs` | `max(lhs, rhs)` |
+| `spectra.std.math.clamp` | Clamps an integer to the provided inclusive range. | `value`, `min`, `max` | `min(max(value, min), max)` |
 | `spectra.std.math.add` | Integer addition with overflow checking. | `lhs`, `rhs` | `lhs + rhs` |
 | `spectra.std.math.sub` | Integer subtraction with overflow checking. | `lhs`, `rhs` | `lhs - rhs` |
 | `spectra.std.math.mul` | Integer multiplication with overflow checking. | `lhs`, `rhs` | `lhs * rhs` |
 | `spectra.std.math.div` | Integer division rejecting division by zero. | `numerator`, `denominator` | `numerator / denominator` |
 | `spectra.std.math.mod` | Remainder operation rejecting division by zero. | `numerator`, `denominator` | `numerator % denominator` |
 | `spectra.std.math.pow` | Integer exponentiation for non-negative exponents. | `base`, `exponent` | `base^exponent` |
+| `spectra.std.math.mean` | Arithmetic mean of one or more integers (integer division, truncates toward zero). | variadic | floor(mean(values)) |
 
-Overflow yields `HOST_STATUS_ARITHMETIC_ERROR`; invalid input (division by zero, negative exponents) returns `HOST_STATUS_INVALID_ARGUMENT`.
+Overflow yields `HOST_STATUS_ARITHMETIC_ERROR`; invalid input (division by zero, negative exponents, inverted ranges, empty argument lists) returns `HOST_STATUS_INVALID_ARGUMENT`.
 
 ## io namespace
 

@@ -15,6 +15,9 @@
 - [x] Implementar operações básicas adicionais (`add`, `sub`, `mul`, `div`, `mod`, `pow`)
 - [ ] Suportar floats com conversões e funções trigonométricas, validando NaN/Inf
 - [ ] Fornecer utilitários de estatística simples (média, `clamp`, geração determinística de números aleatórios)
+  - [x] `std.math.clamp`
+  - [x] `std.math.mean`
+  - [ ] RNG determinístico e utilitários adicionais (`median`, `variance`, etc.)
 
 ## I/O e Sistema
 
