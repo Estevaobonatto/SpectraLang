@@ -45,7 +45,7 @@
 - [x] Implement subcommands for `check`, `run`, `repl`, and project scaffolding where applicable _(CLI now offers `compile`/`check`/`run`, interactive `repl`, and `new` project scaffolding)_
 - [x] Surface pipeline summaries (frontend, lowering, passes, codegen timings) behind flags _(`--summary` option now prints per-module pipeline metrics with aggregated timings in `tools/spectra-cli`)_
 - [ ] Plan formatting, linting, and VS Code syntax/highlighting tooling integration
-- [ ] Define exit codes and logging conventions for automation compatibility
+- [x] Define exit codes and logging conventions for automation compatibility _(CLI now emits structured `error:` lines and maps failures to deterministic exit codes in `tools/spectra-cli/src/main.rs`)_
 
 ## Quality Gates
 

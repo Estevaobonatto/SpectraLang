@@ -10,6 +10,62 @@ use std::{env, fs, process};
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
 
+#[repr(i32)]
+#[derive(Copy, Clone, Debug)]
+enum ExitCode {
+    Success = 0,
+    Usage = 64,
+    CompilationFailed = 65,
+    IoError = 74,
+}
+
+impl ExitCode {
+    fn as_i32(self) -> i32 {
+        self as i32
+    }
+}
+
+#[derive(Debug)]
+struct CliError {
+    message: String,
+    code: ExitCode,
+}
+
+impl CliError {
+    fn new(message: impl Into<String>, code: ExitCode) -> Self {
+        Self {
+            message: message.into(),
+            code,
+        }
+    }
+
+    fn usage(message: impl Into<String>) -> Self {
+        Self::new(message, ExitCode::Usage)
+    }
+
+    fn compilation(message: impl Into<String>) -> Self {
+        Self::new(message, ExitCode::CompilationFailed)
+    }
+
+    fn io(message: impl Into<String>) -> Self {
+        Self::new(message, ExitCode::IoError)
+    }
+}
+
+type CliResult<T> = Result<T, CliError>;
+
+fn log_error(message: &str) {
+    for (index, line) in message.lines().enumerate() {
+        if index == 0 {
+            eprintln!("error: {}", line);
+        } else if line.is_empty() {
+            eprintln!();
+        } else {
+            eprintln!("       {}", line);
+        }
+    }
+}
+
 #[derive(Debug)]
 struct CliInvocation {
     entries: Vec<PathBuf>,
@@ -101,43 +157,44 @@ impl BuildCommand {
 }
 
 fn main() {
-    let action = match parse_cli() {
-        Ok(action) => action,
-        Err(message) => {
-            eprintln!("{}", message);
-            process::exit(1);
+    let exit_code = match run_cli() {
+        Ok(()) => ExitCode::Success,
+        Err(error) => {
+            log_error(&error.message);
+            error.code
         }
     };
 
+    process::exit(exit_code.as_i32());
+}
+
+fn run_cli() -> CliResult<()> {
+    let action = parse_cli()?;
+    execute_action(action)
+}
+
+fn execute_action(action: CliAction) -> CliResult<()> {
     match action {
-        CliAction::Help(topic) => match topic {
-            HelpTopic::Global => print_global_help(),
-            HelpTopic::Build(command) => print_build_help(command),
-            HelpTopic::Repl => print_repl_help(),
-            HelpTopic::NewProject => print_new_help(),
-        },
+        CliAction::Help(topic) => {
+            match topic {
+                HelpTopic::Global => print_global_help(),
+                HelpTopic::Build(command) => print_build_help(command),
+                HelpTopic::Repl => print_repl_help(),
+                HelpTopic::NewProject => print_new_help(),
+            }
+            Ok(())
+        }
         CliAction::ListExperimental => {
             print_experimental_features();
+            Ok(())
         }
-        CliAction::Build { kind, invocation } => {
-            if let Err(code) = execute_build_command(kind, invocation) {
-                process::exit(code);
-            }
-        }
-        CliAction::Repl(options) => {
-            if let Err(code) = execute_repl(options) {
-                process::exit(code);
-            }
-        }
-        CliAction::NewProject(options) => {
-            if let Err(code) = execute_new_project(options) {
-                process::exit(code);
-            }
-        }
+        CliAction::Build { kind, invocation } => execute_build_command(kind, invocation),
+        CliAction::Repl(options) => execute_repl(options),
+        CliAction::NewProject(options) => execute_new_project(options),
     }
 }
 
-fn parse_cli() -> Result<CliAction, String> {
+fn parse_cli() -> CliResult<CliAction> {
     let mut args = env::args().skip(1).peekable();
 
     if args.peek().is_none() {
@@ -239,7 +296,7 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
 fn parse_compilation_invocation<I>(
     args: &mut std::iter::Peekable<I>,
     command: BuildCommand,
-) -> Result<CliInvocation, String>
+) -> CliResult<CliInvocation>
 where
     I: Iterator<Item = String>,
 {
@@ -330,7 +387,7 @@ where
     })
 }
 
-fn parse_repl_invocation<I>(args: &mut std::iter::Peekable<I>) -> Result<ReplOptions, String>
+fn parse_repl_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<ReplOptions>
 where
     I: Iterator<Item = String>,
 {
@@ -411,7 +468,7 @@ where
 
 fn parse_new_project_invocation<I>(
     args: &mut std::iter::Peekable<I>,
-) -> Result<NewProjectOptions, String>
+) -> CliResult<NewProjectOptions>
 where
     I: Iterator<Item = String>,
 {
@@ -440,7 +497,7 @@ where
     Ok(NewProjectOptions { path, force })
 }
 
-fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Result<(), i32> {
+fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliResult<()> {
     let CliInvocation {
         entries,
         options,
@@ -448,7 +505,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Resul
         verbose,
     } = invocation;
 
-    match execute_plan_with_options(
+    execute_plan_with_options(
         kind,
         options,
         entries,
@@ -456,13 +513,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> Resul
         show_pipeline_summary,
         true,
         verbose,
-    ) {
-        Ok(()) => Ok(()),
-        Err(message) => {
-            eprintln!("{}", message);
-            Err(1)
-        }
-    }
+    )
 }
 
 fn compile_plan(
@@ -507,22 +558,24 @@ fn compile_plan(
                 }
                 Err(error) => {
                     has_failures = true;
-                    eprintln!(
-                        "\nCompilation failed for module '{}' ({})",
+                    println!();
+                    log_error(&format!(
+                        "Compilation failed for module '{}' ({})\n{}",
                         module.name,
-                        module.path.display()
-                    );
-                    eprintln!("{}", error);
+                        module.path.display(),
+                        error
+                    ));
                 }
             },
             Err(error) => {
                 has_failures = true;
-                eprintln!(
-                    "\nFailed to read file for module '{}' ({}):",
+                println!();
+                log_error(&format!(
+                    "Failed to read file for module '{}' ({})\nError: {}",
                     module.name,
-                    module.path.display()
-                );
-                eprintln!("Error: {}", error);
+                    module.path.display(),
+                    error
+                ));
             }
         }
     }
@@ -571,11 +624,11 @@ fn execute_plan_with_options(
     show_aggregate_summary: bool,
     print_success: bool,
     verbose: bool,
-) -> Result<(), String> {
-    let plan = ProjectPlan::build(entries).map_err(|error| error.to_string())?;
+) -> CliResult<()> {
+    let plan = ProjectPlan::build(entries).map_err(|error| CliError::io(error.to_string()))?;
 
     if plan.modules().is_empty() {
-        return Err("No Spectra source files found to compile.".to_string());
+        return Err(CliError::usage("No Spectra source files found to compile."));
     }
 
     if verbose {
@@ -612,10 +665,11 @@ fn execute_plan_with_options(
     }
 
     if has_failures {
-        Err(format!(
-            "\n💥 Command '{}' completed with errors",
+        println!();
+        Err(CliError::compilation(format!(
+            "💥 Command '{}' completed with errors",
             kind.name()
-        ))
+        )))
     } else {
         if print_success {
             println!("\n{}", kind.success_message());
@@ -669,7 +723,7 @@ fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions)
     }
 }
 
-fn execute_repl(options: ReplOptions) -> Result<(), i32> {
+fn execute_repl(options: ReplOptions) -> CliResult<()> {
     let ReplOptions {
         base_options,
         preload,
@@ -681,18 +735,12 @@ fn execute_repl(options: ReplOptions) -> Result<(), i32> {
     let session = ReplSession::new(base_options, autorun, show_pipeline_summary, verbose);
 
     if !preload.is_empty() {
-        if let Err(message) = session.compile_entries(preload, session.default_command(), true) {
-            eprintln!("{}", message);
+        if let Err(error) = session.compile_entries(preload, session.default_command(), true) {
+            log_error(&error.message);
         }
     }
 
-    match session.run() {
-        Ok(()) => Ok(()),
-        Err(message) => {
-            eprintln!("{}", message);
-            Err(1)
-        }
-    }
+    session.run()
 }
 
 struct ReplSession {
@@ -730,9 +778,9 @@ impl ReplSession {
         entries: Vec<PathBuf>,
         command: BuildCommand,
         print_success: bool,
-    ) -> Result<(), String> {
+    ) -> CliResult<()> {
         if entries.is_empty() {
-            return Err("Provide one or more paths to compile.".to_string());
+            return Err(CliError::usage("Provide one or more paths to compile."));
         }
 
         let mut options = self.base_options.clone();
@@ -753,7 +801,7 @@ impl ReplSession {
         )
     }
 
-    fn run(&self) -> Result<(), String> {
+    fn run(&self) -> CliResult<()> {
         println!("SpectraLang REPL (type ':help' for commands)");
 
         let stdin = io::stdin();
@@ -762,12 +810,12 @@ impl ReplSession {
             print!("spectra> ");
             io::stdout()
                 .flush()
-                .map_err(|error| format!("Failed to flush prompt: {}", error))?;
+                .map_err(|error| CliError::io(format!("Failed to flush prompt: {}", error)))?;
 
             let mut line = String::new();
             let bytes = stdin
                 .read_line(&mut line)
-                .map_err(|error| format!("Failed to read input: {}", error))?;
+                .map_err(|error| CliError::io(format!("Failed to read input: {}", error)))?;
 
             if bytes == 0 {
                 println!();
@@ -788,15 +836,15 @@ impl ReplSession {
 
             let entries: Vec<PathBuf> = trimmed.split_whitespace().map(PathBuf::from).collect();
 
-            if let Err(message) = self.compile_entries(entries, self.default_command(), true) {
-                eprintln!("{}", message);
+            if let Err(error) = self.compile_entries(entries, self.default_command(), true) {
+                log_error(&error.message);
             }
         }
 
         Ok(())
     }
 
-    fn handle_command(&self, input: &str) -> Result<bool, String> {
+    fn handle_command(&self, input: &str) -> CliResult<bool> {
         let command = input[1..].trim();
         if command.is_empty() {
             print_repl_help();
@@ -818,8 +866,8 @@ impl ReplSession {
                     println!("Usage: :load <paths>...");
                     return Ok(true);
                 }
-                if let Err(message) = self.compile_entries(args, BuildCommand::Compile, true) {
-                    eprintln!("{}", message);
+                if let Err(error) = self.compile_entries(args, BuildCommand::Compile, true) {
+                    log_error(&error.message);
                 }
                 Ok(true)
             }
@@ -828,8 +876,8 @@ impl ReplSession {
                     println!("Usage: :run <paths>...");
                     return Ok(true);
                 }
-                if let Err(message) = self.compile_entries(args, BuildCommand::Run, true) {
-                    eprintln!("{}", message);
+                if let Err(error) = self.compile_entries(args, BuildCommand::Run, true) {
+                    log_error(&error.message);
                 }
                 Ok(true)
             }
@@ -838,8 +886,8 @@ impl ReplSession {
                     println!("Usage: :check <paths>...");
                     return Ok(true);
                 }
-                if let Err(message) = self.compile_entries(args, BuildCommand::Check, true) {
-                    eprintln!("{}", message);
+                if let Err(error) = self.compile_entries(args, BuildCommand::Check, true) {
+                    log_error(&error.message);
                 }
                 Ok(true)
             }
@@ -848,8 +896,8 @@ impl ReplSession {
                     println!("Usage: :compile <paths>...");
                     return Ok(true);
                 }
-                if let Err(message) = self.compile_entries(args, BuildCommand::Compile, true) {
-                    eprintln!("{}", message);
+                if let Err(error) = self.compile_entries(args, BuildCommand::Compile, true) {
+                    log_error(&error.message);
                 }
                 Ok(true)
             }
@@ -864,44 +912,39 @@ impl ReplSession {
     }
 }
 
-fn execute_new_project(options: NewProjectOptions) -> Result<(), i32> {
-    match create_new_project(options) {
-        Ok(()) => Ok(()),
-        Err(message) => {
-            eprintln!("{}", message);
-            Err(1)
-        }
-    }
+fn execute_new_project(options: NewProjectOptions) -> CliResult<()> {
+    create_new_project(options)
 }
 
-fn create_new_project(options: NewProjectOptions) -> Result<(), String> {
+fn create_new_project(options: NewProjectOptions) -> CliResult<()> {
     let NewProjectOptions { path, force } = options;
 
     if path.exists() {
         if !path.is_dir() {
-            return Err(format!(
+            return Err(CliError::io(format!(
                 "Path '{}' exists and is not a directory.",
                 path.display()
-            ));
+            )));
         }
 
         if !force
-            && !is_directory_empty(&path)
-                .map_err(|error| format!("Failed to inspect '{}': {}", path.display(), error))?
+            && !is_directory_empty(&path).map_err(|error| {
+                CliError::io(format!("Failed to inspect '{}': {}", path.display(), error))
+            })?
         {
-            return Err(format!(
+            return Err(CliError::usage(format!(
                 "Directory '{}' already exists. Use '--force' to scaffold anyway.",
                 path.display()
-            ));
+            )));
         }
     }
 
     fs::create_dir_all(path.join("src")).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "Failed to create project directories under '{}': {}",
             path.display(),
             error
-        )
+        ))
     })?;
 
     let (project_name, module_name) = derive_project_identifiers(&path);
@@ -919,19 +962,19 @@ fn create_new_project(options: NewProjectOptions) -> Result<(), String> {
     );
 
     fs::write(&manifest_path, manifest_contents).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "Failed to write manifest '{}': {}",
             manifest_path.display(),
             error
-        )
+        ))
     })?;
 
     fs::write(&main_source_path, main_source).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "Failed to write source file '{}': {}",
             main_source_path.display(),
             error
-        )
+        ))
     })?;
 
     println!("✨ Created Spectra project at '{}'", path.display());
@@ -1144,7 +1187,8 @@ fn print_experimental_features() {
     }
 }
 
-fn usage_error(message: &str) -> String {
+fn usage_error(message: &str) -> CliError {
     let trimmed = message.trim_end();
-    format!("{}\nUse 'spectra --help' for usage information.", trimmed)
+    let formatted = format!("{}\nUse 'spectra --help' for usage information.", trimmed);
+    CliError::usage(formatted)
 }
