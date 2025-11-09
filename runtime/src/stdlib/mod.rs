@@ -73,6 +73,10 @@ const TEXT_NEW: &str = "spectra.std.text.new";
 const TEXT_FROM_LIST: &str = "spectra.std.text.from_list";
 const TEXT_TO_LIST: &str = "spectra.std.text.to_list";
 const TEXT_LEN: &str = "spectra.std.text.len";
+const TEXT_FROM_INT: &str = "spectra.std.text.from_int";
+const TEXT_FROM_FLOAT: &str = "spectra.std.text.from_float";
+const TEXT_PARSE_INT: &str = "spectra.std.text.parse_int";
+const TEXT_PARSE_FLOAT: &str = "spectra.std.text.parse_float";
 const TEXT_CONCAT: &str = "spectra.std.text.concat";
 const TEXT_SUBSTRING: &str = "spectra.std.text.substring";
 const TEXT_FREE: &str = "spectra.std.text.free";
@@ -160,6 +164,10 @@ fn register_text() {
     register_host_function(TEXT_FROM_LIST, std_text_from_list);
     register_host_function(TEXT_TO_LIST, std_text_to_list);
     register_host_function(TEXT_LEN, std_text_len);
+    register_host_function(TEXT_FROM_INT, std_text_from_int);
+    register_host_function(TEXT_FROM_FLOAT, std_text_from_float);
+    register_host_function(TEXT_PARSE_INT, std_text_parse_int);
+    register_host_function(TEXT_PARSE_FLOAT, std_text_parse_float);
     register_host_function(TEXT_CONCAT, std_text_concat);
     register_host_function(TEXT_SUBSTRING, std_text_substring);
     register_host_function(TEXT_FREE, std_text_free);
@@ -2216,6 +2224,153 @@ extern "C" fn std_text_substring(ctx: *mut SpectraHostCallContext) -> i32 {
 
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_from_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = args[0];
+        let text = value.to_string();
+
+        let handle = match with_string_registry(|registry| registry.create(text)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_from_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let float_value = decode_f64(args[0]);
+        let text = float_value.to_string();
+
+        let handle = match with_string_registry(|registry| registry.create(text)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_parse_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        let text = match with_string_registry(|registry| registry.clone_value(handle)) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let parsed = match trimmed.parse::<SpectraHostValue>() {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = parsed;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_parse_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        let text = match with_string_registry(|registry| registry.clone_value(handle)) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let parsed = match trimmed.parse::<f64>() {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+
+        let encoded = encode_f64(parsed);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = encoded;
     }
 
     HOST_STATUS_SUCCESS
@@ -4290,6 +4445,67 @@ mod tests {
         assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
 
         let _ = invoke(TEXT_FREE, &[source_handle as SpectraHostValue], 0);
+    }
+
+    #[test]
+    fn text_from_int_and_parse_int_roundtrip() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let value = 12345;
+        let (create_status, create_results) = invoke(TEXT_FROM_INT, &[value], 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let handle = create_results[0] as usize;
+
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &[handle as SpectraHostValue], 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let list_handle = to_list_results[0] as usize;
+        assert_eq!(list_to_string(list_handle), "12345");
+
+        let (parse_status, parse_results) = invoke(TEXT_PARSE_INT, &[handle as SpectraHostValue], 1);
+        assert_eq!(parse_status, HOST_STATUS_SUCCESS);
+        assert_eq!(parse_results[0], value);
+
+        let _ = invoke(TEXT_FREE, &[handle as SpectraHostValue], 0);
+    }
+
+    #[test]
+    fn text_parse_int_rejects_invalid_payload() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let list_handle = list_from_bytes(b"not_a_number");
+        let (create_status, create_results) = invoke(TEXT_FROM_LIST, &[list_handle as SpectraHostValue], 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let text_handle = create_results[0] as usize;
+
+        let (parse_status, _) = invoke(TEXT_PARSE_INT, &[text_handle as SpectraHostValue], 1);
+        assert_eq!(parse_status, HOST_STATUS_INVALID_ARGUMENT);
+
+        let _ = invoke(TEXT_FREE, &[text_handle as SpectraHostValue], 0);
+    }
+
+    #[test]
+    fn text_from_float_and_parse_float_roundtrip() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let float_value = 3.5f64;
+        let packed = encode_float(float_value);
+
+        let (create_status, create_results) = invoke(TEXT_FROM_FLOAT, &[packed], 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let handle = create_results[0] as usize;
+
+        let (parse_status, parse_results) = invoke(TEXT_PARSE_FLOAT, &[handle as SpectraHostValue], 1);
+        assert_eq!(parse_status, HOST_STATUS_SUCCESS);
+        let parsed = decode_float(parse_results[0]);
+        assert!((parsed - float_value).abs() < f64::EPSILON);
+
+        let _ = invoke(TEXT_FREE, &[handle as SpectraHostValue], 0);
     }
 
     #[test]

@@ -49,7 +49,7 @@
   - [x] Consulta de comprimento (contagem de escalares Unicode)
   - [x] Concatenação básica entre handles
   - [x] `substring`
-- [ ] Implementar conversões número↔string e parsing seguro
+- [x] Implementar conversões número↔string e parsing seguro
 - [ ] Adicionar utilitários de formatação (`format`, interpolação simples)
 
 ## Coleções e Estruturas de Dados

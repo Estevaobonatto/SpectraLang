@@ -117,6 +117,10 @@ I/O. Each handle owns an allocation that must be released explicitly when no lon
 | `spectra.std.text.from_list` | Validates the bytes stored in a list handle as UTF-8 and, if valid, copies them into a new string handle. | `list_handle` | string handle |
 | `spectra.std.text.to_list` | Copies the UTF-8 bytes stored in a string handle into a freshly allocated list handle. | `string_handle` | new list handle |
 | `spectra.std.text.len` | Returns the number of Unicode scalar values stored in the string. | `string_handle` | length |
+| `spectra.std.text.from_int` | Formats an integer as decimal ASCII characters and returns a new string handle. | `value` | string handle |
+| `spectra.std.text.from_float` | Formats a 64-bit float using Rust's default `Display` implementation. | `value_bits` | string handle |
+| `spectra.std.text.parse_int` | Parses a decimal integer, trimming surrounding ASCII whitespace. | `string_handle` | parsed integer |
+| `spectra.std.text.parse_float` | Parses an IEEE-754 `f64` (accepts Rust/JSON-compatible syntax). | `string_handle` | float bits |
 | `spectra.std.text.substring` | Extracts a slice by Unicode scalar index. The optional length parameter limits the number of scalars copied; absent length consumes the remainder of the string. | `string_handle`, `start_index`, `[length]` | string handle |
 | `spectra.std.text.concat` | Produces a new string handle containing the concatenation of the provided handles. | `lhs_handle`, `rhs_handle` | string handle |
 | `spectra.std.text.free` | Releases the allocation associated with a string handle. | `handle` | `0` when `results` provided |
@@ -124,7 +128,9 @@ I/O. Each handle owns an allocation that must be released explicitly when no lon
 
 `spectra.std.text.len` counts Unicode scalar values rather than raw bytes, making it safe to use for
 user-facing text. `spectra.std.text.substring` operates on the same scalar indices, returning an
-empty string when the start index equals the string length and rejecting out-of-range spans. Use
+empty string when the start index equals the string length and rejecting out-of-range spans. The
+formatting helpers (`from_int`/`from_float`) allocate fresh handles, while the parsing helpers
+return `HOST_STATUS_INVALID_ARGUMENT` when the payload cannot be interpreted as a number. Use
 `from_list`/`to_list` to bridge between I/O pipelines (which consume raw byte lists) and higher-level
 text operations.
 

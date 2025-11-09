@@ -3731,6 +3731,26 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("text", "from_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.from_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "from_float") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.from_float",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "parse_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.parse_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "parse_float") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.parse_float",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
             ("text", "substring") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.text.substring",
                 return_type: IRType::Int,
