@@ -13,6 +13,15 @@ use spectra_compiler::ast::{
 use spectra_compiler::span::Span;
 use std::collections::{HashMap, HashSet};
 
+/// Alias shortcuts automatically injected by the standard prelude import.
+const PRELUDE_SHORTCUTS: &[(&str, &str)] = &[
+    ("math", "std.math"),
+    ("io", "std.io"),
+    ("log", "std.log"),
+    ("text", "std.text"),
+    ("time", "std.time"),
+    ("collections", "std.collections"),
+];
 /// Stack-based scope system for variable shadowing support
 #[derive(Clone)]
 struct ScopeStack {
@@ -277,8 +286,12 @@ pub struct ASTLowering {
     trait_implementations: HashMap<(String, String), bool>,
     /// Tracks return types for lowered functions (including specializations)
     function_return_types: HashMap<String, IRType>,
+    /// Name of the module currently being lowered
+    current_module: String,
     /// Known import aliases available as namespace roots during lowering
     module_aliases: HashSet<String>,
+    /// Maps import aliases to fully qualified module paths
+    alias_targets: HashMap<String, String>,
 }
 
 impl ASTLowering {
@@ -302,25 +315,60 @@ impl ASTLowering {
             type_substitution_map: HashMap::new(),
             trait_implementations: HashMap::new(),
             function_return_types: HashMap::new(),
+            current_module: String::new(),
             module_aliases: HashSet::new(),
+            alias_targets: HashMap::new(),
         }
     }
 
     fn collect_module_aliases(&mut self, ast_module: &ASTModule) {
+        self.current_module = ast_module.name.clone();
         self.module_aliases.clear();
+        self.alias_targets.clear();
+
+        // Always allow referencing the fully qualified module name directly.
+        self.module_aliases.insert(self.current_module.clone());
+        self.alias_targets
+            .insert(self.current_module.clone(), self.current_module.clone());
+
         for item in &ast_module.items {
             if let Item::Import(import) = item {
-                if let Some(alias) = import
+                let alias = import
                     .alias
                     .clone()
-                    .or_else(|| import.path.last().cloned())
-                {
+                    .or_else(|| import.path.last().cloned());
+
+                let module_path = import
+                    .path
+                    .iter()
+                    .map(|segment| segment.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+
+                if let Some(alias) = alias {
                     if !alias.is_empty() {
-                        self.module_aliases.insert(alias);
+                        self.module_aliases.insert(alias.clone());
+                        self.alias_targets
+                            .insert(alias, module_path.clone());
+                    }
+                }
+
+                if import.synthetic && module_path == "std.prelude" {
+                    for (shortcut, target) in PRELUDE_SHORTCUTS {
+                        self.module_aliases.insert((*shortcut).to_string());
+                        self.alias_targets
+                            .entry((*shortcut).to_string())
+                            .or_insert_with(|| (*target).to_string());
                     }
                 }
             }
         }
+
+        // Builtin root namespace is always available.
+        self.module_aliases.insert("std".to_string());
+        self.alias_targets
+            .entry("std".to_string())
+            .or_insert_with(|| "std".to_string());
     }
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
@@ -400,8 +448,8 @@ impl ASTLowering {
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
-                    self.function_return_types
-                        .insert(func.name.clone(), return_type);
+                    let qualified = self.qualify_local_function(&func.name);
+                    self.function_return_types.insert(qualified, return_type);
                 }
             }
         }
@@ -1232,7 +1280,8 @@ impl ASTLowering {
                 }
 
                 if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if let Some(ret) = self.function_return_types.get(name) {
+                    let qualified = self.qualify_local_function(name);
+                    if let Some(ret) = self.function_return_types.get(&qualified) {
                         return ret.clone();
                     }
 
@@ -1438,7 +1487,8 @@ impl ASTLowering {
         self.function_return_types
             .insert(ast_func.name.clone(), return_type.clone());
 
-        let mut ir_func = IRFunction::new(&ast_func.name, params.clone(), return_type);
+        let qualified_name = self.qualify_local_function(&ast_func.name);
+        let mut ir_func = IRFunction::new(&qualified_name, params.clone(), return_type);
 
         // Create entry block
         let entry_block = ir_func.add_block("entry");
@@ -2178,6 +2228,10 @@ impl ASTLowering {
         }
     }
 
+    fn qualify_local_function(&self, name: &str) -> String {
+        format!("{}::{}", self.current_module, name)
+    }
+
     fn is_runtime_symbol(&self, name: &str) -> bool {
         self.value_map.get(name).is_some()
             || self.alloca_map.contains_key(name)
@@ -2187,14 +2241,35 @@ impl ASTLowering {
     }
 
     fn is_namespace_path(&self, path: &[String]) -> bool {
-        if let Some(root) = path.first() {
-            if self.is_runtime_symbol(root) {
-                return false;
+        match path.first() {
+            Some(root) => {
+                if self.is_runtime_symbol(root) {
+                    return false;
+                }
+                self.module_aliases.contains(root)
             }
-            self.module_aliases.contains(root) || root == "std"
-        } else {
-            false
+            None => false,
         }
+    }
+
+    fn qualify_namespace_function(&self, path: &[String]) -> Option<String> {
+        if path.len() < 2 {
+            return None;
+        }
+
+        let root = &path[0];
+        let target = self.alias_targets.get(root)?;
+
+        let mut module_segments: Vec<String> = target.split('.').map(|segment| segment.to_string()).collect();
+
+        if path.len() > 2 {
+            module_segments.extend(path[1..path.len() - 1].iter().cloned());
+        }
+
+        let function_name = path.last()?.clone();
+        let module_path = module_segments.join(".");
+
+        Some(format!("{}::{}", module_path, function_name))
     }
 
     fn lower_namespaced_function_call(
@@ -2220,10 +2295,9 @@ impl ASTLowering {
                 .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
         }
 
-        let function_name = if full_path.len() == 1 {
-            full_path[0].clone()
-        } else {
-            full_path.join("::")
+        let function_name = match self.qualify_namespace_function(&full_path) {
+            Some(name) => name,
+            None => full_path.join("::"),
         };
 
         self.builder
@@ -2328,12 +2402,17 @@ impl ASTLowering {
 
                 let call_path = self.resolve_call_path(callee);
 
-                // Extract function name from callee path (allowing namespace calls)
+                if let Some(path) = call_path.clone() {
+                    if self.is_namespace_path(&path) {
+                        return self.lower_namespaced_function_call(path, arguments, ir_func);
+                    }
+                }
+
                 let function_name = call_path
                     .as_ref()
                     .map(|segments| {
                         if segments.len() == 1 {
-                            segments[0].clone()
+                            self.qualify_local_function(&segments[0])
                         } else {
                             segments.join("::")
                         }
@@ -2361,7 +2440,7 @@ impl ASTLowering {
                             self.pending_specializations.push(request);
                         }
 
-                        mangled
+                        self.qualify_local_function(&mangled)
                     } else {
                         function_name.clone()
                     }

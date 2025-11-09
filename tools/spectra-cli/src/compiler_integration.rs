@@ -290,12 +290,13 @@ impl BackendDriver for FullPipelineBackend {
             println!();
         }
 
-        let mut codegen = CodeGenerator::new();
+        let mut codegen = self.codegen.take().unwrap_or_else(CodeGenerator::new);
         let codegen_start = Instant::now();
         let codegen_result = codegen.generate_module(&ir_module);
         let codegen_duration = codegen_start.elapsed();
 
         if let Err(error) = codegen_result {
+            self.codegen = Some(codegen);
             return Err(vec![CompilerError::Backend(BackendError::new(error))]);
         }
 
