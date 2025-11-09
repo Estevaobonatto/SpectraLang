@@ -1,0 +1,11 @@
+module prelude_time_io;
+
+pub fn main() -> int {
+    let started = time.now();
+    time.sleep(0);
+    let finished = time.now();
+    let delta = math.sub(finished, started);
+    io.print(started);
+    io.print(finished);
+    return delta;
+}

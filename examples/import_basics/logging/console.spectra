@@ -1,0 +1,14 @@
+module logging.console;
+
+import std.io;
+
+pub fn log_number(value: int) -> int {
+    io.print(value);
+    return value;
+}
+
+pub fn log_summary(initial: int, adjusted: int) -> int {
+    io.print(initial);
+    io.print(adjusted);
+    return adjusted;
+}

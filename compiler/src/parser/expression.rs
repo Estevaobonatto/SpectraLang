@@ -382,7 +382,7 @@ impl Parser {
                 self.advance();
 
                 // Parse optional type arguments: Name<Type1, Type2>
-                let type_args = if self.check_symbol('<') {
+                let type_args = if self.can_parse_type_arguments() {
                     self.parse_type_arguments()?
                 } else {
                     Vec::new()
@@ -808,5 +808,70 @@ impl Parser {
         self.consume_symbol('>', "Expected '>' after type arguments")?;
 
         Ok(type_args)
+    }
+
+    fn can_parse_type_arguments(&self) -> bool {
+        if !self.check_symbol('<') {
+            return false;
+        }
+
+        let mut depth = 0usize;
+        for token in &self.tokens[self.position..] {
+            match &token.kind {
+                TokenKind::Symbol('<') => {
+                    depth += 1;
+                }
+                TokenKind::Symbol('>') => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        return true;
+                    }
+                }
+                TokenKind::Symbol(ch)
+                    if depth == 0
+                        && matches!(
+                            ch,
+                            '{'
+                                | '}'
+                                | '('
+                                | ')'
+                                | ';'
+                                | '['
+                                | ']'
+                                | ':'
+                                | '+'
+                                | '-'
+                                | '*'
+                                | '/'
+                                | '%'
+                                | '='
+                                | '!'
+                                | '&'
+                                | '|'
+                        ) =>
+                {
+                    return false;
+                }
+                TokenKind::Operator(
+                    Operator::LessEqual
+                    | Operator::GreaterEqual
+                    | Operator::EqualEqual
+                    | Operator::NotEqual
+                    | Operator::And
+                    | Operator::Or,
+                ) if depth == 0 => {
+                    return false;
+                }
+                TokenKind::Keyword(Keyword::If | Keyword::Else) if depth == 0 => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        false
     }
 }

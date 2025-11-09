@@ -1,0 +1,13 @@
+module calc.arithmetic;
+
+pub fn double(value: int) -> int {
+    return value + value;
+}
+
+pub fn increase(value: int, delta: int) -> int {
+    return value + delta;
+}
+
+pub fn half(value: int) -> int {
+    return value / 2;
+}

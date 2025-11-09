@@ -23,13 +23,29 @@ impl Parser {
             }
         };
 
-        let name = match self.consume_identifier("Expected module name") {
-            Ok((name, _)) => name,
+        let (first_segment, _) = match self.consume_identifier("Expected module name") {
+            Ok(result) => result,
             Err(_) => {
                 self.synchronize();
                 return Module::new("error", start_span);
             }
         };
+
+        let mut name_segments = vec![first_segment];
+
+        while self.check_symbol('.') {
+            self.advance(); // consume '.'
+            match self.consume_identifier("Expected identifier after '.' in module name") {
+                Ok((segment, _)) => name_segments.push(segment),
+                Err(_) => {
+                    self.synchronize();
+                    let name = name_segments.join(".");
+                    return Module::new(name, start_span);
+                }
+            }
+        }
+
+        let name = name_segments.join(".");
 
         let end_span = match self.consume_symbol(';', "Expected ';' after module name") {
             Ok(span) => span,

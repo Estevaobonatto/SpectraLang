@@ -1,0 +1,11 @@
+module prelude_collections;
+
+pub fn main() -> int {
+    let list = collections.list_new();
+    let first_len = collections.list_push(list, 5);
+    let second_len = collections.list_push(list, 10);
+    let total = collections.list_len(list);
+    io.print(total);
+    collections.list_free(list);
+    return second_len + total + first_len;
+}

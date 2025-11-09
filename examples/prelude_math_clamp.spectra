@@ -1,0 +1,11 @@
+module prelude_math_clamp;
+
+pub fn main() -> int {
+    let a = math.add(12, 18);
+    let b = math.sub(a, 7);
+    let high = math.max(a, b);
+    let low = math.min(a, b);
+    let constrained = math.clamp(64, low, high);
+    io.print(constrained);
+    return constrained;
+}
