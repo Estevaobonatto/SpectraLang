@@ -3,8 +3,8 @@ module stats.metrics;
 import calc.arithmetic;
 
 pub fn compute_score(base: int, bonus: int) -> int {
-    let boosted = increase(base, bonus);
-    let doubled = double(boosted);
+    let boosted = arithmetic.increase(base, bonus);
+    let doubled = arithmetic.double(boosted);
     let zero = 0;
     if doubled > 100 {
         return 100;
@@ -17,5 +17,5 @@ pub fn compute_score(base: int, bonus: int) -> int {
 }
 
 pub fn adjust_score(value: int) -> int {
-    return half(value);
+    return arithmetic.half(value);
 }

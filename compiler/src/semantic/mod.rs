@@ -4,7 +4,7 @@ use crate::{
         StatementKind, Type, Visibility,
     },
     error::SemanticError,
-    resolver::{ExportKind, ModuleGraph, ResolvedImport},
+    resolver::{ExportKind, ModuleGraph, ResolvedImport, ResolvedModule},
     span::Span,
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet};
@@ -75,7 +75,7 @@ struct ModuleSymbols {
 }
 
 #[derive(Debug, Clone)]
-enum ImportedSymbol {
+pub(crate) enum ImportedSymbol {
     Function(FunctionSignature),
     Struct(StructInfo),
     Enum(EnumInfo),
@@ -83,7 +83,7 @@ enum ImportedSymbol {
 }
 
 #[derive(Debug, Clone)]
-struct ModuleImportBinding {
+pub(crate) struct ModuleImportBinding {
     is_builtin: bool,
     symbols: HashMap<String, ImportedSymbol>,
 }
@@ -134,6 +134,13 @@ impl SemanticWorkspace {
 
     fn lookup_module(&self, name: &str) -> Option<&ModuleSymbols> {
         self.modules.get(name)
+    }
+
+    pub(crate) fn import_bindings_for_module(
+        &self,
+        module: &ResolvedModule,
+    ) -> HashMap<String, ModuleImportBinding> {
+        self.build_import_bindings(&module.imports)
     }
 
     fn build_import_bindings(
@@ -402,7 +409,7 @@ enum SelfParamKind {
 }
 
 #[derive(Debug, Clone)]
-struct FunctionSignature {
+pub(crate) struct FunctionSignature {
     params: Vec<Type>,
     return_type: Type,
     self_kind: Option<SelfParamKind>,
@@ -424,7 +431,7 @@ struct StructFieldInfo {
 }
 
 #[derive(Debug, Clone)]
-struct StructInfo {
+pub(crate) struct StructInfo {
     visibility: Visibility,
     type_params: Vec<String>,
     fields: HashMap<String, StructFieldInfo>,
@@ -438,7 +445,7 @@ struct EnumVariantInfo {
 }
 
 #[derive(Debug, Clone)]
-struct EnumInfo {
+pub(crate) struct EnumInfo {
     visibility: Visibility,
     type_params: Vec<String>,
     variants: HashMap<String, EnumVariantInfo>,
@@ -508,7 +515,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn set_imports(&mut self, imports: HashMap<String, ModuleImportBinding>) {
+    pub(crate) fn set_imports(&mut self, imports: HashMap<String, ModuleImportBinding>) {
         self.module_imports = imports;
     }
 
@@ -1208,11 +1215,6 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
-        eprintln!(
-            "[debug] analyzing module {} imports: {:?}",
-            module.name,
-            self.module_imports.keys().collect::<Vec<_>>()
-        );
         // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
             match item {

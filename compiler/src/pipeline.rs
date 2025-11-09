@@ -5,10 +5,12 @@ use crate::ast::Module as ASTModule;
 use crate::error::{CompilerError, SemanticError};
 use crate::lint::{lint_module, LintDiagnostic, LintOptions};
 use crate::parser::workspace::{ModuleLoader, ModuleParseError};
-use crate::semantic::SemanticAnalyzer;
-use std::collections::HashSet;
+use crate::resolver::{ModuleResolver, ModuleResolverOptions};
+use crate::semantic::{analyze_graph, ModuleImportBinding, SemanticAnalyzer};
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Compilation options
@@ -184,6 +186,12 @@ where
 
         // Phase 3: Semantic Analysis
         let mut semantic = SemanticAnalyzer::new();
+        if let Some(import_bindings) = self
+            .import_bindings_for_module(filename, &ast.name)
+            .map_err(|errors| errors)?
+        {
+            semantic.set_imports(import_bindings);
+        }
         semantic.configure_builtin_imports_from_module(&ast);
         let semantic_start = collect_metrics.then(Instant::now);
         let semantic_errors = semantic.analyze_module(&mut ast);
@@ -257,6 +265,73 @@ where
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), Vec<CompilerError>> {
         let compilation = self.compile(source, "<repl>")?;
         self.execute_artifacts(&compilation.backend_artifacts)
+    }
+}
+
+impl<B> CompilationPipeline<B>
+where
+    B: BackendDriver,
+{
+    fn import_bindings_for_module(
+        &self,
+        filename: &str,
+        module_name: &str,
+    ) -> Result<Option<HashMap<String, ModuleImportBinding>>, Vec<CompilerError>> {
+        let path = Path::new(filename);
+        let canonical = match fs::canonicalize(path) {
+            Ok(path) => path,
+            Err(_) => return Ok(None),
+        };
+
+        let mut roots: Vec<PathBuf> = Vec::new();
+        let mut current = canonical.parent();
+        while let Some(dir) = current {
+            let dir_buf = dir.to_path_buf();
+            if !roots.contains(&dir_buf) {
+                roots.push(dir_buf.clone());
+            }
+            current = dir.parent();
+        }
+        for root in &self.options.library_paths {
+            if !roots.contains(root) {
+                roots.push(root.clone());
+            }
+        }
+
+        let mut resolver = ModuleResolver::new(ModuleResolverOptions {
+            roots,
+            experimental_features: self.options.experimental_features.clone(),
+        });
+
+        let mut graph = match resolver.resolve(&canonical) {
+            Ok(graph) => graph,
+            Err(_) => return Ok(None),
+        };
+
+        let workspace = match analyze_graph(&mut graph) {
+            Ok(workspace) => workspace,
+            Err(errors) => {
+                return Err(errors
+                    .into_iter()
+                    .map(CompilerError::Semantic)
+                    .collect());
+            }
+        };
+
+        if let Some(module) = graph.get(module_name) {
+            let bindings = workspace.import_bindings_for_module(module);
+            #[cfg(debug_assertions)]
+            {
+                let keys: Vec<_> = bindings.keys().cloned().collect();
+                eprintln!(
+                    "[pipeline] resolved import bindings for {}: {:?}",
+                    module_name, keys
+                );
+            }
+            Ok(Some(bindings))
+        } else {
+            Ok(None)
+        }
     }
 }
 

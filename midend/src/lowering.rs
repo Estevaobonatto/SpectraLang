@@ -11,7 +11,7 @@ use spectra_compiler::ast::{
     TypeAnnotation, TypeAnnotationKind, UnaryOperator,
 };
 use spectra_compiler::span::Span;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Stack-based scope system for variable shadowing support
 #[derive(Clone)]
@@ -277,6 +277,8 @@ pub struct ASTLowering {
     trait_implementations: HashMap<(String, String), bool>,
     /// Tracks return types for lowered functions (including specializations)
     function_return_types: HashMap<String, IRType>,
+    /// Known import aliases available as namespace roots during lowering
+    module_aliases: HashSet<String>,
 }
 
 impl ASTLowering {
@@ -300,11 +302,31 @@ impl ASTLowering {
             type_substitution_map: HashMap::new(),
             trait_implementations: HashMap::new(),
             function_return_types: HashMap::new(),
+            module_aliases: HashSet::new(),
+        }
+    }
+
+    fn collect_module_aliases(&mut self, ast_module: &ASTModule) {
+        self.module_aliases.clear();
+        for item in &ast_module.items {
+            if let Item::Import(import) = item {
+                if let Some(alias) = import
+                    .alias
+                    .clone()
+                    .or_else(|| import.path.last().cloned())
+                {
+                    if !alias.is_empty() {
+                        self.module_aliases.insert(alias);
+                    }
+                }
+            }
         }
     }
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
         let mut ir_module = IRModule::new(&ast_module.name);
+
+        self.collect_module_aliases(ast_module);
 
         // First pass: collect struct and enum definitions, and trait implementations
         for item in &ast_module.items {
@@ -1253,6 +1275,17 @@ impl ASTLowering {
                 arguments: _,
                 type_name,
             } => {
+                if let Some(path) = self.resolve_call_path(object) {
+                    let mut full_path = path.clone();
+                    full_path.push(method_name.clone());
+                    if let Some(descriptor) = lookup_std_host_function(&full_path) {
+                        return descriptor.return_type.clone();
+                    }
+                    if self.is_namespace_path(&path) {
+                        return IRType::Int;
+                    }
+                }
+
                 let obj_type_name = if let Some(name) = type_name {
                     name.clone()
                 } else {
@@ -2145,6 +2178,59 @@ impl ASTLowering {
         }
     }
 
+    fn is_runtime_symbol(&self, name: &str) -> bool {
+        self.value_map.get(name).is_some()
+            || self.alloca_map.contains_key(name)
+            || self.struct_var_map.get(name).is_some()
+            || self.array_map.get(name).is_some()
+            || self.variable_types.get(name).is_some()
+    }
+
+    fn is_namespace_path(&self, path: &[String]) -> bool {
+        if let Some(root) = path.first() {
+            if self.is_runtime_symbol(root) {
+                return false;
+            }
+            self.module_aliases.contains(root) || root == "std"
+        } else {
+            false
+        }
+    }
+
+    fn lower_namespaced_function_call(
+        &mut self,
+        full_path: Vec<String>,
+        arguments: &[Expression],
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let arg_values: Vec<Value> = arguments
+            .iter()
+            .map(|arg| self.lower_expression(arg, ir_func))
+            .collect();
+
+        if let Some(descriptor) = lookup_std_host_function(&full_path) {
+            return self
+                .builder
+                .build_host_call(
+                    ir_func,
+                    descriptor.runtime_name.to_string(),
+                    arg_values,
+                    descriptor.returns_value,
+                )
+                .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+        }
+
+        let function_name = if full_path.len() == 1 {
+            full_path[0].clone()
+        } else {
+            full_path.join("::")
+        };
+
+        self.builder
+            .build_call(ir_func, function_name, arg_values, true)
+            .unwrap_or_else(|| ir_func.next_value())
+    }
+
     fn host_function_descriptor(&self, callee: &Expression) -> Option<HostFunctionDescriptor> {
         let path = self.resolve_call_path(callee)?;
         lookup_std_host_function(&path)
@@ -2240,39 +2326,47 @@ impl ASTLowering {
                     return result_value.unwrap_or_else(|| ir_func.next_value());
                 }
 
-                // Extract function name from callee
-                let function_name = if let ExpressionKind::Identifier(name) = &callee.kind {
-                    name.clone()
-                } else {
-                    "unknown".to_string()
-                };
+                let call_path = self.resolve_call_path(callee);
+
+                // Extract function name from callee path (allowing namespace calls)
+                let function_name = call_path
+                    .as_ref()
+                    .map(|segments| {
+                        if segments.len() == 1 {
+                            segments[0].clone()
+                        } else {
+                            segments.join("::")
+                        }
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
 
                 // Check if this is a call to a generic function
-                let final_function_name = if self.generic_functions.contains_key(&function_name) {
-                    // This is a generic function call - we need to infer concrete types
-                    // For now, we'll infer types from the argument expressions
-                    let concrete_types = self.infer_argument_types(arguments);
+                let final_function_name = if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if self.generic_functions.contains_key(name) {
+                        // This is a generic function call - infer concrete types
+                        let concrete_types = self.infer_argument_types(arguments);
 
-                    let request = MonomorphizationRequest {
-                        generic_name: function_name.clone(),
-                        concrete_types: concrete_types.clone(),
-                    };
+                        let request = MonomorphizationRequest {
+                            generic_name: name.clone(),
+                            concrete_types: concrete_types.clone(),
+                        };
 
-                    let mangled = request.mangled_name();
+                        let mangled = request.mangled_name();
 
-                    // Check if we already generated this specialization
-                    if !self.generated_specializations.contains_key(&mangled) {
-                        // Mark it as pending
-                        eprintln!(
-                            "Info: Requesting specialization: {} -> {}",
-                            function_name, mangled
-                        );
-                        self.pending_specializations.push(request);
+                        if !self.generated_specializations.contains_key(&mangled) {
+                            eprintln!(
+                                "Info: Requesting specialization: {} -> {}",
+                                name, mangled
+                            );
+                            self.pending_specializations.push(request);
+                        }
+
+                        mangled
+                    } else {
+                        function_name.clone()
                     }
-
-                    mangled
                 } else {
-                    function_name
+                    function_name.clone()
                 };
 
                 self.builder
@@ -2919,9 +3013,11 @@ impl ASTLowering {
                 arguments,
                 type_name,
             } => {
-                if let Some(mut path) = self.resolve_call_path(object) {
-                    path.push(method_name.clone());
-                    if let Some(descriptor) = lookup_std_host_function(&path) {
+                if let Some(path) = self.resolve_call_path(object) {
+                    let mut full_path = path.clone();
+                    full_path.push(method_name.clone());
+
+                    if let Some(descriptor) = lookup_std_host_function(&full_path) {
                         let arg_values: Vec<Value> = arguments
                             .iter()
                             .map(|arg| self.lower_expression(arg, ir_func))
@@ -2935,6 +3031,10 @@ impl ASTLowering {
                                 descriptor.returns_value,
                             )
                             .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    }
+
+                    if self.is_namespace_path(&path) {
+                        return self.lower_namespaced_function_call(full_path, arguments, ir_func);
                     }
                 }
 
