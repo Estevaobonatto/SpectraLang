@@ -4,6 +4,7 @@ use crate::{
         StatementKind, Type, Visibility,
     },
     error::SemanticError,
+    resolver::{ExportKind, ModuleGraph, ResolvedImport},
     span::Span,
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet};
@@ -50,6 +51,113 @@ impl fmt::Display for TypeAnnotationPattern {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct ModuleSymbols {
+    functions: HashMap<String, FunctionSignature>,
+    struct_infos: HashMap<String, StructInfo>,
+    enum_infos: HashMap<String, EnumInfo>,
+}
+
+#[derive(Debug, Clone)]
+enum ImportedSymbol {
+    Function(FunctionSignature),
+    Struct(StructInfo),
+    Enum(EnumInfo),
+}
+
+#[derive(Debug, Clone)]
+struct ModuleImportBinding {
+    is_builtin: bool,
+    symbols: HashMap<String, ImportedSymbol>,
+}
+
+#[derive(Debug, Default)]
+pub struct SemanticWorkspace {
+    modules: HashMap<String, ModuleSymbols>,
+}
+
+impl SemanticWorkspace {
+    pub fn analyze(graph: &mut ModuleGraph) -> Result<Self, Vec<SemanticError>> {
+        let mut workspace = SemanticWorkspace::default();
+        let mut errors = Vec::new();
+
+        for module in graph.modules_mut() {
+            let import_bindings = workspace.build_import_bindings(&module.imports);
+            let mut analyzer = SemanticAnalyzer::new();
+            analyzer.set_imports(import_bindings);
+            let module_errors = analyzer.analyze_module(&mut module.ast);
+            if !module_errors.is_empty() {
+                errors.extend(module_errors);
+            }
+
+            let symbols = analyzer.export_module_symbols();
+            workspace.modules.insert(module.name.clone(), symbols);
+        }
+
+        if errors.is_empty() {
+            Ok(workspace)
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn lookup_module(&self, name: &str) -> Option<&ModuleSymbols> {
+        self.modules.get(name)
+    }
+
+    fn build_import_bindings(
+        &self,
+        imports: &[ResolvedImport],
+    ) -> HashMap<String, ModuleImportBinding> {
+        let mut bindings = HashMap::new();
+
+        for import in imports {
+            let mut binding = ModuleImportBinding {
+                is_builtin: import.is_builtin,
+                symbols: HashMap::new(),
+            };
+
+            for symbol in &import.exposed {
+                if let Some(module_symbols) = self.lookup_module(&symbol.origin_module) {
+                    match &symbol.kind {
+                        ExportKind::Function => {
+                            if let Some(signature) = module_symbols.functions.get(&symbol.name) {
+                                binding.symbols.insert(
+                                    symbol.name.clone(),
+                                    ImportedSymbol::Function(signature.clone()),
+                                );
+                            }
+                        }
+                        ExportKind::Struct => {
+                            if let Some(info) = module_symbols.struct_infos.get(&symbol.name) {
+                                binding.symbols.insert(
+                                    symbol.name.clone(),
+                                    ImportedSymbol::Struct(info.clone()),
+                                );
+                            }
+                        }
+                        ExportKind::Enum => {
+                            if let Some(info) = module_symbols.enum_infos.get(&symbol.name) {
+                                binding.symbols.insert(
+                                    symbol.name.clone(),
+                                    ImportedSymbol::Enum(info.clone()),
+                                );
+                            }
+                        }
+                        ExportKind::ModuleAlias { .. } => {
+                            // TODO: resolve module alias exports once reexports are handled.
+                        }
+                    }
+                }
+            }
+
+            bindings.insert(import.alias.clone(), binding);
+        }
+
+        bindings
+    }
+}
+
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
 
@@ -64,6 +172,10 @@ pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticEr
     } else {
         Err(errors)
     }
+}
+
+pub fn analyze_graph(graph: &mut ModuleGraph) -> Result<SemanticWorkspace, Vec<SemanticError>> {
+    SemanticWorkspace::analyze(graph)
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +271,7 @@ pub struct SemanticAnalyzer {
     // Stack of in-scope generic type parameters
     generic_params: Vec<HashSet<String>>,
     generic_param_bounds: Vec<HashMap<String, Vec<String>>>,
+    module_imports: HashMap<String, ModuleImportBinding>,
 }
 
 impl SemanticAnalyzer {
@@ -181,8 +294,36 @@ impl SemanticAnalyzer {
             current_return_type: None,
             generic_params: Vec::new(),
             generic_param_bounds: Vec::new(),
+            module_imports: HashMap::new(),
         }
     }
+
+    fn set_imports(&mut self, imports: HashMap<String, ModuleImportBinding>) {
+        self.module_imports = imports;
+    }
+
+    fn export_module_symbols(&self) -> ModuleSymbols {
+        ModuleSymbols {
+            functions: self.functions.clone(),
+            struct_infos: self.struct_infos.clone(),
+            enum_infos: self.enum_infos.clone(),
+        }
+    }
+
+    fn imported_symbol(&self, alias: &str, name: &str) -> Option<&ImportedSymbol> {
+        self.module_imports
+            .get(alias)
+            .and_then(|binding| binding.symbols.get(name))
+    }
+
+    fn imported_function(&self, alias: &str, name: &str) -> Option<FunctionSignature> {
+        self.imported_symbol(alias, name)
+            .and_then(|symbol| match symbol {
+                ImportedSymbol::Function(signature) => Some(signature.clone()),
+                _ => None,
+            })
+    }
+
 
     fn is_builtin_namespace(&self, name: &str) -> bool {
         matches!(name, "std")
@@ -1804,14 +1945,25 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::Unary { operand, .. } => self.infer_expression_type(operand),
-            ExpressionKind::Call { callee, .. } => {
-                if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if let Some(sig) = self.functions.get(name) {
-                        return sig.return_type.clone();
+            ExpressionKind::Call { callee, .. } => match &callee.kind {
+                ExpressionKind::Identifier(name) => self
+                    .functions
+                    .get(name)
+                    .map(|sig| sig.return_type.clone())
+                    .unwrap_or(Type::Unknown),
+                ExpressionKind::FieldAccess { object, field } => {
+                    if let ExpressionKind::Identifier(alias) = &object.kind {
+                        if let Some(signature) = self.imported_function(alias, field) {
+                            signature.return_type
+                        } else {
+                            Type::Unknown
+                        }
+                    } else {
+                        Type::Unknown
                     }
                 }
-                Type::Unknown
-            }
+                _ => Type::Unknown,
+            },
             ExpressionKind::If {
                 then_block,
                 elif_blocks,
@@ -1910,6 +2062,36 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::FieldAccess { object, field } => {
+                if let ExpressionKind::Identifier(alias) = &object.kind {
+                    if let Some(binding) = self.module_imports.get(alias) {
+                        if let Some(symbol) = binding.symbols.get(field) {
+                            return match symbol {
+                                ImportedSymbol::Function(_) => Type::Unknown,
+                                ImportedSymbol::Struct(info) => {
+                                    let _ = info;
+                                    Type::Struct {
+                                        name: field.clone(),
+                                    }
+                                }
+                                ImportedSymbol::Enum(info) => {
+                                    let _ = info;
+                                    Type::Enum {
+                                        name: field.clone(),
+                                    }
+                                }
+                            };
+                        }
+
+                        if binding.is_builtin {
+                            return Type::Unknown;
+                        }
+                    }
+
+                    if self.module_imports.contains_key(alias) {
+                        return Type::Unknown;
+                    }
+                }
+
                 let object_type = self.infer_expression_type(object);
                 match object_type {
                     Type::Struct { name } => {
@@ -1985,6 +2167,7 @@ impl SemanticAnalyzer {
                 if self.lookup_symbol(name).is_none()
                     && !self.functions.contains_key(name)
                     && !self.is_builtin_namespace(name)
+                    && !self.module_imports.contains_key(name)
                 {
                     self.error(
                         format!("Undefined variable or function '{}'", name),
@@ -2143,48 +2326,104 @@ impl SemanticAnalyzer {
                 self.analyze_expression(operand);
             }
             ExpressionKind::Call { callee, arguments } => {
-                // Check if function exists and validate argument types
-                if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if let Some(signature) = self.functions.get(name).cloned() {
-                        // Validate number of arguments
-                        if arguments.len() != signature.params.len() {
-                            self.error(
-                                format!(
-                                    "Function '{}' expects {} arguments, but {} were provided",
-                                    name,
-                                    signature.params.len(),
-                                    arguments.len()
-                                ),
-                                expr.span,
-                            );
-                        } else {
-                            // Validate argument types
-                            for (i, (arg, expected_type)) in
-                                arguments.iter().zip(&signature.params).enumerate()
-                            {
-                                let arg_type = self.infer_expression_type(arg);
-                                if arg_type != Type::Unknown
-                                    && *expected_type != Type::Unknown
-                                    && arg_type != *expected_type
+                match &callee.kind {
+                    ExpressionKind::Identifier(name) => {
+                        if let Some(signature) = self.functions.get(name).cloned() {
+                            if arguments.len() != signature.params.len() {
+                                self.error(
+                                    format!(
+                                        "Function '{}' expects {} arguments, but {} were provided",
+                                        name,
+                                        signature.params.len(),
+                                        arguments.len()
+                                    ),
+                                    expr.span,
+                                );
+                            } else {
+                                for (i, (arg, expected_type)) in
+                                    arguments.iter().zip(&signature.params).enumerate()
                                 {
-                                    self.error(
-                                        format!(
-                                            "Argument {} of function '{}' has type {:?}, expected {:?}",
-                                            i + 1,
-                                            name,
-                                            arg_type,
-                                            expected_type
-                                        ),
-                                        arg.span,
-                                    );
+                                    let arg_type = self.infer_expression_type(arg);
+                                    if arg_type != Type::Unknown
+                                        && *expected_type != Type::Unknown
+                                        && arg_type != *expected_type
+                                    {
+                                        self.error(
+                                            format!(
+                                                "Argument {} of function '{}' has type {:?}, expected {:?}",
+                                                i + 1,
+                                                name,
+                                                arg_type,
+                                                expected_type
+                                            ),
+                                            arg.span,
+                                        );
+                                    }
                                 }
                             }
+                        } else if self.lookup_symbol(name).is_none() {
+                            self.error(format!("Undefined function '{}'", name), callee.span);
                         }
-                    } else if self.lookup_symbol(name).is_none() {
-                        self.error(format!("Undefined function '{}'", name), callee.span);
                     }
-                } else {
-                    self.analyze_expression(callee);
+                    ExpressionKind::FieldAccess { object, field } => {
+                        self.analyze_expression(object);
+
+                        if let ExpressionKind::Identifier(alias) = &object.kind {
+                            if let Some(signature) = self.imported_function(alias, field) {
+                                if arguments.len() != signature.params.len() {
+                                    self.error(
+                                        format!(
+                                            "Function '{}::{}' expects {} arguments, but {} were provided",
+                                            alias,
+                                            field,
+                                            signature.params.len(),
+                                            arguments.len()
+                                        ),
+                                        expr.span,
+                                    );
+                                } else {
+                                    for (i, (arg, expected_type)) in arguments
+                                        .iter()
+                                        .zip(&signature.params)
+                                        .enumerate()
+                                    {
+                                        let arg_type = self.infer_expression_type(arg);
+                                        if arg_type != Type::Unknown
+                                            && *expected_type != Type::Unknown
+                                            && arg_type != *expected_type
+                                        {
+                                            self.error(
+                                                format!(
+                                                    "Argument {} of function '{}::{}' has type {:?}, expected {:?}",
+                                                    i + 1,
+                                                    alias,
+                                                    field,
+                                                    arg_type,
+                                                    expected_type
+                                                ),
+                                                arg.span,
+                                            );
+                                        }
+                                    }
+                                }
+                                } else if let Some(binding) = self.module_imports.get(alias) {
+                                    if !binding.is_builtin {
+                                        self.error(
+                                            format!(
+                                                "Module '{}' does not expose callable symbol '{}'",
+                                                alias, field
+                                            ),
+                                            callee.span,
+                                        );
+                                    }
+                                } else {
+                                    self.analyze_expression(callee);
+                                }
+                        } else {
+                            self.analyze_expression(callee);
+                        }
+                    }
+                    _ => self.analyze_expression(callee),
                 }
 
                 // Analyze arguments
@@ -2446,6 +2685,25 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::FieldAccess { object, field } => {
                 self.analyze_expression(object);
+
+                if let ExpressionKind::Identifier(alias) = &object.kind {
+                    if let Some(binding) = self.module_imports.get(alias) {
+                        if binding.symbols.contains_key(field) {
+                            return;
+                        }
+
+                        if !binding.is_builtin {
+                            self.error(
+                                format!(
+                                    "Module '{}' does not export symbol '{}'",
+                                    alias, field
+                                ),
+                                expr.span,
+                            );
+                        }
+                        return;
+                    }
+                }
 
                 let object_type = self.infer_expression_type(object);
                 match object_type {

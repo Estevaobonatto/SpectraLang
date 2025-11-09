@@ -27,6 +27,10 @@ impl ModuleGraph {
         &self.modules
     }
 
+    pub fn modules_mut(&mut self) -> &mut [ResolvedModule] {
+        &mut self.modules
+    }
+
     pub fn get(&self, name: &str) -> Option<&ResolvedModule> {
         self.index_by_name
             .get(name)
@@ -53,6 +57,7 @@ pub struct ResolvedModule {
     pub path: PathBuf,
     pub ast: Module,
     pub imports: Vec<ResolvedImport>,
+    pub exports: Vec<ResolvedExport>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +68,30 @@ pub struct ResolvedImport {
     pub span: Span,
     pub is_builtin: bool,
     pub target: Option<usize>,
+    pub exposed: Vec<ResolvedSymbolBinding>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedSymbolBinding {
+    pub name: String,
+    pub kind: ExportKind,
+    pub origin_module: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedExport {
+    pub name: String,
+    pub kind: ExportKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum ExportKind {
+    Function,
+    Struct,
+    Enum,
+    ModuleAlias { target: String },
 }
 
 pub struct ModuleResolver {
@@ -173,7 +202,34 @@ impl ModuleResolver {
                 path: node.path,
                 ast: node.ast,
                 imports,
+                exports: node.exports,
             });
+        }
+
+        let export_cache: Vec<(String, Vec<ResolvedExport>)> = resolved
+            .iter()
+            .map(|module| (module.name.clone(), module.exports.clone()))
+            .collect();
+
+        for module in &mut resolved {
+            for import in &mut module.imports {
+                if import.is_builtin {
+                    continue;
+                }
+                if let Some(target_idx) = import.target {
+                    if let Some((target_name, target_exports)) = export_cache.get(target_idx) {
+                        import.exposed = target_exports
+                            .iter()
+                            .map(|export| ResolvedSymbolBinding {
+                                name: export.name.clone(),
+                                kind: export.kind.clone(),
+                                origin_module: target_name.clone(),
+                                span: export.span,
+                            })
+                            .collect();
+                    }
+                }
+            }
         }
 
         Ok(ModuleGraph {
@@ -205,11 +261,13 @@ struct ModuleNode {
     ast: Module,
     imports: Vec<ResolvedImport>,
     dependencies: Vec<String>,
+    exports: Vec<ResolvedExport>,
 }
 
 impl ModuleNode {
     fn new(module: Module, path: PathBuf) -> Self {
         let imports = collect_imports(&module);
+        let exports = collect_exports(&module);
         let dependencies = imports
             .iter()
             .filter(|import| !import.is_builtin)
@@ -221,6 +279,7 @@ impl ModuleNode {
             ast: module,
             imports,
             dependencies,
+            exports,
         }
     }
 }
@@ -253,11 +312,61 @@ fn collect_imports(module: &Module) -> Vec<ResolvedImport> {
                 span: *span,
                 is_builtin: is_builtin_module(path),
                 target: None,
+                exposed: Vec::new(),
             });
         }
     }
 
     imports
+}
+
+fn collect_exports(module: &Module) -> Vec<ResolvedExport> {
+    let mut exports = Vec::new();
+
+    for item in &module.items {
+        match item {
+            Item::Function(function) if function.visibility == Visibility::Public => {
+                exports.push(ResolvedExport {
+                    name: function.name.clone(),
+                    kind: ExportKind::Function,
+                    span: function.span,
+                });
+            }
+            Item::Struct(data) if data.visibility == Visibility::Public => {
+                exports.push(ResolvedExport {
+                    name: data.name.clone(),
+                    kind: ExportKind::Struct,
+                    span: data.span,
+                });
+            }
+            Item::Enum(data) if data.visibility == Visibility::Public => {
+                exports.push(ResolvedExport {
+                    name: data.name.clone(),
+                    kind: ExportKind::Enum,
+                    span: data.span,
+                });
+            }
+            Item::Import(import) if import.visibility == Visibility::Public => {
+                if import.path.is_empty() {
+                    continue;
+                }
+                let module_name = import.path.join(".");
+                let alias_name = import
+                    .alias
+                    .clone()
+                    .or_else(|| import.path.last().cloned())
+                    .unwrap_or_else(|| module_name.clone());
+                exports.push(ResolvedExport {
+                    name: alias_name,
+                    kind: ExportKind::ModuleAlias { target: module_name },
+                    span: import.span,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    exports
 }
 
 fn is_builtin_module(path: &[String]) -> bool {

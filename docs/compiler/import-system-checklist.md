@@ -17,8 +17,8 @@
 ## Resolvedor de Módulos
 
 - [x] Construir grafo de dependências entre módulos e detectar imports ausentes ou cíclicos. _(implementado em `ModuleResolver`, com diagnóstico de duplicatas, headers divergentes e ciclos)_
-- [ ] Associar cada `import` aos símbolos exportados do módulo alvo, com tratamento de visibilidade. _(resolver já aponta o módulo-alvo para cada import; falta integrar com tabela de símbolos)_
-- [ ] Popular uma tabela de símbolos compartilhada entre arquivos para permitir lookup durante a análise semântica.
+- [x] Associar cada `import` aos símbolos exportados do módulo alvo, com tratamento de visibilidade. _(cada `ResolvedImport` agora carrega `exposed` com os símbolos públicos do módulo destino, considerando aliases e reexports)_
+- [x] Popular uma tabela de símbolos compartilhada entre arquivos para permitir lookup durante a análise semântica. _(ver `SemanticWorkspace::analyze` em `compiler/src/semantic/mod.rs`, que alimenta `ModuleImportBinding` para cada alias)_
 - [ ] Implementar mecanismo de prelude/`use` automático para expor a stdlib sem prefixo.
 
 ## Integração CLI / Ferramentas

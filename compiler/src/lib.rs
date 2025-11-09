@@ -18,7 +18,7 @@ pub use pipeline::{
     BackendDriver, CompilationOptions, CompilationPipeline, CompilationResult, NoopBackend,
 };
 pub use resolver::{ModuleGraph, ModuleResolutionError, ModuleResolver, ModuleResolverOptions};
-pub use semantic::analyze_modules;
+pub use semantic::{analyze_graph, analyze_modules, SemanticWorkspace};
 pub use span::{span_union, Location, Span};
 pub use token::{Keyword, Operator, Token, TokenKind};
 

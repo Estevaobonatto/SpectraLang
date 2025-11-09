@@ -1007,6 +1007,11 @@ fn compile_plan(
             } else {
                 println!("    imports: {}", module.imports.join(", "));
             }
+            if module.exports.is_empty() {
+                println!("    exports: (none)");
+            } else {
+                println!("    exports: {}", module.exports.join(", "));
+            }
         }
 
         let filename = module.path.to_string_lossy().to_string();
@@ -1117,6 +1122,9 @@ fn execute_plan_with_options(
             );
             if !module.imports.is_empty() {
                 println!("       imports: {}", module.imports.join(", "));
+            }
+            if !module.exports.is_empty() {
+                println!("       exports: {}", module.exports.join(", "));
             }
         }
     }

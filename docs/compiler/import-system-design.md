@@ -10,8 +10,9 @@
 ## Current Status (2025-11-08)
 
 - `ModuleResolver` builds a canonical module graph (topologically ordered) and surfaces detailed diagnostics for missing files, duplicate declarations, header mismatches, and cycles.
-- Each `ResolvedImport` now carries the resolved module index when the target lives inside the graph, priming the semantic analyser for cross-file symbol lookup.
-- The CLI now reuses `ModuleResolver` inside `ProjectPlan` to assemble dependency graphs before compilation. Symbol table population remains pending; consumers still need fully qualified names until the name-binding pass lands.
+- Each `ResolvedImport` now carries the resolved module index and the list of public symbols exposed by the target module, priming the semantic analyser for cross-file symbol lookup and future visibility checks.
+- The semantic layer materialises a `SemanticWorkspace`, populating module-level symbol tables that power import alias lookups during analysis.
+- The CLI now reuses `ModuleResolver` inside `ProjectPlan` to assemble dependency graphs before compilation. The new semantic workspace wires these exports for lookup; follow-up work (prelude injection, selective imports) will further reduce fully qualified usage.
 
 ## Module Discovery and Path Mapping
 

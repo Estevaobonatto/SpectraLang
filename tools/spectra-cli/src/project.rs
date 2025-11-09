@@ -15,6 +15,7 @@ pub struct ResolvedModule {
     pub name: String,
     pub path: PathBuf,
     pub imports: Vec<String>,
+    pub exports: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -94,10 +95,17 @@ impl ProjectPlan {
                     .map(|import| import.module.clone())
                     .collect();
 
+                let exports = module
+                    .exports
+                    .iter()
+                    .map(|export| export.name.clone())
+                    .collect();
+
                 modules.push(ResolvedModule {
                     name: module.name.clone(),
                     path: module.path.clone(),
                     imports,
+                    exports,
                 });
             }
         }
