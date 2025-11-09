@@ -3806,6 +3806,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("collections", "list_push_handle") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_push_handle",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("collections", "list_len") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_len",
                 return_type: IRType::Int,

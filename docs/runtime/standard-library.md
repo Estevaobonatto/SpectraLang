@@ -157,7 +157,8 @@ terminates.
 | Host call | Description | Arguments | Results |
 |-----------|-------------|-----------|---------|
 | `spectra.std.collections.list_new` | Allocates an empty list and returns its handle. | *(none)* | handle |
-| `spectra.std.collections.list_push` | Appends an integer to the list referenced by the handle. | `handle`, `value` | new length |
+| `spectra.std.collections.list_push` | Appends an integer to the list referenced by the handle. Lists start untyped and become integer lists after the first successful push. | `handle`, `value` | new length |
+| `spectra.std.collections.list_push_handle` | Appends a non-negative handle value (for example, a string or list handle) to the list. The first successful push locks the list to handle mode until it is cleared. Mixing ints and handles returns `HOST_STATUS_INVALID_ARGUMENT`. | `handle`, `handle_value` | new length |
 | `spectra.std.collections.list_len` | Returns the current length of the list. | `handle` | length |
 | `spectra.std.collections.list_clear` | Removes all elements from the list without releasing the handle. | `handle` | `0` |
 | `spectra.std.collections.list_free` | Drops the list allocation associated with the handle. | `handle` | `0` when `results` provided |
@@ -175,6 +176,11 @@ terminates.
   `spectra.std.math.rng_free_all`) to release manual allocations when finished.
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.
+- Lists treat their element type as either integers or handles. Use `list_push_handle` when
+  storing pointers/handles; attempting to mix categories produces `HOST_STATUS_INVALID_ARGUMENT`.
+  Clearing a list resets its category so it can be repurposed, but dropping a list does **not**
+  automatically free the handles stored inside it—call the appropriate `free` host call for each
+  referenced resource.
 - `spectra.std.io.print_err` mirrors `print` but targets stderr, making it suitable for diagnostics
   without interleaving regular program output.
 - `spectra.std.io.write_file`/`read_file` expect paths encoded as UTF-8 bytes within a `std.collections` list. File contents are produced/consumed as raw bytes (0–255) and stored in the same data structure for reuse across host calls.

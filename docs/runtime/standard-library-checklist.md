@@ -55,7 +55,7 @@
 ## Coleções e Estruturas de Dados
 
 - [x] Oferecer listas de inteiros com `new`/`push`/`len`/`clear`/`free`
-- [ ] Expandir listas para suportar tipos genéricos via ponteiros/handles
+- [x] Expandir listas para suportar tipos genéricos via ponteiros/handles
 - [ ] Adicionar mapas/dicionários e conjuntos baseados em hash com ciclo de vida controlado
 - [ ] Criar iteradores/visões host para coleções (comprimento, `foreach`, slice)
 - [ ] Suportar operações de ordenação, busca e filtragem host-driven
