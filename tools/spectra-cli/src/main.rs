@@ -566,6 +566,28 @@ where
                 let rule = parse_lint_rule_cli(&value)?;
                 lint_deny_cli.push(rule);
             }
+            "--lib" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing path after '--lib'."))?;
+                options.library_paths.push(PathBuf::from(value));
+            }
+            flag if flag.starts_with("--lib=") => {
+                let value = &flag[6..];
+                if value.is_empty() {
+                    return Err(usage_error("Missing path after '--lib='."));
+                }
+                options.library_paths.push(PathBuf::from(value));
+            }
+            "-L" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing path after '-L'."))?;
+                options.library_paths.push(PathBuf::from(value));
+            }
+            flag if flag.starts_with("-L") && flag.len() > 2 => {
+                options.library_paths.push(PathBuf::from(&flag[2..]));
+            }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown option: {}", flag)));
             }
@@ -621,6 +643,8 @@ struct ManifestLintSection {
 struct SpectraManifest {
     #[serde(default)]
     lint: Option<ManifestLintSection>,
+    #[serde(default)]
+    libs: Vec<String>,
 }
 
 fn parse_raw_lint_rule(value: &str) -> Result<LintRule, String> {
@@ -679,6 +703,21 @@ fn configure_lint_options(
             }
             for rule in lint.deny {
                 manifest_deny.push(parse_lint_rule_config(&rule, path)?);
+            }
+        }
+
+        if !manifest.libs.is_empty() {
+            let base_dir = path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+
+            for entry in manifest.libs {
+                let mut lib_path = PathBuf::from(entry);
+                if lib_path.is_relative() {
+                    lib_path = base_dir.join(lib_path);
+                }
+                options.library_paths.push(lib_path);
             }
         }
     }
@@ -815,6 +854,28 @@ where
                 return Err(usage_error(
                     "--list-experimental must appear before any command.",
                 ));
+            }
+            "--lib" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing path after '--lib'."))?;
+                options.library_paths.push(PathBuf::from(value));
+            }
+            flag if flag.starts_with("--lib=") => {
+                let value = &flag[6..];
+                if value.is_empty() {
+                    return Err(usage_error("Missing path after '--lib='."));
+                }
+                options.library_paths.push(PathBuf::from(value));
+            }
+            "-L" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing path after '-L'."))?;
+                options.library_paths.push(PathBuf::from(value));
+            }
+            flag if flag.starts_with("-L") && flag.len() > 2 => {
+                options.library_paths.push(PathBuf::from(&flag[2..]));
             }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown option: {}", flag)));
@@ -1222,6 +1283,15 @@ fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions)
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+    }
+
+    if options.library_paths.is_empty() {
+        println!("  • Library search roots: (current project + stdlib)");
+    } else {
+        println!("  • Library search roots:");
+        for path in &options.library_paths {
+            println!("      {}", path.display());
+        }
     }
 }
 
@@ -2138,6 +2208,7 @@ fn print_repl_help() {
     println!("    --no-optimize, -O0     Disable all optimizations");
     println!("    -O1/-O2/-O3            Set optimization level");
     println!("    --run, -r              Automatically run modules after compiling");
+    println!("    --lib <path>, -L<path> Add an additional library search root (may repeat)");
     println!("    --enable-experimental <feature>");
     println!("                           Enable experimental language feature (may be repeated)");
     println!();
@@ -2231,6 +2302,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    -O1                    Enable basic optimizations");
     println!("    -O2                    Enable moderate optimizations (default)");
     println!("    -O3                    Enable aggressive optimizations");
+    println!("    --lib <path>, -L<path> Add an additional library search root (may repeat)");
     match command {
         Some(BuildCommand::Check) | Some(BuildCommand::Lint) => {
             println!("    --run, -r              Not available for the 'check' command");

@@ -10,6 +10,15 @@ use crate::{
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fmt;
 
+const PRELUDE_EXPORTS: &[(&str, &str)] = &[
+    ("math", "std.math"),
+    ("io", "std.io"),
+    ("log", "std.log"),
+    ("text", "std.text"),
+    ("time", "std.time"),
+    ("collections", "std.collections"),
+];
+
 #[derive(Debug, Clone)]
 struct TraitMethodSignature {
     params: Vec<ParameterInfo>,
@@ -134,9 +143,18 @@ impl SemanticWorkspace {
         let mut bindings = HashMap::new();
 
         for import in imports {
-            let mut binding = ModuleImportBinding {
-                is_builtin: import.is_builtin,
-                symbols: HashMap::new(),
+            let mut binding = if import.is_builtin {
+                Self::builtin_module_binding(&import.module).unwrap_or_else(|| {
+                    ModuleImportBinding {
+                        is_builtin: true,
+                        symbols: HashMap::new(),
+                    }
+                })
+            } else {
+                ModuleImportBinding {
+                    is_builtin: false,
+                    symbols: HashMap::new(),
+                }
             };
 
             for symbol in &import.exposed {
@@ -196,7 +214,11 @@ impl SemanticWorkspace {
                 }
             }
 
-            bindings.insert(import.alias.clone(), binding);
+            bindings.insert(import.alias.clone(), binding.clone());
+
+            if import.is_builtin {
+                Self::extend_builtin_shortcuts(&mut bindings, &import.module);
+            }
         }
 
         bindings
@@ -265,6 +287,70 @@ impl SemanticWorkspace {
 
         visited.remove(module_name);
         binding
+    }
+
+    fn builtin_module_binding(module_name: &str) -> Option<ModuleImportBinding> {
+        match module_name {
+            "std.prelude" | "spectra.std.prelude" => {
+                let mut binding = ModuleImportBinding {
+                    is_builtin: true,
+                    symbols: HashMap::new(),
+                };
+
+                for (alias, target) in PRELUDE_EXPORTS {
+                    let nested = Self::builtin_module_binding(target).unwrap_or_else(|| {
+                        ModuleImportBinding {
+                            is_builtin: true,
+                            symbols: HashMap::new(),
+                        }
+                    });
+
+                    binding.symbols.insert(
+                        (*alias).to_string(),
+                        ImportedSymbol::Module(Box::new(nested)),
+                    );
+                }
+
+                Some(binding)
+            }
+            "std.math"
+            | "spectra.std.math"
+            | "std.io"
+            | "spectra.std.io"
+            | "std.log"
+            | "spectra.std.log"
+            | "std.text"
+            | "spectra.std.text"
+            | "std.time"
+            | "spectra.std.time"
+            | "std.collections"
+            | "spectra.std.collections" => Some(ModuleImportBinding {
+                is_builtin: true,
+                symbols: HashMap::new(),
+            }),
+            _ => None,
+        }
+    }
+
+    fn extend_builtin_shortcuts(
+        bindings: &mut HashMap<String, ModuleImportBinding>,
+        module_name: &str,
+    ) {
+        match module_name {
+            "std.prelude" | "spectra.std.prelude" => {
+                for (alias, target) in PRELUDE_EXPORTS {
+                    bindings.entry((*alias).to_string()).or_insert_with(|| {
+                        Self::builtin_module_binding(target).unwrap_or_else(|| {
+                            ModuleImportBinding {
+                                is_builtin: true,
+                                symbols: HashMap::new(),
+                            }
+                        })
+                    });
+                }
+            }
+            _ => {}
+        }
     }
 
     fn is_builtin_module_name(name: &str) -> bool {
@@ -424,6 +510,38 @@ impl SemanticAnalyzer {
 
     fn set_imports(&mut self, imports: HashMap<String, ModuleImportBinding>) {
         self.module_imports = imports;
+    }
+
+    pub fn configure_builtin_imports_from_module(&mut self, module: &Module) {
+        for item in &module.items {
+            if let Item::Import(import) = item {
+                if import.synthetic
+                    && import.path.len() == 2
+                    && import.path[0] == "std"
+                    && import.path[1] == "prelude"
+                {
+                    let alias = import
+                        .alias
+                        .clone()
+                        .or_else(|| import.path.last().cloned())
+                        .unwrap_or_else(|| "prelude".to_string());
+
+                    if let Some(binding) = SemanticWorkspace::builtin_module_binding("std.prelude")
+                    {
+                        let mut builtin_bindings = HashMap::new();
+                        builtin_bindings.insert(alias, binding);
+                        SemanticWorkspace::extend_builtin_shortcuts(
+                            &mut builtin_bindings,
+                            "std.prelude",
+                        );
+
+                        for (name, binding) in builtin_bindings {
+                            self.module_imports.entry(name).or_insert(binding);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn export_module_symbols(&self) -> ModuleSymbols {
@@ -4429,6 +4547,48 @@ mod tests {
     use super::*;
     use crate::ast::Visibility;
     use crate::resolver::ResolvedSymbolBinding;
+
+    #[test]
+    fn build_import_bindings_exposes_prelude_aliases() {
+        let workspace = SemanticWorkspace::default();
+
+        let imports = vec![ResolvedImport {
+            module: "std.prelude".to_string(),
+            alias: "prelude".to_string(),
+            visibility: Visibility::Private,
+            span: Span::dummy(),
+            is_builtin: true,
+            target: None,
+            exposed: Vec::new(),
+            synthetic: true,
+        }];
+
+        let bindings = workspace.build_import_bindings(&imports);
+
+        let prelude_binding = bindings
+            .get("prelude")
+            .expect("prelude binding should be present");
+
+        let math_binding = match prelude_binding
+            .symbols
+            .get("math")
+            .expect("prelude should expose math alias")
+        {
+            ImportedSymbol::Module(binding) => binding,
+            other => panic!(
+                "expected math alias to resolve to module binding, got {:?}",
+                other
+            ),
+        };
+        assert!(math_binding.is_builtin);
+
+        for alias in ["math", "io", "log", "text", "time", "collections"] {
+            let binding = bindings
+                .get(alias)
+                .unwrap_or_else(|| panic!("missing builtin alias {}", alias));
+            assert!(binding.is_builtin, "{} alias should be builtin", alias);
+        }
+    }
 
     #[test]
     fn build_import_bindings_resolves_module_alias_reexports() {

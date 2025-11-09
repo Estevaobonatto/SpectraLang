@@ -54,6 +54,24 @@ impl ProjectPlan {
         search_roots.sort();
         search_roots.dedup();
 
+        for lib in &options.library_paths {
+            let canonical = normalize_path(lib).map_err(|error| ProjectError::Io {
+                path: lib.clone(),
+                error,
+            })?;
+            let metadata = fs::metadata(&canonical).map_err(|error| ProjectError::Io {
+                path: lib.clone(),
+                error,
+            })?;
+            if !metadata.is_dir() {
+                return Err(ProjectError::LibraryRootNotDirectory { path: lib.clone() });
+            }
+            search_roots.push(canonical);
+        }
+
+        search_roots.sort();
+        search_roots.dedup();
+
         let mut resolver = ModuleResolver::new(ModuleResolverOptions {
             roots: search_roots,
             experimental_features: options.experimental_features.clone(),
@@ -155,6 +173,9 @@ pub enum ProjectError {
         entry: PathBuf,
         error: ModuleResolutionError,
     },
+    LibraryRootNotDirectory {
+        path: PathBuf,
+    },
 }
 
 impl fmt::Display for ProjectError {
@@ -172,6 +193,13 @@ impl fmt::Display for ProjectError {
             }
             ProjectError::ModuleResolution { entry, error } => {
                 write_resolution_error(f, entry, error)
+            }
+            ProjectError::LibraryRootNotDirectory { path } => {
+                write!(
+                    f,
+                    "library search root '{}' is not a directory",
+                    path.display()
+                )
             }
         }
     }

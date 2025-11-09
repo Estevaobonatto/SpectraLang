@@ -27,12 +27,12 @@
 - [x] Atualizar `spectra` CLI para carregar dependências transitivas antes da compilação. _(CLI agora utiliza `ModuleResolver` em `ProjectPlan` para montar o grafo e reportar erros de resolução)_
 - [x] Registrar diagnósticos claros quando um import falhar (arquivo não encontrado, módulo duplicado, conflito de nomes). _(see `ModuleResolutionError::ModuleNotFound` context: agora lista arquivo/linha da origem no CLI)_
 - [x] Executar a análise semântica compartilhada antes do backend para capturar problemas de binding entre módulos.
-- [ ] Suportar configuração de caminhos adicionais (`--lib`, `Spectra.toml`, etc.) se necessário para localizar bibliotecas padrão ou de terceiros.
+- [x] Suportar configuração de caminhos adicionais (`--lib`, `Spectra.toml`, etc.) se necessário para localizar bibliotecas padrão ou de terceiros. _(CLI aceita múltiplos `--lib`/`-L` e `Spectra.toml` expõe `libs = [...]`, todos resolvidos antes de alimentar o `ModuleResolver`.)_
 
 ## Testes
 
-- [ ] Adicionar testes unitários do resolvedor (casos felizes, ciclos, aliasing, erros).
-- [ ] Adicionar testes de integração compilando múltiplos arquivos com imports encadeados.
+- [x] Adicionar testes unitários do resolvedor (casos felizes, ciclos, aliasing, erros). _(ver `compiler/src/resolver/mod.rs` – novos testes cobrem grafo simples, ciclos e erros de módulo ausente)._  
+- [x] Adicionar testes de integração compilando múltiplos arquivos com imports encadeados. _(ver `compiler/tests/import_chain.rs`, além do cenário de reexport existente)._  
 - [ ] Exercitar acesso à stdlib sem prefixo em `tests/` e `examples/`.
 
 ## Documentação

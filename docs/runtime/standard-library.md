@@ -7,6 +7,8 @@ gated through the CLI).
 
 > Note: the module resolver now loads dependent files and reports missing or duplicated modules, and the parser injects a synthetic `import std.prelude;` into every module (unless `#![no_prelude]` is present). Samples may call curated prelude exports without spelling the `std.` prefix explicitly.
 
+See `examples/prelude_demo.spectra` for a minimal module that relies solely on the prelude.
+
 All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.md) contract and the
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
 64-bit values (`SpectraHostValue`).

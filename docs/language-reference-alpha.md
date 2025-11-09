@@ -27,6 +27,7 @@ This document captures the currently implemented SpectraLang surface that define
 - Symbol binding across module boundaries remains limited: alias resolution and visibility propagation are recorded by the resolver, but semantic analysis still requires fully qualified references until the name-binding pass lands.
 - Work to implement the remaining import semantics (shared symbol table, selective imports) is tracked in `docs/compiler/import-system-checklist.md` and documented in `docs/compiler/import-system-design.md`.
 - Source files can opt out of the automatic prelude by placing `#![no_prelude]` before the `module` header. Only the `std.prelude` import is synthesised; all other imports must be declared explicitly.
+- The CLI accepts `--lib <path>` / `-L<path>` flags and `Spectra.toml` `libs = [...]` entries to extend the module search roots alongside project directories.
 - Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
 
 ## Lexical Elements

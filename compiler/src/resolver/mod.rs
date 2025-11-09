@@ -599,3 +599,156 @@ pub enum ModuleResolutionError {
         cycle: Vec<String>,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{create_dir_all, write};
+    use tempfile::tempdir;
+
+    #[test]
+    fn resolves_simple_graph_and_exposes_symbols() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let root = temp_dir.path();
+
+        let entry_path = write_source(
+            root,
+            "app.spectra",
+            r#"module app;
+
+import lib.math;
+
+pub fn main() -> int {
+    return math.add(1, 2);
+}
+"#,
+        );
+
+        write_source(
+            root,
+            "lib/math.spectra",
+            r#"module lib.math;
+
+pub fn add(a: int, b: int) -> int {
+    return a + b;
+}
+"#,
+        );
+
+        let mut resolver = ModuleResolver::new(ModuleResolverOptions::default());
+        let graph = resolver
+            .resolve(&entry_path)
+            .expect("resolution should succeed");
+
+        assert_eq!(
+            graph.modules().len(),
+            2,
+            "expected app and lib.math modules"
+        );
+
+        let entry = graph.entry();
+        assert_eq!(entry.name, "app");
+        assert!(
+            entry
+                .imports
+                .iter()
+                .any(|import| import.module == "std.prelude" && import.synthetic),
+            "synthetic std.prelude import should be present"
+        );
+
+        let math_import = entry
+            .imports
+            .iter()
+            .find(|import| import.module == "lib.math" && !import.synthetic)
+            .expect("app should import lib.math");
+
+        assert_eq!(math_import.alias, "math");
+        assert!(!math_import.is_builtin);
+        assert!(
+            math_import
+                .exposed
+                .iter()
+                .any(|binding| binding.name == "add"),
+            "lib.math import should expose public symbol 'add'"
+        );
+    }
+
+    #[test]
+    fn detects_dependency_cycle() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let root = temp_dir.path();
+
+        let entry_path = write_source(
+            root,
+            "alpha.spectra",
+            r#"module alpha;
+
+import beta;
+"#,
+        );
+
+        write_source(
+            root,
+            "beta.spectra",
+            r#"module beta;
+
+import alpha;
+"#,
+        );
+
+        let mut resolver = ModuleResolver::new(ModuleResolverOptions::default());
+        let error = resolver
+            .resolve(&entry_path)
+            .expect_err("cycle should trigger resolution error");
+
+        match error {
+            ModuleResolutionError::Cycle { cycle } => {
+                assert!(cycle.contains(&"alpha".to_string()));
+                assert!(cycle.contains(&"beta".to_string()));
+            }
+            other => panic!("expected cycle error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn reports_missing_module_with_origin_metadata() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let root = temp_dir.path();
+
+        let entry_path = write_source(
+            root,
+            "main.spectra",
+            r#"module main;
+
+import missing.module;
+"#,
+        );
+
+        let mut resolver = ModuleResolver::new(ModuleResolverOptions::default());
+        let error = resolver
+            .resolve(&entry_path)
+            .expect_err("unresolved import should produce error");
+
+        match error {
+            ModuleResolutionError::ModuleNotFound {
+                module, sources, ..
+            } => {
+                assert_eq!(module, "missing.module");
+                assert_eq!(sources.len(), 1);
+                let origin = &sources[0];
+                assert_eq!(origin.origin_module, "main");
+                assert_eq!(origin.import_path, "missing.module");
+            }
+            other => panic!("expected module-not-found error, got {:?}", other),
+        }
+    }
+
+    fn write_source(base: &Path, relative: &str, contents: &str) -> PathBuf {
+        let path = base.join(relative);
+        if let Some(parent) = path.parent() {
+            create_dir_all(parent).expect("failed to create parent directories");
+        }
+        write(&path, contents.as_bytes()).expect("failed to write source file");
+        path
+    }
+}

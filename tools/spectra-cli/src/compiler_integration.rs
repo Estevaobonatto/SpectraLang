@@ -963,6 +963,7 @@ mod tests {
             collect_metrics: false,
             experimental_features: HashSet::new(),
             lint: LintOptions::default(),
+            library_paths: Vec::new(),
         };
 
         let mut compiler = SpectraCompiler::new(options);

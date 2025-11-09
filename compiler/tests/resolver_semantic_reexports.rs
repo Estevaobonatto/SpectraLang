@@ -49,30 +49,33 @@ pub fn use_add(x: int, y: int) -> int {
         .resolve(&entry_path)
         .expect("module resolution should succeed");
 
-    let entry = graph.entry();
-    let lib_import = entry
-        .imports
-        .iter()
-        .find(|import| import.alias == "lib")
-        .expect("consumer should import lib");
+    {
+        let entry = graph.entry();
+        let lib_import = entry
+            .imports
+            .iter()
+            .find(|import| import.alias == "lib")
+            .expect("consumer should import lib");
 
-    let alias_binding = lib_import
-        .exposed
-        .iter()
-        .find(|binding| binding.name == "math")
-        .expect("lib should reexport math");
+        let alias_binding = lib_import
+            .exposed
+            .iter()
+            .find(|binding| binding.name == "math")
+            .expect("lib should reexport math");
 
-    match &alias_binding.kind {
-        ExportKind::ModuleAlias { target } => {
-            assert_eq!(target, "lib.math");
+        match &alias_binding.kind {
+            ExportKind::ModuleAlias { target } => {
+                assert_eq!(target, "lib.math");
+            }
+            other => panic!("expected module alias, got {:?}", other),
         }
-        other => panic!("expected module alias, got {:?}", other),
+        assert_eq!(alias_binding.origin_module, "lib");
     }
-    assert_eq!(alias_binding.origin_module, "lib");
 
     SemanticWorkspace::analyze(&mut graph)
         .expect("semantic analysis should succeed for reexported call");
 
+    let entry = graph.entry();
     let has_use_add = entry
         .ast
         .items

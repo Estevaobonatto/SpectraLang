@@ -8,6 +8,7 @@ use crate::parser::workspace::{ModuleLoader, ModuleParseError};
 use crate::semantic::SemanticAnalyzer;
 use std::collections::HashSet;
 use std::fmt::Debug;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// Compilation options
@@ -29,6 +30,8 @@ pub struct CompilationOptions {
     pub experimental_features: HashSet<String>,
     /// Lint configuration for the semantic pipeline
     pub lint: LintOptions,
+    /// Additional library search roots supplied by the caller
+    pub library_paths: Vec<PathBuf>,
 }
 
 impl Default for CompilationOptions {
@@ -42,6 +45,7 @@ impl Default for CompilationOptions {
             collect_metrics: false,
             experimental_features: HashSet::new(),
             lint: LintOptions::disabled(),
+            library_paths: Vec::new(),
         }
     }
 }
@@ -180,6 +184,7 @@ where
 
         // Phase 3: Semantic Analysis
         let mut semantic = SemanticAnalyzer::new();
+        semantic.configure_builtin_imports_from_module(&ast);
         let semantic_start = collect_metrics.then(Instant::now);
         let semantic_errors = semantic.analyze_module(&mut ast);
         if let (Some(metrics), Some(start)) = (metrics.as_mut(), semantic_start) {

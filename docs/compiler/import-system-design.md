@@ -22,9 +22,10 @@
 - Module identifiers use dot-separated segments; `foo.bar.baz` maps to the relative file path `foo/bar/baz.spectra`.
 - The resolver maintains an ordered list of search roots:
   1. Directory of the entry module passed to the CLI.
-  2. Project-level roots declared in `Spectra.toml` (future) or discovered defaults (`src`, `modules`).
-  3. Additional roots supplied via `--lib <path>` CLI flags.
-  4. The bundled stdlib root shipped with the runtime distribution.
+  2. Parent directories of any user-provided source files (covers `src`, `modules`, etc.).
+  3. Paths listed in `Spectra.toml` via `libs = ["path/to/lib", ...]` (resolved relative to the manifest).
+  4. Additional roots supplied via repeated `--lib <path>` / `-L<path>` CLI flags.
+  5. The bundled stdlib root shipped with the runtime distribution.
 - The first matching source file wins. All matches are normalised to canonical paths to avoid duplicate modules that differ only by path casing.
 - Each parsed module validates that its declared `module` header matches the canonical module path derived from its file location; mismatches produce a diagnostic that suggests renaming the file or updating the header.
 
@@ -56,7 +57,7 @@
 ## CLI Integration Plan
 
 - Extend the project planner (`tools/spectra-cli/src/project.rs`) to compute the module search roots and build the dependency graph prior to invoking the compiler pipeline. _(Implemented via `ModuleResolver` integration.)_
-- Provide `--lib <path>` and `--no-prelude` CLI switches so automation can fine-tune the environment.
+- Provide `--lib <path>` CLI switch and `Spectra.toml` `libs = [...]` entries so automation can register extra roots. (`--no-prelude` CLI toggle remains future work.)
 - Emit diagnostics when a requested module is missing, duplicated across roots, or has incompatible visibility (for example, attempting to import a private module).
 - Cache graph metadata on disk (JSON sidecar) to accelerate repeated CLI runs; cache invalidation occurs when source timestamps or configuration inputs change.
 

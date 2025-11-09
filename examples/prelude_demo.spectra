@@ -1,0 +1,10 @@
+module prelude_demo;
+
+pub fn main() -> int {
+    let sum = math.add(40, 2);
+    io.print(sum);
+    let _text = text.from_int(sum);
+    let _list = collections.list_new();
+    time.sleep(0);
+    return sum;
+}
