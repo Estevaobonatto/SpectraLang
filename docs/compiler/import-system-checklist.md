@@ -24,7 +24,7 @@
 ## Integração CLI / Ferramentas
 
 - [x] Atualizar `spectra` CLI para carregar dependências transitivas antes da compilação. _(CLI agora utiliza `ModuleResolver` em `ProjectPlan` para montar o grafo e reportar erros de resolução)_
-- [ ] Registrar diagnósticos claros quando um import falhar (arquivo não encontrado, módulo duplicado, conflito de nomes).
+- [x] Registrar diagnósticos claros quando um import falhar (arquivo não encontrado, módulo duplicado, conflito de nomes). _(see `ModuleResolutionError::ModuleNotFound` context: agora lista arquivo/linha da origem no CLI)_
 - [ ] Suportar configuração de caminhos adicionais (`--lib`, `Spectra.toml`, etc.) se necessário para localizar bibliotecas padrão ou de terceiros.
 
 ## Testes

@@ -94,6 +94,15 @@ pub enum ExportKind {
     ModuleAlias { target: String },
 }
 
+#[derive(Debug, Clone)]
+pub struct ImportSource {
+    pub origin_module: String,
+    pub origin_path: PathBuf,
+    pub alias: String,
+    pub import_path: String,
+    pub span: Span,
+}
+
 pub struct ModuleResolver {
     loader: ModuleLoader,
     options: ModuleResolverOptions,
@@ -127,11 +136,18 @@ impl ModuleResolver {
 
         let mut module_paths: HashMap<String, PathBuf> = HashMap::new();
         let mut modules: HashMap<String, ModuleNode> = HashMap::new();
+        let mut import_sources: HashMap<String, Vec<ImportSource>> = HashMap::new();
         let entry_module = self.parse_from_path(&entry_path)?;
         let entry_name = entry_module.name.clone();
 
         module_paths.insert(entry_name.clone(), entry_path.clone());
         let entry_node = ModuleNode::new(entry_module, entry_path.clone());
+        register_import_sources(
+            &mut import_sources,
+            &entry_name,
+            &entry_node.path,
+            &entry_node.imports,
+        );
         let mut queue: VecDeque<String> = VecDeque::new();
         let mut scheduled: HashSet<String> = HashSet::new();
         for dependency in &entry_node.dependencies {
@@ -146,7 +162,11 @@ impl ModuleResolver {
                 continue;
             }
 
-            let path = locate_module(&module_name, &search_roots)?;
+            let sources = import_sources
+                .get(&module_name)
+                .cloned()
+                .unwrap_or_default();
+            let path = locate_module(&module_name, &search_roots, &sources)?;
             if let Some(existing) = module_paths.get(&module_name) {
                 if !paths_equal(existing, &path) {
                     return Err(ModuleResolutionError::DuplicateModule {
@@ -169,6 +189,12 @@ impl ModuleResolver {
 
             module_paths.insert(parsed.name.clone(), path.clone());
             let node = ModuleNode::new(parsed, path);
+            register_import_sources(
+                &mut import_sources,
+                &module_name,
+                &node.path,
+                &node.imports,
+            );
             for dependency in &node.dependencies {
                 if modules.contains_key(dependency) {
                     continue;
@@ -381,7 +407,35 @@ fn is_builtin_module(path: &[String]) -> bool {
         || name.starts_with("spectra.std.")
 }
 
-fn locate_module(module: &str, roots: &[PathBuf]) -> Result<PathBuf, ModuleResolutionError> {
+fn register_import_sources(
+    registry: &mut HashMap<String, Vec<ImportSource>>,
+    origin_module: &str,
+    origin_path: &Path,
+    imports: &[ResolvedImport],
+) {
+    for import in imports {
+        if import.is_builtin {
+            continue;
+        }
+
+        registry
+            .entry(import.module.clone())
+            .or_default()
+            .push(ImportSource {
+                origin_module: origin_module.to_string(),
+                origin_path: origin_path.to_path_buf(),
+                alias: import.alias.clone(),
+                import_path: import.module.clone(),
+                span: import.span,
+            });
+    }
+}
+
+fn locate_module(
+    module: &str,
+    roots: &[PathBuf],
+    sources: &[ImportSource],
+) -> Result<PathBuf, ModuleResolutionError> {
     let mut relative = PathBuf::new();
     for segment in module.split('.') {
         relative.push(segment);
@@ -406,6 +460,7 @@ fn locate_module(module: &str, roots: &[PathBuf]) -> Result<PathBuf, ModuleResol
     Err(ModuleResolutionError::ModuleNotFound {
         module: module.to_string(),
         searched: candidates,
+        sources: sources.to_vec(),
     })
 }
 
@@ -524,6 +579,7 @@ pub enum ModuleResolutionError {
     ModuleNotFound {
         module: String,
         searched: Vec<PathBuf>,
+        sources: Vec<ImportSource>,
     },
     ModuleHeaderMismatch {
         expected: String,

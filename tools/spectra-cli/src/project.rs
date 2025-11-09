@@ -222,7 +222,11 @@ fn write_resolution_error(
                 error
             )
         }
-        ModuleResolutionError::ModuleNotFound { module, searched } => {
+        ModuleResolutionError::ModuleNotFound {
+            module,
+            searched,
+            sources,
+        } => {
             write!(
                 f,
                 "module '{}' imported while resolving '{}' was not found",
@@ -237,6 +241,29 @@ fn write_resolution_error(
                 candidates.sort();
                 candidates.dedup();
                 write!(f, " (searched: {})", candidates.join(", "))?;
+            }
+            if !sources.is_empty() {
+                writeln!(f, "")?;
+                writeln!(f, "    referenced by:")?;
+                for source in sources {
+                    let location = source.span.start_location;
+                    let alias_display = if source.alias.is_empty() {
+                        source.import_path.clone()
+                    } else if source.alias == source.import_path {
+                        source.alias.clone()
+                    } else {
+                        format!("{} as {}", source.import_path, source.alias)
+                    };
+                    writeln!(
+                        f,
+                        "      • {}:{}:{} (module '{}', import `{}`)",
+                        source.origin_path.display(),
+                        location.line,
+                        location.column,
+                        source.origin_module,
+                        alias_display
+                    )?;
+                }
             }
             Ok(())
         }
