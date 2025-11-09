@@ -4,6 +4,7 @@ pub mod lexer;
 pub mod lint;
 pub mod parser;
 pub mod pipeline;
+pub mod resolver;
 pub mod semantic;
 pub mod span;
 pub mod token;
@@ -16,6 +17,7 @@ pub use parser::Parser;
 pub use pipeline::{
     BackendDriver, CompilationOptions, CompilationPipeline, CompilationResult, NoopBackend,
 };
+pub use resolver::{ModuleGraph, ModuleResolutionError, ModuleResolver, ModuleResolverOptions};
 pub use semantic::analyze_modules;
 pub use span::{span_union, Location, Span};
 pub use token::{Keyword, Operator, Token, TokenKind};

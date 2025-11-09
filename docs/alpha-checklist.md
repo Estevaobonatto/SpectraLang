@@ -10,6 +10,7 @@
 
 ## Module Resolution
 
+- [x] Record resolver and prelude design decisions _(see `docs/compiler/import-system-design.md`)_
 - [ ] Implement cross-file import resolution and module graph loading _(tracked in `docs/compiler/import-system-checklist.md`)_
 - [ ] Support aliasing/reexport syntax and prelude exposure for stdlib access without the `std` prefix _(see checklist above)_
 - [ ] Document CLI configuration options for locating external/std modules once the resolver ships

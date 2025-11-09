@@ -7,6 +7,7 @@ pub enum Keyword {
     Module,
     Import,
     Export,
+    As,
 
     // Declarations
     Fn,
@@ -65,6 +66,7 @@ impl Keyword {
             "module" => Some(Self::Module),
             "import" => Some(Self::Import),
             "export" => Some(Self::Export),
+            "as" => Some(Self::As),
 
             // Declarations
             "fn" => Some(Self::Fn),
@@ -127,6 +129,7 @@ impl fmt::Display for Keyword {
             Keyword::Module => "module",
             Keyword::Import => "import",
             Keyword::Export => "export",
+            Keyword::As => "as",
 
             // Declarations
             Keyword::Fn => "fn",

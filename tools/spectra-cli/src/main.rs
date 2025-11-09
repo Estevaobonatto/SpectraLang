@@ -1093,7 +1093,8 @@ fn execute_plan_with_options(
     print_success: bool,
     verbose: bool,
 ) -> CliResult<()> {
-    let plan = ProjectPlan::build(entries).map_err(|error| CliError::io(error.to_string()))?;
+    let plan = ProjectPlan::build(entries, &options)
+        .map_err(|error| CliError::io(error.to_string()))?;
 
     if plan.modules().is_empty() {
         return Err(CliError::usage("No Spectra source files found to compile."));
@@ -1655,7 +1656,7 @@ fn execute_repl_json(mut options: CompilationOptions, preload: Vec<PathBuf>) -> 
 }
 
 fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> CliResult<()> {
-    let plan = match ProjectPlan::build(entries.clone()) {
+    let plan = match ProjectPlan::build(entries.clone(), &options) {
         Ok(plan) => plan,
         Err(error) => {
             let path = entries

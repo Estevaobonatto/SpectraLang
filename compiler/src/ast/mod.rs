@@ -30,6 +30,20 @@ pub enum Type {
     SelfType,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+#[derive(Debug, Clone)]
+pub struct Import {
+    pub path: Vec<String>,
+    pub alias: Option<String>,
+    pub visibility: Visibility,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct Module {
     pub name: String,
@@ -56,18 +70,6 @@ pub enum Item {
     Impl(ImplBlock),
     Trait(TraitDeclaration),
     TraitImpl(TraitImpl),
-}
-
-#[derive(Debug, Clone)]
-pub struct Import {
-    pub path: Vec<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Visibility {
-    Public,
-    Private,
 }
 
 #[derive(Debug, Clone)]

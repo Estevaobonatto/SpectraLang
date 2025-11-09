@@ -4,26 +4,26 @@
 
 ## Arquitetura e Design
 
-- [ ] Definir como o compilador descobre módulos importados (convenções de caminho, extensão de arquivo, resolução relativa vs. absoluta).
-- [ ] Especificar ordem de carga, regras de recompilação incremental e política para ciclos de import.
-- [ ] Descrever estratégia de visibilidade/prelude (quais símbolos ficam disponíveis automaticamente, como expor a stdlib sem `std.`).
+- [x] Definir como o compilador descobre módulos importados (convenções de caminho, extensão de arquivo, resolução relativa vs. absoluta). _(ver decisões em `docs/compiler/import-system-design.md`)_
+- [x] Especificar ordem de carga, regras de recompilação incremental e política para ciclos de import. _(mesma referência)_
+- [x] Descrever estratégia de visibilidade/prelude (quais símbolos ficam disponíveis automaticamente, como expor a stdlib sem `std.`). _(mesma referência)_
 
 ## Parser & AST
 
 - [x] Reconhecer declarações `import path.to.module;` e armazenar spans para diagnósticos.
-- [ ] Permitir aliasing explícito (`import foo.bar as baz;`) e múltiplos itens por declaração se necessário.
-- [ ] Suportar reexportes (`pub import`, `export import`, ou alternativa aprovada) caso façam parte do design.
+- [x] Permitir aliasing explícito (`import foo.bar as baz;`) e múltiplos itens por declaração se necessário. _(aliasing disponível; importações múltiplas ficam pendentes)_
+- [ ] Suportar reexportes (`pub import`, `export import`, ou alternativa aprovada) caso façam parte do design. _(parser já aceita `pub import`; resolver precisa propagar visibilidade)_
 
 ## Resolvedor de Módulos
 
-- [ ] Construir grafo de dependências entre módulos e detectar imports ausentes ou cíclicos.
-- [ ] Associar cada `import` aos símbolos exportados do módulo alvo, com tratamento de visibilidade.
+- [x] Construir grafo de dependências entre módulos e detectar imports ausentes ou cíclicos. _(implementado em `ModuleResolver`, com diagnóstico de duplicatas, headers divergentes e ciclos)_
+- [ ] Associar cada `import` aos símbolos exportados do módulo alvo, com tratamento de visibilidade. _(resolver já aponta o módulo-alvo para cada import; falta integrar com tabela de símbolos)_
 - [ ] Popular uma tabela de símbolos compartilhada entre arquivos para permitir lookup durante a análise semântica.
 - [ ] Implementar mecanismo de prelude/`use` automático para expor a stdlib sem prefixo.
 
 ## Integração CLI / Ferramentas
 
-- [ ] Atualizar `spectra` CLI para carregar dependências transitivas antes da compilação.
+- [x] Atualizar `spectra` CLI para carregar dependências transitivas antes da compilação. _(CLI agora utiliza `ModuleResolver` em `ProjectPlan` para montar o grafo e reportar erros de resolução)_
 - [ ] Registrar diagnósticos claros quando um import falhar (arquivo não encontrado, módulo duplicado, conflito de nomes).
 - [ ] Suportar configuração de caminhos adicionais (`--lib`, `Spectra.toml`, etc.) se necessário para localizar bibliotecas padrão ou de terceiros.
 

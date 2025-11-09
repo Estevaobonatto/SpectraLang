@@ -1,13 +1,13 @@
 # SpectraLang Alpha Language Reference
 
-Date frozen: 2025-11-06
+Date frozen: 2025-11-08
 
 This document captures the currently implemented SpectraLang surface that defines the alpha language scope. It reflects the behaviour of the existing lexer, parser, semantic analyser, and midend as of commit time. Anything not listed here should be considered out of scope for the alpha milestone unless otherwise noted.
 
 ## Source File Layout
 
 - Every source file must begin with a `module` declaration: `module path.to.module;`. The parser treats the first tokens as the module header and emits an error if it is missing.
-- Zero or more `import` statements may follow. Imports accept dotted paths but do not yet support aliasing or glob patterns.
+- Zero or more `import` statements may follow. Imports accept dotted paths and optional `as alias` clauses; glob and selective imports remain deferred until the resolver work ships.
 - Top-level items supported in Alpha:
 
   - Function definitions (`fn`), with optional `pub` visibility and generic parameters `<T>`.
@@ -22,9 +22,10 @@ This document captures the currently implemented SpectraLang surface that define
 ### Module and Package Semantics
 
 - Module paths use dot-separated identifiers (`module physics.vector;`). By convention the path should mirror the folder hierarchy, but the compiler does not enforce this yet.
-- Each source file is compiled independently by the CLI. Cross-file linkage is limited: imports are parsed so the structure is known, but no name resolution or automatic loading of imported files occurs in alpha.
-- Work to implement full import resolution (module graph, prelude, aliasing) is tracked in `docs/compiler/import-system-checklist.md`. Until that effort lands, all symbols must be fully qualified (for example, `std.math.add`).
-- Duplicate module names within the same compilation session are not detected; the caller is responsible for organising files to avoid conflicts.
+- The compiler now constructs a module dependency graph before type-checking, reporting missing files, duplicate modules, header mismatches, and dependency cycles with precise diagnostics. Imported modules are parsed once and cached via the shared `ModuleLoader`.
+- Symbol binding across module boundaries remains limited: alias resolution and visibility propagation are recorded by the resolver, but semantic analysis still requires fully qualified references until the name-binding pass lands.
+- Work to implement the remaining import semantics (shared symbol table, prelude injection, selective imports) is tracked in `docs/compiler/import-system-checklist.md` and documented in `docs/compiler/import-system-design.md`.
+- Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
 - Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
 
 ## Lexical Elements
@@ -169,7 +170,6 @@ These keywords or constructs are tokenised but not yet parsed or semantically va
 - `goto`
 - Weak typing mode directives (not implemented)
 - Struct-style enum variants (`Variant { field: value }`)
-- Module aliasing/import renaming
 - Weak typing directives (`#pragma weak` style or attribute-based opt-outs)
 
 ## Weak Typing Mode Status

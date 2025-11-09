@@ -5,6 +5,7 @@ Este diretório contém a implementação modular do parser da linguagem Spectra
 ## Estrutura de Arquivos
 
 ### `mod.rs` - Parser Principal
+
 - **Responsabilidade**: Gerenciamento geral do processo de parsing
 - **Conteúdo**:
   - Estrutura `Parser` principal com estado (tokens, posição, erros)
@@ -15,12 +16,16 @@ Este diretório contém a implementação modular do parser da linguagem Spectra
   - Sincronização de erros (`synchronize`)
 
 ### `module.rs` - Parser de Módulos
+
 - **Responsabilidade**: Parse de declarações de módulos e imports
 - **Sintaxe suportada**:
   - `module <nome>;` - Declaração de módulo
   - `import path.to.module;` - Importação de módulos
+  - `import path.to.module as alias;` - Import com alias explícito
+  - `pub import path.to.module;` - Import público para reexportar símbolos
 
 ### `item.rs` - Parser de Items
+
 - **Responsabilidade**: Parse de declarações de alto nível (funções, classes, traits)
 - **Sintaxe suportada**:
   - `fn <nome>(<params>) [-> tipo] { <corpo> }` - Declaração de função
@@ -30,6 +35,7 @@ Este diretório contém a implementação modular do parser da linguagem Spectra
   - Blocos de código
 
 ### `statement.rs` - Parser de Statements
+
 - **Responsabilidade**: Parse de declarações dentro de funções
 - **Sintaxe suportada**:
   - `let <nome> [: tipo] [= expr];` - Declaração de variável
@@ -37,6 +43,7 @@ Este diretório contém a implementação modular do parser da linguagem Spectra
   - Expressões como statements
 
 ### `expression.rs` - Parser de Expressões
+
 - **Responsabilidade**: Parse de expressões
 - **Sintaxe suportada**:
   - Literais: números, strings
@@ -45,6 +52,7 @@ Este diretório contém a implementação modular do parser da linguagem Spectra
   - Expressões agrupadas: `(expr)`
   
 ### `type_annotation.rs` - Parser de Tipos
+
 - **Responsabilidade**: Parse de anotações de tipo
 - **Sintaxe suportada**:
   - Tipos simples: `i32`, `String`
@@ -61,7 +69,7 @@ O parser utiliza uma arquitetura de **Recursive Descent Parser** com as seguinte
 
 ## Fluxo de Parsing
 
-```
+```text
 Parser::parse()
   └─> parse_module()
        ├─> parse_import() (module.rs)

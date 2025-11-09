@@ -19,7 +19,15 @@ impl Parser {
             }
             crate::token::TokenKind::Keyword(Keyword::Pub) => {
                 self.advance(); // consume 'pub'
-                self.parse_item_with_visibility(Visibility::Public)
+                if matches!(
+                    self.current().kind,
+                    crate::token::TokenKind::Keyword(Keyword::Import)
+                ) {
+                    let import = self.parse_import_with_visibility(Visibility::Public)?;
+                    Ok(Item::Import(import))
+                } else {
+                    self.parse_item_with_visibility(Visibility::Public)
+                }
             }
             crate::token::TokenKind::Keyword(Keyword::Fn) => {
                 self.parse_item_with_visibility(Visibility::Private)

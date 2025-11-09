@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Import, Module},
+    ast::{Import, Module, Visibility},
     span::span_union,
     token::Keyword,
 };
@@ -47,6 +47,13 @@ impl Parser {
     }
 
     pub(super) fn parse_import(&mut self) -> Result<Import, ()> {
+        self.parse_import_with_visibility(Visibility::Private)
+    }
+
+    pub(super) fn parse_import_with_visibility(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<Import, ()> {
         // Expect: import path.to.module;
         let start_span = self.consume_keyword(Keyword::Import, "Expected 'import' keyword")?;
 
@@ -63,10 +70,20 @@ impl Parser {
             path.push(name);
         }
 
+        let alias = if self.check_keyword(Keyword::As) {
+            self.advance(); // consume 'as'
+            let (alias, _) = self.consume_identifier("Expected alias name after 'as'")?;
+            Some(alias)
+        } else {
+            None
+        };
+
         let end_span = self.consume_symbol(';', "Expected ';' after import path")?;
 
         Ok(Import {
             path,
+            alias,
+            visibility,
             span: span_union(start_span, end_span),
         })
     }

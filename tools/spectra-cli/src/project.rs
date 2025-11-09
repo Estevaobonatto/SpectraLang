@@ -1,3 +1,9 @@
+use spectra_compiler::{
+    CompilationOptions,
+    ModuleResolutionError,
+    ModuleResolver,
+    ModuleResolverOptions,
+};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
@@ -17,7 +23,7 @@ pub struct ProjectPlan {
 }
 
 impl ProjectPlan {
-    pub fn build(entries: Vec<PathBuf>) -> Result<Self, ProjectError> {
+    pub fn build(entries: Vec<PathBuf>, options: &CompilationOptions) -> Result<Self, ProjectError> {
         if entries.is_empty() {
             return Ok(Self {
                 modules: Vec::new(),
@@ -25,63 +31,78 @@ impl ProjectPlan {
         }
 
         let mut discovered: HashSet<PathBuf> = HashSet::new();
-        let mut entry_set: HashSet<PathBuf> = HashSet::new();
+        let mut entry_paths: Vec<PathBuf> = Vec::new();
 
         for entry in entries {
             let normalized =
                 normalize_path(&entry).map_err(|error| ProjectError::Io { path: entry, error })?;
-            entry_set.insert(normalized.clone());
+            entry_paths.push(normalized.clone());
             collect_sources(&normalized, &mut discovered)?;
         }
 
         if discovered.is_empty() {
-            return Err(ProjectError::NoSourcesFound(
-                entry_set.into_iter().collect(),
-            ));
+            return Err(ProjectError::NoSourcesFound(entry_paths));
         }
+
+        let mut search_roots: Vec<PathBuf> = discovered
+            .iter()
+            .filter_map(|path| path.parent().map(|parent| parent.to_path_buf()))
+            .collect();
+        search_roots.sort();
+        search_roots.dedup();
+
+        let mut resolver = ModuleResolver::new(ModuleResolverOptions {
+            roots: search_roots,
+            experimental_features: options.experimental_features.clone(),
+        });
+
+        let mut files: Vec<PathBuf> = discovered.into_iter().collect();
+        files.sort();
 
         let mut modules = Vec::new();
-        let mut module_map: HashMap<String, PathBuf> = HashMap::new();
+        let mut seen_modules: HashMap<String, PathBuf> = HashMap::new();
 
-        for path in discovered.into_iter() {
-            let source = fs::read_to_string(&path).map_err(|error| ProjectError::Io {
-                path: path.clone(),
-                error,
-            })?;
-            let module = extract_module_name(&source)
-                .ok_or_else(|| ProjectError::MissingModuleHeader { path: path.clone() })?;
+        for entry in files {
+            let graph = resolver
+                .resolve(&entry)
+                .map_err(|error| ProjectError::ModuleResolution {
+                    entry: entry.clone(),
+                    error,
+                })?;
 
-            if let Some(existing) = module_map.get(&module) {
-                return Err(ProjectError::DuplicateModule {
-                    module,
-                    existing: existing.clone(),
-                    duplicate: path.clone(),
+            for module in graph.modules() {
+                if let Some(existing_path) = seen_modules.get(&module.name) {
+                    if existing_path != &module.path {
+                        return Err(ProjectError::ModuleResolution {
+                            entry: entry.clone(),
+                            error: ModuleResolutionError::DuplicateModule {
+                                module: module.name.clone(),
+                                existing: existing_path.clone(),
+                                duplicate: module.path.clone(),
+                            },
+                        });
+                    }
+                    continue;
+                }
+
+                seen_modules.insert(module.name.clone(), module.path.clone());
+
+                let imports = module
+                    .imports
+                    .iter()
+                    .filter(|import| !import.is_builtin)
+                    .map(|import| import.module.clone())
+                    .collect();
+
+                modules.push(ResolvedModule {
+                    name: module.name.clone(),
+                    path: module.path.clone(),
+                    imports,
                 });
             }
-
-            let imports = extract_imports(&source);
-            module_map.insert(module.clone(), path.clone());
-            modules.push(ResolvedModule {
-                name: module,
-                path,
-                imports,
-            });
         }
 
-        let missing = collect_missing_dependencies(&modules, &module_map);
-        if !missing.is_empty() {
-            return Err(ProjectError::MissingDependencies(missing));
-        }
-
-        let order = topological_order(&modules)?;
-        let ordered_modules = order
-            .into_iter()
-            .map(|index| modules[index].clone())
-            .collect();
-
-        Ok(Self {
-            modules: ordered_modules,
-        })
+        Ok(Self { modules })
     }
 
     pub fn modules(&self) -> &[ResolvedModule] {
@@ -95,23 +116,11 @@ pub enum ProjectError {
         path: PathBuf,
         error: io::Error,
     },
-    MissingModuleHeader {
-        path: PathBuf,
-    },
-    DuplicateModule {
-        module: String,
-        existing: PathBuf,
-        duplicate: PathBuf,
-    },
-    MissingDependencies(Vec<MissingDependency>),
-    CyclicDependency(Vec<String>),
     NoSourcesFound(Vec<PathBuf>),
-}
-
-#[derive(Debug)]
-pub struct MissingDependency {
-    pub module: String,
-    pub missing: Vec<String>,
+    ModuleResolution {
+        entry: PathBuf,
+        error: ModuleResolutionError,
+    },
 }
 
 impl fmt::Display for ProjectError {
@@ -120,51 +129,15 @@ impl fmt::Display for ProjectError {
             ProjectError::Io { path, error } => {
                 write!(f, "failed to read '{}': {}", path.display(), error)
             }
-            ProjectError::MissingModuleHeader { path } => {
-                write!(
-                    f,
-                    "file '{}' is missing a leading module declaration",
-                    path.display()
-                )
-            }
-            ProjectError::DuplicateModule {
-                module,
-                existing,
-                duplicate,
-            } => {
-                write!(
-                    f,
-                    "module '{}' is declared by both '{}' and '{}'",
-                    module,
-                    existing.display(),
-                    duplicate.display()
-                )
-            }
-            ProjectError::MissingDependencies(items) => {
-                writeln!(f, "unresolved module imports:")?;
-                for item in items {
-                    writeln!(
-                        f,
-                        "  • '{}' is missing: {}",
-                        item.module,
-                        item.missing.join(", ")
-                    )?;
-                }
-                Ok(())
-            }
-            ProjectError::CyclicDependency(cycle) => {
-                write!(
-                    f,
-                    "detected module dependency cycle: {}",
-                    cycle.join(" -> ")
-                )
-            }
             ProjectError::NoSourcesFound(paths) => {
                 writeln!(f, "no Spectra source files found in the given paths:")?;
                 for path in paths {
                     writeln!(f, "  • {}", path.display())?;
                 }
                 Ok(())
+            }
+            ProjectError::ModuleResolution { entry, error } => {
+                write_resolution_error(f, entry, error)
             }
         }
     }
@@ -226,152 +199,85 @@ fn normalize_path(path: &Path) -> Result<PathBuf, io::Error> {
     fs::canonicalize(path)
 }
 
-fn extract_module_name(source: &str) -> Option<String> {
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            continue;
+fn write_resolution_error(
+    f: &mut fmt::Formatter<'_>,
+    entry: &Path,
+    error: &ModuleResolutionError,
+) -> fmt::Result {
+    match error {
+        ModuleResolutionError::Io { path, error } => {
+            write!(
+                f,
+                "failed to read '{}' while resolving module graph for '{}': {}",
+                path.display(),
+                entry.display(),
+                error
+            )
         }
-
-        if let Some(rest) = trimmed.strip_prefix("module ") {
-            let rest = rest.split("//").next().unwrap_or(rest).trim();
-            let rest = rest.trim_end_matches(';').trim();
-            if rest.is_empty() {
-                return None;
+        ModuleResolutionError::ModuleNotFound { module, searched } => {
+            write!(
+                f,
+                "module '{}' imported while resolving '{}' was not found",
+                module,
+                entry.display()
+            )?;
+            if !searched.is_empty() {
+                let mut candidates: Vec<String> = searched
+                    .iter()
+                    .map(|candidate| candidate.to_string_lossy().into_owned())
+                    .collect();
+                candidates.sort();
+                candidates.dedup();
+                write!(f, " (searched: {})", candidates.join(", "))?;
             }
-            return Some(rest.to_string());
+            Ok(())
         }
-
-        // Stop scanning once we reach non-comment, non-module tokens.
-        break;
-    }
-    None
-}
-
-fn extract_imports(source: &str) -> Vec<String> {
-    let mut imports = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("import ") {
-            continue;
-        }
-
-        let rest = &trimmed["import ".len()..];
-        let rest = rest.split("//").next().unwrap_or(rest).trim();
-        let rest = rest.trim_end_matches(';').trim();
-        if rest.is_empty() {
-            continue;
-        }
-
-        // Support optional alias ("import path.to.module as alias")
-        let module_name = if let Some((module, _alias)) = rest.split_once(" as ") {
-            module.trim()
-        } else {
-            rest
-        };
-
-        if !module_name.is_empty() {
-            imports.push(module_name.to_string());
-        }
-    }
-    imports
-}
-
-fn collect_missing_dependencies(
-    modules: &[ResolvedModule],
-    module_map: &HashMap<String, PathBuf>,
-) -> Vec<MissingDependency> {
-    let mut missing = Vec::new();
-
-    for module in modules {
-        let unresolved: Vec<String> = module
-            .imports
-            .iter()
-            .filter(|dep| !is_builtin_module(dep) && !module_map.contains_key(*dep))
-            .cloned()
-            .collect();
-
-        if !unresolved.is_empty() {
-            missing.push(MissingDependency {
-                module: module.name.clone(),
-                missing: unresolved,
-            });
-        }
-    }
-
-    missing
-}
-
-fn is_builtin_module(name: &str) -> bool {
-    name == "std"
-        || name.starts_with("std.")
-        || name == "spectra.std"
-        || name.starts_with("spectra.std.")
-}
-
-fn topological_order(modules: &[ResolvedModule]) -> Result<Vec<usize>, ProjectError> {
-    #[derive(Copy, Clone, PartialEq)]
-    enum VisitState {
-        Unvisited,
-        Visiting,
-        Visited,
-    }
-
-    let mut state = vec![VisitState::Unvisited; modules.len()];
-    let mut order = Vec::with_capacity(modules.len());
-    let mut stack = Vec::new();
-    let name_to_index: HashMap<&str, usize> = modules
-        .iter()
-        .enumerate()
-        .map(|(index, module)| (module.name.as_str(), index))
-        .collect();
-
-    fn dfs(
-        index: usize,
-        modules: &[ResolvedModule],
-        state: &mut [VisitState],
-        order: &mut Vec<usize>,
-        stack: &mut Vec<String>,
-        name_to_index: &HashMap<&str, usize>,
-    ) -> Result<(), ProjectError> {
-        if state[index] == VisitState::Visiting {
-            let module = &modules[index];
-            stack.push(module.name.clone());
-            return Err(ProjectError::CyclicDependency(stack.clone()));
-        }
-        if state[index] == VisitState::Visited {
-            return Ok(());
-        }
-
-        state[index] = VisitState::Visiting;
-        stack.push(modules[index].name.clone());
-
-        for dep in &modules[index].imports {
-            if is_builtin_module(dep) {
-                continue;
-            }
-            if let Some(&dep_index) = name_to_index.get(dep.as_str()) {
-                dfs(dep_index, modules, state, order, stack, name_to_index)?;
+        ModuleResolutionError::ModuleHeaderMismatch {
+            expected,
+            found,
+            path,
+        } => write!(
+            f,
+            "module header mismatch in '{}': expected '{}', found '{}'",
+            path.display(),
+            expected,
+            found
+        ),
+        ModuleResolutionError::DuplicateModule {
+            module,
+            existing,
+            duplicate,
+        } => write!(
+            f,
+            "module '{}' resolves to both '{}' and '{}'",
+            module,
+            existing.display(),
+            duplicate.display()
+        ),
+        ModuleResolutionError::ParseFailure { path, errors } => {
+            if errors.is_empty() {
+                write!(f, "failed to parse '{}': unknown parser error", path.display())
+            } else {
+                write!(f, "failed to parse '{}': {}", path.display(), errors[0])?;
+                if errors.len() > 1 {
+                    let remaining = errors.len() - 1;
+                    write!(
+                        f,
+                        " ({} additional error{})",
+                        remaining,
+                        if remaining == 1 { "" } else { "s" }
+                    )?;
+                }
+                Ok(())
             }
         }
-
-        stack.pop();
-        state[index] = VisitState::Visited;
-        order.push(index);
-        Ok(())
+        ModuleResolutionError::Cycle { cycle } => {
+            write!(
+                f,
+                "detected module dependency cycle while resolving '{}': {}",
+                entry.display(),
+                cycle.join(" -> ")
+            )
+        }
     }
-
-    for index in 0..modules.len() {
-        dfs(
-            index,
-            modules,
-            &mut state,
-            &mut order,
-            &mut stack,
-            &name_to_index,
-        )?;
-    }
-
-    order.reverse();
-    Ok(order)
 }
