@@ -1208,6 +1208,11 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
+        eprintln!(
+            "[debug] analyzing module {} imports: {:?}",
+            module.name,
+            self.module_imports.keys().collect::<Vec<_>>()
+        );
         // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
             match item {

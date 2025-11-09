@@ -7,10 +7,10 @@ import logging.console;
 pub fn main() -> int {
     let base = 40;
     let bonus = 15;
-    let score = metrics.compute_score(base, bonus);
-    let adjusted = metrics.adjust_score(score);
-    console.log_number(score);
-    console.log_summary(score, adjusted);
-    let final = arithmetic.increase(adjusted, 5);
+    let score = compute_score(base, bonus);
+    let adjusted = adjust_score(score);
+    log_number(score);
+    log_summary(score, adjusted);
+    let final = increase(adjusted, 5);
     return final;
 }
