@@ -1098,7 +1098,7 @@ fn execute_plan_with_options(
     print_success: bool,
     verbose: bool,
 ) -> CliResult<()> {
-    let plan = ProjectPlan::build(entries, &options)
+    let mut plan = ProjectPlan::build(entries, &options)
         .map_err(|error| CliError::io(error.to_string()))?;
 
     if plan.modules().is_empty() {
@@ -1127,6 +1127,18 @@ fn execute_plan_with_options(
                 println!("       exports: {}", module.exports.join(", "));
             }
         }
+    }
+
+    if let Err(errors) = plan.analyze_semantics() {
+        for error in &errors {
+            log_error(&error.to_string());
+        }
+
+        return Err(CliError::compilation(format!(
+            "semantic analysis failed with {} error{}",
+            errors.len(),
+            if errors.len() == 1 { "" } else { "s" }
+        )));
     }
 
     let mut compiler = SpectraCompiler::new(options);

@@ -7,9 +7,14 @@
 - Provide a standard prelude that brings curated stdlib symbols into scope automatically, letting users call math helpers without writing `std.`.
 - Maintain fast incremental builds by reusing the existing parser cache and avoiding redundant disk scans.
 
-## Current Status (2025-11-08)
+## Current Status (2025-11-09)
 
+- `ModuleResolver` builds a canonical module graph (topologically ordered) and surfaces detailed diagnostics for missing files, duplicate declarations, header mismatches, and cycles.
+- Each `ResolvedImport` now carries the resolved module index and the list of public symbols exposed by the target module, priming the semantic analyser for cross-file symbol lookup and future visibility checks.
+- Imports created by the compiler (`std.prelude`, future feature gates, etc.) are flagged as `synthetic`, allowing diagnostics and tooling to suppress messages that should only apply to user-authored imports.
+- The semantic layer materialises a `SemanticWorkspace`, populating module-level symbol tables that power import alias lookups during analysis.
 - Resolver diagnostics now carry precise origin spans, so the CLI surfaces missing-module errors with file and line information for each offending import.
+- The `spectra` CLI executes shared semantic analysis across every resolved module graph before handing source files to the backend, preventing duplicate cross-module failures from surfacing as repeated per-file errors.
 
 ## Module Discovery and Path Mapping
 

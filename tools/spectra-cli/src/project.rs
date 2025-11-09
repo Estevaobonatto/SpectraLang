@@ -1,5 +1,8 @@
 use spectra_compiler::{
+    analyze_graph,
     CompilationOptions,
+    CompilerError,
+    ModuleGraph,
     ModuleResolutionError,
     ModuleResolver,
     ModuleResolverOptions,
@@ -18,9 +21,9 @@ pub struct ResolvedModule {
     pub exports: Vec<String>,
 }
 
-#[derive(Debug)]
 pub struct ProjectPlan {
     modules: Vec<ResolvedModule>,
+    graphs: Vec<ModuleGraph>,
 }
 
 impl ProjectPlan {
@@ -28,6 +31,7 @@ impl ProjectPlan {
         if entries.is_empty() {
             return Ok(Self {
                 modules: Vec::new(),
+                graphs: Vec::new(),
             });
         }
 
@@ -61,6 +65,7 @@ impl ProjectPlan {
         files.sort();
 
         let mut modules = Vec::new();
+        let mut graphs = Vec::new();
         let mut seen_modules: HashMap<String, PathBuf> = HashMap::new();
 
         for entry in files {
@@ -71,6 +76,7 @@ impl ProjectPlan {
                     error,
                 })?;
 
+            let mut added_any = false;
             for module in graph.modules() {
                 if let Some(existing_path) = seen_modules.get(&module.name) {
                     if existing_path != &module.path {
@@ -107,14 +113,39 @@ impl ProjectPlan {
                     imports,
                     exports,
                 });
+                added_any = true;
+            }
+
+            if added_any {
+                graphs.push(graph);
             }
         }
 
-        Ok(Self { modules })
+        Ok(Self { modules, graphs })
     }
 
     pub fn modules(&self) -> &[ResolvedModule] {
         &self.modules
+    }
+
+    pub fn analyze_semantics(&mut self) -> Result<(), Vec<CompilerError>> {
+        let mut errors = Vec::new();
+
+        for graph in &mut self.graphs {
+            if let Err(semantic_errors) = analyze_graph(graph) {
+                errors.extend(
+                    semantic_errors
+                        .into_iter()
+                        .map(CompilerError::Semantic),
+                );
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 

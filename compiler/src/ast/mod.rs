@@ -42,6 +42,7 @@ pub struct Import {
     pub alias: Option<String>,
     pub visibility: Visibility,
     pub span: Span,
+    pub synthetic: bool,
 }
 
 #[derive(Debug, Clone)]

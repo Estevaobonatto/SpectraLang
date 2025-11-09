@@ -85,6 +85,7 @@ impl Parser {
             alias,
             visibility,
             span: span_union(start_span, end_span),
+            synthetic: false,
         })
     }
 }

@@ -19,12 +19,14 @@
 - [x] Construir grafo de dependências entre módulos e detectar imports ausentes ou cíclicos. _(implementado em `ModuleResolver`, com diagnóstico de duplicatas, headers divergentes e ciclos)_
 - [x] Associar cada `import` aos símbolos exportados do módulo alvo, com tratamento de visibilidade. _(cada `ResolvedImport` agora carrega `exposed` com os símbolos públicos do módulo destino, considerando aliases e reexports)_
 - [x] Popular uma tabela de símbolos compartilhada entre arquivos para permitir lookup durante a análise semântica. _(ver `SemanticWorkspace::analyze` em `compiler/src/semantic/mod.rs`, que alimenta `ModuleImportBinding` para cada alias)_
+- [x] Rastrear imports sintéticos gerados pelo compilador para que o resolvedor e o pipeline semântico consigam diferenciá-los de declarações escritas pelo usuário.
 - [ ] Implementar mecanismo de prelude/`use` automático para expor a stdlib sem prefixo.
 
 ## Integração CLI / Ferramentas
 
 - [x] Atualizar `spectra` CLI para carregar dependências transitivas antes da compilação. _(CLI agora utiliza `ModuleResolver` em `ProjectPlan` para montar o grafo e reportar erros de resolução)_
 - [x] Registrar diagnósticos claros quando um import falhar (arquivo não encontrado, módulo duplicado, conflito de nomes). _(see `ModuleResolutionError::ModuleNotFound` context: agora lista arquivo/linha da origem no CLI)_
+- [x] Executar a análise semântica compartilhada antes do backend para capturar problemas de binding entre módulos.
 - [ ] Suportar configuração de caminhos adicionais (`--lib`, `Spectra.toml`, etc.) se necessário para localizar bibliotecas padrão ou de terceiros.
 
 ## Testes

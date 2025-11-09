@@ -69,6 +69,7 @@ pub struct ResolvedImport {
     pub is_builtin: bool,
     pub target: Option<usize>,
     pub exposed: Vec<ResolvedSymbolBinding>,
+    pub synthetic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -319,6 +320,7 @@ fn collect_imports(module: &Module) -> Vec<ResolvedImport> {
             alias,
             visibility,
             span,
+            synthetic,
             ..
         }) = item
         {
@@ -339,6 +341,7 @@ fn collect_imports(module: &Module) -> Vec<ResolvedImport> {
                 is_builtin: is_builtin_module(path),
                 target: None,
                 exposed: Vec::new(),
+                synthetic: *synthetic,
             });
         }
     }
