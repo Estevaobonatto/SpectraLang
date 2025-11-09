@@ -32,11 +32,11 @@
   - [x] Escrita para buffer (`std.io.print_to_buffer`)
   - [x] Escrita em arquivo (`std.io.write_file`)
   - [x] Leitura de arquivo (`std.io.read_file`)
-- [ ] Planejar API de logging estruturado com níveis e destinos configuráveis
+- [x] Planejar API de logging estruturado com níveis e destinos configuráveis
   - [x] Definir níveis padrão (TRACE/DEBUG/INFO/WARN/ERROR)
   - [x] Implementar sinks configuráveis iniciais (stdout, stderr, arquivo, buffer)
   - [x] Registrar host calls (`set_level`, `add_sink`, `clear_sinks`, `record`) e documentar uso
-  - [ ] Expandir suporte para campos estruturados/destinos personalizados
+  - [x] Expandir suporte para campos estruturados/destinos personalizados (JSON/`key=value`, sink de lista)
 - [x] Definir API de tempo (timestamp, `sleep`) com garantias multiplataforma
   - [x] Timestamp UTC (`std.time.now`)
   - [x] Relógio monotônico (`std.time.now_monotonic`)
@@ -44,7 +44,11 @@
 
 ## Strings e Texto
 
-- [ ] Introduzir representações host para strings UTF-8 (alocação, concatenação, comprimento, `substring`)
+- [ ] Introduzir representações host para strings UTF-8
+  - [x] Alocação/handles dedicados e conversão segura com listas
+  - [x] Consulta de comprimento (contagem de escalares Unicode)
+  - [x] Concatenação básica entre handles
+  - [x] `substring`
 - [ ] Implementar conversões número↔string e parsing seguro
 - [ ] Adicionar utilitários de formatação (`format`, interpolação simples)
 

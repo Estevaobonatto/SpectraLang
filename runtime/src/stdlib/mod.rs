@@ -5,6 +5,7 @@ use crate::ffi::{
 };
 use crate::initialize;
 use crate::memory::ManualBox;
+use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
@@ -68,6 +69,14 @@ const LOG_RECORD: &str = "spectra.std.log.record";
 const TIME_NOW: &str = "spectra.std.time.now";
 const TIME_NOW_MONOTONIC: &str = "spectra.std.time.now_monotonic";
 const TIME_SLEEP: &str = "spectra.std.time.sleep";
+const TEXT_NEW: &str = "spectra.std.text.new";
+const TEXT_FROM_LIST: &str = "spectra.std.text.from_list";
+const TEXT_TO_LIST: &str = "spectra.std.text.to_list";
+const TEXT_LEN: &str = "spectra.std.text.len";
+const TEXT_CONCAT: &str = "spectra.std.text.concat";
+const TEXT_SUBSTRING: &str = "spectra.std.text.substring";
+const TEXT_FREE: &str = "spectra.std.text.free";
+const TEXT_FREE_ALL: &str = "spectra.std.text.free_all";
 
 const LIST_NEW: &str = "spectra.std.collections.list_new";
 const LIST_PUSH: &str = "spectra.std.collections.list_push";
@@ -82,6 +91,7 @@ pub fn register() {
     register_io();
     register_log();
     register_time();
+    register_text();
     register_collections();
 }
 
@@ -143,6 +153,17 @@ fn register_time() {
     register_host_function(TIME_NOW, std_time_now);
     register_host_function(TIME_NOW_MONOTONIC, std_time_now_monotonic);
     register_host_function(TIME_SLEEP, std_time_sleep);
+}
+
+fn register_text() {
+    register_host_function(TEXT_NEW, std_text_new);
+    register_host_function(TEXT_FROM_LIST, std_text_from_list);
+    register_host_function(TEXT_TO_LIST, std_text_to_list);
+    register_host_function(TEXT_LEN, std_text_len);
+    register_host_function(TEXT_CONCAT, std_text_concat);
+    register_host_function(TEXT_SUBSTRING, std_text_substring);
+    register_host_function(TEXT_FREE, std_text_free);
+    register_host_function(TEXT_FREE_ALL, std_text_free_all);
 }
 
 fn register_collections() {
@@ -1602,6 +1623,17 @@ extern "C" fn std_log_add_sink(ctx: *mut SpectraHostCallContext) -> i32 {
                 }
                 LogSinkKind::Buffer(buffer_handle_value as usize)
             }
+            4 => {
+                if args.len() <= next_index {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+                let list_handle_value = args[next_index];
+                next_index += 1;
+                if list_handle_value < 0 {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+                LogSinkKind::EntryList(list_handle_value as usize)
+            }
             _ => return HOST_STATUS_INVALID_ARGUMENT,
         };
 
@@ -1728,8 +1760,8 @@ extern "C" fn std_log_record(ctx: *mut SpectraHostCallContext) -> i32 {
             }
         };
 
-        let entry_bytes = match build_log_entry(level, &message, metadata.as_deref()) {
-            Ok(bytes) => bytes,
+        let rendered = match build_log_entry(level, &message, metadata.as_deref()) {
+            Ok(rendered) => rendered,
             Err(code) => return code,
         };
 
@@ -1737,13 +1769,13 @@ extern "C" fn std_log_record(ctx: *mut SpectraHostCallContext) -> i32 {
         for sink in applicable {
             match sink.kind {
                 LogSinkKind::Stdout => {
-                    if io::stdout().write_all(&entry_bytes).is_err() {
+                    if io::stdout().write_all(&rendered.text).is_err() {
                         return HOST_STATUS_INTERNAL_ERROR;
                     }
                     dispatched += 1;
                 }
                 LogSinkKind::Stderr => {
-                    if io::stderr().write_all(&entry_bytes).is_err() {
+                    if io::stderr().write_all(&rendered.text).is_err() {
                         return HOST_STATUS_INTERNAL_ERROR;
                     }
                     dispatched += 1;
@@ -1753,7 +1785,7 @@ extern "C" fn std_log_record(ctx: *mut SpectraHostCallContext) -> i32 {
                     options.create(true).append(true);
                     match options.open(path) {
                         Ok(mut file) => {
-                            if let Err(_) = file.write_all(&entry_bytes) {
+                            if let Err(_) = file.write_all(&rendered.text) {
                                 return HOST_STATUS_INTERNAL_ERROR;
                             }
                         }
@@ -1762,7 +1794,19 @@ extern "C" fn std_log_record(ctx: *mut SpectraHostCallContext) -> i32 {
                     dispatched += 1;
                 }
                 LogSinkKind::Buffer(handle) => {
-                    match with_list_registry(|registry| registry.extend_with_bytes(handle, &entry_bytes)) {
+                    match with_list_registry(|registry| registry.extend_with_bytes(handle, &rendered.text)) {
+                        Ok(_) => {
+                            dispatched += 1;
+                        }
+                        Err(code) => return code,
+                    }
+                }
+                LogSinkKind::EntryList(list_handle) => {
+                    let entry_handle = match with_list_registry(|registry| registry.create_from_bytes(&rendered.json)) {
+                        Ok(handle) => handle,
+                        Err(code) => return code,
+                    };
+                    match with_list_registry(|registry| registry.push(list_handle, entry_handle as SpectraHostValue)) {
                         Ok(_) => {
                             dispatched += 1;
                         }
@@ -1907,6 +1951,337 @@ extern "C" fn std_time_sleep(ctx: *mut SpectraHostCallContext) -> i32 {
 fn monotonic_origin() -> Instant {
     static ORIGIN: OnceLock<Instant> = OnceLock::new();
     *ORIGIN.get_or_init(Instant::now)
+}
+
+extern "C" fn std_text_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let handle = match with_string_registry(|registry| registry.create(String::new())) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_from_list(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let list_handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        let bytes = match with_list_registry(|registry| registry.to_bytes(list_handle)) {
+            Ok(bytes) => bytes,
+            Err(code) => return code,
+        };
+
+        let text = match String::from_utf8(bytes) {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+
+        let handle = match with_string_registry(|registry| registry.create(text)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_to_list(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let text_handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        let bytes = match with_string_registry(|registry| registry.bytes(text_handle)) {
+            Ok(bytes) => bytes,
+            Err(code) => return code,
+        };
+
+        let list_handle = match with_list_registry(|registry| registry.create_from_bytes(&bytes)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = list_handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let text_handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        let length = match with_string_registry(|registry| registry.len(text_handle)) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        if length > i64::MAX as usize {
+            return HOST_STATUS_ARITHMETIC_ERROR;
+        }
+        let length_value = length as SpectraHostValue;
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = length_value;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_concat(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 || args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let first_handle = args[0] as usize;
+        let second_handle = args[1] as usize;
+
+        let handle_result = with_string_registry(|registry| {
+            let first = registry.clone_value(first_handle)?;
+            let second = registry.clone_value(second_handle)?;
+            let mut combined = String::with_capacity(first.len() + second.len());
+            combined.push_str(&first);
+            combined.push_str(&second);
+            registry.create(combined)
+        });
+
+        let handle = match handle_result {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_substring(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.arg_len > 3 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let text_handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let start = match usize::try_from(args[1]) {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+
+        let length = if ctx_ref.arg_len == 3 {
+            if args[2] < 0 {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            match usize::try_from(args[2]) {
+                Ok(value) => Some(value),
+                Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+            }
+        } else {
+            None
+        };
+
+        let original = match with_string_registry(|registry| registry.clone_value(text_handle)) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        let mut offsets: Vec<usize> = original.char_indices().map(|(idx, _)| idx).collect();
+        offsets.push(original.len());
+        let total_scalars = offsets.len().saturating_sub(1);
+
+        if start > total_scalars {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let end_scalar = match length {
+            Some(len) => match start.checked_add(len) {
+                Some(sum) if sum <= total_scalars => sum,
+                _ => return HOST_STATUS_INVALID_ARGUMENT,
+            },
+            None => total_scalars,
+        };
+
+        let start_byte = offsets[start];
+        let end_byte = offsets[end_scalar];
+        let substring = original[start_byte..end_byte].to_string();
+
+        let handle = match with_string_registry(|registry| registry.create(substring)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let text_handle = if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        } else {
+            args[0] as usize
+        };
+
+        match with_string_registry(|registry| registry.remove(text_handle)) {
+            Ok(_) => {}
+            Err(code) => return code,
+        }
+
+        if ctx_ref.result_len > 0 {
+            if ctx_ref.results.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            if !results.is_empty() {
+                results[0] = 0;
+            }
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_free_all(ctx: *mut SpectraHostCallContext) -> i32 {
+    let freed = with_string_registry(|registry| registry.clear_all());
+
+    if ctx.is_null() {
+        return HOST_STATUS_SUCCESS;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len > 0 {
+            if ctx_ref.results.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            if !results.is_empty() {
+                match usize_to_i64(freed) {
+                    Ok(value) => results[0] = value,
+                    Err(code) => return code,
+                }
+            }
+        }
+    }
+
+    HOST_STATUS_SUCCESS
 }
 
 extern "C" fn std_list_new(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -2093,6 +2468,22 @@ fn list_registry() -> &'static Mutex<ListRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(ListRegistry::new()))
 }
 
+fn with_string_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut StringRegistry) -> R,
+{
+    let registry = string_registry();
+    let mut guard = registry
+        .lock()
+        .expect("text registry mutex poisoned");
+    action(&mut guard)
+}
+
+fn string_registry() -> &'static Mutex<StringRegistry> {
+    static REGISTRY: OnceLock<Mutex<StringRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(StringRegistry::new()))
+}
+
 struct StdRng {
     state: u64,
 }
@@ -2267,6 +2658,7 @@ enum LogSinkKind {
     Stderr,
     File(String),
     Buffer(usize),
+    EntryList(usize),
 }
 
 #[derive(Clone)]
@@ -2334,29 +2726,218 @@ fn logging_registry() -> &'static Mutex<LoggingRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(LoggingRegistry::new()))
 }
 
-fn build_log_entry(level: LogLevel, message: &str, metadata: Option<&str>) -> Result<Vec<u8>, i32> {
+enum MetadataPayload {
+    None,
+    Structured(JsonMap<String, JsonValue>),
+    Raw(String),
+}
+
+struct RenderedLogEntry {
+    text: Vec<u8>,
+    json: Vec<u8>,
+}
+
+fn parse_metadata(metadata: Option<&str>) -> Result<MetadataPayload, i32> {
+    match metadata {
+        None => Ok(MetadataPayload::None),
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Ok(MetadataPayload::None);
+            }
+            if trimmed.starts_with('{') {
+                let parsed: JsonValue = serde_json::from_str(trimmed)
+                    .map_err(|_| HOST_STATUS_INVALID_ARGUMENT)?;
+                match parsed {
+                    JsonValue::Object(map) => Ok(MetadataPayload::Structured(map)),
+                    _ => Err(HOST_STATUS_INVALID_ARGUMENT),
+                }
+            } else if trimmed.contains('=') {
+                let map = parse_key_value_metadata(trimmed)?;
+                Ok(MetadataPayload::Structured(map))
+            } else {
+                Ok(MetadataPayload::Raw(trimmed.to_string()))
+            }
+        }
+    }
+}
+
+fn parse_key_value_metadata(input: &str) -> Result<JsonMap<String, JsonValue>, i32> {
+    let mut map = JsonMap::new();
+    let segments: Vec<&str> = if input.contains(',') {
+        input.split(',').collect()
+    } else {
+        input.split_whitespace().collect()
+    };
+
+    for segment in segments {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        let mut parts = segment.splitn(2, '=');
+        let key = parts.next().ok_or(HOST_STATUS_INVALID_ARGUMENT)?.trim();
+        let value_raw = parts.next().ok_or(HOST_STATUS_INVALID_ARGUMENT)?.trim();
+
+        if key.is_empty() {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        let value = if (value_raw.starts_with('"') && value_raw.ends_with('"'))
+            || (value_raw.starts_with('\'') && value_raw.ends_with('\''))
+        {
+            unescape_quoted(value_raw)?
+        } else {
+            value_raw.to_string()
+        };
+
+        map.insert(key.to_string(), convert_scalar_value(&value));
+    }
+
+    Ok(map)
+}
+
+fn unescape_quoted(input: &str) -> Result<String, i32> {
+    let quote = input.chars().next().ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    if input.len() < 2 || !input.ends_with(quote) {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let inner = &input[1..input.len() - 1];
+    let mut result = String::new();
+    let mut chars = inner.chars();
+    let mut escaping = false;
+    while let Some(ch) = chars.next() {
+        if escaping {
+            let translated = match ch {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '\\' => '\\',
+                '"' => '"',
+                '\'' => '\'',
+                _ => ch,
+            };
+            result.push(translated);
+            escaping = false;
+        } else if ch == '\\' {
+            escaping = true;
+        } else {
+            result.push(ch);
+        }
+    }
+    if escaping {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    Ok(result)
+}
+
+fn convert_scalar_value(value: &str) -> JsonValue {
+    if value.eq_ignore_ascii_case("true") {
+        JsonValue::Bool(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        JsonValue::Bool(false)
+    } else if let Ok(int_val) = value.parse::<i64>() {
+        JsonValue::Number(int_val.into())
+    } else if let Ok(float_val) = value.parse::<f64>() {
+        match serde_json::Number::from_f64(float_val) {
+            Some(number) => JsonValue::Number(number),
+            None => JsonValue::String(value.to_string()),
+        }
+    } else {
+        JsonValue::String(value.to_string())
+    }
+}
+
+fn render_field_value(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(text) => {
+            if text.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/')) {
+                text.clone()
+            } else {
+                let mut escaped = String::new();
+                for ch in text.chars() {
+                    match ch {
+                        '"' => escaped.push_str("\\\""),
+                        '\\' => escaped.push_str("\\\\"),
+                        other => escaped.push(other),
+                    }
+                }
+                format!("\"{}\"", escaped)
+            }
+        }
+        _ => value.to_string(),
+    }
+}
+
+fn build_log_entry(level: LogLevel, message: &str, metadata: Option<&str>) -> Result<RenderedLogEntry, i32> {
     let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration,
         Err(_) => return Err(HOST_STATUS_INTERNAL_ERROR),
     };
-    let sanitized = message.trim_end_matches(['\n', '\r']);
-    let mut entry = String::new();
+
+    let sanitized_message = message.trim_end_matches(['\n', '\r']).to_string();
+    let metadata_payload = parse_metadata(metadata)?;
+
+    let mut line = String::new();
     let _ = write!(
-        entry,
+        line,
         "{}.{:09} {} {}",
         duration.as_secs(),
         duration.subsec_nanos(),
         level.as_str(),
-        sanitized
+        sanitized_message
     );
-    if let Some(meta) = metadata {
-        if !meta.trim().is_empty() {
-            entry.push(' ');
-            entry.push_str(meta.trim());
+
+    let mut json_obj = JsonMap::new();
+    json_obj.insert(
+        "timestamp".to_string(),
+        json!({
+            "seconds": duration.as_secs(),
+            "nanos": duration.subsec_nanos(),
+        }),
+    );
+    json_obj.insert(
+        "level".to_string(),
+        JsonValue::String(level.as_str().to_string()),
+    );
+    json_obj.insert(
+        "message".to_string(),
+        JsonValue::String(sanitized_message.clone()),
+    );
+
+    match metadata_payload {
+        MetadataPayload::Structured(ref map) => {
+            if !map.is_empty() {
+                let mut segments = Vec::new();
+                for (key, value) in map.iter() {
+                    segments.push(format!("{}={}", key, render_field_value(value)));
+                }
+                if !segments.is_empty() {
+                    line.push(' ');
+                    line.push_str(&segments.join(" "));
+                }
+            }
+            json_obj.insert("fields".to_string(), JsonValue::Object(map.clone()));
         }
+        MetadataPayload::Raw(ref raw) => {
+            if !raw.is_empty() {
+                line.push(' ');
+                line.push_str(raw);
+                json_obj.insert("raw_metadata".to_string(), JsonValue::String(raw.clone()));
+            }
+        }
+        MetadataPayload::None => {}
     }
-    entry.push('\n');
-    Ok(entry.into_bytes())
+
+    line.push('\n');
+
+    let json_bytes = serde_json::to_vec(&JsonValue::Object(json_obj))
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+
+    Ok(RenderedLogEntry {
+        text: line.into_bytes(),
+        json: json_bytes,
+    })
 }
 
 #[derive(Default)]
@@ -2469,6 +3050,14 @@ impl ListRegistry {
         Ok(self.insert(manual))
     }
 
+    #[cfg(test)]
+    fn snapshot_values(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+        match self.lists.get(&handle) {
+            Some(list) => Ok(list.data.clone()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
     fn remove(&mut self, handle: usize) -> Result<(), i32> {
         if self.lists.remove(&handle).is_some() {
             Ok(())
@@ -2485,11 +3074,89 @@ impl ListRegistry {
     }
 }
 
+struct StdString {
+    data: String,
+}
+
+struct StringRegistry {
+    next_id: usize,
+    strings: HashMap<usize, ManualBox<StdString>>,
+}
+
+impl StringRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            strings: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, string: ManualBox<StdString>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.strings.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.strings.insert(handle, string);
+        handle
+    }
+
+    fn create(&mut self, value: String) -> Result<usize, i32> {
+        let memory = initialize().memory();
+        let string = StdString { data: value };
+        let manual = memory
+            .allocate_manual(string)
+            .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+        Ok(self.insert(manual))
+    }
+
+    fn clone_value(&self, handle: usize) -> Result<String, i32> {
+        match self.strings.get(&handle) {
+            Some(string) => Ok(string.data.clone()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn bytes(&self, handle: usize) -> Result<Vec<u8>, i32> {
+        match self.strings.get(&handle) {
+            Some(string) => Ok(string.data.as_bytes().to_vec()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn len(&self, handle: usize) -> Result<usize, i32> {
+        match self.strings.get(&handle) {
+            Some(string) => Ok(string.data.chars().count()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<(), i32> {
+        if self.strings.remove(&handle).is_some() {
+            Ok(())
+        } else {
+            Err(HOST_STATUS_NOT_FOUND)
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.strings.len();
+        self.strings.clear();
+        self.next_id = 1;
+        count
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryFrom;
     use std::f64::consts::{FRAC_PI_2, PI};
     use std::time::{Duration, Instant};
+    use serde_json::Value as JsonValue;
 
     fn test_guard() -> std::sync::MutexGuard<'static, ()> {
         static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -2522,6 +3189,33 @@ mod tests {
                 .expect("failed to convert list to bytes");
             String::from_utf8(bytes).expect("invalid UTF-8 in list contents")
         })
+    }
+
+    fn list_values(handle: usize) -> Vec<SpectraHostValue> {
+        with_list_registry(|registry| {
+            registry
+                .snapshot_values(handle)
+                .expect("failed to snapshot list values")
+        })
+    }
+
+    fn invoke(function_name: &str, args: &[SpectraHostValue], result_len: usize) -> (i32, Vec<SpectraHostValue>) {
+        let func = lookup_host_function(function_name)
+            .unwrap_or_else(|| panic!("{function_name} not registered"));
+        let mut results = vec![0; result_len];
+        let mut ctx = SpectraHostCallContext {
+            args: if args.is_empty() { ptr::null() } else { args.as_ptr() },
+            arg_len: args.len(),
+            results: if result_len == 0 {
+                ptr::null_mut()
+            } else {
+                results.as_mut_ptr()
+            },
+            result_len,
+        };
+
+        let status = func(&mut ctx);
+        (status, results)
     }
 
     #[test]
@@ -3290,7 +3984,312 @@ mod tests {
         assert_eq!(emit_results[0], 1);
         let contents = list_to_string(buffer_handle);
         assert!(contents.contains("INFO user logged in"));
-        assert!(contents.contains("{\"request_id\":42}"));
+        assert!(contents.contains("request_id=42"));
+    }
+
+    #[test]
+    fn log_key_value_metadata_is_structured() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let set_level = lookup_host_function(LOG_SET_LEVEL).expect("log set_level not registered");
+        let add_sink = lookup_host_function(LOG_ADD_SINK).expect("log add_sink not registered");
+        let clear_sinks =
+            lookup_host_function(LOG_CLEAR_SINKS).expect("log clear_sinks not registered");
+        let record_fn = lookup_host_function(LOG_RECORD).expect("log record not registered");
+
+        let mut clear_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(clear_sinks(&mut clear_ctx), HOST_STATUS_SUCCESS);
+
+        let buffer_handle = list_from_bytes(&[]);
+        let sink_args = [
+            3,
+            buffer_handle as SpectraHostValue,
+            LogLevel::Trace.to_value(),
+        ];
+        let mut sink_ctx = SpectraHostCallContext {
+            args: sink_args.as_ptr(),
+            arg_len: sink_args.len(),
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(add_sink(&mut sink_ctx), HOST_STATUS_SUCCESS);
+
+        let level_args = [LogLevel::Trace.to_value()];
+        let mut level_ctx = SpectraHostCallContext {
+            args: level_args.as_ptr(),
+            arg_len: 1,
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(set_level(&mut level_ctx), HOST_STATUS_SUCCESS);
+
+        let message_handle = list_from_bytes(b"kv payload received");
+        let metadata_handle = list_from_bytes(b"user=\"tom\",attempts=3,success=true");
+        let args = [
+            LogLevel::Debug.to_value(),
+            message_handle as SpectraHostValue,
+            metadata_handle as SpectraHostValue,
+        ];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(record_fn(&mut ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 1);
+
+        let contents = list_to_string(buffer_handle);
+        assert!(contents.contains("DEBUG kv payload received"));
+        assert!(contents.contains("user=\"tom\""));
+        assert!(contents.contains("attempts=3"));
+        assert!(contents.contains("success=true"));
+    }
+
+    #[test]
+    fn log_json_metadata_populates_entry_list_sink() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let set_level = lookup_host_function(LOG_SET_LEVEL).expect("log set_level not registered");
+        let add_sink = lookup_host_function(LOG_ADD_SINK).expect("log add_sink not registered");
+        let clear_sinks =
+            lookup_host_function(LOG_CLEAR_SINKS).expect("log clear_sinks not registered");
+        let record_fn = lookup_host_function(LOG_RECORD).expect("log record not registered");
+
+        let mut clear_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(clear_sinks(&mut clear_ctx), HOST_STATUS_SUCCESS);
+
+        let list_handle = list_from_bytes(&[]);
+
+        let sink_args = [
+            4,
+            list_handle as SpectraHostValue,
+            LogLevel::Debug.to_value(),
+        ];
+        let mut sink_ctx = SpectraHostCallContext {
+            args: sink_args.as_ptr(),
+            arg_len: sink_args.len(),
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(add_sink(&mut sink_ctx), HOST_STATUS_SUCCESS);
+
+        let level_args = [LogLevel::Trace.to_value()];
+        let mut level_ctx = SpectraHostCallContext {
+            args: level_args.as_ptr(),
+            arg_len: 1,
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(set_level(&mut level_ctx), HOST_STATUS_SUCCESS);
+
+        let message_handle = list_from_bytes(b"structured login");
+        let metadata_handle = list_from_bytes(b"{\"user\":\"tom\",\"attempts\":3}");
+        let args = [
+            LogLevel::Debug.to_value(),
+            message_handle as SpectraHostValue,
+            metadata_handle as SpectraHostValue,
+        ];
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+        };
+
+        assert_eq!(record_fn(&mut ctx), HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 1);
+
+        let entry_handles = list_values(list_handle);
+        assert_eq!(entry_handles.len(), 1);
+        let entry_handle = usize::try_from(entry_handles[0]).expect("entry handle must be non-negative");
+        let entry_json = list_to_string(entry_handle);
+        let parsed: JsonValue = serde_json::from_str(&entry_json).expect("entry must be valid JSON");
+
+        assert_eq!(parsed["level"], JsonValue::String("DEBUG".to_string()));
+        assert_eq!(parsed["message"], JsonValue::String("structured login".to_string()));
+        let fields = parsed["fields"].as_object().expect("fields must be an object");
+        assert_eq!(fields["user"], JsonValue::String("tom".to_string()));
+        assert_eq!(fields["attempts"].as_i64(), Some(3));
+    }
+
+    #[test]
+    fn text_new_and_len_return_zero_length() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let (status, results) = invoke(TEXT_NEW, &[], 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let handle = results[0] as usize;
+
+        let args = [handle as SpectraHostValue];
+        let (len_status, len_results) = invoke(TEXT_LEN, &args, 1);
+        assert_eq!(len_status, HOST_STATUS_SUCCESS);
+        assert_eq!(len_results[0], 0);
+
+        let _ = invoke(TEXT_FREE, &args, 0);
+    }
+
+    #[test]
+    fn text_from_list_and_to_list_roundtrip_utf8() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let source = "Ol\u{00E1}";
+        let list_handle = list_from_bytes(source.as_bytes());
+        let args = [list_handle as SpectraHostValue];
+
+        let (status, results) = invoke(TEXT_FROM_LIST, &args, 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let text_handle = results[0] as usize;
+
+        let text_args = [text_handle as SpectraHostValue];
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &text_args, 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let roundtrip_list = to_list_results[0] as usize;
+        assert_eq!(list_to_string(roundtrip_list), source);
+
+        let _ = invoke(TEXT_FREE, &text_args, 0);
+    }
+
+    #[test]
+    fn text_len_counts_unicode_scalars() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let source = "a\u{1F31F}b";
+        let list_handle = list_from_bytes(source.as_bytes());
+        let args = [list_handle as SpectraHostValue];
+        let (create_status, create_results) = invoke(TEXT_FROM_LIST, &args, 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let text_handle = create_results[0] as usize;
+
+        let len_args = [text_handle as SpectraHostValue];
+        let (len_status, len_results) = invoke(TEXT_LEN, &len_args, 1);
+        assert_eq!(len_status, HOST_STATUS_SUCCESS);
+        assert_eq!(len_results[0], 3);
+
+        let _ = invoke(TEXT_FREE, &len_args, 0);
+    }
+
+    #[test]
+    fn text_concat_produces_new_combined_string() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let left = list_from_bytes("foo".as_bytes());
+        let right = list_from_bytes("bar".as_bytes());
+
+        let (left_status, left_results) = invoke(TEXT_FROM_LIST, &[left as SpectraHostValue], 1);
+        assert_eq!(left_status, HOST_STATUS_SUCCESS);
+        let left_handle = left_results[0] as usize;
+
+        let (right_status, right_results) = invoke(TEXT_FROM_LIST, &[right as SpectraHostValue], 1);
+        assert_eq!(right_status, HOST_STATUS_SUCCESS);
+        let right_handle = right_results[0] as usize;
+
+        let args = [left_handle as SpectraHostValue, right_handle as SpectraHostValue];
+        let (concat_status, concat_results) = invoke(TEXT_CONCAT, &args, 1);
+        assert_eq!(concat_status, HOST_STATUS_SUCCESS);
+        let combined_handle = concat_results[0] as usize;
+
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &[combined_handle as SpectraHostValue], 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let list_handle = to_list_results[0] as usize;
+        assert_eq!(list_to_string(list_handle), "foobar");
+
+        let _ = invoke(TEXT_FREE, &[left_handle as SpectraHostValue], 0);
+        let _ = invoke(TEXT_FREE, &[right_handle as SpectraHostValue], 0);
+        let _ = invoke(TEXT_FREE, &[combined_handle as SpectraHostValue], 0);
+    }
+
+    #[test]
+    fn text_substring_defaults_to_remainder() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let base_list = list_from_bytes(b"spectra");
+        let (create_status, create_results) = invoke(TEXT_FROM_LIST, &[base_list as SpectraHostValue], 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let source_handle = create_results[0] as usize;
+
+        let args = [source_handle as SpectraHostValue, 3];
+        let (status, results) = invoke(TEXT_SUBSTRING, &args, 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let slice_handle = results[0] as usize;
+
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &[slice_handle as SpectraHostValue], 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let list_handle = to_list_results[0] as usize;
+        assert_eq!(list_to_string(list_handle), "ctra");
+
+        let _ = invoke(TEXT_FREE, &[source_handle as SpectraHostValue], 0);
+        let _ = invoke(TEXT_FREE, &[slice_handle as SpectraHostValue], 0);
+    }
+
+    #[test]
+    fn text_substring_with_explicit_length() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let base_list = list_from_bytes(b"spectra");
+        let (create_status, create_results) = invoke(TEXT_FROM_LIST, &[base_list as SpectraHostValue], 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let source_handle = create_results[0] as usize;
+
+        let args = [source_handle as SpectraHostValue, 1, 2];
+        let (status, results) = invoke(TEXT_SUBSTRING, &args, 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let slice_handle = results[0] as usize;
+
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &[slice_handle as SpectraHostValue], 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let list_handle = to_list_results[0] as usize;
+        assert_eq!(list_to_string(list_handle), "pe");
+
+        let _ = invoke(TEXT_FREE, &[source_handle as SpectraHostValue], 0);
+        let _ = invoke(TEXT_FREE, &[slice_handle as SpectraHostValue], 0);
+    }
+
+    #[test]
+    fn text_substring_out_of_bounds_returns_error() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let base_list = list_from_bytes(b"ab");
+        let (create_status, create_results) = invoke(TEXT_FROM_LIST, &[base_list as SpectraHostValue], 1);
+        assert_eq!(create_status, HOST_STATUS_SUCCESS);
+        let source_handle = create_results[0] as usize;
+
+        let args = [source_handle as SpectraHostValue, 5];
+        let (status, _) = invoke(TEXT_SUBSTRING, &args, 1);
+        assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
+
+        let _ = invoke(TEXT_FREE, &[source_handle as SpectraHostValue], 0);
     }
 
     #[test]

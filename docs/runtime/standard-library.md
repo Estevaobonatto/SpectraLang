@@ -102,9 +102,31 @@ Structured logging uses numeric levels: `TRACE = 0`, `DEBUG = 1`, `INFO = 2`, `W
 | Host call | Description | Arguments | Results |
 |-----------|-------------|-----------|---------|
 | `spectra.std.log.set_level` | Sets the global minimum level; entries below this threshold are discarded. | `level` | new global level |
-| `spectra.std.log.add_sink` | Registers a sink with an optional minimum level. Sink kinds: `0 = stdout`, `1 = stderr`, `2 = file (path handle)`, `3 = buffer (list handle)`. | `kind`, `[config_handle]`, `[min_level]` | total number of sinks |
+| `spectra.std.log.add_sink` | Registers a sink with an optional minimum level. Sink kinds: `0 = stdout`, `1 = stderr`, `2 = file (path handle)`, `3 = buffer (list handle)`, `4 = list of entries (list handle storing handles to JSON log records)`. | `kind`, `[config_handle]`, `[min_level]` | total number of sinks |
 | `spectra.std.log.clear_sinks` | Removes all configured sinks. | *(none)* | cleared sink count |
-| `spectra.std.log.record` | Emits an entry with the provided level, message, and optional metadata payload. | `level`, `message_handle`, `[metadata_handle]` | number of sinks that accepted the entry |
+| `spectra.std.log.record` | Emits an entry with the provided level, message, and metadata payload encoded either as a JSON object or comma-separated `key=value` pairs. | `level`, `message_handle`, `[metadata_handle]` | number of sinks that accepted the entry |
+
+## text namespace
+
+String handles guarantee valid UTF-8 storage while interoperating with list-based byte buffers for
+I/O. Each handle owns an allocation that must be released explicitly when no longer needed.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.text.new` | Allocates an empty UTF-8 string and returns its handle. | *(none)* | handle |
+| `spectra.std.text.from_list` | Validates the bytes stored in a list handle as UTF-8 and, if valid, copies them into a new string handle. | `list_handle` | string handle |
+| `spectra.std.text.to_list` | Copies the UTF-8 bytes stored in a string handle into a freshly allocated list handle. | `string_handle` | new list handle |
+| `spectra.std.text.len` | Returns the number of Unicode scalar values stored in the string. | `string_handle` | length |
+| `spectra.std.text.substring` | Extracts a slice by Unicode scalar index. The optional length parameter limits the number of scalars copied; absent length consumes the remainder of the string. | `string_handle`, `start_index`, `[length]` | string handle |
+| `spectra.std.text.concat` | Produces a new string handle containing the concatenation of the provided handles. | `lhs_handle`, `rhs_handle` | string handle |
+| `spectra.std.text.free` | Releases the allocation associated with a string handle. | `handle` | `0` when `results` provided |
+| `spectra.std.text.free_all` | Releases every string handle tracked by the runtime. | *(none)* | number of freed strings |
+
+`spectra.std.text.len` counts Unicode scalar values rather than raw bytes, making it safe to use for
+user-facing text. `spectra.std.text.substring` operates on the same scalar indices, returning an
+empty string when the start index equals the string length and rejecting out-of-range spans. Use
+`from_list`/`to_list` to bridge between I/O pipelines (which consume raw byte lists) and higher-level
+text operations.
 
 ## time namespace
 
@@ -146,6 +168,12 @@ terminates.
   without interleaving regular program output.
 - `spectra.std.io.write_file`/`read_file` expect paths encoded as UTF-8 bytes within a `std.collections` list. File contents are produced/consumed as raw bytes (0–255) and stored in the same data structure for reuse across host calls.
 - `spectra.std.io.print_to_buffer` is useful for capturing textual output in-memory; it emits UTF-8 bytes matching the console formatting of `print`.
-- Logging sinks accept the formatted entry with a trailing newline. Buffer and file sinks reuse list handles to exchange UTF-8 bytes; metadata strings are appended verbatim after the message so callers can inject JSON or key-value payloads.
+- Logging sinks accept the formatted entry with a trailing newline. Buffer and file sinks reuse list handles to exchange UTF-8 bytes; list sinks (`kind = 4`) append the JSON representation of each log entry to the provided list handle for later inspection.
+- List sinks store compact JSON objects containing `timestamp`, `level`, `message` and either `fields` (structured metadata) or `raw_metadata` when unstructured text is supplied.
+- Metadata strings must be valid JSON objects or comma-separated `key=value` pairs. Key/value payloads support quoted strings (`"value"`), booleans, and numeric literals; malformed metadata yields `HOST_STATUS_INVALID_ARGUMENT`.
 - `spectra.std.time.now` reports wall-clock seconds/nanoseconds since the Unix epoch, while `now_monotonic` is stable across clock adjustments and only advances. Both always return non-negative components encoded as `int` values.
 - `spectra.std.time.sleep` relies on the operating system scheduler; it blocks for at least the requested duration but may resume slightly later depending on timer precision.
+- String handles provide validated UTF-8 storage with Unicode-aware length reporting. Always pair
+  `spectra.std.text.free` (or `free_all`) with any long-lived handle to avoid leaking manual
+  allocations, and prefer `spectra.std.text.to_list` when interacting with APIs that expect raw
+  byte buffers.

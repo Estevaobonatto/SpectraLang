@@ -3711,6 +3711,46 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("text", "new") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.new",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "from_list") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.from_list",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "to_list") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.to_list",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "substring") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.substring",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "concat") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.concat",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "free") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.free",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "free_all") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.free_all",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("time", "now") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.time.now",
                 return_type: IRType::Int,
