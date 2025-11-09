@@ -12,7 +12,7 @@
 
 - [x] Reconhecer declarações `import path.to.module;` e armazenar spans para diagnósticos.
 - [x] Permitir aliasing explícito (`import foo.bar as baz;`) e múltiplos itens por declaração se necessário. _(aliasing disponível; importações múltiplas ficam pendentes)_
-- [ ] Suportar reexportes (`pub import`, `export import`, ou alternativa aprovada) caso façam parte do design. _(parser já aceita `pub import`; resolver precisa propagar visibilidade)_
+- [x] Suportar reexportes (`pub import`, `export import`, ou alternativa aprovada) caso façam parte do design. _(resolver agora propaga `ModuleAlias` para os consumidores e o analisador semântico constrói bindings encadeados, habilitando reexports efetivos)_
 
 ## Resolvedor de Módulos
 
