@@ -3109,8 +3109,7 @@ extern "C" fn std_list_sort(ctx: *mut SpectraHostCallContext) -> i32 {
         match with_list_registry(|registry| registry.sort(list_handle, descending)) {
             Ok(len) => {
                 if ctx_ref.result_len > 0 {
-                    let results =
-                        slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                    let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
                     if !results.is_empty() {
                         results[0] = match usize_to_i64(len) {
                             Ok(value) => value,
@@ -3149,7 +3148,8 @@ extern "C" fn std_list_find(ctx: *mut SpectraHostCallContext) -> i32 {
         let list_handle = args[0] as usize;
         let needle = args[1];
 
-        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle)) {
+        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle))
+        {
             Ok(snapshot) => snapshot,
             Err(code) => return code,
         };
@@ -3200,7 +3200,8 @@ extern "C" fn std_list_filter_eq(ctx: *mut SpectraHostCallContext) -> i32 {
         let list_handle = args[0] as usize;
         let needle = args[1];
 
-        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle)) {
+        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle))
+        {
             Ok(snapshot) => snapshot,
             Err(code) => return code,
         };

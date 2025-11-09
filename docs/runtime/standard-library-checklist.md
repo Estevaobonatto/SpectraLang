@@ -58,7 +58,7 @@
 - [x] Expandir listas para suportar tipos genéricos via ponteiros/handles
 - [x] Adicionar mapas/dicionários e conjuntos baseados em hash com ciclo de vida controlado
 - [x] Criar iteradores/visões host para coleções (comprimento, `foreach`, slice)
-- [ ] Suportar operações de ordenação, busca e filtragem host-driven
+- [x] Suportar operações de ordenação, busca e filtragem host-driven
 
 ## Memória e Segurança
 

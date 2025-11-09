@@ -3831,6 +3831,21 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("collections", "list_sort") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_sort",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_find") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_find",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("collections", "list_filter_eq") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_filter_eq",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             _ => None,
         },
         _ => None,

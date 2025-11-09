@@ -5,6 +5,9 @@ functions. The functions are grouped by namespace and can be installed by callin
 `spectra_runtime::register_standard_library()` (or invoking `spectra_rt_std_register` once it is
 gated through the CLI).
 
+> Note: until the import resolver work tracked in `docs/compiler/import-system-checklist.md` lands,
+> Spectra samples must keep stdlib calls fully qualified with the `std.` prefix.
+
 All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.md) contract and the
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
 64-bit values (`SpectraHostValue`).
@@ -169,6 +172,9 @@ first successful insertion.
 | `spectra.std.collections.list_free` | Drops the list allocation associated with the handle. | `handle` | `0` when `results` provided |
 | `spectra.std.collections.list_free_all` | Drops every list managed by the runtime. | *(none)* | number of freed lists |
 | `spectra.std.collections.list_slice` | Allocates a new list containing a contiguous range starting at `start_index`. When `length` is omitted the slice runs to the end of the source list. | `list_handle`, `start_index`, `[length]` | new list handle |
+| `spectra.std.collections.list_sort` | Sorts the list in ascending order by default, or descending when `descending_flag` is non-zero. Integers use numeric ordering, handle lists compare raw handle values. | `list_handle`, `[descending_flag]` | length after sort |
+| `spectra.std.collections.list_find` | Searches for the first occurrence of `value` and reports whether it was found. When additional result slots are provided `results[1]` receives the matching index. | `list_handle`, `value` | `results[0]` = `1` when found, optional index |
+| `spectra.std.collections.list_filter_eq` | Builds a new list containing every element equal to `value`. The resulting list inherits the handle/int category from the source. | `list_handle`, `value` | new list handle |
 
 ### Maps
 
@@ -243,6 +249,11 @@ original collection leaves existing iterators unchanged.
   does **not** release the referenced resources.
 - `spectra.std.collections.list_slice` copies the requested range into a new list, preserving the
   element category. Slicing an empty range yields an empty, untyped list.
+- Sorting (`list_sort`) mutates the list in place and returns its final length. Use the optional
+  `descending_flag` (non-zero) to sort in reverse order without allocating new storage.
+- `list_find` reports presence and, when possible, the matching index without duplicating the
+  stored element. `list_filter_eq` allocates a new list containing matches, preserving the category
+  semantics (int vs. handle) of the source.
 - Iterator host calls operate on snapshots. Use `iter_len` to discover the total/remaining items and
   `iter_next` to retrieve them (`results[1]` for lists/sets, `results[1]` and `results[2]` for map
   key/value pairs). Map iterators allocate fresh string handles for keys; free them when no longer

@@ -8,6 +8,12 @@
 - [x] Ensure all planned control-flow forms (foreach, for-of, repeat-until, yield, goto) have syntax and parsing stubs or confirmed deferral
 - [x] Document the weak typing mode directives and expected behavior _(see “Weak Typing Mode Status” in `docs/language-reference-alpha.md`)_
 
+## Module Resolution
+
+- [ ] Implement cross-file import resolution and module graph loading _(tracked in `docs/compiler/import-system-checklist.md`)_
+- [ ] Support aliasing/reexport syntax and prelude exposure for stdlib access without the `std` prefix _(see checklist above)_
+- [ ] Document CLI configuration options for locating external/std modules once the resolver ships
+
 ## Type System & Semantics
 
 - [x] Implement generic type parameter resolution and substitution in the semantic analyzer _(generic scopes now tracked in `SemanticAnalyzer` and type parameters resolve to `Type::TypeParameter`)_
