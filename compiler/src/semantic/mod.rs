@@ -275,6 +275,13 @@ impl SemanticWorkspace {
     }
 }
 
+#[cfg(test)]
+impl SemanticWorkspace {
+    fn insert_module_symbols(&mut self, name: impl Into<String>, symbols: ModuleSymbols) {
+        self.modules.insert(name.into(), symbols);
+    }
+}
+
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
 
@@ -4425,6 +4432,79 @@ impl SemanticAnalyzer {
                 start_location: crate::span::Location { line: 0, column: 0 },
                 end_location: crate::span::Location { line: 0, column: 0 },
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::Visibility;
+    use crate::resolver::ResolvedSymbolBinding;
+
+    #[test]
+    fn build_import_bindings_resolves_module_alias_reexports() {
+        let mut workspace = SemanticWorkspace::default();
+
+        let mut math_symbols = ModuleSymbols::default();
+        math_symbols.functions.insert(
+            "add".to_string(),
+            FunctionSignature {
+                params: vec![Type::Int, Type::Int],
+                return_type: Type::Int,
+                self_kind: None,
+            },
+        );
+        workspace.insert_module_symbols("lib.math", math_symbols);
+
+        let mut lib_symbols = ModuleSymbols::default();
+        lib_symbols.module_aliases.insert(
+            "math".to_string(),
+            ModuleAliasInfo {
+                target: "lib.math".to_string(),
+                is_builtin: false,
+            },
+        );
+        workspace.insert_module_symbols("lib", lib_symbols);
+
+        let imports = vec![ResolvedImport {
+            module: "lib".to_string(),
+            alias: "lib".to_string(),
+            visibility: Visibility::Private,
+            span: Span::dummy(),
+            is_builtin: false,
+            target: None,
+            exposed: vec![ResolvedSymbolBinding {
+                name: "math".to_string(),
+                kind: ExportKind::ModuleAlias {
+                    target: "lib.math".to_string(),
+                },
+                origin_module: "lib".to_string(),
+                span: Span::dummy(),
+            }],
+            synthetic: false,
+        }];
+
+        let bindings = workspace.build_import_bindings(&imports);
+        let lib_binding = bindings.get("lib").expect("missing lib binding");
+        assert!(!lib_binding.is_builtin);
+
+        let math_binding = match lib_binding
+            .symbols
+            .get("math")
+            .expect("expected math alias")
+        {
+            ImportedSymbol::Module(binding) => binding,
+            other => panic!("expected module binding, got {:?}", other),
+        };
+
+        assert!(!math_binding.is_builtin);
+        match math_binding.symbols.get("add") {
+            Some(ImportedSymbol::Function(signature)) => {
+                assert_eq!(signature.params.len(), 2);
+                assert_eq!(signature.return_type, Type::Int);
+            }
+            other => panic!("expected function binding, got {:?}", other),
         }
     }
 }
