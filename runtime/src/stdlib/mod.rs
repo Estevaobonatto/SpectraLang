@@ -3227,10 +3227,11 @@ extern "C" fn std_map_keys(ctx: *mut SpectraHostCallContext) -> i32 {
             }
         }
 
-        let list_handle = match with_list_registry(|registry| registry.create_handle_list(&key_handles)) {
-            Ok(handle) => handle,
-            Err(code) => return code,
-        };
+        let list_handle =
+            match with_list_registry(|registry| registry.create_handle_list(&key_handles)) {
+                Ok(handle) => handle,
+                Err(code) => return code,
+            };
 
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = list_handle as SpectraHostValue;
@@ -3264,7 +3265,8 @@ extern "C" fn std_map_values(ctx: *mut SpectraHostCallContext) -> i32 {
             Err(code) => return code,
         };
 
-        let list_handle = match with_list_registry(|registry| registry.create_handle_list(&values)) {
+        let list_handle = match with_list_registry(|registry| registry.create_handle_list(&values))
+        {
             Ok(handle) => handle,
             Err(code) => return code,
         };
@@ -3566,7 +3568,8 @@ extern "C" fn std_set_to_list(ctx: *mut SpectraHostCallContext) -> i32 {
             Err(code) => return code,
         };
 
-        let list_handle = match with_list_registry(|registry| registry.create_handle_list(&values)) {
+        let list_handle = match with_list_registry(|registry| registry.create_handle_list(&values))
+        {
             Ok(handle) => handle,
             Err(code) => return code,
         };
@@ -3653,6 +3656,34 @@ where
 fn list_registry() -> &'static Mutex<ListRegistry> {
     static REGISTRY: OnceLock<Mutex<ListRegistry>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(ListRegistry::new()))
+}
+
+fn with_map_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut MapRegistry) -> R,
+{
+    let registry = map_registry();
+    let mut guard = registry.lock().expect("map registry mutex poisoned");
+    action(&mut guard)
+}
+
+fn map_registry() -> &'static Mutex<MapRegistry> {
+    static REGISTRY: OnceLock<Mutex<MapRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(MapRegistry::new()))
+}
+
+fn with_set_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut SetRegistry) -> R,
+{
+    let registry = set_registry();
+    let mut guard = registry.lock().expect("set registry mutex poisoned");
+    action(&mut guard)
+}
+
+fn set_registry() -> &'static Mutex<SetRegistry> {
+    static REGISTRY: OnceLock<Mutex<SetRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(SetRegistry::new()))
 }
 
 fn with_string_registry<F, R>(action: F) -> R
@@ -4342,6 +4373,234 @@ impl ListRegistry {
 
 struct StdString {
     data: String,
+}
+
+#[derive(Default)]
+struct StdMap {
+    entries: HashMap<String, SpectraHostValue>,
+}
+
+struct MapRegistry {
+    next_id: usize,
+    maps: HashMap<usize, ManualBox<StdMap>>,
+}
+
+impl MapRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            maps: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, map: ManualBox<StdMap>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.maps.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.maps.insert(handle, map);
+        handle
+    }
+
+    fn put(&mut self, handle: usize, key: String, value: SpectraHostValue) -> Result<usize, i32> {
+        if value < 0 {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        match self.maps.get_mut(&handle) {
+            Some(map) => {
+                map.entries.insert(key, value);
+                Ok(map.entries.len())
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn get(&self, handle: usize, key: &str) -> Result<Option<SpectraHostValue>, i32> {
+        match self.maps.get(&handle) {
+            Some(map) => Ok(map.entries.get(key).copied()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove(&mut self, handle: usize, key: &str) -> Result<Option<SpectraHostValue>, i32> {
+        match self.maps.get_mut(&handle) {
+            Some(map) => Ok(map.entries.remove(key)),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn len(&self, handle: usize) -> Result<usize, i32> {
+        match self.maps.get(&handle) {
+            Some(map) => Ok(map.entries.len()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn clear_map(&mut self, handle: usize) -> Result<usize, i32> {
+        match self.maps.get_mut(&handle) {
+            Some(map) => {
+                let removed = map.entries.len();
+                map.entries.clear();
+                Ok(removed)
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn keys(&self, handle: usize) -> Result<Vec<String>, i32> {
+        match self.maps.get(&handle) {
+            Some(map) => Ok(map.entries.keys().cloned().collect()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn values(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+        match self.maps.get(&handle) {
+            Some(map) => Ok(map.entries.values().copied().collect()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove_map(&mut self, handle: usize) -> Result<(), i32> {
+        if self.maps.remove(&handle).is_some() {
+            Ok(())
+        } else {
+            Err(HOST_STATUS_NOT_FOUND)
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.maps.len();
+        self.maps.clear();
+        self.next_id = 1;
+        count
+    }
+}
+
+#[derive(Default)]
+struct StdSet {
+    entries: HashSet<SpectraHostValue>,
+}
+
+struct SetRegistry {
+    next_id: usize,
+    sets: HashMap<usize, ManualBox<StdSet>>,
+}
+
+impl SetRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            sets: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, set: ManualBox<StdSet>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.sets.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.sets.insert(handle, set);
+        handle
+    }
+
+    fn insert_value(
+        &mut self,
+        handle: usize,
+        value: SpectraHostValue,
+    ) -> Result<(bool, usize), i32> {
+        if value < 0 {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        match self.sets.get_mut(&handle) {
+            Some(set) => {
+                let inserted = set.entries.insert(value);
+                let len = set.entries.len();
+                Ok((inserted, len))
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn contains(&self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
+        if value < 0 {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        match self.sets.get(&handle) {
+            Some(set) => Ok(set.entries.contains(&value)),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove_value(
+        &mut self,
+        handle: usize,
+        value: SpectraHostValue,
+    ) -> Result<(bool, usize), i32> {
+        if value < 0 {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        match self.sets.get_mut(&handle) {
+            Some(set) => {
+                let removed = set.entries.remove(&value);
+                let len = set.entries.len();
+                Ok((removed, len))
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn len(&self, handle: usize) -> Result<usize, i32> {
+        match self.sets.get(&handle) {
+            Some(set) => Ok(set.entries.len()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn clear_set(&mut self, handle: usize) -> Result<usize, i32> {
+        match self.sets.get_mut(&handle) {
+            Some(set) => {
+                let removed = set.entries.len();
+                set.entries.clear();
+                Ok(removed)
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn values(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+        match self.sets.get(&handle) {
+            Some(set) => Ok(set.entries.iter().copied().collect()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove_set(&mut self, handle: usize) -> Result<(), i32> {
+        if self.sets.remove(&handle).is_some() {
+            Ok(())
+        } else {
+            Err(HOST_STATUS_NOT_FOUND)
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.sets.len();
+        self.sets.clear();
+        self.next_id = 1;
+        count
+    }
 }
 
 struct StringRegistry {
