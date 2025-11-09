@@ -49,6 +49,7 @@ pub struct Import {
 pub struct Module {
     pub name: String,
     pub span: Span,
+    pub disable_prelude: bool,
     pub items: Vec<Item>,
 }
 
@@ -57,6 +58,7 @@ impl Module {
         Self {
             name: name.into(),
             span,
+            disable_prelude: false,
             items: Vec::new(),
         }
     }

@@ -20,7 +20,7 @@
 - [x] Associar cada `import` aos símbolos exportados do módulo alvo, com tratamento de visibilidade. _(cada `ResolvedImport` agora carrega `exposed` com os símbolos públicos do módulo destino, considerando aliases e reexports)_
 - [x] Popular uma tabela de símbolos compartilhada entre arquivos para permitir lookup durante a análise semântica. _(ver `SemanticWorkspace::analyze` em `compiler/src/semantic/mod.rs`, que alimenta `ModuleImportBinding` para cada alias)_
 - [x] Rastrear imports sintéticos gerados pelo compilador para que o resolvedor e o pipeline semântico consigam diferenciá-los de declarações escritas pelo usuário.
-- [ ] Implementar mecanismo de prelude/`use` automático para expor a stdlib sem prefixo.
+- [x] Implementar mecanismo de prelude/`use` automático para expor a stdlib sem prefixo. _(parser injeta `import std.prelude;` sintético, respeitando `#![no_prelude]` e sinalizando a origem para o resolvedor/semântica.)_
 
 ## Integração CLI / Ferramentas
 

@@ -12,26 +12,35 @@ fn resolver_and_semantic_handle_module_reexports() {
     let temp_dir = tempdir().expect("failed to create temp dir");
     let root = temp_dir.path();
 
-    write_source(root.join("lib/math.spectra"), r#"module lib.math;
+    write_source(
+        root.join("lib/math.spectra"),
+        r#"module lib.math;
 
 pub fn add(a: int, b: int) -> int {
     return a + b;
 }
-"#);
+"#,
+    );
 
-    write_source(root.join("lib.spectra"), r#"module lib;
+    write_source(
+        root.join("lib.spectra"),
+        r#"module lib;
 
 pub import lib.math;
-"#);
+"#,
+    );
 
-    write_source(root.join("consumer.spectra"), r#"module consumer;
+    write_source(
+        root.join("consumer.spectra"),
+        r#"module consumer;
 
 import lib;
 
 pub fn use_add(x: int, y: int) -> int {
     return lib.math.add(x, y);
 }
-"#);
+"#,
+    );
 
     let entry_path = root.join("consumer.spectra");
 

@@ -1,6 +1,6 @@
 # SpectraLang Alpha Language Reference
 
-Date frozen: 2025-11-08
+Date frozen: 2025-11-09
 
 This document captures the currently implemented SpectraLang surface that defines the alpha language scope. It reflects the behaviour of the existing lexer, parser, semantic analyser, and midend as of commit time. Anything not listed here should be considered out of scope for the alpha milestone unless otherwise noted.
 
@@ -8,6 +8,7 @@ This document captures the currently implemented SpectraLang surface that define
 
 - Every source file must begin with a `module` declaration: `module path.to.module;`. The parser treats the first tokens as the module header and emits an error if it is missing.
 - Zero or more `import` statements may follow. Imports accept dotted paths and optional `as alias` clauses; glob and selective imports remain deferred until the resolver work ships.
+- The parser automatically prepends a synthetic `import std.prelude;` so common stdlib symbols are in scope; this import is private and marked as compiler-generated for diagnostics.
 - Top-level items supported in Alpha:
 
   - Function definitions (`fn`), with optional `pub` visibility and generic parameters `<T>`.
@@ -24,8 +25,8 @@ This document captures the currently implemented SpectraLang surface that define
 - Module paths use dot-separated identifiers (`module physics.vector;`). By convention the path should mirror the folder hierarchy, but the compiler does not enforce this yet.
 - The compiler now constructs a module dependency graph before type-checking, reporting missing files, duplicate modules, header mismatches, and dependency cycles with precise diagnostics. Imported modules are parsed once and cached via the shared `ModuleLoader`.
 - Symbol binding across module boundaries remains limited: alias resolution and visibility propagation are recorded by the resolver, but semantic analysis still requires fully qualified references until the name-binding pass lands.
-- Work to implement the remaining import semantics (shared symbol table, prelude injection, selective imports) is tracked in `docs/compiler/import-system-checklist.md` and documented in `docs/compiler/import-system-design.md`.
-- Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
+- Work to implement the remaining import semantics (shared symbol table, selective imports) is tracked in `docs/compiler/import-system-checklist.md` and documented in `docs/compiler/import-system-design.md`.
+- Source files can opt out of the automatic prelude by placing `#![no_prelude]` before the `module` header. Only the `std.prelude` import is synthesised; all other imports must be declared explicitly.
 - Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
 
 ## Lexical Elements

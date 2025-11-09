@@ -174,7 +174,8 @@ impl SemanticWorkspace {
                     }
                     ExportKind::ModuleAlias { target } => {
                         let nested_binding = if let Some(module_symbols) = module_symbols {
-                            if let Some(alias_info) = module_symbols.module_aliases.get(&symbol.name)
+                            if let Some(alias_info) =
+                                module_symbols.module_aliases.get(&symbol.name)
                             {
                                 self.module_binding_for_alias(
                                     &alias_info.target,
@@ -200,7 +201,7 @@ impl SemanticWorkspace {
 
         bindings
     }
-    
+
     fn module_binding_for_alias(
         &self,
         module_name: &str,
@@ -225,8 +226,7 @@ impl SemanticWorkspace {
         }
 
         let mut binding = ModuleImportBinding {
-            is_builtin: builtin_hint
-                .unwrap_or_else(|| Self::is_builtin_module_name(module_name)),
+            is_builtin: builtin_hint.unwrap_or_else(|| Self::is_builtin_module_name(module_name)),
             symbols: HashMap::new(),
         };
 
@@ -480,7 +480,6 @@ impl SemanticAnalyzer {
             _ => "<expr>".to_string(),
         }
     }
-
 
     fn is_builtin_namespace(&self, name: &str) -> bool {
         matches!(name, "std")
@@ -2110,10 +2109,8 @@ impl SemanticAnalyzer {
                     .unwrap_or(Type::Unknown),
                 ExpressionKind::FieldAccess { object, field } => {
                     if let Some(binding) = self.resolve_import_binding(object) {
-                        if let Some(signature) = binding
-                            .symbols
-                            .get(field)
-                            .and_then(|symbol| match symbol {
+                        if let Some(signature) =
+                            binding.symbols.get(field).and_then(|symbol| match symbol {
                                 ImportedSymbol::Function(sig) => Some(sig.clone()),
                                 _ => None,
                             })
@@ -2544,10 +2541,8 @@ impl SemanticAnalyzer {
                                             expr.span,
                                         );
                                     } else {
-                                        for (i, (arg, expected_type)) in arguments
-                                            .iter()
-                                            .zip(&signature.params)
-                                            .enumerate()
+                                        for (i, (arg, expected_type)) in
+                                            arguments.iter().zip(&signature.params).enumerate()
                                         {
                                             let arg_type = self.infer_expression_type(arg);
                                             if arg_type != Type::Unknown
@@ -2586,8 +2581,7 @@ impl SemanticAnalyzer {
                                         self.error(
                                             format!(
                                                 "Symbol '{}::{}' is not callable",
-                                                namespace,
-                                                field
+                                                namespace, field
                                             ),
                                             callee.span,
                                         );
@@ -2598,8 +2592,7 @@ impl SemanticAnalyzer {
                                         self.error(
                                             format!(
                                                 "Module '{}' does not expose callable symbol '{}'",
-                                                namespace,
-                                                field
+                                                namespace, field
                                             ),
                                             callee.span,
                                         );
@@ -2620,10 +2613,8 @@ impl SemanticAnalyzer {
                                         expr.span,
                                     );
                                 } else {
-                                    for (i, (arg, expected_type)) in arguments
-                                        .iter()
-                                        .zip(&signature.params)
-                                        .enumerate()
+                                    for (i, (arg, expected_type)) in
+                                        arguments.iter().zip(&signature.params).enumerate()
                                     {
                                         let arg_type = self.infer_expression_type(arg);
                                         if arg_type != Type::Unknown
@@ -2932,10 +2923,7 @@ impl SemanticAnalyzer {
                     if !binding.is_builtin {
                         let namespace = self.format_namespace_expr(object);
                         self.error(
-                            format!(
-                                "Module '{}' does not export symbol '{}'",
-                                namespace, field
-                            ),
+                            format!("Module '{}' does not export symbol '{}'", namespace, field),
                             expr.span,
                         );
                     }

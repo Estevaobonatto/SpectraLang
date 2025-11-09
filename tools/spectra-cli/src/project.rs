@@ -1,11 +1,6 @@
 use spectra_compiler::{
-    analyze_graph,
-    CompilationOptions,
-    CompilerError,
-    ModuleGraph,
-    ModuleResolutionError,
-    ModuleResolver,
-    ModuleResolverOptions,
+    analyze_graph, CompilationOptions, CompilerError, ModuleGraph, ModuleResolutionError,
+    ModuleResolver, ModuleResolverOptions,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -27,7 +22,10 @@ pub struct ProjectPlan {
 }
 
 impl ProjectPlan {
-    pub fn build(entries: Vec<PathBuf>, options: &CompilationOptions) -> Result<Self, ProjectError> {
+    pub fn build(
+        entries: Vec<PathBuf>,
+        options: &CompilationOptions,
+    ) -> Result<Self, ProjectError> {
         if entries.is_empty() {
             return Ok(Self {
                 modules: Vec::new(),
@@ -69,12 +67,13 @@ impl ProjectPlan {
         let mut seen_modules: HashMap<String, PathBuf> = HashMap::new();
 
         for entry in files {
-            let graph = resolver
-                .resolve(&entry)
-                .map_err(|error| ProjectError::ModuleResolution {
-                    entry: entry.clone(),
-                    error,
-                })?;
+            let graph =
+                resolver
+                    .resolve(&entry)
+                    .map_err(|error| ProjectError::ModuleResolution {
+                        entry: entry.clone(),
+                        error,
+                    })?;
 
             let mut added_any = false;
             for module in graph.modules() {
@@ -133,11 +132,7 @@ impl ProjectPlan {
 
         for graph in &mut self.graphs {
             if let Err(semantic_errors) = analyze_graph(graph) {
-                errors.extend(
-                    semantic_errors
-                        .into_iter()
-                        .map(CompilerError::Semantic),
-                );
+                errors.extend(semantic_errors.into_iter().map(CompilerError::Semantic));
             }
         }
 
@@ -322,7 +317,11 @@ fn write_resolution_error(
         ),
         ModuleResolutionError::ParseFailure { path, errors } => {
             if errors.is_empty() {
-                write!(f, "failed to parse '{}': unknown parser error", path.display())
+                write!(
+                    f,
+                    "failed to parse '{}': unknown parser error",
+                    path.display()
+                )
             } else {
                 write!(f, "failed to parse '{}': {}", path.display(), errors[0])?;
                 if errors.len() > 1 {

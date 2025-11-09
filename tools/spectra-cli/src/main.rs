@@ -1098,8 +1098,8 @@ fn execute_plan_with_options(
     print_success: bool,
     verbose: bool,
 ) -> CliResult<()> {
-    let mut plan = ProjectPlan::build(entries, &options)
-        .map_err(|error| CliError::io(error.to_string()))?;
+    let mut plan =
+        ProjectPlan::build(entries, &options).map_err(|error| CliError::io(error.to_string()))?;
 
     if plan.modules().is_empty() {
         return Err(CliError::usage("No Spectra source files found to compile."));

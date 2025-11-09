@@ -190,12 +190,7 @@ impl ModuleResolver {
 
             module_paths.insert(parsed.name.clone(), path.clone());
             let node = ModuleNode::new(parsed, path);
-            register_import_sources(
-                &mut import_sources,
-                &module_name,
-                &node.path,
-                &node.imports,
-            );
+            register_import_sources(&mut import_sources, &module_name, &node.path, &node.imports);
             for dependency in &node.dependencies {
                 if modules.contains_key(dependency) {
                     continue;
@@ -387,7 +382,9 @@ fn collect_exports(module: &Module) -> Vec<ResolvedExport> {
                     .unwrap_or_else(|| module_name.clone());
                 exports.push(ResolvedExport {
                     name: alias_name,
-                    kind: ExportKind::ModuleAlias { target: module_name },
+                    kind: ExportKind::ModuleAlias {
+                        target: module_name,
+                    },
                     span: import.span,
                 });
             }

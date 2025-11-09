@@ -440,7 +440,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::Module;
+    use crate::ast::{Item, Module, Visibility};
     use crate::lexer::Lexer;
     use std::collections::HashSet;
 
@@ -483,6 +483,50 @@ mod tests {
 
         assert!(parse_with_features(source, &[]).is_err());
         assert!(parse_with_features(source, &["unless"]).is_ok());
+    }
+
+    #[test]
+    fn prelude_import_is_injected_by_default() {
+        let source = "module demo;";
+
+        let module = parse_with_features(source, &[]).expect("module should parse");
+        assert!(!module.disable_prelude);
+        let import = match module.items.first() {
+            Some(Item::Import(import)) => import,
+            other => panic!("expected first item to be import, found {:?}", other),
+        };
+        assert_eq!(import.path, vec!["std".to_string(), "prelude".to_string()]);
+        assert!(import.synthetic);
+        assert!(matches!(import.visibility, Visibility::Private));
+    }
+
+    #[test]
+    fn prelude_import_not_injected_when_disabled() {
+        let source = "#![no_prelude]\nmodule demo;";
+
+        let module = parse_with_features(source, &[]).expect("module should parse");
+        assert!(module.disable_prelude);
+        assert!(module
+            .items
+            .iter()
+            .all(|item| !matches!(item, Item::Import(import) if import.synthetic)));
+    }
+
+    #[test]
+    fn explicit_prelude_import_prevents_injection() {
+        let source = r#"
+            module demo;
+
+            import std.prelude;
+        "#;
+
+        let module = parse_with_features(source, &[]).expect("module should parse");
+        let synthetic_count = module
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Import(import) if import.synthetic))
+            .count();
+        assert_eq!(synthetic_count, 0);
     }
 }
 

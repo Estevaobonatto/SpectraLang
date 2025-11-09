@@ -5,7 +5,7 @@ functions. The functions are grouped by namespace and can be installed by callin
 `spectra_runtime::register_standard_library()` (or invoking `spectra_rt_std_register` once it is
 gated through the CLI).
 
-> Note: the module resolver now loads dependent files and reports missing or duplicated modules, but semantic binding and prelude injection remain work-in-progress (see `docs/compiler/import-system-checklist.md`). Until those stages land, Spectra samples must keep stdlib calls fully qualified with the `std.` prefix.
+> Note: the module resolver now loads dependent files and reports missing or duplicated modules, and the parser injects a synthetic `import std.prelude;` into every module (unless `#![no_prelude]` is present). Samples may call curated prelude exports without spelling the `std.` prefix explicitly.
 
 All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.md) contract and the
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
