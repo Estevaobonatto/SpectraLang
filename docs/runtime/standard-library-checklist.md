@@ -44,7 +44,7 @@
 
 ## Strings e Texto
 
-- [ ] Introduzir representações host para strings UTF-8
+- [x] Introduzir representações host para strings UTF-8
   - [x] Alocação/handles dedicados e conversão segura com listas
   - [x] Consulta de comprimento (contagem de escalares Unicode)
   - [x] Concatenação básica entre handles
@@ -56,8 +56,8 @@
 
 - [x] Oferecer listas de inteiros com `new`/`push`/`len`/`clear`/`free`
 - [x] Expandir listas para suportar tipos genéricos via ponteiros/handles
-- [ ] Adicionar mapas/dicionários e conjuntos baseados em hash com ciclo de vida controlado
-- [ ] Criar iteradores/visões host para coleções (comprimento, `foreach`, slice)
+- [x] Adicionar mapas/dicionários e conjuntos baseados em hash com ciclo de vida controlado
+- [x] Criar iteradores/visões host para coleções (comprimento, `foreach`, slice)
 - [ ] Suportar operações de ordenação, busca e filtragem host-driven
 
 ## Memória e Segurança

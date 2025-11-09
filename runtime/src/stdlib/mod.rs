@@ -91,6 +91,15 @@ const LIST_LEN: &str = "spectra.std.collections.list_len";
 const LIST_CLEAR: &str = "spectra.std.collections.list_clear";
 const LIST_FREE: &str = "spectra.std.collections.list_free";
 const LIST_FREE_ALL: &str = "spectra.std.collections.list_free_all";
+const LIST_SLICE: &str = "spectra.std.collections.list_slice";
+const LIST_SORT: &str = "spectra.std.collections.list_sort";
+const LIST_FIND: &str = "spectra.std.collections.list_find";
+const LIST_FILTER_EQ: &str = "spectra.std.collections.list_filter_eq";
+const LIST_ITER_NEW: &str = "spectra.std.collections.list_iter_new";
+const ITER_LEN: &str = "spectra.std.collections.iter_len";
+const ITER_NEXT: &str = "spectra.std.collections.iter_next";
+const ITER_FREE: &str = "spectra.std.collections.iter_free";
+const ITER_FREE_ALL: &str = "spectra.std.collections.iter_free_all";
 const MAP_NEW: &str = "spectra.std.collections.map_new";
 const MAP_PUT: &str = "spectra.std.collections.map_put";
 const MAP_GET: &str = "spectra.std.collections.map_get";
@@ -110,6 +119,8 @@ const SET_CLEAR: &str = "spectra.std.collections.set_clear";
 const SET_TO_LIST: &str = "spectra.std.collections.set_to_list";
 const SET_FREE: &str = "spectra.std.collections.set_free";
 const SET_FREE_ALL: &str = "spectra.std.collections.set_free_all";
+const MAP_ITER_NEW: &str = "spectra.std.collections.map_iter_new";
+const SET_ITER_NEW: &str = "spectra.std.collections.set_iter_new";
 
 /// Registers the minimal standard library host functions.
 pub fn register() {
@@ -206,6 +217,11 @@ fn register_collections() {
     register_host_function(LIST_CLEAR, std_list_clear);
     register_host_function(LIST_FREE, std_list_free);
     register_host_function(LIST_FREE_ALL, std_list_free_all);
+    register_host_function(LIST_SLICE, std_list_slice);
+    register_host_function(LIST_SORT, std_list_sort);
+    register_host_function(LIST_FIND, std_list_find);
+    register_host_function(LIST_FILTER_EQ, std_list_filter_eq);
+    register_host_function(LIST_ITER_NEW, std_list_iter_new);
     register_host_function(MAP_NEW, std_map_new);
     register_host_function(MAP_PUT, std_map_put);
     register_host_function(MAP_GET, std_map_get);
@@ -216,6 +232,7 @@ fn register_collections() {
     register_host_function(MAP_VALUES, std_map_values);
     register_host_function(MAP_FREE, std_map_free);
     register_host_function(MAP_FREE_ALL, std_map_free_all);
+    register_host_function(MAP_ITER_NEW, std_map_iter_new);
     register_host_function(SET_NEW, std_set_new);
     register_host_function(SET_INSERT, std_set_insert);
     register_host_function(SET_CONTAINS, std_set_contains);
@@ -225,6 +242,11 @@ fn register_collections() {
     register_host_function(SET_TO_LIST, std_set_to_list);
     register_host_function(SET_FREE, std_set_free);
     register_host_function(SET_FREE_ALL, std_set_free_all);
+    register_host_function(SET_ITER_NEW, std_set_iter_new);
+    register_host_function(ITER_LEN, std_iter_len);
+    register_host_function(ITER_NEXT, std_iter_next);
+    register_host_function(ITER_FREE, std_iter_free);
+    register_host_function(ITER_FREE_ALL, std_iter_free_all);
 }
 
 const I64_MIN_F64: f64 = i64::MIN as f64;
@@ -240,6 +262,14 @@ fn decode_f64(value: SpectraHostValue) -> f64 {
 
 fn usize_to_i64(value: usize) -> Result<SpectraHostValue, i32> {
     SpectraHostValue::try_from(value).map_err(|_| HOST_STATUS_ARITHMETIC_ERROR)
+}
+
+fn i64_to_usize(value: SpectraHostValue) -> Result<usize, i32> {
+    if value < 0 {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    value.try_into().map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
 }
 
 extern "C" fn std_math_abs(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -2965,6 +2995,539 @@ extern "C" fn std_list_free_all(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+extern "C" fn std_list_slice(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len < 2 || ctx_ref.arg_len > 3 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 || args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let list_handle = args[0] as usize;
+        let start = match i64_to_usize(args[1]) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        let requested_len = if ctx_ref.arg_len == 3 {
+            if args[2] < 0 {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            match i64_to_usize(args[2]) {
+                Ok(value) => Some(value),
+                Err(code) => return code,
+            }
+        } else {
+            None
+        };
+
+        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle))
+        {
+            Ok(snapshot) => snapshot,
+            Err(code) => return code,
+        };
+
+        if start > values.len() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let available = values.len() - start;
+        let slice_len = match requested_len {
+            Some(len) => {
+                if len > available {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+                len
+            }
+            None => available,
+        };
+
+        let slice = &values[start..start + slice_len];
+        let slice_category = if slice.is_empty() {
+            ListCategory::Untyped
+        } else {
+            match category {
+                ListCategory::Untyped => ListCategory::Ints,
+                other => other,
+            }
+        };
+
+        let new_handle = match with_list_registry(|registry| {
+            registry.create_typed_list(slice_category, slice)
+        }) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = new_handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_sort(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len == 0 || ctx_ref.arg_len > 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len > 0 && ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let list_handle = args[0] as usize;
+
+        let descending = if ctx_ref.arg_len == 2 {
+            if args[1] < 0 {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            args[1] != 0
+        } else {
+            false
+        };
+
+        match with_list_registry(|registry| registry.sort(list_handle, descending)) {
+            Ok(len) => {
+                if ctx_ref.result_len > 0 {
+                    let results =
+                        slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                    if !results.is_empty() {
+                        results[0] = match usize_to_i64(len) {
+                            Ok(value) => value,
+                            Err(code) => return code,
+                        };
+                        for slot in results.iter_mut().skip(1) {
+                            *slot = 0;
+                        }
+                    }
+                }
+                HOST_STATUS_SUCCESS
+            }
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_list_find(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let list_handle = args[0] as usize;
+        let needle = args[1];
+
+        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle)) {
+            Ok(snapshot) => snapshot,
+            Err(code) => return code,
+        };
+
+        if matches!(category, ListCategory::Handles) && needle < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let position = values.iter().position(|value| *value == needle);
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = if position.is_some() { 1 } else { 0 };
+        if results.len() > 1 {
+            results[1] = match position {
+                Some(index) => match usize_to_i64(index) {
+                    Ok(value) => value,
+                    Err(code) => return code,
+                },
+                None => 0,
+            };
+            for slot in results.iter_mut().skip(2) {
+                *slot = 0;
+            }
+        }
+
+        HOST_STATUS_SUCCESS
+    }
+}
+
+extern "C" fn std_list_filter_eq(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let list_handle = args[0] as usize;
+        let needle = args[1];
+
+        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle)) {
+            Ok(snapshot) => snapshot,
+            Err(code) => return code,
+        };
+
+        if matches!(category, ListCategory::Handles) && needle < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let filtered: Vec<SpectraHostValue> = values
+            .iter()
+            .copied()
+            .filter(|value| *value == needle)
+            .collect();
+
+        let new_category = match category {
+            ListCategory::Handles => ListCategory::Handles,
+            _ => ListCategory::Ints,
+        };
+
+        let handle = match with_list_registry(|registry| {
+            registry.create_typed_list(new_category, &filtered)
+        }) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+        for slot in results.iter_mut().skip(1) {
+            *slot = 0;
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_iter_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let list_handle = args[0] as usize;
+
+        let (category, values) = match with_list_registry(|registry| registry.snapshot(list_handle))
+        {
+            Ok(snapshot) => snapshot,
+            Err(code) => return code,
+        };
+
+        let iterator = CollectionIterator::from_list(category, values);
+
+        let memory = initialize().memory();
+        let manual = match memory.allocate_manual(iterator) {
+            Ok(manual) => manual,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+
+        let handle = with_iterator_registry(|registry| registry.insert(manual));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_map_iter_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let map_handle = args[0] as usize;
+
+        let entries = match with_map_registry(|registry| registry.entries(map_handle)) {
+            Ok(entries) => entries,
+            Err(code) => return code,
+        };
+
+        let iterator = CollectionIterator::from_map_entries(entries);
+
+        let memory = initialize().memory();
+        let manual = match memory.allocate_manual(iterator) {
+            Ok(manual) => manual,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+
+        let handle = with_iterator_registry(|registry| registry.insert(manual));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_set_iter_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let set_handle = args[0] as usize;
+
+        let values = match with_set_registry(|registry| registry.values(set_handle)) {
+            Ok(values) => values,
+            Err(code) => return code,
+        };
+
+        let iterator = CollectionIterator::from_set_values(values);
+
+        let memory = initialize().memory();
+        let manual = match memory.allocate_manual(iterator) {
+            Ok(manual) => manual,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+
+        let handle = with_iterator_registry(|registry| registry.insert(manual));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_iter_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let iterator_handle = args[0] as usize;
+
+        let lengths = match with_iterator_registry(|registry| registry.lengths(iterator_handle)) {
+            Ok(lengths) => lengths,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = match usize_to_i64(lengths.total) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+        if results.len() > 1 {
+            results[1] = match usize_to_i64(lengths.remaining) {
+                Ok(value) => value,
+                Err(code) => return code,
+            };
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_iter_next(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.results.is_null() || ctx_ref.result_len == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let iterator_handle = args[0] as usize;
+
+        let output = match with_iterator_registry(|registry| registry.advance(iterator_handle)) {
+            Ok(output) => output,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+
+        match output {
+            IteratorAdvance::End => {
+                results[0] = 0;
+                for value in results.iter_mut().skip(1) {
+                    *value = 0;
+                }
+            }
+            IteratorAdvance::Single(value) => {
+                if results.len() < 2 {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+                results[0] = 1;
+                results[1] = value;
+                for slot in results.iter_mut().skip(2) {
+                    *slot = 0;
+                }
+            }
+            IteratorAdvance::MapEntry { key, value } => {
+                if results.len() < 3 {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+                let key_handle = match with_string_registry(|registry| registry.create(key)) {
+                    Ok(handle) => handle,
+                    Err(code) => return code,
+                };
+                results[0] = 1;
+                results[1] = key_handle as SpectraHostValue;
+                results[2] = value;
+                for slot in results.iter_mut().skip(3) {
+                    *slot = 0;
+                }
+            }
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_iter_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.args.is_null() || ctx_ref.arg_len != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let iterator_handle = args[0] as usize;
+
+        match with_iterator_registry(|registry| registry.remove(iterator_handle)) {
+            Ok(()) => {
+                if ctx_ref.result_len > 0 {
+                    if ctx_ref.results.is_null() {
+                        return HOST_STATUS_INVALID_ARGUMENT;
+                    }
+                    let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                    if !results.is_empty() {
+                        results[0] = 0;
+                    }
+                }
+                HOST_STATUS_SUCCESS
+            }
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_iter_free_all(ctx: *mut SpectraHostCallContext) -> i32 {
+    let freed = with_iterator_registry(|registry| registry.clear_all());
+
+    if ctx.is_null() {
+        return HOST_STATUS_SUCCESS;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len > 0 {
+            if ctx_ref.results.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            if !results.is_empty() {
+                results[0] = match usize_to_i64(freed) {
+                    Ok(value) => value,
+                    Err(code) => return code,
+                };
+            }
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
 extern "C" fn std_map_new(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -3686,6 +4249,20 @@ fn set_registry() -> &'static Mutex<SetRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(SetRegistry::new()))
 }
 
+fn with_iterator_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut IteratorRegistry) -> R,
+{
+    let registry = iterator_registry();
+    let mut guard = registry.lock().expect("iterator registry mutex poisoned");
+    action(&mut guard)
+}
+
+fn iterator_registry() -> &'static Mutex<IteratorRegistry> {
+    static REGISTRY: OnceLock<Mutex<IteratorRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(IteratorRegistry::new()))
+}
+
 fn with_string_registry<F, R>(action: F) -> R
 where
     F: FnOnce(&mut StringRegistry) -> R,
@@ -4256,6 +4833,25 @@ impl ListRegistry {
         }
     }
 
+    fn sort(&mut self, handle: usize, descending: bool) -> Result<usize, i32> {
+        match self.lists.get_mut(&handle) {
+            Some(list) => {
+                match list.category {
+                    ListCategory::Untyped => {}
+                    ListCategory::Ints | ListCategory::Handles => {
+                        if descending {
+                            list.data.sort_by(|a, b| b.cmp(a));
+                        } else {
+                            list.data.sort();
+                        }
+                    }
+                }
+                Ok(list.data.len())
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
     fn clear_list(&mut self, handle: usize) -> Result<(), i32> {
         match self.lists.get_mut(&handle) {
             Some(list) => {
@@ -4335,13 +4931,29 @@ impl ListRegistry {
     }
 
     fn create_handle_list(&mut self, handles: &[SpectraHostValue]) -> Result<usize, i32> {
-        if handles.iter().any(|value| *value < 0) {
+        self.create_typed_list(ListCategory::Handles, handles)
+    }
+
+    fn create_typed_list(
+        &mut self,
+        category: ListCategory,
+        values: &[SpectraHostValue],
+    ) -> Result<usize, i32> {
+        let effective_category = if values.is_empty() {
+            ListCategory::Untyped
+        } else {
+            category
+        };
+
+        if matches!(effective_category, ListCategory::Handles)
+            && values.iter().any(|value| *value < 0)
+        {
             return Err(HOST_STATUS_INVALID_ARGUMENT);
         }
 
         let memory = initialize().memory();
-        let mut list = StdList::new(ListCategory::Handles);
-        list.data.extend(handles.iter().copied());
+        let mut list = StdList::new(effective_category);
+        list.data.extend(values.iter().copied());
         let manual = memory
             .allocate_manual(list)
             .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
@@ -4462,6 +5074,17 @@ impl MapRegistry {
     fn values(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
         match self.maps.get(&handle) {
             Some(map) => Ok(map.entries.values().copied().collect()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn entries(&self, handle: usize) -> Result<Vec<(String, SpectraHostValue)>, i32> {
+        match self.maps.get(&handle) {
+            Some(map) => Ok(map
+                .entries
+                .iter()
+                .map(|(key, value)| (key.clone(), *value))
+                .collect()),
             None => Err(HOST_STATUS_NOT_FOUND),
         }
     }
@@ -4601,6 +5224,173 @@ impl SetRegistry {
         self.next_id = 1;
         count
     }
+}
+
+enum IteratorKind {
+    List {
+        values: Vec<SpectraHostValue>,
+        index: usize,
+    },
+    MapEntries {
+        entries: Vec<(String, SpectraHostValue)>,
+        index: usize,
+    },
+    SetValues {
+        values: Vec<SpectraHostValue>,
+        index: usize,
+    },
+}
+
+struct CollectionIterator {
+    kind: IteratorKind,
+}
+
+impl CollectionIterator {
+    fn from_list(_category: ListCategory, values: Vec<SpectraHostValue>) -> Self {
+        Self {
+            kind: IteratorKind::List { values, index: 0 },
+        }
+    }
+
+    fn from_map_entries(entries: Vec<(String, SpectraHostValue)>) -> Self {
+        Self {
+            kind: IteratorKind::MapEntries { entries, index: 0 },
+        }
+    }
+
+    fn from_set_values(values: Vec<SpectraHostValue>) -> Self {
+        Self {
+            kind: IteratorKind::SetValues { values, index: 0 },
+        }
+    }
+
+    fn total_len(&self) -> usize {
+        match &self.kind {
+            IteratorKind::List { values, .. } => values.len(),
+            IteratorKind::MapEntries { entries, .. } => entries.len(),
+            IteratorKind::SetValues { values, .. } => values.len(),
+        }
+    }
+
+    fn position(&self) -> usize {
+        match &self.kind {
+            IteratorKind::List { index, .. } => *index,
+            IteratorKind::MapEntries { index, .. } => *index,
+            IteratorKind::SetValues { index, .. } => *index,
+        }
+    }
+
+    fn remaining(&self) -> usize {
+        self.total_len().saturating_sub(self.position())
+    }
+
+    fn advance(&mut self) -> IteratorAdvance {
+        match &mut self.kind {
+            IteratorKind::List { values, index } => {
+                if *index >= values.len() {
+                    IteratorAdvance::End
+                } else {
+                    let value = values[*index];
+                    *index += 1;
+                    IteratorAdvance::Single(value)
+                }
+            }
+            IteratorKind::MapEntries { entries, index } => {
+                if *index >= entries.len() {
+                    IteratorAdvance::End
+                } else {
+                    let (key, value) = &entries[*index];
+                    *index += 1;
+                    IteratorAdvance::MapEntry {
+                        key: key.clone(),
+                        value: *value,
+                    }
+                }
+            }
+            IteratorKind::SetValues { values, index } => {
+                if *index >= values.len() {
+                    IteratorAdvance::End
+                } else {
+                    let value = values[*index];
+                    *index += 1;
+                    IteratorAdvance::Single(value)
+                }
+            }
+        }
+    }
+}
+
+struct IteratorRegistry {
+    next_id: usize,
+    iterators: HashMap<usize, ManualBox<CollectionIterator>>,
+}
+
+impl IteratorRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            iterators: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, iterator: ManualBox<CollectionIterator>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.iterators.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.iterators.insert(handle, iterator);
+        handle
+    }
+
+    fn advance(&mut self, handle: usize) -> Result<IteratorAdvance, i32> {
+        match self.iterators.get_mut(&handle) {
+            Some(iterator) => Ok(iterator.advance()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn lengths(&self, handle: usize) -> Result<IteratorLengths, i32> {
+        match self.iterators.get(&handle) {
+            Some(iterator) => Ok(IteratorLengths {
+                total: iterator.total_len(),
+                remaining: iterator.remaining(),
+            }),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<(), i32> {
+        if self.iterators.remove(&handle).is_some() {
+            Ok(())
+        } else {
+            Err(HOST_STATUS_NOT_FOUND)
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.iterators.len();
+        self.iterators.clear();
+        self.next_id = 1;
+        count
+    }
+}
+
+enum IteratorAdvance {
+    End,
+    Single(SpectraHostValue),
+    MapEntry {
+        key: String,
+        value: SpectraHostValue,
+    },
+}
+
+struct IteratorLengths {
+    total: usize,
+    remaining: usize,
 }
 
 struct StringRegistry {

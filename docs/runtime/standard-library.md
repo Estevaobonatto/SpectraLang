@@ -149,10 +149,15 @@ text operations.
 
 ## collections namespace
 
-Spectra exposes list operations backed by runtime-managed vectors. Lists are represented by opaque
-handles (integers) that map to manual allocations tracked by the runtime. Failing to free a list will
-keep the allocation alive until `spectra.std.collections.list_free_all` is invoked or the process
-terminates.
+Spectra exposes hash-based collections backed by runtime-managed allocations. Handles are opaque
+integers that map to registry entries; failing to release them leaks runtime memory until the
+process terminates or a `*_free_all` host call executes. Collections are grouped into lists, maps,
+and sets.
+
+### Lists
+
+Lists behave like dynamically typed vectors whose element kind (ints or handles) is fixed after the
+first successful insertion.
 
 | Host call | Description | Arguments | Results |
 |-----------|-------------|-----------|---------|
@@ -163,11 +168,63 @@ terminates.
 | `spectra.std.collections.list_clear` | Removes all elements from the list without releasing the handle. | `handle` | `0` |
 | `spectra.std.collections.list_free` | Drops the list allocation associated with the handle. | `handle` | `0` when `results` provided |
 | `spectra.std.collections.list_free_all` | Drops every list managed by the runtime. | *(none)* | number of freed lists |
+| `spectra.std.collections.list_slice` | Allocates a new list containing a contiguous range starting at `start_index`. When `length` is omitted the slice runs to the end of the source list. | `list_handle`, `start_index`, `[length]` | new list handle |
+
+### Maps
+
+Maps store string-keyed associations whose values are arbitrary non-negative handles (for example,
+strings, lists, or user-managed resources). Keys are duplicated when inserted, so updating a value
+does not require preserving the original handle.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.collections.map_new` | Allocates an empty map and returns its handle. | *(none)* | handle |
+| `spectra.std.collections.map_put` | Associates the provided value handle with the UTF-8 string identified by `key_handle`. Existing entries are overwritten. | `map_handle`, `key_handle`, `value_handle` | new entry count |
+| `spectra.std.collections.map_get` | Looks up a key and reports whether a value was found. | `map_handle`, `key_handle` | `results[0]` = `1` when present, `results[1]` = value handle (undefined when missing) |
+| `spectra.std.collections.map_remove` | Removes the entry for `key_handle`. | `map_handle`, `key_handle` | `results[0]` = `1` when removed, `results[1]` = removed value handle |
+| `spectra.std.collections.map_len` | Returns the number of stored entries. | `map_handle` | entry count |
+| `spectra.std.collections.map_clear` | Removes every entry from the map. | `map_handle` | removed entry count |
+| `spectra.std.collections.map_keys` | Returns a list handle with string handles for each key. Keys are cloned into newly allocated string handles. | `map_handle` | list handle |
+| `spectra.std.collections.map_values` | Returns a list handle containing the stored value handles. The list is locked to handle mode. | `map_handle` | list handle |
+| `spectra.std.collections.map_free` | Drops the map allocation referenced by the handle. | `map_handle` | `0` when `results` provided |
+| `spectra.std.collections.map_free_all` | Drops every map managed by the runtime. | *(none)* | number of freed maps |
+
+### Sets
+
+Sets track unique value handles using the same non-negative handle domain as lists and maps.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.collections.set_new` | Allocates an empty set and returns its handle. | *(none)* | handle |
+| `spectra.std.collections.set_insert` | Inserts the handle when it is not already present. | `set_handle`, `value_handle` | `results[0]` = new length, `results[1]` = `1` when inserted (optional) |
+| `spectra.std.collections.set_contains` | Checks whether the handle is present in the set. | `set_handle`, `value_handle` | `1` when present |
+| `spectra.std.collections.set_remove` | Removes the handle from the set if present. | `set_handle`, `value_handle` | `results[0]` = `1` when removed, `results[1]` = new length (optional) |
+| `spectra.std.collections.set_len` | Returns the number of elements stored in the set. | `set_handle` | element count |
+| `spectra.std.collections.set_clear` | Removes all values from the set. | `set_handle` | removed element count |
+| `spectra.std.collections.set_to_list` | Materializes the set contents in a list locked to handle mode. | `set_handle` | list handle |
+| `spectra.std.collections.set_free` | Drops the set allocation associated with the handle. | `set_handle` | `0` when `results` provided |
+| `spectra.std.collections.set_free_all` | Drops every set managed by the runtime. | *(none)* | number of freed sets |
+
+### Iterators
+
+Iterators provide snapshot-based traversal over lists, maps, and sets without exposing internal
+runtime pointers. Each iterator captures a copy of the collection at creation time; mutating the
+original collection leaves existing iterators unchanged.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.collections.list_iter_new` | Creates an iterator over the current contents of a list. | `list_handle` | iterator handle |
+| `spectra.std.collections.map_iter_new` | Creates an iterator that yields key/value pairs cloned from the map at creation time. | `map_handle` | iterator handle |
+| `spectra.std.collections.set_iter_new` | Creates an iterator over the values captured from the set. | `set_handle` | iterator handle |
+| `spectra.std.collections.iter_len` | Reports the total number of items captured by the iterator. When `results[1]` is available it also reports the remaining (not-yet-consumed) count. | `iterator_handle` | total count, `[remaining count]` |
+| `spectra.std.collections.iter_next` | Advances the iterator. `results[0] = 1` when a value is produced, `0` when iteration has completed. Lists and sets emit their element in `results[1]`. Map iterators require at least three result slots: `results[1]` receives a newly allocated string handle for the key, `results[2]` receives the stored value handle. | `iterator_handle` | presence flag plus element payload |
+| `spectra.std.collections.iter_free` | Releases the iterator handle. | `iterator_handle` | `0` when `results` provided |
+| `spectra.std.collections.iter_free_all` | Releases every iterator tracked by the runtime. | *(none)* | number of freed iterators |
 
 ## Usage Notes
 
-- All collection handles are process-local and must be treated as opaque identifiers by Spectra
-  programs.
+- All collection handles (lists, maps, sets) are process-local and must be treated as opaque
+  identifiers by Spectra programs.
 - Allocation failures (for example, when the manual heap exceeds its soft limit) produce
   `HOST_STATUS_INTERNAL_ERROR`.
 - Passing invalid handles or mismatched argument counts yields `HOST_STATUS_INVALID_ARGUMENT` or
@@ -181,6 +238,15 @@ terminates.
   Clearing a list resets its category so it can be repurposed, but dropping a list does **not**
   automatically free the handles stored inside it—call the appropriate `free` host call for each
   referenced resource.
+- Map keys are copied from string handles, so the caller may reuse or free the original string
+  after insertion. Map values and set elements are stored as raw handles; freeing the map or set
+  does **not** release the referenced resources.
+- `spectra.std.collections.list_slice` copies the requested range into a new list, preserving the
+  element category. Slicing an empty range yields an empty, untyped list.
+- Iterator host calls operate on snapshots. Use `iter_len` to discover the total/remaining items and
+  `iter_next` to retrieve them (`results[1]` for lists/sets, `results[1]` and `results[2]` for map
+  key/value pairs). Map iterators allocate fresh string handles for keys; free them when no longer
+  needed.
 - `spectra.std.io.print_err` mirrors `print` but targets stderr, making it suitable for diagnostics
   without interleaving regular program output.
 - `spectra.std.io.write_file`/`read_file` expect paths encoded as UTF-8 bytes within a `std.collections` list. File contents are produced/consumed as raw bytes (0–255) and stored in the same data structure for reuse across host calls.
