@@ -3756,6 +3756,16 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("text", "format") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.format",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("text", "interpolate") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.text.interpolate",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("text", "concat") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.text.concat",
                 return_type: IRType::Int,

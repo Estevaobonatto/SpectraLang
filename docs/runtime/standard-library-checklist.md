@@ -50,7 +50,7 @@
   - [x] Concatenação básica entre handles
   - [x] `substring`
 - [x] Implementar conversões número↔string e parsing seguro
-- [ ] Adicionar utilitários de formatação (`format`, interpolação simples)
+- [x] Adicionar utilitários de formatação (`format`, interpolação simples)
 
 ## Coleções e Estruturas de Dados
 

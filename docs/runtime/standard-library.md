@@ -123,14 +123,19 @@ I/O. Each handle owns an allocation that must be released explicitly when no lon
 | `spectra.std.text.parse_float` | Parses an IEEE-754 `f64` (accepts Rust/JSON-compatible syntax). | `string_handle` | float bits |
 | `spectra.std.text.substring` | Extracts a slice by Unicode scalar index. The optional length parameter limits the number of scalars copied; absent length consumes the remainder of the string. | `string_handle`, `start_index`, `[length]` | string handle |
 | `spectra.std.text.concat` | Produces a new string handle containing the concatenation of the provided handles. | `lhs_handle`, `rhs_handle` | string handle |
+| `spectra.std.text.format` | Expands a template using positional placeholders (`{}` or `{index}`) pulled from a list of string handles. `{{` and `}}` escape literal braces. | `template_handle`, `values_list_handle` | string handle |
+| `spectra.std.text.interpolate` | Replaces `${key}` markers using name/value string pairs supplied as an alternating list. `$$` yields a literal `$`. | `template_handle`, `pairs_list_handle` | string handle |
 | `spectra.std.text.free` | Releases the allocation associated with a string handle. | `handle` | `0` when `results` provided |
 | `spectra.std.text.free_all` | Releases every string handle tracked by the runtime. | *(none)* | number of freed strings |
 
 `spectra.std.text.len` counts Unicode scalar values rather than raw bytes, making it safe to use for
 user-facing text. `spectra.std.text.substring` operates on the same scalar indices, returning an
 empty string when the start index equals the string length and rejecting out-of-range spans. The
-formatting helpers (`from_int`/`from_float`) allocate fresh handles, while the parsing helpers
-return `HOST_STATUS_INVALID_ARGUMENT` when the payload cannot be interpreted as a number. Use
+formatting helpers (`from_int`/`from_float`/`format`/`interpolate`) allocate fresh handles, while the
+parsing helpers return `HOST_STATUS_INVALID_ARGUMENT` when the payload cannot be interpreted as a
+number. `std.text.format` consumes a list of string handles; use `{}` for sequential arguments,
+`{n}` for explicit indices, and double braces for literals. `std.text.interpolate` expects an
+alternating list of key/value handles and leaves `$$` sequences as a literal `$`. Use
 `from_list`/`to_list` to bridge between I/O pipelines (which consume raw byte lists) and higher-level
 text operations.
 

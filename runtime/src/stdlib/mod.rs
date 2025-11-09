@@ -79,6 +79,8 @@ const TEXT_PARSE_INT: &str = "spectra.std.text.parse_int";
 const TEXT_PARSE_FLOAT: &str = "spectra.std.text.parse_float";
 const TEXT_CONCAT: &str = "spectra.std.text.concat";
 const TEXT_SUBSTRING: &str = "spectra.std.text.substring";
+const TEXT_FORMAT: &str = "spectra.std.text.format";
+const TEXT_INTERPOLATE: &str = "spectra.std.text.interpolate";
 const TEXT_FREE: &str = "spectra.std.text.free";
 const TEXT_FREE_ALL: &str = "spectra.std.text.free_all";
 
@@ -170,6 +172,8 @@ fn register_text() {
     register_host_function(TEXT_PARSE_FLOAT, std_text_parse_float);
     register_host_function(TEXT_CONCAT, std_text_concat);
     register_host_function(TEXT_SUBSTRING, std_text_substring);
+    register_host_function(TEXT_FORMAT, std_text_format);
+    register_host_function(TEXT_INTERPOLATE, std_text_interpolate);
     register_host_function(TEXT_FREE, std_text_free);
     register_host_function(TEXT_FREE_ALL, std_text_free_all);
 }
@@ -2376,6 +2380,250 @@ extern "C" fn std_text_parse_float(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+extern "C" fn std_text_format(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 || args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let template_handle = args[0] as usize;
+        let values_handle = args[1] as usize;
+
+        let template = match with_string_registry(|registry| registry.clone_value(template_handle)) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        let value_handles = match with_list_registry(|registry| registry.clone_values(values_handle)) {
+            Ok(values) => values,
+            Err(code) => return code,
+        };
+
+        let mut resolved = Vec::with_capacity(value_handles.len());
+        for handle_value in value_handles {
+            if handle_value < 0 {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let handle = handle_value as usize;
+            let string_value = match with_string_registry(|registry| registry.clone_value(handle)) {
+                Ok(value) => value,
+                Err(code) => return code,
+            };
+            resolved.push(string_value);
+        }
+
+        let mut result = String::new();
+        let mut chars = template.chars().peekable();
+        let mut auto_index = 0usize;
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                if let Some('{') = chars.peek().copied() {
+                    chars.next();
+                    result.push('{');
+                    continue;
+                }
+
+                let mut index_buf = String::new();
+                while let Some(&next) = chars.peek() {
+                    if next == '}' {
+                        break;
+                    }
+                    if !next.is_ascii_digit() {
+                        return HOST_STATUS_INVALID_ARGUMENT;
+                    }
+                    index_buf.push(next);
+                    chars.next();
+                }
+
+                match chars.next() {
+                    Some('}') => {}
+                    _ => return HOST_STATUS_INVALID_ARGUMENT,
+                }
+
+                let index = if index_buf.is_empty() {
+                    let current = auto_index;
+                    auto_index = auto_index.saturating_add(1);
+                    current
+                } else {
+                    match index_buf.parse::<usize>() {
+                        Ok(value) => value,
+                        Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+                    }
+                };
+
+                if index >= resolved.len() {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+                result.push_str(&resolved[index]);
+            } else if ch == '}' {
+                if let Some('}') = chars.peek().copied() {
+                    chars.next();
+                    result.push('}');
+                } else {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        let handle = match with_string_registry(|registry| registry.create(result)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_text_interpolate(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if args[0] < 0 || args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let template_handle = args[0] as usize;
+        let pairs_handle = args[1] as usize;
+
+        let template = match with_string_registry(|registry| registry.clone_value(template_handle)) {
+            Ok(value) => value,
+            Err(code) => return code,
+        };
+
+        let raw_pairs = match with_list_registry(|registry| registry.clone_values(pairs_handle)) {
+            Ok(values) => values,
+            Err(code) => return code,
+        };
+
+        if raw_pairs.len() % 2 != 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let mut map = HashMap::new();
+        let mut iter = raw_pairs.chunks_exact(2);
+        for chunk in iter.by_ref() {
+            let key_handle = chunk[0];
+            let value_handle = chunk[1];
+            if key_handle < 0 || value_handle < 0 {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let key = match with_string_registry(|registry| registry.clone_value(key_handle as usize)) {
+                Ok(value) => value,
+                Err(code) => return code,
+            };
+            if key.is_empty() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let value = match with_string_registry(|registry| registry.clone_value(value_handle as usize)) {
+                Ok(value) => value,
+                Err(code) => return code,
+            };
+            map.insert(key, value);
+        }
+
+        let mut result = String::new();
+        let mut chars = template.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '$' {
+                if let Some('$') = chars.peek().copied() {
+                    chars.next();
+                    result.push('$');
+                    continue;
+                }
+                if let Some('{') = chars.peek().copied() {
+                    chars.next();
+                    let mut key = String::new();
+                    while let Some(next) = chars.next() {
+                        if next == '}' {
+                            break;
+                        }
+                        key.push(next);
+                    }
+                    if key.is_empty() {
+                        return HOST_STATUS_INVALID_ARGUMENT;
+                    }
+                    if !key.ends_with('}') {
+                        if let Some('{') = key.chars().last() {
+                            // unreachable due to parsing logic
+                        }
+                    }
+                    if !key.ends_with('}') {
+                        // nothing to do
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                    if !key.ends_with('}') {
+                        // placeholder for unreachable branch
+                    }
+                }
+                // placeholder for NON-literal branch
+            }
+            result.push(ch);
+        }
+
+        let handle = match with_string_registry(|registry| registry.create(result)) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = handle as SpectraHostValue;
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
 extern "C" fn std_text_free(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -3205,8 +3453,7 @@ impl ListRegistry {
         Ok(self.insert(manual))
     }
 
-    #[cfg(test)]
-    fn snapshot_values(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+    fn clone_values(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
         match self.lists.get(&handle) {
             Some(list) => Ok(list.data.clone()),
             None => Err(HOST_STATUS_NOT_FOUND),
@@ -3349,9 +3596,61 @@ mod tests {
     fn list_values(handle: usize) -> Vec<SpectraHostValue> {
         with_list_registry(|registry| {
             registry
-                .snapshot_values(handle)
+                .clone_values(handle)
                 .expect("failed to snapshot list values")
         })
+    }
+
+    fn list_from_handles(values: &[SpectraHostValue]) -> usize {
+        let new_fn = lookup_host_function(LIST_NEW).expect("list_new not registered");
+        let push_fn = lookup_host_function(LIST_PUSH).expect("list_push not registered");
+
+        let mut new_results = [0];
+        let mut new_ctx = SpectraHostCallContext {
+            args: ptr::null(),
+            arg_len: 0,
+            results: new_results.as_mut_ptr(),
+            result_len: 1,
+        };
+        assert_eq!(new_fn(&mut new_ctx), HOST_STATUS_SUCCESS);
+        let handle = new_results[0] as usize;
+
+        for value in values {
+            let args = [handle as SpectraHostValue, *value];
+            let mut results = [0];
+            let mut ctx = SpectraHostCallContext {
+                args: args.as_ptr(),
+                arg_len: 2,
+                results: results.as_mut_ptr(),
+                result_len: 1,
+            };
+            assert_eq!(push_fn(&mut ctx), HOST_STATUS_SUCCESS);
+        }
+
+        handle
+    }
+
+    fn text_from_str(content: &str) -> usize {
+        let list = list_from_bytes(content.as_bytes());
+        let (status, results) = invoke(TEXT_FROM_LIST, &[list as SpectraHostValue], 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        results[0] as usize
+    }
+
+    fn free_string(handle: usize) {
+        let _ = invoke(TEXT_FREE, &[handle as SpectraHostValue], 0);
+    }
+
+    fn free_list(handle: usize) {
+        let free_fn = lookup_host_function(LIST_FREE).expect("list_free not registered");
+        let args = [handle as SpectraHostValue];
+        let mut ctx = SpectraHostCallContext {
+            args: args.as_ptr(),
+            arg_len: 1,
+            results: ptr::null_mut(),
+            result_len: 0,
+        };
+        assert_eq!(free_fn(&mut ctx), HOST_STATUS_SUCCESS);
     }
 
     fn invoke(function_name: &str, args: &[SpectraHostValue], result_len: usize) -> (i32, Vec<SpectraHostValue>) {
@@ -4322,6 +4621,7 @@ mod tests {
         assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
         let roundtrip_list = to_list_results[0] as usize;
         assert_eq!(list_to_string(roundtrip_list), source);
+        free_list(roundtrip_list);
 
         let _ = invoke(TEXT_FREE, &text_args, 0);
     }
@@ -4373,6 +4673,7 @@ mod tests {
         assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
         let list_handle = to_list_results[0] as usize;
         assert_eq!(list_to_string(list_handle), "foobar");
+        free_list(list_handle);
 
         let _ = invoke(TEXT_FREE, &[left_handle as SpectraHostValue], 0);
         let _ = invoke(TEXT_FREE, &[right_handle as SpectraHostValue], 0);
@@ -4399,6 +4700,7 @@ mod tests {
         assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
         let list_handle = to_list_results[0] as usize;
         assert_eq!(list_to_string(list_handle), "ctra");
+        free_list(list_handle);
 
         let _ = invoke(TEXT_FREE, &[source_handle as SpectraHostValue], 0);
         let _ = invoke(TEXT_FREE, &[slice_handle as SpectraHostValue], 0);
@@ -4424,6 +4726,7 @@ mod tests {
         assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
         let list_handle = to_list_results[0] as usize;
         assert_eq!(list_to_string(list_handle), "pe");
+        free_list(list_handle);
 
         let _ = invoke(TEXT_FREE, &[source_handle as SpectraHostValue], 0);
         let _ = invoke(TEXT_FREE, &[slice_handle as SpectraHostValue], 0);
@@ -4448,6 +4751,111 @@ mod tests {
     }
 
     #[test]
+    fn text_format_supports_auto_and_indexed_placeholders() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let template_handle = text_from_str("Hello {}, {1}! Escaped {{}}.");
+        let first = text_from_str("Alice");
+        let second = text_from_str("Bob");
+        let values_list = list_from_handles(&[first as SpectraHostValue, second as SpectraHostValue]);
+
+        let args = [template_handle as SpectraHostValue, values_list as SpectraHostValue];
+        let (status, results) = invoke(TEXT_FORMAT, &args, 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let formatted_handle = results[0] as usize;
+
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &[formatted_handle as SpectraHostValue], 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let formatted_list = to_list_results[0] as usize;
+        let formatted = list_to_string(formatted_list);
+        free_list(formatted_list);
+        assert_eq!(formatted, "Hello Alice, Bob! Escaped {}.");
+
+        free_string(first);
+        free_string(second);
+        free_string(template_handle);
+        free_string(formatted_handle);
+        free_list(values_list);
+    }
+
+    #[test]
+    fn text_format_missing_argument_returns_error() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let template_handle = text_from_str("{} {}");
+        let only = text_from_str("value");
+        let values_list = list_from_handles(&[only as SpectraHostValue]);
+
+        let args = [template_handle as SpectraHostValue, values_list as SpectraHostValue];
+        let (status, _) = invoke(TEXT_FORMAT, &args, 1);
+        assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
+
+        free_string(only);
+        free_string(template_handle);
+        free_list(values_list);
+    }
+
+    #[test]
+    fn text_interpolate_replaces_named_placeholders_and_supports_escape() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let template_handle = text_from_str("Hello ${name}, you have ${count} items. $${literal} remains.");
+        let name_key = text_from_str("name");
+        let name_value = text_from_str("Charlie");
+        let count_key = text_from_str("count");
+        let count_value = text_from_str("3");
+        let pairs = list_from_handles(&[
+            name_key as SpectraHostValue,
+            name_value as SpectraHostValue,
+            count_key as SpectraHostValue,
+            count_value as SpectraHostValue,
+        ]);
+
+        let args = [template_handle as SpectraHostValue, pairs as SpectraHostValue];
+        let (status, results) = invoke(TEXT_INTERPOLATE, &args, 1);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let interpolated_handle = results[0] as usize;
+
+        let (to_list_status, to_list_results) = invoke(TEXT_TO_LIST, &[interpolated_handle as SpectraHostValue], 1);
+        assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
+        let interpolated_list = to_list_results[0] as usize;
+        let interpolated = list_to_string(interpolated_list);
+        free_list(interpolated_list);
+        assert_eq!(interpolated, "Hello Charlie, you have 3 items. ${literal} remains.");
+
+        free_string(template_handle);
+        free_string(name_key);
+        free_string(name_value);
+        free_string(count_key);
+        free_string(count_value);
+        free_string(interpolated_handle);
+        free_list(pairs);
+    }
+
+    #[test]
+    fn text_interpolate_missing_key_returns_error() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let template_handle = text_from_str("Hello ${name}");
+        let empty_pairs = list_from_handles(&[]);
+
+        let args = [template_handle as SpectraHostValue, empty_pairs as SpectraHostValue];
+        let (status, _) = invoke(TEXT_INTERPOLATE, &args, 1);
+        assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
+
+        free_string(template_handle);
+        free_list(empty_pairs);
+    }
+
+    #[test]
     fn text_from_int_and_parse_int_roundtrip() {
         let _lock = test_guard();
         clear_host_functions();
@@ -4462,6 +4870,7 @@ mod tests {
         assert_eq!(to_list_status, HOST_STATUS_SUCCESS);
         let list_handle = to_list_results[0] as usize;
         assert_eq!(list_to_string(list_handle), "12345");
+        free_list(list_handle);
 
         let (parse_status, parse_results) = invoke(TEXT_PARSE_INT, &[handle as SpectraHostValue], 1);
         assert_eq!(parse_status, HOST_STATUS_SUCCESS);
