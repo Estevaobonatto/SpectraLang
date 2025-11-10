@@ -5,7 +5,7 @@ functions. The functions are grouped by namespace and can be installed by callin
 `spectra_runtime::register_standard_library()` (or invoking `spectra_rt_std_register` once it is
 gated through the CLI).
 
-> Note: the module resolver now loads dependent files and reports missing or duplicated modules, and the parser injects a synthetic `import std.prelude;` into every module (unless `#![no_prelude]` is present). Samples may call curated prelude exports without spelling the `std.` prefix explicitly.
+> Note: the module resolver now loads dependent files and reports missing or duplicated modules, and the parser injects a synthetic `import std.prelude;` into every module (unless `#![no_prelude]` is present). The prelude reexports curated namespaces (`math`, `io`, `log`, `text`, `time`, `collections`), so samples may call these helpers without spelling the `std.` prefix explicitly.
 
 See `examples/prelude_demo.spectra` for a minimal module that relies solely on the prelude.
 

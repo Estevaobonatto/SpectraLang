@@ -374,3 +374,42 @@ fn write_resolution_error(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spectra_compiler::CompilationOptions;
+    use tempfile::tempdir;
+
+    #[test]
+    fn project_plan_handles_prelude_aliases() {
+        let dir = tempdir().expect("failed to create temp dir");
+        let entry_path = dir.path().join("app.spectra");
+
+        std::fs::write(
+            &entry_path,
+            r#"module app;
+
+pub fn demo(a: int, b: int) -> int {
+    let total = math.add(a, b);
+    io.print(total);
+    return total;
+}
+"#,
+        )
+        .expect("failed to write entry module");
+
+        let mut plan = ProjectPlan::build(vec![entry_path.clone()], &CompilationOptions::default())
+            .expect("project plan should build successfully");
+
+        assert!(plan
+            .modules()
+            .iter()
+            .any(|module| module.name == "app"), "entry module should appear in project plan");
+
+        plan.analyze_semantics()
+            .expect("semantic analysis should succeed with prelude aliases");
+
+        dir.close().expect("temp dir close should succeed");
+    }
+}

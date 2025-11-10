@@ -14,6 +14,22 @@
 
 - Help text documents these values so build pipelines and editors can react appropriately.
 
+## Module Graph & Imports (Ready)
+
+- ✅ `ProjectPlan` now drives `ModuleResolver` to load the full module graph before compilation, reporting missing files, header mismatches, duplicates, and cycles with contextual diagnostics.
+- ✅ Synthetic `import std.prelude;` injection surfaces curated stdlib aliases (`math`, `io`, `text`, `time`, `collections`, `log`) so multi-file projects compile without spelling `std.`.
+- ✅ Shared semantic analysis runs once per graph via `ProjectPlan::analyze_semantics`, ensuring cross-module bindings and reexports are validated before backend stages.
+- ✅ CLI build commands honour `--lib` / `-L` flags and `Spectra.toml` `libs = [...]` entries when constructing the search roots for dependent modules.
+- ✅ Import alias collisions now emit semantic diagnostics that highlight the conflicting modules and recommend explicit aliases.
+
+### Follow-up Work
+
+1. **Import ergonomics**
+   - Implement selective (`import foo.bar.{baz, qux};`) and glob imports, extending resolver + semantic bindings and documenting the syntax.
+2. **Prelude controls**
+   - Add `--no-prelude` (and manifest equivalent) to disable the synthetic import for specialized runtimes.
+   - Cache resolver graphs between CLI invocations to accelerate repeated builds on large projects.
+
 ## Formatter Roadmap
 
 ### Current Status

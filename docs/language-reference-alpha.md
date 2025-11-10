@@ -8,7 +8,18 @@ This document captures the currently implemented SpectraLang surface that define
 
 - Every source file must begin with a `module` declaration: `module path.to.module;`. The parser treats the first tokens as the module header and emits an error if it is missing.
 - Zero or more `import` statements may follow. Imports accept dotted paths and optional `as alias` clauses; glob and selective imports remain deferred until the resolver work ships.
-- The parser automatically prepends a synthetic `import std.prelude;` so common stdlib symbols are in scope; this import is private and marked as compiler-generated for diagnostics.
+- The parser automatically prepends a synthetic `import std.prelude;` so common stdlib symbols are in scope; this import is private and marked as compiler-generated for diagnostics. The prelude exposes aliases such as `math`, `io`, and `text`:
+
+```spectra
+module demo;
+
+pub fn sum_and_print(a: int, b: int) -> int {
+  let total = math.add(a, b);
+  io.print(total);
+  return total;
+}
+```
+
 - Top-level items supported in Alpha:
 
   - Function definitions (`fn`), with optional `pub` visibility and generic parameters `<T>`.
@@ -22,13 +33,14 @@ This document captures the currently implemented SpectraLang surface that define
 
 ### Module and Package Semantics
 
-- Module paths use dot-separated identifiers (`module physics.vector;`). By convention the path should mirror the folder hierarchy, but the compiler does not enforce this yet.
-- The compiler now constructs a module dependency graph before type-checking, reporting missing files, duplicate modules, header mismatches, and dependency cycles with precise diagnostics. Imported modules are parsed once and cached via the shared `ModuleLoader`.
-- Symbol binding across module boundaries remains limited: alias resolution and visibility propagation are recorded by the resolver, but semantic analysis still requires fully qualified references until the name-binding pass lands.
-- Work to implement the remaining import semantics (shared symbol table, selective imports) is tracked in `docs/compiler/import-system-checklist.md` and documented in `docs/compiler/import-system-design.md`.
-- Source files can opt out of the automatic prelude by placing `#![no_prelude]` before the `module` header. Only the `std.prelude` import is synthesised; all other imports must be declared explicitly.
-- The CLI accepts `--lib <path>` / `-L<path>` flags and `Spectra.toml` `libs = [...]` entries to extend the module search roots alongside project directories.
-- Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
+- Module paths use dot-separated identifiers (`module physics.vector;`). By convention the path mirrors the folder hierarchy; mismatches trigger a module-header mismatch diagnostic during resolution.
+- The `ModuleResolver` builds the dependency graph before semantic analysis, surfacing missing files, duplicates, header mismatches, and cycles. Parsed modules stay cached via the shared `ModuleLoader` for incremental runs.
+- Public imports (`pub import`) populate a shared symbol table. Semantic analysis materialises a `ModuleImportBinding` per alias, so calls like `math.add` or `lib.math.add` succeed even when the binding is re-exported through multiple modules.
+- Import aliases must be unique within a module; conflicting aliases trigger a semantic error that highlights both imports and recommends using `as` to disambiguate.
+- The parser injects a synthetic `import std.prelude;` (unless `#![no_prelude]` is present), exposing curated aliases (`math`, `io`, `text`, `time`, `collections`, `log`) without requiring the `std.` prefix.
+- Selective imports (`import foo.bar.{baz, qux};`) and glob imports remain future work; progress is tracked in `docs/compiler/import-system-checklist.md`.
+- The CLI accepts `--lib <path>` / `-L<path>` switches and `Spectra.toml` `libs = [...]` entries to extend the module search roots.
+- Package metadata (versioning, manifests) stays out of scope for alpha.
 
 ## Lexical Elements
 
@@ -183,7 +195,7 @@ These keywords or constructs are tokenised but not yet parsed or semantically va
 ## Known Limitations for Alpha
 
 - String escape sequences, character literals, and byte literals are not yet supported.
-- Visibility enforcement currently focuses on API boundaries: public functions, structs, and enums cannot expose private user-defined types, but cross-module lookup remains limited.
+- Visibility enforcement currently focuses on API boundaries: public functions, structs, and enums cannot expose private user-defined types. Cross-module lookup via imports and reexports is available, though duplicate name detection across aliases remains a planned enhancement.
 - Trait bounds are enforced for generic method calls, but broader generic inference still defaults to `Unknown` in unsupported scenarios.
 - The standard library is not yet defined; examples rely on user-defined constructs.
 - Error recovery in the parser is basic; multiple syntax errors may cascade.

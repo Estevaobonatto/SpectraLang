@@ -99,7 +99,11 @@ impl SemanticWorkspace {
         let mut errors = Vec::new();
 
         for module in graph.modules_mut() {
-            let import_bindings = workspace.build_import_bindings(&module.imports);
+            let mut import_errors = Vec::new();
+            let import_bindings = workspace.build_import_bindings(&module.imports, &mut import_errors);
+            if !import_errors.is_empty() {
+                errors.extend(import_errors);
+            }
             let mut analyzer = SemanticAnalyzer::new();
             analyzer.set_imports(import_bindings);
             let module_errors = analyzer.analyze_module(&mut module.ast);
@@ -139,17 +143,50 @@ impl SemanticWorkspace {
     pub(crate) fn import_bindings_for_module(
         &self,
         module: &ResolvedModule,
+        errors: &mut Vec<SemanticError>,
     ) -> HashMap<String, ModuleImportBinding> {
-        self.build_import_bindings(&module.imports)
+        self.build_import_bindings(&module.imports, errors)
     }
 
     fn build_import_bindings(
         &self,
         imports: &[ResolvedImport],
+        errors: &mut Vec<SemanticError>,
     ) -> HashMap<String, ModuleImportBinding> {
         let mut bindings = HashMap::new();
+        let mut alias_sources: HashMap<String, &ResolvedImport> = HashMap::new();
 
         for import in imports {
+            if let Some(existing) = alias_sources.get(&import.alias) {
+                let previous_location = existing.span.start_location;
+                let context = if existing.synthetic {
+                    format!(
+                        "alias `{}` was already provided by a synthetic import of `{}` at line {}, column {}",
+                        import.alias, existing.module, previous_location.line, previous_location.column
+                    )
+                } else {
+                    format!(
+                        "alias `{}` was first bound to module `{}` at line {}, column {}",
+                        import.alias, existing.module, previous_location.line, previous_location.column
+                    )
+                };
+
+                errors.push(
+                    SemanticError::new(
+                        format!(
+                            "import alias `{}` conflicts with module `{}`",
+                            import.alias, import.module
+                        ),
+                        import.span,
+                    )
+                    .with_context(context)
+                    .with_hint("use `as` to give each import a distinct alias"),
+                );
+                continue;
+            }
+
+            alias_sources.insert(import.alias.clone(), import);
+
             let mut binding = if import.is_builtin {
                 Self::builtin_module_binding(&import.module).unwrap_or_else(|| {
                     ModuleImportBinding {
@@ -4570,7 +4607,9 @@ mod tests {
             synthetic: true,
         }];
 
-        let bindings = workspace.build_import_bindings(&imports);
+        let mut errors = Vec::new();
+        let bindings = workspace.build_import_bindings(&imports, &mut errors);
+        assert!(errors.is_empty(), "builtin imports should not produce errors");
 
         let prelude_binding = bindings
             .get("prelude")
@@ -4640,7 +4679,9 @@ mod tests {
             synthetic: false,
         }];
 
-        let bindings = workspace.build_import_bindings(&imports);
+        let mut errors = Vec::new();
+        let bindings = workspace.build_import_bindings(&imports, &mut errors);
+        assert!(errors.is_empty(), "module alias reexports should not conflict");
         let lib_binding = bindings.get("lib").expect("missing lib binding");
         assert!(!lib_binding.is_builtin);
 

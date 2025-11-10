@@ -21,6 +21,7 @@
 - [x] Popular uma tabela de símbolos compartilhada entre arquivos para permitir lookup durante a análise semântica. _(ver `SemanticWorkspace::analyze` em `compiler/src/semantic/mod.rs`, que alimenta `ModuleImportBinding` para cada alias)_
 - [x] Rastrear imports sintéticos gerados pelo compilador para que o resolvedor e o pipeline semântico consigam diferenciá-los de declarações escritas pelo usuário.
 - [x] Implementar mecanismo de prelude/`use` automático para expor a stdlib sem prefixo. _(parser injeta `import std.prelude;` sintético, respeitando `#![no_prelude]` e sinalizando a origem para o resolvedor/semântica.)_
+- [x] Emitir diagnóstico quando aliases de import conflitam, orientando o uso de `as` para desambiguar. _(implementado em `SemanticWorkspace::build_import_bindings`, com cobertura em `compiler/tests/import_alias_conflict.rs`.)_
 
 ## Integração CLI / Ferramentas
 
@@ -33,10 +34,10 @@
 
 - [x] Adicionar testes unitários do resolvedor (casos felizes, ciclos, aliasing, erros). _(ver `compiler/src/resolver/mod.rs` – novos testes cobrem grafo simples, ciclos e erros de módulo ausente)._  
 - [x] Adicionar testes de integração compilando múltiplos arquivos com imports encadeados. _(ver `compiler/tests/import_chain.rs`, além do cenário de reexport existente)._  
-- [ ] Exercitar acesso à stdlib sem prefixo em `tests/` e `examples/`.
+- [x] Exercitar acesso à stdlib sem prefixo em `tests/` e `examples/`. _(ver `compiler/tests/prelude_integration.rs` e `examples/prelude_demo.spectra` após o refresh de novembro/2025.)_
 
 ## Documentação
 
-- [ ] Atualizar `docs/language-reference-alpha.md` com a semântica final de imports e exemplos de aliasing/prelude.
-- [ ] Complementar `docs/runtime/standard-library.md` com a estratégia de exposição da stdlib.
-- [ ] Revisar guias do CLI e README para refletir novo fluxo de compilação multiarquivo.
+- [x] Atualizar `docs/language-reference-alpha.md` com a semântica final de imports e exemplos de aliasing/prelude.
+- [x] Complementar `docs/runtime/standard-library.md` com a estratégia de exposição da stdlib.
+- [x] Revisar guias do CLI e README para refletir novo fluxo de compilação multiarquivo. _(ver atualização de `docs/cli/tooling-plan.md` descrevendo o pipeline de importação.)_

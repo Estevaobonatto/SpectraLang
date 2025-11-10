@@ -72,6 +72,6 @@
 
 ## Outstanding Questions
 
-- How should we surface ambiguous symbol errors when two imports expose the same name? (Proposed answer: require explicit aliasing; emit an error listing both sources.)
+- (Resolved in November 2025) Ambiguous aliases now emit semantic diagnostics that list both imports and recommend explicit aliasing.
 - Should the resolver support mixed-case file names on case-insensitive filesystems? (Current plan: canonicalise to lower case when comparing module IDs on Windows.)
 - How do we package third-party modules? (To be answered alongside the package manager design.)

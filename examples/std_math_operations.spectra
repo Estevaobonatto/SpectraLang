@@ -1,34 +1,33 @@
-// Demonstração do uso das funções de stdlib matemática
-// Nota: requer resolução da namespace `std` pelo frontend para compilar sem erros.
+// Demonstração do uso das funções de stdlib matemática via aliases do prelude.
 module std_math_operations;
 
 pub fn main() {
     let a = 12;
     let b = -5;
 
-    let sum = std.math.add(a, b);
-    let difference = std.math.sub(a, b);
-    let product = std.math.mul(a, b);
-    let quotient = std.math.div(a, 3);
-    let remainder = std.math.mod(a, 5);
-    let pow_result = std.math.pow(3, 4);
-    let abs_value = std.math.abs(b);
-    let clamped = std.math.clamp(b, -2, 2);
-    let mean_value = std.math.mean(a, b, 6, -3);
-    let median_value = std.math.median(a, b, 6, -3, 0);
-    let variance_value = std.math.variance(a, b, 6, -3, 0);
-    let std_dev_value = std.math.std_dev(a, b, 6, -3, 0);
-    let mode_value = std.math.mode(a, b, 6, -3, 0, 6);
-    let float_one = std.math.int_to_float(1);
-    let float_two = std.math.int_to_float(2);
-    let float_sum = std.math.float_add(float_one, float_two);
-    let sinus = std.math.trig_sin(float_one);
-    let rng_handle = std.math.rng_seed(1337);
-    let random_any = std.math.rng_next(rng_handle);
-    let random_range = std.math.rng_next_range(rng_handle, -10, 10);
-    std.math.rng_free(rng_handle);
+    let sum = math.add(a, b);
+    let difference = math.sub(a, b);
+    let product = math.mul(a, b);
+    let quotient = math.div(a, 3);
+    let remainder = math.mod(a, 5);
+    let pow_result = math.pow(3, 4);
+    let abs_value = math.abs(b);
+    let clamped = math.clamp(b, -2, 2);
+    let mean_value = math.mean(a, b, 6, -3);
+    let median_value = math.median(a, b, 6, -3, 0);
+    let variance_value = math.variance(a, b, 6, -3, 0);
+    let std_dev_value = math.std_dev(a, b, 6, -3, 0);
+    let mode_value = math.mode(a, b, 6, -3, 0, 6);
+    let float_one = math.int_to_float(1);
+    let float_two = math.int_to_float(2);
+    let float_sum = math.float_add(float_one, float_two);
+    let sinus = math.trig_sin(float_one);
+    let rng_handle = math.rng_seed(1337);
+    let random_any = math.rng_next(rng_handle);
+    let random_range = math.rng_next_range(rng_handle, -10, 10);
+    math.rng_free(rng_handle);
 
-    std.io.print(
+    io.print(
         sum,
         difference,
         product,
@@ -47,7 +46,7 @@ pub fn main() {
         random_any,
         random_range,
     );
-    std.io.flush();
+    io.flush();
 
     return;
 }

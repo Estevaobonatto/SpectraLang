@@ -319,7 +319,14 @@ where
         };
 
         if let Some(module) = graph.get(module_name) {
-            let bindings = workspace.import_bindings_for_module(module);
+            let mut semantic_errors = Vec::new();
+            let bindings = workspace.import_bindings_for_module(module, &mut semantic_errors);
+            if !semantic_errors.is_empty() {
+                return Err(semantic_errors
+                    .into_iter()
+                    .map(CompilerError::Semantic)
+                    .collect());
+            }
             #[cfg(debug_assertions)]
             {
                 let keys: Vec<_> = bindings.keys().cloned().collect();
