@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Import, Item, Module, Visibility},
+    ast::{Import, ImportKind, ImportSelector, Item, Module, Visibility},
     span::{span_union, Span},
     token::{Keyword, TokenKind},
 };
@@ -84,18 +84,74 @@ impl Parser {
 
         let mut path = Vec::new();
 
-        // First identifier
-        let (name, _) = self.consume_identifier("Expected module path")?;
-        path.push(name);
+        // First path segment must be an identifier
+        let (first_segment, _) = self.consume_identifier("Expected module path")?;
+        path.push(first_segment);
 
-        // Additional path segments
+        // Additional path segments (`foo.bar.baz`)
         while self.check_symbol('.') {
-            self.advance(); // consume '.'
-            let (name, _) = self.consume_identifier("Expected identifier after '.'")?;
-            path.push(name);
+            let next = self.peek(1).map(|token| &token.kind);
+            match next {
+                Some(TokenKind::Identifier(_)) => {
+                    self.advance(); // consume '.'
+                    let (segment, _) =
+                        self.consume_identifier("Expected identifier after '.' in import path")?;
+                    path.push(segment);
+                }
+                _ => break,
+            }
+        }
+
+        // Optional selective or glob suffix (`.{foo, bar}` or `.*`)
+        let mut kind = ImportKind::Module;
+        if self.check_symbol('.') {
+            match self.peek(1).map(|token| &token.kind) {
+                Some(TokenKind::Symbol('*')) => {
+                    self.advance(); // consume '.'
+                    self.advance(); // consume '*'
+                    kind = ImportKind::Glob;
+                }
+                Some(TokenKind::Symbol('{')) => {
+                    self.advance(); // consume '.'
+                    self.advance(); // consume '{'
+
+                    let mut selectors = Vec::new();
+                    while !self.check_symbol('}') && !self.is_at_end() {
+                        let (name, span) = self
+                            .consume_identifier("Expected identifier in selective import list")?;
+                        selectors.push(ImportSelector { name, span });
+
+                        if self.check_symbol(',') {
+                            self.advance();
+                            if self.check_symbol('}') {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+
+                    self.consume_symbol('}', "Expected '}' to close selective import list")?;
+                    kind = ImportKind::Selective(selectors);
+                }
+                Some(TokenKind::Identifier(_)) => {
+                    // This path segment should have been consumed in the loop above.
+                }
+                _ => {
+                    self.error("Expected identifier, '{', or '*' after '.' in import path");
+                }
+            }
         }
 
         let alias = if self.check_keyword(Keyword::As) {
+            let alias_span = self.current().span;
+            if !matches!(kind, ImportKind::Module) {
+                self.error_at(
+                    "Selective and glob imports cannot use 'as' aliases",
+                    alias_span,
+                );
+            }
+
             self.advance(); // consume 'as'
             let (alias, _) = self.consume_identifier("Expected alias name after 'as'")?;
             Some(alias)
@@ -111,6 +167,8 @@ impl Parser {
             visibility,
             span: span_union(start_span, end_span),
             synthetic: false,
+            kind,
+            resolved_symbols: Vec::new(),
         })
     }
 }
@@ -184,6 +242,8 @@ impl Parser {
             visibility: Visibility::Private,
             span: Span::dummy(),
             synthetic: true,
+            kind: ImportKind::Module,
+            resolved_symbols: Vec::new(),
         };
 
         module.items.insert(0, Item::Import(import));

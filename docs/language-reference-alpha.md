@@ -7,7 +7,7 @@ This document captures the currently implemented SpectraLang surface that define
 ## Source File Layout
 
 - Every source file must begin with a `module` declaration: `module path.to.module;`. The parser treats the first tokens as the module header and emits an error if it is missing.
-- Zero or more `import` statements may follow. Imports accept dotted paths and optional `as alias` clauses; glob and selective imports remain deferred until the resolver work ships.
+- Zero or more `import` statements may follow. Imports accept dotted paths and optional `as alias` clauses for module bindings. Selective imports (`import path.to.module.{foo, bar};`) and glob imports (`import path.to.module.*;`) are supported and bring the referenced symbols directly into scope; selective/glob forms cannot use `as` aliases.
 - The parser automatically prepends a synthetic `import std.prelude;` so common stdlib symbols are in scope; this import is private and marked as compiler-generated for diagnostics. The prelude exposes aliases such as `math`, `io`, and `text`:
 
 ```spectra
@@ -38,7 +38,7 @@ pub fn sum_and_print(a: int, b: int) -> int {
 - Public imports (`pub import`) populate a shared symbol table. Semantic analysis materialises a `ModuleImportBinding` per alias, so calls like `math.add` or `lib.math.add` succeed even when the binding is re-exported through multiple modules.
 - Import aliases must be unique within a module; conflicting aliases trigger a semantic error that highlights both imports and recommends using `as` to disambiguate.
 - The parser injects a synthetic `import std.prelude;` (unless `#![no_prelude]` is present), exposing curated aliases (`math`, `io`, `text`, `time`, `collections`, `log`) without requiring the `std.` prefix.
-- Selective imports (`import foo.bar.{baz, qux};`) and glob imports remain future work; progress is tracked in `docs/compiler/import-system-checklist.md`.
+- Selective imports (`import foo.bar.{baz, qux};`) resolve the listed public symbols into the current module, emitting diagnostics if a requested name is absent or conflicts with an existing module alias. Glob imports (`import foo.bar.*;`) pull all public exports from the target module into scope and participate in the same conflict detection. Both forms are private unless prefixed by `pub` and cannot be combined with `as` aliases.
 - The CLI accepts `--lib <path>` / `-L<path>` switches and `Spectra.toml` `libs = [...]` entries to extend the module search roots.
 - Package metadata (versioning, manifests) stays out of scope for alpha.
 

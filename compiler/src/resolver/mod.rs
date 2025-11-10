@@ -1,4 +1,4 @@
-use crate::ast::{Import, Item, Module, Visibility};
+use crate::ast::{ImportKind, Item, Module, Visibility};
 use crate::error::CompilerError;
 use crate::parser::workspace::{ModuleLoader, ModuleParseError};
 use crate::span::Span;
@@ -63,13 +63,26 @@ pub struct ResolvedModule {
 #[derive(Debug, Clone)]
 pub struct ResolvedImport {
     pub module: String,
-    pub alias: String,
     pub visibility: Visibility,
     pub span: Span,
     pub is_builtin: bool,
     pub target: Option<usize>,
     pub exposed: Vec<ResolvedSymbolBinding>,
     pub synthetic: bool,
+    pub kind: ResolvedImportKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolvedImportKind {
+    Module { alias: String },
+    Selective { items: Vec<ImportItem> },
+    Glob,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportItem {
+    pub name: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -99,7 +112,7 @@ pub enum ExportKind {
 pub struct ImportSource {
     pub origin_module: String,
     pub origin_path: PathBuf,
-    pub alias: String,
+    pub alias: Option<String>,
     pub import_path: String,
     pub span: Span,
 }
@@ -310,33 +323,45 @@ fn collect_imports(module: &Module) -> Vec<ResolvedImport> {
     let mut imports = Vec::new();
 
     for item in &module.items {
-        if let Item::Import(Import {
-            path,
-            alias,
-            visibility,
-            span,
-            synthetic,
-            ..
-        }) = item
-        {
-            if path.is_empty() {
+        if let Item::Import(import) = item {
+            if import.path.is_empty() {
                 continue;
             }
 
-            let module_name = path.join(".");
-            let alias_name = alias
-                .clone()
-                .or_else(|| path.last().cloned())
-                .unwrap_or_else(|| module_name.clone());
+            let module_name = import.path.join(".");
+            let is_builtin = is_builtin_module(&import.path);
+
+            let kind = match &import.kind {
+                ImportKind::Module => {
+                    let alias_name = import
+                        .alias
+                        .clone()
+                        .or_else(|| import.path.last().cloned())
+                        .unwrap_or_else(|| module_name.clone());
+                    ResolvedImportKind::Module { alias: alias_name }
+                }
+                ImportKind::Selective(selectors) => {
+                    let items = selectors
+                        .iter()
+                        .map(|selector| ImportItem {
+                            name: selector.name.clone(),
+                            span: selector.span,
+                        })
+                        .collect();
+                    ResolvedImportKind::Selective { items }
+                }
+                ImportKind::Glob => ResolvedImportKind::Glob,
+            };
+
             imports.push(ResolvedImport {
                 module: module_name,
-                alias: alias_name,
-                visibility: *visibility,
-                span: *span,
-                is_builtin: is_builtin_module(path),
+                visibility: import.visibility,
+                span: import.span,
+                is_builtin,
                 target: None,
                 exposed: Vec::new(),
-                synthetic: *synthetic,
+                synthetic: import.synthetic,
+                kind,
             });
         }
     }
@@ -418,13 +443,18 @@ fn register_import_sources(
             continue;
         }
 
+        let alias = match &import.kind {
+            ResolvedImportKind::Module { alias } => Some(alias.clone()),
+            _ => None,
+        };
+
         registry
             .entry(import.module.clone())
             .or_default()
             .push(ImportSource {
                 origin_module: origin_module.to_string(),
                 origin_path: origin_path.to_path_buf(),
-                alias: import.alias.clone(),
+                alias,
                 import_path: import.module.clone(),
                 span: import.span,
             });
@@ -662,7 +692,10 @@ pub fn add(a: int, b: int) -> int {
             .find(|import| import.module == "lib.math" && !import.synthetic)
             .expect("app should import lib.math");
 
-        assert_eq!(math_import.alias, "math");
+        match &math_import.kind {
+            ResolvedImportKind::Module { alias } => assert_eq!(alias, "math"),
+            other => panic!("expected module import alias, got {:?}", other),
+        }
         assert!(!math_import.is_builtin);
         assert!(
             math_import

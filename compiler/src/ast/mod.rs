@@ -36,6 +36,25 @@ pub enum Visibility {
     Private,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportSelector {
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportKind {
+    Module,
+    Selective(Vec<ImportSelector>),
+    Glob,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportResolvedSymbol {
+    pub name: String,
+    pub origin_module: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Import {
     pub path: Vec<String>,
@@ -43,6 +62,8 @@ pub struct Import {
     pub visibility: Visibility,
     pub span: Span,
     pub synthetic: bool,
+    pub kind: ImportKind,
+    pub resolved_symbols: Vec<ImportResolvedSymbol>,
 }
 
 #[derive(Debug, Clone)]

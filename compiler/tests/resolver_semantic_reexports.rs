@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use tempfile::tempdir;
 
 use spectra_compiler::ast::Item;
-use spectra_compiler::resolver::{ExportKind, ModuleResolver, ModuleResolverOptions};
+use spectra_compiler::resolver::{
+    ExportKind, ModuleResolver, ModuleResolverOptions, ResolvedImportKind,
+};
 use spectra_compiler::semantic::SemanticWorkspace;
 
 #[test]
@@ -54,7 +56,12 @@ pub fn use_add(x: int, y: int) -> int {
         let lib_import = entry
             .imports
             .iter()
-            .find(|import| import.alias == "lib")
+            .find(|import| {
+                matches!(
+                    &import.kind,
+                    ResolvedImportKind::Module { alias } if alias == "lib"
+                )
+            })
             .expect("consumer should import lib");
 
         let alias_binding = lib_import

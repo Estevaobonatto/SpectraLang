@@ -1,10 +1,13 @@
 use crate::{
     ast::{
-        Block, Expression, ExpressionKind, Function, Item, Module, Pattern, Statement,
-        StatementKind, Type, Visibility,
+        Block, Expression, ExpressionKind, Function, ImportResolvedSymbol, Item, Module, Pattern,
+        Statement, StatementKind, Type, Visibility,
     },
     error::SemanticError,
-    resolver::{ExportKind, ModuleGraph, ResolvedImport, ResolvedModule},
+    resolver::{
+        ExportKind, ImportItem, ModuleGraph, ResolvedImport, ResolvedImportKind, ResolvedModule,
+        ResolvedSymbolBinding,
+    },
     span::Span,
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet};
@@ -43,9 +46,7 @@ enum TypeAnnotationPattern {
 impl fmt::Display for TypeAnnotationPattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeAnnotationPattern::Simple(segments) => {
-                write!(f, "{}", segments.join("::"))
-            }
+            TypeAnnotationPattern::Simple(segments) => write!(f, "{}", segments.join("::")),
             TypeAnnotationPattern::Tuple(elements) => {
                 write!(f, "(")?;
                 for (index, element) in elements.iter().enumerate() {
@@ -92,7 +93,6 @@ pub(crate) struct ModuleImportBinding {
 pub struct SemanticWorkspace {
     modules: HashMap<String, ModuleSymbols>,
 }
-
 impl SemanticWorkspace {
     pub fn analyze(graph: &mut ModuleGraph) -> Result<Self, Vec<SemanticError>> {
         let mut workspace = SemanticWorkspace::default();
@@ -100,32 +100,50 @@ impl SemanticWorkspace {
 
         for module in graph.modules_mut() {
             let mut import_errors = Vec::new();
-            let import_bindings = workspace.build_import_bindings(&module.imports, &mut import_errors);
+            let import_bindings =
+                workspace.build_import_bindings(&module.imports, &mut import_errors);
             if !import_errors.is_empty() {
                 errors.extend(import_errors);
             }
+
             let mut analyzer = SemanticAnalyzer::new();
             analyzer.set_imports(import_bindings);
+            analyzer.configure_builtin_imports_from_module(&module.ast);
             let module_errors = analyzer.analyze_module(&mut module.ast);
             if !module_errors.is_empty() {
                 errors.extend(module_errors);
+            }
+
+            let mut resolved_iter = module.imports.iter();
+            for item in &mut module.ast.items {
+                if let Item::Import(import_ast) = item {
+                    if let Some(resolved) = resolved_iter.next() {
+                        import_ast.resolved_symbols =
+                            workspace.resolved_symbols_for_import(resolved);
+                    }
+                }
             }
 
             let mut symbols = analyzer.export_module_symbols();
             symbols.module_aliases = module
                 .imports
                 .iter()
-                .filter(|import| import.visibility == Visibility::Public)
-                .map(|import| {
-                    (
-                        import.alias.clone(),
-                        ModuleAliasInfo {
-                            target: import.module.clone(),
-                            is_builtin: import.is_builtin,
-                        },
-                    )
+                .filter_map(|import| match &import.kind {
+                    ResolvedImportKind::Module { alias }
+                        if import.visibility == Visibility::Public =>
+                    {
+                        Some((
+                            alias.clone(),
+                            ModuleAliasInfo {
+                                target: import.module.clone(),
+                                is_builtin: import.is_builtin,
+                            },
+                        ))
+                    }
+                    _ => None,
                 })
                 .collect();
+
             workspace.modules.insert(module.name.clone(), symbols);
         }
 
@@ -154,118 +172,342 @@ impl SemanticWorkspace {
         errors: &mut Vec<SemanticError>,
     ) -> HashMap<String, ModuleImportBinding> {
         let mut bindings = HashMap::new();
-        let mut alias_sources: HashMap<String, &ResolvedImport> = HashMap::new();
+        let mut alias_sources: HashMap<String, AliasOrigin> = HashMap::new();
+        let mut direct_sources: HashMap<String, SymbolSourceInfo> = HashMap::new();
 
         for import in imports {
-            if let Some(existing) = alias_sources.get(&import.alias) {
-                let previous_location = existing.span.start_location;
-                let context = if existing.synthetic {
-                    format!(
-                        "alias `{}` was already provided by a synthetic import of `{}` at line {}, column {}",
-                        import.alias, existing.module, previous_location.line, previous_location.column
-                    )
-                } else {
-                    format!(
-                        "alias `{}` was first bound to module `{}` at line {}, column {}",
-                        import.alias, existing.module, previous_location.line, previous_location.column
-                    )
-                };
-
-                errors.push(
-                    SemanticError::new(
-                        format!(
-                            "import alias `{}` conflicts with module `{}`",
-                            import.alias, import.module
-                        ),
-                        import.span,
-                    )
-                    .with_context(context)
-                    .with_hint("use `as` to give each import a distinct alias"),
-                );
-                continue;
-            }
-
-            alias_sources.insert(import.alias.clone(), import);
-
-            let mut binding = if import.is_builtin {
-                Self::builtin_module_binding(&import.module).unwrap_or_else(|| {
-                    ModuleImportBinding {
-                        is_builtin: true,
-                        symbols: HashMap::new(),
-                    }
-                })
-            } else {
-                ModuleImportBinding {
-                    is_builtin: false,
-                    symbols: HashMap::new(),
+            match &import.kind {
+                ResolvedImportKind::Module { alias } => {
+                    self.handle_module_import(
+                        import,
+                        alias,
+                        &mut bindings,
+                        &mut alias_sources,
+                        errors,
+                    );
                 }
-            };
-
-            for symbol in &import.exposed {
-                let module_symbols = self.lookup_module(&symbol.origin_module);
-                match &symbol.kind {
-                    ExportKind::Function => {
-                        if let Some(module_symbols) = module_symbols {
-                            if let Some(signature) = module_symbols.functions.get(&symbol.name) {
-                                binding.symbols.insert(
-                                    symbol.name.clone(),
-                                    ImportedSymbol::Function(signature.clone()),
-                                );
-                            }
-                        }
-                    }
-                    ExportKind::Struct => {
-                        if let Some(module_symbols) = module_symbols {
-                            if let Some(info) = module_symbols.struct_infos.get(&symbol.name) {
-                                binding.symbols.insert(
-                                    symbol.name.clone(),
-                                    ImportedSymbol::Struct(info.clone()),
-                                );
-                            }
-                        }
-                    }
-                    ExportKind::Enum => {
-                        if let Some(module_symbols) = module_symbols {
-                            if let Some(info) = module_symbols.enum_infos.get(&symbol.name) {
-                                binding.symbols.insert(
-                                    symbol.name.clone(),
-                                    ImportedSymbol::Enum(info.clone()),
-                                );
-                            }
-                        }
-                    }
-                    ExportKind::ModuleAlias { target } => {
-                        let nested_binding = if let Some(module_symbols) = module_symbols {
-                            if let Some(alias_info) =
-                                module_symbols.module_aliases.get(&symbol.name)
-                            {
-                                self.module_binding_for_alias(
-                                    &alias_info.target,
-                                    Some(alias_info.is_builtin),
-                                )
-                            } else {
-                                self.module_binding_for_alias(target, None)
-                            }
-                        } else {
-                            self.module_binding_for_alias(target, None)
-                        };
-
-                        binding.symbols.insert(
-                            symbol.name.clone(),
-                            ImportedSymbol::Module(Box::new(nested_binding)),
-                        );
-                    }
+                ResolvedImportKind::Selective { items } => {
+                    self.handle_selective_import(
+                        import,
+                        items,
+                        &mut bindings,
+                        &mut alias_sources,
+                        &mut direct_sources,
+                        errors,
+                    );
                 }
-            }
-
-            bindings.insert(import.alias.clone(), binding.clone());
-
-            if import.is_builtin {
-                Self::extend_builtin_shortcuts(&mut bindings, &import.module);
+                ResolvedImportKind::Glob => {
+                    self.handle_glob_import(
+                        import,
+                        &mut bindings,
+                        &mut alias_sources,
+                        &mut direct_sources,
+                        errors,
+                    );
+                }
             }
         }
 
         bindings
+    }
+
+    fn resolved_symbols_for_import(&self, import: &ResolvedImport) -> Vec<ImportResolvedSymbol> {
+        if import.is_builtin {
+            if import.module == "std.prelude" || import.module == "spectra.std.prelude" {
+                return PRELUDE_EXPORTS
+                    .iter()
+                    .map(|(alias, target)| ImportResolvedSymbol {
+                        name: (*alias).to_string(),
+                        origin_module: (*target).to_string(),
+                    })
+                    .collect();
+            }
+
+            return Vec::new();
+        }
+
+        match &import.kind {
+            ResolvedImportKind::Module { .. } | ResolvedImportKind::Glob => import
+                .exposed
+                .iter()
+                .map(|symbol| ImportResolvedSymbol {
+                    name: symbol.name.clone(),
+                    origin_module: symbol.origin_module.clone(),
+                })
+                .collect(),
+            ResolvedImportKind::Selective { items } => items
+                .iter()
+                .filter_map(|item| {
+                    import
+                        .exposed
+                        .iter()
+                        .find(|symbol| symbol.name == item.name)
+                        .map(|symbol| ImportResolvedSymbol {
+                            name: symbol.name.clone(),
+                            origin_module: symbol.origin_module.clone(),
+                        })
+                })
+                .collect(),
+        }
+    }
+
+    fn handle_module_import(
+        &self,
+        import: &ResolvedImport,
+        alias: &str,
+        bindings: &mut HashMap<String, ModuleImportBinding>,
+        alias_sources: &mut HashMap<String, AliasOrigin>,
+        errors: &mut Vec<SemanticError>,
+    ) {
+        if let Some(existing) = alias_sources.get(alias) {
+            let previous_location = existing.span.start_location;
+            let context = if existing.synthetic {
+                format!(
+                    "alias `{}` was already provided by a synthetic import of `{}` at line {}, column {}",
+                    alias, existing.module, previous_location.line, previous_location.column
+                )
+            } else {
+                format!(
+                    "alias `{}` was first bound to module `{}` at line {}, column {}",
+                    alias, existing.module, previous_location.line, previous_location.column
+                )
+            };
+
+            errors.push(
+                SemanticError::new(
+                    format!(
+                        "import alias `{}` conflicts with module `{}`",
+                        alias, import.module
+                    ),
+                    import.span,
+                )
+                .with_context(context)
+                .with_hint("use `as` to give each import a distinct alias"),
+            );
+            return;
+        }
+
+        alias_sources.insert(
+            alias.to_string(),
+            AliasOrigin {
+                module: import.module.clone(),
+                span: import.span,
+                synthetic: import.synthetic,
+            },
+        );
+
+        let mut binding = if import.is_builtin {
+            Self::builtin_module_binding(&import.module).unwrap_or_else(|| ModuleImportBinding {
+                is_builtin: true,
+                symbols: HashMap::new(),
+            })
+        } else {
+            ModuleImportBinding {
+                is_builtin: false,
+                symbols: HashMap::new(),
+            }
+        };
+
+        for symbol in &import.exposed {
+            if let Some(imported) = self.imported_symbol_from_resolved(symbol) {
+                binding
+                    .symbols
+                    .insert(symbol.name.clone(), imported);
+            }
+        }
+
+        bindings.insert(alias.to_string(), binding);
+
+        if import.is_builtin {
+            if import.module == "std.prelude" || import.module == "spectra.std.prelude" {
+                for (shortcut, target) in PRELUDE_EXPORTS {
+                    alias_sources.entry((*shortcut).to_string()).or_insert_with(|| {
+                        AliasOrigin {
+                            module: (*target).to_string(),
+                            span: import.span,
+                            synthetic: true,
+                        }
+                    });
+                }
+            }
+
+            Self::extend_builtin_shortcuts(bindings, &import.module);
+        }
+    }
+
+    fn handle_selective_import(
+        &self,
+        import: &ResolvedImport,
+        items: &[ImportItem],
+        bindings: &mut HashMap<String, ModuleImportBinding>,
+        alias_sources: &mut HashMap<String, AliasOrigin>,
+        direct_sources: &mut HashMap<String, SymbolSourceInfo>,
+        errors: &mut Vec<SemanticError>,
+    ) {
+        for item in items {
+            if let Some(symbol) = import
+                .exposed
+                .iter()
+                .find(|candidate| candidate.name == item.name)
+            {
+                self.insert_direct_symbol(
+                    import,
+                    symbol,
+                    item.span,
+                    bindings,
+                    alias_sources,
+                    direct_sources,
+                    errors,
+                );
+            } else {
+                errors.push(
+                    SemanticError::new(
+                        format!(
+                            "module `{}` does not export `{}`",
+                            import.module, item.name
+                        ),
+                        item.span,
+                    )
+                    .with_hint("ensure the symbol is public and spelled correctly"),
+                );
+            }
+        }
+    }
+
+    fn handle_glob_import(
+        &self,
+        import: &ResolvedImport,
+        bindings: &mut HashMap<String, ModuleImportBinding>,
+        alias_sources: &mut HashMap<String, AliasOrigin>,
+        direct_sources: &mut HashMap<String, SymbolSourceInfo>,
+        errors: &mut Vec<SemanticError>,
+    ) {
+        for symbol in &import.exposed {
+            self.insert_direct_symbol(
+                import,
+                symbol,
+                import.span,
+                bindings,
+                alias_sources,
+                direct_sources,
+                errors,
+            );
+        }
+    }
+
+    fn insert_direct_symbol(
+        &self,
+        import: &ResolvedImport,
+        symbol: &ResolvedSymbolBinding,
+        span: Span,
+        bindings: &mut HashMap<String, ModuleImportBinding>,
+        alias_sources: &HashMap<String, AliasOrigin>,
+        direct_sources: &mut HashMap<String, SymbolSourceInfo>,
+        errors: &mut Vec<SemanticError>,
+    ) {
+        let symbol_name = symbol.name.clone();
+
+        if let Some(existing) = alias_sources.get(&symbol_name) {
+            let previous_location = existing.span.start_location;
+            let context = if existing.synthetic {
+                format!(
+                    "alias `{}` was provided by module `{}` at line {}, column {}",
+                    symbol_name, existing.module, previous_location.line, previous_location.column
+                )
+            } else {
+                format!(
+                    "alias `{}` was first bound to module `{}` at line {}, column {}",
+                    symbol_name, existing.module, previous_location.line, previous_location.column
+                )
+            };
+
+            errors.push(
+                SemanticError::new(
+                    format!(
+                        "imported symbol `{}` conflicts with module alias `{}`",
+                        symbol_name, symbol_name
+                    ),
+                    span,
+                )
+                .with_context(context)
+                .with_hint("rename the import or adjust the alias to avoid the collision"),
+            );
+            return;
+        }
+
+        if let Some(previous) = direct_sources.get(&symbol_name) {
+            let previous_location = previous.span.start_location;
+            errors.push(
+                SemanticError::new(
+                    format!(
+                        "imported symbol `{}` conflicts with module `{}`",
+                        symbol_name, import.module
+                    ),
+                    span,
+                )
+                .with_context(format!(
+                    "symbol `{}` was first imported from module `{}` at line {}, column {}",
+                    symbol_name, previous.module, previous_location.line, previous_location.column
+                ))
+                .with_hint("rename one of the imports or remove the duplicate"),
+            );
+            return;
+        }
+
+        let mut binding = ModuleImportBinding {
+            is_builtin: import.is_builtin,
+            symbols: HashMap::new(),
+        };
+
+        if let Some(imported) = self.imported_symbol_from_resolved(symbol) {
+            binding
+                .symbols
+                .insert(symbol_name.clone(), imported);
+        }
+
+        bindings.insert(symbol_name.clone(), binding);
+        direct_sources.insert(
+            symbol_name,
+            SymbolSourceInfo {
+                module: import.module.clone(),
+                span,
+            },
+        );
+    }
+
+    fn imported_symbol_from_resolved(
+        &self,
+        symbol: &ResolvedSymbolBinding,
+    ) -> Option<ImportedSymbol> {
+        let module_symbols = self.lookup_module(&symbol.origin_module);
+
+        match &symbol.kind {
+            ExportKind::Function => module_symbols
+                .and_then(|symbols| symbols.functions.get(&symbol.name))
+                .map(|signature| ImportedSymbol::Function(signature.clone())),
+            ExportKind::Struct => module_symbols
+                .and_then(|symbols| symbols.struct_infos.get(&symbol.name))
+                .map(|info| ImportedSymbol::Struct(info.clone())),
+            ExportKind::Enum => module_symbols
+                .and_then(|symbols| symbols.enum_infos.get(&symbol.name))
+                .map(|info| ImportedSymbol::Enum(info.clone())),
+            ExportKind::ModuleAlias { target } => {
+                let nested_binding = if let Some(symbols) = module_symbols {
+                    if let Some(alias_info) = symbols.module_aliases.get(&symbol.name) {
+                        self.module_binding_for_alias(
+                            &alias_info.target,
+                            Some(alias_info.is_builtin),
+                        )
+                    } else {
+                        self.module_binding_for_alias(target, None)
+                    }
+                } else {
+                    self.module_binding_for_alias(target, None)
+                };
+
+                Some(ImportedSymbol::Module(Box::new(nested_binding)))
+            }
+        }
     }
 
     fn module_binding_for_alias(
@@ -437,6 +679,19 @@ struct SymbolInfo {
     #[allow(dead_code)]
     span: Span,
     ty: Type,
+}
+
+#[derive(Debug, Clone)]
+struct AliasOrigin {
+    module: String,
+    span: Span,
+    synthetic: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SymbolSourceInfo {
+    module: String,
+    span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4590,7 +4845,7 @@ impl SemanticAnalyzer {
 mod tests {
     use super::*;
     use crate::ast::Visibility;
-    use crate::resolver::ResolvedSymbolBinding;
+    use crate::resolver::{ImportItem, ResolvedSymbolBinding};
 
     #[test]
     fn build_import_bindings_exposes_prelude_aliases() {
@@ -4598,13 +4853,15 @@ mod tests {
 
         let imports = vec![ResolvedImport {
             module: "std.prelude".to_string(),
-            alias: "prelude".to_string(),
             visibility: Visibility::Private,
             span: Span::dummy(),
             is_builtin: true,
             target: None,
             exposed: Vec::new(),
             synthetic: true,
+            kind: ResolvedImportKind::Module {
+                alias: "prelude".to_string(),
+            },
         }];
 
         let mut errors = Vec::new();
@@ -4663,7 +4920,6 @@ mod tests {
 
         let imports = vec![ResolvedImport {
             module: "lib".to_string(),
-            alias: "lib".to_string(),
             visibility: Visibility::Private,
             span: Span::dummy(),
             is_builtin: false,
@@ -4677,6 +4933,9 @@ mod tests {
                 span: Span::dummy(),
             }],
             synthetic: false,
+            kind: ResolvedImportKind::Module {
+                alias: "lib".to_string(),
+            },
         }];
 
         let mut errors = Vec::new();
@@ -4703,4 +4962,58 @@ mod tests {
             other => panic!("expected function binding, got {:?}", other),
         }
     }
+
+            #[test]
+            fn build_import_bindings_supports_selective_imports() {
+                let mut workspace = SemanticWorkspace::default();
+
+                let mut math_symbols = ModuleSymbols::default();
+                math_symbols.functions.insert(
+                    "add".to_string(),
+                    FunctionSignature {
+                        params: vec![Type::Int, Type::Int],
+                        return_type: Type::Int,
+                        self_kind: None,
+                    },
+                );
+                workspace.insert_module_symbols("lib.math", math_symbols);
+
+                let imports = vec![ResolvedImport {
+                    module: "lib.math".to_string(),
+                    visibility: Visibility::Private,
+                    span: Span::dummy(),
+                    is_builtin: false,
+                    target: None,
+                    exposed: vec![ResolvedSymbolBinding {
+                        name: "add".to_string(),
+                        kind: ExportKind::Function,
+                        origin_module: "lib.math".to_string(),
+                        span: Span::dummy(),
+                    }],
+                    synthetic: false,
+                    kind: ResolvedImportKind::Selective {
+                        items: vec![ImportItem {
+                            name: "add".to_string(),
+                            span: Span::dummy(),
+                        }],
+                    },
+                }];
+
+                let mut errors = Vec::new();
+                let bindings = workspace.build_import_bindings(&imports, &mut errors);
+                assert!(errors.is_empty(), "selective import should succeed");
+
+                let add_binding = bindings.get("add").expect("selective import should expose symbol");
+                match add_binding
+                    .symbols
+                    .get("add")
+                    .expect("add binding should contain function")
+                {
+                    ImportedSymbol::Function(signature) => {
+                        assert_eq!(signature.params.len(), 2);
+                        assert_eq!(signature.return_type, Type::Int);
+                    }
+                    other => panic!("expected function symbol, got {:?}", other),
+                }
+            }
 }

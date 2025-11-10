@@ -49,9 +49,9 @@
 
 ## Symbol Binding and Prelude Strategy
 
-- Every module exposes the public subset of its declarations. Private imports stay scoped to the defining module, while `pub import` reexports the alias (and any selective members once implemented).
+- Every module exposes the public subset of its declarations. Private imports stay scoped to the defining module, while `pub import` reexports the alias and any members pulled via selective or glob forms.
 - The stdlib exposes a `std.prelude` module that reexports curated symbols (`std.math`, `std.text`, etc.). The parser injects a synthetic private import of `std.prelude` into every module unless the source file disables the prelude with `#![no_prelude]`.
-- The prelude module itself reexports members using `pub import` and, once selective imports are available, `pub import std.math.{add, sub, mul, div};` so that downstream modules receive the bare function names automatically.
+- The prelude module itself reexports members using `pub import` alongside selective imports such as `pub import std.math.{add, sub, mul, div};`, ensuring downstream modules receive the bare function names automatically.
 - Prelude injection is represented internally by synthetic `Import` items flagged during parsing so diagnostics can differentiate between explicit and implicit imports.
 
 ## CLI Integration Plan
@@ -67,7 +67,7 @@
 2. **Resolver core (in progress):** build the module graph, detect cycles, and feed resolved modules into the semantic analyser. (Graph construction and import-to-module association complete; semantic wiring pending.)
 3. **Name binding:** extend the semantic layer to populate symbol tables using import aliases and prelude-provided symbols.
 4. **Prelude rollout (done):** ship `std.prelude`, inject it automatically during parsing (respecting `#![no_prelude]`), and update stdlib documentation/examples to use bare names.
-5. **Selective/glob imports:** finalise syntax and add fine-grained binding so tooling and diagnostics stay precise.
+5. **Selective/glob imports:** syntax and binding are now implemented in the parser, resolver, and semantic layers, so tooling and diagnostics operate on precise per-symbol metadata.
 6. **Tooling updates:** refresh formatter, language server contracts, and documentation once resolver semantics are live.
 
 ## Outstanding Questions

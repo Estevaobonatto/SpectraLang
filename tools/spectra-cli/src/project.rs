@@ -301,12 +301,10 @@ fn write_resolution_error(
                 writeln!(f, "    referenced by:")?;
                 for source in sources {
                     let location = source.span.start_location;
-                    let alias_display = if source.alias.is_empty() {
-                        source.import_path.clone()
-                    } else if source.alias == source.import_path {
-                        source.alias.clone()
-                    } else {
-                        format!("{} as {}", source.import_path, source.alias)
+                    let alias_display = match &source.alias {
+                        None => source.import_path.clone(),
+                        Some(alias) if alias == &source.import_path => alias.clone(),
+                        Some(alias) => format!("{} as {}", source.import_path, alias),
                     };
                     writeln!(
                         f,
