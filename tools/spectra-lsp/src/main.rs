@@ -2,10 +2,11 @@ use serde_json::Value;
 use spectra_compiler::{
     analyze_document, CompilationOptions, CompilerError, DocumentAnalysis, LintDiagnostic, Span,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::RwLock;
@@ -42,9 +43,32 @@ struct DocumentState {
     analysis: DocumentAnalysis,
 }
 
+#[derive(Debug, Clone)]
+struct CachedWorkspaceSymbol {
+    name: String,
+    detail: Option<String>,
+    kind: SymbolKind,
+    span: Span,
+    container_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedReference {
+    key: String,
+    location: Location,
+}
+
+#[derive(Debug, Clone)]
+struct WorkspaceCacheEntry {
+    symbols: Vec<CachedWorkspaceSymbol>,
+    references: Vec<CachedReference>,
+    modified: Option<SystemTime>,
+}
+
 #[derive(Debug, Default)]
 struct BackendState {
     documents: RwLock<HashMap<Url, DocumentState>>,
+    workspace_cache: RwLock<HashMap<Url, WorkspaceCacheEntry>>,
     workspace_folders: RwLock<Vec<PathBuf>>,
     config: RwLock<ServerConfig>,
 }
@@ -76,13 +100,32 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: Some(vec![",".to_string()]),
+                    ..Default::default()
+                }),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
                     ..Default::default()
                 }),
+                code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+                    code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                    ..Default::default()
+                })),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+                        legend: semantic_tokens_legend(),
+                        range: Some(false),
+                        full: Some(SemanticTokensFullOptions::Bool(true)),
+                        ..Default::default()
+                    }),
+                ),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![
                         COMMAND_RUN_DIAGNOSTICS.to_string(),
@@ -122,9 +165,16 @@ impl LanguageServer for Backend {
 
     async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
         let mut folders = self.state.workspace_folders.write().await;
+        let mut cache = self.state.workspace_cache.write().await;
         for removed in params.event.removed {
             if let Ok(path) = removed.uri.to_file_path() {
                 folders.retain(|folder| folder != &path);
+                cache.retain(|uri, _| {
+                    uri.to_file_path()
+                        .ok()
+                        .map(|file| !file.starts_with(&path))
+                        .unwrap_or(true)
+                });
             }
         }
         for added in params.event.added {
@@ -164,6 +214,7 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.state.documents.write().await.remove(&params.text_document.uri);
+        self.refresh_cache_from_disk(&params.text_document.uri).await;
         self.client
             .publish_diagnostics(params.text_document.uri, Vec::new(), None)
             .await;
@@ -266,7 +317,10 @@ impl LanguageServer for Backend {
         };
 
         let include_declaration = params.context.include_declaration;
+        let declaration_range = span_to_range(definition_span);
+        let current_uri = text_position.text_document.uri.clone();
         let mut locations = Vec::new();
+        let mut seen = HashSet::new();
 
         for (span, info) in &document.analysis.symbols {
             if info.def_span != Some(definition_span) {
@@ -277,17 +331,46 @@ impl LanguageServer for Backend {
                 continue;
             }
 
-            locations.push(Location {
-                uri: text_position.text_document.uri.clone(),
+            let location = Location {
+                uri: current_uri.clone(),
                 range: span_to_range(*span),
-            });
+            };
+            if seen.insert(location_key(&location)) {
+                locations.push(location);
+            }
         }
 
         if include_declaration && !locations.iter().any(|location| location.range == span_to_range(definition_span)) {
-            locations.push(Location {
-                uri: text_position.text_document.uri,
-                range: span_to_range(definition_span),
-            });
+            let location = Location {
+                uri: current_uri.clone(),
+                range: declaration_range,
+            };
+            if seen.insert(location_key(&location)) {
+                locations.push(location);
+            }
+        }
+
+        if !symbol.info.is_local {
+            if let Some(reference_key) = reference_key_for_resolved_symbol(&document, &symbol) {
+                self.ensure_workspace_cache().await;
+                let cache = self.state.workspace_cache.read().await;
+                for entry in cache.values() {
+                    for reference in &entry.references {
+                        if reference.key != reference_key {
+                            continue;
+                        }
+                        if !include_declaration
+                            && reference.location.uri == current_uri
+                            && reference.location.range == declaration_range
+                        {
+                            continue;
+                        }
+                        if seen.insert(location_key(&reference.location)) {
+                            locations.push(reference.location.clone());
+                        }
+                    }
+                }
+            }
         }
 
         Ok(Some(locations))
@@ -305,6 +388,135 @@ impl LanguageServer for Backend {
         };
 
         Ok(Some(DocumentSymbolResponse::Nested(document_symbols(module))))
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        self.ensure_workspace_cache().await;
+        let symbols = self.workspace_symbols(&params.query).await;
+        Ok(Some(symbols))
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let text_position = params.text_document_position_params;
+        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+            return Ok(None);
+        };
+
+        let line = text_position.position.line as usize + 1;
+        let column = text_position.position.character as usize + 1;
+        let Some(symbol) = document.analysis.symbol_at(line, column) else {
+            return Ok(None);
+        };
+        let Some(definition_span) = symbol.info.def_span else {
+            return Ok(None);
+        };
+
+        let mut highlights = Vec::new();
+        for (span, info) in &document.analysis.symbols {
+            if info.def_span != Some(definition_span) {
+                continue;
+            }
+
+            let kind = if *span == definition_span {
+                Some(DocumentHighlightKind::WRITE)
+            } else {
+                Some(DocumentHighlightKind::READ)
+            };
+
+            highlights.push(DocumentHighlight {
+                range: span_to_range(*span),
+                kind,
+            });
+        }
+
+        if highlights.is_empty() {
+            highlights.push(DocumentHighlight {
+                range: span_to_range(definition_span),
+                kind: Some(DocumentHighlightKind::WRITE),
+            });
+        }
+
+        Ok(Some(highlights))
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let text_position = params.text_document_position_params;
+        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+            return Ok(None);
+        };
+        let Some(module) = &document.analysis.module else {
+            return Ok(None);
+        };
+
+        let line = text_position.position.line as usize + 1;
+        let column = text_position.position.character as usize + 1;
+        let Some(call_site) = find_call_site(module, line, column) else {
+            return Ok(None);
+        };
+        let Some(label) = signature_label_for_call(&document, &call_site) else {
+            return Ok(None);
+        };
+
+        let parameters = split_signature_parameters(&label)
+            .into_iter()
+            .map(|param| ParameterInformation {
+                label: ParameterLabel::Simple(param),
+                documentation: None,
+            })
+            .collect::<Vec<_>>();
+
+        let active_parameter = active_parameter_index(&document.text, &call_site, text_position.position)
+            .min(parameters.len().saturating_sub(1));
+
+        Ok(Some(SignatureHelp {
+            signatures: vec![SignatureInformation {
+                label,
+                documentation: None,
+                parameters: Some(parameters),
+                active_parameter: Some(active_parameter as u32),
+            }],
+            active_signature: Some(0),
+            active_parameter: Some(active_parameter as u32),
+        }))
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let Some(document) = self.state.documents.read().await.get(&params.text_document.uri).cloned() else {
+            return Ok(None);
+        };
+
+        let mut actions = Vec::new();
+        for diagnostic in &params.context.diagnostics {
+            if let Some(action) = quick_fix_for_diagnostic(&params.text_document.uri, &document, diagnostic) {
+                actions.push(CodeActionOrCommand::CodeAction(action));
+            }
+        }
+
+        Ok((!actions.is_empty()).then_some(actions))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let Some(document) = self.state.documents.read().await.get(&params.text_document.uri).cloned() else {
+            return Ok(None);
+        };
+        let Some(module) = &document.analysis.module else {
+            return Ok(None);
+        };
+
+        let data = semantic_tokens_for_document(&document.text, module, &document.analysis);
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data,
+        })))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -396,6 +608,13 @@ impl Backend {
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
+        self.update_workspace_cache(
+            &uri,
+            text.clone(),
+            analysis.clone(),
+            cache_modified_time_for_uri(&uri),
+        )
+        .await;
         self.state.documents.write().await.insert(
             uri,
             DocumentState {
@@ -447,6 +666,110 @@ impl Backend {
                 self.analyze_and_store(uri, text, true).await;
             }
         }
+    }
+
+    async fn workspace_symbols(&self, query: &str) -> Vec<SymbolInformation> {
+        let normalized_query = query.trim().to_ascii_lowercase();
+        let cache = self.state.workspace_cache.read().await;
+        let mut results = Vec::new();
+
+        for (uri, entry) in cache.iter() {
+            for symbol in &entry.symbols {
+                let haystack = format!(
+                    "{} {}",
+                    symbol.name.to_ascii_lowercase(),
+                    symbol.detail.clone().unwrap_or_default().to_ascii_lowercase()
+                );
+                if !normalized_query.is_empty() && !haystack.contains(&normalized_query) {
+                    continue;
+                }
+
+                results.push(workspace_symbol_information(uri, symbol));
+            }
+        }
+
+        results
+    }
+
+    async fn update_workspace_cache(
+        &self,
+        uri: &Url,
+        text: String,
+        analysis: DocumentAnalysis,
+        modified: Option<SystemTime>,
+    ) {
+        let symbols = analysis
+            .module
+            .as_ref()
+            .map(|module| workspace_symbol_entries_for_module(&text, module))
+            .unwrap_or_default();
+        let references = reference_entries_for_analysis(uri, &analysis);
+
+        self.state.workspace_cache.write().await.insert(
+            uri.clone(),
+            WorkspaceCacheEntry {
+                symbols,
+                references,
+                modified,
+            },
+        );
+    }
+
+    async fn ensure_workspace_cache(&self) {
+        let folders = self.state.workspace_folders.read().await.clone();
+        let open_documents = self.state.documents.read().await.clone();
+        let mut known = HashSet::new();
+
+        for folder in folders {
+            let mut files = Vec::new();
+            collect_spectra_files(&folder, &mut files);
+            for file in files {
+                let Ok(uri) = Url::from_file_path(&file) else {
+                    continue;
+                };
+                known.insert(uri.clone());
+
+                if let Some(document) = open_documents.get(&uri) {
+                    self.update_workspace_cache(&uri, document.text.clone(), document.analysis.clone(), None)
+                        .await;
+                    continue;
+                }
+
+                let modified = fs::metadata(&file).and_then(|meta| meta.modified()).ok();
+                let should_refresh = {
+                    let cache = self.state.workspace_cache.read().await;
+                    cache.get(&uri)
+                        .map(|entry| entry.modified != modified)
+                        .unwrap_or(true)
+                };
+
+                if !should_refresh {
+                    continue;
+                }
+
+                let Ok(text) = fs::read_to_string(&file) else {
+                    continue;
+                };
+                let analysis = analyze_cache_document(&text, &file.to_string_lossy());
+                self.update_workspace_cache(&uri, text, analysis, modified).await;
+            }
+        }
+
+        self.state.workspace_cache.write().await.retain(|uri, _| known.contains(uri) || open_documents.contains_key(uri));
+    }
+
+    async fn refresh_cache_from_disk(&self, uri: &Url) {
+        let Ok(path) = uri.to_file_path() else {
+            return;
+        };
+        let Ok(text) = fs::read_to_string(&path) else {
+            self.state.workspace_cache.write().await.remove(uri);
+            return;
+        };
+
+        let analysis = analyze_cache_document(&text, &path.to_string_lossy());
+        let modified = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
+        self.update_workspace_cache(uri, text, analysis, modified).await;
     }
 
     async fn format_document(&self, uri: &Url, text: &str) -> std::result::Result<Option<String>, String> {
@@ -1082,6 +1405,1255 @@ fn format_type_annotation(ty: &spectra_compiler::ast::TypeAnnotation) -> String 
             format_type_annotation(return_type)
         ),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CallKind {
+    Function { callee_span: Span },
+    Method { call_span: Span },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CallSite {
+    span: Span,
+    search_start: usize,
+    kind: CallKind,
+}
+
+const TOKEN_NAMESPACE: u32 = 0;
+const TOKEN_TYPE: u32 = 1;
+const TOKEN_ENUM: u32 = 2;
+const TOKEN_INTERFACE: u32 = 3;
+const TOKEN_FUNCTION: u32 = 4;
+const TOKEN_METHOD: u32 = 5;
+const TOKEN_VARIABLE: u32 = 6;
+const TOKEN_PARAMETER: u32 = 7;
+const TOKEN_PROPERTY: u32 = 8;
+const TOKEN_ENUM_MEMBER: u32 = 9;
+
+fn semantic_tokens_legend() -> SemanticTokensLegend {
+    SemanticTokensLegend {
+        token_types: vec![
+            SemanticTokenType::NAMESPACE,
+            SemanticTokenType::TYPE,
+            SemanticTokenType::ENUM,
+            SemanticTokenType::INTERFACE,
+            SemanticTokenType::FUNCTION,
+            SemanticTokenType::METHOD,
+            SemanticTokenType::VARIABLE,
+            SemanticTokenType::PARAMETER,
+            SemanticTokenType::PROPERTY,
+            SemanticTokenType::ENUM_MEMBER,
+        ],
+        token_modifiers: Vec::new(),
+    }
+}
+
+fn find_call_site(module: &spectra_compiler::ast::Module, line: usize, column: usize) -> Option<CallSite> {
+    let mut best = None;
+
+    for item in &module.items {
+        match item {
+            spectra_compiler::ast::Item::Function(function) => {
+                find_call_site_in_block(&function.body, line, column, &mut best);
+            }
+            spectra_compiler::ast::Item::Impl(impl_block) => {
+                for method in &impl_block.methods {
+                    find_call_site_in_block(&method.body, line, column, &mut best);
+                }
+            }
+            spectra_compiler::ast::Item::Trait(trait_def) => {
+                for method in &trait_def.methods {
+                    if let Some(body) = &method.body {
+                        find_call_site_in_block(body, line, column, &mut best);
+                    }
+                }
+            }
+            spectra_compiler::ast::Item::TraitImpl(trait_impl) => {
+                for method in &trait_impl.methods {
+                    find_call_site_in_block(&method.body, line, column, &mut best);
+                }
+            }
+            spectra_compiler::ast::Item::Import(_) | spectra_compiler::ast::Item::Struct(_) | spectra_compiler::ast::Item::Enum(_) => {}
+        }
+    }
+
+    best
+}
+
+fn find_call_site_in_block(
+    block: &spectra_compiler::ast::Block,
+    line: usize,
+    column: usize,
+    best: &mut Option<CallSite>,
+) {
+    for statement in &block.statements {
+        find_call_site_in_statement(statement, line, column, best);
+    }
+}
+
+fn find_call_site_in_statement(
+    statement: &spectra_compiler::ast::Statement,
+    line: usize,
+    column: usize,
+    best: &mut Option<CallSite>,
+) {
+    match &statement.kind {
+        spectra_compiler::ast::StatementKind::Let(let_stmt) => {
+            if let Some(value) = &let_stmt.value {
+                find_call_site_in_expression(value, line, column, best);
+            }
+        }
+        spectra_compiler::ast::StatementKind::Assignment(assign_stmt) => {
+            find_call_site_in_expression(&assign_stmt.value, line, column, best);
+            match &assign_stmt.target {
+                spectra_compiler::ast::LValue::IndexAccess { array, index } => {
+                    find_call_site_in_expression(array, line, column, best);
+                    find_call_site_in_expression(index, line, column, best);
+                }
+                spectra_compiler::ast::LValue::Identifier(_) => {}
+            }
+        }
+        spectra_compiler::ast::StatementKind::Return(ret_stmt) => {
+            if let Some(value) = &ret_stmt.value {
+                find_call_site_in_expression(value, line, column, best);
+            }
+        }
+        spectra_compiler::ast::StatementKind::Expression(expr) => {
+            find_call_site_in_expression(expr, line, column, best);
+        }
+        spectra_compiler::ast::StatementKind::While(loop_stmt) => {
+            find_call_site_in_expression(&loop_stmt.condition, line, column, best);
+            find_call_site_in_block(&loop_stmt.body, line, column, best);
+        }
+        spectra_compiler::ast::StatementKind::DoWhile(loop_stmt) => {
+            find_call_site_in_block(&loop_stmt.body, line, column, best);
+            find_call_site_in_expression(&loop_stmt.condition, line, column, best);
+        }
+        spectra_compiler::ast::StatementKind::For(loop_stmt) => {
+            find_call_site_in_expression(&loop_stmt.iterable, line, column, best);
+            find_call_site_in_block(&loop_stmt.body, line, column, best);
+        }
+        spectra_compiler::ast::StatementKind::Loop(loop_stmt) => {
+            find_call_site_in_block(&loop_stmt.body, line, column, best);
+        }
+        spectra_compiler::ast::StatementKind::Switch(switch_stmt) => {
+            find_call_site_in_expression(&switch_stmt.value, line, column, best);
+            for case in &switch_stmt.cases {
+                find_call_site_in_expression(&case.pattern, line, column, best);
+                find_call_site_in_block(&case.body, line, column, best);
+            }
+            if let Some(default) = &switch_stmt.default {
+                find_call_site_in_block(default, line, column, best);
+            }
+        }
+        spectra_compiler::ast::StatementKind::IfLet(if_let_stmt) => {
+            find_call_site_in_expression(&if_let_stmt.value, line, column, best);
+            find_call_site_in_block(&if_let_stmt.then_block, line, column, best);
+            if let Some(else_block) = &if_let_stmt.else_block {
+                find_call_site_in_block(else_block, line, column, best);
+            }
+        }
+        spectra_compiler::ast::StatementKind::WhileLet(while_let_stmt) => {
+            find_call_site_in_expression(&while_let_stmt.value, line, column, best);
+            find_call_site_in_block(&while_let_stmt.body, line, column, best);
+        }
+        spectra_compiler::ast::StatementKind::Break | spectra_compiler::ast::StatementKind::Continue => {}
+    }
+}
+
+fn find_call_site_in_expression(
+    expr: &spectra_compiler::ast::Expression,
+    line: usize,
+    column: usize,
+    best: &mut Option<CallSite>,
+) {
+    if !span_contains(expr.span, line, column) {
+        return;
+    }
+
+    match &expr.kind {
+        spectra_compiler::ast::ExpressionKind::Call { callee, arguments } => {
+            record_call_site(
+                CallSite {
+                    span: expr.span,
+                    search_start: callee.span.end,
+                    kind: CallKind::Function {
+                        callee_span: callee.span,
+                    },
+                },
+                best,
+            );
+            find_call_site_in_expression(callee, line, column, best);
+            for arg in arguments {
+                find_call_site_in_expression(arg, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::MethodCall { object, arguments, .. } => {
+            record_call_site(
+                CallSite {
+                    span: expr.span,
+                    search_start: object.span.end,
+                    kind: CallKind::Method { call_span: expr.span },
+                },
+                best,
+            );
+            find_call_site_in_expression(object, line, column, best);
+            for arg in arguments {
+                find_call_site_in_expression(arg, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Binary { left, right, .. } => {
+            find_call_site_in_expression(left, line, column, best);
+            find_call_site_in_expression(right, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::Unary { operand, .. }
+        | spectra_compiler::ast::ExpressionKind::Try(operand)
+        | spectra_compiler::ast::ExpressionKind::Grouping(operand) => {
+            find_call_site_in_expression(operand, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::Range { start, end, .. }
+        | spectra_compiler::ast::ExpressionKind::IndexAccess { array: start, index: end } => {
+            find_call_site_in_expression(start, line, column, best);
+            find_call_site_in_expression(end, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::If {
+            condition,
+            then_block,
+            elif_blocks,
+            else_block,
+        } => {
+            find_call_site_in_expression(condition, line, column, best);
+            find_call_site_in_block(then_block, line, column, best);
+            for (elif_expr, elif_block) in elif_blocks {
+                find_call_site_in_expression(elif_expr, line, column, best);
+                find_call_site_in_block(elif_block, line, column, best);
+            }
+            if let Some(else_block) = else_block {
+                find_call_site_in_block(else_block, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Unless {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            find_call_site_in_expression(condition, line, column, best);
+            find_call_site_in_block(then_block, line, column, best);
+            if let Some(else_block) = else_block {
+                find_call_site_in_block(else_block, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::ArrayLiteral { elements }
+        | spectra_compiler::ast::ExpressionKind::TupleLiteral { elements } => {
+            for element in elements {
+                find_call_site_in_expression(element, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                find_call_site_in_expression(value, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::FieldAccess { object, .. } => {
+            find_call_site_in_expression(object, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::EnumVariant {
+            data,
+            struct_data,
+            ..
+        } => {
+            if let Some(data) = data {
+                for value in data {
+                    find_call_site_in_expression(value, line, column, best);
+                }
+            }
+            if let Some(struct_data) = struct_data {
+                for (_, value) in struct_data {
+                    find_call_site_in_expression(value, line, column, best);
+                }
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Match { scrutinee, arms } => {
+            find_call_site_in_expression(scrutinee, line, column, best);
+            for arm in arms {
+                find_call_site_in_expression(&arm.body, line, column, best);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Lambda { body, .. } => {
+            find_call_site_in_expression(body, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::Block(block) => {
+            find_call_site_in_block(block, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::Identifier(_)
+        | spectra_compiler::ast::ExpressionKind::NumberLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::StringLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::BoolLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::CharLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::FString(_)
+        | spectra_compiler::ast::ExpressionKind::TupleAccess { .. } => {}
+    }
+}
+
+fn record_call_site(candidate: CallSite, best: &mut Option<CallSite>) {
+    match best {
+        Some(current) if span_len(current.span) <= span_len(candidate.span) => {}
+        _ => *best = Some(candidate),
+    }
+}
+
+fn span_contains(span: Span, line: usize, column: usize) -> bool {
+    let starts_before = line > span.start_location.line
+        || (line == span.start_location.line && column >= span.start_location.column);
+    let ends_after = line < span.end_location.line
+        || (line == span.end_location.line && column < span.end_location.column);
+    starts_before && ends_after
+}
+
+fn span_len(span: Span) -> usize {
+    span.end.saturating_sub(span.start)
+}
+
+fn signature_label_for_call(document: &DocumentState, call_site: &CallSite) -> Option<String> {
+    match call_site.kind {
+        CallKind::Function { callee_span } => document
+            .analysis
+            .symbol_at(callee_span.start_location.line, callee_span.start_location.column)
+            .and_then(|symbol| symbol.definition.map(|definition| definition.label)),
+        CallKind::Method { call_span } => document
+            .analysis
+            .symbols
+            .get(&call_span)
+            .and_then(|info| info.def_span)
+            .and_then(|definition_span| document.analysis.definitions.get(&definition_span))
+            .map(|definition| definition.label.clone()),
+    }
+}
+
+fn split_signature_parameters(label: &str) -> Vec<String> {
+    let Some(open_idx) = label.find('(') else {
+        return Vec::new();
+    };
+    let Some(close_idx) = label.rfind(')') else {
+        return Vec::new();
+    };
+    if close_idx <= open_idx + 1 {
+        return Vec::new();
+    }
+
+    split_top_level(&label[open_idx + 1..close_idx], ',')
+        .into_iter()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+fn active_parameter_index(text: &str, call_site: &CallSite, position: Position) -> usize {
+    let cursor_offset = position_to_offset(text, position);
+    let Some(open_paren_offset) = find_open_paren_offset(text, call_site.search_start, call_site.span.end) else {
+        return 0;
+    };
+    if cursor_offset <= open_paren_offset + 1 {
+        return 0;
+    }
+
+    let scan_end = cursor_offset.min(call_site.span.end).min(text.len());
+    let scan_start = (open_paren_offset + 1).min(scan_end);
+    let snippet = &text[scan_start..scan_end];
+    split_top_level(snippet, ',').len().saturating_sub(1)
+}
+
+fn split_top_level(input: &str, separator: char) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut angle_depth = 0usize;
+    let mut brace_depth = 0usize;
+    let mut in_string = false;
+    let mut in_char = false;
+    let mut escape = false;
+
+    for (idx, ch) in input.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if in_string || in_char => {
+                escape = true;
+            }
+            '"' if !in_char => in_string = !in_string,
+            '\'' if !in_string => in_char = !in_char,
+            '(' if !in_string && !in_char => paren_depth += 1,
+            ')' if !in_string && !in_char => paren_depth = paren_depth.saturating_sub(1),
+            '[' if !in_string && !in_char => bracket_depth += 1,
+            ']' if !in_string && !in_char => bracket_depth = bracket_depth.saturating_sub(1),
+            '{' if !in_string && !in_char => brace_depth += 1,
+            '}' if !in_string && !in_char => brace_depth = brace_depth.saturating_sub(1),
+            '<' if !in_string && !in_char => angle_depth += 1,
+            '>' if !in_string && !in_char => angle_depth = angle_depth.saturating_sub(1),
+            _ if ch == separator
+                && !in_string
+                && !in_char
+                && paren_depth == 0
+                && bracket_depth == 0
+                && angle_depth == 0
+                && brace_depth == 0 => {
+                parts.push(input[start..idx].to_string());
+                start = idx + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+
+    parts.push(input[start..].to_string());
+    parts
+}
+
+fn find_open_paren_offset(text: &str, start: usize, end: usize) -> Option<usize> {
+    let upper = end.min(text.len());
+    let lower = start.min(upper);
+    text[lower..upper]
+        .char_indices()
+        .find_map(|(idx, ch)| (ch == '(').then_some(lower + idx))
+}
+
+fn position_to_offset(text: &str, position: Position) -> usize {
+    let mut line = 0u32;
+    let mut character = 0u32;
+
+    for (idx, ch) in text.char_indices() {
+        if line == position.line && character == position.character {
+            return idx;
+        }
+
+        if ch == '\n' {
+            line += 1;
+            character = 0;
+        } else {
+            character += 1;
+        }
+    }
+
+    text.len()
+}
+
+fn analyze_cache_document(text: &str, filename: &str) -> DocumentAnalysis {
+    let mut options = CompilationOptions::default();
+    options.optimize = false;
+    options.lint = spectra_compiler::LintOptions::disabled();
+    analyze_document(text, filename, &options, None)
+}
+
+fn cache_modified_time_for_uri(uri: &Url) -> Option<SystemTime> {
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| fs::metadata(path).ok())
+        .and_then(|meta| meta.modified().ok())
+}
+
+fn location_key(location: &Location) -> String {
+    format!(
+        "{}:{}:{}:{}:{}",
+        location.uri,
+        location.range.start.line,
+        location.range.start.character,
+        location.range.end.line,
+        location.range.end.character
+    )
+}
+
+fn reference_key_for_resolved_symbol(
+    document: &DocumentState,
+    symbol: &spectra_compiler::ResolvedSymbol,
+) -> Option<String> {
+    symbol
+        .definition
+        .as_ref()
+        .map(|definition| definition_key(&definition.label))
+        .or_else(|| {
+            document
+                .analysis
+                .definitions
+                .get(&symbol.span)
+                .map(|definition| definition_key(&definition.label))
+        })
+}
+
+fn definition_key(label: &str) -> String {
+    let trimmed = label.trim();
+    if let Some(rest) = trimmed.strip_prefix("fn ") {
+        return rest.split('(').next().unwrap_or(rest).trim().to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("struct ") {
+        return rest.trim().to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("enum ") {
+        return rest.trim().to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("trait ") {
+        return rest.trim().to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("variant ") {
+        return rest.trim().to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("field ") {
+        return rest.split(':').next().unwrap_or(rest).trim().to_string();
+    }
+    trimmed.to_string()
+}
+
+fn reference_entries_for_analysis(uri: &Url, analysis: &DocumentAnalysis) -> Vec<CachedReference> {
+    let mut references = Vec::new();
+
+    for (span, info) in &analysis.symbols {
+        if info.is_local {
+            continue;
+        }
+        let Some(definition_span) = info.def_span else {
+            continue;
+        };
+        let Some(definition) = analysis.definitions.get(&definition_span) else {
+            continue;
+        };
+
+        references.push(CachedReference {
+            key: definition_key(&definition.label),
+            location: Location {
+                uri: uri.clone(),
+                range: span_to_range(*span),
+            },
+        });
+    }
+
+    references
+}
+
+fn workspace_symbol_entries_for_module(
+    text: &str,
+    module: &spectra_compiler::ast::Module,
+) -> Vec<CachedWorkspaceSymbol> {
+    let mut symbols = Vec::new();
+
+    for item in &module.items {
+        collect_workspace_symbol_entries(text, item, &mut symbols);
+    }
+
+    symbols
+}
+
+fn collect_workspace_symbol_entries(
+    text: &str,
+    item: &spectra_compiler::ast::Item,
+    output: &mut Vec<CachedWorkspaceSymbol>,
+) {
+    match item {
+        spectra_compiler::ast::Item::Import(import) => {
+            output.push(CachedWorkspaceSymbol {
+                name: import.alias.clone().unwrap_or_else(|| import.path.join("::")),
+                detail: Some("import".to_string()),
+                kind: SymbolKind::MODULE,
+                span: import.span,
+                container_name: None,
+            });
+        }
+        spectra_compiler::ast::Item::Function(function) => {
+            if let Some(name_span) = named_subspan(text, function.span, &function.name) {
+                output.push(CachedWorkspaceSymbol {
+                    name: function.name.clone(),
+                    detail: Some(format_function_signature(function)),
+                    kind: SymbolKind::FUNCTION,
+                    span: name_span,
+                    container_name: None,
+                });
+            }
+            for param in &function.params {
+                output.push(CachedWorkspaceSymbol {
+                    name: param.name.clone(),
+                    detail: param.ty.as_ref().map(format_type_annotation),
+                    kind: SymbolKind::VARIABLE,
+                    span: param.span,
+                    container_name: Some(function.name.clone()),
+                });
+            }
+        }
+        spectra_compiler::ast::Item::Struct(struct_def) => {
+            if let Some(name_span) = named_subspan(text, struct_def.span, &struct_def.name) {
+                output.push(CachedWorkspaceSymbol {
+                    name: struct_def.name.clone(),
+                    detail: Some("struct".to_string()),
+                    kind: SymbolKind::STRUCT,
+                    span: name_span,
+                    container_name: None,
+                });
+            }
+            for field in &struct_def.fields {
+                output.push(CachedWorkspaceSymbol {
+                    name: field.name.clone(),
+                    detail: Some(format_type_annotation(&field.ty)),
+                    kind: SymbolKind::FIELD,
+                    span: field.span,
+                    container_name: Some(struct_def.name.clone()),
+                });
+            }
+        }
+        spectra_compiler::ast::Item::Enum(enum_def) => {
+            if let Some(name_span) = named_subspan(text, enum_def.span, &enum_def.name) {
+                output.push(CachedWorkspaceSymbol {
+                    name: enum_def.name.clone(),
+                    detail: Some("enum".to_string()),
+                    kind: SymbolKind::ENUM,
+                    span: name_span,
+                    container_name: None,
+                });
+            }
+            for variant in &enum_def.variants {
+                output.push(CachedWorkspaceSymbol {
+                    name: variant.name.clone(),
+                    detail: Some(format_variant_signature(enum_def, variant)),
+                    kind: SymbolKind::ENUM_MEMBER,
+                    span: variant.span,
+                    container_name: Some(enum_def.name.clone()),
+                });
+            }
+        }
+        spectra_compiler::ast::Item::Impl(impl_block) => {
+            for method in &impl_block.methods {
+                if let Some(name_span) = named_subspan(text, method.span, &method.name) {
+                    output.push(CachedWorkspaceSymbol {
+                        name: method.name.clone(),
+                        detail: Some(format_method_signature(&impl_block.type_name, method)),
+                        kind: SymbolKind::METHOD,
+                        span: name_span,
+                        container_name: Some(impl_block.type_name.clone()),
+                    });
+                }
+            }
+        }
+        spectra_compiler::ast::Item::Trait(trait_def) => {
+            if let Some(name_span) = named_subspan(text, trait_def.span, &trait_def.name) {
+                output.push(CachedWorkspaceSymbol {
+                    name: trait_def.name.clone(),
+                    detail: Some("trait".to_string()),
+                    kind: SymbolKind::INTERFACE,
+                    span: name_span,
+                    container_name: None,
+                });
+            }
+            for method in &trait_def.methods {
+                if let Some(name_span) = named_subspan(text, method.span, &method.name) {
+                    output.push(CachedWorkspaceSymbol {
+                        name: method.name.clone(),
+                        detail: Some(format_trait_method_signature(method)),
+                        kind: SymbolKind::METHOD,
+                        span: name_span,
+                        container_name: Some(trait_def.name.clone()),
+                    });
+                }
+            }
+        }
+        spectra_compiler::ast::Item::TraitImpl(trait_impl) => {
+            for method in &trait_impl.methods {
+                if let Some(name_span) = named_subspan(text, method.span, &method.name) {
+                    output.push(CachedWorkspaceSymbol {
+                        name: method.name.clone(),
+                        detail: Some(format_method_signature(&trait_impl.type_name, method)),
+                        kind: SymbolKind::METHOD,
+                        span: name_span,
+                        container_name: Some(trait_impl.type_name.clone()),
+                    });
+                }
+            }
+        }
+    }
+}
+
+#[allow(deprecated)]
+fn workspace_symbol_information(uri: &Url, symbol: &CachedWorkspaceSymbol) -> SymbolInformation {
+    SymbolInformation {
+        name: symbol.name.clone(),
+        kind: symbol.kind,
+        tags: None,
+        deprecated: None,
+        location: Location {
+            uri: uri.clone(),
+            range: span_to_range(symbol.span),
+        },
+        container_name: symbol.container_name.clone(),
+    }
+}
+
+fn semantic_tokens_for_document(
+    text: &str,
+    module: &spectra_compiler::ast::Module,
+    analysis: &DocumentAnalysis,
+) -> Vec<SemanticToken> {
+    let (declaration_tokens, declaration_kinds) = semantic_declaration_tokens(text, module);
+    let mut all_tokens = declaration_tokens;
+
+    for (span, info) in &analysis.symbols {
+        let token_type = info
+            .def_span
+            .and_then(|definition_span| declaration_kinds.get(&definition_span).copied())
+            .unwrap_or_else(|| if info.is_local { TOKEN_VARIABLE } else { TOKEN_FUNCTION });
+
+        all_tokens.push((*span, token_type));
+    }
+
+    all_tokens.sort_by_key(|(span, _)| (span.start_location.line, span.start_location.column, span.end));
+    all_tokens.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
+
+    encode_semantic_tokens(all_tokens)
+}
+
+fn semantic_declaration_tokens(
+    text: &str,
+    module: &spectra_compiler::ast::Module,
+) -> (Vec<(Span, u32)>, HashMap<Span, u32>) {
+    let mut tokens = Vec::new();
+    let mut kinds = HashMap::new();
+
+    for item in &module.items {
+        match item {
+            spectra_compiler::ast::Item::Import(import) => {
+                for span in ordered_name_subspans(text, import.span, &import.path) {
+                    tokens.push((span, TOKEN_NAMESPACE));
+                }
+                if let Some(names) = &import.names {
+                    for imported_name in names {
+                        if let Some(span) = named_subspan(text, import.span, imported_name) {
+                            let token_type = imported_symbol_token_type(module, imported_name);
+                            tokens.push((span, token_type));
+                        }
+                    }
+                }
+                if let Some(alias) = &import.alias {
+                    if let Some(span) = named_subspan(text, import.span, alias) {
+                        tokens.push((span, TOKEN_NAMESPACE));
+                    }
+                }
+                kinds.insert(import.span, TOKEN_NAMESPACE);
+            }
+            spectra_compiler::ast::Item::Function(function) => {
+                if let Some(span) = named_subspan(text, function.span, &function.name) {
+                    tokens.push((span, TOKEN_FUNCTION));
+                }
+                kinds.insert(function.span, TOKEN_FUNCTION);
+                for type_param in &function.type_params {
+                    if let Some(span) = named_subspan(text, type_param.span, &type_param.name) {
+                        tokens.push((span, TOKEN_TYPE));
+                    }
+                    for bound in &type_param.bounds {
+                        if let Some(span) = named_subspan(text, type_param.span, bound) {
+                            tokens.push((span, TOKEN_INTERFACE));
+                        }
+                    }
+                }
+                for param in &function.params {
+                    if let Some(span) = named_subspan(text, param.span, &param.name) {
+                        tokens.push((span, TOKEN_PARAMETER));
+                    }
+                    kinds.insert(param.span, TOKEN_PARAMETER);
+                    if let Some(ty) = &param.ty {
+                        collect_type_annotation_tokens(text, ty, TOKEN_TYPE, &mut tokens);
+                    }
+                }
+                if let Some(return_type) = &function.return_type {
+                    collect_type_annotation_tokens(text, return_type, TOKEN_TYPE, &mut tokens);
+                }
+            }
+            spectra_compiler::ast::Item::Struct(struct_def) => {
+                if let Some(span) = named_subspan(text, struct_def.span, &struct_def.name) {
+                    tokens.push((span, TOKEN_TYPE));
+                }
+                kinds.insert(struct_def.span, TOKEN_TYPE);
+                for type_param in &struct_def.type_params {
+                    if let Some(span) = named_subspan(text, type_param.span, &type_param.name) {
+                        tokens.push((span, TOKEN_TYPE));
+                    }
+                }
+                for field in &struct_def.fields {
+                    if let Some(span) = named_subspan(text, field.span, &field.name) {
+                        tokens.push((span, TOKEN_PROPERTY));
+                    }
+                    kinds.insert(field.span, TOKEN_PROPERTY);
+                    collect_type_annotation_tokens(text, &field.ty, TOKEN_TYPE, &mut tokens);
+                }
+            }
+            spectra_compiler::ast::Item::Enum(enum_def) => {
+                if let Some(span) = named_subspan(text, enum_def.span, &enum_def.name) {
+                    tokens.push((span, TOKEN_ENUM));
+                }
+                kinds.insert(enum_def.span, TOKEN_ENUM);
+                for type_param in &enum_def.type_params {
+                    if let Some(span) = named_subspan(text, type_param.span, &type_param.name) {
+                        tokens.push((span, TOKEN_TYPE));
+                    }
+                }
+                for variant in &enum_def.variants {
+                    if let Some(span) = named_subspan(text, variant.span, &variant.name) {
+                        tokens.push((span, TOKEN_ENUM_MEMBER));
+                    }
+                    kinds.insert(variant.span, TOKEN_ENUM_MEMBER);
+                    if let Some(data) = &variant.data {
+                        for ty in data {
+                            collect_type_annotation_tokens(text, ty, TOKEN_TYPE, &mut tokens);
+                        }
+                    }
+                    if let Some(fields) = &variant.struct_data {
+                        for (_, ty) in fields {
+                            collect_type_annotation_tokens(text, ty, TOKEN_TYPE, &mut tokens);
+                        }
+                    }
+                }
+            }
+            spectra_compiler::ast::Item::Impl(impl_block) => {
+                if let Some(span) = named_subspan(text, impl_block.span, &impl_block.type_name) {
+                    tokens.push((span, TOKEN_TYPE));
+                }
+                if let Some(trait_name) = &impl_block.trait_name {
+                    if let Some(span) = named_subspan(text, impl_block.span, trait_name) {
+                        tokens.push((span, TOKEN_INTERFACE));
+                    }
+                }
+                for method in &impl_block.methods {
+                    if let Some(span) = named_subspan(text, method.span, &method.name) {
+                        tokens.push((span, TOKEN_METHOD));
+                    }
+                    kinds.insert(method.span, TOKEN_METHOD);
+                    for param in &method.params {
+                        if let Some(span) = named_subspan(text, param.span, &param.name) {
+                            tokens.push((span, TOKEN_PARAMETER));
+                        }
+                        kinds.insert(param.span, TOKEN_PARAMETER);
+                        if let Some(ty) = &param.type_annotation {
+                            collect_type_annotation_tokens(text, ty, TOKEN_TYPE, &mut tokens);
+                        }
+                    }
+                    if let Some(return_type) = &method.return_type {
+                        collect_type_annotation_tokens(text, return_type, TOKEN_TYPE, &mut tokens);
+                    }
+                }
+            }
+            spectra_compiler::ast::Item::Trait(trait_def) => {
+                if let Some(span) = named_subspan(text, trait_def.span, &trait_def.name) {
+                    tokens.push((span, TOKEN_INTERFACE));
+                }
+                kinds.insert(trait_def.span, TOKEN_INTERFACE);
+                for parent_trait in &trait_def.parent_traits {
+                    if let Some(span) = named_subspan(text, trait_def.span, parent_trait) {
+                        tokens.push((span, TOKEN_INTERFACE));
+                    }
+                }
+                for method in &trait_def.methods {
+                    if let Some(span) = named_subspan(text, method.span, &method.name) {
+                        tokens.push((span, TOKEN_METHOD));
+                    }
+                    kinds.insert(method.span, TOKEN_METHOD);
+                    for param in &method.params {
+                        if let Some(span) = named_subspan(text, param.span, &param.name) {
+                            tokens.push((span, TOKEN_PARAMETER));
+                        }
+                        kinds.insert(param.span, TOKEN_PARAMETER);
+                        if let Some(ty) = &param.type_annotation {
+                            collect_type_annotation_tokens(text, ty, TOKEN_TYPE, &mut tokens);
+                        }
+                    }
+                    if let Some(return_type) = &method.return_type {
+                        collect_type_annotation_tokens(text, return_type, TOKEN_TYPE, &mut tokens);
+                    }
+                }
+            }
+            spectra_compiler::ast::Item::TraitImpl(trait_impl) => {
+                if let Some(span) = named_subspan(text, trait_impl.span, &trait_impl.trait_name) {
+                    tokens.push((span, TOKEN_INTERFACE));
+                }
+                if let Some(span) = named_subspan(text, trait_impl.span, &trait_impl.type_name) {
+                    tokens.push((span, TOKEN_TYPE));
+                }
+                for method in &trait_impl.methods {
+                    if let Some(span) = named_subspan(text, method.span, &method.name) {
+                        tokens.push((span, TOKEN_METHOD));
+                    }
+                    kinds.insert(method.span, TOKEN_METHOD);
+                    for param in &method.params {
+                        if let Some(span) = named_subspan(text, param.span, &param.name) {
+                            tokens.push((span, TOKEN_PARAMETER));
+                        }
+                        kinds.insert(param.span, TOKEN_PARAMETER);
+                        if let Some(ty) = &param.type_annotation {
+                            collect_type_annotation_tokens(text, ty, TOKEN_TYPE, &mut tokens);
+                        }
+                    }
+                    if let Some(return_type) = &method.return_type {
+                        collect_type_annotation_tokens(text, return_type, TOKEN_TYPE, &mut tokens);
+                    }
+                }
+            }
+        }
+    }
+
+    (tokens, kinds)
+}
+
+fn imported_symbol_token_type(module: &spectra_compiler::ast::Module, imported_name: &str) -> u32 {
+    if module
+        .imported_function_return_types
+        .iter()
+        .any(|(name, _)| name == imported_name)
+    {
+        TOKEN_FUNCTION
+    } else if is_type_like_name(imported_name) {
+        TOKEN_TYPE
+    } else {
+        TOKEN_NAMESPACE
+    }
+}
+
+fn ordered_name_subspans(text: &str, container: Span, names: &[String]) -> Vec<Span> {
+    if container.end > text.len() || container.start > container.end {
+        return Vec::new();
+    }
+
+    let slice = &text[container.start..container.end];
+    let mut spans = Vec::new();
+    let mut search_from = 0usize;
+
+    for name in names {
+        if let Some(relative) = slice[search_from..].find(name) {
+            let start = container.start + search_from + relative;
+            let end = start + name.len();
+            spans.push(span_from_offsets(text, start, end));
+            search_from = end.saturating_sub(container.start);
+        }
+    }
+
+    spans
+}
+
+fn collect_type_annotation_tokens(
+    text: &str,
+    ty: &spectra_compiler::ast::TypeAnnotation,
+    final_kind: u32,
+    tokens: &mut Vec<(Span, u32)>,
+) {
+    match &ty.kind {
+        spectra_compiler::ast::TypeAnnotationKind::Simple { segments } => {
+            let spans = ordered_name_subspans(text, ty.span, segments);
+            for (index, span) in spans.into_iter().enumerate() {
+                let kind = if index + 1 == segments.len() {
+                    final_kind
+                } else {
+                    TOKEN_NAMESPACE
+                };
+                tokens.push((span, kind));
+            }
+        }
+        spectra_compiler::ast::TypeAnnotationKind::Tuple { elements } => {
+            for element in elements {
+                collect_type_annotation_tokens(text, element, TOKEN_TYPE, tokens);
+            }
+        }
+        spectra_compiler::ast::TypeAnnotationKind::Function {
+            params,
+            return_type,
+        } => {
+            for param in params {
+                collect_type_annotation_tokens(text, param, TOKEN_TYPE, tokens);
+            }
+            collect_type_annotation_tokens(text, return_type, TOKEN_TYPE, tokens);
+        }
+    }
+}
+
+fn is_type_like_name(name: &str) -> bool {
+    name.chars().next().map(|ch| ch.is_ascii_uppercase()).unwrap_or(false)
+}
+
+fn encode_semantic_tokens(tokens: Vec<(Span, u32)>) -> Vec<SemanticToken> {
+    let mut encoded = Vec::new();
+    let mut prev_line = 0u32;
+    let mut prev_start = 0u32;
+
+    for (span, token_type) in tokens {
+        if span.start_location.line != span.end_location.line {
+            continue;
+        }
+
+        let line = span.start_location.line.saturating_sub(1) as u32;
+        let start = span.start_location.column.saturating_sub(1) as u32;
+        let length = span.end_location.column.saturating_sub(span.start_location.column) as u32;
+        if length == 0 {
+            continue;
+        }
+
+        let delta_line = line.saturating_sub(prev_line);
+        let delta_start = if delta_line == 0 {
+            start.saturating_sub(prev_start)
+        } else {
+            start
+        };
+
+        encoded.push(SemanticToken {
+            delta_line,
+            delta_start,
+            length,
+            token_type,
+            token_modifiers_bitset: 0,
+        });
+
+        prev_line = line;
+        prev_start = start;
+    }
+
+    encoded
+}
+
+fn named_subspan(text: &str, container: Span, name: &str) -> Option<Span> {
+    if name.is_empty() || container.end > text.len() || container.start > container.end {
+        return None;
+    }
+
+    let slice = &text[container.start..container.end];
+    let mut search_from = 0usize;
+    while let Some(relative) = slice[search_from..].find(name) {
+        let relative_start = search_from + relative;
+        let relative_end = relative_start + name.len();
+
+        let before = slice[..relative_start].chars().next_back();
+        let after = slice[relative_end..].chars().next();
+        let boundary_before = before.map(is_identifier_char).unwrap_or(false);
+        let boundary_after = after.map(is_identifier_char).unwrap_or(false);
+        if !boundary_before && !boundary_after {
+            let start = container.start + relative_start;
+            let end = container.start + relative_end;
+            return Some(span_from_offsets(text, start, end));
+        }
+
+        search_from = relative_end;
+    }
+
+    None
+}
+
+fn is_identifier_char(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+fn span_from_offsets(text: &str, start: usize, end: usize) -> Span {
+    let start_location = offset_to_location(text, start);
+    let end_location = offset_to_location(text, end);
+    Span {
+        start,
+        end,
+        start_location,
+        end_location,
+    }
+}
+
+fn offset_to_location(text: &str, offset: usize) -> spectra_compiler::span::Location {
+    let mut line = 1usize;
+    let mut column = 1usize;
+
+    for (idx, ch) in text.char_indices() {
+        if idx >= offset {
+            break;
+        }
+
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+
+    spectra_compiler::span::Location { line, column }
+}
+
+fn quick_fix_for_diagnostic(uri: &Url, document: &DocumentState, diagnostic: &Diagnostic) -> Option<CodeAction> {
+    let code = match &diagnostic.code {
+        Some(NumberOrString::String(code)) => code.as_str(),
+        _ => "",
+    };
+
+    match code {
+        "lint(unused-binding)" => unused_binding_quick_fix(uri, &document.text, diagnostic),
+        "lint(shadowing)" => shadowing_quick_fix(uri, document, diagnostic),
+        "lint(unreachable-code)" => unreachable_code_quick_fix(uri, diagnostic),
+        _ => hint_based_quick_fix(uri, &document.text, diagnostic),
+    }
+}
+
+fn unused_binding_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {
+    let binding_name = extract_quoted_name(&diagnostic.message)?;
+    if binding_name.starts_with('_') {
+        return None;
+    }
+
+    let binding_range = find_name_range_in_range(text, diagnostic.range, &binding_name)?;
+    let edit = TextEdit {
+        range: binding_range,
+        new_text: format!("_{}", binding_name),
+    };
+
+    Some(quick_fix_action(
+        uri,
+        diagnostic,
+        format!("Prefixar '{}' com _", binding_name),
+        vec![edit],
+    ))
+}
+
+fn shadowing_quick_fix(uri: &Url, document: &DocumentState, diagnostic: &Diagnostic) -> Option<CodeAction> {
+    let binding_name = extract_quoted_name(&diagnostic.message)?;
+    let replacement = unique_identifier_name(&document.text, &binding_name);
+    let definition_range = find_name_range_in_range(&document.text, diagnostic.range, &binding_name)?;
+    let definition_span = range_to_span(&document.text, definition_range);
+
+    let mut edits = Vec::new();
+    for (span, info) in &document.analysis.symbols {
+        if info.def_span != Some(definition_span) {
+            continue;
+        }
+        edits.push(TextEdit {
+            range: span_to_range(*span),
+            new_text: replacement.clone(),
+        });
+    }
+
+    if edits.is_empty() {
+        edits.push(TextEdit {
+            range: definition_range,
+            new_text: replacement.clone(),
+        });
+    }
+
+    Some(quick_fix_action(
+        uri,
+        diagnostic,
+        format!("Renomear '{}' para '{}'", binding_name, replacement),
+        edits,
+    ))
+}
+
+fn unreachable_code_quick_fix(uri: &Url, diagnostic: &Diagnostic) -> Option<CodeAction> {
+    Some(quick_fix_action(
+        uri,
+        diagnostic,
+        "Remover código inalcançável".to_string(),
+        vec![TextEdit {
+            range: diagnostic.range,
+            new_text: String::new(),
+        }],
+    ))
+}
+
+fn hint_based_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {
+    let hints = diagnostic
+        .related_information
+        .as_ref()?
+        .iter()
+        .map(|info| info.message.as_str())
+        .collect::<Vec<_>>();
+
+    for hint in hints {
+        let inserted = if hint.contains("matching \" character") {
+            Some("\"")
+        } else if hint.contains("matching ' character") {
+            Some("'")
+        } else {
+            None
+        }?;
+
+        let insert_offset = position_to_offset(text, diagnostic.range.end);
+        let insert_range = span_to_range(span_from_offsets(text, insert_offset, insert_offset));
+        return Some(quick_fix_action(
+            uri,
+            diagnostic,
+            format!("Aplicar hint: inserir {}", inserted),
+            vec![TextEdit {
+                range: insert_range,
+                new_text: inserted.to_string(),
+            }],
+        ));
+    }
+
+    None
+}
+
+fn quick_fix_action(uri: &Url, diagnostic: &Diagnostic, title: String, edits: Vec<TextEdit>) -> CodeAction {
+    let mut changes = HashMap::new();
+    changes.insert(uri.clone(), edits);
+
+    CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        is_preferred: Some(true),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        ..Default::default()
+    }
+}
+
+fn extract_quoted_name(message: &str) -> Option<String> {
+    let start = message.find('\'')?;
+    let end = message[start + 1..].find('\'')? + start + 1;
+    Some(message[start + 1..end].to_string())
+}
+
+fn unique_identifier_name(text: &str, base: &str) -> String {
+    let mut index = 1usize;
+    loop {
+        let candidate = format!("{}_{}", base, index);
+        if !contains_identifier(text, &candidate) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
+fn contains_identifier(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(start, _)| {
+        let before = text[..start].chars().next_back();
+        let end = start + name.len();
+        let after = if end < text.len() { text[end..].chars().next() } else { None };
+        !before.map(is_identifier_char).unwrap_or(false) && !after.map(is_identifier_char).unwrap_or(false)
+    })
+}
+
+fn find_name_range_in_range(text: &str, range: Range, name: &str) -> Option<Range> {
+    let start_offset = position_to_offset(text, range.start);
+    let end_offset = position_to_offset(text, range.end);
+    if start_offset >= end_offset || end_offset > text.len() {
+        return None;
+    }
+
+    let slice = &text[start_offset..end_offset];
+    let relative = slice.find(name)?;
+    let before = if relative == 0 { None } else { slice[..relative].chars().next_back() };
+    let after_index = relative + name.len();
+    let after = if after_index >= slice.len() { None } else { slice[after_index..].chars().next() };
+    if before.map(is_identifier_char).unwrap_or(false) || after.map(is_identifier_char).unwrap_or(false) {
+        return None;
+    }
+
+    let absolute_start = start_offset + relative;
+    let absolute_end = absolute_start + name.len();
+    Some(span_to_range(span_from_offsets(text, absolute_start, absolute_end)))
+}
+
+fn range_to_span(text: &str, range: Range) -> Span {
+    let start = position_to_offset(text, range.start);
+    let end = position_to_offset(text, range.end);
+    span_from_offsets(text, start, end)
 }
 
 #[tokio::main]

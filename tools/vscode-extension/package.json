@@ -17,6 +17,7 @@
     "Linters",
     "Formatters"
   ],
+  "icon": "assets/spectra-icon.png",
   "activationEvents": [
     "onLanguage:spectra",
     "onCommand:spectra.diagnostics.run",
@@ -30,7 +31,11 @@
         "id": "spectra",
         "aliases": ["Spectra", "SpectraLang"],
         "extensions": [".spectra"],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./assets/spectra-file-light.png",
+          "dark": "./assets/spectra-file-dark.png"
+        }
       }
     ],
     "grammars": [
