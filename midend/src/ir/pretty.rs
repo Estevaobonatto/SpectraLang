@@ -230,6 +230,28 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::Copy { result, source } => {
                 format!("{} = copy {}", fmt_value(*result), fmt_value(*source))
             }
+            InstructionKind::FuncAddr { result, function } => {
+                format!("{} = func_addr {}", fmt_value(*result), function)
+            }
+            InstructionKind::CallIndirect {
+                result,
+                fn_ptr,
+                args,
+                signature_params: _,
+                signature_return: _,
+            } => {
+                let arg_list = args
+                    .iter()
+                    .map(|arg| fmt_value(*arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                match result {
+                    Some(value) => {
+                        format!("{} = call_indirect {}({})", fmt_value(*value), fmt_value(*fn_ptr), arg_list)
+                    }
+                    None => format!("call_indirect {}({})", fmt_value(*fn_ptr), arg_list),
+                }
+            }
             InstructionKind::ConstInt { result, value } => {
                 format!("{} = const.int {}", fmt_value(*result), value)
             }

@@ -246,6 +246,39 @@ impl IRBuilder {
         });
         result
     }
+
+    /// Emit a `FuncAddr` instruction: returns the address of `function` as an i64.
+    pub fn build_func_addr(&self, func: &mut Function, function: String) -> Value {
+        self.try_emit(func, |result| InstructionKind::FuncAddr { result, function })
+    }
+
+    /// Emit a `CallIndirect` instruction: call through a function pointer.
+    /// Returns the result value when `sig_return` is not `Type::Void`.
+    pub fn build_call_indirect(
+        &self,
+        func: &mut Function,
+        fn_ptr: Value,
+        args: Vec<Value>,
+        sig_params: Vec<crate::ir::Type>,
+        sig_return: crate::ir::Type,
+    ) -> Option<Value> {
+        let Some(block_id) = self.current_block else {
+            return None;
+        };
+        let Some(pos) = func.blocks.iter().position(|b| b.id == block_id) else {
+            return None;
+        };
+        let has_return = sig_return != crate::ir::Type::Void;
+        let result = if has_return { Some(func.next_value()) } else { None };
+        func.blocks[pos].add_instruction(InstructionKind::CallIndirect {
+            result,
+            fn_ptr,
+            args,
+            signature_params: sig_params,
+            signature_return: Box::new(sig_return),
+        });
+        result
+    }
 }
 
 impl Default for IRBuilder {

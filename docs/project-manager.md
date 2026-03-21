@@ -56,8 +56,11 @@
 - [x] Backend Cranelift JIT funcional
 - [x] Lint básico (variáveis não usadas, etc.)
 - [x] Monomorphization de generics
-- [x] Visibilidade `pub` / privado
-- [x] Módulos e imports básicos
+- [x] Visibilidade `pub` / `internal` / privado
+- [x] Sistema de módulos multi-arquivo (registry, ModuleExports, cross-module calls)
+- [x] Módulos stdlib virtuais (`std.io`, `std.math`, `std.collections`)
+- [x] `pub import` para re-exportação e `internal` para visibilidade de pacote
+- [x] Configuração de projeto via `spectra.toml`
 
 ---
 
@@ -141,14 +144,45 @@ enum Shape {
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/item.rs`
 - **Status**: ✅ Implementado end-to-end — parsing, semântica, lowering e backend (JIT) funcionais; validado em `examples/test_beta_struct_enum_variants.spectra`
 
-### 🗂️ Import Avançado (alias e named imports)
+### 🗂️ Import Avançado e Sistema de Módulos Multi-arquivo
+
+Imports nomeados, aliased e re-exports funcionam end-to-end com stdlib virtual integrada.
+
 ```spectra
-import math.utils as utils;
-import { sin, cos, tan } from math.trig;
-import path.to.MyStruct;
+import std.io;                             // stdlib virtual — expõe print, println, etc.
+import math.utils as utils;                // alias de módulo
+import { sin, cos, tan } from math.trig;  // named imports
+pub import path.to.Module;                // re-exportar para consumidores externos
+
+internal fn helper() -> int { 42 }        // visível só no mesmo pacote (mesmo name em spectra.toml)
 ```
-- **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/module.rs`
-- **Status**: 🟡 Sintaxe disponível; integração com símbolos esperados de `std.io` ainda pendente
+
+- **Arquivos**: `compiler/src/parser/module.rs`, `compiler/src/semantic/module_registry.rs`, `compiler/src/semantic/builtin_modules.rs`, `midend/src/lowering.rs`, `tools/spectra-cli/src/config.rs`, `tools/spectra-cli/src/discovery.rs`
+- **Status**: ✅ Implementado end-to-end — multi-arquivo, cross-module calls, stdlib virtual, `pub import`, `internal`, `spectra.toml`, auto-descoberta de fontes e ordenação topológica. Validado com `examples/test_multi_a.spectra` + `test_multi_b.spectra` (`square(7)` → 49).
+
+**Componentes do sistema de módulos:**
+
+| Componente | Arquivo | Descrição |
+|-----------|---------|----------|
+| `ModuleRegistry` | `compiler/src/semantic/module_registry.rs` | Registro global de exports por módulo |
+| `ModuleExports` | `compiler/src/semantic/module_registry.rs` | Funções/tipos exportados por um módulo |
+| Stdlib virtual | `compiler/src/semantic/builtin_modules.rs` | `std.io`, `std.math`, `std.collections` pré-registrados |
+| `internal` keyword | `compiler/src/token.rs` | Visibilidade de pacote (acesso somente por módulos do mesmo `[project].name`) |
+| `pub import` | `compiler/src/parser/module.rs` | Re-exporta um módulo importado para consumidores externos |
+| `spectra.toml` | `tools/spectra-cli/src/config.rs` | Configuração de projeto com `[project]` section |
+| Auto-descoberta | `tools/spectra-cli/src/discovery.rs` | Coleta `.spectra`/`.spc` de `src_dirs` recursivamente |
+| Ordenação | `tools/spectra-cli/src/project.rs` | Topological sort de módulos por grafo de dependências |
+| CodeGenerator persistente | `tools/spectra-cli/src/compiler_integration.rs` | Reutilizado entre compilações para manter linking cross-module |
+
+**Formato de `spectra.toml`:**
+
+```toml
+[project]
+name = "meu-projeto"
+version = "1.0.0"
+src_dirs = ["src"]
+entry = "main.spectra"
+```
 
 ### Status de Validação Atual
 
@@ -159,7 +193,8 @@ import path.to.MyStruct;
 - ✅ `examples/test_if_let_correctness.spectra` — valida bindings, else branch, contagem de iterações e soma via binding
 - ✅ `examples/test_beta_ranges.spectra`
 - ✅ `examples/test_beta_struct_enum_variants.spectra` — compila e executa com JIT
-- 🟡 `examples/test_beta_imports.spectra` ainda depende de resolução real de `std.io::{print, println}`
+- ✅ `examples/test_beta_imports.spectra` — `std.io` resolvido via módulos stdlib virtuais; `print` e `println` funcionais
+- ✅ `examples/test_multi_a.spectra` + `examples/test_multi_b.spectra` — chamadas cross-module validadas (`square(7)` → 49)
 
 ### Notas pós-implementação
 
@@ -313,10 +348,11 @@ let fields = reflect::fields<MyStruct>();
 ### Package Manager
 ```toml
 # spectra.toml
-[package]
+[project]
 name = "meu-projeto"
 version = "1.0.0"
-edition = "2025"
+src_dirs = ["src"]
+entry = "main.spectra"
 
 [dependencies]
 spectra-json = "1.0"
@@ -335,15 +371,16 @@ spectra-http = "0.5"
 
 | Feature | Tipo | Complexidade | Notas |
 |---------|------|--------------|-------|
-| Char literals `'a'` | Syntax | Baixa | Lexer + AST |
-| F-strings `f"..."` | Syntax | Média | Lexer + parser + lowering |
-| Closures `|x| expr` | Syntax | Alta | AST + lowering + JIT |
-| Operador `?` | Syntax | Média | Try desugar em lowering |
-| Range `..` / `..=` | Syntax | Média | Range type + for-in |
-| `if let` / `while let` | Syntax | Média | AST desugar = match |
-| Struct enum variants `Variant { field: T }` | Syntax | Média | AST + parser + lowering |
-| Import aliasing `import x as y` | Syntax | Baixa | Parser |
-| Named imports `import { a, b } from x` | Syntax | Baixa | Parser |
+| Char literals `'a'` | Syntax | Baixa | ✅ Implementado |
+| F-strings `f"..."` | Syntax | Média | ✅ Implementado |
+| Closures `|x| expr` | Syntax | Alta | 🟡 Parser/semântica OK; lowering parcial |
+| Operador `?` | Syntax | Média | 🟡 Sintaxe + lowering básico; falta `Result`/stdlib |
+| Range `..` / `..=` | Syntax | Média | ✅ Implementado |
+| `if let` / `while let` | Syntax | Média | ✅ Implementado |
+| Struct enum variants `Variant { field: T }` | Syntax | Média | ✅ Implementado |
+| Import aliasing `import x as y` | Syntax | Baixa | ✅ Implementado |
+| Named imports `import { a, b } from x` | Syntax | Baixa | ✅ Implementado |
+| `pub import` / `internal` / multi-módulos | Syntax/Infra | Alta | ✅ Implementado |
 | `Result<T,E>` built-in | Stdlib | Alta | Enum + methods |
 | `Option<T>` built-in | Stdlib | Média | Enum + methods |
 | `std.string` métodos | Stdlib | Média | Runtime FFI |
@@ -391,6 +428,8 @@ spectra-http = "0.5"
 | Traits | Estáticos (vtable-free) | Resolvidos em compile-time, sem overhead |
 | Strings | UTF-8 heap-allocated | Compatibilidade universal, boas primitivas |
 | Números | `int` = i64, `float` = f64 | Simplificação deliberada (sem u8, i32, etc.) |
+| Módulos | Registry centralizado, 3 níveis de visibilidade | `pub` (global), `internal` (pacote), privado; stdlib como módulos virtuais pré-registrados |
+| JIT multi-módulo | `CodeGenerator` persistido entre módulos | Mantém `function_map` com FuncIds para linking cross-module |
 
 ---
 
@@ -403,9 +442,9 @@ spectra-http = "0.5"
 | Generics | ✅ | ✅ | ✅ (Go 1.18+) | ✅ | ✅ (typing) |
 | Traits/Interfaces | ✅ | ✅ | ✅ (interfaces) | ✅ | ✅ (ABC) |
 | Pattern matching | ✅ | ✅ | Parcial | ✅ | ✅ (3.10+) |
-| Closures | 🔄 Beta 0.1 | ✅ | ✅ | ✅ | ✅ |
+| Closures | � Parcial | ✅ | ✅ | ✅ | ✅ |
 | async/await | 🔄 Beta 0.3 | ✅ | via goroutines | ✅ | ✅ |
-| f-strings | 🔄 Beta 0.1 | ❌ (format!) | ❌ (fmt.Sprintf) | ✅ (string templates) | ✅ |
+| f-strings | ✅ | ❌ (format!) | ❌ (fmt.Sprintf) | ✅ (string templates) | ✅ |
 | Operador `?` | 🔄 Beta 0.1 | ✅ | ❌ | ❌ | ❌ |
 | JIT | ✅ | ❌ | ❌ | JVM JIT | PyPy |
 | Macros | 🔄 Beta 0.4 | ✅ | ❌ | ❌ | ❌ |
@@ -442,8 +481,20 @@ cargo build
 # Executar testes
 cargo test
 
-# Executar arquivo .spectra específico
-cargo run --bin spectra-cli -- run examples/basic.spectra
+# Executar arquivo .spectra único
+.\target\debug\spectra-cli.exe run examples/basic.spectra
+
+# Executar projeto multi-arquivo (ordem = dependências primeiro)
+.\target\debug\spectra-cli.exe run examples/mathutils.spectra examples/main_app.spectra
+
+# Executar projeto via spectra.toml (auto-descoberta de src_dirs)
+.\target\debug\spectra-cli.exe build
+
+# Criar novo projeto com spectra.toml
+.\target\debug\spectra-cli.exe new meu-projeto
+
+# Verificar erros sem executar
+.\target\debug\spectra-cli.exe check examples/basic.spectra
 
 # Rodar script de testes de regressão
 .\run_tests.ps1
@@ -451,4 +502,4 @@ cargo run --bin spectra-cli -- run examples/basic.spectra
 
 ---
 
-_Última atualização: 2025 — Beta 0.1 em progresso ativo._
+_Última atualização: março de 2026 — Beta 0.1 concluído; sistema multi-módulos implementado; Beta 0.2 em planejamento._

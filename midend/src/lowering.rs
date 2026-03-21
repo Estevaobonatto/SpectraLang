@@ -284,6 +284,13 @@ pub struct ASTLowering {
     /// Populated from `Module::std_import_aliases` at the start of `lower_module()`.
     /// e.g. "print" → ["std", "io", "print"]
     std_import_aliases: HashMap<String, Vec<String>>,
+    /// Counter for generating unique lambda function names.
+    lambda_counter: usize,
+    /// Lambdas collected during lowering that will be emitted as top-level IR functions.
+    pending_lambdas: Vec<IRFunction>,
+    /// Maps variable names that hold closures to their generated function names.
+    /// e.g. "double" → "__lambda_0"
+    closure_var_map: HashMap<String, String>,
 }
 
 impl ASTLowering {
@@ -309,6 +316,9 @@ impl ASTLowering {
             trait_implementations: HashMap::new(),
             function_return_types: HashMap::new(),
             std_import_aliases: HashMap::new(),
+            lambda_counter: 0,
+            pending_lambdas: Vec::new(),
+            closure_var_map: HashMap::new(),
         }
     }
 
@@ -448,6 +458,12 @@ impl ASTLowering {
 
         // Process pending monomorphization requests
         self.process_monomorphization_requests(&mut ir_module);
+
+        // Emit any lambda functions collected during lowering
+        let lambdas = std::mem::take(&mut self.pending_lambdas);
+        for lambda_func in lambdas {
+            ir_module.add_function(lambda_func);
+        }
 
         ir_module
     }
@@ -1545,8 +1561,37 @@ impl ASTLowering {
             }
             ExpressionKind::CharLiteral(_) => IRType::Char,
             ExpressionKind::FString(_) => IRType::String,
-            ExpressionKind::Lambda { .. } => IRType::Int, // TODO: function pointer type
-            ExpressionKind::Try(inner) => self.infer_expr_ir_type(inner),
+            ExpressionKind::Lambda { params, body } => {
+                // Return IRType::Function so callers can emit CallIndirect with the right sig.
+                let param_types: Vec<IRType> = params
+                    .iter()
+                    .map(|p| p.ty.as_ref().map(|t| self.lower_type_annotation(t)).unwrap_or(IRType::Int))
+                    .collect();
+                let ret = self.infer_expr_ir_type(body);
+                IRType::Function {
+                    params: param_types,
+                    return_type: Box::new(ret),
+                }
+            }
+            ExpressionKind::Try(inner) => {
+                // `?` unwraps the Ok payload; infer from the inner type's first data field.
+                // Until Result<T,E> is a first-class stdlib type, fall back to Int.
+                let inner_type = self.infer_expr_ir_type(inner);
+                match inner_type {
+                    IRType::Enum { name: _, ref variants } => {
+                        // Expect Ok at tag 0 with a single data field
+                        if let Some((_, ok_payload)) = variants.first() {
+                            if let Some(payload_types) = ok_payload {
+                                if let Some(first) = payload_types.first() {
+                                    return first.clone();
+                                }
+                            }
+                        }
+                        IRType::Int
+                    }
+                    _ => IRType::Int,
+                }
+            }
             ExpressionKind::Range { .. } => IRType::Array {
                 element_type: Box::new(IRType::Int),
                 size: 0,
@@ -1554,10 +1599,12 @@ impl ASTLowering {
             ExpressionKind::Block(block) => {
                 block.statements.last()
                     .and_then(|stmt| {
-                        if let spectra_compiler::ast::StatementKind::Expression(expr) = &stmt.kind {
-                            Some(self.infer_expr_ir_type(expr))
-                        } else {
-                            None
+                        match &stmt.kind {
+                            spectra_compiler::ast::StatementKind::Expression(expr) => Some(self.infer_expr_ir_type(expr)),
+                            spectra_compiler::ast::StatementKind::Return(ret) => {
+                                ret.value.as_ref().map(|v| self.infer_expr_ir_type(v))
+                            },
+                            _ => None
                         }
                     })
                     .unwrap_or(IRType::Void)
@@ -1676,6 +1723,107 @@ impl ASTLowering {
         }
 
         ir_func
+    }
+
+    /// Lower a lambda expression into a self-contained top-level IR function.
+    ///
+    /// Saves and restores all per-function state so nested lambdas work correctly.
+    /// Returns the generated IR function; the caller must queue it in `pending_lambdas`.
+    fn lower_lambda(
+        &mut self,
+        name: String,
+        params: &[spectra_compiler::ast::LambdaParam],
+        body: &Expression,
+    ) -> IRFunction {
+        use crate::ir::Parameter;
+
+        // Build parameter list from the lambda signature
+        let ir_params: Vec<Parameter> = params
+            .iter()
+            .enumerate()
+            .map(|(idx, p)| Parameter {
+                id: idx,
+                name: p.name.clone(),
+                ty: p.ty.as_ref()
+                    .map(|t| self.lower_type_annotation(t))
+                    .unwrap_or(IRType::Int),
+            })
+            .collect();
+
+        // Infer the return type from the body expression
+        let return_type = self.infer_expr_ir_type(body);
+
+        // Register the function so recursive/forward references resolve correctly
+        self.function_return_types.insert(name.clone(), return_type.clone());
+
+        // --- Save outer function state ---
+        let saved_value_map = self.value_map.clone();
+        let saved_variable_types = self.variable_types.clone();
+        let saved_alloca_map = std::mem::take(&mut self.alloca_map);
+        let saved_array_map = self.array_map.clone();
+        let saved_struct_var_map = self.struct_var_map.clone();
+        let saved_current_function = self.current_function.take();
+        let saved_builder_block = self.builder.get_current_block();
+
+        // --- Reset state for lambda body ---
+        self.value_map.clear();
+        self.variable_types.clear();
+        self.alloca_map = HashMap::new();
+        self.array_map.clear();
+        self.struct_var_map.clear();
+
+        let mut lambda_func = IRFunction::new(&name, ir_params.clone(), return_type.clone());
+        let entry_block = lambda_func.add_block("entry");
+        self.builder.set_current_block(entry_block);
+
+        // Map parameters into value/type maps
+        for (idx, param) in ir_params.iter().enumerate() {
+            let value = Value { id: idx };
+            self.value_map.insert(param.name.clone(), value);
+            if param.ty != IRType::Void {
+                self.variable_types.insert(param.name.clone(), param.ty.clone());
+            }
+        }
+
+        // Pre-allocate mutable slots for any variables assigned inside the body
+        let assigned_vars = if let ExpressionKind::Block(block) = &body.kind {
+            self.find_assigned_variables(&block.statements)
+        } else {
+            std::collections::HashSet::new()
+        };
+        for var_name in &assigned_vars {
+            let alloca_value = self.builder.build_alloca(&mut lambda_func, IRType::Int);
+            self.alloca_map.insert(var_name.clone(), alloca_value);
+        }
+
+        // Lower the body
+        let result_value = self.lower_expression(body, &mut lambda_func);
+
+        // Emit return if the current block has no terminator yet
+        if let Some(cur_block_id) = self.builder.get_current_block() {
+            if let Some(block) = lambda_func.get_block_mut(cur_block_id) {
+                if block.terminator.is_none() {
+                    if return_type != IRType::Void {
+                        block.set_terminator(Terminator::Return { value: Some(result_value) });
+                    } else {
+                        block.set_terminator(Terminator::Return { value: None });
+                    }
+                }
+            }
+        }
+
+        // --- Restore outer function state ---
+        self.value_map = saved_value_map;
+        self.variable_types = saved_variable_types;
+        self.alloca_map = saved_alloca_map;
+        self.array_map = saved_array_map;
+        self.struct_var_map = saved_struct_var_map;
+        self.current_function = saved_current_function;
+        if let Some(block_id) = saved_builder_block {
+            self.builder.set_current_block(block_id);
+        }
+
+        lambda_func
     }
 
     fn lower_block(&mut self, statements: &[Statement], ir_func: &mut IRFunction) {
@@ -1871,7 +2019,20 @@ impl ASTLowering {
                 }
 
                 if let Some(ref value_expr) = let_stmt.value {
+                    // Track the lambda function name BEFORE lowering so closure_var_map
+                    // is populated even if the lambda itself modifies lambda_counter.
+                    let lambda_func_name_hint = if let ExpressionKind::Lambda { .. } = &value_expr.kind {
+                        Some(format!("__lambda_{}", self.lambda_counter))
+                    } else {
+                        None
+                    };
+
                     let value = self.lower_expression(value_expr, ir_func);
+
+                    // Register in closure_var_map when the value bound is a lambda
+                    if let Some(lambda_name) = lambda_func_name_hint {
+                        self.closure_var_map.insert(let_stmt.name.clone(), lambda_name);
+                    }
 
                     match &value_expr.kind {
                         ExpressionKind::ArrayLiteral { .. } => {
@@ -2607,6 +2768,29 @@ impl ASTLowering {
                 } else {
                     "unknown".to_string()
                 };
+
+                // --- Closure variable call: direct name lookup ---
+                // If the identifier is a known closure variable, call the lambda function directly.
+                if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if let Some(lambda_name) = self.closure_var_map.get(name).cloned() {
+                        return self.builder
+                            .build_call(ir_func, lambda_name, arg_values, true)
+                            .unwrap_or_else(|| ir_func.next_value());
+                    }
+
+                    // --- Function pointer parameter (fn(T) -> R) ---
+                    // If the identifier is a variable of Function type, call through the pointer.
+                    if let Some(var_type) = self.variable_types.get(name) {
+                        if let IRType::Function { params: sig_params, return_type: sig_return } = var_type.clone() {
+                            if let Some(fn_ptr) = self.value_map.get(name) {
+                                let returns_value = *sig_return != IRType::Void;
+                                return self.builder
+                                    .build_call_indirect(ir_func, fn_ptr, arg_values, sig_params, *sig_return)
+                                    .unwrap_or_else(|| if returns_value { ir_func.next_value() } else { ir_func.next_value() });
+                            }
+                        }
+                    }
+                }
 
                 // temporary bypass for closures
                 if !self.function_return_types.contains_key(&function_name) 
@@ -3395,17 +3579,57 @@ impl ASTLowering {
                 result
             }
             ExpressionKind::Try(inner) => {
-                // TODO: proper error propagation — lower inner and pass through
-                self.lower_expression(inner, ir_func)
+                // Proper Result-propagation semantics:
+                //   1. Evaluate the inner expression → Result pointer (tagged heap tuple)
+                //   2. Load the tag from slot 0
+                //   3. tag == 0  →  Ok: extract the payload from slot 1 and continue
+                //      tag != 0  →  Err: early-return the Result pointer directly
+                //        (the calling function is assumed to also return Result<_, E>)
+                let result_ptr = self.lower_expression(inner, ir_func);
+
+                // Load tag (first field of the tagged tuple)
+                let zero_idx = self.builder.build_const_int(ir_func, 0);
+                let tag_ptr = self.builder.build_getelementptr(
+                    ir_func, result_ptr, zero_idx, IRType::Int,
+                );
+                let tag_val = self.builder.build_load(ir_func, tag_ptr);
+
+                // is_ok = (tag == 0)
+                let zero = self.builder.build_const_int(ir_func, 0);
+                let is_ok = self.builder.build_eq(ir_func, tag_val, zero);
+
+                let ok_block = ir_func.add_block("try.ok");
+                let err_block = ir_func.add_block("try.err");
+                self.builder.build_cond_branch(ir_func, is_ok, ok_block, err_block);
+
+                // Err branch: early return the error result pointer
+                self.builder.set_current_block(err_block);
+                self.builder.build_return(ir_func, Some(result_ptr));
+
+                // Ok branch: extract the Ok payload from slot 1
+                self.builder.set_current_block(ok_block);
+                let one_idx = self.builder.build_const_int(ir_func, 1);
+                let payload_ptr = self.builder.build_getelementptr(
+                    ir_func, result_ptr, one_idx, IRType::Int,
+                );
+                self.builder.build_load(ir_func, payload_ptr)
             }
             ExpressionKind::Range { start, end, .. } => {
                 // TODO: proper range object — lower both bounds and return start for now
                 let _end = self.lower_expression(end, ir_func);
                 self.lower_expression(start, ir_func)
             }
-            ExpressionKind::Lambda { .. } => {
-                // TODO: closure lowering
-                self.builder.build_const_int(ir_func, 0)
+            ExpressionKind::Lambda { params, body } => {
+                // Lower as a top-level IR function with a generated unique name.
+                let lambda_name = format!("__lambda_{}", self.lambda_counter);
+                self.lambda_counter += 1;
+
+                let lambda_func = self.lower_lambda(lambda_name.clone(), params, body);
+                self.pending_lambdas.push(lambda_func);
+
+                // Return the function's address as an opaque i64 — allows passing
+                // closures as arguments to higher-order functions.
+                self.builder.build_func_addr(ir_func, lambda_name)
             }
             ExpressionKind::Block(block) => {
                 let mut last_val = self.builder.build_const_int(ir_func, 0); // default
@@ -3708,8 +3932,16 @@ impl ASTLowering {
                     elements: ir_elements,
                 }
             }
-            TypeAnnotationKind::Function { .. } => {
-                IRType::Pointer(Box::new(IRType::Void))
+            TypeAnnotationKind::Function { params, return_type } => {
+                let ir_params = params
+                    .iter()
+                    .map(|ann| self.lower_type_annotation_with_map(ann, substitutions))
+                    .collect();
+                let ir_return_type = Box::new(self.lower_type_annotation_with_map(return_type, substitutions));
+                IRType::Function {
+                    params: ir_params,
+                    return_type: ir_return_type,
+                }
             }
         }
     }
@@ -3775,9 +4007,13 @@ impl ASTLowering {
                 // Por enquanto, tratar como ponteiro genérico (será resolvido no contexto)
                 IRType::Pointer(Box::new(IRType::Void))
             }
-            ASTType::Fn { .. } => {
-                // Closure/function type — represent as a generic pointer for now
-                IRType::Pointer(Box::new(IRType::Void))
+            ASTType::Fn { params, return_type } => {
+                let ir_params = params.iter().map(|t| self.lower_type(t)).collect();
+                let ir_return = Box::new(self.lower_type(return_type));
+                IRType::Function {
+                    params: ir_params,
+                    return_type: ir_return,
+                }
             }
         }
     }

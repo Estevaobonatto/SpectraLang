@@ -166,6 +166,21 @@ pub enum InstructionKind {
         host: String,
         args: Vec<Value>,
     },
+    /// Get the address of a named function as an opaque i64 pointer (for closures/HOF).
+    FuncAddr {
+        result: Value,
+        function: String,
+    },
+    /// Indirect call through a function pointer (closures passed as arguments).
+    CallIndirect {
+        result: Option<Value>,
+        fn_ptr: Value,
+        args: Vec<Value>,
+        /// Parameter types of the callee signature (used to build SigRef in the backend).
+        signature_params: Vec<Type>,
+        /// Return type of the callee signature.
+        signature_return: Box<Type>,
+    },
 
     // PHI node for SSA
     Phi {
