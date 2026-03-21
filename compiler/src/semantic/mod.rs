@@ -111,6 +111,7 @@ struct StructInfo {
 #[derive(Debug, Clone)]
 struct EnumVariantInfo {
     data: Option<Vec<crate::ast::TypeAnnotation>>,
+    struct_data: Option<Vec<(String, crate::ast::TypeAnnotation)>>,
     #[allow(dead_code)]
     span: Span,
 }
@@ -917,6 +918,7 @@ impl SemanticAnalyzer {
                             variant.name.clone(),
                             EnumVariantInfo {
                                 data: variant.data.clone(),
+                                struct_data: variant.struct_data.clone(),
                                 span: variant.span,
                             },
                         );
@@ -2523,11 +2525,17 @@ impl SemanticAnalyzer {
                 type_args,
                 variant_name,
                 data,
+                struct_data,
                 ..
             } => {
                 if let Some(args) = data {
                     for arg in args {
                         self.analyze_expression(arg);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, value) in fields {
+                        self.analyze_expression(value);
                     }
                 }
 
@@ -2577,8 +2585,26 @@ impl SemanticAnalyzer {
                     }
                 };
 
-                match (&variant_info.data, data) {
-                    (Some(expected_params), Some(actual_args)) => {
+                match (&variant_info.data, &variant_info.struct_data, data, struct_data) {
+                    (Some(_), _, _, Some(_)) => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' expects tuple-style values, not named fields",
+                                enum_name, variant_name
+                            ),
+                            expr.span,
+                        );
+                    }
+                    (_, Some(_), Some(_), _) => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' expects named fields, not tuple-style values",
+                                enum_name, variant_name
+                            ),
+                            expr.span,
+                        );
+                    }
+                    (Some(expected_params), _, Some(actual_args), None) => {
                         if expected_params.len() != actual_args.len() {
                             self.error(
                                 format!(
@@ -2614,7 +2640,66 @@ impl SemanticAnalyzer {
                             }
                         }
                     }
-                    (Some(expected_params), None) => {
+                    (None, Some(expected_fields), None, Some(actual_fields)) => {
+                        let expected_map: HashMap<String, crate::ast::TypeAnnotation> = expected_fields
+                            .iter()
+                            .cloned()
+                            .collect();
+                        let mut seen = HashSet::new();
+
+                        for (field_name, field_expr) in actual_fields {
+                            if !seen.insert(field_name.clone()) {
+                                self.error(
+                                    format!(
+                                        "Field '{}' appears more than once in variant '{}::{}'",
+                                        field_name, enum_name, variant_name
+                                    ),
+                                    field_expr.span,
+                                );
+                                continue;
+                            }
+
+                            let Some(expected_ann) = expected_map.get(field_name) else {
+                                self.error(
+                                    format!(
+                                        "Variant '{}::{}' has no field named '{}'",
+                                        enum_name, variant_name, field_name
+                                    ),
+                                    field_expr.span,
+                                );
+                                continue;
+                            };
+
+                            let actual_type = self.infer_expression_type(field_expr);
+                            let expected_type = self.type_annotation_to_type(&Some(expected_ann.clone()));
+                            if !self.types_match(&actual_type, &expected_type) {
+                                self.error(
+                                    format!(
+                                        "Field '{}' of variant '{}::{}' has type {:?}, but {:?} was expected",
+                                        field_name,
+                                        enum_name,
+                                        variant_name,
+                                        actual_type,
+                                        expected_type
+                                    ),
+                                    field_expr.span,
+                                );
+                            }
+                        }
+
+                        for (field_name, _) in expected_fields {
+                            if !seen.contains(field_name) {
+                                self.error(
+                                    format!(
+                                        "Variant '{}::{}' is missing field '{}'",
+                                        enum_name, variant_name, field_name
+                                    ),
+                                    expr.span,
+                                );
+                            }
+                        }
+                    }
+                    (Some(expected_params), _, None, None) => {
                         self.error(
                             format!(
                                 "Variant '{}::{}' expects {} value(s)",
@@ -2625,7 +2710,18 @@ impl SemanticAnalyzer {
                             expr.span,
                         );
                     }
-                    (None, Some(actual_args)) => {
+                    (None, Some(expected_fields), None, None) => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' expects {} named field(s)",
+                                enum_name,
+                                variant_name,
+                                expected_fields.len()
+                            ),
+                            expr.span,
+                        );
+                    }
+                    (None, None, Some(actual_args), None) => {
                         if !actual_args.is_empty() {
                             self.error(
                                 format!(
@@ -2636,7 +2732,29 @@ impl SemanticAnalyzer {
                             );
                         }
                     }
-                    (None, None) => {}
+                    (None, None, None, Some(actual_fields)) => {
+                        if !actual_fields.is_empty() {
+                            self.error(
+                                format!(
+                                    "Variant '{}::{}' does not take named fields",
+                                    enum_name, variant_name
+                                ),
+                                expr.span,
+                            );
+                        }
+                    }
+                    (None, None, Some(actual_args), Some(actual_fields)) => {
+                        if !actual_args.is_empty() || !actual_fields.is_empty() {
+                            self.error(
+                                format!(
+                                    "Variant '{}::{}' does not accept both positional and named values",
+                                    enum_name, variant_name
+                                ),
+                                expr.span,
+                            );
+                        }
+                    }
+                    (None, None, None, None) => {}
                 }
             }
             ExpressionKind::Match { scrutinee, arms } => {
@@ -2879,11 +2997,17 @@ impl SemanticAnalyzer {
                 enum_name: _,
                 variant_name: _,
                 data,
+                struct_data,
                 ..
             } => {
                 // Se houver sub-patterns, registrar recursivamente
                 if let Some(sub_patterns) = data {
                     for sub_pattern in sub_patterns {
+                        self.register_pattern_bindings(sub_pattern);
+                    }
+                }
+                if let Some(named_patterns) = struct_data {
+                    for (_, sub_pattern) in named_patterns {
                         self.register_pattern_bindings(sub_pattern);
                     }
                 }
@@ -2927,6 +3051,7 @@ impl SemanticAnalyzer {
                 type_args,
                 variant_name,
                 data,
+                struct_data,
             } => {
                 let enum_info = match self.enum_infos.get(enum_name).cloned() {
                     Some(info) => info,
@@ -2998,8 +3123,26 @@ impl SemanticAnalyzer {
                     }
                 };
 
-                match (&variant_info.data, data) {
-                    (Some(expected_types), Some(sub_patterns)) => {
+                match (&variant_info.data, &variant_info.struct_data, data, struct_data) {
+                    (Some(_), _, _, Some(_)) => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' uses tuple payloads and cannot be matched with named fields",
+                                enum_name, variant_name
+                            ),
+                            match_span,
+                        );
+                    }
+                    (_, Some(_), Some(_), _) => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' uses named fields and cannot be matched with tuple-style patterns",
+                                enum_name, variant_name
+                            ),
+                            match_span,
+                        );
+                    }
+                    (Some(expected_types), _, Some(sub_patterns), None) => {
                         if expected_types.len() != sub_patterns.len() {
                             self.error(
                                 format!(
@@ -3026,7 +3169,53 @@ impl SemanticAnalyzer {
                             );
                         }
                     }
-                    (Some(expected_types), None) => {
+                    (None, Some(expected_fields), None, Some(actual_fields)) => {
+                        let expected_map: HashMap<String, crate::ast::TypeAnnotation> = expected_fields
+                            .iter()
+                            .cloned()
+                            .collect();
+                        let mut seen = HashSet::new();
+
+                        for (field_name, sub_pattern) in actual_fields {
+                            if !seen.insert(field_name.clone()) {
+                                self.error(
+                                    format!(
+                                        "Field '{}' appears more than once in pattern '{}::{}'",
+                                        field_name, enum_name, variant_name
+                                    ),
+                                    match_span,
+                                );
+                                continue;
+                            }
+
+                            let Some(expected_ann) = expected_map.get(field_name) else {
+                                self.error(
+                                    format!(
+                                        "Variant '{}::{}' has no field named '{}'",
+                                        enum_name, variant_name, field_name
+                                    ),
+                                    match_span,
+                                );
+                                continue;
+                            };
+
+                            let expected_ty = self.type_annotation_to_type(&Some(expected_ann.clone()));
+                            self.validate_pattern_against_type(sub_pattern, &expected_ty, match_span);
+                        }
+
+                        for (field_name, _) in expected_fields {
+                            if !seen.contains(field_name) {
+                                self.error(
+                                    format!(
+                                        "Pattern for variant '{}::{}' is missing field '{}'",
+                                        enum_name, variant_name, field_name
+                                    ),
+                                    match_span,
+                                );
+                            }
+                        }
+                    }
+                    (Some(expected_types), _, None, None) => {
                         self.error(
                             format!(
                                 "Pattern for variant '{}::{}' is missing {} field(s)",
@@ -3037,10 +3226,30 @@ impl SemanticAnalyzer {
                             match_span,
                         );
                     }
-                    (None, Some(sub_patterns)) if !sub_patterns.is_empty() => {
+                    (None, Some(expected_fields), None, None) => {
+                        self.error(
+                            format!(
+                                "Pattern for variant '{}::{}' is missing {} named field(s)",
+                                enum_name,
+                                variant_name,
+                                expected_fields.len()
+                            ),
+                            match_span,
+                        );
+                    }
+                    (None, None, Some(sub_patterns), None) if !sub_patterns.is_empty() => {
                         self.error(
                             format!(
                                 "Variant '{}::{}' does not contain any data",
+                                enum_name, variant_name
+                            ),
+                            match_span,
+                        );
+                    }
+                    (None, None, None, Some(actual_fields)) if !actual_fields.is_empty() => {
+                        self.error(
+                            format!(
+                                "Variant '{}::{}' does not contain named fields",
                                 enum_name, variant_name
                             ),
                             match_span,
@@ -3100,6 +3309,7 @@ impl SemanticAnalyzer {
                 enum_name,
                 variant_name,
                 data,
+                struct_data,
                 ..
             } => {
                 let enum_type = match &effective_type {
@@ -3120,7 +3330,7 @@ impl SemanticAnalyzer {
                 let Some(enum_info) = self.enum_infos.get(enum_name) else {
                     return;
                 };
-                let Some(variant_info) = enum_info.variants.get(variant_name) else {
+                let Some(variant_info) = enum_info.variants.get(variant_name).cloned() else {
                     return;
                 };
 
@@ -3138,6 +3348,26 @@ impl SemanticAnalyzer {
                         sub_patterns.iter().zip(inferred_field_types.iter())
                     {
                         self.bind_pattern_types(sub_pattern, field_type);
+                    }
+                }
+
+                if let (Some(named_patterns), Some(field_types)) =
+                    (&struct_data, &variant_info.struct_data)
+                {
+                    let inferred_field_types: HashMap<String, Type> = field_types
+                        .iter()
+                        .map(|(name, ann)| {
+                            (
+                                name.clone(),
+                                self.type_annotation_to_type(&Some(ann.clone())),
+                            )
+                        })
+                        .collect();
+
+                    for (field_name, sub_pattern) in named_patterns {
+                        if let Some(field_type) = inferred_field_types.get(field_name) {
+                            self.bind_pattern_types(sub_pattern, field_type);
+                        }
                     }
                 }
             }
@@ -3752,6 +3982,7 @@ impl SemanticAnalyzer {
                 type_args,
                 variant_name,
                 data,
+                struct_data,
             } => {
                 if let Some(args) = data {
                     for arg in args.iter_mut() {
@@ -3764,6 +3995,12 @@ impl SemanticAnalyzer {
                         if !inferred_args.is_empty() {
                             *type_args = inferred_args;
                         }
+                    }
+                }
+
+                if let Some(fields) = struct_data {
+                    for (_, field_value) in fields.iter_mut() {
+                        self.infer_generic_types_in_expression(field_value);
                     }
                 }
             }

@@ -2074,9 +2074,14 @@ mod cst {
                     collect_doc_comments_from_expression(expr, lines, line_offsets);
                 }
             }
-            ExpressionKind::EnumVariant { data, .. } => {
+            ExpressionKind::EnumVariant { data, struct_data, .. } => {
                 if let Some(elements) = data {
                     for expr in elements {
+                        collect_doc_comments_from_expression(expr, lines, line_offsets);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, expr) in fields {
                         collect_doc_comments_from_expression(expr, lines, line_offsets);
                     }
                 }
@@ -2273,9 +2278,14 @@ mod cst {
                     collect_match_spans_expression(expr, spans);
                 }
             }
-            ExpressionKind::EnumVariant { data, .. } => {
+            ExpressionKind::EnumVariant { data, struct_data, .. } => {
                 if let Some(elements) = data {
                     for expr in elements {
+                        collect_match_spans_expression(expr, spans);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, expr) in fields {
                         collect_match_spans_expression(expr, spans);
                     }
                 }

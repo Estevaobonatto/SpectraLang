@@ -413,6 +413,14 @@ impl Parser {
                 self.parse_unless_expression()
             }
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),
+            TokenKind::Symbol('{') => {
+                let block = self.parse_block()?;
+                let block_span = block.span;
+                Ok(Expression {
+                    span: block_span,
+                    kind: ExpressionKind::Block(block),
+                })
+            }
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 let start_span = span;
@@ -458,6 +466,28 @@ impl Parser {
                         None
                     };
 
+                    let struct_data = if self.check_symbol('{') {
+                        self.advance(); // consume '{'
+
+                        let mut fields = Vec::new();
+                        while !self.check_symbol('}') && !self.is_at_end() {
+                            let (field_name, _) =
+                                self.consume_identifier("Expected field name in enum variant")?;
+                            self.consume_symbol(':', "Expected ':' after field name")?;
+                            let field_value = self.parse_expression()?;
+                            fields.push((field_name, field_value));
+
+                            if self.check_symbol(',') {
+                                self.advance();
+                            }
+                        }
+
+                        self.consume_symbol('}', "Expected '}' after enum variant fields")?;
+                        Some(fields)
+                    } else {
+                        None
+                    };
+
                     return Ok(Expression {
                         span: crate::span::span_union(start_span, self.current().span),
                         kind: ExpressionKind::EnumVariant {
@@ -465,6 +495,7 @@ impl Parser {
                             type_args,
                             variant_name,
                             data,
+                            struct_data,
                         },
                     });
                 }
@@ -946,11 +977,38 @@ impl Parser {
                     None
                 };
 
+                let struct_data = if self.check_symbol('{') {
+                    self.advance(); // consume '{'
+
+                    let mut fields = Vec::new();
+                    while !self.check_symbol('}') && !self.is_at_end() {
+                        let (field_name, _) =
+                            self.consume_identifier("Expected field name in struct variant pattern")?;
+                        let field_pattern = if self.check_symbol(':') {
+                            self.advance();
+                            self.parse_pattern()?
+                        } else {
+                            Pattern::Identifier(field_name.clone())
+                        };
+                        fields.push((field_name, field_pattern));
+
+                        if self.check_symbol(',') {
+                            self.advance();
+                        }
+                    }
+
+                    self.consume_symbol('}', "Expected '}' after struct variant pattern")?;
+                    Some(fields)
+                } else {
+                    None
+                };
+
                 return Ok(Pattern::EnumVariant {
                     enum_name: first_name,
                     type_args,
                     variant_name,
                     data,
+                    struct_data,
                 });
             }
 

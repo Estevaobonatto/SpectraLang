@@ -261,6 +261,8 @@ pub struct ASTLowering {
     struct_var_map: StructScopeStack,
     /// Maps enum names to their variant definitions: (variant_name, tag, data_types)
     enum_definitions: HashMap<String, Vec<(String, usize, Option<Vec<IRType>>)>>,
+    /// Preserves declaration order for struct-style enum variant fields.
+    enum_variant_field_names: HashMap<String, HashMap<String, Vec<String>>>,
     loop_stack: Vec<LoopContext>,
     /// Maps generic function names to their AST definitions (for monomorphization)
     generic_functions: HashMap<String, ASTFunction>,
@@ -292,6 +294,7 @@ impl ASTLowering {
             struct_definitions: HashMap::new(),
             struct_var_map: StructScopeStack::new(),
             enum_definitions: HashMap::new(),
+            enum_variant_field_names: HashMap::new(),
             loop_stack: Vec::new(),
             generic_functions: HashMap::new(),
             generic_structs: HashMap::new(),
@@ -344,22 +347,42 @@ impl ASTLowering {
                     );
                 } else {
                     // Regular enum - process immediately
+                    let mut field_names = HashMap::new();
                     let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
                         .variants
                         .iter()
                         .enumerate()
                         .map(|(tag, variant)| {
-                            let data_types = variant.data.as_ref().map(|types| {
-                                types
-                                    .iter()
-                                    .map(|ty| self.lower_type_annotation(ty))
-                                    .collect()
-                            });
+                            let data_types = if let Some(types) = variant.data.as_ref() {
+                                Some(
+                                    types
+                                        .iter()
+                                        .map(|ty| self.lower_type_annotation(ty))
+                                        .collect(),
+                                )
+                            } else if let Some(fields) = variant.struct_data.as_ref() {
+                                field_names.insert(
+                                    variant.name.clone(),
+                                    fields.iter().map(|(name, _)| name.clone()).collect(),
+                                );
+                                Some(
+                                    fields
+                                        .iter()
+                                        .map(|(_, ty)| self.lower_type_annotation(ty))
+                                        .collect(),
+                                )
+                            } else {
+                                None
+                            };
                             (variant.name.clone(), tag, data_types)
                         })
                         .collect();
                     self.enum_definitions
                         .insert(enum_def.name.clone(), variants);
+                    if !field_names.is_empty() {
+                        self.enum_variant_field_names
+                            .insert(enum_def.name.clone(), field_names);
+                    }
                 }
             } else if let Item::Impl(impl_block) = item {
                 // Collect trait implementations
@@ -1091,6 +1114,99 @@ impl ASTLowering {
         Some(inferred)
     }
 
+    fn infer_enum_type_args_from_named_fields(
+        &self,
+        enum_name: &str,
+        variant_name: &str,
+        fields: &[(String, Expression)],
+    ) -> Option<Vec<TypeAnnotation>> {
+        let generic_enum = self.generic_enums.get(enum_name)?;
+        let variant = generic_enum
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name)?;
+        let field_templates = variant.struct_data.as_ref()?;
+
+        let ordered_exprs: Vec<&Expression> = field_templates
+            .iter()
+            .map(|(field_name, _)| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field_name)
+                    .map(|(_, expr)| expr)
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        let param_names = generic_enum
+            .type_params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<Vec<_>>();
+
+        let mut param_positions: HashMap<String, usize> = HashMap::new();
+        for (idx, param_name) in param_names.iter().enumerate() {
+            param_positions.insert(param_name.clone(), idx);
+        }
+
+        let mut inferred = vec![Self::unknown_type_annotation(); param_names.len()];
+
+        for ((_, template), expr) in field_templates.iter().zip(ordered_exprs.iter()) {
+            let actual_type = self.infer_expr_ir_type(expr);
+            self.fill_type_args_from_annotation(
+                template,
+                &actual_type,
+                &param_positions,
+                &mut inferred,
+            );
+        }
+
+        Some(inferred)
+    }
+
+    fn reorder_named_variant_exprs<'a>(
+        &self,
+        enum_name: &str,
+        variant_name: &str,
+        fields: &'a [(String, Expression)],
+    ) -> Option<Vec<&'a Expression>> {
+        let order = self
+            .enum_variant_field_names
+            .get(enum_name)?
+            .get(variant_name)?;
+
+        order
+            .iter()
+            .map(|field_name| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field_name)
+                    .map(|(_, expr)| expr)
+            })
+            .collect()
+    }
+
+    fn reorder_named_variant_patterns<'a>(
+        &self,
+        enum_name: &str,
+        variant_name: &str,
+        fields: &'a [(String, spectra_compiler::ast::Pattern)],
+    ) -> Option<Vec<&'a spectra_compiler::ast::Pattern>> {
+        let order = self
+            .enum_variant_field_names
+            .get(enum_name)?
+            .get(variant_name)?;
+
+        order
+            .iter()
+            .map(|field_name| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field_name)
+                    .map(|(_, pattern)| pattern)
+            })
+            .collect()
+    }
+
     fn merge_types(&self, left: &IRType, right: &IRType) -> Option<IRType> {
         if left == right {
             return Some(left.clone());
@@ -1193,6 +1309,7 @@ impl ASTLowering {
                 type_args,
                 variant_name,
                 data,
+                struct_data,
             } => {
                 let needs_refinement = type_args.is_empty()
                     || type_args
@@ -1202,6 +1319,13 @@ impl ASTLowering {
                 let inferred_args = if needs_refinement {
                     if let Some(data_exprs) = data {
                         self.infer_enum_type_args_from_data(enum_name, variant_name, data_exprs)
+                            .or_else(|| self.default_type_args_for_enum(enum_name))
+                    } else if let Some(named_fields) = struct_data {
+                        self.infer_enum_type_args_from_named_fields(
+                            enum_name,
+                            variant_name,
+                            named_fields,
+                        )
                             .or_else(|| self.default_type_args_for_enum(enum_name))
                     } else {
                         self.default_type_args_for_enum(enum_name)
@@ -2794,6 +2918,7 @@ impl ASTLowering {
                 type_args,
                 variant_name,
                 data,
+                struct_data,
             } => {
                 let needs_refinement = type_args.is_empty()
                     || type_args
@@ -2804,6 +2929,13 @@ impl ASTLowering {
                     if let Some(data_exprs) = data {
                         self.infer_enum_type_args_from_data(enum_name, variant_name, data_exprs)
                             .or_else(|| self.default_type_args_for_enum(enum_name))
+                    } else if let Some(named_fields) = struct_data {
+                        self.infer_enum_type_args_from_named_fields(
+                            enum_name,
+                            variant_name,
+                            named_fields,
+                        )
+                        .or_else(|| self.default_type_args_for_enum(enum_name))
                     } else {
                         self.default_type_args_for_enum(enum_name)
                     }
@@ -2817,16 +2949,27 @@ impl ASTLowering {
                     type_args.clone()
                 };
 
+                let (resolved_enum_name, variants) =
+                    self.ensure_enum_definition(enum_name, final_args.as_slice());
+
                 let data_values: Vec<Value> = if let Some(data_exprs) = data {
                     data_exprs
                         .iter()
                         .map(|expr| self.lower_expression(expr, ir_func))
                         .collect()
+                } else if let Some(named_fields) = struct_data {
+                    self.reorder_named_variant_exprs(
+                        &resolved_enum_name,
+                        variant_name,
+                        named_fields,
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|expr| self.lower_expression(expr, ir_func))
+                    .collect()
                 } else {
                     Vec::new()
                 };
-
-                let (_, variants) = self.ensure_enum_definition(enum_name, final_args.as_slice());
 
                 if !variants.is_empty() {
                     // Encontrar o variant
@@ -3133,6 +3276,7 @@ impl ASTLowering {
                 type_args,
                 variant_name,
                 data: _,
+                struct_data: _,
                 ..
             } => {
                 let mut variants = scrutinee_enum
@@ -3218,10 +3362,20 @@ impl ASTLowering {
                 type_args,
                 variant_name,
                 data,
+                struct_data,
                 ..
             } => {
                 // Se há patterns de data, extrair valores e fazer binding recursivo
-                if let Some(patterns) = data {
+                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> = if let Some(patterns) = data {
+                    patterns.iter().collect()
+                } else if let Some(named_patterns) = struct_data {
+                    self.reorder_named_variant_patterns(scrutinee_enum.unwrap_or(enum_name), variant_name, named_patterns)
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+
+                if !ordered_patterns.is_empty() {
                     let mut variants = scrutinee_enum
                         .and_then(|name| self.enum_definitions.get(name).cloned())
                         .or_else(|| {
@@ -3245,7 +3399,7 @@ impl ASTLowering {
                         {
                             if let Some(types) = variant_types {
                                 // Para cada pattern de data, extrair o valor correspondente
-                                for (idx, sub_pattern) in patterns.iter().enumerate() {
+                                for (idx, sub_pattern) in ordered_patterns.iter().enumerate() {
                                     if let Some(sub_type) = types.get(idx) {
                                         // Extrair elemento idx+1 da tuple (idx 0 é o tag)
                                         let index_value =
@@ -3513,6 +3667,7 @@ impl ASTLowering {
         }
 
         // Substitute types in variants
+        let mut field_names = HashMap::new();
         let specialized_variants: Vec<(String, usize, Option<Vec<IRType>>)> = generic
             .variants
             .iter()
@@ -3530,6 +3685,19 @@ impl ASTLowering {
                         })
                         .collect();
                     Some(substituted)
+                } else if let Some(ref fields) = variant.struct_data {
+                    field_names.insert(
+                        variant_name.clone(),
+                        fields.iter().map(|(name, _)| name.clone()).collect(),
+                    );
+                    let substituted: Vec<IRType> = fields
+                        .iter()
+                        .map(|(_, ty)| {
+                            let substituted_type = self.substitute_type(ty, &type_map);
+                            self.lower_type_annotation(&substituted_type)
+                        })
+                        .collect();
+                    Some(substituted)
                 } else {
                     None
                 };
@@ -3541,6 +3709,10 @@ impl ASTLowering {
         // Store specialized enum definition
         self.enum_definitions
             .insert(mangled_name.to_string(), specialized_variants);
+        if !field_names.is_empty() {
+            self.enum_variant_field_names
+                .insert(mangled_name.to_string(), field_names);
+        }
 
         eprintln!(
             "Info: Specialized enum '{}' as '{}'",

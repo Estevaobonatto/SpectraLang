@@ -333,6 +333,7 @@ pub enum ExpressionKind {
         type_args: Vec<TypeAnnotation>, // Generic type arguments: Option<int>
         variant_name: String,
         data: Option<Vec<Expression>>, // None for unit, Some for tuple variants
+        struct_data: Option<Vec<(String, Expression)>>, // Named fields for struct variants
     },
 
     // Pattern Matching
@@ -379,6 +380,7 @@ pub enum Pattern {
         type_args: Vec<TypeAnnotation>, // Generic type arguments: Option<int>
         variant_name: String,
         data: Option<Vec<Pattern>>, // None for unit, Some(patterns) for tuple
+        struct_data: Option<Vec<(String, Pattern)>>, // Named fields for struct variants
     },
 }
 

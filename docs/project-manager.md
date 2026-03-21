@@ -72,7 +72,7 @@ let newline = '\n';
 let tab = '\t';
 ```
 - **Arquivo**: `compiler/src/token.rs`, `compiler/src/lexer/mod.rs`, `compiler/src/ast/mod.rs`
-- **Status**: 🔄 Implementando
+- **Status**: ✅ Front-end concluído e validado em exemplo dedicado
 
 ### 📝 String Interpolation (f-strings)
 ```spectra
@@ -81,7 +81,7 @@ let msg = f"Hello, {name}!";
 let calc = f"2 + 2 = {2 + 2}";
 ```
 - **Arquivo**: `compiler/src/token.rs`, `compiler/src/lexer/mod.rs`, `compiler/src/parser/expression.rs`
-- **Status**: 🔄 Implementando
+- **Status**: ✅ Front-end concluído e validado em exemplo dedicado
 
 ### λ Closures/Lambdas
 ```spectra
@@ -95,7 +95,7 @@ let nums = [1, 2, 3];
 // let doubled = nums.map(|x| x * 2);
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/expression.rs`
-- **Status**: 🔄 Implementando
+- **Status**: 🟡 Parser, AST e análise semântica implementados; lowering/backend ainda parcial para chamadas via valor de função
 
 ### ❓ Operador `?` (Try/Propagate)
 ```spectra
@@ -106,7 +106,7 @@ fn read_config() -> Result<Config, Error> {
 }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/expression.rs`, `midend/src/lowering.rs`
-- **Status**: 🔄 Implementando
+- **Status**: 🟡 Sintaxe e lowering básico implementados; falta validação completa de fluxo com `Result`/stdlib
 
 ### 🔀 Range Operator
 ```spectra
@@ -115,7 +115,7 @@ let r2 = 0..=10;    // inclusivo: 0, 1, ..., 10
 for i in 0..5 { println(i); }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/expression.rs`
-- **Status**: 🔄 Implementando
+- **Status**: ✅ Implementado e validado em exemplo dedicado
 
 ### 🔍 if let / while let
 ```spectra
@@ -128,7 +128,7 @@ while let Option::Some(next) = iterator.next() {
 }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/statement.rs`
-- **Status**: 🔄 Implementando
+- **Status**: 🟡 `if let` validado; `while let` ainda sem exemplo de regressão consolidado no workspace
 
 ### 📦 Struct-style Enum Variants
 ```spectra
@@ -139,7 +139,7 @@ enum Shape {
 }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/item.rs`
-- **Status**: 🔄 Implementando
+- **Status**: 🟡 Declaração, parsing de patterns e validação semântica implementados; backend ainda falha em enums com payloads heterogêneos/mistos
 
 ### 🗂️ Import Avançado (alias e named imports)
 ```spectra
@@ -148,6 +148,26 @@ import { sin, cos, tan } from math.trig;
 import path.to.MyStruct;
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/module.rs`
+- **Status**: 🟡 Sintaxe disponível; integração com símbolos esperados de `std.io` ainda pendente
+
+### Status de Validação Atual
+
+- ✅ `examples/test_beta_char_literals.spectra`
+- ✅ `examples/test_beta_fstrings.spectra`
+- ✅ `examples/test_beta_closures.spectra` no modo `check`
+- ✅ `examples/test_beta_if_let.spectra`
+- ✅ `examples/test_beta_ranges.spectra`
+- 🟡 `examples/test_beta_struct_enum_variants.spectra` chega ao backend, mas ainda falha por representação IR inconsistente para enums com variantes mistas
+- 🟡 `examples/test_beta_imports.spectra` ainda depende de resolução real de `std.io::{print, println}`
+
+### Limitação Atual de Backend
+
+- O frontend já aceita variants tuple-style e struct-style em enums.
+- O backend ainda não possui uma representação única de tagged union para enums com combinações de:
+    - variantes unit
+    - variantes tuple-style com aridades diferentes
+    - variantes struct-style com payload nomeado
+- Enquanto isso não for resolvido, o comando `check` ainda pode falhar em exemplos que chegam à geração de código, mesmo com parsing e semântica corretos.
 - **Status**: 🔄 Implementando
 
 ---

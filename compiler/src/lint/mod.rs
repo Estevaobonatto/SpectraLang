@@ -410,9 +410,14 @@ impl<'a> LintRunner<'a> {
             ExpressionKind::FieldAccess { object, .. } => {
                 self.visit_expression(object);
             }
-            ExpressionKind::EnumVariant { data, .. } => {
+            ExpressionKind::EnumVariant { data, struct_data, .. } => {
                 if let Some(values) = data {
                     for value in values {
+                        self.visit_expression(value);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, value) in fields {
                         self.visit_expression(value);
                     }
                 }
