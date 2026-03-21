@@ -2976,9 +2976,23 @@ impl ASTLowering {
                     if let Some((_, tag, variant_data_types)) =
                         variants.iter().find(|(name, _, _)| name == variant_name)
                     {
-                        // Se é unit variant, retornar apenas o tag
+                        // Se é unit variant, alocar um slot de 8 bytes só com o tag
+                        // (mesma representação por ponteiro dos variants com dados)
                         if variant_data_types.is_none() {
-                            return self.builder.build_const_int(ir_func, *tag as i64);
+                            let tag_val = self.builder.build_const_int(ir_func, *tag as i64);
+                            let tag_alloc = self.builder.build_alloca(
+                                ir_func,
+                                IRType::Tuple { elements: vec![IRType::Int] },
+                            );
+                            let zero = self.builder.build_const_int(ir_func, 0);
+                            let tag_slot = self.builder.build_getelementptr(
+                                ir_func,
+                                tag_alloc,
+                                zero,
+                                IRType::Int,
+                            );
+                            self.builder.build_store(ir_func, tag_slot, tag_val);
+                            return tag_alloc;
                         }
 
                         // Se é tuple variant, criar tupla (tag, data...)
@@ -3061,6 +3075,14 @@ impl ASTLowering {
                         result_type = merged;
                     }
                 }
+                // Se todos os arms terminam com return, usar o tipo de retorno da função como fallback
+                if result_type == IRType::Void {
+                    if let Some(func) = &self.current_function {
+                        if func.return_type != IRType::Void {
+                            result_type = func.return_type.clone();
+                        }
+                    }
+                }
 
                 let result_alloca = self.builder.build_alloca(ir_func, result_type.clone());
 
@@ -3113,8 +3135,16 @@ impl ASTLowering {
                     );
 
                     let body_value = self.lower_expression(&arm.body, ir_func);
-                    self.builder.build_store(ir_func, result_alloca, body_value);
-                    self.builder.build_branch(ir_func, exit_block);
+                    // Só emitir store+branch se o arm não terminou com return explícito
+                    let arm_final_block = self.builder.get_current_block().unwrap_or(arm_body_blocks[idx]);
+                    let arm_terminated = ir_func
+                        .get_block(arm_final_block)
+                        .map(|b| b.terminator.is_some())
+                        .unwrap_or(false);
+                    if !arm_terminated {
+                        self.builder.build_store(ir_func, result_alloca, body_value);
+                        self.builder.build_branch(ir_func, exit_block);
+                    }
 
                     self.struct_var_map.pop_scope();
                     self.array_map.pop_scope();
@@ -3300,29 +3330,21 @@ impl ASTLowering {
                     if let Some((_, expected_tag, variant_types)) =
                         variants.iter().find(|(name, _, _)| name == variant_name)
                     {
-                        // Para unit variant, comparar diretamente o tag
-                        if variant_types.is_none() {
-                            let expected_tag_value =
-                                self.builder.build_const_int(ir_func, *expected_tag as i64);
-                            return self
-                                .builder
-                                .build_eq(ir_func, scrutinee, expected_tag_value);
-                        } else {
-                            // Para tuple variant, extrair tag (primeiro elemento da tuple)
-                            let zero_index = self.builder.build_const_int(ir_func, 0);
-                            let tag_ptr = self.builder.build_getelementptr(
-                                ir_func,
-                                scrutinee,
-                                zero_index,
-                                IRType::Int,
-                            );
-                            let tag_value = self.builder.build_load(ir_func, tag_ptr);
-                            let expected_tag_value =
-                                self.builder.build_const_int(ir_func, *expected_tag as i64);
-                            return self
-                                .builder
-                                .build_eq(ir_func, tag_value, expected_tag_value);
-                        }
+                        // Para qualquer variant (unit ou com dados), extrair tag do ponteiro
+                        let zero_index = self.builder.build_const_int(ir_func, 0);
+                        let tag_ptr = self.builder.build_getelementptr(
+                            ir_func,
+                            scrutinee,
+                            zero_index,
+                            IRType::Int,
+                        );
+                        let tag_value = self.builder.build_load(ir_func, tag_ptr);
+                        let expected_tag_value =
+                            self.builder.build_const_int(ir_func, *expected_tag as i64);
+                        let _ = variant_types; // mantido para futuros guards
+                        return self
+                            .builder
+                            .build_eq(ir_func, tag_value, expected_tag_value);
                     }
                 }
                 // Fallback: sempre false

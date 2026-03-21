@@ -139,7 +139,7 @@ enum Shape {
 }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/item.rs`
-- **Status**: 🟡 Declaração, parsing de patterns e validação semântica implementados; backend ainda falha em enums com payloads heterogêneos/mistos
+- **Status**: ✅ Implementado end-to-end — parsing, semântica, lowering e backend (JIT) funcionais; validado em `examples/test_beta_struct_enum_variants.spectra`
 
 ### 🗂️ Import Avançado (alias e named imports)
 ```spectra
@@ -157,18 +157,14 @@ import path.to.MyStruct;
 - ✅ `examples/test_beta_closures.spectra` no modo `check`
 - ✅ `examples/test_beta_if_let.spectra`
 - ✅ `examples/test_beta_ranges.spectra`
-- 🟡 `examples/test_beta_struct_enum_variants.spectra` chega ao backend, mas ainda falha por representação IR inconsistente para enums com variantes mistas
+- ✅ `examples/test_beta_struct_enum_variants.spectra` — compila e executa com JIT
 - 🟡 `examples/test_beta_imports.spectra` ainda depende de resolução real de `std.io::{print, println}`
 
-### Limitação Atual de Backend
+### Notas pós-implementação
 
-- O frontend já aceita variants tuple-style e struct-style em enums.
-- O backend ainda não possui uma representação única de tagged union para enums com combinações de:
-    - variantes unit
-    - variantes tuple-style com aridades diferentes
-    - variantes struct-style com payload nomeado
-- Enquanto isso não for resolvido, o comando `check` ainda pode falhar em exemplos que chegam à geração de código, mesmo com parsing e semântica corretos.
-- **Status**: 🔄 Implementando
+- Todos os enum variants (unit, tuple-style e struct-style) agora usam **representação uniforme por ponteiro** para tagged tuples no heap, eliminando a ambiguidade entre inteiro-raw e ponteiro.
+- O backend agora despacha ops aritméticas (`+`, `-`, `*`, `/`) e comparações (`==`, `!=`, `<`, `<=`, `>`, `>=`) para Cranelift float (`fadd`, `fmul`, `fcmp`, …) quando os operandos são `F64`, corrigindo operações sobre campos `float` de enums e structs.
+- O `InstructionKind::Load` agora carrega o tipo destino (`ty: IRType`) — o builder expõe `build_load_typed(ptr, ty)` além do `build_load(ptr)` que usa `Int` como default.
 
 ---
 
