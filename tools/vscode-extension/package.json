@@ -19,9 +19,6 @@
   ],
   "icon": "assets/spectra-icon.png",
   "activationEvents": [
-    "onLanguage:spectra",
-    "onCommand:spectra.diagnostics.run",
-    "onCommand:spectra.lintWorkspace",
     "workspaceContains:**/*.spectra"
   ],
   "main": "./dist/extension.js",
@@ -45,6 +42,12 @@
         "path": "./syntaxes/spectra.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "spectra",
+        "path": "./snippets/spectra.code-snippets"
+      }
+    ],
     "commands": [
       {
         "command": "spectra.diagnostics.run",
@@ -53,6 +56,18 @@
       {
         "command": "spectra.lintWorkspace",
         "title": "Spectra: Lint Workspace"
+      },
+      {
+        "command": "spectra.compileCurrentFile",
+        "title": "Spectra: Compile Current File"
+      },
+      {
+        "command": "spectra.checkCurrentFile",
+        "title": "Spectra: Check Current File"
+      },
+      {
+        "command": "spectra.runCurrentFile",
+        "title": "Spectra: Run Current File"
       }
     ],
     "menus": {
@@ -63,6 +78,18 @@
         },
         {
           "command": "spectra.lintWorkspace"
+        },
+        {
+          "command": "spectra.compileCurrentFile",
+          "when": "editorLangId == spectra"
+        },
+        {
+          "command": "spectra.checkCurrentFile",
+          "when": "editorLangId == spectra"
+        },
+        {
+          "command": "spectra.runCurrentFile",
+          "when": "editorLangId == spectra"
         }
       ]
     },

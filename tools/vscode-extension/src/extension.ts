@@ -8,9 +8,13 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { formatOnSaveEnabled, getCliPath, getServerPath, lintOnSaveEnabled } from './config';
+import { runSpectraCli } from './cliClient';
 
 const RUN_DIAGNOSTICS_COMMAND = 'spectra.diagnostics.run';
 const LINT_WORKSPACE_COMMAND = 'spectra.lintWorkspace';
+const COMPILE_CURRENT_FILE_COMMAND = 'spectra.compileCurrentFile';
+const CHECK_CURRENT_FILE_COMMAND = 'spectra.checkCurrentFile';
+const RUN_CURRENT_FILE_COMMAND = 'spectra.runCurrentFile';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -57,6 +61,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         }
       );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(COMPILE_CURRENT_FILE_COMMAND, async () => {
+      await executeCliCommandForActiveDocument('compile', 'Compilar arquivo atual');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(CHECK_CURRENT_FILE_COMMAND, async () => {
+      await executeCliCommandForActiveDocument('check', 'Validar arquivo atual');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(RUN_CURRENT_FILE_COMMAND, async () => {
+      await executeCliCommandForActiveDocument('run', 'Executar arquivo atual');
     })
   );
 
@@ -178,4 +200,105 @@ function registerFormatOnSaveHook(context: vscode.ExtensionContext): void {
       );
     })
   );
+}
+
+async function executeCliCommandForActiveDocument(
+  command: 'compile' | 'check' | 'run',
+  progressTitle: string
+): Promise<void> {
+  const document = await getActiveSpectraDocumentForCommand();
+  if (!document) {
+    return;
+  }
+
+  const cliPath = getCliPath();
+  const args = [command, document.fileName];
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+
+  outputChannel?.show(true);
+  outputChannel?.appendLine(`▶ spectra ${args.join(' ')}`);
+
+  try {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Spectra: ${progressTitle}`,
+        cancellable: false,
+      },
+      async () =>
+        runSpectraCli(args, {
+          cliPath,
+          cwd: workspaceFolder?.uri.fsPath,
+        })
+    );
+
+    const stdout = result.stdout.trimEnd();
+    const stderr = result.stderr.trimEnd();
+
+    if (stdout) {
+      outputChannel?.appendLine(stdout);
+    }
+
+    if (stderr) {
+      outputChannel?.appendLine(stderr);
+    }
+
+    if (result.exitCode === 0) {
+      const message = successMessageForCliCommand(command);
+      vscode.window.showInformationMessage(message);
+      return;
+    }
+
+    vscode.window.showErrorMessage(
+      `Spectra '${command}' terminou com código ${result.exitCode}. Veja o canal de saída Spectra.`
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    outputChannel?.appendLine(detail);
+    vscode.window.showErrorMessage(
+      `Falha ao executar 'spectra ${command}': ${detail}`
+    );
+  }
+}
+
+async function getActiveSpectraDocumentForCommand(): Promise<vscode.TextDocument | undefined> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== 'spectra') {
+    vscode.window.showInformationMessage('Abra um arquivo Spectra para usar os comandos do compilador.');
+    return undefined;
+  }
+
+  const document = editor.document;
+  if (document.isUntitled) {
+    vscode.window.showInformationMessage('Salve o arquivo Spectra antes de usar os comandos do compilador.');
+    return undefined;
+  }
+
+  if (!document.isDirty) {
+    return document;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    'Salve as alterações antes de executar o compilador Spectra.',
+    'Salvar e Continuar',
+    'Cancelar'
+  );
+
+  if (choice !== 'Salvar e Continuar') {
+    return undefined;
+  }
+
+  const didSave = await document.save();
+  return didSave ? document : undefined;
+}
+
+function successMessageForCliCommand(command: 'compile' | 'check' | 'run'): string {
+  switch (command) {
+    case 'compile':
+      return 'Arquivo Spectra compilado com sucesso.';
+    case 'check':
+      return 'Validação do arquivo Spectra concluída sem erros.';
+    case 'run':
+      return 'Execução do arquivo Spectra concluída com sucesso.';
+  }
 }

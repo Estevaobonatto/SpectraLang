@@ -1,0 +1,83 @@
+{
+  "Module": {
+    "prefix": "module",
+    "body": [
+      "module ${1:name};",
+      "",
+      "${0}"
+    ],
+    "description": "Declarar um modulo Spectra"
+  },
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "pub fn main() {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar a funcao principal publica"
+  },
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2})${3: -> ${4:int}} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar uma funcao"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "    ${2:field}: ${3:int},",
+      "}"
+    ],
+    "description": "Declarar uma struct"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "    ${2:Variant},",
+      "}"
+    ],
+    "description": "Declarar um enum"
+  },
+  "If Let": {
+    "prefix": "iflet",
+    "body": [
+      "if let ${1:Pattern} = ${2:value} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar um bloco if let"
+  },
+  "While Let": {
+    "prefix": "whilelet",
+    "body": [
+      "while let ${1:Pattern} = ${2:value} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar um loop while let"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "    ${2:Pattern} => ${3:result},",
+      "}"
+    ],
+    "description": "Criar uma expressao match"
+  },
+  "Impl Block": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Type} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar um bloco impl"
+  }
+}
