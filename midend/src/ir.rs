@@ -141,6 +141,7 @@ pub enum InstructionKind {
     Load {
         result: Value,
         ptr: Value,
+        ty: Type,
     },
     Store {
         ptr: Value,

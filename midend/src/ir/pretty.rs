@@ -171,8 +171,8 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::Alloca { result, ty } => {
                 format!("{} = alloca {}", fmt_value(*result), fmt_type(ty))
             }
-            InstructionKind::Load { result, ptr } => {
-                format!("{} = load {}", fmt_value(*result), fmt_value(*ptr))
+            InstructionKind::Load { result, ptr, ty } => {
+                format!("{} = load({}) {}", fmt_value(*result), fmt_type(ty), fmt_value(*ptr))
             }
             InstructionKind::Store { ptr, value } => {
                 format!("store {}, {}", fmt_value(*ptr), fmt_value(*value))

@@ -2094,7 +2094,7 @@ impl ASTLowering {
                     body_index,
                     element_type.clone(),
                 );
-                let element_value = self.builder.build_load(ir_func, element_ptr);
+                let element_value = self.builder.build_load_typed(ir_func, element_ptr, element_type.clone());
 
                 // Bind iterator variable in current scope
                 self.value_map
@@ -2809,10 +2809,10 @@ impl ASTLowering {
 
                 let elem_ptr =
                     self.builder
-                        .build_getelementptr(ir_func, tuple_ptr, index_value, elem_type);
+                        .build_getelementptr(ir_func, tuple_ptr, index_value, elem_type.clone());
 
                 // Carregar o valor do elemento
-                self.builder.build_load(ir_func, elem_ptr)
+                self.builder.build_load_typed(ir_func, elem_ptr, elem_type)
             }
             ExpressionKind::StructLiteral {
                 name,
@@ -2884,7 +2884,7 @@ impl ASTLowering {
                                 );
 
                                 // Load do campo
-                                return self.builder.build_load(ir_func, field_ptr);
+                                return self.builder.build_load_typed(ir_func, field_ptr, field_type.clone());
                             }
                         }
                     }
@@ -2907,7 +2907,7 @@ impl ASTLowering {
                             index_value,
                             field_ty.clone(),
                         );
-                        return self.builder.build_load(ir_func, field_ptr);
+                        return self.builder.build_load_typed(ir_func, field_ptr, field_ty.clone());
                     }
                 }
 
@@ -3124,7 +3124,7 @@ impl ASTLowering {
 
                 // Bloco de saída
                 self.builder.set_current_block(exit_block);
-                self.builder.build_load(ir_func, result_alloca)
+                self.builder.build_load_typed(ir_func, result_alloca, result_type.clone())
             }
             ExpressionKind::MethodCall {
                 object,
@@ -3411,7 +3411,7 @@ impl ASTLowering {
                                             sub_type.clone(),
                                         );
                                         let element_value =
-                                            self.builder.build_load(ir_func, element_ptr);
+                                            self.builder.build_load_typed(ir_func, element_ptr, sub_type.clone());
 
                                         let next_enum = match sub_type {
                                             IRType::Enum { name, .. } => Some(name.clone()),

@@ -111,7 +111,11 @@ impl IRBuilder {
     }
 
     pub fn build_load(&self, func: &mut Function, ptr: Value) -> Value {
-        self.try_emit(func, |result| InstructionKind::Load { result, ptr })
+        self.try_emit(func, |result| InstructionKind::Load { result, ptr, ty: crate::ir::Type::Int })
+    }
+
+    pub fn build_load_typed(&self, func: &mut Function, ptr: Value, ty: crate::ir::Type) -> Value {
+        self.try_emit(func, |result| InstructionKind::Load { result, ptr, ty })
     }
 
     pub fn build_store(&self, func: &mut Function, ptr: Value, value: Value) {

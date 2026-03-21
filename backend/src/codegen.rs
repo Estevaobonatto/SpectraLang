@@ -393,28 +393,44 @@ impl CodeGenerator {
             InstructionKind::Add { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().iadd(lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fadd(lhs_val, rhs_val)
+                } else {
+                    builder.ins().iadd(lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Sub { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().isub(lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fsub(lhs_val, rhs_val)
+                } else {
+                    builder.ins().isub(lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Mul { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().imul(lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fmul(lhs_val, rhs_val)
+                } else {
+                    builder.ins().imul(lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Div { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().sdiv(lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fdiv(lhs_val, rhs_val)
+                } else {
+                    builder.ins().sdiv(lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
@@ -429,49 +445,72 @@ impl CodeGenerator {
             InstructionKind::Eq { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().icmp(IntCC::Equal, lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fcmp(FloatCC::Equal, lhs_val, rhs_val)
+                } else {
+                    builder.ins().icmp(IntCC::Equal, lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Ne { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().icmp(IntCC::NotEqual, lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fcmp(FloatCC::NotEqual, lhs_val, rhs_val)
+                } else {
+                    builder.ins().icmp(IntCC::NotEqual, lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Lt { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder.ins().icmp(IntCC::SignedLessThan, lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fcmp(FloatCC::LessThan, lhs_val, rhs_val)
+                } else {
+                    builder.ins().icmp(IntCC::SignedLessThan, lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Le { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder
-                    .ins()
-                    .icmp(IntCC::SignedLessThanOrEqual, lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fcmp(FloatCC::LessThanOrEqual, lhs_val, rhs_val)
+                } else {
+                    builder
+                        .ins()
+                        .icmp(IntCC::SignedLessThanOrEqual, lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Gt { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = builder
-                    .ins()
-                    .icmp(IntCC::SignedGreaterThan, lhs_val, rhs_val);
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fcmp(FloatCC::GreaterThan, lhs_val, rhs_val)
+                } else {
+                    builder
+                        .ins()
+                        .icmp(IntCC::SignedGreaterThan, lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
             InstructionKind::Ge { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val =
+                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                    builder.ins().fcmp(FloatCC::GreaterThanOrEqual, lhs_val, rhs_val)
+                } else {
                     builder
                         .ins()
-                        .icmp(IntCC::SignedGreaterThanOrEqual, lhs_val, rhs_val);
+                        .icmp(IntCC::SignedGreaterThanOrEqual, lhs_val, rhs_val)
+                };
                 value_map.insert(result.id, result_val);
             }
 
@@ -517,9 +556,10 @@ impl CodeGenerator {
                 }
             }
 
-            InstructionKind::Load { result, ptr } => {
+            InstructionKind::Load { result, ptr, ty } => {
                 let ptr_val = get_value(ptr)?;
-                let result_val = builder.ins().load(types::I64, MemFlags::new(), ptr_val, 0);
+                let cranelift_ty = if *ty == IRType::Float { types::F64 } else { types::I64 };
+                let result_val = builder.ins().load(cranelift_ty, MemFlags::new(), ptr_val, 0);
                 value_map.insert(result.id, result_val);
             }
 
