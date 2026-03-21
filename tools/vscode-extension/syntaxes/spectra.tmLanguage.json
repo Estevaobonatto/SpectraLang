@@ -3,7 +3,9 @@
   "name": "SpectraLang",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#declarations" },
     { "include": "#strings" },
+    { "include": "#characters" },
     { "include": "#numbers" },
     { "include": "#keywords" },
     { "include": "#types" },
@@ -39,6 +41,42 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.interpolated.double.spectra",
+          "begin": "f\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.spectra" }
+          },
+          "end": "\"",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.spectra" }
+          },
+          "patterns": [
+            {
+              "name": "meta.interpolation.spectra",
+              "begin": "\\{",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.interpolation.begin.spectra" }
+              },
+              "end": "\\}",
+              "endCaptures": {
+                "0": { "name": "punctuation.section.interpolation.end.spectra" }
+              },
+              "patterns": [
+                { "include": "#strings" },
+                { "include": "#characters" },
+                { "include": "#numbers" },
+                { "include": "#keywords" },
+                { "include": "#types" },
+                { "include": "#operators" }
+              ]
+            },
+            {
+              "name": "constant.character.escape.spectra",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.spectra",
           "begin": "\"",
           "beginCaptures": {
@@ -57,11 +95,47 @@
         }
       ]
     },
+    "characters": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.char.spectra",
+          "match": "'(?:\\\\.|[^\\\\'])'"
+        }
+      ]
+    },
     "numbers": {
       "patterns": [
         {
           "name": "constant.numeric.decimal.spectra",
-          "match": "\\b[0-9](?:[0-9_]*[0-9])?(?:\\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?\\b"
+          "match": "\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|[0-9](?:[0-9_]*[0-9])?(?:\\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?)\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "meta.declaration.function.spectra",
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.spectra" },
+            "2": { "name": "entity.name.function.spectra" }
+          }
+        },
+        {
+          "name": "meta.declaration.type.spectra",
+          "match": "\\b(struct|enum|trait|module)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.spectra" },
+            "2": { "name": "entity.name.type.spectra" }
+          }
+        },
+        {
+          "name": "meta.declaration.impl.spectra",
+          "match": "\\b(impl)\\s+([A-Za-z_][A-Za-z0-9_:<>]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.impl.spectra" },
+            "2": { "name": "entity.name.type.spectra" }
+          }
         }
       ]
     },
@@ -69,7 +143,7 @@
       "patterns": [
         {
           "name": "keyword.operator.assignment.spectra",
-          "match": "="
+          "match": "=|=>"
         },
         {
           "name": "keyword.operator.comparison.spectra",
@@ -84,8 +158,16 @@
           "match": "\\+|-|\\*|/|%"
         },
         {
+          "name": "keyword.operator.range.spectra",
+          "match": "\\.\\.=|\\.\\."
+        },
+        {
+          "name": "keyword.operator.access.spectra",
+          "match": "::|\\."
+        },
+        {
           "name": "keyword.operator.other.spectra",
-          "match": "->|=>"
+          "match": "->|\\?|!|&"
         }
       ]
     },
@@ -93,15 +175,15 @@
       "patterns": [
         {
           "name": "keyword.control.spectra",
-          "match": "\\b(?:if|elif|elseif|else|unless|match|switch|case|cond|while|do|for|foreach|in|of|repeat|until|loop|return|break|continue|yield|goto)\\b"
+          "match": "\\b(?:if|elif|elseif|else|unless|match|switch|case|cond|while|do|for|foreach|in|of|repeat|until|loop|return|break|continue|yield|goto|let)\\b"
         },
         {
           "name": "keyword.declaration.spectra",
-          "match": "\\b(?:module|import|export|fn|struct|enum|impl|class|trait|let)\\b"
+          "match": "\\b(?:module|import|export|fn|struct|enum|impl|class|trait)\\b"
         },
         {
           "name": "storage.modifier.spectra",
-          "match": "\\b(?:pub|mut|Self)\\b"
+          "match": "\\b(?:pub|mut|internal|Self|self)\\b"
         },
         {
           "name": "constant.language.boolean.spectra",
@@ -113,7 +195,11 @@
       "patterns": [
         {
           "name": "support.type.primitive.spectra",
-          "match": "\\b(?:int|float|double|bool|string|void)\\b"
+          "match": "\\b(?:int|float|double|bool|string|char|void|unit)\\b"
+        },
+        {
+          "name": "entity.name.type.spectra",
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?:<[A-Za-z0-9_,: <>]+>)?\\b"
         }
       ]
     }
