@@ -1,0 +1,65 @@
+module test_beta_struct_enum_variants;
+
+// Struct-style enum variants with named fields
+enum Shape {
+    Circle { radius: float },
+    Rectangle { width: float, height: float },
+    Triangle { base: float, height: float },
+    Point,
+}
+
+fn area(s: Shape) -> float {
+    match s {
+        Shape::Circle { radius } => {
+            return radius * radius * 3.14159;
+        }
+        Shape::Rectangle { width, height } => {
+            return width * height;
+        }
+        Shape::Triangle { base, height } => {
+            return base * height * 0.5;
+        }
+        Shape::Point => {
+            return 0.0;
+        }
+    }
+}
+
+enum Color {
+    Rgb { r: int, g: int, b: int },
+    Hsv { h: float, s: float, v: float },
+    Named(string),
+}
+
+fn describe_color(c: Color) -> string {
+    match c {
+        Color::Rgb { r, g, b } => {
+            return f"RGB({r}, {g}, {b})";
+        }
+        Color::Hsv { h, s, v } => {
+            return "HSV color";
+        }
+        Color::Named(name) => {
+            return name;
+        }
+    }
+}
+
+fn main() -> int {
+    let circle = Shape::Circle { radius: 5.0 };
+    let rect = Shape::Rectangle { width: 4.0, height: 6.0 };
+    let tri = Shape::Triangle { base: 3.0, height: 8.0 };
+    let pt = Shape::Point;
+
+    let a1 = area(circle);  // ~78.54
+    let a2 = area(rect);    // 24.0
+    let a3 = area(tri);     // 12.0
+    let a4 = area(pt);      // 0.0
+
+    let red = Color::Rgb { r: 255, g: 0, b: 0 };
+    let sky = Color::Named("sky blue");
+    let desc1 = describe_color(red);   // "RGB(255, 0, 0)"
+    let desc2 = describe_color(sky);   // "sky blue"
+
+    return 0;
+}

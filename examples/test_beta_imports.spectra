@@ -1,0 +1,14 @@
+module test_beta_imports;
+
+// Named import: import { sin, cos } from math.trig;
+import { println, print } from std.io;
+
+// Alias import: import path as name;
+import std.math as math;
+import std.collections as col;
+
+fn main() -> int {
+    // The imports themselves are the feature being tested —
+    // correct parsing of aliased and named import syntax.
+    return 0;
+}

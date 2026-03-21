@@ -1,6 +1,7 @@
 use crate::{
     ast::{TypeAnnotation, TypeAnnotationKind},
     span::span_union,
+    token::{Keyword, Operator, TokenKind},
 };
 
 use super::Parser;
@@ -8,6 +9,48 @@ use super::Parser;
 impl Parser {
     pub(super) fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ()> {
         let start_span = self.current().span;
+
+        // Function type: fn(T1, T2) -> ReturnType
+        if matches!(&self.current().kind, TokenKind::Keyword(Keyword::Fn)) {
+            self.advance(); // consume 'fn'
+            self.consume_symbol('(', "Expected '(' after 'fn' in function type")?;
+            let mut params = Vec::new();
+            while !self.check_symbol(')') && !self.is_at_end() {
+                params.push(self.parse_type_annotation()?);
+                if self.check_symbol(',') {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            self.consume_symbol(')', "Expected ')' after function parameter types")?;
+            let return_type = if matches!(
+                &self.current().kind,
+                TokenKind::Operator(Operator::Arrow)
+            ) {
+                self.advance(); // consume '->'
+                self.parse_type_annotation()?
+            } else {
+                TypeAnnotation {
+                    kind: TypeAnnotationKind::Simple {
+                        segments: vec!["unit".to_string()],
+                    },
+                    span: start_span,
+                }
+            };
+            let end_span = self
+                .tokens
+                .get(self.position.saturating_sub(1))
+                .map(|t| t.span)
+                .unwrap_or(start_span);
+            return Ok(TypeAnnotation {
+                kind: TypeAnnotationKind::Function {
+                    params,
+                    return_type: Box::new(return_type),
+                },
+                span: span_union(start_span, end_span),
+            });
+        }
 
         // Check for Self type
         if self.check_keyword(crate::token::Keyword::SelfType) {

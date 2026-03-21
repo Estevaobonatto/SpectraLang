@@ -1,0 +1,107 @@
+module test_beta_all_features;
+
+// Demonstrates all Beta 0.1 language features together
+
+enum Option {
+    Some(int),
+    None,
+}
+
+enum ParseResult {
+    Ok(int),
+    Err(string),
+}
+
+struct Point {
+    x: float,
+    y: float,
+}
+
+enum GeomShape {
+    Circle { radius: float },
+    Rect { w: float, h: float },
+}
+
+fn parse_positive(n: int) -> Option {
+    if n > 0 {
+        return Option::Some(n);
+    }
+    return Option::None;
+}
+
+fn area(s: GeomShape) -> float {
+    match s {
+        GeomShape::Circle { radius } => radius * radius * 3.14159,
+        GeomShape::Rect { w, h } => w * h,
+    }
+}
+
+fn main() -> int {
+    // 1. Char literals
+    let letter: char = 'A';
+    let newline: char = '\n';
+
+    // 2. F-strings
+    let lang = "SpectraLang";
+    let welcome = f"Welcome to {lang} Beta 0.1!";
+    let version_msg = f"Version: {1}.{0}";
+
+    // 3. Closures / lambdas
+    let double = |x: int| x * 2;
+    let add = |a: int, b: int| a + b;
+    let forty_two = || 42;
+
+    let d = double(21);          // 42
+    let s = add(10, 32);         // 42
+    let v = forty_two();         // 42
+
+    // 4. Range in for loops
+    let total = 0;
+    for i in 1..=10 {
+        total = total + i;
+    }
+    // total == 55
+
+    let countdown = 5;
+    for i in 0..countdown {
+        let step = countdown - i;
+    }
+
+    // 5. if let
+    let maybe = parse_positive(100);
+    if let Option::Some(n) = maybe {
+        let big = n * 2;
+    }
+
+    let nope = parse_positive(-1);
+    if let Option::Some(x) = nope {
+        let unreachable_val = x;
+    } else {
+        let fallback = 0;
+    }
+
+    // 6. while let (countdown with Option)
+    let cnt = 3;
+    while let Option::Some(cur) = parse_positive(cnt) {
+        cnt = cnt - 1;
+    }
+    // cnt == 0
+
+    // 7. Struct-style enum variants
+    let c = GeomShape::Circle { radius: 5.0 };
+    let r = GeomShape::Rect { w: 4.0, h: 3.0 };
+    let area_c = area(c);   // 78.54...
+    let area_r = area(r);   // 12.0
+
+    // 8. Combining features: lambda + range + f-string
+    let apply = |base: int, factor: int| base * factor;
+    let results_sum = 0;
+    for n in 1..=5 {
+        results_sum = results_sum + apply(n, 3);
+    }
+    // results_sum == 3+6+9+12+15 = 45
+
+    let summary = f"Sum of 3*n for n in 1..=5 is {results_sum}";
+
+    return 0;
+}

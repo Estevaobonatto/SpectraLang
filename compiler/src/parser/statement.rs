@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        DoWhileLoop, ForLoop, LetStatement, LoopStatement, ReturnStatement, Statement,
-        StatementKind, SwitchCase, SwitchStatement, WhileLoop,
+        DoWhileLoop, ForLoop, IfLetStatement, LetStatement, LoopStatement, ReturnStatement,
+        Statement, StatementKind, SwitchCase, SwitchStatement, WhileLetStatement, WhileLoop,
     },
     span::span_union,
     token::{Keyword, Operator, TokenKind},
@@ -12,6 +12,44 @@ use super::Parser;
 impl Parser {
     pub(super) fn parse_statement(&mut self) -> Result<Statement, ()> {
         let start_span = self.current().span;
+
+        // Check for `if let` before falling into the general match
+        if matches!(&self.current().kind, TokenKind::Keyword(Keyword::If))
+            && self.position + 1 < self.tokens.len()
+            && matches!(self.tokens[self.position + 1].kind, TokenKind::Keyword(Keyword::Let))
+        {
+            self.advance(); // consume 'if'
+            self.advance(); // consume 'let'
+            let kind = self.parse_if_let_statement(start_span)?;
+            let end_span = self
+                .tokens
+                .get(self.position.saturating_sub(1))
+                .map(|t| t.span)
+                .unwrap_or(start_span);
+            return Ok(Statement {
+                span: span_union(start_span, end_span),
+                kind,
+            });
+        }
+
+        // Check for `while let` before the general while branch
+        if matches!(&self.current().kind, TokenKind::Keyword(Keyword::While))
+            && self.position + 1 < self.tokens.len()
+            && matches!(self.tokens[self.position + 1].kind, TokenKind::Keyword(Keyword::Let))
+        {
+            self.advance(); // consume 'while'
+            self.advance(); // consume 'let'
+            let kind = self.parse_while_let_statement(start_span)?;
+            let end_span = self
+                .tokens
+                .get(self.position.saturating_sub(1))
+                .map(|t| t.span)
+                .unwrap_or(start_span);
+            return Ok(Statement {
+                span: span_union(start_span, end_span),
+                kind,
+            });
+        }
 
         let kind = match &self.current().kind {
             crate::token::TokenKind::Keyword(Keyword::Let) => {
@@ -137,6 +175,55 @@ impl Parser {
             span: span_union(start_span, end_span),
             kind,
         })
+    }
+
+    fn parse_if_let_statement(&mut self, start_span: crate::span::Span) -> Result<StatementKind, ()> {
+        // `if let Pattern = expr { ... } [else { ... }]`
+        // 'if' and 'let' are already consumed
+        let pattern = self.parse_pattern()?;
+        self.consume_symbol('=', "Expected '=' after pattern in if-let")?;
+        let value = self.parse_expression()?;
+        let then_block = self.parse_block()?;
+
+        let else_block = if self.check_keyword(Keyword::Else) {
+            self.advance(); // consume 'else'
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        let end_span = else_block
+            .as_ref()
+            .map(|b| b.span)
+            .unwrap_or(then_block.span);
+
+        Ok(StatementKind::IfLet(IfLetStatement {
+            pattern,
+            value,
+            then_block,
+            else_block,
+            span: span_union(start_span, end_span),
+        }))
+    }
+
+    fn parse_while_let_statement(
+        &mut self,
+        start_span: crate::span::Span,
+    ) -> Result<StatementKind, ()> {
+        // `while let Pattern = expr { ... }`
+        // 'while' and 'let' are already consumed
+        let pattern = self.parse_pattern()?;
+        self.consume_symbol('=', "Expected '=' after pattern in while-let")?;
+        let value = self.parse_expression()?;
+        let body = self.parse_block()?;
+        let end_span = body.span;
+
+        Ok(StatementKind::WhileLet(WhileLetStatement {
+            pattern,
+            value,
+            body,
+            span: span_union(start_span, end_span),
+        }))
     }
 
     fn parse_let_statement(&mut self) -> Result<StatementKind, ()> {

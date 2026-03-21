@@ -305,6 +305,19 @@ impl<'a> LintRunner<'a> {
                 true
             }
             StatementKind::Break | StatementKind::Continue => false,
+            StatementKind::IfLet(stmt) => {
+                self.visit_expression(&stmt.value);
+                self.visit_block(&stmt.then_block, true);
+                if let Some(else_b) = &stmt.else_block {
+                    self.visit_block(else_b, true);
+                }
+                true
+            }
+            StatementKind::WhileLet(stmt) => {
+                self.visit_expression(&stmt.value);
+                self.visit_block(&stmt.body, true);
+                true
+            }
         }
     }
 
@@ -419,6 +432,27 @@ impl<'a> LintRunner<'a> {
                 for argument in arguments {
                     self.visit_expression(argument);
                 }
+            }
+            ExpressionKind::CharLiteral(_) => {}
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let crate::ast::FStringPart::Interpolated(expr) = part {
+                        self.visit_expression(expr);
+                    }
+                }
+            }
+            ExpressionKind::Lambda { body, .. } => {
+                self.visit_expression(body);
+            }
+            ExpressionKind::Try(inner) => {
+                self.visit_expression(inner);
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                self.visit_expression(start);
+                self.visit_expression(end);
+            }
+            ExpressionKind::Block(block) => {
+                self.visit_block(block, true);
             }
         }
     }

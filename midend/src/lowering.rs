@@ -6,9 +6,10 @@ use crate::ir::{
     Function as IRFunction, Module as IRModule, Parameter, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
-    BinaryOperator, Block, Enum as ASTEnum, Expression, ExpressionKind, Function as ASTFunction,
-    Item, Module as ASTModule, Statement, StatementKind, Struct as ASTStruct, Type as ASTType,
-    TypeAnnotation, TypeAnnotationKind, UnaryOperator,
+    BinaryOperator, Block, Enum as ASTEnum, Expression, ExpressionKind, FStringPart,
+    Function as ASTFunction, IfLetStatement, Item, Module as ASTModule, Statement, StatementKind,
+    Struct as ASTStruct, Type as ASTType, TypeAnnotation, TypeAnnotationKind, UnaryOperator,
+    WhileLetStatement,
 };
 use spectra_compiler::span::Span;
 use std::collections::HashMap;
@@ -547,6 +548,12 @@ impl ASTLowering {
                 for elem in elements {
                     self.substitute_type_in_annotation(elem, type_map);
                 }
+            }
+            TypeAnnotationKind::Function { params, return_type } => {
+                for param in params {
+                    self.substitute_type_in_annotation(param, type_map);
+                }
+                self.substitute_type_in_annotation(return_type, type_map);
             }
         }
     }
@@ -1392,6 +1399,25 @@ impl ASTLowering {
                     | BinaryOperator::Or => IRType::Bool,
                 }
             }
+            ExpressionKind::CharLiteral(_) => IRType::Char,
+            ExpressionKind::FString(_) => IRType::String,
+            ExpressionKind::Lambda { .. } => IRType::Int, // TODO: function pointer type
+            ExpressionKind::Try(inner) => self.infer_expr_ir_type(inner),
+            ExpressionKind::Range { .. } => IRType::Array {
+                element_type: Box::new(IRType::Int),
+                size: 0,
+            },
+            ExpressionKind::Block(block) => {
+                block.statements.last()
+                    .and_then(|stmt| {
+                        if let spectra_compiler::ast::StatementKind::Expression(expr) = &stmt.kind {
+                            Some(self.infer_expr_ir_type(expr))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(IRType::Void)
+            }
         }
     }
 
@@ -2090,6 +2116,24 @@ impl ASTLowering {
                     }
                 }
             }
+            StatementKind::IfLet(IfLetStatement {
+                value,
+                then_block,
+                else_block,
+                ..
+            }) => {
+                // TODO: full pattern matching — for now lower as plain block
+                let _val = self.lower_expression(value, ir_func);
+                self.lower_block(&then_block.statements, ir_func);
+                if let Some(else_b) = else_block {
+                    self.lower_block(&else_b.statements, ir_func);
+                }
+            }
+            StatementKind::WhileLet(WhileLetStatement { value, body, .. }) => {
+                // TODO: full pattern matching — for now lower as plain block
+                let _val = self.lower_expression(value, ir_func);
+                self.lower_block(&body.statements, ir_func);
+            }
         }
     }
 
@@ -2263,6 +2307,13 @@ impl ASTLowering {
                 } else {
                     "unknown".to_string()
                 };
+
+                // temporary bypass for closures
+                if !self.function_return_types.contains_key(&function_name) 
+                   && !self.generic_functions.contains_key(&function_name) 
+                   && function_name != "unknown" {
+                    return self.builder.build_const_int(ir_func, 0);
+                }
 
                 // Check if this is a call to a generic function
                 let final_function_name = if self.generic_functions.contains_key(&function_name) {
@@ -2974,6 +3025,50 @@ impl ASTLowering {
                     .build_call(ir_func, function_name, call_args, true)
                     .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
+            ExpressionKind::CharLiteral(c) => {
+                self.builder.build_const_int(ir_func, *c as i64)
+            }
+            ExpressionKind::FString(parts) => {
+                let lowered: Vec<Value> = parts
+                    .iter()
+                    .map(|part| match part {
+                        FStringPart::Literal(s) => self.lower_string_literal(s, ir_func),
+                        FStringPart::Interpolated(expr) => self.lower_expression(expr, ir_func),
+                    })
+                    .collect();
+                if lowered.is_empty() {
+                    return self.lower_string_literal("", ir_func);
+                }
+                let mut result = lowered[0];
+                for part in &lowered[1..] {
+                    result = self.builder.build_add(ir_func, result, *part);
+                }
+                result
+            }
+            ExpressionKind::Try(inner) => {
+                // TODO: proper error propagation — lower inner and pass through
+                self.lower_expression(inner, ir_func)
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                // TODO: proper range object — lower both bounds and return start for now
+                let _end = self.lower_expression(end, ir_func);
+                self.lower_expression(start, ir_func)
+            }
+            ExpressionKind::Lambda { .. } => {
+                // TODO: closure lowering
+                self.builder.build_const_int(ir_func, 0)
+            }
+            ExpressionKind::Block(block) => {
+                let mut last_val = self.builder.build_const_int(ir_func, 0); // default
+                for stmt in &block.statements {
+                    if let spectra_compiler::ast::StatementKind::Expression(expr) = &stmt.kind {
+                        last_val = self.lower_expression(expr, ir_func);
+                    } else {
+                        self.lower_statement(stmt, ir_func);
+                    }
+                }
+                last_val
+            }
         }
     }
 
@@ -3261,6 +3356,9 @@ impl ASTLowering {
                     elements: ir_elements,
                 }
             }
+            TypeAnnotationKind::Function { .. } => {
+                IRType::Pointer(Box::new(IRType::Void))
+            }
         }
     }
 
@@ -3325,6 +3423,10 @@ impl ASTLowering {
                 // Por enquanto, tratar como ponteiro genérico (será resolvido no contexto)
                 IRType::Pointer(Box::new(IRType::Void))
             }
+            ASTType::Fn { .. } => {
+                // Closure/function type — represent as a generic pointer for now
+                IRType::Pointer(Box::new(IRType::Void))
+            }
         }
     }
 
@@ -3339,6 +3441,7 @@ impl ASTLowering {
                     .collect();
                 format!("tuple_{}", element_strs.join("_"))
             }
+            TypeAnnotationKind::Function { .. } => "function".to_string(),
         }
     }
 
@@ -3470,6 +3573,17 @@ impl ASTLowering {
                     .collect();
                 TypeAnnotationKind::Tuple {
                     elements: subst_elements,
+                }
+            }
+            TypeAnnotationKind::Function { params, return_type } => {
+                let subst_params = params
+                    .iter()
+                    .map(|el| self.substitute_type(el, type_map))
+                    .collect();
+                let subst_ret = Box::new(self.substitute_type(return_type, type_map));
+                TypeAnnotationKind::Function {
+                    params: subst_params,
+                    return_type: subst_ret,
                 }
             }
         };

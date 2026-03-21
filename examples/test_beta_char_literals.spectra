@@ -1,0 +1,21 @@
+module test_beta_char_literals;
+
+fn main() -> int {
+    // Basic char literals
+    let a: char = 'a';
+    let z: char = 'Z';
+    let digit: char = '9';
+
+    // Escape sequences in char literals
+    let newline: char = '\n';
+    let tab: char = '\t';
+    let backslash: char = '\\';
+    let quote: char = '\'';
+    let null: char = '\0';
+
+    // Chars can be compared
+    let is_a = a == 'a';
+    let is_upper = z == 'Z';
+
+    return 0;
+}

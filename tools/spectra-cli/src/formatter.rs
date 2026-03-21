@@ -2002,6 +2002,17 @@ mod cst {
                 }
             }
             StatementKind::Break | StatementKind::Continue => {}
+            StatementKind::IfLet(stmt) => {
+                collect_doc_comments_from_expression(&stmt.value, lines, line_offsets);
+                collect_doc_comments_from_block(&stmt.then_block, lines, line_offsets);
+                if let Some(else_b) = &stmt.else_block {
+                    collect_doc_comments_from_block(else_b, lines, line_offsets);
+                }
+            }
+            StatementKind::WhileLet(stmt) => {
+                collect_doc_comments_from_expression(&stmt.value, lines, line_offsets);
+                collect_doc_comments_from_block(&stmt.body, lines, line_offsets);
+            }
         }
     }
 
@@ -2094,6 +2105,29 @@ mod cst {
             | ExpressionKind::StringLiteral(_)
             | ExpressionKind::BoolLiteral(_)
             | ExpressionKind::Identifier(_) => {}
+            ExpressionKind::CharLiteral(_) => {}
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let spectra_compiler::ast::FStringPart::Interpolated(expr) = part {
+                        collect_doc_comments_from_expression(expr, lines, line_offsets);
+                    }
+                }
+            }
+            ExpressionKind::Lambda { body, .. } => {
+                collect_doc_comments_from_expression(body, lines, line_offsets);
+            }
+            ExpressionKind::Try(inner) => {
+                collect_doc_comments_from_expression(inner, lines, line_offsets);
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                collect_doc_comments_from_expression(start, lines, line_offsets);
+                collect_doc_comments_from_expression(end, lines, line_offsets);
+            }
+            ExpressionKind::Block(block) => {
+                for stmt in &block.statements {
+                    collect_doc_comments_from_statement(stmt, lines, line_offsets);
+                }
+            }
         }
     }
 
@@ -2174,6 +2208,17 @@ mod cst {
                 }
             }
             StatementKind::Break | StatementKind::Continue => {}
+            StatementKind::IfLet(stmt) => {
+                collect_match_spans_expression(&stmt.value, spans);
+                collect_match_spans_block(&stmt.then_block, spans);
+                if let Some(else_b) = &stmt.else_block {
+                    collect_match_spans_block(else_b, spans);
+                }
+            }
+            StatementKind::WhileLet(stmt) => {
+                collect_match_spans_expression(&stmt.value, spans);
+                collect_match_spans_block(&stmt.body, spans);
+            }
         }
     }
 
@@ -2260,6 +2305,27 @@ mod cst {
             | ExpressionKind::StringLiteral(_)
             | ExpressionKind::BoolLiteral(_)
             | ExpressionKind::Identifier(_) => {}
+            ExpressionKind::CharLiteral(_) => {}
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let spectra_compiler::ast::FStringPart::Interpolated(expr) = part {
+                        collect_match_spans_expression(expr, spans);
+                    }
+                }
+            }
+            ExpressionKind::Lambda { body, .. } => {
+                collect_match_spans_expression(body, spans);
+            }
+            ExpressionKind::Try(inner) => {
+                collect_match_spans_expression(inner, spans);
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                collect_match_spans_expression(start, spans);
+                collect_match_spans_expression(end, spans);
+            }
+            ExpressionKind::Block(block) => {
+                collect_match_spans_block(block, spans);
+            }
         }
     }
 

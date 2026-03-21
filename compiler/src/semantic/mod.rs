@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Block, Expression, ExpressionKind, Function, Item, Module, Pattern, Statement,
-        StatementKind, Type, Visibility,
+        Block, Expression, ExpressionKind, FStringPart, Function, Item,
+        Module, Pattern, Statement, StatementKind, Type, Visibility,
     },
     error::SemanticError,
     span::Span,
@@ -449,6 +449,9 @@ impl SemanticAnalyzer {
             TypeAnnotationKind::Tuple { elements } => TypeAnnotationPattern::Tuple(
                 elements.iter().map(Self::annotation_to_pattern).collect(),
             ),
+            TypeAnnotationKind::Function { .. } => {
+                TypeAnnotationPattern::Simple(vec!["fn".to_string()])
+            }
         }
     }
 
@@ -592,6 +595,12 @@ impl SemanticAnalyzer {
                 for element in elements {
                     self.validate_public_type_annotation(element, generics, context, span);
                 }
+            }
+            TypeAnnotationKind::Function { params, return_type } => {
+                for param in params {
+                    self.validate_public_type_annotation(param, generics, context, span);
+                }
+                self.validate_public_type_annotation(return_type, generics, context, span);
             }
         }
     }
@@ -1745,6 +1754,25 @@ impl SemanticAnalyzer {
                     self.error("Continue statement outside of loop", statement.span);
                 }
             }
+            StatementKind::IfLet(stmt) => {
+                self.analyze_expression(&stmt.value);
+                self.push_scope();
+                self.register_pattern_bindings(&stmt.pattern);
+                self.analyze_block(&stmt.then_block);
+                self.pop_scope();
+                if let Some(else_b) = &stmt.else_block {
+                    self.analyze_block(else_b);
+                }
+            }
+            StatementKind::WhileLet(stmt) => {
+                self.analyze_expression(&stmt.value);
+                self.loop_depth += 1;
+                self.push_scope();
+                self.register_pattern_bindings(&stmt.pattern);
+                self.analyze_block(&stmt.body);
+                self.pop_scope();
+                self.loop_depth -= 1;
+            }
         }
     }
 
@@ -1970,6 +1998,28 @@ impl SemanticAnalyzer {
                 }
 
                 Type::Unknown
+            }
+            ExpressionKind::CharLiteral(_) => Type::Char,
+            ExpressionKind::FString(_) => Type::String,
+            ExpressionKind::Lambda { .. } => Type::Unknown,
+            ExpressionKind::Try(inner) => self.infer_expression_type(inner),
+            ExpressionKind::Range { .. } => Type::Array {
+                element_type: Box::new(Type::Int),
+                size: None,
+            },
+            ExpressionKind::Block(block) => {
+                // Block type is the type of the last expression statement, or Unit
+                let mut result = Type::Unit;
+                for stmt in &block.statements {
+                    if let crate::ast::StatementKind::Expression(expr) = &stmt.kind {
+                        result = self.infer_expression_type(expr);
+                    } else if let crate::ast::StatementKind::Return(ret) = &stmt.kind {
+                        result = ret.value.as_ref()
+                            .map(|e| self.infer_expression_type(e))
+                            .unwrap_or(Type::Unit);
+                    }
+                }
+                result
             }
         }
     }
@@ -2766,10 +2816,42 @@ impl SemanticAnalyzer {
                     }
                 }
             }
+            ExpressionKind::CharLiteral(_) => {
+                // char literal is always valid
+            }
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let FStringPart::Interpolated(expr) = part {
+                        self.analyze_expression(expr);
+                    }
+                }
+            }
+            ExpressionKind::Lambda { params, body } => {
+                self.push_scope();
+                for p in params {
+                    let ty = self.type_annotation_to_type(&p.ty);
+                    self.declare_symbol(p.name.clone(), p.span, ty);
+                }
+                self.analyze_expression(body);
+                self.pop_scope();
+            }
+            ExpressionKind::Try(inner) => {
+                self.analyze_expression(inner);
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                self.analyze_expression(start);
+                self.analyze_expression(end);
+            }
+            ExpressionKind::Block(block) => {
+                self.push_scope();
+                for stmt in &block.statements {
+                    self.analyze_statement(stmt);
+                }
+                self.pop_scope();
+            }
         }
     }
 
-    /// Registra variáveis bound por um pattern no escopo atual
     fn register_pattern_bindings(&mut self, pattern: &Pattern) {
         use crate::ast::Pattern;
 
@@ -3863,6 +3945,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
+            TypeAnnotationKind::Function { .. } => {}
         }
     }
 
@@ -3919,6 +4002,9 @@ impl SemanticAnalyzer {
             },
             Type::Unknown => TypeAnnotationKind::Simple {
                 segments: vec!["unknown".to_string()],
+            },
+            Type::Fn { .. } => TypeAnnotationKind::Simple {
+                segments: vec!["fn".to_string()],
             },
         };
 

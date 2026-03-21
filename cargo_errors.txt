@@ -1,0 +1,129 @@
+    Checking spectra-midend v0.1.0 (D:\Lang\SpectraLang\midend)
+error[E0004]: non-exhaustive patterns: `&mut TypeAnnotationKind::Function { .. }` not covered
+   --> midend\src\lowering.rs:534:15
+    |
+534 |         match &mut annotation.kind {
+    |               ^^^^^^^^^^^^^^^^^^^^ pattern `&mut TypeAnnotationKind::Function { .. }` not covered
+    |
+note: `TypeAnnotationKind` defined here
+   --> compiler\src\ast\mod.rs:149:1
+    |
+149 | pub enum TypeAnnotationKind {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+155 |     Function {
+    |     -------- not covered
+    = note: the matched value is of type `&mut TypeAnnotationKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+    |
+551 ~             },
+552 +             &mut TypeAnnotationKind::Function { .. } => todo!()
+    |
+
+error[E0004]: non-exhaustive patterns: `&ExpressionKind::Block(_)` not covered
+    --> midend\src\lowering.rs:1118:15
+     |
+1118 |         match &expr.kind {
+     |               ^^^^^^^^^^ pattern `&ExpressionKind::Block(_)` not covered
+     |
+note: `ExpressionKind` defined here
+    --> compiler\src\ast\mod.rs:245:1
+     |
+ 245 | pub enum ExpressionKind {
+     | ^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 256 |     Block(Block),
+     |     ----- not covered
+     = note: the matched value is of type `&ExpressionKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+     |
+1403 ~             },
+1404 ~             &ExpressionKind::Block(_) => todo!(),
+     |
+
+error[E0004]: non-exhaustive patterns: `&ExpressionKind::Block(_)` not covered
+    --> midend\src\lowering.rs:2198:15
+     |
+2198 |         match &expr.kind {
+     |               ^^^^^^^^^^ pattern `&ExpressionKind::Block(_)` not covered
+     |
+note: `ExpressionKind` defined here
+    --> compiler\src\ast\mod.rs:245:1
+     |
+ 245 | pub enum ExpressionKind {
+     | ^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 256 |     Block(Block),
+     |     ----- not covered
+     = note: the matched value is of type `&ExpressionKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+     |
+3036 ~             },
+3037 +             &ExpressionKind::Block(_) => todo!()
+     |
+
+error[E0004]: non-exhaustive patterns: `&TypeAnnotationKind::Function { .. }` not covered
+    --> midend\src\lowering.rs:3257:15
+     |
+3257 |         match &type_ann.kind {
+     |               ^^^^^^^^^^^^^^ pattern `&TypeAnnotationKind::Function { .. }` not covered
+     |
+note: `TypeAnnotationKind` defined here
+    --> compiler\src\ast\mod.rs:149:1
+     |
+ 149 | pub enum TypeAnnotationKind {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 155 |     Function {
+     |     -------- not covered
+     = note: the matched value is of type `&TypeAnnotationKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+     |
+3323 ~             },
+3324 +             &TypeAnnotationKind::Function { .. } => todo!()
+     |
+
+error[E0004]: non-exhaustive patterns: `&TypeAnnotationKind::Function { .. }` not covered
+    --> midend\src\lowering.rs:3397:15
+     |
+3397 |         match &ty.kind {
+     |               ^^^^^^^^ pattern `&TypeAnnotationKind::Function { .. }` not covered
+     |
+note: `TypeAnnotationKind` defined here
+    --> compiler\src\ast\mod.rs:149:1
+     |
+ 149 | pub enum TypeAnnotationKind {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 155 |     Function {
+     |     -------- not covered
+     = note: the matched value is of type `&TypeAnnotationKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+     |
+3405 ~             },
+3406 +             &TypeAnnotationKind::Function { .. } => todo!()
+     |
+
+error[E0004]: non-exhaustive patterns: `&TypeAnnotationKind::Function { .. }` not covered
+    --> midend\src\lowering.rs:3518:38
+     |
+3518 |         let substituted_kind = match &ty.kind {
+     |                                      ^^^^^^^^ pattern `&TypeAnnotationKind::Function { .. }` not covered
+     |
+note: `TypeAnnotationKind` defined here
+    --> compiler\src\ast\mod.rs:149:1
+     |
+ 149 | pub enum TypeAnnotationKind {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 155 |     Function {
+     |     -------- not covered
+     = note: the matched value is of type `&TypeAnnotationKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+     |
+3538 ~             },
+3539 +             &TypeAnnotationKind::Function { .. } => todo!()
+     |
+
+For more information about this error, try `rustc --explain E0004`.
+error: could not compile `spectra-midend` (lib) due to 6 previous errors

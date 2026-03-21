@@ -1,0 +1,29 @@
+module test_beta_fstrings;
+
+fn greet(name: string) -> string {
+    return f"Hello, {name}!";
+}
+
+fn describe_number(n: int) -> string {
+    return f"The number is {n}";
+}
+
+fn compute_and_show(a: int, b: int) -> string {
+    let result = a + b;
+    return f"Result of {a} + {b} = {result}";
+}
+
+fn main() -> int {
+    let name = "World";
+    let greeting = f"Hello, {name}!";
+
+    let x = 42;
+    let msg = f"The answer is {x}";
+
+    let pi = 3.14;
+    let circle_msg = f"Pi is approximately {pi}";
+
+    let sum_msg = compute_and_show(10, 32);
+
+    return 0;
+}

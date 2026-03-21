@@ -1,7 +1,7 @@
 use crate::{
     error::LexError,
     span::{Location, Span},
-    token::{Keyword, Token, TokenKind},
+    token::{Keyword, Operator, Token, TokenKind},
 };
 
 pub struct Lexer<'source> {
@@ -53,6 +53,78 @@ impl<'source> Lexer<'source> {
                     }
                 }
                 ch if is_identifier_start(ch) => {
+                    // Special case: f"..." is an f-string literal, not an identifier
+                    if ch == 'f'
+                        && index + 1 < length
+                        && characters[index + 1].1 == '"'
+                    {
+                        // Consume 'f'
+                        bump_position('f', &mut line, &mut column);
+                        index += 1;
+                        // Consume '"'
+                        bump_position('"', &mut line, &mut column);
+                        index += 1;
+
+                        // Scan f-string content, preserving {expr} parts as-is
+                        let mut raw_content = String::new();
+                        let mut terminated = false;
+
+                        while index < length {
+                            let (_, sc) = characters[index];
+                            if sc == '\\' && index + 1 < length {
+                                let (_, escaped) = characters[index + 1];
+                                bump_position('\\', &mut line, &mut column);
+                                bump_position(escaped, &mut line, &mut column);
+                                match escaped {
+                                    '"'  => raw_content.push('"'),
+                                    '\\' => raw_content.push('\\'),
+                                    'n'  => raw_content.push('\n'),
+                                    't'  => raw_content.push('\t'),
+                                    'r'  => raw_content.push('\r'),
+                                    '0'  => raw_content.push('\0'),
+                                    other => {
+                                        raw_content.push('\\');
+                                        raw_content.push(other);
+                                    }
+                                }
+                                index += 2;
+                            } else if sc == '"' {
+                                bump_position('"', &mut line, &mut column);
+                                index += 1;
+                                terminated = true;
+                                break;
+                            } else {
+                                bump_position(sc, &mut line, &mut column);
+                                raw_content.push(sc);
+                                index += 1;
+                            }
+                        }
+
+                        let end_offset = if index < length {
+                            characters[index].0
+                        } else {
+                            self.source.len()
+                        };
+                        let end_location = Location::new(line, column);
+
+                        if terminated {
+                            tokens.push(Token::new(
+                                TokenKind::FStringLiteral(raw_content),
+                                Span::new(offset, end_offset, start_location, end_location),
+                            ));
+                        } else {
+                            errors.push(
+                                LexError::new(
+                                    "unterminated f-string literal",
+                                    Span::new(offset, self.source.len(), start_location, end_location),
+                                )
+                                .with_hint("Close the f-string with a matching \" character."),
+                            );
+                        }
+                        continue;
+                    }
+
+                    // Regular identifier or keyword
                     bump_position(ch, &mut line, &mut column);
                     let mut end_index = index + 1;
                     while end_index < length {
@@ -189,6 +261,77 @@ impl<'source> Lexer<'source> {
                     }
                     index = scan;
                 }
+                '\'' => {
+                    // Character literal: 'a', '\n', etc.
+                    bump_position('\'', &mut line, &mut column);
+                    let mut scan = index + 1;
+                    let mut char_value: Option<char> = None;
+                    let mut terminated = false;
+
+                    if scan < length {
+                        let (_, sc) = characters[scan];
+                        if sc == '\\' && scan + 1 < length {
+                            // Escape sequence
+                            let (_, escaped) = characters[scan + 1];
+                            bump_position('\\', &mut line, &mut column);
+                            bump_position(escaped, &mut line, &mut column);
+                            let ch_val = match escaped {
+                                '\'' => '\'',
+                                '\\' => '\\',
+                                'n'  => '\n',
+                                't'  => '\t',
+                                'r'  => '\r',
+                                '0'  => '\0',
+                                other => other,
+                            };
+                            char_value = Some(ch_val);
+                            scan += 2;
+                        } else if sc != '\'' {
+                            bump_position(sc, &mut line, &mut column);
+                            char_value = Some(sc);
+                            scan += 1;
+                        }
+                    }
+
+                    if scan < length && characters[scan].1 == '\'' {
+                        bump_position('\'', &mut line, &mut column);
+                        scan += 1;
+                        terminated = true;
+                    }
+
+                    let end_offset = if scan < length {
+                        characters[scan].0
+                    } else {
+                        self.source.len()
+                    };
+                    let end_location = Location::new(line, column);
+
+                    if terminated {
+                        if let Some(c) = char_value {
+                            tokens.push(Token::new(
+                                TokenKind::CharLiteral(c),
+                                Span::new(offset, end_offset, start_location, end_location),
+                            ));
+                        } else {
+                            errors.push(
+                                LexError::new(
+                                    "empty character literal",
+                                    Span::new(offset, end_offset, start_location, end_location),
+                                )
+                                .with_hint("Character literals must contain exactly one character."),
+                            );
+                        }
+                    } else {
+                        errors.push(
+                            LexError::new(
+                                "unterminated character literal",
+                                Span::new(offset, self.source.len(), start_location, end_location),
+                            )
+                            .with_hint("Close the character literal with a matching ' character."),
+                        );
+                    }
+                    index = scan;
+                }
                 ch if is_symbol_char(ch) => {
                     // Check for two-character operators
                     let next_char = if index + 1 < length {
@@ -199,23 +342,32 @@ impl<'source> Lexer<'source> {
 
                     let (token_kind, chars_consumed) = match (ch, next_char) {
                         ('=', Some('=')) => {
-                            (TokenKind::Operator(crate::token::Operator::EqualEqual), 2)
+                            (TokenKind::Operator(Operator::EqualEqual), 2)
                         }
                         ('=', Some('>')) => {
-                            (TokenKind::Operator(crate::token::Operator::FatArrow), 2)
+                            (TokenKind::Operator(Operator::FatArrow), 2)
                         }
                         ('!', Some('=')) => {
-                            (TokenKind::Operator(crate::token::Operator::NotEqual), 2)
+                            (TokenKind::Operator(Operator::NotEqual), 2)
                         }
                         ('<', Some('=')) => {
-                            (TokenKind::Operator(crate::token::Operator::LessEqual), 2)
+                            (TokenKind::Operator(Operator::LessEqual), 2)
                         }
                         ('>', Some('=')) => {
-                            (TokenKind::Operator(crate::token::Operator::GreaterEqual), 2)
+                            (TokenKind::Operator(Operator::GreaterEqual), 2)
                         }
-                        ('&', Some('&')) => (TokenKind::Operator(crate::token::Operator::And), 2),
-                        ('|', Some('|')) => (TokenKind::Operator(crate::token::Operator::Or), 2),
-                        ('-', Some('>')) => (TokenKind::Operator(crate::token::Operator::Arrow), 2),
+                        ('&', Some('&')) => (TokenKind::Operator(Operator::And), 2),
+                        ('|', Some('|')) => (TokenKind::Operator(Operator::Or), 2),
+                        ('-', Some('>')) => (TokenKind::Operator(Operator::Arrow), 2),
+                        // Range operators: ..= and ..
+                        ('.', Some('.')) => {
+                            let third = if index + 2 < length { Some(characters[index + 2].1) } else { None };
+                            if third == Some('=') {
+                                (TokenKind::Operator(Operator::RangeInclusive), 3)
+                            } else {
+                                (TokenKind::Operator(Operator::Range), 2)
+                            }
+                        }
                         _ => (TokenKind::Symbol(ch), 1),
                     };
 
@@ -302,6 +454,7 @@ fn is_symbol_char(ch: char) -> bool {
             | '!'
             | '&'
             | '|'
+            | '?'
     )
 }
 

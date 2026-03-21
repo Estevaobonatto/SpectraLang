@@ -394,6 +394,8 @@ impl Parser {
                 }
             }
             TokenKind::EndOfFile => "end of file".to_string(),
+            TokenKind::CharLiteral(c) => format!("char literal '{}'", c),
+            TokenKind::FStringLiteral(_) => "f-string literal".to_string(),
         }
     }
 
@@ -509,6 +511,7 @@ impl TypePattern {
             TypeAnnotationKind::Tuple { elements } => {
                 TypePattern::Tuple(elements.iter().map(TypePattern::from_annotation).collect())
             }
+            TypeAnnotationKind::Function { .. } => TypePattern::Simple(vec!["fn".to_string()]),
         }
     }
 

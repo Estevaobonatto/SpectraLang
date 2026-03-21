@@ -47,26 +47,85 @@ impl Parser {
     }
 
     pub(super) fn parse_import(&mut self) -> Result<Import, ()> {
-        // Expect: import path.to.module;
+        // Supports three forms:
+        //   import path.to.module;
+        //   import path.to.module as alias;
+        //   import { name1, name2 } from path.to.module;
         let start_span = self.consume_keyword(Keyword::Import, "Expected 'import' keyword")?;
 
-        let mut path = Vec::new();
+        // Check for named-import form: import { ... } from path;
+        if self.check_symbol('{') {
+            self.advance(); // consume '{'
+            let mut names = Vec::new();
+            loop {
+                let (name, _) = self.consume_identifier("Expected import name")?;
+                names.push(name);
+                if self.check_symbol(',') {
+                    self.advance(); // consume ','
+                    if self.check_symbol('}') {
+                        break; // trailing comma
+                    }
+                } else {
+                    break;
+                }
+            }
+            self.consume_symbol('}', "Expected '}' after import names")?;
 
-        // First identifier
-        let (name, _) = self.consume_identifier("Expected module path")?;
-        path.push(name);
+            // Expect 'from' identifier
+            match &self.current().kind {
+                crate::token::TokenKind::Identifier(kw) if kw == "from" => {
+                    self.advance(); // consume 'from'
+                }
+                _ => {
+                    self.error_at("Expected 'from' after import names", self.current().span);
+                    return Err(());
+                }
+            }
 
-        // Additional path segments
-        while self.check_symbol('.') {
-            self.advance(); // consume '.'
-            let (name, _) = self.consume_identifier("Expected identifier after '.'")?;
-            path.push(name);
+            let mut path = Vec::new();
+            let (first, _) = self.consume_identifier("Expected module path")?;
+            path.push(first);
+            while self.check_symbol('.') {
+                self.advance();
+                let (seg, _) = self.consume_identifier("Expected identifier after '.'")?;
+                path.push(seg);
+            }
+            let end_span = self.consume_symbol(';', "Expected ';' after import path")?;
+
+            return Ok(Import {
+                path,
+                alias: None,
+                names: Some(names),
+                span: span_union(start_span, end_span),
+            });
         }
 
-        let end_span = self.consume_symbol(';', "Expected ';' after import path")?;
+        // Standard path form
+        let mut path = Vec::new();
+        let (name, _) = self.consume_identifier("Expected module path")?;
+        path.push(name);
+        while self.check_symbol('.') {
+            self.advance();
+            let (seg, _) = self.consume_identifier("Expected identifier after '.'")?;
+            path.push(seg);
+        }
+
+        // Optional alias: import path as alias;
+        let alias = match &self.current().kind {
+            crate::token::TokenKind::Identifier(kw) if kw == "as" => {
+                self.advance(); // consume 'as'
+                let (alias_name, _) = self.consume_identifier("Expected alias name after 'as'")?;
+                Some(alias_name)
+            }
+            _ => None,
+        };
+
+        let end_span = self.consume_symbol(';', "Expected ';' after import")?;
 
         Ok(Import {
             path,
+            alias,
+            names: None,
             span: span_union(start_span, end_span),
         })
     }

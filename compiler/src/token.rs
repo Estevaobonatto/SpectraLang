@@ -190,6 +190,10 @@ pub enum TokenKind {
     Symbol(char),
     Operator(Operator),
     StringLiteral(String),
+    /// Character literal: 'a', '\n', etc.
+    CharLiteral(char),
+    /// F-string raw template: f"Hello, {name}!"
+    FStringLiteral(String),
     EndOfFile,
 }
 
@@ -208,6 +212,10 @@ pub enum Operator {
     // Arrows
     Arrow,    // -> (for function returns)
     FatArrow, // => (for match arms, etc.)
+
+    // Range operators
+    Range,          // ..
+    RangeInclusive, // ..=
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -233,6 +241,8 @@ impl fmt::Display for Operator {
             Operator::Or => "||",
             Operator::Arrow => "->",
             Operator::FatArrow => "=>",
+            Operator::Range => "..",
+            Operator::RangeInclusive => "..=",
         };
 
         write!(f, "{}", text)

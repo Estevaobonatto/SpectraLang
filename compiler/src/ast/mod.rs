@@ -28,6 +28,11 @@ pub enum Type {
     },
     /// Self type - refers to the implementing type in trait methods or impl blocks
     SelfType,
+    /// Closure/function type: fn(int, string) -> bool
+    Fn {
+        params: Vec<Type>,
+        return_type: Box<Type>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +67,10 @@ pub enum Item {
 pub struct Import {
     pub path: Vec<String>,
     pub span: Span,
+    /// Optional alias: `import path as alias`
+    pub alias: Option<String>,
+    /// Named imports: `import { name1, name2 } from path`
+    pub names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,7 +134,9 @@ pub struct Enum {
 pub struct EnumVariant {
     pub name: String,
     pub span: Span,
-    pub data: Option<Vec<TypeAnnotation>>, // None for unit variants, Some for tuple variants
+    pub data: Option<Vec<TypeAnnotation>>,   // None for unit variants, Some for tuple variants
+    /// Struct-style variant fields: `Variant { field: Type }`. When set, `data` is None.
+    pub struct_data: Option<Vec<(String, TypeAnnotation)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +151,11 @@ pub enum TypeAnnotationKind {
     Simple { segments: Vec<String> },
     /// Tipo tuple: (int, string, bool)
     Tuple { elements: Vec<TypeAnnotation> },
+    /// Function type: fn(T1, T2) -> ReturnType
+    Function {
+        params: Vec<TypeAnnotation>,
+        return_type: Box<TypeAnnotation>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +183,10 @@ pub enum StatementKind {
     Switch(SwitchStatement),
     Break,
     Continue,
+    /// `if let Pattern = expr { ... } [else { ... }]`
+    IfLet(IfLetStatement),
+    /// `while let Pattern = expr { ... }`
+    WhileLet(WhileLetStatement),
 }
 
 #[derive(Debug, Clone)]
@@ -228,6 +248,12 @@ pub enum ExpressionKind {
     NumberLiteral(String),
     StringLiteral(String),
     BoolLiteral(bool),
+    /// Character literal: 'a', '\n', etc.
+    CharLiteral(char),
+    /// F-string with interpolated parts: f"Hello, {name}!"
+    FString(Vec<FStringPart>),
+    /// Block expression: { stmt; stmt; expr }
+    Block(Block),
 
     // Operations
     Binary {
@@ -238,6 +264,14 @@ pub enum ExpressionKind {
     Unary {
         operator: UnaryOperator,
         operand: Box<Expression>,
+    },
+    /// Error propagation operator: expr?
+    Try(Box<Expression>),
+    /// Range: start..end (exclusive) or start..=end (inclusive)
+    Range {
+        start: Box<Expression>,
+        end: Box<Expression>,
+        inclusive: bool,
     },
 
     // Function calls
@@ -314,6 +348,12 @@ pub enum ExpressionKind {
         arguments: Vec<Expression>,
         type_name: Option<String>, // Preenchido pelo semantic analyzer
     },
+
+    /// Closure/lambda: |params| expr  or  |params| { body }
+    Lambda {
+        params: Vec<LambdaParam>,
+        body: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -373,6 +413,42 @@ pub enum UnaryOperator {
 // Loop infinito: loop { ... }
 #[derive(Debug, Clone)]
 pub struct LoopStatement {
+    pub body: Block,
+    pub span: Span,
+}
+
+/// A single segment of an f-string template.
+#[derive(Debug, Clone)]
+pub enum FStringPart {
+    /// Literal text segment
+    Literal(String),
+    /// Interpolated expression: `{expr}`
+    Interpolated(Box<Expression>),
+}
+
+/// Parameter of a lambda/closure expression.
+#[derive(Debug, Clone)]
+pub struct LambdaParam {
+    pub name: String,
+    pub ty: Option<TypeAnnotation>,
+    pub span: Span,
+}
+
+/// `if let Pattern = expr { ... } [else { ... }]`
+#[derive(Debug, Clone)]
+pub struct IfLetStatement {
+    pub pattern: Pattern,
+    pub value: Expression,
+    pub then_block: Block,
+    pub else_block: Option<Block>,
+    pub span: Span,
+}
+
+/// `while let Pattern = expr { ... }`
+#[derive(Debug, Clone)]
+pub struct WhileLetStatement {
+    pub pattern: Pattern,
+    pub value: Expression,
     pub body: Block,
     pub span: Span,
 }

@@ -1,0 +1,44 @@
+module test_beta_ranges;
+
+fn sum_range(start: int, end_val: int) -> int {
+    let total = 0;
+    for i in start..end_val {
+        total = total + i;
+    }
+    return total;
+}
+
+fn sum_range_inclusive(start: int, end_val: int) -> int {
+    let total = 0;
+    for i in start..=end_val {
+        total = total + i;
+    }
+    return total;
+}
+
+fn main() -> int {
+    // Range expressions: exclusive
+    let r1 = 0..10;    // 0, 1, 2, ..., 9
+
+    // Range expressions: inclusive
+    let r2 = 1..=5;    // 1, 2, 3, 4, 5
+
+    // Ranges in for loops
+    let count = 0;
+    for i in 0..5 {
+        count = count + i;
+    }
+    // count == 10 (0+1+2+3+4)
+
+    let count2 = 0;
+    for i in 1..=5 {
+        count2 = count2 + i;
+    }
+    // count2 == 15 (1+2+3+4+5)
+
+    // Range in function arguments
+    let s1 = sum_range(1, 11);       // sum of 1..10 = 55
+    let s2 = sum_range_inclusive(1, 10);  // sum of 1..=10 = 55
+
+    return 0;
+}

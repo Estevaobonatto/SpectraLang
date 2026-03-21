@@ -1,5 +1,7 @@
 use crate::{
-    ast::{BinaryOperator, Expression, ExpressionKind, UnaryOperator},
+    ast::{
+        BinaryOperator, Expression, ExpressionKind, FStringPart, LambdaParam, UnaryOperator,
+    },
     token::{Keyword, Operator, TokenKind},
 };
 
@@ -7,7 +9,31 @@ use super::Parser;
 
 impl Parser {
     pub(super) fn parse_expression(&mut self) -> Result<Expression, ()> {
-        self.parse_logical_or()
+        let expr = self.parse_logical_or()?;
+
+        // Handle range operators at expression level (lowest after logical)
+        if matches!(
+            &self.current().kind,
+            TokenKind::Operator(Operator::Range) | TokenKind::Operator(Operator::RangeInclusive)
+        ) {
+            let inclusive = matches!(
+                &self.current().kind,
+                TokenKind::Operator(Operator::RangeInclusive)
+            );
+            self.advance();
+            let end = self.parse_logical_or()?;
+            let span = crate::span::span_union(expr.span, end.span);
+            return Ok(Expression {
+                span,
+                kind: ExpressionKind::Range {
+                    start: Box::new(expr),
+                    end: Box::new(end),
+                    inclusive,
+                },
+            });
+        }
+
+        Ok(expr)
     }
 
     // Logical OR (lowest precedence)
@@ -250,6 +276,8 @@ impl Parser {
                     },
                 };
             } else if self.check_symbol('.') {
+                // Check for range before consuming '.'
+                // (Two dots: '..' would have been lexed as Operator::Range, not Symbol('.'))
                 self.advance(); // consume '.'
 
                 // Check if it's a number (tuple access) or identifier (field access)
@@ -337,6 +365,15 @@ impl Parser {
                     self.error("Expected number or field name after '.'");
                     return Err(());
                 }
+            } else if matches!(&self.current().kind, TokenKind::Symbol('?')) {
+                // Try/propagate operator: expr?
+                let end_span = self.current().span;
+                self.advance(); // consume '?'
+                let span = crate::span::span_union(expr.span, end_span);
+                expr = Expression {
+                    span,
+                    kind: ExpressionKind::Try(Box::new(expr)),
+                };
             } else {
                 break;
             }
@@ -382,7 +419,7 @@ impl Parser {
                 self.advance();
 
                 // Parse optional type arguments: Name<Type1, Type2>
-                let type_args = if self.check_symbol('<') {
+                let type_args = if self.is_likely_type_args_lookahead() {
                     self.parse_type_arguments()?
                 } else {
                     Vec::new()
@@ -520,6 +557,92 @@ impl Parser {
                     kind: ExpressionKind::StringLiteral(value),
                 })
             }
+            TokenKind::CharLiteral(c) => {
+                let c = *c;
+                self.advance();
+                Ok(Expression {
+                    span,
+                    kind: ExpressionKind::CharLiteral(c),
+                })
+            }
+            TokenKind::FStringLiteral(raw) => {
+                let raw = raw.clone();
+                self.advance();
+                let parts = self.parse_fstring_parts(&raw, span);
+                Ok(Expression {
+                    span,
+                    kind: ExpressionKind::FString(parts),
+                })
+            }
+            // Lambda: |param, param| expr  or  || expr
+            TokenKind::Operator(Operator::Or) => {
+                // '||' detected as Operator::Or in primary position = empty lambda params
+                self.advance(); // consume '||'
+                // Body can be a block `{ ... }` or a single expression
+                let body = if self.check_symbol('{') {
+                    let block = self.parse_block()?;
+                    let block_span = block.span;
+                    Expression {
+                        span: block_span,
+                        kind: ExpressionKind::Block(block),
+                    }
+                } else {
+                    self.parse_expression()?
+                };
+                let end_span = body.span;
+                Ok(Expression {
+                    span: crate::span::span_union(span, end_span),
+                    kind: ExpressionKind::Lambda {
+                        params: vec![],
+                        body: Box::new(body),
+                    },
+                })
+            }
+            TokenKind::Symbol('|') => {
+                // Lambda with params: |x, y: int| expr
+                self.advance(); // consume '|'
+                let mut params = Vec::new();
+                while !matches!(&self.current().kind, TokenKind::Symbol('|')) && !self.is_at_end() {
+                    let (param_name, param_span) =
+                        self.consume_identifier("Expected parameter name in lambda")?;
+                    let ty = if self.check_symbol(':') {
+                        self.advance(); // consume ':'
+                        Some(self.parse_type_annotation()?)
+                    } else {
+                        None
+                    };
+                    params.push(LambdaParam {
+                        name: param_name,
+                        ty,
+                        span: param_span,
+                    });
+                    if self.check_symbol(',') {
+                        self.advance(); // consume ','
+                    } else {
+                        break;
+                    }
+                }
+                self.consume_symbol('|', "Expected '|' to close lambda parameters")?;
+                // Body can be a block `{ ... }` or a single expression
+                let body = if self.check_symbol('{') {
+                    let block = self.parse_block()?;
+                    let block_span = block.span;
+                    Expression {
+                        span: block_span,
+                        kind: ExpressionKind::Block(block),
+                    }
+                } else {
+                    self.parse_expression()?
+                };
+                let end_span = body.span;
+                Ok(Expression {
+                    span: crate::span::span_union(span, end_span),
+                    kind: ExpressionKind::Lambda {
+                        params,
+                        body: Box::new(body),
+                    },
+                })
+            }
             TokenKind::Symbol('(') => {
                 self.advance(); // consume '('
 
@@ -637,8 +760,63 @@ impl Parser {
         })
     }
 
+    /// Splits f-string raw template into literal and interpolated parts,
+    /// then sub-parses inner expressions.
+    fn parse_fstring_parts(&mut self, raw: &str, span: crate::span::Span) -> Vec<FStringPart> {
+        use crate::lexer::Lexer;
+        use std::collections::HashSet;
+
+        let mut parts = Vec::new();
+        let chars: Vec<char> = raw.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            if chars[i] == '{' {
+                // Find matching closing '}' tracking nested braces
+                let mut depth = 1;
+                let mut j = i + 1;
+                while j < chars.len() && depth > 0 {
+                    if chars[j] == '{' { depth += 1; }
+                    else if chars[j] == '}' { depth -= 1; }
+                    if depth > 0 { j += 1; } else { break; }
+                }
+                // chars[i+1..j] is the expression source
+                let expr_src: String = chars[i + 1..j].iter().collect();
+                let sub_tokens_result = Lexer::new(&expr_src).tokenize();
+                match sub_tokens_result {
+                    Ok(sub_tokens) => {
+                        let mut sub_parser = Parser::new(sub_tokens, HashSet::new());
+                        match sub_parser.parse_expression() {
+                            Ok(inner_expr) => {
+                                parts.push(FStringPart::Interpolated(Box::new(inner_expr)));
+                            }
+                            Err(_) => {
+                                self.error_at("Invalid expression inside f-string interpolation", span);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        self.error_at("Lexer error inside f-string interpolation", span);
+                    }
+                }
+                i = j + 1; // skip past '}'
+            } else {
+                // Collect literal chars until next '{' or end
+                let mut lit = String::new();
+                while i < chars.len() && chars[i] != '{' {
+                    lit.push(chars[i]);
+                    i += 1;
+                }
+                if !lit.is_empty() {
+                    parts.push(FStringPart::Literal(lit));
+                }
+            }
+        }
+
+        parts
+    }
+
     fn parse_unless_expression(&mut self) -> Result<Expression, ()> {
-        // unless condition { body } [else { else_body }]
         // É equivalente a: if !(condition) { body } [else { else_body }]
         let start_span = self.current().span;
         self.advance(); // consume 'unless'
@@ -716,7 +894,7 @@ impl Parser {
         })
     }
 
-    fn parse_pattern(&mut self) -> Result<crate::ast::Pattern, ()> {
+    pub(super) fn parse_pattern(&mut self) -> Result<crate::ast::Pattern, ()> {
         use crate::ast::Pattern;
 
         // Wildcard pattern: _
@@ -731,7 +909,7 @@ impl Parser {
             self.advance();
 
             // Parse optional type arguments: EnumName<Type>
-            let type_args = if self.check_symbol('<') {
+            let type_args = if self.is_likely_type_args_lookahead() {
                 self.parse_type_arguments()?
             } else {
                 Vec::new()
@@ -783,6 +961,30 @@ impl Parser {
         // Literal patterns (números, booleanos, etc.)
         let expr = self.parse_primary_expression()?;
         Ok(Pattern::Literal(expr))
+    }
+
+    fn is_likely_type_args_lookahead(&self) -> bool {
+        if !self.check_symbol('<') { return false; }
+        let mut i = self.position + 1;
+        let mut depth = 1;
+        while i < self.tokens.len() && depth > 0 {
+            let kind = &self.tokens[i].kind;
+            match kind {
+                TokenKind::Symbol('<') => depth += 1,
+                TokenKind::Symbol('>') => depth -= 1,
+                TokenKind::Symbol(';') | TokenKind::Symbol('{') | 
+                TokenKind::Keyword(_) | TokenKind::Symbol('=') => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        if depth > 0 { return false; }
+        // The token after `>` must be either `:` (for `::`) or `{` (for struct literal)
+        if i < self.tokens.len() {
+            let next_kind = &self.tokens[i].kind;
+            return matches!(next_kind, TokenKind::Symbol(':') | TokenKind::Symbol('{'));
+        }
+        false
     }
 
     /// Parse type arguments: <Type1, Type2>

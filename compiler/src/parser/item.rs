@@ -269,10 +269,31 @@ impl Parser {
                 None // Unit variant
             };
 
+            // Parse struct-style variant: Variant { field: Type, ... }
+            let struct_data = if self.check_symbol('{') {
+                self.advance(); // consume '{'
+                let mut fields = Vec::new();
+                while !self.check_symbol('}') && !self.is_at_end() {
+                    let (field_name, _) =
+                        self.consume_identifier("Expected field name in struct variant")?;
+                    self.consume_symbol(':', "Expected ':' after field name")?;
+                    let field_type = self.parse_type_annotation()?;
+                    fields.push((field_name, field_type));
+                    if self.check_symbol(',') {
+                        self.advance();
+                    }
+                }
+                self.consume_symbol('}', "Expected '}' to end struct variant")?;
+                Some(fields)
+            } else {
+                None
+            };
+
             variants.push(EnumVariant {
                 name: variant_name,
                 span: variant_span,
                 data,
+                struct_data,
             });
 
             // Optional comma

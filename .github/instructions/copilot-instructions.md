@@ -9,6 +9,12 @@
 - Documentar código e funções
 - Sugerir otimizações de performance
 - Ajudar com estrutura de projeto
+- Editar o código seguindo as melhores práticas de Rust e os padrões estabelecidos no projeto
+- Manter a consistência de estilo e formatação
+- Fornecer explicações claras e detalhadas para as mudanças propostas
+- Respeitar as convenções de nomenclatura e organização do código
+- Consultar a documentação do projeto para garantir alinhamento com as diretrizes
+
 
 ## ❌ O que NÃO pode fazer
 
