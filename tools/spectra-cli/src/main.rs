@@ -87,6 +87,8 @@ struct CliInvocation {
     show_pipeline_summary: bool,
     verbose: bool,
     json_output: bool,
+    /// When `Some(path)`, emit a native object file at `path` instead of / in addition to JIT.
+    emit_object: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -368,6 +370,7 @@ where
     let mut show_pipeline_summary = false;
     let mut verbose = false;
     let mut json_output = false;
+    let mut emit_object: Option<PathBuf> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -453,14 +456,20 @@ where
                 let rule = parse_lint_rule_cli(&value)?;
                 lint_deny_cli.push(rule);
             }
-            flag if flag.starts_with('-') => {
-                return Err(usage_error(&format!("Unknown option: {}", flag)));
-            }
             "--json" => {
                 if command != BuildCommand::Lint {
                     return Err(usage_error("'--json' is only supported with the 'lint' command."));
                 }
                 json_output = true;
+            }
+            "--emit-object" | "-o" => {
+                let path = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing output path after '--emit-object'."))?;
+                emit_object = Some(PathBuf::from(path));
+            }
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("Unknown option: {}", flag)));
             }
             _ => entries.push(PathBuf::from(arg)),
         }
@@ -490,6 +499,7 @@ where
         show_pipeline_summary,
         verbose,
         json_output,
+        emit_object,
     })
 }
 
@@ -852,10 +862,37 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         show_pipeline_summary,
         verbose,
         json_output,
+        emit_object,
     } = invocation;
 
     if kind == BuildCommand::Lint && json_output {
         return execute_lint_json(entries, options);
+    }
+
+    // AOT object emission: compile the first entry file and write the object bytes.
+    if let Some(ref obj_path) = emit_object {
+        if entries.is_empty() {
+            return Err(CliError::usage("--emit-object requires a source file."));
+        }
+        let source_path = &entries[0];
+        let source = fs::read_to_string(source_path).map_err(|e| {
+            CliError::io(format!("Cannot read '{}': {}", source_path.display(), e))
+        })?;
+        let filename = source_path.to_string_lossy().to_string();
+        let mut compiler = SpectraCompiler::new(options);
+        compiler.set_emit_output(false);
+        let obj_bytes = compiler
+            .compile_to_object_bytes(&source, &filename)
+            .map_err(|e| CliError::compilation(e))?;
+        fs::write(obj_path, &obj_bytes).map_err(|e| {
+            CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e))
+        })?;
+        println!("✅ Object file written: {}", obj_path.display());
+        println!(
+            "   Link with: cc {} -L<runtime_lib_dir> -lspectra_runtime -o <output>",
+            obj_path.display()
+        );
+        return Ok(());
     }
 
     // If a single directory is given (or current dir when no entries), look for spectra.toml.

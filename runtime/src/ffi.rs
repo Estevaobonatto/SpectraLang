@@ -449,6 +449,14 @@ pub extern "C" fn spectra_rt_host_clear() {
     guard.clear();
 }
 
+/// One-shot startup for AOT executables: initialises the runtime and registers
+/// all built-in stdlib host functions.  Must be called before any Spectra code runs.
+#[no_mangle]
+pub extern "C" fn spectra_rt_startup() {
+    initialize();
+    crate::register_standard_library();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

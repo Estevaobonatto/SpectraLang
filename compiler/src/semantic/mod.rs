@@ -191,6 +191,58 @@ pub struct SemanticAnalyzer {
     pub symbol_resolutions: HashMap<Span, SymbolInfo>,
 }
 
+// ---------------------------------------------------------------------------
+// Standalone helpers
+// ---------------------------------------------------------------------------
+
+/// Compute the Levenshtein edit distance between two strings.
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let m = a.len();
+    let n = b.len();
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 0..=m { dp[i][0] = i; }
+    for j in 0..=n { dp[0][j] = j; }
+    for i in 1..=m {
+        for j in 1..=n {
+            dp[i][j] = if a[i - 1] == b[j - 1] {
+                dp[i - 1][j - 1]
+            } else {
+                1 + dp[i - 1][j].min(dp[i][j - 1]).min(dp[i - 1][j - 1])
+            };
+        }
+    }
+    dp[m][n]
+}
+
+/// Format a `Type` for display in user-facing error messages.
+pub fn type_name(ty: &Type) -> String {
+    match ty {
+        Type::Int => "int".into(),
+        Type::Float => "float".into(),
+        Type::Bool => "bool".into(),
+        Type::String => "string".into(),
+        Type::Char => "char".into(),
+        Type::Unit => "unit".into(),
+        Type::Unknown => "unknown".into(),
+        Type::Array { element_type, size: Some(n) } => format!("[{}; {}]", type_name(element_type), n),
+        Type::Array { element_type, size: None } => format!("[{}]", type_name(element_type)),
+        Type::Tuple { elements } => {
+            let inner = elements.iter().map(type_name).collect::<Vec<_>>().join(", ");
+            format!("({})", inner)
+        }
+        Type::Struct { name } => name.clone(),
+        Type::Enum { name } => name.clone(),
+        Type::TypeParameter { name } => name.clone(),
+        Type::SelfType => "Self".into(),
+        Type::Fn { params, return_type } => {
+            let ps = params.iter().map(type_name).collect::<Vec<_>>().join(", ");
+            format!("fn({}) -> {}", ps, type_name(return_type))
+        }
+    }
+}
+
 impl SemanticAnalyzer {
     /// Create an analyzer with a private registry seeded with stdlib modules.
     /// Suitable for single-file use (e.g. tests, REPL).
@@ -647,6 +699,35 @@ impl SemanticAnalyzer {
         }
         None
     }
+
+    /// Suggest a similar name from all in-scope symbols and known functions.
+    /// Returns `Some("did you mean 'X'?")` when a close-enough match is found.
+    fn suggest_name(&self, name: &str) -> Option<String> {
+        let threshold = (name.len() / 3 + 1).min(3);
+        let mut best: Option<(String, usize)> = None;
+
+        let mut consider = |candidate: &str| {
+            if candidate == name { return; }
+            let d = levenshtein_distance(name, candidate);
+            if d > 0 && d <= threshold {
+                if best.as_ref().map_or(true, |(_, bd)| d < *bd) {
+                    best = Some((candidate.to_owned(), d));
+                }
+            }
+        };
+
+        for scope in self.symbols.iter() {
+            for key in scope.keys() {
+                consider(key.as_str());
+            }
+        }
+        for key in self.functions.keys() {
+            consider(key.as_str());
+        }
+
+        best.map(|(s, _)| format!("did you mean '{}'?", s))
+    }
+
 
     fn is_builtin_type(name: &str) -> bool {
         matches!(name, "int" | "float" | "bool" | "string" | "char" | "Self")
@@ -2012,7 +2093,7 @@ impl SemanticAnalyzer {
                         let index_type = self.infer_expression_type(index);
                         if !matches!(index_type, Type::Int | Type::Unknown) {
                             self.error_with_hint(
-                                format!("Array index must be an integer, found {:?}", index_type),
+                                format!("Array index must be an integer, found {}", type_name(&index_type)),
                                 assign_stmt.target_span,
                                 "Convert the index expression to `int` before indexing.",
                             );
@@ -2043,13 +2124,13 @@ impl SemanticAnalyzer {
                     let hint = self.conversion_hint(&value_type, &target_type);
                     self.push_semantic_error(
                         format!(
-                            "Cannot assign value of type {:?} to target of type {:?}",
-                            value_type, target_type
+                            "Cannot assign value of type {} to target of type {}",
+                            type_name(&value_type), type_name(&target_type)
                         ),
                         assign_stmt.value.span,
                         Some(format!(
-                            "assignment target resolves to {:?} while the expression resolves to {:?}",
-                            target_type, value_type
+                            "assignment target resolves to {} while the expression resolves to {}",
+                            type_name(&target_type), type_name(&value_type)
                         )),
                         hint,
                     );
@@ -2457,10 +2538,19 @@ impl SemanticAnalyzer {
                     };
                     self.symbol_resolutions.insert(expr.span, info);
                 } else {
-                    self.error(
-                        format!("Undefined variable or function '{}'", name),
-                        expr.span,
-                    );
+                    let hint = self.suggest_name(name);
+                    if let Some(hint) = hint {
+                        self.error_with_hint(
+                            format!("Undefined variable or function '{}'", name),
+                            expr.span,
+                            hint,
+                        );
+                    } else {
+                        self.error(
+                            format!("Undefined variable or function '{}'", name),
+                            expr.span,
+                        );
+                    }
                 }
             }
             ExpressionKind::NumberLiteral(_)
@@ -2520,13 +2610,13 @@ impl SemanticAnalyzer {
                             // Numeric addition
                             if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
                                 self.error(
-                                    format!("Left operand of arithmetic operation must be numeric, found {:?}", left_type),
+                                    format!("Left operand of arithmetic operation must be numeric, found {}", type_name(&left_type)),
                                     left.span,
                                 );
                             }
                             if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
                                 self.error(
-                                    format!("Right operand of arithmetic operation must be numeric, found {:?}", right_type),
+                                    format!("Right operand of arithmetic operation must be numeric, found {}", type_name(&right_type)),
                                     right.span,
                                 );
                             }
@@ -2539,21 +2629,21 @@ impl SemanticAnalyzer {
                         // Arithmetic operations require numeric types
                         if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
                             self.error(
-                                format!("Left operand of arithmetic operation must be numeric, found {:?}", left_type),
+                                format!("Left operand of arithmetic operation must be numeric, found {}", type_name(&left_type)),
                                 left.span,
                             );
                         }
                         if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
                             self.error(
-                                format!("Right operand of arithmetic operation must be numeric, found {:?}", right_type),
+                                format!("Right operand of arithmetic operation must be numeric, found {}", type_name(&right_type)),
                                 right.span,
                             );
                         }
                         if !self.numeric_types_can_interact(&left_type, &right_type) {
                             self.error(
                                 format!(
-                                    "Type mismatch in arithmetic operation: {:?} and {:?}",
-                                    left_type, right_type
+                                    "Type mismatch in arithmetic operation: {} and {}",
+                                    type_name(&left_type), type_name(&right_type)
                                 ),
                                 expr.span,
                             );
@@ -2568,8 +2658,8 @@ impl SemanticAnalyzer {
                         {
                             self.error(
                                 format!(
-                                    "Type mismatch in equality comparison: {:?} and {:?}",
-                                    left_type, right_type
+                                    "Type mismatch in equality comparison: {} and {}",
+                                    type_name(&left_type), type_name(&right_type)
                                 ),
                                 expr.span,
                             );
@@ -2583,8 +2673,8 @@ impl SemanticAnalyzer {
                         if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
                             self.error(
                                 format!(
-                                    "Left operand of comparison must be numeric, found {:?}",
-                                    left_type
+                                    "Left operand of comparison must be numeric, found {}",
+                                    type_name(&left_type)
                                 ),
                                 left.span,
                             );
@@ -2592,8 +2682,8 @@ impl SemanticAnalyzer {
                         if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
                             self.error(
                                 format!(
-                                    "Right operand of comparison must be numeric, found {:?}",
-                                    right_type
+                                    "Right operand of comparison must be numeric, found {}",
+                                    type_name(&right_type)
                                 ),
                                 right.span,
                             );
@@ -2604,15 +2694,15 @@ impl SemanticAnalyzer {
                         if !matches!(left_type, Type::Bool | Type::Unknown) {
                             self.error(
                                 format!(
-                                    "Left operand of logical operation must be boolean, found {:?}",
-                                    left_type
+                                    "Left operand of logical operation must be boolean, found {}",
+                                    type_name(&left_type)
                                 ),
                                 left.span,
                             );
                         }
                         if !matches!(right_type, Type::Bool | Type::Unknown) {
                             self.error(
-                                format!("Right operand of logical operation must be boolean, found {:?}", right_type),
+                                format!("Right operand of logical operation must be boolean, found {}", type_name(&right_type)),
                                 right.span,
                             );
                         }
@@ -2674,7 +2764,16 @@ impl SemanticAnalyzer {
                             }
                         }
                     } else if self.lookup_symbol(name).is_none() {
-                        self.error(format!("Undefined function '{}'", name), callee.span);
+                        let hint = self.suggest_name(name);
+                        if let Some(hint) = hint {
+                            self.error_with_hint(
+                                format!("Undefined function '{}'", name),
+                                callee.span,
+                                hint,
+                            );
+                        } else {
+                            self.error(format!("Undefined function '{}'", name), callee.span);
+                        }
                     }
                 } else {
                     self.analyze_expression(callee);
@@ -2716,8 +2815,8 @@ impl SemanticAnalyzer {
                 if let Some((expected, found)) = self.branch_type_mismatch(&branch_types) {
                     self.error(
                         format!(
-                            "Incompatible branch types in if expression: expected {:?}, found {:?}",
-                            expected, found
+                            "Incompatible branch types in if expression: expected {}, found {}",
+                            type_name(&expected), type_name(&found)
                         ),
                         expr.span,
                     );
@@ -2745,8 +2844,8 @@ impl SemanticAnalyzer {
                 if let Some((expected, found)) = self.branch_type_mismatch(&branch_types) {
                     self.error(
                         format!(
-                            "Incompatible branch types in unless expression: expected {:?}, found {:?}",
-                            expected, found
+                            "Incompatible branch types in unless expression: expected {}, found {}",
+                            type_name(&expected), type_name(&found)
                         ),
                         expr.span,
                     );
@@ -2772,8 +2871,8 @@ impl SemanticAnalyzer {
                         {
                             self.error(
                                 format!(
-                                    "Array element {} has type {:?}, expected {:?}",
-                                    i, elem_type, first_type
+                                    "Array element {} has type {}, expected {}",
+                                    i, type_name(&elem_type), type_name(&first_type)
                                 ),
                                 element.span,
                             );
@@ -2789,7 +2888,7 @@ impl SemanticAnalyzer {
                 let index_type = self.infer_expression_type(index);
                 if !matches!(index_type, Type::Int | Type::Unknown) {
                     self.error(
-                        format!("Array index must be an integer, found {:?}", index_type),
+                        format!("Array index must be an integer, found {}", type_name(&index_type)),
                         index.span,
                     );
                 }
@@ -2798,7 +2897,7 @@ impl SemanticAnalyzer {
                 let array_type = self.infer_expression_type(array);
                 if !matches!(array_type, Type::Array { .. } | Type::Unknown) {
                     self.error(
-                        format!("Cannot index into non-array type {:?}", array_type),
+                        format!("Cannot index into non-array type {}", type_name(&array_type)),
                         array.span,
                     );
                 }
@@ -3256,8 +3355,8 @@ impl SemanticAnalyzer {
                 if let Some((expected, found)) = self.branch_type_mismatch(&arm_result_types) {
                     self.error(
                         format!(
-                            "Match arms must return compatible types; expected {:?}, found {:?}",
-                            expected, found
+                            "Match arms must return compatible types; expected {}, found {}",
+                            type_name(&expected), type_name(&found)
                         ),
                         expr.span,
                     );
@@ -3892,11 +3991,11 @@ impl SemanticAnalyzer {
                     let hint = self.conversion_hint(&actual, &expected);
                     self.push_semantic_error(
                         format!(
-                            "Return type mismatch: expected {:?}, found {:?}",
-                            expected, actual
+                            "Return type mismatch: expected {}, found {}",
+                            type_name(&expected), type_name(&actual)
                         ),
                         expr.span,
-                        Some(format!("function declared to return {:?}", expected)),
+                        Some(format!("function declared to return {}", type_name(&expected))),
                         hint,
                     );
                 }
@@ -3904,7 +4003,7 @@ impl SemanticAnalyzer {
             None => {
                 if !matches!(expected, Type::Unit | Type::Unknown) {
                     self.error_with_hint(
-                        format!("Return statement missing value of type {:?}", expected),
+                        format!("Return statement missing value of type {}", type_name(&expected)),
                         span,
                         "Supply a value or change the function's return type to `unit`.",
                     );
@@ -4016,7 +4115,7 @@ impl SemanticAnalyzer {
                     Type::Unknown => {}
                     Type::Unit => {
                         self.error(
-                            format!("Function must return value of type {:?}", expected_type),
+                            format!("Function must return value of type {}", type_name(expected_type)),
                             span,
                         );
                     }
@@ -4024,8 +4123,8 @@ impl SemanticAnalyzer {
                         if !self.types_match(&actual, expected_type) {
                             self.error(
                                 format!(
-                                    "Function final expression has type {:?}, expected {:?}",
-                                    actual, expected_type
+                                    "Function final expression has type {}, expected {}",
+                                    type_name(&actual), type_name(expected_type)
                                 ),
                                 body.span,
                             );

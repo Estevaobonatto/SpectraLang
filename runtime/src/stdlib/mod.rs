@@ -17,9 +17,23 @@ use std::ptr;
 const MATH_ABS: &str = "spectra.std.math.abs";
 const MATH_MIN: &str = "spectra.std.math.min";
 const MATH_MAX: &str = "spectra.std.math.max";
+const MATH_CLAMP: &str = "spectra.std.math.clamp";
+const MATH_SQRT_F: &str = "spectra.std.math.sqrt_f";
+const MATH_POW_F: &str = "spectra.std.math.pow_f";
+const MATH_FLOOR_F: &str = "spectra.std.math.floor_f";
+const MATH_CEIL_F: &str = "spectra.std.math.ceil_f";
+const MATH_ROUND_F: &str = "spectra.std.math.round_f";
 
 const IO_PRINT: &str = "spectra.std.io.print";
 const IO_FLUSH: &str = "spectra.std.io.flush";
+const IO_EPRINT: &str = "spectra.std.io.eprint";
+
+/// Type tags for the polymorphic io.print host call.
+/// Args are pairs: (type_tag: i64, value: i64).
+const _PRINT_TAG_INT: SpectraHostValue = 0;
+const PRINT_TAG_STR: SpectraHostValue = 1;
+const PRINT_TAG_BOOL: SpectraHostValue = 2;
+const PRINT_TAG_FLOAT: SpectraHostValue = 3;
 
 const LIST_NEW: &str = "spectra.std.collections.list_new";
 const LIST_PUSH: &str = "spectra.std.collections.list_push";
@@ -39,11 +53,18 @@ fn register_math() {
     register_host_function(MATH_ABS, std_math_abs);
     register_host_function(MATH_MIN, std_math_min);
     register_host_function(MATH_MAX, std_math_max);
+    register_host_function(MATH_CLAMP, std_math_clamp);
+    register_host_function(MATH_SQRT_F, std_math_sqrt_f);
+    register_host_function(MATH_POW_F, std_math_pow_f);
+    register_host_function(MATH_FLOOR_F, std_math_floor_f);
+    register_host_function(MATH_CEIL_F, std_math_ceil_f);
+    register_host_function(MATH_ROUND_F, std_math_round_f);
 }
 
 fn register_io() {
     register_host_function(IO_PRINT, std_io_print);
     register_host_function(IO_FLUSH, std_io_flush);
+    register_host_function(IO_EPRINT, std_io_eprint);
 }
 
 fn register_collections() {
@@ -136,6 +157,141 @@ extern "C" fn std_math_max(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+/// Clamp an integer value between min and max (inclusive).
+extern "C" fn std_math_clamp(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = args[0].clamp(args[1], args[2]);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Square root. Value and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_sqrt_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let f = f64::from_bits(args[0] as u64).sqrt();
+        results[0] = f.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Power. Both arguments and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_pow_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let base = f64::from_bits(args[0] as u64);
+        let exp = f64::from_bits(args[1] as u64);
+        results[0] = base.powf(exp).to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Floor. Value and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_floor_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let f = f64::from_bits(args[0] as u64).floor();
+        results[0] = f.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Ceil. Value and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_ceil_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let f = f64::from_bits(args[0] as u64).ceil();
+        results[0] = f.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Round. Value and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_round_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let f = f64::from_bits(args[0] as u64).round();
+        results[0] = f.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Polymorphic print function.
+///
+/// Arguments are (type_tag: i64, value: i64) pairs:
+///   - tag 0 → print as integer
+///   - tag 1 → print as null-terminated C string (value is a pointer)
+///   - tag 2 → print as bool ("true"/"false")
+///   - tag 3 → print as float (value reinterpreted as f64 bits)
+///
+/// A newline is appended after all values.
 extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -147,35 +303,140 @@ extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
 
-        let args_ptr = ctx_ref.args;
         let args_len = ctx_ref.arg_len;
-        let results_ptr = ctx_ref.results;
-        let results_len = ctx_ref.result_len;
-
         let args = if args_len == 0 {
-            &[]
+            &[] as &[SpectraHostValue]
         } else {
-            slice::from_raw_parts(args_ptr, args_len)
+            slice::from_raw_parts(ctx_ref.args, args_len)
         };
 
         let mut stdout = io::stdout();
-        for (index, value) in args.iter().enumerate() {
-            if index > 0 && write!(stdout, " ").is_err() {
-                return HOST_STATUS_INTERNAL_ERROR;
+        let values_count = args_len / 2;
+
+        for i in 0..values_count {
+            if i > 0 {
+                if write!(stdout, " ").is_err() {
+                    return HOST_STATUS_INTERNAL_ERROR;
+                }
             }
-            if write!(stdout, "{}", value).is_err() {
+            let tag = args[i * 2];
+            let value = args[i * 2 + 1];
+            let ok = match tag {
+                PRINT_TAG_STR => {
+                    // String buffer stores each byte as a separate i64 slot
+                    let ptr = value as *const i64;
+                    if ptr.is_null() {
+                        write!(stdout, "(null)").is_ok()
+                    } else {
+                        let mut bytes: Vec<u8> = Vec::new();
+                        let mut offset = 0usize;
+                        loop {
+                            let b = *ptr.add(offset) as u8;
+                            if b == 0 { break; }
+                            bytes.push(b);
+                            offset += 1;
+                        }
+                        match String::from_utf8(bytes) {
+                            Ok(s) => write!(stdout, "{}", s).is_ok(),
+                            Err(_) => write!(stdout, "(invalid utf8)").is_ok(),
+                        }
+                    }
+                }
+                PRINT_TAG_BOOL => write!(stdout, "{}", if value != 0 { "true" } else { "false" }).is_ok(),
+                PRINT_TAG_FLOAT => {
+                    let f = f64::from_bits(value as u64);
+                    write!(stdout, "{}", f).is_ok()
+                }
+                _ => write!(stdout, "{}", value).is_ok(), // PRINT_TAG_INT or unknown
+            };
+            if !ok {
                 return HOST_STATUS_INTERNAL_ERROR;
             }
         }
+
         if writeln!(stdout).is_err() {
             return HOST_STATUS_INTERNAL_ERROR;
         }
 
-        if results_len > 0 && !results_ptr.is_null() {
-            let results = slice::from_raw_parts_mut(results_ptr, results_len);
-            if !results.is_empty() {
-                results[0] = args_len as SpectraHostValue;
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = values_count as SpectraHostValue;
+        }
+    }
+
+    HOST_STATUS_SUCCESS
+}
+
+/// Same as io.print but writes to stderr.
+extern "C" fn std_io_eprint(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len > 0 && ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let args_len = ctx_ref.arg_len;
+        let args = if args_len == 0 {
+            &[] as &[SpectraHostValue]
+        } else {
+            slice::from_raw_parts(ctx_ref.args, args_len)
+        };
+
+        let mut stderr = io::stderr();
+        let values_count = args_len / 2;
+
+        for i in 0..values_count {
+            if i > 0 {
+                if write!(stderr, " ").is_err() {
+                    return HOST_STATUS_INTERNAL_ERROR;
+                }
             }
+            let tag = args[i * 2];
+            let value = args[i * 2 + 1];
+            let ok = match tag {
+                PRINT_TAG_STR => {
+                    // String buffer stores each byte as a separate i64 slot
+                    let ptr = value as *const i64;
+                    if ptr.is_null() {
+                        write!(stderr, "(null)").is_ok()
+                    } else {
+                        let mut bytes: Vec<u8> = Vec::new();
+                        let mut offset = 0usize;
+                        loop {
+                            let b = *ptr.add(offset) as u8;
+                            if b == 0 { break; }
+                            bytes.push(b);
+                            offset += 1;
+                        }
+                        match String::from_utf8(bytes) {
+                            Ok(s) => write!(stderr, "{}", s).is_ok(),
+                            Err(_) => write!(stderr, "(invalid utf8)").is_ok(),
+                        }
+                    }
+                }
+                PRINT_TAG_BOOL => write!(stderr, "{}", if value != 0 { "true" } else { "false" }).is_ok(),
+                PRINT_TAG_FLOAT => {
+                    let f = f64::from_bits(value as u64);
+                    write!(stderr, "{}", f).is_ok()
+                }
+                _ => write!(stderr, "{}", value).is_ok(),
+            };
+            if !ok {
+                return HOST_STATUS_INTERNAL_ERROR;
+            }
+        }
+
+        if writeln!(stderr).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = values_count as SpectraHostValue;
         }
     }
 

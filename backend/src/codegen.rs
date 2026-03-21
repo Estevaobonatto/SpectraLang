@@ -11,12 +11,12 @@ use spectra_midend::ir::{
 use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
-struct HostNameRecord {
+pub(crate) struct HostNameRecord {
     ptr: u64,
     len: usize,
 }
 
-fn intern_host_name(
+pub(crate) fn intern_host_name(
     host_name_data: &mut HashMap<String, HostNameRecord>,
     host_name_storage: &mut Vec<Box<[u8]>>,
     name: &str,
@@ -302,8 +302,8 @@ impl CodeGenerator {
     }
 
     /// Generate code for a basic block
-    fn generate_block(
-        module: &mut JITModule,
+    pub(crate) fn generate_block<M: Module>(
+        module: &mut M,
         function_map: &HashMap<String, FuncId>,
         host_name_data: &mut HashMap<String, HostNameRecord>,
         host_name_storage: &mut Vec<Box<[u8]>>,
@@ -366,8 +366,8 @@ impl CodeGenerator {
     }
 
     /// Generate a single instruction
-    fn generate_instruction(
-        module: &mut JITModule,
+    pub(crate) fn generate_instruction<M: Module>(
+        module: &mut M,
         function_map: &HashMap<String, FuncId>,
         host_name_data: &mut HashMap<String, HostNameRecord>,
         host_name_storage: &mut Vec<Box<[u8]>>,
@@ -805,12 +805,12 @@ impl CodeGenerator {
     }
 
     /// Generate terminator instruction
-    fn generate_terminator_static(
+    pub(crate) fn generate_terminator_static<M: Module>(
         builder: &mut FunctionBuilder,
         terminator: &Terminator,
         value_map: &HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
-        module: &mut JITModule,
+        module: &mut M,
         manual_free_func: FuncId,
         manual_frame_exit_func: FuncId,
         allocation_vars: &[Variable],
@@ -921,7 +921,7 @@ impl CodeGenerator {
     }
 
     /// Convert IR type to Cranelift type
-    fn ir_type_to_cranelift(ty: &IRType) -> Result<types::Type, String> {
+    pub(crate) fn ir_type_to_cranelift(ty: &IRType) -> Result<types::Type, String> {
         match ty {
             IRType::Void => Ok(types::I8),
             IRType::Bool => Ok(types::I8),
@@ -939,7 +939,7 @@ impl CodeGenerator {
     }
 
     /// Get size in bytes of an IR type
-    fn type_size_bytes(ty: &IRType) -> usize {
+    pub(crate) fn type_size_bytes(ty: &IRType) -> usize {
         match ty {
             IRType::Void => 0,
             IRType::Bool => 1,

@@ -6,6 +6,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 use spectra_backend::CodeGenerator;
+use spectra_backend::AotCodeGenerator;
 use spectra_compiler::{
     error::MidendError, lint::LintDiagnostic, pipeline::CompilationMetrics, span::Span,
     BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilationResult,
@@ -490,6 +491,16 @@ impl SpectraCompiler {
         Ok(())
     }
 
+    /// Compile a source file to a native object file. Returns the raw object bytes.
+    pub fn compile_to_object_bytes(&mut self, source: &str, filename: &str) -> Result<Vec<u8>, String> {
+        let report = self
+            .compile_to_report(source, filename)
+            .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+
+        let aot = AotCodeGenerator::new();
+        aot.compile_to_object(&report.artifacts.ir_module)
+    }
+
     fn compile_to_report(
         &mut self,
         source: &str,
@@ -657,15 +668,60 @@ impl SpectraCompiler {
     }
 }
 
+/// ANSI color codes for terminal output. Automatically disabled when NO_COLOR is set.
+struct Colors {
+    error_label: &'static str,
+    warning_label: &'static str,
+    arrow: &'static str,
+    gutter: &'static str,
+    caret_error: &'static str,
+    caret_warning: &'static str,
+    note_label: &'static str,
+    help_label: &'static str,
+    bold: &'static str,
+    reset: &'static str,
+}
+
+const COLORS_ON: Colors = Colors {
+    error_label: "\x1b[1;31m",
+    warning_label: "\x1b[1;33m",
+    arrow: "\x1b[36m",
+    gutter: "\x1b[34m",
+    caret_error: "\x1b[1;31m",
+    caret_warning: "\x1b[1;33m",
+    note_label: "\x1b[1;34m",
+    help_label: "\x1b[1;32m",
+    bold: "\x1b[1m",
+    reset: "\x1b[0m",
+};
+
+const COLORS_OFF: Colors = Colors {
+    error_label: "",
+    warning_label: "",
+    arrow: "",
+    gutter: "",
+    caret_error: "",
+    caret_warning: "",
+    note_label: "",
+    help_label: "",
+    bold: "",
+    reset: "",
+};
+
+fn get_colors() -> &'static Colors {
+    if std::env::var("NO_COLOR").is_ok() || std::env::var("TERM").as_deref() == Ok("dumb") {
+        &COLORS_OFF
+    } else {
+        &COLORS_ON
+    }
+}
+
 fn render_errors(errors: &[CompilerError], source: &str, filename: &str, stage: &str) -> String {
     if errors.is_empty() {
         return format!("{} failed with no diagnostics.", capitalize(stage));
     }
 
     let mut output = String::new();
-    let title = format!("{} errors:", capitalize(stage));
-    let _ = writeln!(&mut output, "{}", title);
-
     for (idx, error) in errors.iter().enumerate() {
         if idx > 0 {
             output.push('\n');
@@ -686,6 +742,20 @@ impl DiagnosticSeverity {
         match self {
             DiagnosticSeverity::Error => "error",
             DiagnosticSeverity::Warning => "warning",
+        }
+    }
+
+    fn color<'a>(&self, c: &'a Colors) -> &'a str {
+        match self {
+            DiagnosticSeverity::Error => c.error_label,
+            DiagnosticSeverity::Warning => c.warning_label,
+        }
+    }
+
+    fn caret_color<'a>(&self, c: &'a Colors) -> &'a str {
+        match self {
+            DiagnosticSeverity::Error => c.caret_error,
+            DiagnosticSeverity::Warning => c.caret_warning,
         }
     }
 }
@@ -723,14 +793,18 @@ fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
             filename,
         ),
         CompilerError::Midend(e) => {
-            let mut buf = String::new();
-            let _ = writeln!(&mut buf, "midend error: {}", e.message);
-            buf
+            let c = get_colors();
+            format!(
+                "{}error{}[midend]{}: {}\n",
+                c.error_label, c.reset, c.bold, e.message
+            )
         }
         CompilerError::Backend(e) => {
-            let mut buf = String::new();
-            let _ = writeln!(&mut buf, "backend error: {}", e.message);
-            buf
+            let c = get_colors();
+            format!(
+                "{}error{}[backend]{}: {}\n",
+                c.error_label, c.reset, c.bold, e.message
+            )
         }
     }
 }
@@ -745,36 +819,66 @@ fn render_span_diagnostic(
     source: &str,
     filename: &str,
 ) -> String {
+    let c = get_colors();
     let mut buf = String::new();
+
+    // Header: error[phase]: message
+    let sev_color = severity.color(c);
     let _ = writeln!(
         &mut buf,
-        "{}:{}:{}: {} {}: {}",
+        "{}{}[{}]{}: {}{}{}",
+        sev_color,
+        severity.as_str(),
+        phase,
+        c.reset,
+        c.bold,
+        message,
+        c.reset
+    );
+
+    // Location: --> filename:line:col
+    let _ = writeln!(
+        &mut buf,
+        "  {}-->{} {}:{}:{}",
+        c.arrow,
+        c.reset,
         filename,
         span.start_location.line,
-        span.start_location.column,
-        phase,
-        severity.as_str(),
-        message
+        span.start_location.column
     );
 
     if let Some(raw_line) = get_source_line(source, span.start_location.line) {
         let line_text = raw_line.trim_end_matches('\r');
         let gutter_width = span.start_location.line.to_string().len();
-        let _ = writeln!(&mut buf, "{:>width$} |", "", width = gutter_width);
+        let pipe = format!("{}|{}", c.gutter, c.reset);
+
+        // Empty gutter line
+        let _ = writeln!(&mut buf, "  {}{:>width$} {}", c.gutter, "", c.reset, width = gutter_width);
+
+        // Source line
         let _ = writeln!(
             &mut buf,
-            "{:>width$} | {}",
+            "  {}{:>width$}{} {} {}",
+            c.gutter,
             span.start_location.line,
+            c.reset,
+            pipe,
             line_text,
             width = gutter_width
         );
 
+        // Caret line
         if let Some(marker_line) = build_highlight_line(span, line_text) {
+            let caret_color = severity.caret_color(c);
             let _ = writeln!(
                 &mut buf,
-                "{:>width$} | {}",
+                "  {}{:>width$} {} {}{}{}",
+                c.gutter,
                 "",
+                pipe,
+                caret_color,
                 marker_line,
+                c.reset,
                 width = gutter_width
             );
         }
@@ -783,17 +887,19 @@ fn render_span_diagnostic(
     if span.start_location.line != span.end_location.line {
         let _ = writeln!(
             &mut buf,
-            "  = note: spans multiple lines ({} → {})",
-            span.start_location.line, span.end_location.line
+            "  {}= note:{} spans lines {}–{}",
+            c.note_label, c.reset,
+            span.start_location.line,
+            span.end_location.line
         );
     }
 
     if let Some(context) = context {
-        let _ = writeln!(&mut buf, "  = note: {}", context);
+        let _ = writeln!(&mut buf, "  {}= note:{} {}", c.note_label, c.reset, context);
     }
 
     if let Some(hint) = hint {
-        let _ = writeln!(&mut buf, "  = help: {}", hint);
+        let _ = writeln!(&mut buf, "  {}= help:{} {}", c.help_label, c.reset, hint);
     }
 
     buf
