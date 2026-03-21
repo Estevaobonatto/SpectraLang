@@ -128,7 +128,7 @@ while let Option::Some(next) = iterator.next() {
 }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/statement.rs`
-- **Status**: 🟡 `if let` validado; `while let` ainda sem exemplo de regressão consolidado no workspace
+- **Status**: ✅ Implementado end-to-end — parsing, semântica, lowering e backend (JIT) funcionais. Pattern check com extração de tag, bindings de payload e loop com back-edge correto estão completos. Validado em `examples/test_beta_if_let.spectra` e `examples/test_if_let_correctness.spectra`
 
 ### 📦 Struct-style Enum Variants
 ```spectra
@@ -156,6 +156,7 @@ import path.to.MyStruct;
 - ✅ `examples/test_beta_fstrings.spectra`
 - ✅ `examples/test_beta_closures.spectra` no modo `check`
 - ✅ `examples/test_beta_if_let.spectra`
+- ✅ `examples/test_if_let_correctness.spectra` — valida bindings, else branch, contagem de iterações e soma via binding
 - ✅ `examples/test_beta_ranges.spectra`
 - ✅ `examples/test_beta_struct_enum_variants.spectra` — compila e executa com JIT
 - 🟡 `examples/test_beta_imports.spectra` ainda depende de resolução real de `std.io::{print, println}`
@@ -165,6 +166,7 @@ import path.to.MyStruct;
 - Todos os enum variants (unit, tuple-style e struct-style) agora usam **representação uniforme por ponteiro** para tagged tuples no heap, eliminando a ambiguidade entre inteiro-raw e ponteiro.
 - O backend agora despacha ops aritméticas (`+`, `-`, `*`, `/`) e comparações (`==`, `!=`, `<`, `<=`, `>`, `>=`) para Cranelift float (`fadd`, `fmul`, `fcmp`, …) quando os operandos são `F64`, corrigindo operações sobre campos `float` de enums e structs.
 - O `InstructionKind::Load` agora carrega o tipo destino (`ty: IRType`) — o builder expõe `build_load_typed(ptr, ty)` além do `build_load(ptr)` que usa `Int` como default.
+- **`if let` / `while let`** agora são completamente funcionais no lowering: o padrão é checado via `lower_pattern_check` (comparação de tag do enum), bindings de payload são extraídos com `lower_pattern_bindings`, e o `while let` gera um loop SSA com back-edge correto para o header. `find_assigned_variables` foi estendido para escanear recursivamente os corpos de `IfLet` e `WhileLet`, garantindo que variáveis mutáveis dentro desses blocos recebam slots de alloca no frame da função.
 
 ---
 

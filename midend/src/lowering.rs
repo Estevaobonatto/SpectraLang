@@ -1717,6 +1717,15 @@ impl ASTLowering {
                 StatementKind::Loop(loop_stmt) => {
                     assigned.extend(self.find_assigned_variables(&loop_stmt.body.statements));
                 }
+                StatementKind::WhileLet(while_let) => {
+                    assigned.extend(self.find_assigned_variables(&while_let.body.statements));
+                }
+                StatementKind::IfLet(if_let) => {
+                    assigned.extend(self.find_assigned_variables(&if_let.then_block.statements));
+                    if let Some(else_b) = &if_let.else_block {
+                        assigned.extend(self.find_assigned_variables(&else_b.statements));
+                    }
+                }
                 StatementKind::Switch(switch) => {
                     for case in &switch.cases {
                         assigned.extend(self.find_assigned_variables(&case.body.statements));
@@ -2241,22 +2250,158 @@ impl ASTLowering {
                 }
             }
             StatementKind::IfLet(IfLetStatement {
+                pattern,
                 value,
                 then_block,
                 else_block,
                 ..
             }) => {
-                // TODO: full pattern matching — for now lower as plain block
-                let _val = self.lower_expression(value, ir_func);
+                // Evaluate the scrutinee expression once
+                let scrutinee_value = self.lower_expression(value, ir_func);
+                let scrutinee_type = self.infer_expr_ir_type(value);
+                let scrutinee_enum_name = if let IRType::Enum { name, .. } = &scrutinee_type {
+                    Some(name.clone())
+                } else {
+                    None
+                };
+
+                // Create basic blocks
+                let then_blk = ir_func.add_block("if_let.then");
+                let exit_blk = ir_func.add_block("if_let.exit");
+                let else_blk_opt = else_block.as_ref().map(|_| ir_func.add_block("if_let.else"));
+                let false_target = else_blk_opt.unwrap_or(exit_blk);
+
+                // Pattern check in the current block
+                let matches = self.lower_pattern_check(
+                    pattern,
+                    scrutinee_value,
+                    scrutinee_enum_name.as_deref(),
+                    Some(&scrutinee_type),
+                    ir_func,
+                );
+                self.builder.build_cond_branch(ir_func, matches, then_blk, false_target);
+
+                // --- Then block ---
+                self.builder.set_current_block(then_blk);
+                // Push an inner scope for the pattern bindings
+                self.value_map.push_scope();
+                self.variable_types.push_scope();
+                self.array_map.push_scope();
+                self.struct_var_map.push_scope();
+
+                self.lower_pattern_bindings(
+                    pattern,
+                    scrutinee_value,
+                    scrutinee_enum_name.as_deref(),
+                    Some(&scrutinee_type),
+                    ir_func,
+                );
+                // lower_block creates its own inner scope; bindings remain visible via scope search
                 self.lower_block(&then_block.statements, ir_func);
-                if let Some(else_b) = else_block {
-                    self.lower_block(&else_b.statements, ir_func);
+
+                self.struct_var_map.pop_scope();
+                self.array_map.pop_scope();
+                self.variable_types.pop_scope();
+                self.value_map.pop_scope();
+
+                let cur = self.builder.get_current_block().unwrap_or(then_blk);
+                let terminated = ir_func
+                    .get_block(cur)
+                    .map(|b| b.terminator.is_some())
+                    .unwrap_or(false);
+                if !terminated {
+                    self.builder.build_branch(ir_func, exit_blk);
                 }
+
+                // --- Else block (optional) ---
+                if let (Some(else_b), Some(else_blk)) = (else_block, else_blk_opt) {
+                    self.builder.set_current_block(else_blk);
+                    self.lower_block(&else_b.statements, ir_func);
+                    let cur = self.builder.get_current_block().unwrap_or(else_blk);
+                    let terminated = ir_func
+                        .get_block(cur)
+                        .map(|b| b.terminator.is_some())
+                        .unwrap_or(false);
+                    if !terminated {
+                        self.builder.build_branch(ir_func, exit_blk);
+                    }
+                }
+
+                // --- Exit block ---
+                self.builder.set_current_block(exit_blk);
             }
-            StatementKind::WhileLet(WhileLetStatement { value, body, .. }) => {
-                // TODO: full pattern matching — for now lower as plain block
-                let _val = self.lower_expression(value, ir_func);
+            StatementKind::WhileLet(WhileLetStatement { pattern, value, body, .. }) => {
+                let header_block = ir_func.add_block("while_let.header");
+                let body_block = ir_func.add_block("while_let.body");
+                let exit_block = ir_func.add_block("while_let.exit");
+
+                // Jump from current block into loop header
+                self.builder.build_branch(ir_func, header_block);
+                self.builder.set_current_block(header_block);
+
+                // Re-evaluate scrutinee on every iteration and check the pattern
+                let scrutinee_value = self.lower_expression(value, ir_func);
+                let scrutinee_type = self.infer_expr_ir_type(value);
+                let scrutinee_enum_name = if let IRType::Enum { name, .. } = &scrutinee_type {
+                    Some(name.clone())
+                } else {
+                    None
+                };
+
+                let matches = self.lower_pattern_check(
+                    pattern,
+                    scrutinee_value,
+                    scrutinee_enum_name.as_deref(),
+                    Some(&scrutinee_type),
+                    ir_func,
+                );
+                self.builder
+                    .build_cond_branch(ir_func, matches, body_block, exit_block);
+
+                // --- Body block ---
+                // Register loop so that break/continue work correctly
+                self.loop_stack.push(LoopContext {
+                    header_block,
+                    exit_block,
+                });
+                self.builder.set_current_block(body_block);
+
+                // Push scope for pattern bindings (visible to all statements in the body)
+                self.value_map.push_scope();
+                self.variable_types.push_scope();
+                self.array_map.push_scope();
+                self.struct_var_map.push_scope();
+
+                // Bind pattern variables (e.g. `n` in `while let Option::Some(n) = ...`)
+                // header_block dominates body_block, so scrutinee_value is live here.
+                self.lower_pattern_bindings(
+                    pattern,
+                    scrutinee_value,
+                    scrutinee_enum_name.as_deref(),
+                    Some(&scrutinee_type),
+                    ir_func,
+                );
                 self.lower_block(&body.statements, ir_func);
+
+                self.struct_var_map.pop_scope();
+                self.array_map.pop_scope();
+                self.variable_types.pop_scope();
+                self.value_map.pop_scope();
+
+                self.loop_stack.pop();
+
+                // Back-edge to header unless body already has a terminator
+                let cur = self.builder.get_current_block().unwrap_or(body_block);
+                let terminated = ir_func
+                    .get_block(cur)
+                    .map(|b| b.terminator.is_some())
+                    .unwrap_or(false);
+                if !terminated {
+                    self.builder.build_branch(ir_func, header_block);
+                }
+
+                // --- Exit block ---
+                self.builder.set_current_block(exit_block);
             }
         }
     }
