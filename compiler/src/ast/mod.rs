@@ -198,7 +198,7 @@ pub struct ForLoop {
     pub iterable: Expression,
     pub body: Block,
     pub span: Span,
-    pub is_in: bool, // true for 'in', false for 'of'
+    // Note: both `for x in expr` and `for x of expr` have identical semantics.
 }
 
 #[derive(Debug, Clone)]

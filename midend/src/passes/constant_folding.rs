@@ -79,6 +79,19 @@ impl Pass for ConstantFolding {
                                 None
                             }
                         }
+                        InstructionKind::Rem { lhs, rhs, .. } => {
+                            if let (Some(&lhs_val), Some(&rhs_val)) =
+                                (constants.get(&lhs.id), constants.get(&rhs.id))
+                            {
+                                if rhs_val != 0 {
+                                    Some(lhs_val % rhs_val)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
                         _ => None,
                     };
 
@@ -113,10 +126,16 @@ impl ConstantFolding {
             InstructionKind::Add { result, .. }
             | InstructionKind::Sub { result, .. }
             | InstructionKind::Mul { result, .. }
-            | InstructionKind::Div { result, .. } => Some(*result),
+            | InstructionKind::Div { result, .. }
+            | InstructionKind::Rem { result, .. } => Some(*result),
             _ => None,
         }
     }
+}
+
+/// Free helper — cria e executa o passo em uma única chamada.
+pub fn run(module: &mut crate::ir::Module) -> bool {
+    ConstantFolding::new().run(module)
 }
 
 impl Default for ConstantFolding {

@@ -1,6 +1,6 @@
 use crate::ast::{
-    self, Block, Expression, ExpressionKind, Function, FunctionParam, ImplBlock, Item, LValue,
-    Method, Module, Parameter, Statement, StatementKind, TraitDeclaration, TraitImpl, TraitMethod,
+    self, Block, Expression, ExpressionKind, Function, ImplBlock, Item, LValue,
+    Method, Module, Statement, StatementKind, TraitDeclaration, TraitImpl, TraitMethod,
 };
 use crate::span::Span;
 use std::collections::{HashMap, HashSet};
@@ -287,7 +287,9 @@ impl<'a> LintRunner<'a> {
             }
             StatementKind::Loop(loop_stmt) => {
                 self.visit_block(&loop_stmt.body, true);
-                true
+                // A `loop {}` without any `break` is an infinite loop — code after
+                // it is unreachable.  We check via a simple structural scan.
+                block_has_break(&loop_stmt.body)
             }
             StatementKind::Switch(switch_stmt) => {
                 self.visit_expression(&switch_stmt.value);
@@ -557,5 +559,34 @@ impl BindingKind {
             BindingKind::Variable => "variable",
             BindingKind::ForIterator => "loop variable",
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for `loop` termination analysis
+// ---------------------------------------------------------------------------
+
+/// Returns `true` if `block` contains a `break` statement at any depth,
+/// **except** inside nested `loop`, `while`, `do-while`, or `for` bodies
+/// (those `break`s would exit the *inner* loop, not the one being analysed).
+fn block_has_break(block: &Block) -> bool {
+    block.statements.iter().any(|s| stmt_has_break(s))
+}
+
+fn stmt_has_break(stmt: &Statement) -> bool {
+    match &stmt.kind {
+        StatementKind::Break => true,
+        // Descend into switch cases — a `break` inside exits *this* loop.
+        StatementKind::Switch(sw) => {
+            sw.cases.iter().any(|c| block_has_break(&c.body))
+                || sw.default.as_ref().map_or(false, |b| block_has_break(b))
+        }
+        // Do NOT descend into nested loops — their `break` belongs to them.
+        StatementKind::Loop(_)
+        | StatementKind::While(_)
+        | StatementKind::DoWhile(_)
+        | StatementKind::For(_) => false,
+        // Other statements cannot directly contain a `break`.
+        _ => false,
     }
 }

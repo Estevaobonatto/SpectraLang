@@ -237,10 +237,8 @@ impl CodeGenerator {
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
-        let mut next_alloc_var_index: u32 = 0;
-        let frame_var = Variable::from_u32(next_alloc_var_index);
-        next_alloc_var_index = next_alloc_var_index.wrapping_add(1);
-        builder.declare_var(frame_var, types::I64);
+        // In cranelift 0.130+, declare_var(Type) -> Variable (no manual index tracking needed)
+        let frame_var = builder.declare_var(types::I64);
         builder.def_var(frame_var, frame_token);
         // Map function parameters to Cranelift values
         let params = builder.block_params(entry_block).to_vec();
@@ -275,7 +273,6 @@ impl CodeGenerator {
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
-                &mut next_alloc_var_index,
                 frame_var,
             )?;
         }
@@ -319,7 +316,6 @@ impl CodeGenerator {
         value_map: &mut HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
         allocation_vars: &mut Vec<Variable>,
-        next_alloc_var_index: &mut u32,
         frame_var: Variable,
     ) -> Result<(), String> {
         // Get Cranelift block
@@ -347,7 +343,6 @@ impl CodeGenerator {
                 instr,
                 value_map,
                 allocation_vars,
-                next_alloc_var_index,
                 track_allocations,
             )?;
         }
@@ -383,7 +378,6 @@ impl CodeGenerator {
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
         allocation_vars: &mut Vec<Variable>,
-        next_alloc_var_index: &mut u32,
         track_allocations: bool,
     ) -> Result<(), String> {
         // Helper to get value from map
@@ -513,10 +507,8 @@ impl CodeGenerator {
                     value_map.insert(result.id, ptr);
 
                     if track_allocations {
-                        let var = Variable::from_u32(*next_alloc_var_index);
-                        let next_index = (*next_alloc_var_index).wrapping_add(1);
-                        *next_alloc_var_index = next_index;
-                        builder.declare_var(var, types::I64);
+                        // cranelift 0.130+: declare_var returns a Variable
+                        let var = builder.declare_var(types::I64);
                         builder.def_var(var, ptr);
                         allocation_vars.push(var);
                     }
@@ -675,7 +667,7 @@ impl CodeGenerator {
                 }
                 builder
                     .ins()
-                    .trap(cranelift::codegen::ir::TrapCode::User(0));
+                    .trap(cranelift::codegen::ir::TrapCode::user(0).unwrap());
                 builder.seal_block(failure_block);
 
                 builder.switch_to_block(success_block);
@@ -750,7 +742,9 @@ impl CodeGenerator {
             Terminator::Unreachable => {
                 builder
                     .ins()
-                    .trap(cranelift::codegen::ir::TrapCode::UnreachableCodeReached);
+                    // TrapCode::UnreachableCodeReached was removed in cranelift 0.114+;
+                    // use user(1) as sentinel for explicit unreachable IR
+                    .trap(cranelift::codegen::ir::TrapCode::user(1).unwrap());
             }
 
             Terminator::Return { value } => {

@@ -162,7 +162,7 @@ mod tests {
         let mut module = IRModule::new("test");
         let mut function = Function::new("foo", Vec::new(), Type::Void);
         let entry = function.add_block("entry");
-        function.add_block("other");
+        let other = function.add_block("other");
 
         let mut builder = IRBuilder::new();
         builder.set_current_function(0);

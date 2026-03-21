@@ -8,13 +8,16 @@ pub mod workspace;
 use crate::{
     ast::{Module, TypeAnnotation, TypeAnnotationKind},
     error::ParseError,
-    span::Span,
+    span::{Span, Location},
     token::{Keyword, Token, TokenKind},
 };
 use std::collections::{HashMap, HashSet};
 
 pub struct Parser {
     tokens: Vec<Token>,
+    /// Sentinela EOF devolvido por `current()` quando position é maior que tokens.
+    /// Garante que o parser nunca panique por lista de tokens vazia.
+    eof_sentinel: Token,
     position: usize,
     errors: Vec<ParseError>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
@@ -23,11 +26,18 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>, enabled_features: HashSet<String>) -> Self {
+        let eof_sentinel = Token::new(
+            TokenKind::EndOfFile,
+            Span::new(0, 0, Location::new(1, 1), Location::new(1, 1)),
+        );
         Self {
             tokens,
+            eof_sentinel,
             position: 0,
             errors: Vec::new(),
-            trait_signatures: HashMap::new(),
+            // Pre-allocate with a reasonable capacity to reduce rehashing while
+            // parsing modules that typically have a handful of known traits.
+            trait_signatures: HashMap::with_capacity(8),
             enabled_features,
         }
     }
@@ -47,12 +57,7 @@ impl Parser {
     fn current(&self) -> &Token {
         self.tokens
             .get(self.position)
-            .unwrap_or_else(|| self.tokens.last().expect("tokens should not be empty"))
-    }
-
-    #[allow(dead_code)]
-    fn peek(&self, offset: usize) -> Option<&Token> {
-        self.tokens.get(self.position + offset)
+            .unwrap_or(&self.eof_sentinel)
     }
 
     fn advance(&mut self) {
@@ -67,14 +72,6 @@ impl Parser {
 
     // === Token Checking Methods ===
 
-    #[allow(dead_code)]
-    fn check(&self, kind: &TokenKind) -> bool {
-        if self.is_at_end() {
-            return false;
-        }
-        std::mem::discriminant(&self.current().kind) == std::mem::discriminant(kind)
-    }
-
     fn check_keyword(&self, keyword: Keyword) -> bool {
         matches!(&self.current().kind, TokenKind::Keyword(k) if *k == keyword)
     }
@@ -83,7 +80,6 @@ impl Parser {
         matches!(&self.current().kind, TokenKind::Symbol(s) if *s == symbol)
     }
 
-    #[allow(dead_code)]
     fn check_identifier(&self) -> bool {
         matches!(self.current().kind, TokenKind::Identifier(_))
     }
@@ -161,7 +157,6 @@ impl Parser {
         self.push_error(message, span, None, None);
     }
 
-    #[allow(dead_code)]
     fn error_at(&mut self, message: &str, span: Span) {
         self.push_error(message, span, None, None);
     }

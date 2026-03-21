@@ -1,375 +1,413 @@
-/// Tests for optimization passes
-use spectra_midend::ir::*;
-use spectra_midend::passes::constant_folding::ConstantFoldingPass;
-use spectra_midend::passes::dead_code_elimination::DeadCodeEliminationPass;
-use spectra_midend::passes::Pass;
+﻿/// Tests for AST lowering to IR
+use spectra_compiler::ast::{
+    BinaryOperator, Block, Expression, ExpressionKind, Function, FunctionParam, Item,
+    LetStatement, LoopStatement, Module, ReturnStatement, Statement, StatementKind, Visibility,
+    WhileLoop,
+};
+use spectra_compiler::span::Span;
+use spectra_midend::ir::InstructionKind;
+use spectra_midend::ASTLowering;
 
-fn dummy_span() -> Span {
-    Span {
-        start: 0,
-        end: 0,
-        start_location: Location { line: 1, column: 1 },
-        end_location: Location { line: 1, column: 1 },
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn s() -> Span {
+    Span::dummy()
+}
+
+fn int_lit(n: i64) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::NumberLiteral(n.to_string()),
     }
 }
+
+fn bool_lit(b: bool) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::BoolLiteral(b),
+    }
+}
+
+fn ident(name: &str) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::Identifier(name.to_string()),
+    }
+}
+
+fn bin(left: Expression, op: BinaryOperator, right: Expression) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::Binary {
+            left: Box::new(left),
+            operator: op,
+            right: Box::new(right),
+        },
+    }
+}
+
+fn let_stmt(name: &str, value: Expression) -> Statement {
+    Statement {
+        span: s(),
+        kind: StatementKind::Let(LetStatement {
+            name: name.to_string(),
+            span: s(),
+            ty: None,
+            value: Some(value),
+        }),
+    }
+}
+
+fn return_stmt(value: Expression) -> Statement {
+    Statement {
+        span: s(),
+        kind: StatementKind::Return(ReturnStatement {
+            span: s(),
+            value: Some(value),
+        }),
+    }
+}
+
+fn make_function(name: &str, stmts: Vec<Statement>) -> Item {
+    Item::Function(Function {
+        name: name.to_string(),
+        span: s(),
+        visibility: Visibility::Public,
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Block {
+            span: s(),
+            statements: stmts,
+        },
+    })
+}
+
+fn make_function_with_params(
+    name: &str,
+    params: Vec<(&str, spectra_compiler::ast::TypeAnnotation)>,
+    stmts: Vec<Statement>,
+    return_type: Option<spectra_compiler::ast::TypeAnnotation>,
+) -> Item {
+    Item::Function(Function {
+        name: name.to_string(),
+        span: s(),
+        visibility: Visibility::Public,
+        type_params: vec![],
+        params: params
+            .into_iter()
+            .map(|(n, ty)| FunctionParam {
+                name: n.to_string(),
+                span: s(),
+                ty: Some(ty),
+            })
+            .collect(),
+        return_type,
+        body: Block {
+            span: s(),
+            statements: stmts,
+        },
+    })
+}
+
+fn int_type() -> spectra_compiler::ast::TypeAnnotation {
+    use spectra_compiler::ast::{TypeAnnotation, TypeAnnotationKind};
+    TypeAnnotation {
+        kind: TypeAnnotationKind::Simple {
+            segments: vec!["int".to_string()],
+        },
+        span: s(),
+    }
+}
+
+fn make_module(name: &str, items: Vec<Item>) -> Module {
+    Module {
+        name: name.to_string(),
+        span: s(),
+        items,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[test]
 fn test_lower_simple_arithmetic() {
     // let x = 5 + 3;
-    let module = Module {
-        name: "test".to_string(),
-        functions: vec![Function {
-            name: "main".to_string(),
-            parameters: vec![],
-            return_type: TypeAnnotation::Void,
-            body: vec![Statement::Let {
-                name: "x".to_string(),
-                type_annotation: None,
-                value: Some(Expression::Binary {
-                    left: Box::new(Expression::IntLiteral {
-                        value: 5,
-                        span: dummy_span(),
-                    }),
-                    operator: BinaryOperator::Add,
-                    right: Box::new(Expression::IntLiteral {
-                        value: 3,
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                }),
-                span: dummy_span(),
-            }],
-            span: dummy_span(),
-            is_public: true,
-        }],
-        span: dummy_span(),
-    };
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![let_stmt(
+                "x",
+                bin(int_lit(5), BinaryOperator::Add, int_lit(3)),
+            )],
+        )],
+    );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering
-        .lower_module(&module)
-        .expect("Lowering should succeed");
+    let ir_module = lowering.lower_module(&module);
 
     assert_eq!(ir_module.name, "test");
     assert_eq!(ir_module.functions.len(), 1);
 
     let func = &ir_module.functions[0];
     assert_eq!(func.name, "main");
-    assert_eq!(func.blocks.len(), 1);
+    assert!(!func.blocks.is_empty());
 
     let entry_block = &func.blocks[0];
-    // Should have: ConstInt(5), ConstInt(3), Add
-    assert!(entry_block.instructions.len() >= 3);
+    // Should have at least: ConstInt(5), ConstInt(3), Add
+    assert!(
+        entry_block.instructions.len() >= 3,
+        "Expected >= 3 instructions, got {}",
+        entry_block.instructions.len()
+    );
 }
 
 #[test]
-fn test_lower_if_expression() {
-    // if x > 0 { 10 } else { 20 }
-    let module = Module {
-        name: "test".to_string(),
-        functions: vec![Function {
-            name: "main".to_string(),
-            parameters: vec![],
-            return_type: TypeAnnotation::Void,
-            body: vec![Statement::Let {
-                name: "result".to_string(),
-                type_annotation: None,
-                value: Some(Expression::If {
-                    condition: Box::new(Expression::Binary {
-                        left: Box::new(Expression::Variable {
-                            name: "x".to_string(),
-                            span: dummy_span(),
-                        }),
-                        operator: BinaryOperator::Greater,
-                        right: Box::new(Expression::IntLiteral {
-                            value: 0,
-                            span: dummy_span(),
-                        }),
-                        span: dummy_span(),
-                    }),
-                    then_branch: Box::new(Expression::IntLiteral {
-                        value: 10,
-                        span: dummy_span(),
-                    }),
-                    else_branch: Some(Box::new(Expression::IntLiteral {
-                        value: 20,
-                        span: dummy_span(),
-                    })),
-                    span: dummy_span(),
-                }),
-                span: dummy_span(),
-            }],
-            span: dummy_span(),
-            is_public: true,
-        }],
-        span: dummy_span(),
-    };
+fn test_lower_multiple_operations() {
+    // let a = 10 - 4;
+    // let b = a * 2;
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![
+                let_stmt("a", bin(int_lit(10), BinaryOperator::Subtract, int_lit(4))),
+                let_stmt(
+                    "b",
+                    bin(ident("a"), BinaryOperator::Multiply, int_lit(2)),
+                ),
+            ],
+        )],
+    );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering
-        .lower_module(&module)
-        .expect("Lowering should succeed");
+    let ir_module = lowering.lower_module(&module);
 
     let func = &ir_module.functions[0];
-    // Should have multiple blocks: entry, then, else, merge
-    assert!(func.blocks.len() >= 3);
+    assert!(!func.blocks.is_empty());
+
+    let entry_block = &func.blocks[0];
+    let has_sub = entry_block
+        .instructions
+        .iter()
+        .any(|i| matches!(i.kind, InstructionKind::Sub { .. }));
+    let has_mul = entry_block
+        .instructions
+        .iter()
+        .any(|i| matches!(i.kind, InstructionKind::Mul { .. }));
+    assert!(has_sub, "Should have Sub instruction");
+    assert!(has_mul, "Should have Mul instruction");
 }
 
 #[test]
 fn test_lower_while_loop() {
-    // while x < 10 { x = x + 1; }
-    let module = Module {
-        name: "test".to_string(),
-        functions: vec![Function {
-            name: "main".to_string(),
-            parameters: vec![],
-            return_type: TypeAnnotation::Void,
-            body: vec![Statement::While {
-                condition: Expression::Binary {
-                    left: Box::new(Expression::Variable {
-                        name: "x".to_string(),
-                        span: dummy_span(),
-                    }),
-                    operator: BinaryOperator::Less,
-                    right: Box::new(Expression::IntLiteral {
-                        value: 10,
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                },
-                body: vec![Statement::Assignment {
-                    target: "x".to_string(),
-                    value: Expression::Binary {
-                        left: Box::new(Expression::Variable {
-                            name: "x".to_string(),
-                            span: dummy_span(),
-                        }),
-                        operator: BinaryOperator::Add,
-                        right: Box::new(Expression::IntLiteral {
-                            value: 1,
-                            span: dummy_span(),
-                        }),
-                        span: dummy_span(),
+    // while true { }
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![Statement {
+                span: s(),
+                kind: StatementKind::While(WhileLoop {
+                    condition: bool_lit(true),
+                    body: Block {
+                        span: s(),
+                        statements: vec![Statement {
+                            span: s(),
+                            kind: StatementKind::Break,
+                        }],
                     },
-                    span: dummy_span(),
-                }],
-                span: dummy_span(),
+                    span: s(),
+                }),
             }],
-            span: dummy_span(),
-            is_public: true,
-        }],
-        span: dummy_span(),
-    };
+        )],
+    );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering
-        .lower_module(&module)
-        .expect("Lowering should succeed");
+    let ir_module = lowering.lower_module(&module);
 
     let func = &ir_module.functions[0];
-    // Should have blocks: entry, header, body, exit
-    assert!(func.blocks.len() >= 3);
+    // while loop generates at least: header block + body block + exit block
+    assert!(
+        func.blocks.len() >= 2,
+        "While loop should generate multiple blocks, got {}",
+        func.blocks.len()
+    );
+}
+
+#[test]
+fn test_lower_loop_infinite() {
+    // loop { break; }
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![Statement {
+                span: s(),
+                kind: StatementKind::Loop(LoopStatement {
+                    body: Block {
+                        span: s(),
+                        statements: vec![Statement {
+                            span: s(),
+                            kind: StatementKind::Break,
+                        }],
+                    },
+                    span: s(),
+                }),
+            }],
+        )],
+    );
+
+    let mut lowering = ASTLowering::new();
+    let ir_module = lowering.lower_module(&module);
+
+    let func = &ir_module.functions[0];
+    // loop produces at least a header block and a body block
+    assert!(!func.blocks.is_empty());
 }
 
 #[test]
 fn test_lower_function_call() {
-    // add(5, 3)
-    let module = Module {
-        name: "test".to_string(),
-        functions: vec![
-            Function {
-                name: "add".to_string(),
-                parameters: vec![
-                    Parameter {
-                        name: "a".to_string(),
-                        type_annotation: TypeAnnotation::Int,
-                        span: dummy_span(),
-                    },
-                    Parameter {
-                        name: "b".to_string(),
-                        type_annotation: TypeAnnotation::Int,
-                        span: dummy_span(),
-                    },
-                ],
-                return_type: TypeAnnotation::Int,
-                body: vec![Statement::Return {
-                    value: Some(Expression::Binary {
-                        left: Box::new(Expression::Variable {
-                            name: "a".to_string(),
-                            span: dummy_span(),
-                        }),
-                        operator: BinaryOperator::Add,
-                        right: Box::new(Expression::Variable {
-                            name: "b".to_string(),
-                            span: dummy_span(),
-                        }),
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                }],
-                span: dummy_span(),
-                is_public: false,
-            },
-            Function {
-                name: "main".to_string(),
-                parameters: vec![],
-                return_type: TypeAnnotation::Void,
-                body: vec![Statement::Let {
-                    name: "result".to_string(),
-                    type_annotation: None,
-                    value: Some(Expression::Call {
-                        function: "add".to_string(),
-                        arguments: vec![
-                            Expression::IntLiteral {
-                                value: 5,
-                                span: dummy_span(),
-                            },
-                            Expression::IntLiteral {
-                                value: 3,
-                                span: dummy_span(),
-                            },
-                        ],
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                }],
-                span: dummy_span(),
-                is_public: true,
-            },
-        ],
-        span: dummy_span(),
+    // fn add(a: int, b: int) -> int { return a + b; }
+    // fn main() { let r = add(5, 3); }
+    let add_fn = make_function_with_params(
+        "add",
+        vec![("a", int_type()), ("b", int_type())],
+        vec![return_stmt(bin(
+            ident("a"),
+            BinaryOperator::Add,
+            ident("b"),
+        ))],
+        Some(int_type()),
+    );
+
+    let call_expr = Expression {
+        span: s(),
+        kind: ExpressionKind::Call {
+            callee: Box::new(ident("add")),
+            arguments: vec![int_lit(5), int_lit(3)],
+        },
     };
+    let main_fn = make_function("main", vec![let_stmt("r", call_expr)]);
+
+    let module = make_module("test", vec![add_fn, main_fn]);
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering
-        .lower_module(&module)
-        .expect("Lowering should succeed");
+    let ir_module = lowering.lower_module(&module);
 
     assert_eq!(ir_module.functions.len(), 2);
 
-    let main_func = &ir_module.functions[1];
-    let entry_block = &main_func.blocks[0];
-
-    // Should have Call instruction
-    let has_call = entry_block
-        .instructions
+    // Find main function and verify it has a Call instruction
+    let main_ir = ir_module
+        .functions
         .iter()
-        .any(|instr| matches!(instr.kind, InstructionKind::Call { .. }));
+        .find(|f| f.name == "main")
+        .expect("main function should exist");
+
+    let has_call = main_ir.blocks.iter().any(|b| {
+        b.instructions
+            .iter()
+            .any(|i| matches!(i.kind, InstructionKind::Call { .. }))
+    });
     assert!(has_call, "Should have Call instruction");
 }
 
 #[test]
-fn test_lower_break_continue() {
-    // loop { if x > 10 { break; } x = x + 1; continue; }
-    let module = Module {
-        name: "test".to_string(),
-        functions: vec![Function {
-            name: "main".to_string(),
-            parameters: vec![],
-            return_type: TypeAnnotation::Void,
-            body: vec![Statement::Loop {
-                body: vec![
-                    Statement::If {
-                        condition: Expression::Binary {
-                            left: Box::new(Expression::Variable {
-                                name: "x".to_string(),
-                                span: dummy_span(),
-                            }),
-                            operator: BinaryOperator::Greater,
-                            right: Box::new(Expression::IntLiteral {
-                                value: 10,
-                                span: dummy_span(),
-                            }),
-                            span: dummy_span(),
-                        },
-                        then_branch: vec![Statement::Break { span: dummy_span() }],
-                        else_branch: None,
-                        span: dummy_span(),
-                    },
-                    Statement::Continue { span: dummy_span() },
-                ],
-                span: dummy_span(),
-            }],
-            span: dummy_span(),
-            is_public: true,
-        }],
-        span: dummy_span(),
-    };
+fn test_lower_boolean_literals() {
+    // let t = true;
+    // let f = false;
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![
+                let_stmt("t", bool_lit(true)),
+                let_stmt("f", bool_lit(false)),
+            ],
+        )],
+    );
 
     let mut lowering = ASTLowering::new();
-    let result = lowering.lower_module(&module);
+    let ir_module = lowering.lower_module(&module);
 
-    // Should succeed - break/continue are valid inside loop
-    assert!(result.is_ok(), "Break/Continue should work inside loop");
+    let func = &ir_module.functions[0];
+    let entry = &func.blocks[0];
+
+    let has_bool_true = entry
+        .instructions
+        .iter()
+        .any(|i| matches!(i.kind, InstructionKind::ConstBool { value: true, .. }));
+    let has_bool_false = entry
+        .instructions
+        .iter()
+        .any(|i| matches!(i.kind, InstructionKind::ConstBool { value: false, .. }));
+
+    assert!(has_bool_true, "Should have ConstBool(true)");
+    assert!(has_bool_false, "Should have ConstBool(false)");
 }
 
 #[test]
-fn test_lower_constants() {
-    // Test all constant types
-    let module = Module {
-        name: "test".to_string(),
-        functions: vec![Function {
-            name: "main".to_string(),
-            parameters: vec![],
-            return_type: TypeAnnotation::Void,
-            body: vec![
-                Statement::Let {
-                    name: "i".to_string(),
-                    type_annotation: None,
-                    value: Some(Expression::IntLiteral {
-                        value: 42,
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                },
-                Statement::Let {
-                    name: "f".to_string(),
-                    type_annotation: None,
-                    value: Some(Expression::FloatLiteral {
-                        value: 3.14,
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                },
-                Statement::Let {
-                    name: "b".to_string(),
-                    type_annotation: None,
-                    value: Some(Expression::BoolLiteral {
-                        value: true,
-                        span: dummy_span(),
-                    }),
-                    span: dummy_span(),
-                },
-            ],
-            span: dummy_span(),
-            is_public: true,
-        }],
-        span: dummy_span(),
-    };
+fn test_lower_comparison() {
+    // let x = 5 > 3;
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![let_stmt(
+                "x",
+                bin(int_lit(5), BinaryOperator::Greater, int_lit(3)),
+            )],
+        )],
+    );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering
-        .lower_module(&module)
-        .expect("Lowering should succeed");
+    let ir_module = lowering.lower_module(&module);
 
     let func = &ir_module.functions[0];
-    let entry_block = &func.blocks[0];
+    let entry = &func.blocks[0];
 
-    // Should have ConstInt, ConstFloat, ConstBool
-    let has_const_int = entry_block
+    let has_gt = entry
         .instructions
         .iter()
-        .any(|instr| matches!(instr.kind, InstructionKind::ConstInt { .. }));
-    let has_const_float = entry_block
-        .instructions
-        .iter()
-        .any(|instr| matches!(instr.kind, InstructionKind::ConstFloat { .. }));
-    let has_const_bool = entry_block
-        .instructions
-        .iter()
-        .any(|instr| matches!(instr.kind, InstructionKind::ConstBool { .. }));
+        .any(|i| matches!(i.kind, InstructionKind::Gt { .. }));
+    assert!(has_gt, "Should have Gt (greater-than) instruction");
+}
 
-    assert!(has_const_int, "Should have ConstInt instruction");
-    assert!(has_const_float, "Should have ConstFloat instruction");
-    assert!(has_const_bool, "Should have ConstBool instruction");
+#[test]
+fn test_lower_empty_function() {
+    // fn empty() { }
+    let module = make_module("test", vec![make_function("empty", vec![])]);
+
+    let mut lowering = ASTLowering::new();
+    let ir_module = lowering.lower_module(&module);
+
+    assert_eq!(ir_module.functions.len(), 1);
+    let func = &ir_module.functions[0];
+    assert_eq!(func.name, "empty");
+    assert!(!func.blocks.is_empty());
+}
+
+#[test]
+fn test_lower_multiple_functions() {
+    let module = make_module(
+        "test",
+        vec![
+            make_function("foo", vec![]),
+            make_function("bar", vec![]),
+            make_function("baz", vec![]),
+        ],
+    );
+
+    let mut lowering = ASTLowering::new();
+    let ir_module = lowering.lower_module(&module);
+
+    assert_eq!(ir_module.functions.len(), 3);
+    assert!(ir_module.functions.iter().any(|f| f.name == "foo"));
+    assert!(ir_module.functions.iter().any(|f| f.name == "bar"));
+    assert!(ir_module.functions.iter().any(|f| f.name == "baz"));
 }

@@ -220,7 +220,11 @@ impl Collector {
     }
 
     fn collect(&self, triggered_automatically: bool) -> CollectionOutcome {
-        let mut inner = self.inner.lock().expect("collector mutex poisoned");
+        // SAFETY: The mutex is held for the entire mark-and-sweep cycle.
+        // This is safe because Spectra is a single-threaded language — no
+        // user code can run concurrently with a collection cycle, so no new
+        // roots or inter-heap pointers can be created while the lock is held.
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.collect(triggered_automatically)
     }
 }
@@ -298,6 +302,13 @@ impl CollectorInner {
     }
 
     fn mark_from_roots(&mut self) {
+        // We snapshot the root IDs before walking to avoid borrowing `self.roots`
+        // while also calling `self.mark_allocation` through `&mut self`.
+        // This is safe because:
+        //   1. The caller (`collect`) holds the `CollectorInner` exclusively
+        //      via `&mut self`, so no concurrent modification is possible.
+        //   2. Spectra is a single-threaded runtime — no new GC roots are
+        //      registered between the snapshot and the traversal.
         let mut stack = Vec::new();
 
         let roots: Vec<AllocationId> = self.roots.values().copied().collect();

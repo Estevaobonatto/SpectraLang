@@ -1,5 +1,6 @@
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -19,7 +20,8 @@ struct CachedModule {
 
 #[derive(Debug, Clone)]
 enum CachedOutcome {
-    Success(Module),
+    /// The cached module is wrapped in `Arc` so cache hits never need a deep clone.
+    Success(Arc<Module>),
     Lexical(Vec<LexError>),
     Parse(Vec<ParseError>),
 }
@@ -69,8 +71,10 @@ impl ModuleLoader {
         if let Some(entry) = self.cache.get(module_id) {
             if entry.hash == hash && entry.feature_key == feature_key {
                 return match &entry.outcome {
-                    CachedOutcome::Success(module) => Ok(ModuleParseSuccess {
-                        module: module.clone(),
+                    CachedOutcome::Success(arc) => Ok(ModuleParseSuccess {
+                        // Arc::clone is O(1); callers that need ownership get a
+                        // deep clone here, but the cache itself never has to.
+                        module: (**arc).clone(),
                         reused: true,
                         lexing_duration: Duration::default(),
                         parsing_duration: Duration::default(),
@@ -107,18 +111,20 @@ impl ModuleLoader {
 
         match result {
             Ok(module) => {
-                let stored_module = module.clone();
+                // Wrap in Arc so future cache hits are cheap (no deep clone needed
+                // until the caller actually needs an owned value).
+                let arc = Arc::new(module);
                 self.cache.insert(
                     module_id.to_string(),
                     CachedModule {
                         hash,
                         feature_key,
-                        outcome: CachedOutcome::Success(stored_module),
+                        outcome: CachedOutcome::Success(Arc::clone(&arc)),
                     },
                 );
 
                 Ok(ModuleParseSuccess {
-                    module,
+                    module: (*arc).clone(),
                     reused: false,
                     lexing_duration: lex_duration,
                     parsing_duration: parse_duration,
@@ -149,8 +155,10 @@ impl ModuleLoader {
     }
 
     fn feature_key(features: &HashSet<String>) -> Vec<String> {
+        // Collect into a sorted Vec so the key is order-independent and can be
+        // compared cheaply against the cached entry.
         let mut list: Vec<_> = features.iter().cloned().collect();
-        list.sort();
+        list.sort_unstable(); // unstable sort is faster and sufficient here
         list
     }
 }

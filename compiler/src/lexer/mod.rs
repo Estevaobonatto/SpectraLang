@@ -120,32 +120,65 @@ impl<'source> Lexer<'source> {
                     index = end_index;
                 }
                 '"' => {
-                    if let Some(relative) = self.source[offset + 1..].find('"') {
-                        let closing_offset = offset + 1 + relative;
-                        let end_offset = closing_offset + 1;
+                    // Scan character by character so we can handle escape sequences
+                    // and correctly find the closing quote.
+                    let mut string_value = String::new();
+                    let mut scan = index + 1; // start after the opening `"`
+                    bump_position('"', &mut line, &mut column);
+                    let mut terminated = false;
 
-                        while index < length {
-                            let (current_offset, current_char) = characters[index];
-                            if current_offset >= end_offset {
-                                break;
+                    while scan < length {
+                        let (_, sc) = characters[scan];
+                        if sc == '\\' && scan + 1 < length {
+                            // Escape sequence
+                            let (_, escaped) = characters[scan + 1];
+                            bump_position('\\', &mut line, &mut column);
+                            bump_position(escaped, &mut line, &mut column);
+                            match escaped {
+                                '"' => string_value.push('"'),
+                                '\\' => string_value.push('\\'),
+                                'n' => string_value.push('\n'),
+                                't' => string_value.push('\t'),
+                                'r' => string_value.push('\r'),
+                                '0' => string_value.push('\0'),
+                                other => {
+                                    // Unknown escape: keep as-is
+                                    string_value.push('\\');
+                                    string_value.push(other);
+                                }
                             }
-                            bump_position(current_char, &mut line, &mut column);
-                            index += 1;
+                            scan += 2;
+                        } else if sc == '"' {
+                            // Closing quote
+                            bump_position('"', &mut line, &mut column);
+                            scan += 1;
+                            terminated = true;
+                            break;
+                        } else if sc == '\n' {
+                            // Newline inside string — still consume but note it
+                            bump_position('\n', &mut line, &mut column);
+                            string_value.push('\n');
+                            scan += 1;
+                        } else {
+                            bump_position(sc, &mut line, &mut column);
+                            string_value.push(sc);
+                            scan += 1;
                         }
+                    }
 
-                        let end_location = Location::new(line, column);
-                        let value = self.source[offset + 1..closing_offset].to_string();
+                    let end_offset = if scan < length {
+                        characters[scan].0
+                    } else {
+                        self.source.len()
+                    };
+                    let end_location = Location::new(line, column);
+
+                    if terminated {
                         tokens.push(Token::new(
-                            TokenKind::StringLiteral(value),
+                            TokenKind::StringLiteral(string_value),
                             Span::new(offset, end_offset, start_location, end_location),
                         ));
                     } else {
-                        while index < length {
-                            let (_, current_char) = characters[index];
-                            bump_position(current_char, &mut line, &mut column);
-                            index += 1;
-                        }
-                        let end_location = Location::new(line, column);
                         errors.push(
                             LexError::new(
                                 "unterminated string literal",
@@ -154,6 +187,7 @@ impl<'source> Lexer<'source> {
                             .with_hint("Close the string with a matching \" character."),
                         );
                     }
+                    index = scan;
                 }
                 ch if is_symbol_char(ch) => {
                     // Check for two-character operators
@@ -271,6 +305,14 @@ fn is_symbol_char(ch: char) -> bool {
     )
 }
 
+/// Advances the line/column cursor by one character.
+///
+/// **Column convention**: `column` always points to the position *after* the
+/// last consumed character — i.e. the column where the *next* character will
+/// land.  This makes `end_location` in each `Span` an **exclusive** bound:
+/// `end_location.column` is one past the final column of the token.
+/// Consumers should display `end_location.column - 1` when they need an
+/// inclusive end, or use `end_location` as-is for half-open ranges.
 fn bump_position(ch: char, line: &mut usize, column: &mut usize) {
     if ch == '\n' {
         *line += 1;

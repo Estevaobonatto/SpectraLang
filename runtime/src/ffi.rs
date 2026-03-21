@@ -60,14 +60,27 @@ impl AllocationTable {
     }
 
     fn pop_frame(&mut self, frame_id: usize) -> Vec<usize> {
-        if let Some(frame) = self.frames.pop() {
-            if frame.id == frame_id {
-                return frame.allocations;
+        // Pop frames from the top until we find the target frame, collecting
+        // all allocations from every frame that we remove (including those
+        // above the target).  This prevents leaks when frames are closed out
+        // of order — which should not happen in well-formed code, but we
+        // handle it defensively.
+        let mut collected: Vec<usize> = Vec::new();
+        while let Some(frame) = self.frames.last() {
+            // Never remove the implicit base frame (id == 0).
+            if frame.id == 0 {
+                break;
             }
-            // Unexpected ordering, restore and ignore.
-            self.frames.push(frame);
+            let frame = self.frames.pop().unwrap();
+            let found = frame.id == frame_id;
+            collected.extend(frame.allocations);
+            if found {
+                return collected;
+            }
         }
-        Vec::new()
+        // frame_id was not found — return whatever we collected so far
+        // (callers will still free those allocations).
+        collected
     }
 
     fn current_frame_mut(&mut self) -> Option<&mut Frame> {
@@ -206,21 +219,21 @@ fn read_host_name(name_ptr: *const u8, name_len: usize) -> Option<String> {
 /// Registers a host function accessible to JITed code.
 pub fn register_host_function(name: &str, func: HostFunction) -> bool {
     let registry = host_registry();
-    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.insert(name, func as *const ())
 }
 
 /// Removes a previously registered host function.
 pub fn unregister_host_function(name: &str) -> bool {
     let registry = host_registry();
-    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.remove(name)
 }
 
 /// Returns the host function pointer associated with the provided name.
 pub fn lookup_host_function(name: &str) -> Option<HostFunction> {
     let registry = host_registry();
-    let guard = registry.lock().expect("host registry mutex poisoned");
+    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     let ptr = guard.lookup(name);
     if ptr.is_null() {
         None
@@ -232,7 +245,7 @@ pub fn lookup_host_function(name: &str) -> Option<HostFunction> {
 /// Clears all registered host functions.
 pub fn clear_host_functions() {
     let registry = host_registry();
-    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.clear();
 }
 
@@ -248,7 +261,7 @@ pub extern "C" fn spectra_rt_manual_frame_enter() -> usize {
     let table = allocation_table();
     let mut guard = table
         .lock()
-        .expect("manual allocation table mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
     guard.push_frame()
 }
 
@@ -258,7 +271,7 @@ pub extern "C" fn spectra_rt_manual_frame_exit(frame_id: usize) {
     let table = allocation_table();
     let mut guard = table
         .lock()
-        .expect("manual allocation table mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
     let allocations = guard.pop_frame(frame_id);
 
     for ptr in allocations {
@@ -287,7 +300,7 @@ pub extern "C" fn spectra_rt_manual_alloc(size: usize) -> *mut u8 {
     let table = allocation_table();
     let mut guard = table
         .lock()
-        .expect("manual allocation table mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
 
     let frame_id = guard.current_frame_mut().map(|frame| frame.id).unwrap_or(0);
 
@@ -317,7 +330,7 @@ pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {
     let table = allocation_table();
     let mut guard = table
         .lock()
-        .expect("manual allocation table mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
 
     if let Some(entry) = guard.allocations.remove(&ptr_value) {
         guard.remove_from_frame(entry.frame_id, ptr_value);
@@ -330,7 +343,7 @@ pub extern "C" fn spectra_rt_manual_clear() {
     let table = allocation_table();
     let mut guard = table
         .lock()
-        .expect("manual allocation table mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
     guard.clear_all();
 }
 
@@ -350,7 +363,7 @@ pub extern "C" fn spectra_rt_host_register(
     };
 
     let registry = host_registry();
-    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.insert(&name, fn_ptr)
 }
 
@@ -366,7 +379,7 @@ pub extern "C" fn spectra_rt_host_unregister(name_ptr: *const u8, name_len: usiz
     };
 
     let registry = host_registry();
-    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.remove(&name)
 }
 
@@ -382,7 +395,7 @@ pub extern "C" fn spectra_rt_host_lookup(name_ptr: *const u8, name_len: usize) -
     };
 
     let registry = host_registry();
-    let guard = registry.lock().expect("host registry mutex poisoned");
+    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.lookup(&name)
 }
 
@@ -409,7 +422,7 @@ pub extern "C" fn spectra_rt_host_invoke(
     };
 
     let registry = host_registry();
-    let guard = registry.lock().expect("host registry mutex poisoned");
+    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     let func_ptr = guard.lookup(&name);
     drop(guard);
 
@@ -432,7 +445,7 @@ pub extern "C" fn spectra_rt_host_invoke(
 #[no_mangle]
 pub extern "C" fn spectra_rt_host_clear() {
     let registry = host_registry();
-    let mut guard = registry.lock().expect("host registry mutex poisoned");
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.clear();
 }
 

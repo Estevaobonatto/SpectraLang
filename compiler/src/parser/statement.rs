@@ -220,17 +220,13 @@ impl Parser {
 
         let (iterator, _) = self.consume_identifier("Expected iterator variable name")?;
 
-        // Check for 'in' or 'of'
-        let is_in = if self.check_keyword(Keyword::In) {
+        // Accept 'in' or 'of' — both have identical semantics
+        if self.check_keyword(Keyword::In) || self.check_keyword(Keyword::Of) {
             self.advance();
-            true
-        } else if self.check_keyword(Keyword::Of) {
-            self.advance();
-            false
         } else {
             self.error("Expected 'in' or 'of' after iterator variable");
             return Err(());
-        };
+        }
 
         let iterable = self.parse_expression()?;
         let body = self.parse_block()?;
@@ -241,7 +237,6 @@ impl Parser {
             iterable,
             body,
             span: span_union(start_span, end_span),
-            is_in,
         }))
     }
 

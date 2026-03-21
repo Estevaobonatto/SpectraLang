@@ -12,23 +12,28 @@ fn test_constant_folding_add() {
             name: "test_func".to_string(),
             params: vec![],
             return_type: Type::Void,
+            next_value_id: 0,
+            next_block_id: 1,
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
                 instructions: vec![
                     Instruction {
+                        id: 0,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 0 },
                             value: 5,
                         },
                     },
                     Instruction {
+                        id: 1,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 1 },
                             value: 3,
                         },
                     },
                     Instruction {
+                        id: 2,
                         kind: InstructionKind::Add {
                             result: Value { id: 2 },
                             lhs: Value { id: 0 },
@@ -39,6 +44,7 @@ fn test_constant_folding_add() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        globals: vec![],
     };
 
     // Apply constant folding
@@ -67,23 +73,28 @@ fn test_constant_folding_mul() {
             name: "test_func".to_string(),
             params: vec![],
             return_type: Type::Void,
+            next_value_id: 0,
+            next_block_id: 1,
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
                 instructions: vec![
                     Instruction {
+                        id: 0,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 0 },
                             value: 10,
                         },
                     },
                     Instruction {
+                        id: 1,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 1 },
                             value: 2,
                         },
                     },
                     Instruction {
+                        id: 2,
                         kind: InstructionKind::Mul {
                             result: Value { id: 2 },
                             lhs: Value { id: 0 },
@@ -94,6 +105,7 @@ fn test_constant_folding_mul() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        globals: vec![],
     };
 
     let modified = constant_folding::run(&mut module);
@@ -119,23 +131,28 @@ fn test_dead_code_elimination_basic() {
             name: "test_func".to_string(),
             params: vec![],
             return_type: Type::Void,
+            next_value_id: 0,
+            next_block_id: 1,
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
                 instructions: vec![
                     Instruction {
+                        id: 0,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 0 },
                             value: 10,
                         },
                     },
                     Instruction {
+                        id: 1,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 1 },
                             value: 20,
                         },
                     },
                     Instruction {
+                        id: 2,
                         kind: InstructionKind::Add {
                             result: Value { id: 2 },
                             lhs: Value { id: 0 },
@@ -147,6 +164,7 @@ fn test_dead_code_elimination_basic() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        globals: vec![],
     };
 
     let initial_count = module.functions[0].blocks[0].instructions.len();
@@ -170,10 +188,13 @@ fn test_dead_code_elimination_preserves_used() {
             name: "test_func".to_string(),
             params: vec![],
             return_type: Type::Int,
+            next_value_id: 0,
+            next_block_id: 1,
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
                 instructions: vec![Instruction {
+                    id: 0,
                     kind: InstructionKind::ConstInt {
                         result: Value { id: 0 },
                         value: 42,
@@ -184,11 +205,12 @@ fn test_dead_code_elimination_preserves_used() {
                 }),
             }],
         }],
+        globals: vec![],
     };
 
     let initial_count = module.functions[0].blocks[0].instructions.len();
 
-    let modified = dead_code_elimination::run(&mut module);
+    let _modified = dead_code_elimination::run(&mut module);
 
     let final_count = module.functions[0].blocks[0].instructions.len();
     assert_eq!(
@@ -206,23 +228,28 @@ fn test_combined_optimizations() {
             name: "test_func".to_string(),
             params: vec![],
             return_type: Type::Void,
+            next_value_id: 0,
+            next_block_id: 1,
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
                 instructions: vec![
                     Instruction {
+                        id: 0,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 0 },
                             value: 5,
                         },
                     },
                     Instruction {
+                        id: 1,
                         kind: InstructionKind::ConstInt {
                             result: Value { id: 1 },
                             value: 3,
                         },
                     },
                     Instruction {
+                        id: 2,
                         kind: InstructionKind::Add {
                             result: Value { id: 2 },
                             lhs: Value { id: 0 },
@@ -233,6 +260,7 @@ fn test_combined_optimizations() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        globals: vec![],
     };
 
     // First pass: constant folding
@@ -260,12 +288,15 @@ fn test_no_optimization_when_not_applicable() {
             name: "test_func".to_string(),
             params: vec![],
             return_type: Type::Int,
+            next_value_id: 0,
+            next_block_id: 1,
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
                 instructions: vec![
                     // Non-constant operation
                     Instruction {
+                        id: 0,
                         kind: InstructionKind::Add {
                             result: Value { id: 2 },
                             lhs: Value { id: 0 }, // Function parameter
@@ -278,6 +309,7 @@ fn test_no_optimization_when_not_applicable() {
                 }),
             }],
         }],
+        globals: vec![],
     };
 
     let cf_modified = constant_folding::run(&mut module);

@@ -262,6 +262,7 @@ mod tests {
     #[test]
     fn test_simple_compilation() {
         let source = r#"
+            module test;
             fn main() {
                 let x = 10;
                 return x;
@@ -271,6 +272,9 @@ mod tests {
         let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
         let result = pipeline.compile(source, "test.spectra");
 
+        if let Err(ref errors) = result {
+            for e in errors { eprintln!("  [test error] {e}"); }
+        }
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result.errors.len(), 0);
@@ -279,6 +283,7 @@ mod tests {
     #[test]
     fn test_arithmetic_compilation() {
         let source = r#"
+            module test;
             fn add(a: int, b: int) -> int {
                 return a + b;
             }
@@ -293,6 +298,7 @@ mod tests {
     #[test]
     fn test_if_statement_compilation() {
         let source = r#"
+            module test;
             fn max(a: int, b: int) -> int {
                 if a > b {
                     return a;
@@ -311,15 +317,16 @@ mod tests {
     #[test]
     fn test_loop_compilation() {
         let source = r#"
+            module test;
             fn sum_to_n(n: int) -> int {
                 let sum = 0;
                 let i = 0;
-                
+
                 while i <= n {
                     sum = sum + i;
                     i = i + 1;
                 }
-                
+
                 return sum;
             }
         "#;
@@ -333,6 +340,7 @@ mod tests {
     #[test]
     fn test_semantic_error_detection() {
         let source = r#"
+            module test;
             fn main() {
                 return undefined_variable;
             }

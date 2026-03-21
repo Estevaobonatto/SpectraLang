@@ -1,4 +1,4 @@
-// IR Builder - constructs IR from AST
+﻿// IR Builder - constructs IR from AST
 
 use crate::ir::{Function, InstructionKind, Terminator, Value};
 
@@ -28,164 +28,90 @@ impl IRBuilder {
         self.current_block
     }
 
-    pub fn build_add(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
+    // -----------------------------------------------------------------------
+    // Private helper: allocate a value ID and emit an instruction into the
+    // current block only when both the block handle and the block itself exist.
+    // This prevents orphaned value IDs when callers build instructions without
+    // an active block.
+    // -----------------------------------------------------------------------
+    fn try_emit<F>(&self, func: &mut Function, make_kind: F) -> Value
+    where
+        F: FnOnce(Value) -> InstructionKind,
+    {
+        let Some(block_id) = self.current_block else {
+            // No active block: return a sentinel instead of wasting a value ID.
+            return Value { id: usize::MAX };
+        };
+        let Some(pos) = func.blocks.iter().position(|b| b.id == block_id) else {
+            return Value { id: usize::MAX };
+        };
         let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Add { result, lhs, rhs });
-            }
-        }
+        func.blocks[pos].add_instruction(make_kind(result));
         result
+    }
+
+    pub fn build_add(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
+        self.try_emit(func, |result| InstructionKind::Add { result, lhs, rhs })
     }
 
     pub fn build_sub(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Sub { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Sub { result, lhs, rhs })
     }
 
     pub fn build_mul(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Mul { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Mul { result, lhs, rhs })
     }
 
     pub fn build_div(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Div { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Div { result, lhs, rhs })
     }
 
     pub fn build_rem(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Rem { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Rem { result, lhs, rhs })
     }
 
     pub fn build_eq(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Eq { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Eq { result, lhs, rhs })
     }
 
     pub fn build_ne(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Ne { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Ne { result, lhs, rhs })
     }
 
     pub fn build_lt(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Lt { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Lt { result, lhs, rhs })
     }
 
     pub fn build_le(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Le { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Le { result, lhs, rhs })
     }
 
     pub fn build_gt(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Gt { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Gt { result, lhs, rhs })
     }
 
     pub fn build_ge(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Ge { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Ge { result, lhs, rhs })
     }
 
     pub fn build_and(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::And { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::And { result, lhs, rhs })
     }
 
     pub fn build_or(&self, func: &mut Function, lhs: Value, rhs: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Or { result, lhs, rhs });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Or { result, lhs, rhs })
     }
 
     pub fn build_not(&self, func: &mut Function, operand: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Not { result, operand });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Not { result, operand })
     }
 
     pub fn build_alloca(&self, func: &mut Function, ty: crate::ir::Type) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Alloca { result, ty });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Alloca { result, ty })
     }
 
     pub fn build_load(&self, func: &mut Function, ptr: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Load { result, ptr });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Load { result, ptr })
     }
 
     pub fn build_store(&self, func: &mut Function, ptr: Value, value: Value) {
@@ -203,68 +129,32 @@ impl IRBuilder {
         index: Value,
         element_type: crate::ir::Type,
     ) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::GetElementPtr {
-                    result,
-                    ptr,
-                    index,
-                    element_type,
-                });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::GetElementPtr {
+            result,
+            ptr,
+            index,
+            element_type,
+        })
     }
 
     pub fn build_copy(&self, func: &mut Function, source: Value) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Copy { result, source });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Copy { result, source })
     }
 
     pub fn build_phi(&self, func: &mut Function, incoming: Vec<(Value, usize)>) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Phi { result, incoming });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::Phi { result, incoming })
     }
 
     pub fn build_const_int(&self, func: &mut Function, value: i64) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::ConstInt { result, value });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::ConstInt { result, value })
     }
 
     pub fn build_const_float(&self, func: &mut Function, value: f64) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::ConstFloat { result, value });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::ConstFloat { result, value })
     }
 
     pub fn build_const_bool(&self, func: &mut Function, value: bool) -> Value {
-        let result = func.next_value();
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::ConstBool { result, value });
-            }
-        }
-        result
+        self.try_emit(func, |result| InstructionKind::ConstBool { result, value })
     }
 
     pub fn build_return(&self, func: &mut Function, value: Option<Value>) {
@@ -278,7 +168,6 @@ impl IRBuilder {
     pub fn build_branch(&self, func: &mut Function, target: usize) {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {
-                block.terminator = None;
                 block.set_terminator(Terminator::Branch { target });
             }
         }
@@ -293,7 +182,6 @@ impl IRBuilder {
     ) {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {
-                block.terminator = None;
                 block.set_terminator(Terminator::CondBranch {
                     condition,
                     true_block,
@@ -310,22 +198,22 @@ impl IRBuilder {
         args: Vec<Value>,
         has_return: bool,
     ) -> Option<Value> {
+        let Some(block_id) = self.current_block else {
+            return None;
+        };
+        let Some(pos) = func.blocks.iter().position(|b| b.id == block_id) else {
+            return None;
+        };
         let result = if has_return {
             Some(func.next_value())
         } else {
             None
         };
-
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::Call {
-                    result,
-                    function: function_name,
-                    args,
-                });
-            }
-        }
-
+        func.blocks[pos].add_instruction(InstructionKind::Call {
+            result,
+            function: function_name,
+            args,
+        });
         result
     }
 
@@ -336,22 +224,22 @@ impl IRBuilder {
         args: Vec<Value>,
         has_return: bool,
     ) -> Option<Value> {
+        let Some(block_id) = self.current_block else {
+            return None;
+        };
+        let Some(pos) = func.blocks.iter().position(|b| b.id == block_id) else {
+            return None;
+        };
         let result = if has_return {
             Some(func.next_value())
         } else {
             None
         };
-
-        if let Some(block_id) = self.current_block {
-            if let Some(block) = func.get_block_mut(block_id) {
-                block.add_instruction(InstructionKind::HostCall {
-                    result,
-                    host: host_name,
-                    args,
-                });
-            }
-        }
-
+        func.blocks[pos].add_instruction(InstructionKind::HostCall {
+            result,
+            host: host_name,
+            args,
+        });
         result
     }
 }

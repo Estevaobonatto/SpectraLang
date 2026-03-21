@@ -12,9 +12,16 @@ impl Location {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
+    /// Byte offset of the first character (inclusive).
     pub start: usize,
+    /// Byte offset one past the last character (exclusive).
     pub end: usize,
+    /// Line/column of the first character (inclusive, 1-based).
     pub start_location: Location,
+    /// Line/column one past the last character (exclusive).
+    ///
+    /// Use `end_location.column - 1` for inclusive display; use
+    /// `end_location` directly when treating spans as half-open ranges.
     pub end_location: Location,
 }
 

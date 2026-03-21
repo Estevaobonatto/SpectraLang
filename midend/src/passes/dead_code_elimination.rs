@@ -165,3 +165,8 @@ impl Default for DeadCodeElimination {
         Self::new()
     }
 }
+
+/// Free helper — cria e executa o passo em uma única chamada.
+pub fn run(module: &mut crate::ir::Module) -> bool {
+    DeadCodeElimination::new().run(module)
+}

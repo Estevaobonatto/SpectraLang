@@ -22,12 +22,12 @@ struct ScopeStack {
 impl ScopeStack {
     fn new() -> Self {
         Self {
-            scopes: vec![HashMap::new()],
+            scopes: vec![HashMap::with_capacity(16)],
         }
     }
 
     fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(HashMap::with_capacity(8));
     }
 
     fn pop_scope(&mut self) {
@@ -410,8 +410,23 @@ impl ASTLowering {
 
     /// Process all pending monomorphization requests
     fn process_monomorphization_requests(&mut self, ir_module: &mut IRModule) {
+        // Safety limit: prevent infinite expansion from recursive/mutually-recursive
+        // generics (e.g., Foo<T> → Foo<List<T>> → Foo<List<List<T>>> …).
+        const MAX_SPECIALIZATIONS: usize = 512;
+        let mut total_processed: usize = 0;
+
         // Process each pending specialization
         while let Some(request) = self.pending_specializations.pop() {
+            if total_processed >= MAX_SPECIALIZATIONS {
+                eprintln!(
+                    "Warning: monomorphization limit ({}) reached — possible infinite \
+                     expansion involving '{}'. Remaining specializations skipped.",
+                    MAX_SPECIALIZATIONS, request.generic_name
+                );
+                self.pending_specializations.clear();
+                break;
+            }
+
             let mangled = request.mangled_name();
 
             // Skip if already generated
@@ -432,6 +447,8 @@ impl ASTLowering {
                 // Mark as generated
                 self.generated_specializations
                     .insert(mangled.clone(), specialized_func.name);
+
+                total_processed += 1;
             } else {
                 eprintln!(
                     "Warning: Generic function '{}' not found for monomorphization",
@@ -1614,7 +1631,7 @@ impl ASTLowering {
             ExpressionKind::Unary { operator, operand } => {
                 let inner = self.evaluate_int_constant(operand)?;
                 match operator {
-                    UnaryOperator::Negate => Some(-inner),
+                    UnaryOperator::Negate => inner.checked_neg(),
                     UnaryOperator::Not => Some(if inner == 0 { 1 } else { 0 }),
                 }
             }
@@ -1626,9 +1643,9 @@ impl ASTLowering {
                 let lhs = self.evaluate_int_constant(left)?;
                 let rhs = self.evaluate_int_constant(right)?;
                 match operator {
-                    BinaryOperator::Add => Some(lhs + rhs),
-                    BinaryOperator::Subtract => Some(lhs - rhs),
-                    BinaryOperator::Multiply => Some(lhs * rhs),
+                    BinaryOperator::Add => lhs.checked_add(rhs),
+                    BinaryOperator::Subtract => lhs.checked_sub(rhs),
+                    BinaryOperator::Multiply => lhs.checked_mul(rhs),
                     BinaryOperator::Divide => {
                         if rhs == 0 {
                             None
@@ -2505,8 +2522,9 @@ impl ASTLowering {
                 // Alocar memória para o array
                 let size = elements.len();
                 if size == 0 {
-                    // Array vazio - retornar um valor placeholder
-                    return ir_func.next_value();
+                    // Array vazio — emitir uma constante inteira 0 como valor
+                    // sentinel em vez de consumir um Value ID sem instrução associada.
+                    return self.builder.build_const_int(ir_func, 0);
                 }
 
                 // Inferir o tipo dos elementos
@@ -2556,8 +2574,9 @@ impl ASTLowering {
                 // Alocar memória para a tuple
                 let size = elements.len();
                 if size == 0 {
-                    // Tuple vazia - retornar um valor placeholder
-                    return ir_func.next_value();
+                    // Tuple vazia — emitir constante 0 como sentinel em vez de
+                    // consumir um Value ID sem instrução.
+                    return self.builder.build_const_int(ir_func, 0);
                 }
 
                 // Determinar os tipos dos elementos usando inferência
