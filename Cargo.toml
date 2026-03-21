@@ -5,6 +5,7 @@ members = [
     "backend",
     "runtime",
     "tools/spectra-cli",
+    "tools/spectra-lsp",
 ]
 resolver = "2"
 

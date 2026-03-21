@@ -155,6 +155,7 @@ pub struct SemanticAnalyzer {
     enum_definitions: HashMap<String, Vec<String>>,
     // Methods: maps type_name to (method_name, signature)
     methods: HashMap<String, HashMap<String, FunctionSignature>>,
+    method_definitions: HashMap<String, HashMap<String, Span>>,
     // Traits: maps trait_name to (method_name, method_info)
     traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
@@ -212,6 +213,7 @@ impl SemanticAnalyzer {
             functions: HashMap::new(),
             enum_definitions: HashMap::new(),
             methods: HashMap::new(),
+            method_definitions: HashMap::new(),
             traits: HashMap::new(),
             trait_impls: HashMap::new(),
             struct_infos: HashMap::new(),
@@ -1484,6 +1486,10 @@ impl SemanticAnalyzer {
                 .methods
                 .entry(impl_block.type_name.clone())
                 .or_insert_with(HashMap::new);
+            self.method_definitions
+                .entry(impl_block.type_name.clone())
+                .or_insert_with(HashMap::new)
+                .insert(method.name.clone(), method.span);
 
             if type_methods
                 .insert(method.name.clone(), signature)
@@ -2627,9 +2633,10 @@ impl SemanticAnalyzer {
                 // Track callee resolution if it's an identifier
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(signature) = self.functions.get(name).cloned() {
+                        let def_span = self.lookup_symbol(name).and_then(|info| info.def_span);
                         self.symbol_resolutions.insert(callee.span, SymbolInfo {
                             is_local: false,
-                            def_span: None,
+                            def_span,
                             ty: signature.return_type.clone(),
                         });
                         // Validate number of arguments
@@ -2935,12 +2942,14 @@ impl SemanticAnalyzer {
 
                 let object_type = self.infer_expression_type(object);
                 let mut field_ty = Type::Unknown;
+                let mut field_def_span = None;
 
                 match object_type {
                     Type::Struct { ref name } => {
                         if let Some(struct_info) = self.struct_infos.get(name) {
                             if let Some(field_info) = struct_info.fields.get(field) {
                                 field_ty = self.type_annotation_to_type(&Some(field_info.ty.clone()));
+                                field_def_span = Some(field_info.span);
                             } else {
                                 self.error(
                                     format!("Struct '{}' has no field named '{}'", name, field),
@@ -2967,7 +2976,7 @@ impl SemanticAnalyzer {
 
                 self.symbol_resolutions.insert(expr.span, SymbolInfo {
                     is_local: false,
-                    def_span: None,
+                    def_span: field_def_span,
                     ty: field_ty,
                 });
             }
@@ -3035,6 +3044,17 @@ impl SemanticAnalyzer {
                         return;
                     }
                 };
+
+                self.symbol_resolutions.insert(
+                    expr.span,
+                    SymbolInfo {
+                        is_local: false,
+                        def_span: Some(variant_info.span),
+                        ty: Type::Enum {
+                            name: enum_name.clone(),
+                        },
+                    },
+                );
 
                 match (&variant_info.data, &variant_info.struct_data, data, struct_data) {
                     (Some(_), _, _, Some(_)) => {
@@ -3377,6 +3397,15 @@ impl SemanticAnalyzer {
                             arguments,
                             expr.span,
                         );
+
+                        let def_span = self
+                            .method_definitions
+                            .get(type_name)
+                            .and_then(|methods| methods.get(method_name))
+                            .copied();
+                        if let Some(existing) = self.symbol_resolutions.get_mut(&expr.span) {
+                            existing.def_span = def_span;
+                        }
                     } else if self.methods.contains_key(type_name) {
                         self.error(
                             format!(

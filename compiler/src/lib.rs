@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod error;
+pub mod language_service;
 pub mod lexer;
 pub mod lint;
 pub mod parser;
@@ -11,6 +12,7 @@ pub mod token;
 pub use ast::{BinaryOperator, Module, UnaryOperator};
 pub use error::{BackendError, CompilerError, LexError, MidendError, ParseError, SemanticError};
 pub use lexer::Lexer;
+pub use language_service::{analyze_document, DefinitionInfo, DocumentAnalysis, ResolvedSymbol};
 pub use lint::{LintDiagnostic, LintOptions, LintRule};
 pub use parser::Parser;
 pub use pipeline::{

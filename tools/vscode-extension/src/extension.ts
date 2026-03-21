@@ -1,39 +1,42 @@
 import * as vscode from 'vscode';
-import { SpectraDiagnosticsManager } from './diagnostics';
-import { SpectraFormatter, registerFormatOnSaveHook } from './formatter';
-import { lintOnSaveEnabled } from './config';
-import { getSpectraCliMetadata, resetSpectraCliMetadata } from './cliCapabilities';
+import {
+  Executable,
+  LanguageClient,
+  LanguageClientOptions,
+  ServerOptions,
+  TransportKind,
+} from 'vscode-languageclient/node';
+import { formatOnSaveEnabled, getCliPath, getServerPath, lintOnSaveEnabled } from './config';
 
-let diagnosticsManager: SpectraDiagnosticsManager | undefined;
+const RUN_DIAGNOSTICS_COMMAND = 'spectra.diagnostics.run';
+const LINT_WORKSPACE_COMMAND = 'spectra.lintWorkspace';
 
-export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel('Spectra');
-  context.subscriptions.push(output);
+let client: LanguageClient | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
 
-  diagnosticsManager = new SpectraDiagnosticsManager(context, output);
-  diagnosticsManager.attachListeners();
-  context.subscriptions.push(diagnosticsManager);
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  outputChannel = vscode.window.createOutputChannel('Spectra');
+  context.subscriptions.push(outputChannel);
 
-  const formatter = new SpectraFormatter();
+  client = await startClient(context, outputChannel);
+
   context.subscriptions.push(
-    vscode.languages.registerDocumentFormattingEditProvider('spectra', formatter)
-  );
-  registerFormatOnSaveHook(formatter, context);
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('spectra.diagnostics.run', async () => {
+    vscode.commands.registerCommand(RUN_DIAGNOSTICS_COMMAND, async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor || editor.document.languageId !== 'spectra') {
         vscode.window.showInformationMessage('Open a Spectra file to run diagnostics.');
         return;
       }
 
-      await diagnosticsManager?.runDiagnostics(editor.document);
+      await client?.sendRequest('workspace/executeCommand', {
+        command: RUN_DIAGNOSTICS_COMMAND,
+        arguments: [editor.document.uri.toString()],
+      });
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('spectra.lintWorkspace', async () => {
+    vscode.commands.registerCommand(LINT_WORKSPACE_COMMAND, async () => {
       const folders = vscode.workspace.workspaceFolders;
       if (!folders || folders.length === 0) {
         vscode.window.showInformationMessage('Open a workspace to run Spectra lint.');
@@ -47,52 +50,111 @@ export function activate(context: vscode.ExtensionContext): void {
           cancellable: false,
         },
         async () => {
-          const lintedCount = await diagnosticsManager?.runWorkspaceLint(folders);
-          if (typeof lintedCount === 'number') {
-            const plural = lintedCount === 1 ? '' : 's';
-            vscode.window.showInformationMessage(
-              `Spectra lint completed for ${lintedCount} file${plural}.`
-            );
-          }
+          await client?.sendRequest('workspace/executeCommand', {
+            command: LINT_WORKSPACE_COMMAND,
+            arguments: folders.map((folder) => folder.uri.fsPath),
+          });
         }
       );
     })
   );
 
+  registerFormatOnSaveHook(context);
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('spectra.cliPath')) {
-        resetSpectraCliMetadata();
-        void logCliMetadata(output);
+      if (event.affectsConfiguration('spectra.serverPath')) {
+        void restartClient(context);
       }
     })
   );
-
-  if (lintOnSaveEnabled()) {
-    // Kick off diagnostics for already open Spectra documents on activation.
-    const initialDocs = vscode.workspace.textDocuments.filter(
-      (doc: vscode.TextDocument) => doc.languageId === 'spectra'
-    );
-    for (const doc of initialDocs) {
-      void diagnosticsManager?.runDiagnostics(doc);
-    }
-  }
-
-  void logCliMetadata(output);
 }
 
-export function deactivate(): void {
-  diagnosticsManager?.dispose();
-  diagnosticsManager = undefined;
+export async function deactivate(): Promise<void> {
+  if (client) {
+    await client.stop();
+    client = undefined;
+  }
 }
 
-async function logCliMetadata(output: vscode.OutputChannel): Promise<void> {
-  const metadata = await getSpectraCliMetadata();
-  if (metadata.version) {
-    output.appendLine(`Spectra CLI (${metadata.cliPath}) version ${metadata.version}`);
-  } else {
-    output.appendLine(
-      `Spectra CLI (${metadata.cliPath}) version check failed. --version output not available.`
-    );
+async function startClient(
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel
+): Promise<LanguageClient> {
+  const serverPath = getServerPath(context);
+  const executable: Executable = {
+    command: serverPath,
+    transport: TransportKind.stdio,
+  };
+
+  const serverOptions: ServerOptions = {
+    run: executable,
+    debug: executable,
+  };
+
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [
+      { scheme: 'file', language: 'spectra' },
+      { scheme: 'untitled', language: 'spectra' },
+    ],
+    outputChannel: output,
+    synchronize: {
+      configurationSection: 'spectra',
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.spectra'),
+    },
+    initializationOptions: {
+      spectra: {
+        cliPath: getCliPath(),
+        lintOnSave: lintOnSaveEnabled(),
+      },
+    },
+  };
+
+  const nextClient = new LanguageClient(
+    'spectra',
+    'Spectra Language Server',
+    serverOptions,
+    clientOptions
+  );
+
+  await nextClient.start();
+  context.subscriptions.push(nextClient);
+  output.appendLine(`Spectra language server started from ${serverPath}`);
+  return nextClient;
+}
+
+async function restartClient(context: vscode.ExtensionContext): Promise<void> {
+  if (!outputChannel) {
+    return;
   }
+
+  if (client) {
+    await client.stop();
+  }
+
+  client = await startClient(context, outputChannel);
+}
+
+function registerFormatOnSaveHook(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.workspace.onWillSaveTextDocument((event) => {
+      if (!formatOnSaveEnabled() || event.document.languageId !== 'spectra') {
+        return;
+      }
+
+      const editorConfig = vscode.workspace.getConfiguration('editor', event.document.uri);
+      const formattingOptions: vscode.FormattingOptions = {
+        insertSpaces: editorConfig.get<boolean>('insertSpaces', true),
+        tabSize: editorConfig.get<number>('tabSize', 4),
+      };
+
+      event.waitUntil(
+        vscode.commands.executeCommand<vscode.TextEdit[]>(
+          'vscode.executeFormatDocumentProvider',
+          event.document.uri,
+          formattingOptions
+        )
+      );
+    })
+  );
 }

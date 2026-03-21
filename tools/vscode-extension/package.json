@@ -1,7 +1,7 @@
 {
   "name": "spectra-vscode-extension",
   "displayName": "SpectraLang",
-  "description": "VS Code support for SpectraLang syntax, formatting, and diagnostics.",
+  "description": "VS Code support for SpectraLang with diagnostics, formatting, hover, completion, and go-to-definition via LSP.",
   "version": "0.0.1",
   "publisher": "spectralang",
   "license": "MIT",
@@ -16,6 +16,12 @@
     "Programming Languages",
     "Linters",
     "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:spectra",
+    "onCommand:spectra.diagnostics.run",
+    "onCommand:spectra.lintWorkspace",
+    "workspaceContains:**/*.spectra"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -58,20 +64,25 @@
     "configuration": {
       "title": "Spectra",
       "properties": {
+        "spectra.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the spectra-lsp executable. When empty, the extension tries local workspace builds before falling back to PATH."
+        },
         "spectra.cliPath": {
           "type": "string",
           "default": "spectra",
-          "description": "Path to the Spectra CLI executable used for formatting, linting, and diagnostics."
+          "description": "Path to the Spectra CLI executable used by the language server for formatting."
         },
         "spectra.lintOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically run Spectra diagnostics when a Spectra file is saved."
+          "description": "Include lint warnings when a Spectra file is saved. Syntax and semantic diagnostics remain active while editing."
         },
         "spectra.formatOnSave": {
           "type": "boolean",
           "default": false,
-          "description": "Format Spectra files on save using 'spectra fmt'."
+          "description": "Format Spectra files on save by requesting formatting from the Spectra language server."
         }
       }
     }
@@ -87,5 +98,8 @@
     "@types/vscode": "^1.93.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }
