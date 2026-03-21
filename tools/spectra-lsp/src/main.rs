@@ -1841,6 +1841,26 @@ fn position_to_offset(text: &str, position: Position) -> usize {
     text.len()
 }
 
+fn offset_to_position(text: &str, target_offset: usize) -> Position {
+    let mut line = 0u32;
+    let mut character = 0u32;
+
+    for (idx, ch) in text.char_indices() {
+        if idx >= target_offset {
+            return Position::new(line, character);
+        }
+        if ch == '\n' {
+            line += 1;
+            character = 0;
+        } else {
+            character += 1;
+        }
+    }
+
+    // offset beyond end of text → clamp to last position
+    Position::new(line, character)
+}
+
 fn analyze_cache_document(text: &str, filename: &str) -> DocumentAnalysis {
     let mut options = CompilationOptions::default();
     options.optimize = false;
@@ -2484,8 +2504,102 @@ fn quick_fix_for_diagnostic(uri: &Url, document: &DocumentState, diagnostic: &Di
         "lint(unused-binding)" => unused_binding_quick_fix(uri, &document.text, diagnostic),
         "lint(shadowing)" => shadowing_quick_fix(uri, document, diagnostic),
         "lint(unreachable-code)" => unreachable_code_quick_fix(uri, diagnostic),
-        _ => hint_based_quick_fix(uri, &document.text, diagnostic),
+        _ => semantic_error_quick_fix(uri, document, diagnostic)
+            .or_else(|| hint_based_quick_fix(uri, &document.text, diagnostic)),
     }
+}
+
+/// Tenta gerar um quick fix para erros semânticos comuns, reconhecendo padrões
+/// de mensagem produzidos pelo compilador.
+fn semantic_error_quick_fix(
+    uri: &Url,
+    document: &DocumentState,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    let msg = diagnostic.message.as_str();
+
+    // "Variable 'x' is already declared in this scope"
+    // → renomear a nova binding para um nome único
+    if msg.contains("is already declared in this scope") {
+        return duplicate_binding_quick_fix(uri, &document.text, diagnostic);
+    }
+
+    // "Return statement missing value of type ..."
+    // → inserir um valor padrão compatível com o tipo mencionado
+    if msg.starts_with("Return statement missing value of type") {
+        return missing_return_value_quick_fix(uri, &document.text, diagnostic, msg);
+    }
+
+    None
+}
+
+fn duplicate_binding_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {
+    let binding_name = extract_quoted_name(&diagnostic.message)?;
+    let replacement = unique_identifier_name(text, &binding_name);
+    let binding_range = find_name_range_in_range(text, diagnostic.range, &binding_name)?;
+
+    Some(quick_fix_action(
+        uri,
+        diagnostic,
+        format!("Renomear '{}' para '{}'", binding_name, replacement),
+        vec![TextEdit {
+            range: binding_range,
+            new_text: replacement,
+        }],
+    ))
+}
+
+fn missing_return_value_quick_fix(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+    message: &str,
+) -> Option<CodeAction> {
+    // Extrair o tipo da mensagem. Formato: 'Return statement missing value of type Int'
+    let type_str = message
+        .strip_prefix("Return statement missing value of type")
+        .map(|s| s.trim())
+        // Remover delimitadores de debug como `Int` ou `{...}`
+        .map(|s| s.trim_matches(|c: char| c == '`' || c == '"'))
+        .unwrap_or("");
+
+    let default_value = match type_str.to_lowercase().as_str() {
+        "int" => "0",
+        "bool" => "false",
+        "string" => "\"\"",
+        "float" => "0.0",
+        "char" => "'\\0'",
+        _ => return None,
+    };
+
+    // Localizar a posição do `return` sem valor — o range aponta para o `return` keyword.
+    // Inserimos o valor entre `return` e `;`.
+    let start_offset = position_to_offset(text, diagnostic.range.start);
+    let end_offset = position_to_offset(text, diagnostic.range.end);
+    if start_offset >= text.len() || end_offset > text.len() {
+        return None;
+    }
+
+    let slice = &text[start_offset..end_offset];
+    // Encontra o ponto de inserção: logo após 'return', antes do ';' ou final do range
+    let insert_relative = if let Some(semi) = slice.find(';') {
+        semi
+    } else {
+        slice.len()
+    };
+    let insert_offset = start_offset + insert_relative;
+    let insert_pos = offset_to_position(text, insert_offset);
+    let insert_range = Range::new(insert_pos, insert_pos);
+
+    Some(quick_fix_action(
+        uri,
+        diagnostic,
+        format!("Inserir valor de retorno padrão ({})", default_value),
+        vec![TextEdit {
+            range: insert_range,
+            new_text: format!(" {}", default_value),
+        }],
+    ))
 }
 
 fn unused_binding_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {

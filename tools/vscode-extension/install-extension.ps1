@@ -26,15 +26,21 @@ $vsixPath = Join-Path $scriptDir $vsixName
 $codeCommand = Resolve-CodeCommand
 $bundledServerDir = Join-Path $scriptDir 'server'
 $bundledServerPath = Join-Path $bundledServerDir 'spectra-lsp.exe'
+$bundledCliPath = Join-Path $bundledServerDir 'spectra-cli.exe'
 
 Push-Location $repoRoot
 try {
-    Write-Step 'Compilando o servidor spectra-lsp'
-    cargo build -p spectra-lsp
+    Write-Step 'Compilando o servidor spectra-lsp e o CLI'
+    cargo build -p spectra-lsp -p spectra-cli
 
     $builtServerPath = Join-Path $repoRoot 'target\debug\spectra-lsp.exe'
     if (-not (Test-Path $builtServerPath)) {
         throw "Binário spectra-lsp não encontrado em $builtServerPath"
+    }
+
+    $builtCliPath = Join-Path $repoRoot 'target\debug\spectra-cli.exe'
+    if (-not (Test-Path $builtCliPath)) {
+        throw "Binário spectra-cli não encontrado em $builtCliPath"
     }
 
     Push-Location $scriptDir
@@ -43,8 +49,9 @@ try {
             New-Item -ItemType Directory -Path $bundledServerDir | Out-Null
         }
 
-        Write-Step 'Copiando o servidor para dentro da extensão'
+        Write-Step 'Copiando o servidor e o CLI para dentro da extensão'
         Copy-Item $builtServerPath $bundledServerPath -Force
+        Copy-Item $builtCliPath $bundledCliPath -Force
 
         if (-not (Test-Path (Join-Path $scriptDir 'node_modules'))) {
             Write-Step 'Instalando dependências npm da extensão'

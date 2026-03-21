@@ -8,6 +8,17 @@
     ],
     "description": "Declarar um modulo Spectra"
   },
+  "Module with main": {
+    "prefix": "newfile",
+    "body": [
+      "module ${1:name};",
+      "",
+      "pub fn main() {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Novo arquivo Spectra com modulo e main"
+  },
   "Main Function": {
     "prefix": "main",
     "body": [
@@ -20,11 +31,20 @@
   "Function": {
     "prefix": "fn",
     "body": [
-      "fn ${1:name}(${2})${3: -> ${4:int}} {",
+      "fn ${1:name}(${2:param}: ${3:int}) -> ${4:int} {",
       "    ${0}",
       "}"
     ],
-    "description": "Criar uma funcao"
+    "description": "Criar uma funcao com parametros e retorno"
+  },
+  "Public Function": {
+    "prefix": "pubfn",
+    "body": [
+      "pub fn ${1:name}(${2:param}: ${3:int}) -> ${4:int} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar uma funcao publica"
   },
   "Struct": {
     "prefix": "struct",
@@ -35,6 +55,25 @@
     ],
     "description": "Declarar uma struct"
   },
+  "Struct with impl": {
+    "prefix": "structimpl",
+    "body": [
+      "struct ${1:Name} {",
+      "    ${2:field}: ${3:int},",
+      "}",
+      "",
+      "impl ${1:Name} {",
+      "    fn new(${2:field}: ${3:int}) -> ${1:Name} {",
+      "        return ${1:Name} { ${2:field}: ${2:field} };",
+      "    }",
+      "",
+      "    fn ${4:method}(self) -> ${5:int} {",
+      "        ${0}",
+      "    }",
+      "}"
+    ],
+    "description": "Declarar uma struct com bloco impl"
+  },
   "Enum": {
     "prefix": "enum",
     "body": [
@@ -44,40 +83,157 @@
     ],
     "description": "Declarar um enum"
   },
-  "If Let": {
-    "prefix": "iflet",
+  "Enum with data": {
+    "prefix": "enumdata",
     "body": [
-      "if let ${1:Pattern} = ${2:value} {",
-      "    ${0}",
+      "enum ${1:Name} {",
+      "    ${2:Some}(${3:int}),",
+      "    ${4:None},",
       "}"
     ],
-    "description": "Criar um bloco if let"
-  },
-  "While Let": {
-    "prefix": "whilelet",
-    "body": [
-      "while let ${1:Pattern} = ${2:value} {",
-      "    ${0}",
-      "}"
-    ],
-    "description": "Criar um loop while let"
-  },
-  "Match": {
-    "prefix": "match",
-    "body": [
-      "match ${1:value} {",
-      "    ${2:Pattern} => ${3:result},",
-      "}"
-    ],
-    "description": "Criar uma expressao match"
+    "description": "Declarar um enum com variante de dados"
   },
   "Impl Block": {
     "prefix": "impl",
     "body": [
       "impl ${1:Type} {",
+      "    fn ${2:method}(self) -> ${3:int} {",
+      "        ${0}",
+      "    }",
+      "}"
+    ],
+    "description": "Criar um bloco impl com metodo"
+  },
+  "If Let": {
+    "prefix": "iflet",
+    "body": [
+      "if let ${1:Variant}(${2:value}) = ${3:expr} {",
       "    ${0}",
       "}"
     ],
-    "description": "Criar um bloco impl"
+    "description": "Criar um bloco if let para desempacotar enum"
+  },
+  "If Let with Else": {
+    "prefix": "ifletelse",
+    "body": [
+      "if let ${1:Variant}(${2:value}) = ${3:expr} {",
+      "    ${4}",
+      "} else {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar um bloco if let com else"
+  },
+  "While Let": {
+    "prefix": "whilelet",
+    "body": [
+      "while let ${1:Variant}(${2:value}) = ${3:expr} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar um loop while let"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar um loop while"
+  },
+  "Counter Loop": {
+    "prefix": "for",
+    "body": [
+      "let ${1:i} = 0;",
+      "while ${1:i} < ${2:10} {",
+      "    ${0}",
+      "    ${1:i} = ${1:i} + 1;",
+      "}"
+    ],
+    "description": "Loop contador com while (equivalente ao for classico)"
+  },
+  "Do While": {
+    "prefix": "dowhile",
+    "body": [
+      "do {",
+      "    ${0}",
+      "} while ${1:condition};"
+    ],
+    "description": "Criar um loop do-while"
+  },
+  "Infinite Loop": {
+    "prefix": "loop",
+    "body": [
+      "loop {",
+      "    ${0}",
+      "    if ${1:condition} {",
+      "        break;",
+      "    }",
+      "}"
+    ],
+    "description": "Criar um loop infinito com break"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "    ${2:Pattern}(${3:v}) => ${4:v},",
+      "    _ => ${0},",
+      "}"
+    ],
+    "description": "Criar uma expressao match com wildcard"
+  },
+  "Match Enum": {
+    "prefix": "matchenum",
+    "body": [
+      "match ${1:value} {",
+      "    ${2:Enum}::${3:VariantA} => ${4},",
+      "    ${2:Enum}::${5:VariantB} => ${0},",
+      "}"
+    ],
+    "description": "Criar um match exaustivo sobre enum"
+  },
+  "Let Binding": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name} = ${0};"
+    ],
+    "description": "Declarar uma variavel"
+  },
+  "Import Named": {
+    "prefix": "import",
+    "body": [
+      "import { ${1:fn_name} } from ${2:std.io};"
+    ],
+    "description": "Importar funcoes especificas de um modulo"
+  },
+  "Import Alias": {
+    "prefix": "importas",
+    "body": [
+      "import ${1:std.math} as ${2:math};"
+    ],
+    "description": "Importar um modulo com alias"
+  },
+  "Return": {
+    "prefix": "return",
+    "body": [
+      "return ${0};"
+    ],
+    "description": "Retornar um valor"
+  },
+  "Print Line": {
+    "prefix": "println",
+    "body": [
+      "println(${0});"
+    ],
+    "description": "Imprimir linha (requer import std.io)"
+  },
+  "F-String": {
+    "prefix": "fstr",
+    "body": [
+      "f\"${0}\""
+    ],
+    "description": "Criar uma f-string com interpolacao"
   }
 }

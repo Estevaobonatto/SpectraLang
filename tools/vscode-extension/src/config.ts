@@ -57,10 +57,45 @@ export function getServerPath(context: vscode.ExtensionContext): string {
   return 'spectra-lsp';
 }
 
+let _extensionPath: string | undefined;
+
+export function setExtensionPath(extensionPath: string): void {
+  _extensionPath = extensionPath;
+}
+
 export function getCliPath(): string {
   const config = vscode.workspace.getConfiguration(SECTION);
-  const cliPath = config.get<string>('cliPath', 'spectra');
-  return cliPath.trim() === '' ? 'spectra' : cliPath.trim();
+  const configured = config.get<string>('cliPath', '').trim();
+  if (configured !== '') {
+    return configured;
+  }
+
+  const executable = getExecutableName('spectra-cli');
+
+  // Prioridade 1: bundled dentro da extensão (server/spectra-cli.exe)
+  if (_extensionPath) {
+    const bundledCandidates = [
+      path.resolve(_extensionPath, 'server', executable),
+      path.resolve(_extensionPath, 'bin', executable),
+    ];
+    const bundled = existingPath(bundledCandidates);
+    if (bundled) {
+      return bundled;
+    }
+  }
+
+  // Prioridade 2: binário no workspace (target/debug ou target/release)
+  const workspaceCandidates = (vscode.workspace.workspaceFolders ?? []).flatMap((folder) => [
+    path.resolve(folder.uri.fsPath, 'target', 'debug', executable),
+    path.resolve(folder.uri.fsPath, 'target', 'release', executable),
+  ]);
+  const workspaceBinary = existingPath(workspaceCandidates);
+  if (workspaceBinary) {
+    return workspaceBinary;
+  }
+
+  // Fallback: espera que esteja no PATH
+  return executable;
 }
 
 export function lintOnSaveEnabled(): boolean {
