@@ -8,6 +8,16 @@ function getExecutableName(baseName: string): string {
   return process.platform === 'win32' ? `${baseName}.exe` : baseName;
 }
 
+function existingPath(candidates: string[]): string | undefined {
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
 export function getServerPath(context: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration(SECTION);
   const configuredPath = config.get<string>('serverPath', '').trim();
@@ -16,15 +26,32 @@ export function getServerPath(context: vscode.ExtensionContext): string {
   }
 
   const executable = getExecutableName('spectra-lsp');
-  const candidates = [
+  const bundledCandidates = [
+    path.resolve(context.extensionPath, 'server', executable),
+    path.resolve(context.extensionPath, 'bin', executable),
+  ];
+  const bundled = existingPath(bundledCandidates);
+  if (bundled) {
+    return bundled;
+  }
+
+  const workspaceCandidates = (vscode.workspace.workspaceFolders ?? []).flatMap((folder) => [
+    path.resolve(folder.uri.fsPath, 'target', 'debug', executable),
+    path.resolve(folder.uri.fsPath, 'target', 'release', executable),
+    path.resolve(folder.uri.fsPath, 'tools', 'vscode-extension', 'server', executable),
+  ]);
+  const workspaceBinary = existingPath(workspaceCandidates);
+  if (workspaceBinary) {
+    return workspaceBinary;
+  }
+
+  const legacyCandidates = [
     path.resolve(context.extensionPath, '..', '..', 'target', 'debug', executable),
     path.resolve(context.extensionPath, '..', '..', 'target', 'release', executable),
   ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
+  const legacy = existingPath(legacyCandidates);
+  if (legacy) {
+    return legacy;
   }
 
   return 'spectra-lsp';

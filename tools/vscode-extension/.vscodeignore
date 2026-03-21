@@ -1,0 +1,21 @@
+.gitignore
+*.vsix
+src/**
+**/*.ts
+tsconfig.json
+ROADMAP.md
+install-extension.ps1
+package-lock.json
+
+# Development-only npm artifacts
+node_modules/.bin/**
+node_modules/**/test/**
+node_modules/**/tests/**
+node_modules/**/*.map
+node_modules/**/tsconfig.json
+node_modules/**/tsconfig.*.json
+node_modules/**/.eslintrc*
+node_modules/**/.prettierrc*
+node_modules/**/README*
+node_modules/**/CHANGELOG*
+node_modules/**/LICENSE*

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import {
   Executable,
   LanguageClient,
@@ -82,6 +83,14 @@ async function startClient(
   output: vscode.OutputChannel
 ): Promise<LanguageClient> {
   const serverPath = getServerPath(context);
+  const usesPathLookup = serverPath === 'spectra-lsp';
+
+  if (!usesPathLookup && !fs.existsSync(serverPath)) {
+    const message = `Spectra language server não encontrado em ${serverPath}. Reinstale a extensão com o instalador do repositório ou configure spectra.serverPath.`;
+    output.appendLine(message);
+    throw new Error(message);
+  }
+
   const executable: Executable = {
     command: serverPath,
     transport: TransportKind.stdio,
@@ -117,7 +126,19 @@ async function startClient(
     clientOptions
   );
 
-  await nextClient.start();
+  try {
+    await nextClient.start();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Falha ao iniciar spectra-lsp: ${detail}`);
+    if (usesPathLookup) {
+      void vscode.window.showErrorMessage(
+        'SpectraLang não encontrou o executável spectra-lsp. Reinstale a extensão com o instalador do repositório ou configure spectra.serverPath.'
+      );
+    }
+    throw error;
+  }
+
   context.subscriptions.push(nextClient);
   output.appendLine(`Spectra language server started from ${serverPath}`);
   return nextClient;

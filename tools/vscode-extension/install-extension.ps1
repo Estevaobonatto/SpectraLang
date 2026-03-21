@@ -24,14 +24,28 @@ $packageJson = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
 $vsixName = "$($packageJson.name)-$($packageJson.version).vsix"
 $vsixPath = Join-Path $scriptDir $vsixName
 $codeCommand = Resolve-CodeCommand
+$bundledServerDir = Join-Path $scriptDir 'server'
+$bundledServerPath = Join-Path $bundledServerDir 'spectra-lsp.exe'
 
 Push-Location $repoRoot
 try {
     Write-Step 'Compilando o servidor spectra-lsp'
     cargo build -p spectra-lsp
 
+    $builtServerPath = Join-Path $repoRoot 'target\debug\spectra-lsp.exe'
+    if (-not (Test-Path $builtServerPath)) {
+        throw "Binário spectra-lsp não encontrado em $builtServerPath"
+    }
+
     Push-Location $scriptDir
     try {
+        if (-not (Test-Path $bundledServerDir)) {
+            New-Item -ItemType Directory -Path $bundledServerDir | Out-Null
+        }
+
+        Write-Step 'Copiando o servidor para dentro da extensão'
+        Copy-Item $builtServerPath $bundledServerPath -Force
+
         if (-not (Test-Path (Join-Path $scriptDir 'node_modules'))) {
             Write-Step 'Instalando dependências npm da extensão'
             npm install
