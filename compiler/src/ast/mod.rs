@@ -40,6 +40,17 @@ pub struct Module {
     pub name: String,
     pub span: Span,
     pub items: Vec<Item>,
+    /// Maps an unqualified function/type name imported from a stdlib module to the
+    /// full stdlib path segments.  Populated by the semantic analyser when it
+    /// processes `import std.io;` style declarations so that the midend can emit
+    /// the correct host-function call even for bare identifiers.
+    /// e.g. "print" -> ["std", "io", "print"]
+    pub std_import_aliases: Vec<(String, Vec<String>)>,
+    /// Return types for user-defined functions imported from other modules.
+    /// Populated by the semantic analyser during import analysis so the midend
+    /// can pre-register the return types and generate correct cross-module calls.
+    /// e.g. ("square", Type::Int) when `import mathutils;` brings in `square`.
+    pub imported_function_return_types: Vec<(String, Type)>,
 }
 
 impl Module {
@@ -48,6 +59,8 @@ impl Module {
             name: name.into(),
             span,
             items: Vec::new(),
+            std_import_aliases: Vec::new(),
+            imported_function_return_types: Vec::new(),
         }
     }
 }
@@ -71,11 +84,18 @@ pub struct Import {
     pub alias: Option<String>,
     /// Named imports: `import { name1, name2 } from path`
     pub names: Option<Vec<String>>,
+    /// True when written as `pub import ...` — this is a re-export: the
+    /// imported symbols are also exposed to whoever imports *this* module.
+    pub is_reexport: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
+    /// Accessible from any module that imports this one.
     Public,
+    /// Accessible only within the same package (same `spectra.toml` `name`).
+    Internal,
+    /// Accessible only within this module (default).
     Private,
 }
 

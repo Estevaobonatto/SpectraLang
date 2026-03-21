@@ -1,0 +1,9 @@
+module mathutils;
+
+pub fn square(n: int) -> int {
+    return n * n;
+}
+
+internal fn helper() -> int {
+    return 42;
+}

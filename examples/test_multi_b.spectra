@@ -1,0 +1,11 @@
+module main_app;
+
+import mathutils;
+import std.io;
+
+pub fn main() -> int {
+    let s = square(7);
+    print(s);
+    print(100);
+    return s;
+}

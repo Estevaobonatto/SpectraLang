@@ -1,0 +1,7 @@
+module demo_imports;
+import std.io;
+
+pub fn main() {
+    print("Hello from imported std.io!");
+    print(42);
+}

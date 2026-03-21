@@ -280,6 +280,10 @@ pub struct ASTLowering {
     trait_implementations: HashMap<(String, String), bool>,
     /// Tracks return types for lowered functions (including specializations)
     function_return_types: HashMap<String, IRType>,
+    /// Maps bare imported names to their full stdlib path for unqualified call resolution.
+    /// Populated from `Module::std_import_aliases` at the start of `lower_module()`.
+    /// e.g. "print" → ["std", "io", "print"]
+    std_import_aliases: HashMap<String, Vec<String>>,
 }
 
 impl ASTLowering {
@@ -304,11 +308,27 @@ impl ASTLowering {
             type_substitution_map: HashMap::new(),
             trait_implementations: HashMap::new(),
             function_return_types: HashMap::new(),
+            std_import_aliases: HashMap::new(),
         }
     }
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
         let mut ir_module = IRModule::new(&ast_module.name);
+
+        // Populate stdlib alias map for unqualified call resolution.
+        self.std_import_aliases = ast_module
+            .std_import_aliases
+            .iter()
+            .cloned()
+            .collect();
+
+        // Pre-register return types of imported user functions so that
+        // cross-module calls are not mis-classified as unknown closures by
+        // the temporary bypass code in lower_expression.
+        for (name, ty) in &ast_module.imported_function_return_types {
+            let ir_ty = self.lower_type(ty);
+            self.function_return_types.entry(name.clone()).or_insert(ir_ty);
+        }
 
         // First pass: collect struct and enum definitions, and trait implementations
         for item in &ast_module.items {
@@ -2477,7 +2497,18 @@ impl ASTLowering {
 
     fn host_function_descriptor(&self, callee: &Expression) -> Option<HostFunctionDescriptor> {
         let path = self.resolve_call_path(callee)?;
-        lookup_std_host_function(&path)
+        // Direct path lookup (e.g. std.io.print).
+        if let Some(desc) = lookup_std_host_function(&path) {
+            return Some(desc);
+        }
+        // Fallback: resolve single-segment bare names via std_import_aliases
+        // (e.g. `print` after `import std.io`).
+        if path.len() == 1 {
+            if let Some(full_path) = self.std_import_aliases.get(&path[0]) {
+                return lookup_std_host_function(full_path);
+            }
+        }
+        None
     }
 
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {

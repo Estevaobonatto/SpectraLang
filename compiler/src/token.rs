@@ -19,6 +19,7 @@ pub enum Keyword {
 
     // Visibility
     Pub,
+    Internal,
     Mut,
 
     // Special types
@@ -77,6 +78,7 @@ impl Keyword {
 
             // Visibility
             "pub" => Some(Self::Pub),
+            "internal" => Some(Self::Internal),
             "mut" => Some(Self::Mut),
 
             // Special types
@@ -139,6 +141,7 @@ impl fmt::Display for Keyword {
 
             // Visibility
             Keyword::Pub => "pub",
+            Keyword::Internal => "internal",
             Keyword::Mut => "mut",
 
             // Special types

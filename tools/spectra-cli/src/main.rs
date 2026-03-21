@@ -1,4 +1,6 @@
 mod compiler_integration;
+mod config;
+mod discovery;
 mod formatter;
 mod project;
 
@@ -856,10 +858,41 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         return execute_lint_json(entries, options);
     }
 
+    // If a single directory is given (or current dir when no entries), look for spectra.toml.
+    let project_root: Option<std::path::PathBuf> = if entries.len() <= 1 {
+        let candidate = entries
+            .first()
+            .map(|p| if p.is_dir() { p.clone() } else { p.parent().map(|par| par.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from(".")) })
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        Some(candidate)
+    } else {
+        None
+    };
+
+    let (final_entries, package_name) = if let Some(ref root) = project_root {
+        match config::try_load_config(root) {
+            Ok(Some(cfg)) => {
+                if verbose {
+                    println!("Loaded project config '{}' v{}", cfg.name(), cfg.project.version);
+                }
+                let src_dirs = cfg.src_dirs(root);
+                let sources = discovery::discover_sources(&src_dirs);
+                (sources, Some(cfg.name().to_string()))
+            }
+            Ok(None) => (entries, None),
+            Err(err) => {
+                return Err(CliError::io(format!("Failed to load spectra.toml: {}", err)));
+            }
+        }
+    } else {
+        (entries, None)
+    };
+
     execute_plan_with_options(
         kind,
         options,
-        entries,
+        final_entries,
+        package_name,
         show_pipeline_summary,
         show_pipeline_summary,
         true,
@@ -971,6 +1004,7 @@ fn execute_plan_with_options(
     kind: BuildCommand,
     options: CompilationOptions,
     entries: Vec<PathBuf>,
+    package_name: Option<String>,
     show_pipeline_summary: bool,
     show_aggregate_summary: bool,
     print_success: bool,
@@ -1004,6 +1038,9 @@ fn execute_plan_with_options(
     }
 
     let mut compiler = SpectraCompiler::new(options);
+    if let Some(name) = package_name {
+        compiler.set_package_name(name);
+    }
 
     if show_pipeline_summary {
         compiler.set_emit_internal_metrics(false);
@@ -1164,6 +1201,7 @@ impl ReplSession {
             command,
             options,
             entries,
+            None,
             self.show_pipeline_summary,
             false,
             print_success,
@@ -1318,11 +1356,11 @@ fn create_new_project(options: NewProjectOptions) -> CliResult<()> {
     })?;
 
     let (project_name, module_name) = derive_project_identifiers(&path);
-    let manifest_path = path.join("Spectra.toml");
+    let manifest_path = path.join("spectra.toml");
     let main_source_path = path.join("src").join("main.spectra");
 
     let manifest_contents = format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.spectra\"\n",
+        "[project]\nname = \"{}\"\nversion = \"0.1.0\"\nentry = \"src/main.spectra\"\nsrc_dirs = [\"src\"]\n\n[dependencies]\n# Add your dependencies here\n",
         project_name
     );
 

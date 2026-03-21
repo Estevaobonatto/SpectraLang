@@ -290,7 +290,10 @@ impl BackendDriver for FullPipelineBackend {
             println!();
         }
 
-        let mut codegen = CodeGenerator::new();
+        // Reuse the same CodeGenerator across module compilations so that the
+        // Cranelift JIT module and function_map persist, allowing later modules
+        // to reference functions declared by earlier modules.
+        let codegen = self.codegen.get_or_insert_with(CodeGenerator::new);
         let codegen_start = Instant::now();
         let codegen_result = codegen.generate_module(&ir_module);
         let codegen_duration = codegen_start.elapsed();
@@ -298,8 +301,6 @@ impl BackendDriver for FullPipelineBackend {
         if let Err(error) = codegen_result {
             return Err(vec![CompilerError::Backend(BackendError::new(error))]);
         }
-
-        self.codegen = Some(codegen);
 
         Ok(FullPipelineArtifacts {
             ir_module,
@@ -396,6 +397,11 @@ impl SpectraCompiler {
             emit_internal_metrics: true,
             emit_output: true,
         }
+    }
+
+    /// Set the package name so the semantic analyzer can enforce `internal` visibility.
+    pub fn set_package_name(&mut self, name: impl Into<String>) {
+        self.pipeline.package_name = Some(name.into());
     }
 
     /// Compile source code to native code

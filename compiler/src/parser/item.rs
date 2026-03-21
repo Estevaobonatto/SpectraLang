@@ -14,12 +14,30 @@ impl Parser {
     pub(super) fn parse_item(&mut self) -> Result<Item, ()> {
         match &self.current().kind {
             crate::token::TokenKind::Keyword(Keyword::Import) => {
-                let import = self.parse_import()?;
+                let import = self.parse_import(false)?;
                 Ok(Item::Import(import))
             }
             crate::token::TokenKind::Keyword(Keyword::Pub) => {
                 self.advance(); // consume 'pub'
+                // `pub import ...` is a re-export: imported symbols are exposed to callers.
+                if matches!(&self.current().kind, crate::token::TokenKind::Keyword(Keyword::Import)) {
+                    let import = self.parse_import(true)?;
+                    return Ok(Item::Import(import));
+                }
                 self.parse_item_with_visibility(Visibility::Public)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Internal) => {
+                self.advance(); // consume 'internal'
+                // `internal import ...` re-exports within the same package only.
+                if matches!(&self.current().kind, crate::token::TokenKind::Keyword(Keyword::Import)) {
+                    let mut import = self.parse_import(false)?;
+                    // Mark as internal re-export (visible only within the package).
+                    // We reuse the is_reexport flag and rely on the visibility of the
+                    // importing module item to be Internal at the call site.
+                    import.is_reexport = false; // not a full re-export
+                    return Ok(Item::Import(import));
+                }
+                self.parse_item_with_visibility(Visibility::Internal)
             }
             crate::token::TokenKind::Keyword(Keyword::Fn) => {
                 self.parse_item_with_visibility(Visibility::Private)

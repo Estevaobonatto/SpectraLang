@@ -1,0 +1,85 @@
+// Module Registry — cross-module symbol table
+// Stores the exported symbols of each module so the semantic analyzer
+// can resolve imports from other modules.
+
+use std::collections::HashMap;
+
+use crate::ast::Type;
+
+/// How visible an exported symbol is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportVisibility {
+    /// Visible to any importer.
+    Public,
+    /// Visible only to modules within the same package (`spectra.toml` `name`).
+    Internal,
+}
+
+/// A function exported from a module.
+#[derive(Debug, Clone)]
+pub struct ExportedFunction {
+    pub params: Vec<Type>,
+    pub return_type: Type,
+    pub visibility: ExportVisibility,
+}
+
+/// A type (struct or enum) exported from a module.
+#[derive(Debug, Clone)]
+pub struct ExportedType {
+    /// Field names for structs, variant names for enums.
+    pub members: Vec<String>,
+    pub visibility: ExportVisibility,
+    /// True if it's an enum, false if struct.
+    pub is_enum: bool,
+}
+
+/// All public symbols exported by a single module.
+#[derive(Debug, Clone, Default)]
+pub struct ModuleExports {
+    pub functions: HashMap<String, ExportedFunction>,
+    pub types: HashMap<String, ExportedType>,
+    /// Package this module belongs to (from `spectra.toml` `name` field).
+    pub package_name: Option<String>,
+    /// Stdlib module path segments for builtin modules (e.g. ["std","io"]).
+    /// When set, callee resolution maps bare names to this path prefix.
+    pub stdlib_path: Option<Vec<String>>,
+}
+
+/// The global cross-module symbol registry.
+/// One registry is shared across all modules compiled in a single pipeline run.
+#[derive(Debug, Default)]
+pub struct ModuleRegistry {
+    /// Maps module canonical path (e.g. "std.io", "utils.math") to its exports.
+    modules: HashMap<String, ModuleExports>,
+}
+
+impl ModuleRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register the exports of a compiled module.
+    pub fn register_module(&mut self, path: String, exports: ModuleExports) {
+        self.modules.insert(path, exports);
+    }
+
+    /// Look up the exports of a module by its canonical path.
+    pub fn get_module(&self, path: &str) -> Option<&ModuleExports> {
+        self.modules.get(path)
+    }
+
+    /// Look up a specific exported function.
+    pub fn lookup_function(&self, module_path: &str, name: &str) -> Option<&ExportedFunction> {
+        self.modules.get(module_path)?.functions.get(name)
+    }
+
+    /// Look up a specific exported type.
+    pub fn lookup_type(&self, module_path: &str, name: &str) -> Option<&ExportedType> {
+        self.modules.get(module_path)?.types.get(name)
+    }
+
+    /// Returns true if the module is already registered.
+    pub fn is_registered(&self, module_path: &str) -> bool {
+        self.modules.contains_key(module_path)
+    }
+}

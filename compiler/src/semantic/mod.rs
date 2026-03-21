@@ -8,6 +8,15 @@ use crate::{
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fmt;
+use std::sync::{Arc, RwLock};
+
+pub mod builtin_modules;
+pub mod module_registry;
+
+use builtin_modules::register_builtin_modules;
+use module_registry::{
+    ExportedFunction, ExportedType, ExportVisibility, ModuleExports, ModuleRegistry,
+};
 
 #[derive(Debug, Clone)]
 struct TraitMethodSignature {
@@ -52,11 +61,24 @@ impl fmt::Display for TypeAnnotationPattern {
 
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
+    // Build a shared registry seeded with the stdlib virtual modules.
+    let registry = {
+        let mut reg = ModuleRegistry::new();
+        register_builtin_modules(&mut reg);
+        Arc::new(RwLock::new(reg))
+    };
 
-    for module in modules {
-        let mut analyzer = SemanticAnalyzer::new();
-        analyzer.analyze_module(module);
-        errors.extend(analyzer.errors);
+    for module in modules.iter_mut() {
+        let mut analyzer = SemanticAnalyzer::new_with_registry(Arc::clone(&registry), None);
+        let module_errors = analyzer.analyze_module(module);
+
+        // Register the exports of this module so subsequent modules can import it.
+        let exports = analyzer.collect_module_exports(module, None);
+        if let Ok(mut reg) = registry.write() {
+            reg.register_module(module.name.clone(), exports);
+        }
+
+        errors.extend(module_errors);
     }
 
     if errors.is_empty() {
@@ -160,10 +182,28 @@ pub struct SemanticAnalyzer {
     // Stack of in-scope generic type parameters
     generic_params: Vec<HashSet<String>>,
     generic_param_bounds: Vec<HashMap<String, Vec<String>>>,
+    // Cross-module registry shared across all modules compiled by a pipeline.
+    registry: Arc<RwLock<ModuleRegistry>>,
+    // Package name from `spectra.toml` used to check `internal` visibility.
+    current_package: Option<String>,
 }
 
 impl SemanticAnalyzer {
+    /// Create an analyzer with a private registry seeded with stdlib modules.
+    /// Suitable for single-file use (e.g. tests, REPL).
     pub fn new() -> Self {
+        let mut reg = ModuleRegistry::new();
+        register_builtin_modules(&mut reg);
+        Self::new_with_registry(Arc::new(RwLock::new(reg)), None)
+    }
+
+    /// Create an analyzer that shares a registry with other modules being compiled
+    /// by the same pipeline run.  `package_name` is the value of the `name` field
+    /// in `spectra.toml`; it is used for `internal` visibility enforcement.
+    pub fn new_with_registry(
+        registry: Arc<RwLock<ModuleRegistry>>,
+        package_name: Option<String>,
+    ) -> Self {
         Self {
             errors: Vec::new(),
             symbols: vec![HashMap::new()], // Start with global scope
@@ -182,7 +222,83 @@ impl SemanticAnalyzer {
             current_return_type: None,
             generic_params: Vec::new(),
             generic_param_bounds: Vec::new(),
+            registry,
+            current_package: package_name,
         }
+    }
+
+    /// Build the `ModuleExports` for the module that was just analysed so it
+    /// can be registered in the shared registry for downstream importers.
+    ///
+    /// `package_name` overrides the constructor value; pass `None` to reuse it.
+    pub fn collect_module_exports(
+        &self,
+        module: &Module,
+        package_name: Option<String>,
+    ) -> ModuleExports {
+        let pkg = package_name.or_else(|| self.current_package.clone());
+        let mut exports = ModuleExports {
+            package_name: pkg,
+            ..Default::default()
+        };
+
+        for item in &module.items {
+            match item {
+                Item::Function(func)
+                    if func.visibility == Visibility::Public
+                        || func.visibility == Visibility::Internal =>
+                {
+                    let vis = if func.visibility == Visibility::Public {
+                        ExportVisibility::Public
+                    } else {
+                        ExportVisibility::Internal
+                    };
+                    let params: Vec<Type> = func
+                        .params
+                        .iter()
+                        .map(|p| self.type_annotation_to_type(&p.ty))
+                        .collect();
+                    let return_type = self.type_annotation_to_type(&func.return_type);
+                    exports.functions.insert(
+                        func.name.clone(),
+                        ExportedFunction { params, return_type, visibility: vis },
+                    );
+                }
+                Item::Struct(s)
+                    if s.visibility == Visibility::Public
+                        || s.visibility == Visibility::Internal =>
+                {
+                    let vis = if s.visibility == Visibility::Public {
+                        ExportVisibility::Public
+                    } else {
+                        ExportVisibility::Internal
+                    };
+                    let members = s.fields.iter().map(|f| f.name.clone()).collect();
+                    exports.types.insert(
+                        s.name.clone(),
+                        ExportedType { members, visibility: vis, is_enum: false },
+                    );
+                }
+                Item::Enum(e)
+                    if e.visibility == Visibility::Public
+                        || e.visibility == Visibility::Internal =>
+                {
+                    let vis = if e.visibility == Visibility::Public {
+                        ExportVisibility::Public
+                    } else {
+                        ExportVisibility::Internal
+                    };
+                    let members = e.variants.iter().map(|v| v.name.clone()).collect();
+                    exports.types.insert(
+                        e.name.clone(),
+                        ExportedType { members, visibility: vis, is_enum: true },
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        exports
     }
 
     fn push_semantic_error(
@@ -799,6 +915,31 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze_module(&mut self, module: &mut Module) -> Vec<SemanticError> {
+        // Pass 0: resolve imports — inject symbols from imported modules into scope
+        // so they are visible during all subsequent analysis passes.
+        // Collect imports first to avoid a borrow conflict when we later write
+        // into `module.std_import_aliases`.
+        let imports: Vec<crate::ast::Import> = module
+            .items
+            .iter()
+            .filter_map(|item| {
+                if let Item::Import(imp) = item {
+                    Some(imp.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut new_aliases: Vec<(String, Vec<String>)> = Vec::new();
+        let mut new_user_fn_types: Vec<(String, crate::ast::Type)> = Vec::new();
+        for import in &imports {
+            let aliases = self.analyze_import(import, &mut new_user_fn_types);
+            new_aliases.extend(aliases);
+        }
+        module.std_import_aliases.extend(new_aliases);
+        module.imported_function_return_types.extend(new_user_fn_types);
+
         // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
             match item {
@@ -985,7 +1126,7 @@ impl SemanticAnalyzer {
     fn analyze_item(&mut self, item: &Item) {
         match item {
             Item::Import(_) => {
-                // Import analysis would go here
+                // Already handled in pass 0 of analyze_module.
             }
             Item::Function(func) => {
                 self.analyze_function(func);
@@ -1006,6 +1147,249 @@ impl SemanticAnalyzer {
                 self.analyze_trait_impl(trait_impl);
             }
         }
+    }
+
+    /// Process one import declaration.
+    ///
+    /// Returns a list of `(bare_name, stdlib_path_segments)` pairs that must be
+    /// added to `module.std_import_aliases` so the midend can resolve unqualified
+    /// stdlib calls (e.g. `print(...)` after `import std.io;`).
+    ///
+    /// Side-effects:
+    /// - Injects function signatures into `self.functions` so the semantic
+    ///   analyser accepts calls to imported functions.
+    /// - Injects type names into `self.struct_infos` / `self.enum_infos` so
+    ///   type-checking can reference them.
+    fn analyze_import(
+        &mut self,
+        import: &crate::ast::Import,
+        user_fn_types: &mut Vec<(String, crate::ast::Type)>,
+    ) -> Vec<(String, Vec<String>)> {
+        let module_path = import.path.join(".");
+        let mut aliases: Vec<(String, Vec<String>)> = Vec::new();
+
+        // Read-lock the registry, clone what we need, then immediately drop the
+        // guard so we can use `&mut self` freely for the rest of the method.
+        let exports_cloned: Option<ModuleExports> = match self.registry.read() {
+            Ok(reg) => reg.get_module(&module_path).cloned(),
+            Err(_) => return aliases,
+        };
+
+        let Some(exports) = exports_cloned else {
+            // Unknown module — emit a diagnostic but don't hard-fail so that
+            // user-defined modules compiled later can still register.
+            // We emit a warning-level message by recording it as an error only
+            // when the module path doesn't look like a user module that will
+            // be resolved later.  For now: always emit a warning if stdlib.
+            if module_path.starts_with("std.") || module_path.starts_with("spectra.std.") {
+                self.error_with_hint(
+                    format!("Unknown standard library module '{}'", module_path),
+                    import.span,
+                    "Available stdlib modules: std.io, std.math, std.collections",
+                );
+            }
+            // For user modules: silently skip — they may be registered in a
+            // subsequent iteration of analyze_modules.
+            return aliases;
+        };
+
+        let stdlib_path_prefix = exports.stdlib_path.clone();
+
+        // Determine which names to bring into scope.
+        let names_to_import: Vec<String> = if let Some(named) = &import.names {
+            // `import { a, b } from path;` → only the listed names
+            for name in named {
+                if !exports.functions.contains_key(name.as_str())
+                    && !exports.types.contains_key(name.as_str())
+                {
+                    self.error_with_hint(
+                        format!(
+                            "Module '{}' does not export '{}'",
+                            module_path, name
+                        ),
+                        import.span,
+                        format!(
+                            "Available exports: {}",
+                            exports
+                                .functions
+                                .keys()
+                                .chain(exports.types.keys())
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    );
+                }
+            }
+            named.clone()
+        } else {
+            // `import path;` or `import path as alias;` → all public exports
+            let mut all_names: Vec<String> = exports
+                .functions
+                .iter()
+                .filter(|(_, f)| f.visibility == ExportVisibility::Public)
+                .map(|(n, _)| n.clone())
+                .chain(
+                    exports
+                        .types
+                        .iter()
+                        .filter(|(_, t)| t.visibility == ExportVisibility::Public)
+                        .map(|(n, _)| n.clone()),
+                )
+                .collect();
+            // Also include Internal symbols when we are in the same package.
+            if let Some(pkg) = &exports.package_name {
+                if self.current_package.as_deref() == Some(pkg.as_str()) {
+                    let internal_fns = exports
+                        .functions
+                        .iter()
+                        .filter(|(_, f)| f.visibility == ExportVisibility::Internal)
+                        .map(|(n, _)| n.clone());
+                    let internal_types = exports
+                        .types
+                        .iter()
+                        .filter(|(_, t)| t.visibility == ExportVisibility::Internal)
+                        .map(|(n, _)| n.clone());
+                    all_names.extend(internal_fns);
+                    all_names.extend(internal_types);
+                }
+            }
+            all_names
+        };
+
+        // Determine the local prefix (alias or none).
+        // For aliased imports `import std.math as math;`, function `abs` is
+        // accessible as `math.abs` (a method-call-style access), and we also
+        // expose the alias name as a module-namespace symbol so the identifier
+        // is valid.  For stdlib we also record the bare alias as a prefix for
+        // the midend.
+        let alias = import.alias.clone();
+
+        for name in &names_to_import {
+            // Check visibility restrictions for non-internal callers.
+            let is_internal = exports
+                .functions
+                .get(name.as_str())
+                .map(|f| f.visibility == ExportVisibility::Internal)
+                .or_else(|| {
+                    exports
+                        .types
+                        .get(name.as_str())
+                        .map(|t| t.visibility == ExportVisibility::Internal)
+                })
+                .unwrap_or(false);
+
+            if is_internal {
+                let same_pkg = exports
+                    .package_name
+                    .as_deref()
+                    .zip(self.current_package.as_deref())
+                    .map(|(ep, cp)| ep == cp)
+                    .unwrap_or(false);
+                if !same_pkg {
+                    self.error_with_hint(
+                        format!(
+                            "Symbol '{}' from module '{}' is internal and not accessible from a different package",
+                            name, module_path
+                        ),
+                        import.span,
+                        "Only modules within the same package (same `name` in spectra.toml) can use `internal` items.",
+                    );
+                    continue;
+                }
+            }
+
+            // Inject function signature.
+            if let Some(func_export) = exports.functions.get(name.as_str()) {
+                let local_name = alias.as_deref().map_or_else(
+                    || name.clone(),
+                    |a| format!("{}.{}", a, name),
+                );
+                let sig = FunctionSignature {
+                    params: func_export.params.clone(),
+                    return_type: func_export.return_type.clone(),
+                    self_kind: None,
+                };
+                // Insert as the plain name (for unaliased imports) so that
+                // `analyze_expression` can look it up.
+                if alias.is_none() {
+                    self.functions.entry(name.clone()).or_insert(sig.clone());
+                }
+                // Also insert under the aliased form for completeness.
+                if alias.is_some() {
+                    self.functions.insert(local_name.clone(), sig);
+                }
+
+                // Record return type for non-stdlib imported user functions so
+                // the midend can pre-populate `function_return_types` and avoid
+                // treating cross-module calls as unknown closures.
+                if stdlib_path_prefix.is_none() {
+                    let bare = alias.as_deref().unwrap_or(name.as_str()).to_string();
+                    user_fn_types.push((bare, func_export.return_type.clone()));
+                }
+
+                // Record stdlib alias for the midend.
+                if let Some(ref prefix) = stdlib_path_prefix {
+                    let mut full_path = prefix.clone();
+                    full_path.push(name.clone());
+                    let bare = alias.as_deref().unwrap_or(name.as_str()).to_string();
+                    aliases.push((bare, full_path));
+                }
+            }
+
+            // Inject type name (simplified: just mark it as known).
+            if let Some(type_export) = exports.types.get(name.as_str()) {
+                let local_name = alias.as_deref().map_or_else(
+                    || name.clone(),
+                    |a| format!("{}.{}", a, name),
+                );
+                let members = &type_export.members;
+                if type_export.is_enum {
+                    // Minimal enum registration so type checks resolve.
+                    self.enum_definitions
+                        .entry(local_name.clone())
+                        .or_insert_with(|| members.clone());
+                    let variant_map: HashMap<String, EnumVariantInfo> = members
+                        .iter()
+                        .map(|m| {
+                            (
+                                m.clone(),
+                                EnumVariantInfo {
+                                    data: None,
+                                    struct_data: None,
+                                    span: import.span,
+                                },
+                            )
+                        })
+                        .collect();
+                    let vis = if type_export.visibility == ExportVisibility::Public {
+                        Visibility::Public
+                    } else {
+                        Visibility::Internal
+                    };
+                    self.enum_infos.entry(local_name).or_insert(EnumInfo {
+                        visibility: vis,
+                        type_params: Vec::new(),
+                        variants: variant_map,
+                    });
+                } else {
+                    // Minimal struct registration.
+                    let field_map: HashMap<String, StructFieldInfo> = HashMap::new();
+                    let vis = if type_export.visibility == ExportVisibility::Public {
+                        Visibility::Public
+                    } else {
+                        Visibility::Internal
+                    };
+                    self.struct_infos.entry(local_name).or_insert(StructInfo {
+                        visibility: vis,
+                        type_params: Vec::new(),
+                        fields: field_map,
+                    });
+                }
+            }
+        }
+
+        aliases
     }
 
     fn analyze_trait_impl(&mut self, trait_impl: &crate::ast::TraitImpl) {

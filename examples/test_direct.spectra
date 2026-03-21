@@ -1,0 +1,5 @@
+module demo_direct;
+
+pub fn main() {
+    std.io.print("Direct call without import");
+}

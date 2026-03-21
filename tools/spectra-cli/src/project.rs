@@ -252,6 +252,12 @@ fn extract_imports(source: &str) -> Vec<String> {
     let mut imports = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim();
+
+        // Strip `pub` prefix (re-exports: `pub import path`)
+        let trimmed = trimmed
+            .strip_prefix("pub ")
+            .unwrap_or(trimmed);
+
         if !trimmed.starts_with("import ") {
             continue;
         }
@@ -263,11 +269,21 @@ fn extract_imports(source: &str) -> Vec<String> {
             continue;
         }
 
-        // Support optional alias ("import path.to.module as alias")
-        let module_name = if let Some((module, _alias)) = rest.split_once(" as ") {
-            module.trim()
+        // `import { a, b } from path.to.module`
+        let module_name = if rest.starts_with('{') {
+            if let Some(from_pos) = rest.find("} from ") {
+                let after_from = rest[from_pos + "} from ".len()..].trim();
+                after_from.split_whitespace().next().unwrap_or("").trim()
+            } else {
+                continue;
+            }
         } else {
-            rest
+            // `import path.to.module` or `import path.to.module as alias`
+            if let Some((module, _alias)) = rest.split_once(" as ") {
+                module.trim()
+            } else {
+                rest
+            }
         };
 
         if !module_name.is_empty() {
@@ -372,6 +388,6 @@ fn topological_order(modules: &[ResolvedModule]) -> Result<Vec<usize>, ProjectEr
         )?;
     }
 
-    order.reverse();
+    // Post-order DFS already produces dependencies-first topological order.
     Ok(order)
 }

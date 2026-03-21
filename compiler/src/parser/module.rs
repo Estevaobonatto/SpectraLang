@@ -46,11 +46,12 @@ impl Parser {
         module
     }
 
-    pub(super) fn parse_import(&mut self) -> Result<Import, ()> {
+    pub(super) fn parse_import(&mut self, is_reexport: bool) -> Result<Import, ()> {
         // Supports three forms:
         //   import path.to.module;
         //   import path.to.module as alias;
         //   import { name1, name2 } from path.to.module;
+        //   pub import ...   (re-export: exposes imported symbols to callers)
         let start_span = self.consume_keyword(Keyword::Import, "Expected 'import' keyword")?;
 
         // Check for named-import form: import { ... } from path;
@@ -96,6 +97,7 @@ impl Parser {
                 path,
                 alias: None,
                 names: Some(names),
+                is_reexport,
                 span: span_union(start_span, end_span),
             });
         }
@@ -126,6 +128,7 @@ impl Parser {
             path,
             alias,
             names: None,
+            is_reexport,
             span: span_union(start_span, end_span),
         })
     }

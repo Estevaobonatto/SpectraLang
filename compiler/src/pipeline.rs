@@ -5,9 +5,12 @@ use crate::ast::Module as ASTModule;
 use crate::error::{CompilerError, SemanticError};
 use crate::lint::{lint_module, LintDiagnostic, LintOptions};
 use crate::parser::workspace::{ModuleLoader, ModuleParseError};
-use crate::semantic::SemanticAnalyzer;
+use crate::semantic::{
+    builtin_modules::register_builtin_modules, module_registry::ModuleRegistry, SemanticAnalyzer,
+};
 use std::collections::HashSet;
 use std::fmt::Debug;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 /// Compilation options
@@ -112,17 +115,29 @@ where
     options: CompilationOptions,
     backend: B,
     module_loader: ModuleLoader,
+    /// Shared cross-module symbol registry.  Pre-seeded with stdlib modules and
+    /// grows as each user module is successfully analysed.
+    registry: Arc<RwLock<ModuleRegistry>>,
+    /// Package name from `spectra.toml`.  Forwarded to the semantic analyser so
+    /// `internal` visibility can be checked across modules.
+    pub package_name: Option<String>,
 }
 
 impl CompilationPipeline<NoopBackend> {
     pub fn new(options: CompilationOptions) -> Self {
+        let registry = {
+            let mut reg = ModuleRegistry::new();
+            register_builtin_modules(&mut reg);
+            Arc::new(RwLock::new(reg))
+        };
         Self {
             options,
             backend: NoopBackend::default(),
             module_loader: ModuleLoader::new(),
+            registry,
+            package_name: None,
         }
     }
-
     pub fn with_backend<B>(self, backend: B) -> CompilationPipeline<B>
     where
         B: BackendDriver,
@@ -131,6 +146,8 @@ impl CompilationPipeline<NoopBackend> {
             options: self.options,
             backend,
             module_loader: self.module_loader,
+            registry: self.registry,
+            package_name: self.package_name,
         }
     }
 }
@@ -179,7 +196,10 @@ where
         }
 
         // Phase 3: Semantic Analysis
-        let mut semantic = SemanticAnalyzer::new();
+        let mut semantic = SemanticAnalyzer::new_with_registry(
+            Arc::clone(&self.registry),
+            self.package_name.clone(),
+        );
         let semantic_start = collect_metrics.then(Instant::now);
         let semantic_errors = semantic.analyze_module(&mut ast);
         if let (Some(metrics), Some(start)) = (metrics.as_mut(), semantic_start) {
@@ -191,6 +211,12 @@ where
                 .into_iter()
                 .map(|e| CompilerError::Semantic(e))
                 .collect());
+        }
+
+        // Register the exports of this module so subsequent modules can import it.
+        let exports = semantic.collect_module_exports(&ast, self.package_name.clone());
+        if let Ok(mut reg) = self.registry.write() {
+            reg.register_module(ast.name.clone(), exports);
         }
 
         let lint_diagnostics = lint_module(&ast, &self.options.lint);

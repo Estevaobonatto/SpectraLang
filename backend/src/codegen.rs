@@ -707,10 +707,11 @@ impl CodeGenerator {
                 }
                 builder
                     .ins()
-                    .trap(cranelift::codegen::ir::TrapCode::user(0).unwrap());
+                    .trap(cranelift::codegen::ir::TrapCode::user(1).unwrap());
                 builder.seal_block(failure_block);
 
                 builder.switch_to_block(success_block);
+                builder.seal_block(success_block);
 
                 if let (Some(result_value), Some(ptr)) = (result, result_allocation) {
                     let value = builder.ins().load(types::I64, MemFlags::new(), ptr, 0);
