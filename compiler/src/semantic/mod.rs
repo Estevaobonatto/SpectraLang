@@ -89,10 +89,10 @@ pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticEr
 }
 
 #[derive(Debug, Clone)]
-struct SymbolInfo {
-    #[allow(dead_code)]
-    span: Span,
-    ty: Type,
+pub struct SymbolInfo {
+    pub is_local: bool,
+    pub def_span: Option<Span>,
+    pub ty: Type,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +186,8 @@ pub struct SemanticAnalyzer {
     registry: Arc<RwLock<ModuleRegistry>>,
     // Package name from `spectra.toml` used to check `internal` visibility.
     current_package: Option<String>,
+    // Track resolutions of symbols to their definitions to support ide features like Hover and GoToDef
+    pub symbol_resolutions: HashMap<Span, SymbolInfo>,
 }
 
 impl SemanticAnalyzer {
@@ -224,6 +226,7 @@ impl SemanticAnalyzer {
             generic_param_bounds: Vec::new(),
             registry,
             current_package: package_name,
+            symbol_resolutions: HashMap::new(),
         }
     }
 
@@ -614,12 +617,19 @@ impl SemanticAnalyzer {
     }
 
     fn declare_symbol(&mut self, name: String, span: Span, ty: Type) -> bool {
+        let is_local = self.symbols.len() > 1;
         // Check if already declared in current scope
         if let Some(current_scope) = self.symbols.last_mut() {
             if current_scope.contains_key(&name) {
                 return false; // Already declared
             }
-            current_scope.insert(name, SymbolInfo { span, ty });
+            let info = SymbolInfo {
+                is_local,
+                def_span: Some(span),
+                ty,
+            };
+            current_scope.insert(name, info.clone());
+            self.symbol_resolutions.insert(span, info);
             true
         } else {
             false
@@ -2410,11 +2420,37 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn record_expression_type(&mut self, expr: &Expression) {
+        let ty = self.infer_expression_type(expr);
+        match self.symbol_resolutions.entry(expr.span) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().ty = ty;
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(SymbolInfo {
+                    is_local: false,
+                    def_span: None,
+                    ty,
+                });
+            }
+        }
+    }
+
     fn analyze_expression(&mut self, expr: &Expression) {
         match &expr.kind {
             ExpressionKind::Identifier(name) => {
                 // Check if identifier is declared
-                if self.lookup_symbol(name).is_none() && !self.functions.contains_key(name) {
+                if let Some(info) = self.lookup_symbol(name) {
+                    let info = info.clone();
+                    self.symbol_resolutions.insert(expr.span, info);
+                } else if let Some(_) = self.functions.get(name) {
+                    let info = SymbolInfo {
+                        is_local: false,
+                        def_span: None, 
+                        ty: Type::Unknown, 
+                    };
+                    self.symbol_resolutions.insert(expr.span, info);
+                } else {
                     self.error(
                         format!("Undefined variable or function '{}'", name),
                         expr.span,
@@ -2425,6 +2461,15 @@ impl SemanticAnalyzer {
             | ExpressionKind::StringLiteral(_)
             | ExpressionKind::BoolLiteral(_) => {
                 // Literals are always valid
+                let ty = self.infer_expression_type(expr);
+                self.symbol_resolutions.insert(
+                    expr.span,
+                    SymbolInfo {
+                        is_local: false,
+                        def_span: None,
+                        ty,
+                    },
+                );
             }
             ExpressionKind::Binary {
                 left,
@@ -2572,9 +2617,21 @@ impl SemanticAnalyzer {
                 self.analyze_expression(operand);
             }
             ExpressionKind::Call { callee, arguments } => {
-                // Check if function exists and validate argument types
+                let call_ty = self.infer_expression_type(expr);
+                self.symbol_resolutions.insert(expr.span, SymbolInfo {
+                    is_local: false,
+                    def_span: None,
+                    ty: call_ty,
+                });
+                
+                // Track callee resolution if it's an identifier
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(signature) = self.functions.get(name).cloned() {
+                        self.symbol_resolutions.insert(callee.span, SymbolInfo {
+                            is_local: false,
+                            def_span: None,
+                            ty: signature.return_type.clone(),
+                        });
                         // Validate number of arguments
                         if arguments.len() != signature.params.len() {
                             self.error(
@@ -2877,10 +2934,14 @@ impl SemanticAnalyzer {
                 self.analyze_expression(object);
 
                 let object_type = self.infer_expression_type(object);
+                let mut field_ty = Type::Unknown;
+
                 match object_type {
-                    Type::Struct { name } => {
-                        if let Some(struct_info) = self.struct_infos.get(&name) {
-                            if !struct_info.fields.contains_key(field) {
+                    Type::Struct { ref name } => {
+                        if let Some(struct_info) = self.struct_infos.get(name) {
+                            if let Some(field_info) = struct_info.fields.get(field) {
+                                field_ty = self.type_annotation_to_type(&Some(field_info.ty.clone()));
+                            } else {
                                 self.error(
                                     format!("Struct '{}' has no field named '{}'", name, field),
                                     expr.span,
@@ -2903,6 +2964,12 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
+
+                self.symbol_resolutions.insert(expr.span, SymbolInfo {
+                    is_local: false,
+                    def_span: None,
+                    ty: field_ty,
+                });
             }
             ExpressionKind::EnumVariant {
                 enum_name,
@@ -3182,6 +3249,13 @@ impl SemanticAnalyzer {
                 arguments,
                 type_name: _,
             } => {
+                let call_ty = self.infer_expression_type(expr);
+                self.symbol_resolutions.insert(expr.span, SymbolInfo {
+                    is_local: false,
+                    def_span: None,
+                    ty: call_ty,
+                });
+                
                 // Analisar objeto
                 self.analyze_expression(object);
 
@@ -3227,6 +3301,7 @@ impl SemanticAnalyzer {
                             }
                         },
                     }
+                    self.record_expression_type(expr);
                     return;
                 }
 
@@ -3352,6 +3427,8 @@ impl SemanticAnalyzer {
                 self.pop_scope();
             }
         }
+
+        self.record_expression_type(expr);
     }
 
     fn register_pattern_bindings(&mut self, pattern: &Pattern) {
@@ -3362,13 +3439,15 @@ impl SemanticAnalyzer {
                 // Não cria bindings
             }
             Pattern::Identifier(name) => {
+                let is_local = self.symbols.len() > 1;
                 // Registra a variável no escopo atual
                 // Tipo será inferido posteriormente
                 if let Some(scope) = self.symbols.last_mut() {
                     scope.insert(
                         name.clone(),
                         SymbolInfo {
-                            span: Span::dummy(),
+                            is_local,
+                            def_span: None, // Pattern doesn't currently easily provide span here
                             ty: Type::Unknown,
                         },
                     );
