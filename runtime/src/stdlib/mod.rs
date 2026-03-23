@@ -104,6 +104,12 @@ const LIST_REMOVE_AT: &str = "spectra.std.collections.list_remove_at";
 const LIST_INDEX_OF: &str = "spectra.std.collections.list_index_of";
 const LIST_SORT: &str = "spectra.std.collections.list_sort";
 
+// ── std.collections higher-order functions ──────────────────────────────────
+const LIST_MAP: &str = "spectra.std.collections.list_map";
+const LIST_FILTER: &str = "spectra.std.collections.list_filter";
+const LIST_REDUCE: &str = "spectra.std.collections.list_reduce";
+const LIST_SORT_BY: &str = "spectra.std.collections.list_sort_by";
+
 // ── std.fs ───────────────────────────────────────────────────────────────────
 const FS_READ: &str = "spectra.std.fs.fs_read";
 const FS_WRITE: &str = "spectra.std.fs.fs_write";
@@ -231,6 +237,10 @@ fn register_collections() {
     register_host_function(LIST_REMOVE_AT, std_list_remove_at);
     register_host_function(LIST_INDEX_OF, std_list_index_of);
     register_host_function(LIST_SORT, std_list_sort);
+    register_host_function(LIST_MAP, std_list_map);
+    register_host_function(LIST_FILTER, std_list_filter);
+    register_host_function(LIST_REDUCE, std_list_reduce);
+    register_host_function(LIST_SORT_BY, std_list_sort_by);
 }
 
 fn register_fs() {
@@ -1199,6 +1209,18 @@ impl ListRegistry {
             list.data.sort();
         }
     }
+
+    /// Returns a clone of the list's data without holding any other lock.
+    fn snapshot(&self, handle: usize) -> Option<Vec<SpectraHostValue>> {
+        self.lists.get(&handle).map(|l| l.data.clone())
+    }
+
+    /// Replaces a list's data with `data` (used after an out-of-lock sort/transform).
+    fn restore(&mut self, handle: usize, data: Vec<SpectraHostValue>) {
+        if let Some(list) = self.lists.get_mut(&handle) {
+            list.data = data;
+        }
+    }
 }
 
 // ── std.collections extras ──────────────────────────────────────────────────
@@ -1389,6 +1411,220 @@ extern "C" fn std_list_sort(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         with_list_registry(|registry| registry.sort_asc(handle));
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.collections higher-order functions ──────────────────────────────────
+
+/// `list_map(handle, fn_ptr) -> new_handle`
+///
+/// Creates a new list by applying the Spectra closure `fn_ptr(elem: int) -> int`
+/// to every element of the source list.
+extern "C" fn std_list_map(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let invoke = match ctx_ref.invoke_fn {
+            Some(f) => f,
+            None => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let src_handle = args[0] as usize;
+        let fn_ptr = args[1];
+
+        // Snapshot source data in a single lock acquisition so the lock is not
+        // held while calling back into JIT code.
+        let src_data = match with_list_registry(|reg| reg.snapshot(src_handle)) {
+            Some(d) => d,
+            None => return HOST_STATUS_NOT_FOUND,
+        };
+
+        // Allocate the destination list.
+        let memory = initialize().memory();
+        let dest_list = match memory.allocate_manual(StdList::default()) {
+            Ok(l) => l,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let dest_handle = with_list_registry(|reg| reg.insert(dest_list));
+
+        for &elem in &src_data {
+            let arg_buf = [elem];
+            let mut out = 0i64;
+            let status = invoke(fn_ptr, arg_buf.as_ptr(), 1, &mut out);
+            if status != HOST_STATUS_SUCCESS {
+                let _ = with_list_registry(|reg| reg.remove(dest_handle));
+                return status;
+            }
+            let _ = with_list_registry(|reg| reg.push(dest_handle, out));
+        }
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = dest_handle as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// `list_filter(handle, fn_ptr) -> new_handle`
+///
+/// Creates a new list containing only the elements for which the Spectra closure
+/// `fn_ptr(elem: int) -> int` returns a non-zero (truthy) value.
+extern "C" fn std_list_filter(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let invoke = match ctx_ref.invoke_fn {
+            Some(f) => f,
+            None => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let src_handle = args[0] as usize;
+        let fn_ptr = args[1];
+
+        let src_data = match with_list_registry(|reg| reg.snapshot(src_handle)) {
+            Some(d) => d,
+            None => return HOST_STATUS_NOT_FOUND,
+        };
+
+        let memory = initialize().memory();
+        let dest_list = match memory.allocate_manual(StdList::default()) {
+            Ok(l) => l,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let dest_handle = with_list_registry(|reg| reg.insert(dest_list));
+
+        for &elem in &src_data {
+            let arg_buf = [elem];
+            let mut out = 0i64;
+            let status = invoke(fn_ptr, arg_buf.as_ptr(), 1, &mut out);
+            if status != HOST_STATUS_SUCCESS {
+                let _ = with_list_registry(|reg| reg.remove(dest_handle));
+                return status;
+            }
+            if out != 0 {
+                let _ = with_list_registry(|reg| reg.push(dest_handle, elem));
+            }
+        }
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = dest_handle as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// `list_reduce(handle, initial, fn_ptr) -> int`
+///
+/// Folds the list left-to-right using `fn_ptr(accumulator: int, elem: int) -> int`,
+/// starting with `initial` as the accumulator. Returns the final accumulator value.
+extern "C" fn std_list_reduce(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let invoke = match ctx_ref.invoke_fn {
+            Some(f) => f,
+            None => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let src_handle = args[0] as usize;
+        let mut accumulator = args[1];
+        let fn_ptr = args[2];
+
+        let src_data = match with_list_registry(|reg| reg.snapshot(src_handle)) {
+            Some(d) => d,
+            None => return HOST_STATUS_NOT_FOUND,
+        };
+
+        for &elem in &src_data {
+            let arg_buf = [accumulator, elem];
+            let mut out = 0i64;
+            let status = invoke(fn_ptr, arg_buf.as_ptr(), 2, &mut out);
+            if status != HOST_STATUS_SUCCESS {
+                return status;
+            }
+            accumulator = out;
+        }
+
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = accumulator;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// `list_sort_by(handle, fn_ptr) -> unit`
+///
+/// Sorts the list in-place using the Spectra comparator closure
+/// `fn_ptr(a: int, b: int) -> int` (negative ⇒ a < b, 0 ⇒ equal, positive ⇒ a > b).
+extern "C" fn std_list_sort_by(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let invoke = match ctx_ref.invoke_fn {
+            Some(f) => f,
+            None => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let fn_ptr = args[1];
+
+        // Snapshot, sort outside the lock, then restore.
+        let mut data = match with_list_registry(|reg| reg.snapshot(handle)) {
+            Some(d) => d,
+            None => return HOST_STATUS_NOT_FOUND,
+        };
+
+        // Use a cell to propagate callback errors out of the sort closure.
+        let mut callback_err: i32 = HOST_STATUS_SUCCESS;
+        data.sort_by(|&a, &b| {
+            if callback_err != HOST_STATUS_SUCCESS {
+                return std::cmp::Ordering::Equal;
+            }
+            let arg_buf = [a, b];
+            let mut out = 0i64;
+            let status = invoke(fn_ptr, arg_buf.as_ptr(), 2, &mut out);
+            if status != HOST_STATUS_SUCCESS {
+                callback_err = status;
+                return std::cmp::Ordering::Equal;
+            }
+            out.cmp(&0)
+        });
+        if callback_err != HOST_STATUS_SUCCESS {
+            return callback_err;
+        }
+
+        with_list_registry(|reg| reg.restore(handle, data));
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -3266,6 +3502,7 @@ mod tests {
             arg_len: 1,
             results: results.as_mut_ptr(),
             result_len: 1,
+            invoke_fn: None,
         };
 
         let status = func(&mut ctx);
@@ -3287,6 +3524,7 @@ mod tests {
             arg_len: args.len(),
             results: results.as_mut_ptr(),
             result_len: 1,
+            invoke_fn: None,
         };
 
         let status = func(&mut ctx);
@@ -3308,6 +3546,7 @@ mod tests {
             arg_len: 0,
             results: handle_result.as_mut_ptr(),
             result_len: 1,
+            invoke_fn: None,
         };
         assert_eq!(new_fn(&mut new_ctx), HOST_STATUS_SUCCESS);
         let handle = handle_result[0] as usize;
@@ -3321,6 +3560,7 @@ mod tests {
                 arg_len: 2,
                 results: push_result.as_mut_ptr(),
                 result_len: 1,
+                invoke_fn: None,
             };
             assert_eq!(push_fn(&mut push_ctx), HOST_STATUS_SUCCESS);
         }
@@ -3333,6 +3573,7 @@ mod tests {
             arg_len: 1,
             results: len_result.as_mut_ptr(),
             result_len: 1,
+            invoke_fn: None,
         };
         assert_eq!(len_fn(&mut len_ctx), HOST_STATUS_SUCCESS);
         assert_eq!(len_result[0], 3);
@@ -3345,6 +3586,7 @@ mod tests {
             arg_len: 1,
             results: clear_result.as_mut_ptr(),
             result_len: 1,
+            invoke_fn: None,
         };
         assert_eq!(clear_fn(&mut clear_ctx), HOST_STATUS_SUCCESS);
 
@@ -3355,6 +3597,7 @@ mod tests {
             arg_len: 1,
             results: ptr::null_mut(),
             result_len: 0,
+            invoke_fn: None,
         };
         assert_eq!(free_fn(&mut free_ctx), HOST_STATUS_SUCCESS);
 
@@ -3366,6 +3609,7 @@ mod tests {
             arg_len: 0,
             results: free_all_results.as_mut_ptr(),
             result_len: 1,
+            invoke_fn: None,
         };
         assert_eq!(free_all_fn(&mut free_all_ctx), HOST_STATUS_SUCCESS);
         assert_eq!(free_all_results[0], 0);

@@ -137,6 +137,14 @@ pub struct SpectraHostCallContext {
     pub arg_len: usize,
     pub results: *mut SpectraHostValue,
     pub result_len: usize,
+    /// Populated by the runtime dispatcher before invoking a host function.
+    /// Allows host functions to call back into JIT-compiled Spectra closures
+    /// (e.g., for higher-order functions like `list_map` and `list_filter`).
+    ///
+    /// Signature: `fn(fn_ptr: i64, args: *const i64, n_args: usize, result: *mut i64) -> i32`.
+    /// Use [`spectra_rt_invoke_closure`] as the concrete implementation.
+    /// `None` when the runtime does not support closure callbacks in this context.
+    pub invoke_fn: Option<unsafe extern "C" fn(i64, *const i64, usize, *mut i64) -> i32>,
 }
 
 impl SpectraHostCallContext {
@@ -436,9 +444,60 @@ pub extern "C" fn spectra_rt_host_invoke(
         arg_len,
         results: results_ptr,
         result_len,
+        invoke_fn: Some(spectra_rt_invoke_closure),
     };
 
     func(&mut ctx as *mut _)
+}
+
+/// Invokes a JIT-compiled Spectra function (closure or regular) by its native pointer.
+///
+/// # Parameters
+/// - `fn_ptr`: raw i64 holding the native JIT function pointer
+/// - `args`: pointer to an array of `n_args` i64 argument values (may be null when
+///   `n_args == 0`)
+/// - `n_args`: number of arguments — currently 0, 1, or 2 are supported
+/// - `result`: output slot written with the returned i64 value; may be null for
+///   unit-returning functions
+///
+/// # Returns
+/// `HOST_STATUS_SUCCESS` on success, `HOST_STATUS_INVALID_ARGUMENT` if `fn_ptr == 0`,
+/// or `HOST_STATUS_INTERNAL_ERROR` if `n_args` is outside the supported range.
+///
+/// # Safety
+/// `fn_ptr` must be a valid JIT-compiled function pointer whose calling convention
+/// matches the expected signature for the given `n_args`.
+#[no_mangle]
+pub unsafe extern "C" fn spectra_rt_invoke_closure(
+    fn_ptr: i64,
+    args: *const i64,
+    n_args: usize,
+    result: *mut i64,
+) -> i32 {
+    if fn_ptr == 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let returned: i64 = match n_args {
+        0 => {
+            let f: unsafe extern "C" fn() -> i64 = mem::transmute(fn_ptr as usize);
+            f()
+        }
+        1 => {
+            let f: unsafe extern "C" fn(i64) -> i64 = mem::transmute(fn_ptr as usize);
+            f(if args.is_null() { 0 } else { *args })
+        }
+        2 => {
+            let f: unsafe extern "C" fn(i64, i64) -> i64 = mem::transmute(fn_ptr as usize);
+            let a0 = if args.is_null() { 0 } else { *args };
+            let a1 = if args.is_null() { 0 } else { *args.add(1) };
+            f(a0, a1)
+        }
+        _ => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    if !result.is_null() {
+        *result = returned;
+    }
+    HOST_STATUS_SUCCESS
 }
 
 /// Clears all registered host functions.

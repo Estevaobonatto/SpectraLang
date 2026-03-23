@@ -147,6 +147,14 @@ fn make_std_collections() -> ModuleExports {
     exports.functions.insert("list_index_of".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
     // list_sort(handle: int) -> unit  (sorts ascending in place)
     exports.functions.insert("list_sort".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+    // list_map(handle: int, fn_ptr: int) -> int  (returns new list handle)
+    exports.functions.insert("list_map".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
+    // list_filter(handle: int, fn_ptr: int) -> int  (returns new list handle)
+    exports.functions.insert("list_filter".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
+    // list_reduce(handle: int, initial: int, fn_ptr: int) -> int
+    exports.functions.insert("list_reduce".to_string(), pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Int));
+    // list_sort_by(handle: int, fn_ptr: int) -> unit  (comparator: fn(int,int)->int)
+    exports.functions.insert("list_sort_by".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Unit));
 
     // type aliases
     exports.types.insert("List".to_string(), ExportedType {
