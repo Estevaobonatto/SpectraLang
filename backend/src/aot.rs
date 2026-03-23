@@ -347,6 +347,17 @@ impl AotCodeGenerator {
             .declare_func_in_func(user_main_func_id, builder.func);
         builder.ins().call(user_main_ref, &[]);
 
+        // Call spectra_rt_maybe_pause() — pauses when running via double-click.
+        let pause_sig = self.module.make_signature();
+        let pause_func_id = self
+            .module
+            .declare_function("spectra_rt_maybe_pause", Linkage::Import, &pause_sig)
+            .map_err(|e| format!("Failed to declare 'spectra_rt_maybe_pause': {}", e))?;
+        let pause_ref = self
+            .module
+            .declare_func_in_func(pause_func_id, builder.func);
+        builder.ins().call(pause_ref, &[]);
+
         // return 0
         let zero = builder.ins().iconst(types::I32, 0);
         builder.ins().return_(&[zero]);

@@ -1,0 +1,27 @@
+module test_boolret;
+import std.io;
+
+fn is_even(n: int) -> bool {
+    let r = n - (n / 2) * 2;
+    return r == 0;
+}
+
+fn test_while_bool() -> bool {
+    let i = 0;
+    let found = false;
+    while i < 5 {
+        if i == 3 {
+            found = true;
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+pub fn main() -> int {
+    let e = is_even(4);
+    println(e);
+    let f = test_while_bool();
+    println(f);
+    return 0;
+}

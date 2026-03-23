@@ -564,6 +564,42 @@ pub extern "C" fn spectra_rt_startup_with_args(argc: i32, argv: *const *const u8
     let _ = PROGRAM_ARGV.set(args);
 }
 
+/// Called at the end of every AOT executable's native `main` shim.
+///
+/// On Windows, if the process owns its console (i.e. it was launched by
+/// double-clicking in Explorer rather than from a terminal), prints a
+/// "press any key" prompt and waits so that the output window stays open
+/// long enough for the user to read the output.
+///
+/// On all other platforms (and on Windows when running from a terminal)
+/// this is a no-op.
+#[no_mangle]
+pub extern "C" fn spectra_rt_maybe_pause() {
+    #[cfg(target_os = "windows")]
+    {
+        // GetConsoleProcessList returns the number of processes attached to the
+        // current console.  When the value is <= 1 this process is the sole
+        // owner, which happens when the user double-clicks the .exe.
+        extern "system" {
+            fn GetConsoleProcessList(lpdwProcessList: *mut u32, dwProcessCount: u32) -> u32;
+        }
+        let standalone = unsafe {
+            let mut pids = [0u32; 2];
+            GetConsoleProcessList(pids.as_mut_ptr(), 2) <= 1
+        };
+        if standalone {
+            use std::io::{Read, Write};
+            let _ = std::io::stdout().flush();
+            let _ = write!(std::io::stderr(), "\nAperte qualquer tecla para continuar...");
+            let _ = std::io::stderr().flush();
+            // Read one byte — waits until the user presses Enter (or any key
+            // that produces input on the console's stdin stream).
+            let _ = std::io::stdin().read(&mut [0u8; 1]);
+        }
+    }
+    // On non-Windows platforms terminals remain open on exit — nothing to do.
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

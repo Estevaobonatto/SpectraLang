@@ -2017,14 +2017,29 @@ impl ASTLowering {
         ir_func: &mut IRFunction,
         entry_block: usize,
     ) -> (Option<Value>, usize, bool) {
-        self.lower_block(&block.statements, ir_func);
+        // Lower all statements and extract the value of the last expression.
+        // Previously this called lower_block (which lowers ALL stmts) and then
+        // re-evaluated the last stmt with lower_expression, causing the last
+        // statement to execute TWICE. Fix: lower all-but-last with lower_block,
+        // then handle the last stmt specially to capture its value without duplication.
+        let stmts = &block.statements;
+        let produced_value = if stmts.is_empty() {
+            None
+        } else {
+            for stmt in &stmts[..stmts.len() - 1] {
+                self.lower_statement(stmt, ir_func);
+            }
+            let last = &stmts[stmts.len() - 1];
+            match &last.kind {
+                StatementKind::Expression(expr) => Some(self.lower_expression(expr, ir_func)),
+                _ => {
+                    self.lower_statement(last, ir_func);
+                    None
+                }
+            }
+        };
 
         let current_block_id = self.builder.get_current_block().unwrap_or(entry_block);
-
-        let produced_value = block.statements.last().and_then(|stmt| match &stmt.kind {
-            StatementKind::Expression(expr) => Some(self.lower_expression(expr, ir_func)),
-            _ => None,
-        });
 
         let has_terminator = ir_func
             .get_block(current_block_id)
@@ -3842,19 +3857,54 @@ impl ASTLowering {
                 self.builder.build_const_int(ir_func, *c as i64)
             }
             ExpressionKind::FString(parts) => {
-                let lowered: Vec<Value> = parts
+                // Lower each part to a string value:
+                // - Literal parts: inline string literals (already String type)
+                // - Interpolated parts: lower expression then convert to String via
+                //   the appropriate runtime function (int_to_string / float_to_string /
+                //   bool_to_string). String-typed expressions pass through unchanged.
+                // All parts are then concatenated via spectra.std.string.concat.
+                let string_parts: Vec<Value> = parts
                     .iter()
                     .map(|part| match part {
                         FStringPart::Literal(s) => self.lower_string_literal(s, ir_func),
-                        FStringPart::Interpolated(expr) => self.lower_expression(expr, ir_func),
+                        FStringPart::Interpolated(expr) => {
+                            let val = self.lower_expression(expr, ir_func);
+                            let ty = self.infer_expr_ir_type(expr);
+                            let conv = match ty {
+                                IRType::String => None,
+                                IRType::Float => Some("spectra.std.convert.float_to_string"),
+                                IRType::Bool => Some("spectra.std.convert.bool_to_string"),
+                                _ => Some("spectra.std.convert.int_to_string"),
+                            };
+                            if let Some(runtime_fn) = conv {
+                                self.builder
+                                    .build_host_call(
+                                        ir_func,
+                                        runtime_fn.to_string(),
+                                        vec![val],
+                                        true,
+                                    )
+                                    .unwrap_or_else(|| ir_func.next_value())
+                            } else {
+                                val
+                            }
+                        }
                     })
                     .collect();
-                if lowered.is_empty() {
+
+                if string_parts.is_empty() {
                     return self.lower_string_literal("", ir_func);
                 }
-                let mut result = lowered[0];
-                for part in &lowered[1..] {
-                    result = self.builder.build_add(ir_func, result, *part);
+                let mut result = string_parts[0];
+                for part in &string_parts[1..] {
+                    result = self.builder
+                        .build_host_call(
+                            ir_func,
+                            "spectra.std.string.concat".to_string(),
+                            vec![result, *part],
+                            true,
+                        )
+                        .unwrap_or(result);
                 }
                 result
             }
@@ -4652,6 +4702,36 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Float,
                 returns_value: true,
             }),
+            ("math", "sign") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.sign",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "abs_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.abs_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "gcd") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.gcd",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "lcm") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.lcm",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("math", "is_nan_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.is_nan_f",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("math", "is_infinite_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.is_infinite_f",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
             ("io", "print") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.io.print",
                 return_type: IRType::Int,
@@ -4735,7 +4815,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("string", "contains") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.contains",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("string", "to_upper") => Some(HostFunctionDescriptor {
@@ -4755,12 +4835,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("string", "starts_with") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.starts_with",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("string", "ends_with") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.ends_with",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("string", "concat") => Some(HostFunctionDescriptor {
@@ -4805,11 +4885,31 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("string", "is_empty") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.is_empty",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("string", "count_occurrences") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.count_occurrences",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "reverse_str") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.reverse_str",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "pad_left") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.pad_left",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "pad_right") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.pad_right",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "split_by") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.split_by",
                 return_type: IRType::Int,
                 returns_value: true,
             }),
@@ -4861,7 +4961,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("convert", "string_to_bool") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.convert.string_to_bool",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("convert", "bool_to_int") => Some(HostFunctionDescriptor {
@@ -4887,7 +4987,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("random", "random_bool") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.random.random_bool",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             // ── std.collections extras ────────────────────────────────────

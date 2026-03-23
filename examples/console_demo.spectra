@@ -1,0 +1,538 @@
+// ================================================
+// SpectraLab -- Console Demo v1.0
+// Demonstracao abrangente dos recursos da linguagem Spectra
+//   - Funcoes recursivas (fibonacci, fatorial)
+//   - Loops while e condicionais aninhados
+//   - Arrays estaticos com bubble sort
+//   - Todas as stdlib: io, math, string, convert, random, env
+//   - F-strings para saida formatada
+// ================================================
+module console_demo;
+
+import std.io;
+import std.math;
+import std.string;
+import std.convert;
+import std.random;
+import std.env;
+
+// ─── Utilidades de formatacao ────────────────────────────────────────────────
+
+fn linha() -> int {
+    println("--------------------------------------------------");
+    return 0;
+}
+
+fn secao(t: string) -> int {
+    println("");
+    linha();
+    println(t);
+    linha();
+    return 0;
+}
+
+// ─── Fibonacci recursivo ─────────────────────────────────────────────────────
+
+fn fib(n: int) -> int {
+    if n <= 1 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+// ─── Fatorial recursivo ──────────────────────────────────────────────────────
+
+fn fatorial(n: int) -> int {
+    if n <= 0 {
+        return 1;
+    }
+    return n * fatorial(n - 1);
+}
+
+// ─── Verificacao de primo ─────────────────────────────────────────────────────
+
+fn eh_primo(n: int) -> bool {
+    if n < 2 {
+        return false;
+    }
+    if n == 2 {
+        return true;
+    }
+    let r2 = n - (n / 2) * 2;
+    if r2 == 0 {
+        return false;
+    }
+    // Verifica divisores impares: se encontrar um, retorna false imediatamente
+    let i = 3;
+    while i <= n / 2 {
+        let r = n - (n / i) * i;
+        if r == 0 {
+            return false;
+        }
+        i = i + 2;
+    }
+    return true;
+}
+
+// ─── Potencia inteira iterativa ──────────────────────────────────────────────
+
+fn pow_int(base: int, exp: int) -> int {
+    let result = 1;
+    let e = exp;
+    while e > 0 {
+        result = result * base;
+        e = e - 1;
+    }
+    return result;
+}
+
+// ─── Contar digitos de um inteiro ────────────────────────────────────────────
+
+fn num_digitos(n: int) -> int {
+    if n == 0 {
+        return 1;
+    }
+    let v = abs(n);
+    let count = 0;
+    while v > 0 {
+        count = count + 1;
+        v = v / 10;
+    }
+    return count;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn main() -> int {
+
+    // ── Cabecalho ─────────────────────────────────────────────────────────────
+
+    let sep = repeat_str("=", 50);
+    println(sep);
+    println("       SpectraLab  --  Console Demo  v1.0       ");
+    println("     Demonstracao de Recursos da Linguagem       ");
+    println(sep);
+
+    // ── Saudacao personalizada (usa std.env) ──────────────────────────────────
+
+    let argc = env_args_count();
+    if argc > 1 {
+        let nome = env_arg(1);
+        println(f"  Ola, {nome}! Bem-vindo ao SpectraLab.");
+    } else {
+        println("  Ola! Bem-vindo ao SpectraLab.");
+        println("  (dica: passe seu nome como argumento)");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. FIBONACCI
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  1. SEQUENCIA DE FIBONACCI (primeiros 16 termos)");
+    let i = 0;
+    while i <= 15 {
+        let f = fib(i);
+        println(f"     fib({i}) = {f}");
+        i = i + 1;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2. FATORIAIS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  2. FATORIAIS (1! a 12!)");
+    let j = 1;
+    while j <= 12 {
+        let fat = fatorial(j);
+        println(f"     {j}! = {fat}");
+        j = j + 1;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. NUMEROS PRIMOS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  3. NUMEROS PRIMOS ate 100");
+    let primos_str = "";
+    let total_primos = 0;
+    let k = 2;
+    while k <= 100 {
+        if eh_primo(k) {
+            let ps = int_to_string(k);
+            primos_str = concat(concat(primos_str, ps), " ");
+            total_primos = total_primos + 1;
+        }
+        k = k + 1;
+    }
+    println(f"  {primos_str}");
+    println(f"  Total: {total_primos} primos encontrados");
+
+    // Multiplos dos primeiros primos
+    let pm = 2;
+    while pm <= 17 {
+        if eh_primo(pm) {
+            let mults = "";
+            let m = 1;
+            while m <= 8 {
+                mults = concat(concat(mults, int_to_string(pm * m)), " ");
+                m = m + 1;
+            }
+            println(f"   mult. de {pm}: {mults}");
+        }
+        pm = pm + 1;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. FUNCOES MATEMATICAS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  4. FUNCOES MATEMATICAS (std.math)");
+
+    let pi_v  = pi();
+    let e_v   = e_const();
+    let sq2   = sqrt_f(2.0);
+    let sq3   = sqrt_f(3.0);
+    let sq100 = sqrt_f(100.0);
+    let p2_10 = pow_f(2.0, 10.0);
+    let p3_5  = pow_f(3.0, 5.0);
+    let sin0  = sin_f(0.0);
+    let sinH  = sin_f(1.5707963267948966);
+    let cos0  = cos_f(0.0);
+    let cosP  = cos_f(3.141592653589793);
+    let l2_8  = log2_f(8.0);
+    let l10_k = log10_f(1000.0);
+    let g1    = gcd(48, 36);
+    let g2    = gcd(100, 75);
+    let lc    = lcm(12, 18);
+    let a42   = abs(0 - 42);
+    let cl    = clamp(200, 0, 100);
+    let fl    = floor_f(7.9);
+    let ce    = ceil_f(7.1);
+    let ro    = round_f(3.5);
+
+    println(f"  pi()             = {pi_v}");
+    println(f"  e_const()        = {e_v}");
+    println(f"  sqrt(2)          = {sq2}");
+    println(f"  sqrt(3)          = {sq3}");
+    println(f"  sqrt(100)        = {sq100}");
+    println(f"  2^10             = {p2_10}");
+    println(f"  3^5              = {p3_5}");
+    println(f"  sin(0)           = {sin0}");
+    println(f"  sin(pi/2)        = {sinH}");
+    println(f"  cos(0)           = {cos0}");
+    println(f"  cos(pi)          = {cosP}");
+    println(f"  log2(8)          = {l2_8}");
+    println(f"  log10(1000)      = {l10_k}");
+    println(f"  gcd(48, 36)      = {g1}");
+    println(f"  gcd(100, 75)     = {g2}");
+    println(f"  lcm(12, 18)      = {lc}");
+    println(f"  abs(-42)         = {a42}");
+    println(f"  clamp(200, 0,100)= {cl}");
+    println(f"  floor(7.9)       = {fl}");
+    println(f"  ceil(7.1)        = {ce}");
+    println(f"  round(3.5)       = {ro}");
+
+    // Potencias de 2 usando pow_int
+    let pw_str = "";
+    let pw_i = 0;
+    while pw_i <= 10 {
+        pw_str = concat(concat(pw_str, int_to_string(pow_int(2, pw_i))), " ");
+        pw_i = pw_i + 1;
+    }
+    println(f"  Potencias de 2 (0..10): {pw_str}");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 5. MANIPULACAO DE STRINGS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  5. MANIPULACAO DE STRINGS (std.string)");
+
+    let texto = "Spectra Programming Language";
+    let tam    = len(texto);
+    let up     = to_upper(texto);
+    let lo     = to_lower(texto);
+    let sub7   = substring(texto, 0, 7);
+    let rev    = reverse_str(texto);
+    let repet  = repeat_str("-=", 12);
+    let troc   = replace(texto, "Language", "Lang");
+    let ini_s  = starts_with(texto, "Spectra");
+    let fim_g  = ends_with(texto, "Language");
+    let ocorr  = count_occurrences(texto, "a");
+    let idx_p  = index_of(texto, "Programming");
+    let contm  = contains(texto, "Spectra");
+    let pad_r  = pad_right("hello", 12, 46);
+    let pad_l  = pad_left("hello", 12, 46);
+
+    println(f"  Original        : '{texto}'");
+    println(f"  len()           : {tam} chars");
+    println(f"  to_upper()      : '{up}'");
+    println(f"  to_lower()      : '{lo}'");
+    println(f"  substring(0, 7) : '{sub7}'");
+    println(f"  reverse_str()   : '{rev}'");
+    println(f"  repeat_str('-=',12): '{repet}'");
+    println(f"  replace 'Language'->'Lang': '{troc}'");
+    println(f"  starts_with('Spectra')  : {ini_s}");
+    println(f"  ends_with('Language')   : {fim_g}");
+    println(f"  count_occurrences('a')  : {ocorr}");
+    println(f"  index_of('Programming') : {idx_p}");
+    println(f"  contains('Spectra')     : {contm}");
+    println(f"  pad_right('hello', 12, '.') : '{pad_r}'");
+    println(f"  pad_left('hello', 12, '.')  : '{pad_l}'");
+
+    // Construcao de string com concat
+    let construido = "";
+    let ci = 0;
+    while ci < 5 {
+        let part = int_to_string(ci * ci);
+        construido = concat(concat(construido, part), " ");
+        ci = ci + 1;
+    }
+    println(f"  Quadrados 0..4 (via concat): {construido}");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. CONVERSOES DE TIPO
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  6. CONVERSOES DE TIPO (std.convert)");
+
+    let n_ok   = string_to_int_or("12345", 0);
+    let n_bad  = string_to_int_or("abc", -1);
+    let f_ok   = string_to_float_or("3.14159", 0.0);
+    let b_t    = string_to_bool("true");
+    let b_f    = string_to_bool("false");
+    let bi     = bool_to_int(true);
+    let i_s    = int_to_string(99999);
+    let f_s    = float_to_string(2.71828);
+    let b_s_t  = bool_to_string(true);
+    let b_s_f  = bool_to_string(false);
+    let i_f    = int_to_float(42);
+    let f_i    = float_to_int(9.99);
+
+    println(f"  string_to_int_or('12345', 0)    = {n_ok}");
+    println(f"  string_to_int_or('abc', -1)     = {n_bad}  (fallback)");
+    println(f"  string_to_float_or('3.14159',0) = {f_ok}");
+    println(f"  string_to_bool('true')          = {b_t}");
+    println(f"  string_to_bool('false')         = {b_f}");
+    println(f"  bool_to_int(true)               = {bi}");
+    println(f"  int_to_string(99999)            = '{i_s}'");
+    println(f"  float_to_string(2.71828)        = '{f_s}'");
+    println(f"  bool_to_string(true/false)      = '{b_s_t}' / '{b_s_f}'");
+    println(f"  int_to_float(42)                = {i_f}");
+    println(f"  float_to_int(9.99)              = {f_i}  (truncado)");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. ARRAYS E BUBBLE SORT
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  7. ARRAYS E BUBBLE SORT");
+
+    let dados = [71, 42, 58, 93, 15, 67, 84, 29, 51, 36, 78, 22, 95, 13, 60];
+    let n_dados = 15;
+
+    // Estatisticas: soma, min, max
+    let soma    = 0;
+    let minimo  = dados[0];
+    let maximo  = dados[0];
+    let d_i = 0;
+    while d_i < n_dados {
+        soma = soma + dados[d_i];
+        if dados[d_i] < minimo {
+            minimo = dados[d_i];
+        }
+        if dados[d_i] > maximo {
+            maximo = dados[d_i];
+        }
+        d_i = d_i + 1;
+    }
+    let media = soma / n_dados;
+
+    // Bubble sort in-place
+    let outer = 0;
+    while outer < n_dados - 1 {
+        let inner = 0;
+        while inner < n_dados - 1 - outer {
+            if dados[inner] > dados[inner + 1] {
+                let tmp = dados[inner];
+                dados[inner] = dados[inner + 1];
+                dados[inner + 1] = tmp;
+            }
+            inner = inner + 1;
+        }
+        outer = outer + 1;
+    }
+
+    // Montar string do array ordenado
+    let sorted_str = "";
+    let si = 0;
+    while si < n_dados {
+        sorted_str = concat(concat(sorted_str, int_to_string(dados[si])), " ");
+        si = si + 1;
+    }
+
+    println(f"  Elementos  : 15");
+    println(f"  Soma       : {soma}");
+    println(f"  Media      : {media}");
+    println(f"  Minimo     : {minimo}");
+    println(f"  Maximo     : {maximo}");
+    println(f"  Ordenado   : {sorted_str}");
+
+    // Verificar quais sao primos no array original
+    let primos_no_arr = "";
+    let pa_i = 0;
+    while pa_i < n_dados {
+        let v = dados[pa_i];
+        if eh_primo(v) {
+            primos_no_arr = concat(concat(primos_no_arr, int_to_string(v)), " ");
+        }
+        pa_i = pa_i + 1;
+    }
+    println(f"  Primos no conjunto: {primos_no_arr}");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. GERACAO ALEATORIA
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  8. GERACAO ALEATORIA (semente 2024)");
+    random_seed(2024);
+
+    println("  12 inteiros entre 1 e 100:");
+    let rand_str = "";
+    let ri = 0;
+    while ri < 12 {
+        let rv = random_int(1, 100);
+        rand_str = concat(concat(rand_str, int_to_string(rv)), " ");
+        ri = ri + 1;
+    }
+    println(f"    {rand_str}");
+
+    println("  6 floats em [0, 1):");
+    let rfi = 0;
+    while rfi < 6 {
+        let rfv = random_float();
+        println(f"    {rfv}");
+        rfi = rfi + 1;
+    }
+
+    println("  10 bools:");
+    let bool_str = "";
+    let rbi = 0;
+    while rbi < 10 {
+        let bv = random_bool();
+        let bvs = bool_to_string(bv);
+        bool_str = concat(concat(bool_str, bvs), " ");
+        rbi = rbi + 1;
+    }
+    println(f"    {bool_str}");
+
+    // Simulacao: resultados de lancamentos de dado (1-6)
+    println("  20 lancamentos de dado (1-6):");
+    let dado_str = "";
+    let di = 0;
+    while di < 20 {
+        let d = random_int(1, 6);
+        dado_str = concat(concat(dado_str, int_to_string(d)), " ");
+        di = di + 1;
+    }
+    println(f"    {dado_str}");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 9. TABELA TRIGONOMETRICA
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  9. TABELA TRIGONOMETRICA");
+    println("   graus  |   sin        |   cos        |   tan");
+    println("  --------|--------------|--------------|-------------");
+
+    // 0 graus: 0.0 rad
+    let s0  = sin_f(0.0);
+    let c0  = cos_f(0.0);
+    let t0  = tan_f(0.0);
+    println(f"    0     | {s0}  | {c0}  | {t0}");
+
+    // 30 graus: pi/6 = 0.5235987755982988
+    let s30 = sin_f(0.5235987755982988);
+    let c30 = cos_f(0.5235987755982988);
+    let t30 = tan_f(0.5235987755982988);
+    println(f"   30     | {s30}  | {c30}  | {t30}");
+
+    // 45 graus: pi/4 = 0.7853981633974483
+    let s45 = sin_f(0.7853981633974483);
+    let c45 = cos_f(0.7853981633974483);
+    let t45 = tan_f(0.7853981633974483);
+    println(f"   45     | {s45}  | {c45}  | {t45}");
+
+    // 60 graus: pi/3 = 1.0471975511965976
+    let s60 = sin_f(1.0471975511965976);
+    let c60 = cos_f(1.0471975511965976);
+    let t60 = tan_f(1.0471975511965976);
+    println(f"   60     | {s60}  | {c60}  | {t60}");
+
+    // 90 graus: pi/2 = 1.5707963267948966
+    let s90 = sin_f(1.5707963267948966);
+    let c90 = cos_f(1.5707963267948966);
+    let t90 = tan_f(1.5707963267948966);
+    println(f"   90     | {s90}  | {c90}  | {t90}");
+
+    // 180 graus: pi = 3.141592653589793
+    let s180 = sin_f(3.141592653589793);
+    let c180 = cos_f(3.141592653589793);
+    let t180 = tan_f(3.141592653589793);
+    println(f"  180     | {s180}  | {c180}  | {t180}");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 10. ALGORITMO: SEQUENCIA DE COLLATZ
+    // ─────────────────────────────────────────────────────────────────────────
+
+    secao("  10. SEQUENCIA DE COLLATZ (para n = 27)");
+
+    let cn = 27;
+    let collatz_str = concat(int_to_string(cn), " ");
+    let steps = 0;
+    while cn != 1 {
+        let rem2 = cn - (cn / 2) * 2;
+        if rem2 == 0 {
+            cn = cn / 2;
+        } else {
+            cn = cn * 3 + 1;
+        }
+        collatz_str = concat(concat(collatz_str, int_to_string(cn)), " ");
+        steps = steps + 1;
+    }
+    println(f"  Sequencia: {collatz_str}");
+    println(f"  Passos   : {steps}");
+
+    // Tamanhos das sequencias de Collatz para 1..20
+    println("  Tamanho da seq. para n=1..20:");
+    let cn_i = 1;
+    while cn_i <= 20 {
+        let cn2 = cn_i;
+        let st2 = 0;
+        while cn2 != 1 {
+            let r2 = cn2 - (cn2 / 2) * 2;
+            if r2 == 0 {
+                cn2 = cn2 / 2;
+            } else {
+                cn2 = cn2 * 3 + 1;
+            }
+            st2 = st2 + 1;
+        }
+        println(f"    n={cn_i}: {st2} passos");
+        cn_i = cn_i + 1;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RODAPE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    println("");
+    let sep_fim = repeat_str("=", 50);
+    println(sep_fim);
+    println("     Demonstracao concluida com sucesso!        ");
+    println("   Spectra: clara, expressiva e bem tipada.     ");
+    println(sep_fim);
+    println("");
+
+    return 0;
+}
