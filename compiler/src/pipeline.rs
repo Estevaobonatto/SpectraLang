@@ -274,6 +274,11 @@ where
         self.backend.execute(artifacts, &self.options)
     }
 
+    /// Returns a mutable reference to the backend driver.
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
     /// Compile and execute (for REPL)
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), Vec<CompilerError>> {
         let compilation = self.compile(source, "<repl>")?;

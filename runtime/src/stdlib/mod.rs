@@ -2682,7 +2682,14 @@ extern "C" fn std_env_args_count(ctx: *mut SpectraHostCallContext) -> i32 {
         if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let count = std::env::args().count() as i64;
+        // Use explicitly forwarded program args when available (JIT runner sets
+        // these via spectra_runtime::set_program_args; AOT executables use
+        // spectra_rt_startup_with_args). Fall back to std::env::args otherwise.
+        let count = if let Some(args) = crate::ffi::get_program_args() {
+            args.len() as i64
+        } else {
+            std::env::args().count() as i64
+        };
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = count;
     }
@@ -2703,7 +2710,13 @@ extern "C" fn std_env_arg(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let index = args[0] as usize;
-        let arg = std::env::args().nth(index).unwrap_or_default();
+        // Use explicitly forwarded program args when available; fall back to
+        // std::env::args so the function is still usable without prior setup.
+        let arg = if let Some(prog_args) = crate::ffi::get_program_args() {
+            prog_args.get(index).cloned().unwrap_or_default()
+        } else {
+            std::env::args().nth(index).unwrap_or_default()
+        };
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = alloc_spectra_string(&arg);
     }

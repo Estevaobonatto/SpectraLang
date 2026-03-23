@@ -3,6 +3,24 @@ use std::sync::{Mutex, OnceLock};
 use std::{mem, ptr, slice, str};
 
 use crate::initialize;
+
+// ── Program argument store ───────────────────────────────────────────────────
+
+/// Program arguments forwarded from the host to Spectra code.
+/// Set by the JIT runner before execution or by [`spectra_rt_startup_with_args`]
+/// in AOT executables. Uses `OnceLock` so it can be set exactly once per process.
+static PROGRAM_ARGV: OnceLock<Vec<String>> = OnceLock::new();
+
+/// Returns the program arguments if they have been set, otherwise `None`.
+pub(crate) fn get_program_args() -> Option<&'static Vec<String>> {
+    PROGRAM_ARGV.get()
+}
+
+/// Sets the program arguments visible to `std.env` host functions.
+/// Subsequent calls are silently ignored (can only be set once per process).
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGV.set(args);
+}
 use crate::memory::ManualBox;
 
 struct ManualRaw {
@@ -514,6 +532,36 @@ pub extern "C" fn spectra_rt_host_clear() {
 pub extern "C" fn spectra_rt_startup() {
     initialize();
     crate::register_standard_library();
+}
+
+/// Startup for AOT executables with argument forwarding.
+/// Initialises the runtime, registers the standard library, and stores the
+/// process arguments so that `std.env.env_args_count` and `std.env.env_arg`
+/// return the program's own arguments rather than the CLI's arguments.
+///
+/// # Safety
+/// `argv` must be a valid C-style array of `argc` null-terminated UTF-8
+/// strings, as provided by the OS through the C `main(argc, argv)` signature.
+#[no_mangle]
+pub extern "C" fn spectra_rt_startup_with_args(argc: i32, argv: *const *const u8) {
+    initialize();
+    crate::register_standard_library();
+    if argv.is_null() || argc <= 0 {
+        return;
+    }
+    let args: Vec<String> = (0..argc as usize)
+        .filter_map(|i| unsafe {
+            let ptr = *argv.add(i);
+            if ptr.is_null() {
+                return None;
+            }
+            let len = (0..).take_while(|&j| *ptr.add(j) != 0).count();
+            str::from_utf8(slice::from_raw_parts(ptr, len))
+                .ok()
+                .map(str::to_owned)
+        })
+        .collect();
+    let _ = PROGRAM_ARGV.set(args);
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{DataId, FuncId, Linkage, Module};
 use spectra_midend::ir::{
     BasicBlock as IRBasicBlock, Function as IRFunction, Instruction, InstructionKind,
     Module as IRModule, Terminator, Type as IRType, Value as IRValue,
@@ -12,8 +12,11 @@ use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
 pub(crate) struct HostNameRecord {
-    ptr: u64,
-    len: usize,
+    pub(crate) ptr: u64,
+    pub(crate) len: usize,
+    /// When `Some`, the name resides in a Cranelift data section (AOT mode).
+    /// When `None`, `ptr` is a compile-time heap pointer valid in JIT mode.
+    pub(crate) data_id: Option<DataId>,
 }
 
 pub(crate) fn intern_host_name(
@@ -30,7 +33,7 @@ pub(crate) fn intern_host_name(
     let len = boxed.len();
     host_name_storage.push(boxed);
 
-    let record = HostNameRecord { ptr, len };
+    let record = HostNameRecord { ptr, len, data_id: None };
     host_name_data.insert(name.to_string(), record);
     record
 }
@@ -621,7 +624,17 @@ impl CodeGenerator {
             }
             InstructionKind::HostCall { result, host, args } => {
                 let record = intern_host_name(host_name_data, host_name_storage, host);
-                let name_ptr = builder.ins().iconst(types::I64, record.ptr as i64);
+                let name_ptr = if let Some(data_id) = record.data_id {
+                    // AOT mode: the name lives in a .rodata section; get its address
+                    // via a GlobalValue so the linker patches it correctly.
+                    let gv = module.declare_data_in_func(data_id, builder.func);
+                    builder.ins().global_value(types::I64, gv)
+                } else {
+                    // JIT mode: the name is a heap-allocated byte slice that lives
+                    // for the duration of the code generator — safe to embed as an
+                    // immediate pointer.
+                    builder.ins().iconst(types::I64, record.ptr as i64)
+                };
                 let name_len = builder.ins().iconst(types::I64, record.len as i64);
 
                 let (args_ptr, args_count, args_allocation) = if args.is_empty() {

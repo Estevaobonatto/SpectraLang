@@ -2,9 +2,11 @@ mod compiler_integration;
 mod config;
 mod discovery;
 mod formatter;
+mod linker;
 mod project;
+mod runtime_lib;
 
-use compiler_integration::{ModulePipelineSummary, SpectraCompiler};
+use compiler_integration::{forward_program_args, take_last_exec_exit, ModulePipelineSummary, SpectraCompiler};
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use project::ProjectPlan;
 use serde::{Deserialize, Serialize};
@@ -89,6 +91,11 @@ struct CliInvocation {
     json_output: bool,
     /// When `Some(path)`, emit a native object file at `path` instead of / in addition to JIT.
     emit_object: Option<PathBuf>,
+    /// When `Some(path)`, compile to a native executable at `path`.
+    emit_exe: Option<PathBuf>,
+    /// Arguments forwarded to the Spectra program when running via JIT (`run` command).
+    /// These are accessible through `std.env.env_arg` / `std.env.env_args_count`.
+    program_args: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -371,12 +378,20 @@ where
     let mut verbose = false;
     let mut json_output = false;
     let mut emit_object: Option<PathBuf> = None;
+    let mut emit_exe: Option<PathBuf> = None;
+    let mut program_args: Vec<String> = Vec::new();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--" => {
-                for remaining in args {
-                    entries.push(PathBuf::from(remaining));
+                // For `run`: everything after `--` is forwarded as program arguments.
+                // For other commands: treat remaining tokens as additional source files
+                // (preserves previous behaviour for `compile`, `check`, `lint`).
+                let remaining: Vec<String> = args.by_ref().collect();
+                if command == BuildCommand::Run {
+                    program_args.extend(remaining);
+                } else {
+                    entries.extend(remaining.into_iter().map(PathBuf::from));
                 }
                 break;
             }
@@ -468,6 +483,12 @@ where
                     .ok_or_else(|| usage_error("Missing output path after '--emit-object'."))?;
                 emit_object = Some(PathBuf::from(path));
             }
+            "--emit-exe" | "-e" => {
+                let path = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing output path after '--emit-exe'."))?;
+                emit_exe = Some(PathBuf::from(path));
+            }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown option: {}", flag)));
             }
@@ -500,6 +521,8 @@ where
         verbose,
         json_output,
         emit_object,
+        emit_exe,
+        program_args,
     })
 }
 
@@ -863,6 +886,8 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         verbose,
         json_output,
         emit_object,
+        emit_exe,
+        program_args,
     } = invocation;
 
     if kind == BuildCommand::Lint && json_output {
@@ -893,6 +918,63 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             obj_path.display()
         );
         return Ok(());
+    }
+
+    // Executable compilation: compile → exe-object (with main shim) → link.
+    if let Some(ref exe_path) = emit_exe {
+        if entries.is_empty() {
+            return Err(CliError::usage("--emit-exe requires a source file."));
+        }
+        let source_path = &entries[0];
+        let source = fs::read_to_string(source_path).map_err(|e| {
+            CliError::io(format!("Cannot read '{}': {}", source_path.display(), e))
+        })?;
+        let filename = source_path.to_string_lossy().to_string();
+
+        // Locate the runtime static library before spending time compiling.
+        let runtime_lib = runtime_lib::find_runtime_lib().ok_or_else(|| {
+            CliError::compilation(
+                "Cannot find libspectra_runtime.a / spectra_runtime.lib.\n\
+                 Build the workspace first (`cargo build`) or set the \
+                 SPECTRA_RUNTIME_LIB environment variable.",
+            )
+        })?;
+
+        // Write the executable object to a temporary path next to the output.
+        let obj_path = exe_path.with_extension("spectra_tmp.obj");
+
+        let mut compiler = SpectraCompiler::new(options);
+        compiler.set_emit_output(false);
+        let obj_bytes = compiler
+            .compile_to_executable_object_bytes(&source, &filename)
+            .map_err(|e| CliError::compilation(e))?;
+
+        fs::write(&obj_path, &obj_bytes).map_err(|e| {
+            CliError::io(format!(
+                "Cannot write temporary object '{}': {}",
+                obj_path.display(),
+                e
+            ))
+        })?;
+
+        let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path);
+        let _ = fs::remove_file(&obj_path); // always clean up the temp object
+        link_result.map_err(|e| CliError::compilation(e))?;
+
+        println!("✅ Executable written: {}", exe_path.display());
+        return Ok(());
+    }
+
+    // For `run`: forward program arguments to the runtime before executing.
+    // argv[0] is conventionally the script/exe path; additional args follow.
+    if kind == BuildCommand::Run {
+        let script_path = entries
+            .first()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut effective_args = vec![script_path];
+        effective_args.extend(program_args);
+        forward_program_args(effective_args);
     }
 
     // If a single directory is given (or current dir when no entries), look for spectra.toml.
@@ -944,15 +1026,20 @@ fn compile_plan(
     show_pipeline_summary: bool,
     verbose: bool,
 ) -> bool {
+    // When running via JIT without verbose/timings, suppress build progress output
+    // so only the Spectra program's own stdout/stderr reaches the terminal.
+    let quiet = kind == BuildCommand::Run && !verbose;
     let mut has_failures = false;
 
     for module in plan.modules() {
-        println!(
-            "\n{} module: {} ({})",
-            kind.module_verb(),
-            module.name,
-            module.path.display()
-        );
+        if !quiet {
+            println!(
+                "\n{} module: {} ({})",
+                kind.module_verb(),
+                module.name,
+                module.path.display()
+            );
+        }
 
         if verbose {
             if module.imports.is_empty() {
@@ -966,11 +1053,13 @@ fn compile_plan(
         match fs::read_to_string(&module.path) {
             Ok(source) => match compiler.compile(&source, &filename) {
                 Ok(()) => {
-                    println!(
-                        "\nSuccessfully {} module '{}'",
-                        kind.module_success_verb(),
-                        module.name
-                    );
+                    if !quiet {
+                        println!(
+                            "\nSuccessfully {} module '{}'",
+                            kind.module_success_verb(),
+                            module.name
+                        );
+                    }
                     if show_pipeline_summary {
                         if let Some(summary) = compiler.take_last_summary() {
                             print_pipeline_summary(&summary);
@@ -1083,6 +1172,13 @@ fn execute_plan_with_options(
         compiler.set_emit_internal_metrics(false);
     }
 
+    // For `run` without `--verbose` / `--timings`, suppress compile banners and
+    // the post-execution metadata line so only the program's output is visible.
+    if kind == BuildCommand::Run && !verbose {
+        compiler.set_emit_output(false);
+        compiler.set_quiet_execution(true);
+    }
+
     let has_failures = compile_plan(kind, &mut compiler, &plan, show_pipeline_summary, verbose);
 
     if show_aggregate_summary {
@@ -1091,16 +1187,26 @@ fn execute_plan_with_options(
 
     if has_failures {
         println!();
-        Err(CliError::compilation(format!(
+        return Err(CliError::compilation(format!(
             "💥 Command '{}' completed with errors",
             kind.name()
-        )))
-    } else {
-        if print_success {
-            println!("\n{}", kind.success_message());
-        }
-        Ok(())
+        )));
     }
+
+    // Propagate the Spectra program's exit code when running via JIT.
+    if kind == BuildCommand::Run {
+        if let Some(code) = take_last_exec_exit() {
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+    }
+
+    if print_success && kind != BuildCommand::Run {
+        println!("\n{}", kind.success_message());
+    }
+
+    Ok(())
 }
 
 fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions) {

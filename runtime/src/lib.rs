@@ -11,6 +11,13 @@ pub use memory::{
 };
 pub use stdlib::register as register_standard_library;
 
+/// Sets the program arguments visible to Spectra code via `std.env.env_args_count`
+/// and `std.env.env_arg`. Must be called before any Spectra code executes.
+/// Subsequent calls are silently ignored (can only be set once per process).
+pub fn set_program_args(args: Vec<String>) {
+    ffi::set_program_args(args);
+}
+
 static RUNTIME_STATE: OnceLock<RuntimeState> = OnceLock::new();
 
 /// Captures when and where the runtime became available.

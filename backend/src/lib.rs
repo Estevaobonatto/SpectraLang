@@ -3,5 +3,5 @@
 pub mod aot;
 pub mod codegen;
 
-pub use aot::AotCodeGenerator;
+pub use aot::{AotCodeGenerator, AotOptions};
 pub use codegen::CodeGenerator;

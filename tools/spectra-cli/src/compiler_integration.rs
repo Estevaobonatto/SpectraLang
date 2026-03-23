@@ -5,8 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
-use spectra_backend::CodeGenerator;
-use spectra_backend::AotCodeGenerator;
+use spectra_backend::{AotCodeGenerator, AotOptions, CodeGenerator};
 use spectra_compiler::{
     error::MidendError, lint::LintDiagnostic, pipeline::CompilationMetrics, span::Span,
     BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilationResult,
@@ -20,6 +19,23 @@ use spectra_midend::{
         validation::LoopStructureValidation, verification::verify_module, Pass,
     },
 };
+
+// Thread-local that propagates the Spectra program's return value (used as exit
+// code) back to the CLI without changing the BackendDriver trait signature.
+thread_local! {
+    static LAST_EXEC_EXIT: std::cell::Cell<Option<i32>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Returns and clears the exit code stored by the last JIT execution, if any.
+pub fn take_last_exec_exit() -> Option<i32> {
+    LAST_EXEC_EXIT.with(|cell| cell.replace(None))
+}
+
+/// Sets the program arguments forwarded to `std.env` host functions.
+pub fn forward_program_args(args: Vec<String>) {
+    spectra_runtime::set_program_args(args);
+}
 
 #[derive(Debug)]
 struct PassReport {
@@ -180,11 +196,17 @@ struct FullPipelineArtifacts {
 
 struct FullPipelineBackend {
     codegen: Option<CodeGenerator>,
+    /// When `true`, the "Execution completed" summary is suppressed so that
+    /// only the Spectra program's own stdout/stderr is visible.
+    quiet_execution: bool,
 }
 
 impl FullPipelineBackend {
     fn new() -> Self {
-        Self { codegen: None }
+        Self {
+            codegen: None,
+            quiet_execution: false,
+        }
     }
 }
 
@@ -314,7 +336,7 @@ impl BackendDriver for FullPipelineBackend {
     fn execute(
         &mut self,
         artifacts: &Self::Artifacts,
-        _options: &CompilationOptions,
+        options: &CompilationOptions,
     ) -> Result<(), Vec<CompilerError>> {
         let codegen = match self.codegen.as_mut() {
             Some(codegen) => codegen,
@@ -332,8 +354,9 @@ impl BackendDriver for FullPipelineBackend {
             .iter()
             .any(|func| func.name == "main")
         {
-            println!("\n⚠️ No entry point 'main' found; skipping execution");
-            return Ok(());
+            return Err(vec![CompilerError::Backend(BackendError::new(
+                "no entry point 'main' found; define a 'fn main()' function to run the program",
+            ))]);
         }
 
         let runtime_state = spectra_runtime::initialize();
@@ -350,19 +373,27 @@ impl BackendDriver for FullPipelineBackend {
         let return_value =
             return_value.map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?;
 
-        let runtime_uptime = runtime_state.uptime();
-        let init_thread = runtime_state.init_thread_id();
+        // Store the program's exit code so the CLI can propagate it.
+        let exit_code = return_value.map(|v| v as i32).unwrap_or(0);
+        LAST_EXEC_EXIT.with(|cell| cell.set(Some(exit_code)));
 
-        if let Some(value) = return_value {
-            println!(
-                "\n✅ Execution completed (JIT)\n   - main() returned {}\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
-                value, execution_duration, runtime_uptime, init_thread
-            );
-        } else {
-            println!(
-                "\n✅ Execution completed (JIT)\n   - main() returned void\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
-                execution_duration, runtime_uptime, init_thread
-            );
+        // Print the execution summary only when the user asked for timing data
+        // or when quiet_execution has not been requested.
+        if !self.quiet_execution || options.collect_metrics {
+            let runtime_uptime = runtime_state.uptime();
+            let init_thread = runtime_state.init_thread_id();
+
+            if let Some(value) = return_value {
+                println!(
+                    "\n✅ Execution completed (JIT)\n   - main() returned {}\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
+                    value, execution_duration, runtime_uptime, init_thread
+                );
+            } else {
+                println!(
+                    "\n✅ Execution completed (JIT)\n   - main() returned void\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
+                    execution_duration, runtime_uptime, init_thread
+                );
+            }
         }
 
         Ok(())
@@ -498,7 +529,27 @@ impl SpectraCompiler {
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
 
         let aot = AotCodeGenerator::new();
-        aot.compile_to_object(&report.artifacts.ir_module)
+        aot.compile_to_object(&report.artifacts.ir_module, &AotOptions::default())
+    }
+
+    /// Compile a source file to a native object file that contains a full
+    /// executable entry point (`main` shim + `spectra_rt_startup_with_args`).
+    /// The resulting bytes must be linked with `libspectra_runtime.a` to produce
+    /// a standalone executable.
+    pub fn compile_to_executable_object_bytes(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<Vec<u8>, String> {
+        let report = self
+            .compile_to_report(source, filename)
+            .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+
+        let aot = AotCodeGenerator::new();
+        aot.compile_to_object(
+            &report.artifacts.ir_module,
+            &AotOptions { emit_executable: true },
+        )
     }
 
     fn compile_to_report(
@@ -548,6 +599,13 @@ impl SpectraCompiler {
 
     pub fn set_emit_output(&mut self, emit: bool) {
         self.emit_output = emit;
+    }
+
+    /// When `true`, suppresses the "Execution completed" meta-information line
+    /// so that only the Spectra program's own output reaches the terminal.
+    /// Automatically cleared when `--timings` / `collect_metrics` is active.
+    pub fn set_quiet_execution(&mut self, quiet: bool) {
+        self.pipeline.backend_mut().quiet_execution = quiet;
     }
 
     pub fn compile_for_diagnostics(
