@@ -1,0 +1,85 @@
+module test_stdlib_improvements;
+
+import std.io;
+import std.math;
+import std.string;
+import std.char;
+import std.time;
+import std.collections;
+
+pub fn main() -> int {
+    // ── std.math novas funções ────────────────────────────────────────────────
+    println("=== std.math ===");
+
+    let s_pos = sign(42);       // 1
+    let s_neg = sign(-7);       // -1
+    let s_zero = sign(0);       // 0
+    println(s_pos);
+    println(s_neg);
+    println(s_zero);
+
+    let g = gcd(48, 18);        // 6
+    let l = lcm(4, 6);          // 12
+    println(g);
+    println(l);
+
+    let nan_val = is_nan_f(sqrt_f(-1.0));      // 1 (true)
+    let inf_val = is_infinite_f(1.0 / 0.0);   // 1 (true)
+    let abs_neg = abs_f(-3.14);               // 3.14
+    println(nan_val);
+    println(inf_val);
+    println(abs_neg);
+
+    // ── std.string novas funções ──────────────────────────────────────────────
+    println("=== std.string ===");
+
+    let rev = reverse_str("hello");           // "olleh"
+    println(rev);
+
+    let pl = pad_left("42", 5, 48);           // "   42"  (48 = '0', mas sem suporte a char literal ainda)
+    let pr = pad_right("hi", 5, 45);          // "hi---" (45 = '-')
+    println(pl);
+    println(pr);
+
+    let parts = split_by("a,b,c,d", ",");
+    let n = list_len(parts);                  // 4
+    println(n);
+    let first = list_get(parts, 0);           // ponteiro para "a"
+    let last  = list_get(parts, 3);           // ponteiro para "d"
+    list_free(parts);
+
+    // ── std.char novas funções ────────────────────────────────────────────────
+    println("=== std.char ===");
+
+    let alpha = is_alpha(65);           // 'A' = 1 (true)
+    let digit = is_digit_char(51);      // '3' = 1 (true)
+    let ws    = is_whitespace_char(32); // ' ' = 1 (true)
+    let upper = is_upper_char(65);      // 'A' = 1 (true)
+    let lower = is_lower_char(97);      // 'a' = 1 (true)
+    println(alpha);
+    println(digit);
+    println(ws);
+    println(upper);
+    println(lower);
+
+    let up = to_upper_char(97);   // 'a' -> 65 ('A')
+    let lo = to_lower_char(65);   // 'A' -> 97 ('a')
+    println(up);
+    println(lo);
+
+    let an = is_alphanumeric(48); // '0' = 1 (true)
+    println(an);
+
+    // ── std.time novas funções ────────────────────────────────────────────────
+    println("=== std.time ===");
+
+    let ts = time_now_secs();
+    let tm = time_now_millis();
+    println(ts);
+    println(tm);
+
+    sleep_ms(10);
+    println("slept 10ms");
+
+    return 0;
+}

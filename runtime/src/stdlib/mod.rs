@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::slice;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
 use crate::ffi::{clear_host_functions, lookup_host_function};
@@ -129,6 +130,38 @@ const RESULT_UNWRAP: &str = "spectra.std.result.result_unwrap";
 const RESULT_UNWRAP_OR: &str = "spectra.std.result.result_unwrap_or";
 const RESULT_UNWRAP_ERR: &str = "spectra.std.result.result_unwrap_err";
 
+// ── std.string (novos) ───────────────────────────────────────────────────────
+const STR_SPLIT_BY: &str = "spectra.std.string.split_by";
+const STR_PAD_LEFT: &str = "spectra.std.string.pad_left";
+const STR_PAD_RIGHT: &str = "spectra.std.string.pad_right";
+const STR_REVERSE: &str = "spectra.std.string.reverse_str";
+
+// ── std.math (novos) ─────────────────────────────────────────────────────────
+const MATH_SIGN: &str = "spectra.std.math.sign";
+const MATH_GCD: &str = "spectra.std.math.gcd";
+const MATH_LCM: &str = "spectra.std.math.lcm";
+const MATH_IS_NAN_F: &str = "spectra.std.math.is_nan_f";
+const MATH_IS_INFINITE_F: &str = "spectra.std.math.is_infinite_f";
+const MATH_ABS_F: &str = "spectra.std.math.abs_f";
+
+// ── std.char ─────────────────────────────────────────────────────────────────
+const CHAR_IS_ALPHA: &str = "spectra.std.char.is_alpha";
+const CHAR_IS_DIGIT: &str = "spectra.std.char.is_digit_char";
+const CHAR_IS_WHITESPACE: &str = "spectra.std.char.is_whitespace_char";
+const CHAR_IS_UPPER: &str = "spectra.std.char.is_upper_char";
+const CHAR_IS_LOWER: &str = "spectra.std.char.is_lower_char";
+const CHAR_TO_UPPER: &str = "spectra.std.char.to_upper_char";
+const CHAR_TO_LOWER: &str = "spectra.std.char.to_lower_char";
+const CHAR_IS_ALPHANUMERIC: &str = "spectra.std.char.is_alphanumeric";
+
+// ── std.time ─────────────────────────────────────────────────────────────────
+const TIME_NOW_MILLIS: &str = "spectra.std.time.time_now_millis";
+const TIME_NOW_SECS: &str = "spectra.std.time.time_now_secs";
+const TIME_SLEEP_MS: &str = "spectra.std.time.sleep_ms";
+
+// ── std.io (novos) ───────────────────────────────────────────────────────────
+const IO_INPUT: &str = "spectra.std.io.input";
+
 /// Registers the standard library host functions.
 pub fn register() {
     register_math();
@@ -141,6 +174,8 @@ pub fn register() {
     register_env();
     register_option();
     register_result();
+    register_char();
+    register_time();
 }
 
 fn register_math() {
@@ -162,6 +197,12 @@ fn register_math() {
     register_host_function(MATH_ATAN2_F, std_math_atan2_f);
     register_host_function(MATH_PI, std_math_pi);
     register_host_function(MATH_E_CONST, std_math_e_const);
+    register_host_function(MATH_SIGN, std_math_sign);
+    register_host_function(MATH_GCD, std_math_gcd);
+    register_host_function(MATH_LCM, std_math_lcm);
+    register_host_function(MATH_IS_NAN_F, std_math_is_nan_f);
+    register_host_function(MATH_IS_INFINITE_F, std_math_is_infinite_f);
+    register_host_function(MATH_ABS_F, std_math_abs_f);
 }
 
 fn register_io() {
@@ -171,6 +212,7 @@ fn register_io() {
     register_host_function(IO_EPRINT, std_io_eprint);
     register_host_function(IO_EPRINTLN, std_io_eprintln);
     register_host_function(IO_READ_LINE, std_io_read_line);
+    register_host_function(IO_INPUT, std_io_input);
 }
 
 fn register_collections() {
@@ -1375,6 +1417,10 @@ fn register_string() {
     register_host_function(STR_SPLIT_LAST, std_string_split_last);
     register_host_function(STR_IS_EMPTY, std_string_is_empty);
     register_host_function(STR_COUNT, std_string_count_occurrences);
+    register_host_function(STR_SPLIT_BY, std_string_split_by);
+    register_host_function(STR_PAD_LEFT, std_string_pad_left);
+    register_host_function(STR_PAD_RIGHT, std_string_pad_right);
+    register_host_function(STR_REVERSE, std_string_reverse);
 }
 
 fn register_convert() {
@@ -2627,6 +2673,569 @@ extern "C" fn std_result_unwrap_err(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = *ptr.add(1);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.char register & host functions ──────────────────────────────────────
+
+fn register_char() {
+    register_host_function(CHAR_IS_ALPHA, std_char_is_alpha);
+    register_host_function(CHAR_IS_DIGIT, std_char_is_digit);
+    register_host_function(CHAR_IS_WHITESPACE, std_char_is_whitespace);
+    register_host_function(CHAR_IS_UPPER, std_char_is_upper);
+    register_host_function(CHAR_IS_LOWER, std_char_is_lower);
+    register_host_function(CHAR_TO_UPPER, std_char_to_upper);
+    register_host_function(CHAR_TO_LOWER, std_char_to_lower);
+    register_host_function(CHAR_IS_ALPHANUMERIC, std_char_is_alphanumeric);
+}
+
+extern "C" fn std_char_is_alpha(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let v = char::from_u32(args[0] as u32).map(|c| c.is_alphabetic()).unwrap_or(false);
+        results[0] = v as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_char_is_digit(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let v = char::from_u32(args[0] as u32).map(|c| c.is_ascii_digit()).unwrap_or(false);
+        results[0] = v as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_char_is_whitespace(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let v = char::from_u32(args[0] as u32).map(|c| c.is_whitespace()).unwrap_or(false);
+        results[0] = v as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_char_is_upper(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let v = char::from_u32(args[0] as u32).map(|c| c.is_uppercase()).unwrap_or(false);
+        results[0] = v as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_char_is_lower(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let v = char::from_u32(args[0] as u32).map(|c| c.is_lowercase()).unwrap_or(false);
+        results[0] = v as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the uppercase version of the Unicode code point `c`.
+extern "C" fn std_char_to_upper(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let upper = char::from_u32(args[0] as u32)
+            .and_then(|c| c.to_uppercase().next())
+            .unwrap_or(char::from_u32(args[0] as u32).unwrap_or('\0'));
+        results[0] = upper as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the lowercase version of the Unicode code point `c`.
+extern "C" fn std_char_to_lower(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let lower = char::from_u32(args[0] as u32)
+            .and_then(|c| c.to_lowercase().next())
+            .unwrap_or(char::from_u32(args[0] as u32).unwrap_or('\0'));
+        results[0] = lower as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_char_is_alphanumeric(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let v = char::from_u32(args[0] as u32).map(|c| c.is_alphanumeric()).unwrap_or(false);
+        results[0] = v as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.time register & host functions ──────────────────────────────────────
+
+fn register_time() {
+    register_host_function(TIME_NOW_MILLIS, std_time_now_millis);
+    register_host_function(TIME_NOW_SECS, std_time_now_secs);
+    register_host_function(TIME_SLEEP_MS, std_time_sleep_ms);
+}
+
+/// Returns milliseconds elapsed since the Unix epoch (January 1, 1970 UTC).
+/// Returns -1 if the system clock is before the epoch.
+extern "C" fn std_time_now_millis(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(-1);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns seconds elapsed since the Unix epoch. Returns -1 on error.
+extern "C" fn std_time_now_secs(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(-1);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Sleeps for `ms` milliseconds. Negative values are treated as zero.
+extern "C" fn std_time_sleep_ms(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ms = args[0].max(0) as u64;
+        std::thread::sleep(Duration::from_millis(ms));
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.string new functions ─────────────────────────────────────────────────
+
+/// Splits `s` by `sep` and returns a list handle (int) whose elements are
+/// string pointers (i64) for each part. Returns -1 on allocation failure.
+extern "C" fn std_string_split_by(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let (s, sep) = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(sep)) => (s, sep),
+            _ => {
+                results[0] = -1;
+                return HOST_STATUS_SUCCESS;
+            }
+        };
+        let memory = crate::initialize().memory();
+        let list = match memory.allocate_manual(StdList::default()) {
+            Ok(l) => l,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let handle = with_list_registry(|reg| reg.insert(list));
+        for part in s.split(sep.as_str()) {
+            let ptr = alloc_spectra_string(part);
+            let _ = with_list_registry(|reg| reg.push(handle, ptr));
+        }
+        results[0] = handle as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Pads `s` on the left with `pad_char` (Unicode code point) until the result
+/// has `width` bytes. If `s` is already at or longer than `width`, returns `s`
+/// unchanged.
+extern "C" fn std_string_pad_left(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let width = args[1].max(0) as usize;
+        let pad_ch = char::from_u32(args[2] as u32).unwrap_or(' ');
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => {
+                if s.len() >= width {
+                    alloc_spectra_string(&s)
+                } else {
+                    let padding: String = std::iter::repeat(pad_ch).take(width - s.len()).collect();
+                    alloc_spectra_string(&(padding + &s))
+                }
+            }
+            None => alloc_spectra_string(""),
+        };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ptr;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Pads `s` on the right with `pad_char` (Unicode code point) until the result
+/// has `width` bytes. If `s` is already at or longer than `width`, returns `s`
+/// unchanged.
+extern "C" fn std_string_pad_right(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let width = args[1].max(0) as usize;
+        let pad_ch = char::from_u32(args[2] as u32).unwrap_or(' ');
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => {
+                if s.len() >= width {
+                    alloc_spectra_string(&s)
+                } else {
+                    let padding: String = std::iter::repeat(pad_ch).take(width - s.len()).collect();
+                    alloc_spectra_string(&(s + &padding))
+                }
+            }
+            None => alloc_spectra_string(""),
+        };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ptr;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns a new string with the characters of `s` in reverse order.
+extern "C" fn std_string_reverse(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => alloc_spectra_string(&s.chars().rev().collect::<String>()),
+            None => alloc_spectra_string(""),
+        };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ptr;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.math new functions ───────────────────────────────────────────────────
+
+/// Returns the sign of `n`: -1 for negative, 0 for zero, 1 for positive.
+extern "C" fn std_math_sign(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = args[0].signum();
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Greatest common divisor of `a` and `b` (always non-negative; gcd(0,0) = 0).
+extern "C" fn std_math_gcd(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let mut a = args[0].unsigned_abs();
+        let mut b = args[1].unsigned_abs();
+        while b != 0 {
+            let t = b;
+            b = a % b;
+            a = t;
+        }
+        results[0] = a as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Least common multiple of `a` and `b` (always non-negative; lcm(n,0) = 0).
+extern "C" fn std_math_lcm(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let a = args[0].unsigned_abs();
+        let b = args[1].unsigned_abs();
+        if a == 0 || b == 0 {
+            results[0] = 0;
+        } else {
+            let mut ga = a;
+            let mut gb = b;
+            while gb != 0 {
+                let t = gb;
+                gb = ga % gb;
+                ga = t;
+            }
+            // ga is now gcd(a, b)
+            results[0] = ((a / ga) * b) as i64;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns 1 if the float value is NaN, 0 otherwise. Argument is f64 bits as i64.
+extern "C" fn std_math_is_nan_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).is_nan() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns 1 if the float value is +∞ or −∞, 0 otherwise. Argument is f64 bits.
+extern "C" fn std_math_is_infinite_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).is_infinite() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns |x| for a float. Argument and result are f64 bits as i64.
+extern "C" fn std_math_abs_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).abs().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.io new functions ─────────────────────────────────────────────────────
+
+/// Prints `prompt` (without newline), flushes stdout, then reads a line from
+/// stdin. Strips the trailing newline before returning.
+extern "C" fn std_io_input(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        if let Some(prompt) = read_spectra_string(args[0]) {
+            let mut stdout = io::stdout();
+            let _ = write!(stdout, "{}", prompt);
+            let _ = stdout.flush();
+        }
+        let mut line = String::new();
+        if io::stdin().lock().read_line(&mut line).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        let ptr = alloc_spectra_string(&line);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ptr;
     }
     HOST_STATUS_SUCCESS
 }

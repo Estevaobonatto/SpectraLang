@@ -18,6 +18,8 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.env".to_string(), make_std_env());
     registry.register_module("std.option".to_string(), make_std_option());
     registry.register_module("std.result".to_string(), make_std_result());
+    registry.register_module("std.char".to_string(), make_std_char());
+    registry.register_module("std.time".to_string(), make_std_time());
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
@@ -29,6 +31,8 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.env".to_string(), make_std_env());
     registry.register_module("spectra.std.option".to_string(), make_std_option());
     registry.register_module("spectra.std.result".to_string(), make_std_result());
+    registry.register_module("spectra.std.char".to_string(), make_std_char());
+    registry.register_module("spectra.std.time".to_string(), make_std_time());
 }
 
 fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
@@ -59,6 +63,8 @@ fn make_std_io() -> ModuleExports {
     exports.functions.insert("flush".to_string(), pub_fn(vec![], Type::Unit));
     // read_line() -> string
     exports.functions.insert("read_line".to_string(), pub_fn(vec![], Type::String));
+    // input(prompt: string) -> string  (prints prompt, flushes, reads line)
+    exports.functions.insert("input".to_string(), pub_fn(vec![Type::String], Type::String));
 
     exports
 }
@@ -88,6 +94,18 @@ fn make_std_math() -> ModuleExports {
     exports.functions.insert("atan2_f".to_string(), pub_fn(vec![Type::Float, Type::Float], Type::Float));
     exports.functions.insert("pi".to_string(), pub_fn(vec![], Type::Float));
     exports.functions.insert("e_const".to_string(), pub_fn(vec![], Type::Float));
+    // sign(n: int) -> int — returns -1, 0, or 1
+    exports.functions.insert("sign".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // gcd(a: int, b: int) -> int
+    exports.functions.insert("gcd".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
+    // lcm(a: int, b: int) -> int
+    exports.functions.insert("lcm".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
+    // is_nan_f(x: float) -> bool
+    exports.functions.insert("is_nan_f".to_string(), pub_fn(vec![Type::Float], Type::Bool));
+    // is_infinite_f(x: float) -> bool
+    exports.functions.insert("is_infinite_f".to_string(), pub_fn(vec![Type::Float], Type::Bool));
+    // abs_f(x: float) -> float
+    exports.functions.insert("abs_f".to_string(), pub_fn(vec![Type::Float], Type::Float));
 
     exports
 }
@@ -181,6 +199,14 @@ fn make_std_string() -> ModuleExports {
     exports.functions.insert("is_empty".to_string(), pub_fn(vec![Type::String], Type::Bool));
     // count_occurrences(s: string, sub: string) -> int
     exports.functions.insert("count_occurrences".to_string(), pub_fn(vec![Type::String, Type::String], Type::Int));
+    // split_by(s: string, sep: string) -> int  (returns list handle; each element is a string pointer)
+    exports.functions.insert("split_by".to_string(), pub_fn(vec![Type::String, Type::String], Type::Int));
+    // pad_left(s: string, width: int, pad_char: int) -> string
+    exports.functions.insert("pad_left".to_string(), pub_fn(vec![Type::String, Type::Int, Type::Int], Type::String));
+    // pad_right(s: string, width: int, pad_char: int) -> string
+    exports.functions.insert("pad_right".to_string(), pub_fn(vec![Type::String, Type::Int, Type::Int], Type::String));
+    // reverse_str(s: string) -> string
+    exports.functions.insert("reverse_str".to_string(), pub_fn(vec![Type::String], Type::String));
 
     exports
 }
@@ -313,6 +339,51 @@ fn make_std_result() -> ModuleExports {
     exports.functions.insert("result_unwrap_or".to_string(), pub_fn(vec![Type::Unknown, Type::Unknown], Type::Unknown));
     // result_unwrap_err(res: unknown) -> unknown  (panics on Ok)
     exports.functions.insert("result_unwrap_err".to_string(), pub_fn(vec![Type::Unknown], Type::Unknown));
+
+    exports
+}
+
+fn make_std_char() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "char".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    // All functions take an int (Unicode code point) and return bool or int.
+    // is_alpha(c: int) -> bool
+    exports.functions.insert("is_alpha".to_string(), pub_fn(vec![Type::Int], Type::Bool));
+    // is_digit_char(c: int) -> bool
+    exports.functions.insert("is_digit_char".to_string(), pub_fn(vec![Type::Int], Type::Bool));
+    // is_whitespace_char(c: int) -> bool
+    exports.functions.insert("is_whitespace_char".to_string(), pub_fn(vec![Type::Int], Type::Bool));
+    // is_upper_char(c: int) -> bool
+    exports.functions.insert("is_upper_char".to_string(), pub_fn(vec![Type::Int], Type::Bool));
+    // is_lower_char(c: int) -> bool
+    exports.functions.insert("is_lower_char".to_string(), pub_fn(vec![Type::Int], Type::Bool));
+    // to_upper_char(c: int) -> int  (returns uppercased code point)
+    exports.functions.insert("to_upper_char".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // to_lower_char(c: int) -> int  (returns lowercased code point)
+    exports.functions.insert("to_lower_char".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // is_alphanumeric(c: int) -> bool
+    exports.functions.insert("is_alphanumeric".to_string(), pub_fn(vec![Type::Int], Type::Bool));
+
+    exports
+}
+
+fn make_std_time() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "time".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    // time_now_millis() -> int  (milliseconds since Unix epoch; -1 on error)
+    exports.functions.insert("time_now_millis".to_string(), pub_fn(vec![], Type::Int));
+    // time_now_secs() -> int  (seconds since Unix epoch; -1 on error)
+    exports.functions.insert("time_now_secs".to_string(), pub_fn(vec![], Type::Int));
+    // sleep_ms(ms: int) -> unit  (sleeps for ms milliseconds)
+    exports.functions.insert("sleep_ms".to_string(), pub_fn(vec![Type::Int], Type::Unit));
 
     exports
 }
