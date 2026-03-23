@@ -96,6 +96,38 @@ const LIST_CONTAINS: &str = "spectra.std.collections.list_contains";
 const LIST_CLEAR: &str = "spectra.std.collections.list_clear";
 const LIST_FREE: &str = "spectra.std.collections.list_free";
 const LIST_FREE_ALL: &str = "spectra.std.collections.list_free_all";
+const LIST_POP: &str = "spectra.std.collections.list_pop";
+const LIST_POP_FRONT: &str = "spectra.std.collections.list_pop_front";
+const LIST_INSERT_AT: &str = "spectra.std.collections.list_insert_at";
+const LIST_REMOVE_AT: &str = "spectra.std.collections.list_remove_at";
+const LIST_INDEX_OF: &str = "spectra.std.collections.list_index_of";
+const LIST_SORT: &str = "spectra.std.collections.list_sort";
+
+// ── std.fs ───────────────────────────────────────────────────────────────────
+const FS_READ: &str = "spectra.std.fs.fs_read";
+const FS_WRITE: &str = "spectra.std.fs.fs_write";
+const FS_APPEND: &str = "spectra.std.fs.fs_append";
+const FS_EXISTS: &str = "spectra.std.fs.fs_exists";
+const FS_REMOVE: &str = "spectra.std.fs.fs_remove";
+
+// ── std.env ──────────────────────────────────────────────────────────────────
+const ENV_GET: &str = "spectra.std.env.env_get";
+const ENV_SET: &str = "spectra.std.env.env_set";
+const ENV_ARGS_COUNT: &str = "spectra.std.env.env_args_count";
+const ENV_ARG: &str = "spectra.std.env.env_arg";
+
+// ── std.option ───────────────────────────────────────────────────────────────
+const OPTION_IS_SOME: &str = "spectra.std.option.is_some";
+const OPTION_IS_NONE: &str = "spectra.std.option.is_none";
+const OPTION_UNWRAP: &str = "spectra.std.option.option_unwrap";
+const OPTION_UNWRAP_OR: &str = "spectra.std.option.option_unwrap_or";
+
+// ── std.result ───────────────────────────────────────────────────────────────
+const RESULT_IS_OK: &str = "spectra.std.result.is_ok";
+const RESULT_IS_ERR: &str = "spectra.std.result.is_err";
+const RESULT_UNWRAP: &str = "spectra.std.result.result_unwrap";
+const RESULT_UNWRAP_OR: &str = "spectra.std.result.result_unwrap_or";
+const RESULT_UNWRAP_ERR: &str = "spectra.std.result.result_unwrap_err";
 
 /// Registers the standard library host functions.
 pub fn register() {
@@ -105,6 +137,10 @@ pub fn register() {
     register_string();
     register_convert();
     register_random();
+    register_fs();
+    register_env();
+    register_option();
+    register_result();
 }
 
 fn register_math() {
@@ -147,6 +183,42 @@ fn register_collections() {
     register_host_function(LIST_CLEAR, std_list_clear);
     register_host_function(LIST_FREE, std_list_free);
     register_host_function(LIST_FREE_ALL, std_list_free_all);
+    register_host_function(LIST_POP, std_list_pop);
+    register_host_function(LIST_POP_FRONT, std_list_pop_front);
+    register_host_function(LIST_INSERT_AT, std_list_insert_at);
+    register_host_function(LIST_REMOVE_AT, std_list_remove_at);
+    register_host_function(LIST_INDEX_OF, std_list_index_of);
+    register_host_function(LIST_SORT, std_list_sort);
+}
+
+fn register_fs() {
+    register_host_function(FS_READ, std_fs_read);
+    register_host_function(FS_WRITE, std_fs_write);
+    register_host_function(FS_APPEND, std_fs_append);
+    register_host_function(FS_EXISTS, std_fs_exists);
+    register_host_function(FS_REMOVE, std_fs_remove);
+}
+
+fn register_env() {
+    register_host_function(ENV_GET, std_env_get);
+    register_host_function(ENV_SET, std_env_set);
+    register_host_function(ENV_ARGS_COUNT, std_env_args_count);
+    register_host_function(ENV_ARG, std_env_arg);
+}
+
+fn register_option() {
+    register_host_function(OPTION_IS_SOME, std_option_is_some);
+    register_host_function(OPTION_IS_NONE, std_option_is_none);
+    register_host_function(OPTION_UNWRAP, std_option_unwrap);
+    register_host_function(OPTION_UNWRAP_OR, std_option_unwrap_or);
+}
+
+fn register_result() {
+    register_host_function(RESULT_IS_OK, std_result_is_ok);
+    register_host_function(RESULT_IS_ERR, std_result_is_err);
+    register_host_function(RESULT_UNWRAP, std_result_unwrap);
+    register_host_function(RESULT_UNWRAP_OR, std_result_unwrap_or);
+    register_host_function(RESULT_UNWRAP_ERR, std_result_unwrap_err);
 }
 
 extern "C" fn std_math_abs(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -1037,6 +1109,54 @@ impl ListRegistry {
         self.next_id = 1;
         count
     }
+
+    fn pop(&mut self, handle: usize) -> SpectraHostValue {
+        match self.lists.get_mut(&handle) {
+            Some(list) => list.data.pop().unwrap_or(-1),
+            None => -1,
+        }
+    }
+
+    fn pop_front(&mut self, handle: usize) -> SpectraHostValue {
+        match self.lists.get_mut(&handle) {
+            Some(list) if !list.data.is_empty() => list.data.remove(0),
+            _ => -1,
+        }
+    }
+
+    fn insert_at(&mut self, handle: usize, index: i64, value: SpectraHostValue) {
+        if let Some(list) = self.lists.get_mut(&handle) {
+            let idx = index.clamp(0, list.data.len() as i64) as usize;
+            list.data.insert(idx, value);
+        }
+    }
+
+    fn remove_at(&mut self, handle: usize, index: i64) -> SpectraHostValue {
+        if let Some(list) = self.lists.get_mut(&handle) {
+            if index >= 0 && (index as usize) < list.data.len() {
+                return list.data.remove(index as usize);
+            }
+        }
+        -1
+    }
+
+    fn index_of(&self, handle: usize, value: SpectraHostValue) -> SpectraHostValue {
+        match self.lists.get(&handle) {
+            Some(list) => list
+                .data
+                .iter()
+                .position(|&v| v == value)
+                .map(|i| i as i64)
+                .unwrap_or(-1),
+            None => -1,
+        }
+    }
+
+    fn sort_asc(&mut self, handle: usize) {
+        if let Some(list) = self.lists.get_mut(&handle) {
+            list.data.sort();
+        }
+    }
 }
 
 // ── std.collections extras ──────────────────────────────────────────────────
@@ -1103,6 +1223,134 @@ extern "C" fn std_list_contains(ctx: *mut SpectraHostCallContext) -> i32 {
         let found = with_list_registry(|registry| registry.contains(handle, value));
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = found as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_pop(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let val = with_list_registry(|registry| registry.pop(handle));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = val;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_pop_front(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let val = with_list_registry(|registry| registry.pop_front(handle));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = val;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_insert_at(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let index = args[1];
+        let value = args[2];
+        with_list_registry(|registry| registry.insert_at(handle, index, value));
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_remove_at(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let index = args[1];
+        let val = with_list_registry(|registry| registry.remove_at(handle, index));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = val;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_index_of(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let value = args[1];
+        let idx = with_list_registry(|registry| registry.index_of(handle, value));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = idx;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_sort(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        with_list_registry(|registry| registry.sort_asc(handle));
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
     }
     HOST_STATUS_SUCCESS
 }
@@ -1958,6 +2206,427 @@ extern "C" fn std_random_bool(ctx: *mut SpectraHostCallContext) -> i32 {
         let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = (rand & 1) as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.fs host functions ────────────────────────────────────────────────────
+
+extern "C" fn std_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match read_spectra_string(args[0]) {
+            Some(p) => p,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = alloc_spectra_string(&content);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match read_spectra_string(args[0]) {
+            Some(p) => p,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let content = read_spectra_string(args[1]).unwrap_or_default();
+        let ok = std::fs::write(&path, content.as_bytes()).is_ok();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ok as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match read_spectra_string(args[0]) {
+            Some(p) => p,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let content = read_spectra_string(args[1]).unwrap_or_default();
+        use std::io::Write as _;
+        let ok = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&path)
+            .and_then(|mut f| f.write_all(content.as_bytes()))
+            .is_ok();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ok as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match read_spectra_string(args[0]) {
+            Some(p) => p,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let exists = std::path::Path::new(&path).exists();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = exists as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_fs_remove(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match read_spectra_string(args[0]) {
+            Some(p) => p,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let ok = std::fs::remove_file(&path).is_ok();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ok as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.env host functions ───────────────────────────────────────────────────
+
+extern "C" fn std_env_get(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let key = match read_spectra_string(args[0]) {
+            Some(k) => k,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let value = std::env::var(&key).unwrap_or_default();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = alloc_spectra_string(&value);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_env_set(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let key = match read_spectra_string(args[0]) {
+            Some(k) => k,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let value = read_spectra_string(args[1]).unwrap_or_default();
+        std::env::set_var(&key, &value);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = 1;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_env_args_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let count = std::env::args().count() as i64;
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = count;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_env_arg(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let index = args[0] as usize;
+        let arg = std::env::args().nth(index).unwrap_or_default();
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = alloc_spectra_string(&arg);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.option host functions ────────────────────────────────────────────────
+// Option layout in heap: ptr[0] = tag (0=Some, 1=None), ptr[1] = payload
+
+extern "C" fn std_option_is_some(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        let tag = if ptr.is_null() { 1i64 } else { *ptr };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = (tag == 0) as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_option_is_none(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        let tag = if ptr.is_null() { 1i64 } else { *ptr };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = (tag != 0) as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_option_unwrap(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        if ptr.is_null() || *ptr != 0 {
+            panic!("option_unwrap called on None");
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = *ptr.add(1);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_option_unwrap_or(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        let default_val = args[1];
+        let tag = if ptr.is_null() { 1i64 } else { *ptr };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = if tag == 0 { *ptr.add(1) } else { default_val };
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.result host functions ────────────────────────────────────────────────
+// Result layout in heap: ptr[0] = tag (0=Ok, 1=Err), ptr[1] = payload
+
+extern "C" fn std_result_is_ok(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        let tag = if ptr.is_null() { 1i64 } else { *ptr };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = (tag == 0) as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_result_is_err(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        let tag = if ptr.is_null() { 1i64 } else { *ptr };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = (tag != 0) as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_result_unwrap(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        if ptr.is_null() || *ptr != 0 {
+            panic!("result_unwrap called on Err");
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = *ptr.add(1);
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_result_unwrap_or(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        let default_val = args[1];
+        let tag = if ptr.is_null() { 1i64 } else { *ptr };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = if tag == 0 { *ptr.add(1) } else { default_val };
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_result_unwrap_err(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = args[0] as *const i64;
+        if ptr.is_null() || *ptr == 0 {
+            panic!("result_unwrap_err called on Ok");
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = *ptr.add(1);
     }
     HOST_STATUS_SUCCESS
 }

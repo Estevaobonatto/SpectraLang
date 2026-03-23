@@ -4890,6 +4890,131 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            // ── std.collections extras ────────────────────────────────────
+            ("collections", "list_pop") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_pop",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_pop_front") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_pop_front",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_insert_at") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_insert_at",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("collections", "list_remove_at") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_remove_at",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_index_of") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_index_of",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_sort") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_sort",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            // ── std.fs ────────────────────────────────────────────────────
+            ("fs", "fs_read") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.fs.fs_read",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("fs", "fs_write") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.fs.fs_write",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("fs", "fs_append") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.fs.fs_append",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("fs", "fs_exists") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.fs.fs_exists",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("fs", "fs_remove") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.fs.fs_remove",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            // ── std.env ───────────────────────────────────────────────────
+            ("env", "env_get") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.env.env_get",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("env", "env_set") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.env.env_set",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("env", "env_args_count") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.env.env_args_count",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("env", "env_arg") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.env.env_arg",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            // ── std.option ────────────────────────────────────────────────
+            ("option", "is_some") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.option.is_some",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("option", "is_none") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.option.is_none",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("option", "option_unwrap") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.option.option_unwrap",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("option", "option_unwrap_or") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.option.option_unwrap_or",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            // ── std.result ────────────────────────────────────────────────
+            ("result", "is_ok") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.is_ok",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("result", "is_err") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.is_err",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("result", "result_unwrap") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.result_unwrap",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("result", "result_unwrap_or") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.result_unwrap_or",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("result", "result_unwrap_err") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.result_unwrap_err",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             _ => None,
         },
         _ => None,

@@ -14,6 +14,10 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.string".to_string(), make_std_string());
     registry.register_module("std.convert".to_string(), make_std_convert());
     registry.register_module("std.random".to_string(), make_std_random());
+    registry.register_module("std.fs".to_string(), make_std_fs());
+    registry.register_module("std.env".to_string(), make_std_env());
+    registry.register_module("std.option".to_string(), make_std_option());
+    registry.register_module("std.result".to_string(), make_std_result());
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
@@ -21,6 +25,10 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.string".to_string(), make_std_string());
     registry.register_module("spectra.std.convert".to_string(), make_std_convert());
     registry.register_module("spectra.std.random".to_string(), make_std_random());
+    registry.register_module("spectra.std.fs".to_string(), make_std_fs());
+    registry.register_module("spectra.std.env".to_string(), make_std_env());
+    registry.register_module("spectra.std.option".to_string(), make_std_option());
+    registry.register_module("spectra.std.result".to_string(), make_std_result());
 }
 
 fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
@@ -109,6 +117,18 @@ fn make_std_collections() -> ModuleExports {
     exports.functions.insert("list_free".to_string(), pub_fn(vec![Type::Int], Type::Unit));
     // list_free_all() -> int
     exports.functions.insert("list_free_all".to_string(), pub_fn(vec![], Type::Int));
+    // list_pop(handle: int) -> int  (returns popped value; -1 if empty)
+    exports.functions.insert("list_pop".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // list_pop_front(handle: int) -> int  (returns removed front value; -1 if empty)
+    exports.functions.insert("list_pop_front".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // list_insert_at(handle: int, index: int, value: int) -> unit
+    exports.functions.insert("list_insert_at".to_string(), pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Unit));
+    // list_remove_at(handle: int, index: int) -> int  (returns removed value; -1 if out of bounds)
+    exports.functions.insert("list_remove_at".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
+    // list_index_of(handle: int, value: int) -> int  (-1 if not found)
+    exports.functions.insert("list_index_of".to_string(), pub_fn(vec![Type::Int, Type::Int], Type::Int));
+    // list_sort(handle: int) -> unit  (sorts ascending in place)
+    exports.functions.insert("list_sort".to_string(), pub_fn(vec![Type::Int], Type::Unit));
 
     // type aliases
     exports.types.insert("List".to_string(), ExportedType {
@@ -213,6 +233,86 @@ fn make_std_random() -> ModuleExports {
     exports.functions.insert("random_float".to_string(), pub_fn(vec![], Type::Float));
     // random_bool() -> bool
     exports.functions.insert("random_bool".to_string(), pub_fn(vec![], Type::Bool));
+
+    exports
+}
+
+fn make_std_fs() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "fs".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    // fs_read(path: string) -> string  (reads entire file; returns "" on error)
+    exports.functions.insert("fs_read".to_string(), pub_fn(vec![Type::String], Type::String));
+    // fs_write(path: string, content: string) -> bool
+    exports.functions.insert("fs_write".to_string(), pub_fn(vec![Type::String, Type::String], Type::Bool));
+    // fs_append(path: string, content: string) -> bool
+    exports.functions.insert("fs_append".to_string(), pub_fn(vec![Type::String, Type::String], Type::Bool));
+    // fs_exists(path: string) -> bool
+    exports.functions.insert("fs_exists".to_string(), pub_fn(vec![Type::String], Type::Bool));
+    // fs_remove(path: string) -> bool
+    exports.functions.insert("fs_remove".to_string(), pub_fn(vec![Type::String], Type::Bool));
+
+    exports
+}
+
+fn make_std_env() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "env".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    // env_get(key: string) -> string  (returns "" if not set)
+    exports.functions.insert("env_get".to_string(), pub_fn(vec![Type::String], Type::String));
+    // env_set(key: string, value: string) -> bool
+    exports.functions.insert("env_set".to_string(), pub_fn(vec![Type::String, Type::String], Type::Bool));
+    // env_args_count() -> int
+    exports.functions.insert("env_args_count".to_string(), pub_fn(vec![], Type::Int));
+    // env_arg(index: int) -> string  (returns "" if out of bounds)
+    exports.functions.insert("env_arg".to_string(), pub_fn(vec![Type::Int], Type::String));
+
+    exports
+}
+
+fn make_std_option() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "option".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    // is_some(opt: unknown) -> bool
+    exports.functions.insert("is_some".to_string(), pub_fn(vec![Type::Unknown], Type::Bool));
+    // is_none(opt: unknown) -> bool
+    exports.functions.insert("is_none".to_string(), pub_fn(vec![Type::Unknown], Type::Bool));
+    // option_unwrap(opt: unknown) -> unknown  (panics on None)
+    exports.functions.insert("option_unwrap".to_string(), pub_fn(vec![Type::Unknown], Type::Unknown));
+    // option_unwrap_or(opt: unknown, default: unknown) -> unknown
+    exports.functions.insert("option_unwrap_or".to_string(), pub_fn(vec![Type::Unknown, Type::Unknown], Type::Unknown));
+
+    exports
+}
+
+fn make_std_result() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "result".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    // is_ok(res: unknown) -> bool
+    exports.functions.insert("is_ok".to_string(), pub_fn(vec![Type::Unknown], Type::Bool));
+    // is_err(res: unknown) -> bool
+    exports.functions.insert("is_err".to_string(), pub_fn(vec![Type::Unknown], Type::Bool));
+    // result_unwrap(res: unknown) -> unknown  (panics on Err)
+    exports.functions.insert("result_unwrap".to_string(), pub_fn(vec![Type::Unknown], Type::Unknown));
+    // result_unwrap_or(res: unknown, default: unknown) -> unknown
+    exports.functions.insert("result_unwrap_or".to_string(), pub_fn(vec![Type::Unknown, Type::Unknown], Type::Unknown));
+    // result_unwrap_err(res: unknown) -> unknown  (panics on Ok)
+    exports.functions.insert("result_unwrap_err".to_string(), pub_fn(vec![Type::Unknown], Type::Unknown));
 
     exports
 }
