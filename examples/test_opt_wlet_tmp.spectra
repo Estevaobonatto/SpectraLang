@@ -1,0 +1,14 @@
+module test_opt_wlet;
+
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 { return Option::Some(x); }
+    return Option::None;
+}
+
+fn main() -> int {
+    let counter = 3;
+    while let Option::Some(n) = find_positive(counter) {
+        counter = counter - 1;
+    }
+    return 0;
+}

@@ -176,6 +176,11 @@ pub enum TypeAnnotationKind {
         params: Vec<TypeAnnotation>,
         return_type: Box<TypeAnnotation>,
     },
+    /// Generic type application: Option<int>, Result<int, string>
+    Generic {
+        name: String,
+        type_args: Vec<TypeAnnotation>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -189,6 +189,9 @@ pub struct SemanticAnalyzer {
     current_package: Option<String>,
     // Track resolutions of symbols to their definitions to support ide features like Hover and GoToDef
     pub symbol_resolutions: HashMap<Span, SymbolInfo>,
+    // Module namespace prefixes registered via imports (e.g. "std", "std.string")
+    // so that qualified stdlib calls like `std.string.len(x)` are accepted.
+    module_namespaces: HashSet<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +262,7 @@ impl SemanticAnalyzer {
         registry: Arc<RwLock<ModuleRegistry>>,
         package_name: Option<String>,
     ) -> Self {
-        Self {
+        let mut analyzer = Self {
             errors: Vec::new(),
             symbols: vec![HashMap::new()], // Start with global scope
             functions: HashMap::new(),
@@ -281,6 +284,100 @@ impl SemanticAnalyzer {
             registry,
             current_package: package_name,
             symbol_resolutions: HashMap::new(),
+            module_namespaces: HashSet::new(),
+        };
+        analyzer.register_builtin_generic_types();
+        analyzer
+    }
+
+    /// Pre-register built-in generic types (`Option<T>`, `Result<T, E>`) so any
+    /// module can use them without declaring them locally.
+    fn register_builtin_generic_types(&mut self) {
+        use crate::ast::{TypeAnnotation, TypeAnnotationKind, TypeParameter};
+
+        let dummy = Span::dummy();
+
+        let make_type_param = |name: &str| TypeParameter {
+            name: name.to_string(),
+            bounds: vec![],
+            span: dummy,
+        };
+
+        let simple_type_ann = |name: &str| TypeAnnotation {
+            kind: TypeAnnotationKind::Simple {
+                segments: vec![name.to_string()],
+            },
+            span: dummy,
+        };
+
+        // ── Option<T> ──────────────────────────────────────────────────────────
+        {
+            let type_params = vec![make_type_param("T")];
+            let variant_names = vec!["Some".to_string(), "None".to_string()];
+
+            self.generic_enums
+                .insert("Option".to_string(), (type_params, variant_names.clone()));
+            self.enum_definitions
+                .insert("Option".to_string(), variant_names);
+
+            let mut variants_map = HashMap::new();
+            variants_map.insert(
+                "None".to_string(),
+                EnumVariantInfo { data: None, struct_data: None, span: dummy },
+            );
+            variants_map.insert(
+                "Some".to_string(),
+                EnumVariantInfo {
+                    data: Some(vec![simple_type_ann("T")]),
+                    struct_data: None,
+                    span: dummy,
+                },
+            );
+            self.enum_infos.insert(
+                "Option".to_string(),
+                EnumInfo {
+                    visibility: Visibility::Public,
+                    type_params: vec!["T".to_string()],
+                    variants: variants_map,
+                },
+            );
+        }
+
+        // ── Result<T, E> ───────────────────────────────────────────────────────
+        {
+            let type_params = vec![make_type_param("T"), make_type_param("E")];
+            let variant_names = vec!["Ok".to_string(), "Err".to_string()];
+
+            self.generic_enums
+                .insert("Result".to_string(), (type_params, variant_names.clone()));
+            self.enum_definitions
+                .insert("Result".to_string(), variant_names);
+
+            let mut variants_map = HashMap::new();
+            variants_map.insert(
+                "Ok".to_string(),
+                EnumVariantInfo {
+                    data: Some(vec![simple_type_ann("T")]),
+                    struct_data: None,
+                    span: dummy,
+                },
+            );
+            variants_map.insert(
+                "Err".to_string(),
+                EnumVariantInfo {
+                    data: Some(vec![simple_type_ann("E")]),
+                    struct_data: None,
+                    span: dummy,
+                },
+            );
+            self.enum_infos.insert(
+                "Result".to_string(),
+                EnumInfo {
+                    visibility: Visibility::Public,
+                    type_params: vec!["T".to_string(), "E".to_string()],
+                    variants: variants_map,
+                },
+            );
         }
     }
 
@@ -626,6 +723,9 @@ impl SemanticAnalyzer {
             TypeAnnotationKind::Function { .. } => {
                 TypeAnnotationPattern::Simple(vec!["fn".to_string()])
             }
+            TypeAnnotationKind::Generic { name, .. } => {
+                TypeAnnotationPattern::Simple(vec![name.clone()])
+            }
         }
     }
 
@@ -811,6 +911,12 @@ impl SemanticAnalyzer {
                     self.validate_public_type_annotation(param, generics, context, span);
                 }
                 self.validate_public_type_annotation(return_type, generics, context, span);
+            }
+            TypeAnnotationKind::Generic { name, type_args } => {
+                let _ = name;
+                for arg in type_args {
+                    self.validate_public_type_annotation(arg, generics, context, span);
+                }
             }
         }
     }
@@ -1127,6 +1233,15 @@ impl SemanticAnalyzer {
                     }
                 }
                 Item::Enum(enum_def) => {
+                    // Skip redefinition of built-in generic enums (Option, Result).
+                    // User code from the Alpha/early-Beta era declares these locally;
+                    // we silently preserve the canonical built-in definitions.
+                    if self.enum_infos.contains_key(&enum_def.name)
+                        && matches!(enum_def.name.as_str(), "Option" | "Result")
+                    {
+                        continue;
+                    }
+
                     let variant_type_params: Vec<String> = enum_def
                         .type_params
                         .iter()
@@ -1287,6 +1402,16 @@ impl SemanticAnalyzer {
         };
 
         let stdlib_path_prefix = exports.stdlib_path.clone();
+
+        // Register all prefix segments of the module path as known namespaces
+        // so that qualified calls like `std.string.len(x)` don't trigger
+        // "Undefined variable 'std'" errors.
+        {
+            let segments: Vec<&str> = module_path.split('.').collect();
+            for i in 0..segments.len() {
+                self.module_namespaces.insert(segments[..=i].join("."));
+            }
+        }
 
         // Determine which names to bring into scope.
         let names_to_import: Vec<String> = if let Some(named) = &import.names {
@@ -2538,18 +2663,27 @@ impl SemanticAnalyzer {
                     };
                     self.symbol_resolutions.insert(expr.span, info);
                 } else {
-                    let hint = self.suggest_name(name);
-                    if let Some(hint) = hint {
-                        self.error_with_hint(
-                            format!("Undefined variable or function '{}'", name),
-                            expr.span,
-                            hint,
-                        );
+                    if self.module_namespaces.contains(name.as_str()) {
+                        // Valid module namespace identifier (e.g. "std" in std.string.len)
+                        self.symbol_resolutions.insert(expr.span, SymbolInfo {
+                            is_local: false,
+                            def_span: None,
+                            ty: Type::Unknown,
+                        });
                     } else {
-                        self.error(
-                            format!("Undefined variable or function '{}'", name),
-                            expr.span,
-                        );
+                        let hint = self.suggest_name(name);
+                        if let Some(hint) = hint {
+                            self.error_with_hint(
+                                format!("Undefined variable or function '{}'", name),
+                                expr.span,
+                                hint,
+                            );
+                        } else {
+                            self.error(
+                                format!("Undefined variable or function '{}'", name),
+                                expr.span,
+                            );
+                        }
                     }
                 }
             }
@@ -4774,6 +4908,11 @@ impl SemanticAnalyzer {
                 }
             }
             TypeAnnotationKind::Function { .. } => {}
+            TypeAnnotationKind::Generic { name, type_args } => {
+                // Unify type args if the concrete type is a matching enum
+                // For now, just record the base name as a simple mapping
+                let _ = (name, type_args);
+            }
         }
     }
 

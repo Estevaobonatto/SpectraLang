@@ -644,6 +644,11 @@ impl CodeGenerator {
                             types::I8 | types::I16 | types::I32 => {
                                 builder.ins().sextend(types::I64, value)
                             }
+                            types::F64 => {
+                                // Reinterpret float bits as i64 so the runtime
+                                // can receive and convert them.
+                                builder.ins().bitcast(types::I64, MemFlags::new(), value)
+                            }
                             other => {
                                 return Err(format!(
                                     "Unsupported host call argument type {:?}",

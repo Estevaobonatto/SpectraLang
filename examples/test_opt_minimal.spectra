@@ -1,0 +1,16 @@
+module test_opt_minimal;
+
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 {
+        return Option::Some(x);
+    }
+    return Option::None;
+}
+
+fn main() -> int {
+    let maybe = find_positive(42);
+    if let Option::Some(value) = maybe {
+        let doubled = value * 2;
+    }
+    return 0;
+}

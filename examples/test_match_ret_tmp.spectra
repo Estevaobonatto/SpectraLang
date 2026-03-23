@@ -1,0 +1,18 @@
+module test_match_ret;
+
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 { return Option::Some(x); }
+    return Option::None;
+}
+
+fn do_match(x: int) -> int {
+    let r = find_positive(x);
+    match r {
+        Option::Some(n) => n,
+        Option::None => -1
+    }
+}
+
+fn main() -> int {
+    do_match(4)
+}

@@ -6,10 +6,10 @@ use crate::ir::{
     Function as IRFunction, Module as IRModule, Parameter, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
-    BinaryOperator, Block, Enum as ASTEnum, Expression, ExpressionKind, FStringPart,
+    BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
     Function as ASTFunction, IfLetStatement, Item, Module as ASTModule, Statement, StatementKind,
-    Struct as ASTStruct, Type as ASTType, TypeAnnotation, TypeAnnotationKind, UnaryOperator,
-    WhileLetStatement,
+    Struct as ASTStruct, Type as ASTType, TypeAnnotation, TypeAnnotationKind, TypeParameter,
+    UnaryOperator, Visibility, WhileLetStatement,
 };
 use spectra_compiler::span::Span;
 use std::collections::HashMap;
@@ -291,11 +291,15 @@ pub struct ASTLowering {
     /// Maps variable names that hold closures to their generated function names.
     /// e.g. "double" → "__lambda_0"
     closure_var_map: HashMap<String, String>,
+    /// Return type annotation of the function currently being lowered.
+    /// Used to resolve Generic enum type args when they can't be fully inferred from
+    /// the construction expression (e.g., Result::Ok(x) in a fn -> Result<int, string>).
+    current_function_return_annotation: Option<TypeAnnotation>,
 }
 
 impl ASTLowering {
     pub fn new() -> Self {
-        Self {
+        let mut lowering = Self {
             builder: IRBuilder::new(),
             current_function: None,
             value_map: ScopeStack::new(),
@@ -319,7 +323,75 @@ impl ASTLowering {
             lambda_counter: 0,
             pending_lambdas: Vec::new(),
             closure_var_map: HashMap::new(),
-        }
+            current_function_return_annotation: None,
+        };
+        lowering.register_builtin_generic_enums();
+        lowering
+    }
+
+    /// Pre-register `Option<T>` and `Result<T, E>` as built-in generic enums so
+    /// that user code doesn't need to declare them.
+    fn register_builtin_generic_enums(&mut self) {
+        let dummy = Span::dummy();
+
+        let make_type_param = |name: &str| TypeParameter {
+            name: name.to_string(),
+            bounds: vec![],
+            span: dummy,
+        };
+
+        let simple_type_ann = |name: &str| TypeAnnotation {
+            kind: TypeAnnotationKind::Simple {
+                segments: vec![name.to_string()],
+            },
+            span: dummy,
+        };
+
+        // ── Option<T> ──────────────────────────────────────────────────────────
+        let option_enum = ASTEnum {
+            name: "Option".to_string(),
+            span: dummy,
+            visibility: Visibility::Public,
+            type_params: vec![make_type_param("T")],
+            variants: vec![
+                EnumVariant {
+                    name: "None".to_string(),
+                    span: dummy,
+                    data: None,
+                    struct_data: None,
+                },
+                EnumVariant {
+                    name: "Some".to_string(),
+                    span: dummy,
+                    data: Some(vec![simple_type_ann("T")]),
+                    struct_data: None,
+                },
+            ],
+        };
+        self.generic_enums.insert("Option".to_string(), option_enum);
+
+        // ── Result<T, E> ───────────────────────────────────────────────────────
+        let result_enum = ASTEnum {
+            name: "Result".to_string(),
+            span: dummy,
+            visibility: Visibility::Public,
+            type_params: vec![make_type_param("T"), make_type_param("E")],
+            variants: vec![
+                EnumVariant {
+                    name: "Ok".to_string(),
+                    span: dummy,
+                    data: Some(vec![simple_type_ann("T")]),
+                    struct_data: None,
+                },
+                EnumVariant {
+                    name: "Err".to_string(),
+                    span: dummy,
+                    data: Some(vec![simple_type_ann("E")]),
+                    struct_data: None,
+                },
+            ],
+        };
+        self.generic_enums.insert("Result".to_string(), result_enum);
     }
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
@@ -368,6 +440,12 @@ impl ASTLowering {
             } else if let Item::Enum(enum_def) = item {
                 // Check if this is a generic enum
                 if !enum_def.type_params.is_empty() {
+                    // Skip redefinition of built-in generic enums (Option, Result).
+                    if self.generic_enums.contains_key(&enum_def.name)
+                        && matches!(enum_def.name.as_str(), "Option" | "Result")
+                    {
+                        continue;
+                    }
                     // Store generic enum for later monomorphization
                     self.generic_enums
                         .insert(enum_def.name.clone(), enum_def.clone());
@@ -613,6 +691,11 @@ impl ASTLowering {
                     self.substitute_type_in_annotation(param, type_map);
                 }
                 self.substitute_type_in_annotation(return_type, type_map);
+            }
+            TypeAnnotationKind::Generic { name: _, type_args } => {
+                for arg in type_args {
+                    self.substitute_type_in_annotation(arg, type_map);
+                }
             }
         }
     }
@@ -1688,6 +1771,7 @@ impl ASTLowering {
 
         // Lower function body
         self.current_function = Some(ir_func.clone());
+        self.current_function_return_annotation = ast_func.return_type.clone();
 
         // Check if last statement is an expression (implicit return)
         let mut implicit_return_value = None;
@@ -2745,6 +2829,33 @@ impl ASTLowering {
                 return lookup_std_host_function(full_path);
             }
         }
+        // Fallback: resolve two-segment alias.function paths via std_import_aliases
+        // (e.g. `str.len` after `import std.string as str;`).
+        if path.len() == 2 {
+            let alias_key = &path[0];
+            let func_name = &path[1];
+            if let Some(full_prefix) = self.std_import_aliases.get(alias_key) {
+                // full_prefix is e.g. ["spectra","std","string","len"] for a bare import,
+                // but for alias lookup we need the module prefix (all but last segment)
+                // stored per-alias. Try building ["std", module, func].
+                // We use the stdlib_path stored in the module exports via aliases:
+                // find any alias key matching alias.func and resolve.
+                let composed_key = format!("{}.{}", alias_key, func_name);
+                if let Some(full_path2) = self.std_import_aliases.get(&composed_key) {
+                    return lookup_std_host_function(full_path2);
+                }
+                // Also try: the full_prefix ends with the bare func name, so the
+                // module prefix is full_prefix[..len-1].join and we append func_name.
+                if full_prefix.len() >= 2 {
+                    let module_prefix = &full_prefix[..full_prefix.len() - 1];
+                    let mut resolved = module_prefix.to_vec();
+                    resolved.push(func_name.clone());
+                    if let Some(desc) = lookup_std_host_function(&resolved) {
+                        return Some(desc);
+                    }
+                }
+            }
+        }
         None
     }
 
@@ -3405,10 +3516,39 @@ impl ASTLowering {
                     None
                 };
 
-                let final_args: Vec<TypeAnnotation> = if let Some(args) = inferred_args {
+                let final_args: Vec<TypeAnnotation> = if let Some(mut args) = inferred_args {
+                    // If some args are still "unknown", try to fill them from the function's
+                    // declared return type annotation (e.g., fn -> Result<int, string> means
+                    // both Result::Ok and Result::Err should use the same specialization).
+                    if args.iter().any(|a| self.type_annotation_needs_refinement(a)) {
+                        if let Some(ret_ann) = self.current_function_return_annotation.clone() {
+                            if let TypeAnnotationKind::Generic { name: ret_name, type_args: ret_args } = &ret_ann.kind {
+                                if ret_name == enum_name && ret_args.len() == args.len() {
+                                    for (arg, ret_arg) in args.iter_mut().zip(ret_args.iter()) {
+                                        if self.type_annotation_needs_refinement(arg) {
+                                            *arg = ret_arg.clone();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     args
                 } else {
-                    type_args.clone()
+                    // Check the function return annotation as the primary source of type args
+                    if let Some(ret_ann) = self.current_function_return_annotation.clone() {
+                        if let TypeAnnotationKind::Generic { name: ret_name, type_args: ret_args } = &ret_ann.kind {
+                            if ret_name == enum_name {
+                                ret_args.clone()
+                            } else {
+                                type_args.clone()
+                            }
+                        } else {
+                            type_args.clone()
+                        }
+                    } else {
+                        type_args.clone()
+                    }
                 };
 
                 let (resolved_enum_name, variants) =
@@ -3624,6 +3764,41 @@ impl ASTLowering {
                 arguments,
                 type_name,
             } => {
+                // Check if this is actually a qualified stdlib function call
+                // like `std.string.len(x)` parsed as MethodCall { object: std.string, method: "len" }
+                if let Some(mut obj_path) = self.resolve_call_path(object) {
+                    obj_path.push(method_name.clone());
+                    let desc_opt = lookup_std_host_function(&obj_path).or_else(|| {
+                        // alias.func fallback (2-segment alias path)
+                        if obj_path.len() == 2 {
+                            let alias_key = &obj_path[0];
+                            let func_name = &obj_path[1];
+                            if let Some(full_prefix) = self.std_import_aliases.get(alias_key) {
+                                if full_prefix.len() >= 2 {
+                                    let module_prefix = &full_prefix[..full_prefix.len() - 1];
+                                    let mut resolved = module_prefix.to_vec();
+                                    resolved.push(func_name.clone());
+                                    return lookup_std_host_function(&resolved);
+                                }
+                            }
+                        }
+                        None
+                    });
+                    if let Some(desc) = desc_opt {
+                        let mut call_args = Vec::new();
+                        for arg in arguments {
+                            call_args.push(self.lower_expression(arg, ir_func));
+                        }
+                        let result = self.builder.build_host_call(
+                            ir_func,
+                            desc.runtime_name.to_string(),
+                            call_args,
+                            desc.returns_value,
+                        );
+                        return result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    }
+                }
+
                 // Lower method call to function call: obj.method(args) -> Type_method(obj, args)
 
                 // 1. Lower o objeto (self será o primeiro argumento)
@@ -4047,6 +4222,63 @@ impl ASTLowering {
                     return_type: ir_return_type,
                 }
             }
+            TypeAnnotationKind::Generic { name, type_args } => {
+                // Resolve to the monomorphized enum type.
+                // First, try the already-specialized version (e.g., "Option_int").
+                let type_names: Vec<String> = type_args
+                    .iter()
+                    .map(|ty| self.type_annotation_to_string(ty))
+                    .collect();
+                let mangled = format!("{}_{}", name, type_names.join("_"));
+                if let Some(variants) = self.enum_definitions.get(&mangled) {
+                    let simplified = variants
+                        .iter()
+                        .map(|(vn, _, data)| (vn.clone(), data.clone()))
+                        .collect();
+                    return IRType::Enum {
+                        name: mangled,
+                        variants: simplified,
+                    };
+                }
+                // Specialization not yet registered — use the generic enum with substituted
+                // type args so the caller at least gets Enum { name: "Option_int", ... }.
+                // The actual specialization will be triggered by ensure_enum_definition
+                // during lowering of the call site.
+                if let Some(generic_enum) = self.generic_enums.get(name.as_str()) {
+                    let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
+                    for (param, arg) in generic_enum.type_params.iter().zip(type_args.iter()) {
+                        type_map.insert(param.name.clone(), arg.clone());
+                    }
+                    let simplified: Vec<(String, Option<Vec<IRType>>)> = generic_enum
+                        .variants
+                        .iter()
+                        .map(|v| {
+                            let data = v.data.as_ref().map(|types| {
+                                types
+                                    .iter()
+                                    .map(|ty| {
+                                        let subst = self.substitute_type(ty, &type_map);
+                                        self.lower_type_annotation_with_map(&subst, substitutions)
+                                    })
+                                    .collect()
+                            });
+                            (v.name.clone(), data)
+                        })
+                        .collect();
+                    return IRType::Enum {
+                        name: mangled,
+                        variants: simplified,
+                    };
+                }
+                // Ultimate fallback: treat as simple named type
+                self.lower_type_annotation_with_map(
+                    &TypeAnnotation {
+                        kind: TypeAnnotationKind::Simple { segments: vec![name.clone()] },
+                        span: spectra_compiler::span::Span::dummy(),
+                    },
+                    substitutions,
+                )
+            }
         }
     }
 
@@ -4134,6 +4366,13 @@ impl ASTLowering {
                 format!("tuple_{}", element_strs.join("_"))
             }
             TypeAnnotationKind::Function { .. } => "function".to_string(),
+            TypeAnnotationKind::Generic { name, type_args } => {
+                let arg_strs: Vec<String> = type_args
+                    .iter()
+                    .map(|a| self.type_annotation_to_string(a))
+                    .collect();
+                format!("{}_{}", name, arg_strs.join("_"))
+            }
         }
     }
 
@@ -4296,6 +4535,16 @@ impl ASTLowering {
                     return_type: subst_ret,
                 }
             }
+            TypeAnnotationKind::Generic { name, type_args } => {
+                let subst_args = type_args
+                    .iter()
+                    .map(|el| self.substitute_type(el, type_map))
+                    .collect();
+                TypeAnnotationKind::Generic {
+                    name: name.clone(),
+                    type_args: subst_args,
+                }
+            }
         };
 
         TypeAnnotation {
@@ -4397,6 +4646,93 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("collections", "list_free_all") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_free_all",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            // ── std.string ────────────────────────────────────────────────
+            ("string", "len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "contains") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.contains",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "to_upper") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.to_upper",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "to_lower") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.to_lower",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "trim") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.trim",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "starts_with") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.starts_with",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "ends_with") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.ends_with",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "concat") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.concat",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "repeat_str") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.repeat_str",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "char_at") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.char_at",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            // ── std.convert ───────────────────────────────────────────────
+            ("convert", "int_to_string") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.int_to_string",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("convert", "float_to_string") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.float_to_string",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("convert", "bool_to_string") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.bool_to_string",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("convert", "string_to_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.string_to_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("convert", "string_to_float") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.string_to_float",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("convert", "int_to_float") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.int_to_float",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("convert", "float_to_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.float_to_int",
                 return_type: IRType::Int,
                 returns_value: true,
             }),

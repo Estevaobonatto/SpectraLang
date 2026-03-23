@@ -1,0 +1,13 @@
+module test_match_direct;
+
+fn do_match(x: int) -> int {
+    let r = Option::Some(x);
+    match r {
+        Option::Some(n) => n,
+        Option::None => -1
+    }
+}
+
+fn main() -> int {
+    do_match(4)
+}

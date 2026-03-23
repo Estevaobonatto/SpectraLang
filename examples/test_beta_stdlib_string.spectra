@@ -1,0 +1,70 @@
+module test_beta_stdlib_string;
+
+import std.string;
+import std.convert;
+
+fn main() -> int {
+    // ── std.string ────────────────────────────────────────────────────────
+
+    let greeting = "  Hello, World!  ";
+
+    // len: número de caracteres
+    let full_len = std.string.len(greeting);          // 18
+
+    // trim: remove espaços das extremidades
+    let trimmed = std.string.trim(greeting);          // "Hello, World!"
+    let trimmed_len = std.string.len(trimmed);        // 13
+
+    // to_upper / to_lower
+    let upper = std.string.to_upper("hello");         // "HELLO"
+    let lower = std.string.to_lower("WORLD");         // "world"
+
+    // contains
+    let has_world = std.string.contains(trimmed, "World");   // true (1)
+    let has_xyz   = std.string.contains(trimmed, "xyz");     // false (0)
+
+    // starts_with / ends_with
+    let starts = std.string.starts_with(trimmed, "Hello");   // true (1)
+    let ends   = std.string.ends_with(trimmed, "World!");    // true (1)
+
+    // concat
+    let a = "foo";
+    let b = "bar";
+    let ab = std.string.concat(a, b);                // "foobar"
+
+    // repeat
+    let rep = std.string.repeat_str("ab", 3);            // "ababab"
+
+    // char_at
+    let ch = std.string.char_at("hello", 1);         // 101 ('e')
+    let oob = std.string.char_at("hi", 10);          // -1
+
+    // ── std.convert ────────────────────────────────────────────────────────
+
+    // int → string
+    let s42 = std.convert.int_to_string(42);
+    let s42_len = std.string.len(s42);               // 2
+
+    // float → string
+    let sf = std.convert.float_to_string(3.14);
+    let sf_len = std.string.len(sf);                 // > 0
+
+    // bool → string
+    let st = std.convert.bool_to_string(1);          // "true"
+    let sf2 = std.convert.bool_to_string(0);         // "false"
+
+    // string → int
+    let parsed_int = std.convert.string_to_int("123");   // 123
+    let bad_int    = std.convert.string_to_int("abc");   // 0
+
+    // string → float (returned as float bits)
+    let parsed_float = std.convert.string_to_float("2.5");
+
+    // int → float
+    let as_float = std.convert.int_to_float(7);
+
+    // float → int (truncation)
+    let as_int = std.convert.float_to_int(9.9);     // 9
+
+    return 0;
+}

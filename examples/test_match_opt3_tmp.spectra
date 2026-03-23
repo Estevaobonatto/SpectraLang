@@ -1,0 +1,15 @@
+module test_match_opt3;
+
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 { return Option::Some(x); }
+    return Option::None;
+}
+
+fn main() -> int {
+    let r = find_positive(4);
+    let answer = match r {
+        Option::Some(n) => n,
+        Option::None => -1
+    };
+    answer
+}

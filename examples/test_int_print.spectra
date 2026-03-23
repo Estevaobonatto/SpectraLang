@@ -1,5 +1,6 @@
 module demo_int;
 import std.io;
+
 pub fn main() -> int {
     print(42);
     return 0;

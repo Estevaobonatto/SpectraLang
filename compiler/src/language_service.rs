@@ -409,5 +409,14 @@ fn format_type_annotation(annotation: &TypeAnnotation) -> String {
                 .join(", "),
             format_type_annotation(return_type)
         ),
+        TypeAnnotationKind::Generic { name, type_args } => format!(
+            "{}<{}>",
+            name,
+            type_args
+                .iter()
+                .map(format_type_annotation)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }

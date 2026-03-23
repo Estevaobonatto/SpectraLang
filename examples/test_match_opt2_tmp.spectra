@@ -1,0 +1,17 @@
+module test_match_opt2;
+
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 { return Option::Some(x); }
+    return Option::None;
+}
+
+fn do_match(x: int) -> int {
+    match find_positive(x) {
+        Option::Some(n) => n,
+        Option::None => -1
+    }
+}
+
+fn main() -> int {
+    do_match(4)
+}

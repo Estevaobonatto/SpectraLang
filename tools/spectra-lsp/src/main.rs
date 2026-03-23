@@ -1404,6 +1404,15 @@ fn format_type_annotation(ty: &spectra_compiler::ast::TypeAnnotation) -> String 
                 .join(", "),
             format_type_annotation(return_type)
         ),
+        spectra_compiler::ast::TypeAnnotationKind::Generic { name, type_args } => format!(
+            "{}<{}>",
+            name,
+            type_args
+                .iter()
+                .map(format_type_annotation)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -2385,6 +2394,11 @@ fn collect_type_annotation_tokens(
                 collect_type_annotation_tokens(text, param, TOKEN_TYPE, tokens);
             }
             collect_type_annotation_tokens(text, return_type, TOKEN_TYPE, tokens);
+        }
+        spectra_compiler::ast::TypeAnnotationKind::Generic { name: _, type_args } => {
+            for arg in type_args {
+                collect_type_annotation_tokens(text, arg, TOKEN_TYPE, tokens);
+            }
         }
     }
 }

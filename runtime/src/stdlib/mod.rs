@@ -28,6 +28,27 @@ const IO_PRINT: &str = "spectra.std.io.print";
 const IO_FLUSH: &str = "spectra.std.io.flush";
 const IO_EPRINT: &str = "spectra.std.io.eprint";
 
+// ── std.string ──────────────────────────────────────────────────────────────
+const STR_LEN: &str = "spectra.std.string.len";
+const STR_CONTAINS: &str = "spectra.std.string.contains";
+const STR_TO_UPPER: &str = "spectra.std.string.to_upper";
+const STR_TO_LOWER: &str = "spectra.std.string.to_lower";
+const STR_TRIM: &str = "spectra.std.string.trim";
+const STR_STARTS_WITH: &str = "spectra.std.string.starts_with";
+const STR_ENDS_WITH: &str = "spectra.std.string.ends_with";
+const STR_CONCAT: &str = "spectra.std.string.concat";
+const STR_REPEAT: &str = "spectra.std.string.repeat_str";
+const STR_CHAR_AT: &str = "spectra.std.string.char_at";
+
+// ── std.convert ─────────────────────────────────────────────────────────────
+const CONV_INT_TO_STRING: &str = "spectra.std.convert.int_to_string";
+const CONV_FLOAT_TO_STRING: &str = "spectra.std.convert.float_to_string";
+const CONV_BOOL_TO_STRING: &str = "spectra.std.convert.bool_to_string";
+const CONV_STRING_TO_INT: &str = "spectra.std.convert.string_to_int";
+const CONV_STRING_TO_FLOAT: &str = "spectra.std.convert.string_to_float";
+const CONV_INT_TO_FLOAT: &str = "spectra.std.convert.int_to_float";
+const CONV_FLOAT_TO_INT: &str = "spectra.std.convert.float_to_int";
+
 /// Type tags for the polymorphic io.print host call.
 /// Args are pairs: (type_tag: i64, value: i64).
 const _PRINT_TAG_INT: SpectraHostValue = 0;
@@ -47,6 +68,8 @@ pub fn register() {
     register_math();
     register_io();
     register_collections();
+    register_string();
+    register_convert();
 }
 
 fn register_math() {
@@ -725,6 +748,446 @@ impl ListRegistry {
         self.next_id = 1;
         count
     }
+}
+
+// ── std.string & std.convert registrations ─────────────────────────────────
+
+fn register_string() {
+    register_host_function(STR_LEN, std_string_len);
+    register_host_function(STR_CONTAINS, std_string_contains);
+    register_host_function(STR_TO_UPPER, std_string_to_upper);
+    register_host_function(STR_TO_LOWER, std_string_to_lower);
+    register_host_function(STR_TRIM, std_string_trim);
+    register_host_function(STR_STARTS_WITH, std_string_starts_with);
+    register_host_function(STR_ENDS_WITH, std_string_ends_with);
+    register_host_function(STR_CONCAT, std_string_concat);
+    register_host_function(STR_REPEAT, std_string_repeat);
+    register_host_function(STR_CHAR_AT, std_string_char_at);
+}
+
+fn register_convert() {
+    register_host_function(CONV_INT_TO_STRING, std_convert_int_to_string);
+    register_host_function(CONV_FLOAT_TO_STRING, std_convert_float_to_string);
+    register_host_function(CONV_BOOL_TO_STRING, std_convert_bool_to_string);
+    register_host_function(CONV_STRING_TO_INT, std_convert_string_to_int);
+    register_host_function(CONV_STRING_TO_FLOAT, std_convert_string_to_float);
+    register_host_function(CONV_INT_TO_FLOAT, std_convert_int_to_float);
+    register_host_function(CONV_FLOAT_TO_INT, std_convert_float_to_int);
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Read a Spectra string (null-terminated i64 array) from a raw pointer value.
+/// Returns `None` if the pointer is null or the bytes are not valid UTF-8.
+unsafe fn read_spectra_string(ptr_val: SpectraHostValue) -> Option<String> {
+    if ptr_val == 0 {
+        return None;
+    }
+    let raw = ptr_val as *const i64;
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut offset = 0usize;
+    loop {
+        let b = *raw.add(offset) as u8;
+        if b == 0 {
+            break;
+        }
+        bytes.push(b);
+        offset += 1;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// Allocate a new Spectra string using the runtime manual allocator.
+/// Each character is stored as one `i64` slot; the array is null-terminated.
+/// Returns the pointer cast to `i64`, or `0` on allocation failure.
+unsafe fn alloc_spectra_string(s: &str) -> SpectraHostValue {
+    use crate::ffi::spectra_rt_manual_alloc;
+    let bytes = s.as_bytes();
+    let total_bytes = (bytes.len() + 1) * std::mem::size_of::<i64>();
+    let raw = spectra_rt_manual_alloc(total_bytes) as *mut i64;
+    if raw.is_null() {
+        return 0;
+    }
+    for (i, &b) in bytes.iter().enumerate() {
+        *raw.add(i) = b as i64;
+    }
+    *raw.add(bytes.len()) = 0; // null terminator
+    raw as i64
+}
+
+// ── std.string host functions ────────────────────────────────────────────────
+
+extern "C" fn std_string_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let len = match read_spectra_string(args[0]) {
+            Some(s) => s.len() as SpectraHostValue,
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = len;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_contains(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(sub)) => s.contains(sub.as_str()) as SpectraHostValue,
+            _ => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_to_upper(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => alloc_spectra_string(&s.to_uppercase()),
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_to_lower(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => alloc_spectra_string(&s.to_lowercase()),
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_trim(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => alloc_spectra_string(s.trim()),
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_starts_with(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(prefix)) => s.starts_with(prefix.as_str()) as SpectraHostValue,
+            _ => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_ends_with(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(suffix)) => s.ends_with(suffix.as_str()) as SpectraHostValue,
+            _ => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_concat(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(a), Some(b)) => alloc_spectra_string(&(a + &b)),
+            (Some(a), None) => alloc_spectra_string(&a),
+            (None, Some(b)) => alloc_spectra_string(&b),
+            (None, None) => alloc_spectra_string(""),
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_repeat(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let n = args[1].max(0) as usize;
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => alloc_spectra_string(&s.repeat(n)),
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_char_at(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let idx = args[1];
+        let result = match read_spectra_string(args[0]) {
+            Some(s) if idx >= 0 && (idx as usize) < s.len() => {
+                s.as_bytes()[idx as usize] as SpectraHostValue
+            }
+            _ => -1,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.convert host functions ───────────────────────────────────────────────
+
+extern "C" fn std_convert_int_to_string(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = alloc_spectra_string(&args[0].to_string());
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_convert_float_to_string(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let f = f64::from_bits(args[0] as u64);
+        let ptr = alloc_spectra_string(&f.to_string());
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_convert_bool_to_string(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = alloc_spectra_string(if args[0] != 0 { "true" } else { "false" });
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_convert_string_to_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match read_spectra_string(args[0]) {
+            Some(s) => s.trim().parse::<i64>().unwrap_or(0),
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_convert_string_to_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result: i64 = match read_spectra_string(args[0]) {
+            Some(s) => {
+                let f: f64 = s.trim().parse().unwrap_or(0.0);
+                f.to_bits() as i64
+            }
+            None => 0.0_f64.to_bits() as i64,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_convert_int_to_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let f = args[0] as f64;
+        let result = f.to_bits() as i64;
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_convert_float_to_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let f = f64::from_bits(args[0] as u64);
+        let result = f as i64;
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
 }
 
 #[cfg(test)]

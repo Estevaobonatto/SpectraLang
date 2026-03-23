@@ -64,6 +64,27 @@ impl Parser {
             });
         }
 
+        // Check if it's an array type: [int], [string], etc.
+        if self.check_symbol('[') {
+            self.advance(); // consume '['
+            // Parse the element type but discard it — stored as Simple { "array" }
+            if !self.check_symbol(']') {
+                let _ = self.parse_type_annotation(); // element type
+            }
+            self.consume_symbol(']', "Expected ']' after array element type")?;
+            let end_span = self
+                .tokens
+                .get(self.position.saturating_sub(1))
+                .map(|t| t.span)
+                .unwrap_or(start_span);
+            return Ok(TypeAnnotation {
+                kind: TypeAnnotationKind::Simple {
+                    segments: vec!["array".to_string()],
+                },
+                span: span_union(start_span, end_span),
+            });
+        }
+
         // Check if it's a tuple type: (int, string, ...)
         if self.check_symbol('(') {
             self.advance(); // consume '('
@@ -115,6 +136,40 @@ impl Parser {
             segments.push(segment);
         }
 
+        // Consume generic type arguments if present: Option<int>, Result<int, string>
+        // Store them properly in the Generic variant so the lowering can resolve
+        // the monomorphized enum type (Option_int, Result_int_string, etc.).
+        if self.check_symbol('<') && self.looks_like_type_args_in_annotation() {
+            self.advance(); // consume '<'
+            let mut type_args: Vec<TypeAnnotation> = Vec::new();
+            loop {
+                if self.check_symbol('>') {
+                    break;
+                }
+                if self.is_at_end() {
+                    break;
+                }
+                type_args.push(self.parse_type_annotation()?);
+                if !self.check_symbol(',') {
+                    break;
+                }
+                self.advance(); // consume ','
+            }
+            self.consume_symbol('>', "Expected '>' after type arguments")?;
+
+            // Collapse qualified name back to single-segment name for Generic
+            let name = segments.join(".");
+            let end_span = self
+                .tokens
+                .get(self.position.saturating_sub(1))
+                .map(|t| t.span)
+                .unwrap_or(start_span);
+            return Ok(TypeAnnotation {
+                kind: TypeAnnotationKind::Generic { name, type_args },
+                span: span_union(start_span, end_span),
+            });
+        }
+
         let end_span = self
             .tokens
             .get(self.position.saturating_sub(1))
@@ -125,5 +180,51 @@ impl Parser {
             kind: TypeAnnotationKind::Simple { segments },
             span: span_union(start_span, end_span),
         })
+    }
+
+    /// Returns `true` when the current `<` token appears to open generic type arguments
+    /// rather than being a less-than comparison operator.
+    ///
+    /// Heuristic: scan forward to find the matching `>`, then check that the
+    /// token immediately after it is one that can legally follow a type annotation
+    /// (`{`, `=`, `,`, `)`, `;`, `->`, or EOF).
+    fn looks_like_type_args_in_annotation(&self) -> bool {
+        if !self.check_symbol('<') {
+            return false;
+        }
+        let mut i = self.position + 1;
+        let mut depth = 1usize;
+        while i < self.tokens.len() {
+            match &self.tokens[i].kind {
+                TokenKind::Symbol('<') => depth += 1,
+                TokenKind::Symbol('>') => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        // Check what follows the closing '>'
+                        let after = i + 1;
+                        if after >= self.tokens.len() {
+                            return true; // end of input — assume type args
+                        }
+                        return matches!(
+                            self.tokens[after].kind,
+                            TokenKind::Symbol('{')      // function body / struct literal
+                            | TokenKind::Symbol('=')    // let binding
+                            | TokenKind::Symbol(',')    // parameter separator
+                            | TokenKind::Symbol(')')    // end of parameter list / tuple
+                            | TokenKind::Symbol(';')    // statement end
+                            | TokenKind::Operator(Operator::Arrow) // -> return type
+                            | TokenKind::Symbol('[')    // array index after type
+                        );
+                    }
+                }
+                // These inside the brackets are not valid in a type arg list
+                TokenKind::Symbol('{') => return false,
+                TokenKind::Symbol(';') => return false,
+                TokenKind::Operator(Operator::Arrow) if depth == 0 => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
     }
 }

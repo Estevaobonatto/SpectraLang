@@ -24,8 +24,8 @@
 | Versão     | Nome              | Status         | Foco principal                                |
 |------------|-------------------|----------------|-----------------------------------------------|
 | Alpha      | Core Language     | ✅ Congelado    | Estruturas básicas, tipos, loops, match        |
-| Beta 0.1   | Literals & Syntax | 🔄 Em progresso | CharLiteral, f-string, lambda, `?`, `if let`  |
-| Beta 0.2   | Stdlib & Errors   | 📋 Planejado    | Módulo std, Result/Option, error handling      |
+| Beta 0.1   | Literals & Syntax | ✅ Implementado    | CharLiteral, f-string, lambda, `?`, `if let`  |
+| Beta 0.2   | Stdlib & Errors   | 🔄 Em progresso   | Módulo std, Result/Option, error handling      |
 | Beta 0.3   | Concorrência      | 📋 Planejado    | async/await, channels, green threads           |
 | Beta 0.4   | Metaprogramação   | 📋 Planejado    | Macros, derive, code generation                |
 | 1.0        | Stable Release    | 📋 Futuro       | Tooling, package manager, LSP completo         |
@@ -209,21 +209,83 @@ entry = "main.spectra"
 
 **Objetivo:** Biblioteca padrão funcional e tratamento de erros idiomático.
 
-### Result<T, E> e Option<T> built-ins
+### ✅ Result<T, E> e Option<T> built-ins
+
+`Option<T>` e `Result<T, E>` agora são tipos **built-in pré-registrados** — nenhuma declaração de enum necessária.
+
 ```spectra
 fn divide(a: int, b: int) -> Result<int, string> {
-    if b == 0 {
-        Err("cannot divide by zero")
-    } else {
-        Ok(a / b)
-    }
+    if b == 0 { Result::Err("cannot divide by zero") }
+    else { Result::Ok(a / b) }
 }
 
-let x: Option<int> = Some(42);
-let y: Option<int> = None;
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 { Option::Some(x) }
+    else { Option::None }
+}
+
+fn main() -> int {
+    if let Result::Ok(v) = divide(10, 2) { ... }
+    if let Option::Some(n) = find_positive(7) { ... }
+    while let Option::Some(n) = get_next() { ... }
+    return 0;
+}
 ```
 
-### Módulos de stdlib planejados
+**Componentes implementados:**
+- `TypeAnnotationKind::Generic { name, type_args }` — novo variante no AST para preservar `<T>` em anotações de tipo
+- Parser armazena type args em `Generic` variante; `looks_like_type_args_in_annotation()` evita ambiguidade com `<` aritmético
+- `lower_type_annotation_with_map` para `Generic` resolve `Option<int>` → `IRType::Enum { name: "Option_int" }`
+- `current_function_return_annotation` propaga tipo declarado `-> Result<int, string>` para preencher args inferidos como "unknown" em construções de variantes
+- Redefinição do usuário de `Option`/`Result` silenciosamente ignorada (sem regressão em exemplos existentes)
+- **Validado:** `examples/test_beta_option_result.spectra` — PASSA (`main() returned 0`)
+
+### ✅ std.string — Módulo de manipulação de strings
+
+Funções disponíveis via `import std.string;` (chamadas com prefixo qualificado `std.string.fn()` ou como nome simples `fn()`):
+
+| Função | Assinatura | Descrição |
+|--------|-----------|-----------|
+| `len` | `(s: string) -> int` | Comprimento em bytes |
+| `trim` | `(s: string) -> string` | Remove espaços das extremidades |
+| `to_upper` | `(s: string) -> string` | Converte para maiúsculas |
+| `to_lower` | `(s: string) -> string` | Converte para minúsculas |
+| `contains` | `(s, sub: string) -> bool` | Verifica se sub-string está presente |
+| `starts_with` | `(s, prefix: string) -> bool` | Verifica prefixo |
+| `ends_with` | `(s, suffix: string) -> bool` | Verifica sufixo |
+| `concat` | `(a, b: string) -> string` | Concatena duas strings |
+| `repeat_str` | `(s: string, n: int) -> string` | Repete string n vezes |
+| `char_at` | `(s: string, i: int) -> int` | Código do caractere na posição i |
+
+- **Validado:** `examples/test_beta_stdlib_string.spectra` — PASSA (`main() returned 0`)
+
+### ✅ std.convert — Módulo de conversão de tipos
+
+Funções disponíveis via `import std.convert;`:
+
+| Função | Assinatura | Descrição |
+|--------|-----------|-----------|
+| `int_to_string` | `(v: int) -> string` | Inteiro para string |
+| `float_to_string` | `(v: float) -> string` | Float para string |
+| `bool_to_string` | `(v: bool) -> string` | Bool para string |
+| `string_to_int` | `(s: string) -> int` | String para inteiro (0 se inválido) |
+| `string_to_float` | `(s: string) -> float` | String para float (0.0 se inválido) |
+| `int_to_float` | `(v: int) -> float` | Inteiro para float |
+| `float_to_int` | `(v: float) -> int` | Float para inteiro (trunca) |
+
+- **Validado:** coberto em `examples/test_beta_stdlib_string.spectra`
+
+### ✅ Chamadas qualificadas a módulos stdlib
+
+Identificadores de namespace de módulo (`std`, `std.string`, etc.) são agora reconhecidos pelo analisador semântico quando o módulo foi importado. Chamadas qualificadas como `std.string.len(x)` são aceitas como equivalente a `len(x)` após `import std.string;`.
+
+**Infraestrutura:**
+- `module_namespaces: HashSet<String>` em `SemanticAnalyzer` — populado ao processar imports
+- `ExpressionKind::MethodCall` no lowering verifica primeiro se é chamada stdlib qualificada (via path resolution)
+- `lookup_std_host_function` estendida com todos os casos de `string.*` e `convert.*`
+- Backend `codegen.rs` suporta argumentos `F64` em `HostCall` via `bitcast` para `I64`
+
+### Módulos de stdlib planejados (visão completa) (visão completa)
 
 | Módulo         | Conteúdo                                            |
 |----------------|-----------------------------------------------------|

@@ -512,6 +512,7 @@ impl TypePattern {
                 TypePattern::Tuple(elements.iter().map(TypePattern::from_annotation).collect())
             }
             TypeAnnotationKind::Function { .. } => TypePattern::Simple(vec!["fn".to_string()]),
+            TypeAnnotationKind::Generic { name, .. } => TypePattern::Simple(vec![name.clone()]),
         }
     }
 
