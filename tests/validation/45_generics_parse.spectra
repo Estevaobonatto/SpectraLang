@@ -3,7 +3,7 @@ module test45;
 
 // Trait simples para usar como bound
 trait Printable {
-    fn print(&self) -> int;
+    fn println(&self) -> int;
 }
 
 // Função genérica simples sem bounds

@@ -2,9 +2,10 @@
 // Demonstra sintaxe simples em um caso de uso real
 
 module calculator;
+import std.io;
 
 pub fn main() {
-    print("=== Simple Calculator ===");
+    println("=== Simple Calculator ===");
     
     // Testes de operações
     test_addition();
@@ -17,37 +18,37 @@ pub fn main() {
 }
 
 fn test_addition() {
-    print("Testing Addition:");
+    println("Testing Addition:");
     let result = add(5, 3);
-    print(result); // Expected: 8
+    println(result); // Expected: 8
     return;
 }
 
 fn test_subtraction() {
-    print("Testing Subtraction:");
+    println("Testing Subtraction:");
     let result = subtract(10, 4);
-    print(result); // Expected: 6
+    println(result); // Expected: 6
     return;
 }
 
 fn test_multiplication() {
-    print("Testing Multiplication:");
+    println("Testing Multiplication:");
     let result = multiply(6, 7);
-    print(result); // Expected: 42
+    println(result); // Expected: 42
     return;
 }
 
 fn test_division() {
-    print("Testing Division:");
+    println("Testing Division:");
     let result = divide(20, 4);
-    print(result); // Expected: 5
+    println(result); // Expected: 5
     return;
 }
 
 fn test_complex() {
-    print("Testing Complex Expression:");
+    println("Testing Complex Expression:");
     let result = calculate_complex(10, 5, 2);
-    print(result); // Expected: ((10 + 5) * 2) - 5 = 25
+    println(result); // Expected: ((10 + 5) * 2) - 5 = 25
     return;
 }
 
@@ -66,7 +67,7 @@ fn multiply(a: int, b: int) -> int {
 
 fn divide(a: int, b: int) -> int {
     if b == 0 {
-        print("Error: Division by zero!");
+        println("Error: Division by zero!");
         return 0;
     }
     return a / b;

@@ -1,0 +1,93 @@
+// Teste das novas funções do stdlib
+module test_new_stdlib;
+import std.io;
+import std.math;
+import std.string;
+import std.convert;
+import std.random;
+
+pub fn main() -> int {
+    // --- std.math ---
+    println("=== std.math ===");
+    let pi_val = pi();
+    println(pi_val);
+
+    let s = sin_f(0.0);
+    println(s);
+
+    let c = cos_f(0.0);
+    println(c);
+
+    let sq = sqrt_f(16.0);
+    println(sq);
+
+    let p = pow_f(2.0, 10.0);
+    println(p);
+
+    let fl = floor_f(3.7);
+    println(fl);
+
+    let ce = ceil_f(3.2);
+    println(ce);
+
+    let ro = round_f(3.5);
+    println(ro);
+
+    let cl = clamp(15, 0, 10);
+    println(cl);
+
+    // --- std.string ---
+    println("=== std.string ===");
+    let hello = "Hello, World!";
+    let l = len(hello);
+    println(l);
+
+    let up = to_upper(hello);
+    println(up);
+
+    let lo = to_lower(hello);
+    println(lo);
+
+    let sub = substring(hello, 0, 5);
+    println(sub);
+
+    let idx = index_of(hello, "World");
+    println(idx);
+
+    let empty_check = is_empty("");
+    println(empty_check);
+
+    let count = count_occurrences("banana", "a");
+    println(count);
+
+    let replaced = replace("Hello World", "World", "Spectra");
+    println(replaced);
+
+    // --- std.convert ---
+    println("=== std.convert ===");
+    let n = string_to_int_or("42", -1);
+    println(n);
+
+    let bad = string_to_int_or("abc", -999);
+    println(bad);
+
+    let b = string_to_bool("true");
+    println(b);
+
+    let bi = bool_to_int(true);
+    println(bi);
+
+    // --- std.random ---
+    println("=== std.random ===");
+    random_seed(12345);
+    let r1 = random_int(1, 100);
+    println(r1);
+
+    let rf = random_float();
+    println(rf);
+
+    let rb = random_bool();
+    println(rb);
+
+    return 0;
+}

@@ -1,6 +1,6 @@
 module demo_one;
 import std.io;
 pub fn main() -> int {
-    print("Hello!");
+    println("Hello!");
     return 0;
 }

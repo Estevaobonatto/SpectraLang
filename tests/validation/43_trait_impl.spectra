@@ -3,7 +3,7 @@ module test43;
 
 // Declaração do trait
 trait Printable {
-    fn print(&self) -> int;
+    fn println(&self) -> int;
 }
 
 struct Point {
@@ -13,7 +13,7 @@ struct Point {
 
 // Implementação do trait para Point
 impl Printable for Point {
-    fn print(&self) -> int {
+    fn println(&self) -> int {
         self.x + self.y
     }
 }

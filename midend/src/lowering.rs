@@ -2940,10 +2940,13 @@ impl ASTLowering {
                     .collect();
 
                 if let Some(descriptor) = self.host_function_descriptor(callee) {
-                    // Special case: io.print / io.eprint use (type_tag, value) pairs
-                    // so the runtime can dispatch the correct formatter per argument.
+                    // Special case: io.print / io.println / io.eprint / io.eprintln
+                    // use (type_tag, value) pairs so the runtime can dispatch the
+                    // correct formatter per argument.
                     if descriptor.runtime_name == "spectra.std.io.print"
+                        || descriptor.runtime_name == "spectra.std.io.println"
                         || descriptor.runtime_name == "spectra.std.io.eprint"
+                        || descriptor.runtime_name == "spectra.std.io.eprintln"
                     {
                         let mut paired: Vec<Value> = Vec::with_capacity(arg_values.len() * 2);
                         for (arg_val, arg_expr) in arg_values.iter().zip(arguments.iter()) {
@@ -4604,8 +4607,58 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Float,
                 returns_value: true,
             }),
+            ("math", "sin_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.sin_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "cos_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.cos_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "tan_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.tan_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "log_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.log_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "log2_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.log2_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "log10_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.log10_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "atan2_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.atan2_f",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "pi") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.pi",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("math", "e_const") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.math.e_const",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
             ("io", "print") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.io.print",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "println") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.println",
                 return_type: IRType::Int,
                 returns_value: true,
             }),
@@ -4614,9 +4667,19 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("io", "eprintln") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.eprintln",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             ("io", "flush") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.io.flush",
                 return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("io", "read_line") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.read_line",
+                return_type: IRType::String,
                 returns_value: true,
             }),
             ("collections", "list_new") => Some(HostFunctionDescriptor {
@@ -4631,6 +4694,21 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("collections", "list_len") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_get") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_get",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_set") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_set",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("collections", "list_contains") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_contains",
                 return_type: IRType::Int,
                 returns_value: true,
             }),
@@ -4700,6 +4778,41 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("string", "substring") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.substring",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "replace") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.replace",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "index_of") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.index_of",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "split_first") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.split_first",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "split_last") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.split_last",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "is_empty") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.is_empty",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "count_occurrences") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.count_occurrences",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             // ── std.convert ───────────────────────────────────────────────
             ("convert", "int_to_string") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.convert.int_to_string",
@@ -4733,6 +4846,47 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("convert", "float_to_int") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.convert.float_to_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("convert", "string_to_int_or") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.string_to_int_or",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("convert", "string_to_float_or") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.string_to_float_or",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("convert", "string_to_bool") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.string_to_bool",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("convert", "bool_to_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.convert.bool_to_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            // ── std.random ────────────────────────────────────────────────
+            ("random", "random_seed") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.random.random_seed",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("random", "random_int") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.random.random_int",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("random", "random_float") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.random.random_float",
+                return_type: IRType::Float,
+                returns_value: true,
+            }),
+            ("random", "random_bool") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.random.random_bool",
                 return_type: IRType::Int,
                 returns_value: true,
             }),

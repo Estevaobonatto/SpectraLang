@@ -5,7 +5,7 @@ use crate::ffi::{
 use crate::initialize;
 use crate::memory::ManualBox;
 use std::collections::HashMap;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::slice;
 use std::sync::{Mutex, OnceLock};
 
@@ -25,8 +25,22 @@ const MATH_CEIL_F: &str = "spectra.std.math.ceil_f";
 const MATH_ROUND_F: &str = "spectra.std.math.round_f";
 
 const IO_PRINT: &str = "spectra.std.io.print";
+const IO_PRINTLN: &str = "spectra.std.io.println";
 const IO_FLUSH: &str = "spectra.std.io.flush";
 const IO_EPRINT: &str = "spectra.std.io.eprint";
+const IO_EPRINTLN: &str = "spectra.std.io.eprintln";
+const IO_READ_LINE: &str = "spectra.std.io.read_line";
+
+// ── std.math (novos) ─────────────────────────────────────────────────────────
+const MATH_SIN_F: &str = "spectra.std.math.sin_f";
+const MATH_COS_F: &str = "spectra.std.math.cos_f";
+const MATH_TAN_F: &str = "spectra.std.math.tan_f";
+const MATH_LOG_F: &str = "spectra.std.math.log_f";
+const MATH_LOG2_F: &str = "spectra.std.math.log2_f";
+const MATH_LOG10_F: &str = "spectra.std.math.log10_f";
+const MATH_ATAN2_F: &str = "spectra.std.math.atan2_f";
+const MATH_PI: &str = "spectra.std.math.pi";
+const MATH_E_CONST: &str = "spectra.std.math.e_const";
 
 // ── std.string ──────────────────────────────────────────────────────────────
 const STR_LEN: &str = "spectra.std.string.len";
@@ -39,6 +53,13 @@ const STR_ENDS_WITH: &str = "spectra.std.string.ends_with";
 const STR_CONCAT: &str = "spectra.std.string.concat";
 const STR_REPEAT: &str = "spectra.std.string.repeat_str";
 const STR_CHAR_AT: &str = "spectra.std.string.char_at";
+const STR_SUBSTRING: &str = "spectra.std.string.substring";
+const STR_REPLACE: &str = "spectra.std.string.replace";
+const STR_INDEX_OF: &str = "spectra.std.string.index_of";
+const STR_SPLIT_FIRST: &str = "spectra.std.string.split_first";
+const STR_SPLIT_LAST: &str = "spectra.std.string.split_last";
+const STR_IS_EMPTY: &str = "spectra.std.string.is_empty";
+const STR_COUNT: &str = "spectra.std.string.count_occurrences";
 
 // ── std.convert ─────────────────────────────────────────────────────────────
 const CONV_INT_TO_STRING: &str = "spectra.std.convert.int_to_string";
@@ -48,6 +69,16 @@ const CONV_STRING_TO_INT: &str = "spectra.std.convert.string_to_int";
 const CONV_STRING_TO_FLOAT: &str = "spectra.std.convert.string_to_float";
 const CONV_INT_TO_FLOAT: &str = "spectra.std.convert.int_to_float";
 const CONV_FLOAT_TO_INT: &str = "spectra.std.convert.float_to_int";
+const CONV_STRING_TO_INT_OR: &str = "spectra.std.convert.string_to_int_or";
+const CONV_STRING_TO_FLOAT_OR: &str = "spectra.std.convert.string_to_float_or";
+const CONV_STRING_TO_BOOL: &str = "spectra.std.convert.string_to_bool";
+const CONV_BOOL_TO_INT: &str = "spectra.std.convert.bool_to_int";
+
+// ── std.random ───────────────────────────────────────────────────────────────
+const RAND_SEED: &str = "spectra.std.random.random_seed";
+const RAND_INT: &str = "spectra.std.random.random_int";
+const RAND_FLOAT: &str = "spectra.std.random.random_float";
+const RAND_BOOL: &str = "spectra.std.random.random_bool";
 
 /// Type tags for the polymorphic io.print host call.
 /// Args are pairs: (type_tag: i64, value: i64).
@@ -59,17 +90,21 @@ const PRINT_TAG_FLOAT: SpectraHostValue = 3;
 const LIST_NEW: &str = "spectra.std.collections.list_new";
 const LIST_PUSH: &str = "spectra.std.collections.list_push";
 const LIST_LEN: &str = "spectra.std.collections.list_len";
+const LIST_GET: &str = "spectra.std.collections.list_get";
+const LIST_SET: &str = "spectra.std.collections.list_set";
+const LIST_CONTAINS: &str = "spectra.std.collections.list_contains";
 const LIST_CLEAR: &str = "spectra.std.collections.list_clear";
 const LIST_FREE: &str = "spectra.std.collections.list_free";
 const LIST_FREE_ALL: &str = "spectra.std.collections.list_free_all";
 
-/// Registers the minimal standard library host functions.
+/// Registers the standard library host functions.
 pub fn register() {
     register_math();
     register_io();
     register_collections();
     register_string();
     register_convert();
+    register_random();
 }
 
 fn register_math() {
@@ -82,18 +117,33 @@ fn register_math() {
     register_host_function(MATH_FLOOR_F, std_math_floor_f);
     register_host_function(MATH_CEIL_F, std_math_ceil_f);
     register_host_function(MATH_ROUND_F, std_math_round_f);
+    register_host_function(MATH_SIN_F, std_math_sin_f);
+    register_host_function(MATH_COS_F, std_math_cos_f);
+    register_host_function(MATH_TAN_F, std_math_tan_f);
+    register_host_function(MATH_LOG_F, std_math_log_f);
+    register_host_function(MATH_LOG2_F, std_math_log2_f);
+    register_host_function(MATH_LOG10_F, std_math_log10_f);
+    register_host_function(MATH_ATAN2_F, std_math_atan2_f);
+    register_host_function(MATH_PI, std_math_pi);
+    register_host_function(MATH_E_CONST, std_math_e_const);
 }
 
 fn register_io() {
     register_host_function(IO_PRINT, std_io_print);
+    register_host_function(IO_PRINTLN, std_io_println);
     register_host_function(IO_FLUSH, std_io_flush);
     register_host_function(IO_EPRINT, std_io_eprint);
+    register_host_function(IO_EPRINTLN, std_io_eprintln);
+    register_host_function(IO_READ_LINE, std_io_read_line);
 }
 
 fn register_collections() {
     register_host_function(LIST_NEW, std_list_new);
     register_host_function(LIST_PUSH, std_list_push);
     register_host_function(LIST_LEN, std_list_len);
+    register_host_function(LIST_GET, std_list_get);
+    register_host_function(LIST_SET, std_list_set);
+    register_host_function(LIST_CONTAINS, std_list_contains);
     register_host_function(LIST_CLEAR, std_list_clear);
     register_host_function(LIST_FREE, std_list_free);
     register_host_function(LIST_FREE_ALL, std_list_free_all);
@@ -306,15 +356,187 @@ extern "C" fn std_math_round_f(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-/// Polymorphic print function.
+/// Sine. Argument and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_sin_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).sin().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Cosine. Argument and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_cos_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).cos().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Tangent. Argument and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_tan_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).tan().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Natural logarithm. Argument and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_log_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).ln().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Base-2 logarithm. Argument and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_log2_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).log2().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Base-10 logarithm. Argument and result are f64 bits reinterpreted as i64.
+extern "C" fn std_math_log10_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f64::from_bits(args[0] as u64).log10().to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Two-argument arctangent (atan2). Arguments y, x and result are f64 bits.
+extern "C" fn std_math_atan2_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let y = f64::from_bits(args[0] as u64);
+        let x = f64::from_bits(args[1] as u64);
+        results[0] = y.atan2(x).to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the mathematical constant PI as f64 bits.
+extern "C" fn std_math_pi(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = std::f64::consts::PI.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the mathematical constant E as f64 bits.
+extern "C" fn std_math_e_const(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = std::f64::consts::E.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Polymorphic print function (no trailing newline — use `println` for newline).
 ///
 /// Arguments are (type_tag: i64, value: i64) pairs:
 ///   - tag 0 → print as integer
-///   - tag 1 → print as null-terminated C string (value is a pointer)
+///   - tag 1 → print as null-terminated string (value is a pointer)
 ///   - tag 2 → print as bool ("true"/"false")
 ///   - tag 3 → print as float (value reinterpreted as f64 bits)
-///
-/// A newline is appended after all values.
 extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -377,10 +599,6 @@ extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
             }
         }
 
-        if writeln!(stdout).is_err() {
-            return HOST_STATUS_INTERNAL_ERROR;
-        }
-
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = values_count as SpectraHostValue;
@@ -390,7 +608,19 @@ extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-/// Same as io.print but writes to stderr.
+/// Polymorphic println: same as print but appends a trailing newline.
+extern "C" fn std_io_println(ctx: *mut SpectraHostCallContext) -> i32 {
+    let status = std_io_print(ctx);
+    if status != HOST_STATUS_SUCCESS {
+        return status;
+    }
+    if writeln!(io::stdout()).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Same as io.print but writes to stderr (no trailing newline).
 extern "C" fn std_io_eprint(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -453,16 +683,51 @@ extern "C" fn std_io_eprint(ctx: *mut SpectraHostCallContext) -> i32 {
             }
         }
 
-        if writeln!(stderr).is_err() {
-            return HOST_STATUS_INTERNAL_ERROR;
-        }
-
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = values_count as SpectraHostValue;
         }
     }
 
+    HOST_STATUS_SUCCESS
+}
+
+/// Polymorphic eprintln: same as eprint but appends a trailing newline.
+extern "C" fn std_io_eprintln(ctx: *mut SpectraHostCallContext) -> i32 {
+    let status = std_io_eprint(ctx);
+    if status != HOST_STATUS_SUCCESS {
+        return status;
+    }
+    if writeln!(io::stderr()).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_io_read_line(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut line = String::new();
+    if io::stdin().lock().read_line(&mut line).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    // Strip trailing CRLF or LF
+    if line.ends_with('\n') {
+        line.pop();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ptr = alloc_spectra_string(&line);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = ptr;
+    }
     HOST_STATUS_SUCCESS
 }
 
@@ -724,6 +989,30 @@ impl ListRegistry {
         }
     }
 
+    fn get(&self, handle: usize, index: i64) -> SpectraHostValue {
+        match self.lists.get(&handle) {
+            Some(list) if index >= 0 && (index as usize) < list.data.len() => {
+                list.data[index as usize]
+            }
+            _ => -1,
+        }
+    }
+
+    fn set(&mut self, handle: usize, index: i64, value: SpectraHostValue) {
+        if let Some(list) = self.lists.get_mut(&handle) {
+            if index >= 0 && (index as usize) < list.data.len() {
+                list.data[index as usize] = value;
+            }
+        }
+    }
+
+    fn contains(&self, handle: usize, value: SpectraHostValue) -> bool {
+        match self.lists.get(&handle) {
+            Some(list) => list.data.contains(&value),
+            None => false,
+        }
+    }
+
     fn clear_list(&mut self, handle: usize) -> Result<(), i32> {
         match self.lists.get_mut(&handle) {
             Some(list) => {
@@ -750,6 +1039,74 @@ impl ListRegistry {
     }
 }
 
+// ── std.collections extras ──────────────────────────────────────────────────
+
+extern "C" fn std_list_get(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let index = args[1];
+        let result = with_list_registry(|registry| registry.get(handle, index));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = result;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_set(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let index = args[1];
+        let value = args[2];
+        with_list_registry(|registry| registry.set(handle, index, value));
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_contains(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let value = args[1];
+        let found = with_list_registry(|registry| registry.contains(handle, value));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = found as SpectraHostValue;
+    }
+    HOST_STATUS_SUCCESS
+}
+
 // ── std.string & std.convert registrations ─────────────────────────────────
 
 fn register_string() {
@@ -763,6 +1120,13 @@ fn register_string() {
     register_host_function(STR_CONCAT, std_string_concat);
     register_host_function(STR_REPEAT, std_string_repeat);
     register_host_function(STR_CHAR_AT, std_string_char_at);
+    register_host_function(STR_SUBSTRING, std_string_substring);
+    register_host_function(STR_REPLACE, std_string_replace);
+    register_host_function(STR_INDEX_OF, std_string_index_of);
+    register_host_function(STR_SPLIT_FIRST, std_string_split_first);
+    register_host_function(STR_SPLIT_LAST, std_string_split_last);
+    register_host_function(STR_IS_EMPTY, std_string_is_empty);
+    register_host_function(STR_COUNT, std_string_count_occurrences);
 }
 
 fn register_convert() {
@@ -773,6 +1137,10 @@ fn register_convert() {
     register_host_function(CONV_STRING_TO_FLOAT, std_convert_string_to_float);
     register_host_function(CONV_INT_TO_FLOAT, std_convert_int_to_float);
     register_host_function(CONV_FLOAT_TO_INT, std_convert_float_to_int);
+    register_host_function(CONV_STRING_TO_INT_OR, std_convert_string_to_int_or);
+    register_host_function(CONV_STRING_TO_FLOAT_OR, std_convert_string_to_float_or);
+    register_host_function(CONV_STRING_TO_BOOL, std_convert_string_to_bool);
+    register_host_function(CONV_BOOL_TO_INT, std_convert_bool_to_int);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -1043,6 +1411,195 @@ extern "C" fn std_string_char_at(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+// ── std.string extras ────────────────────────────────────────────────────────
+
+/// Returns a substring from `start` (inclusive) to `end` (exclusive).
+/// Clamps indices to valid range; returns empty string on invalid input.
+extern "C" fn std_string_substring(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let start = args[1];
+        let end = args[2];
+        let ptr = match read_spectra_string(args[0]) {
+            Some(s) => {
+                let len = s.len() as i64;
+                let s_start = start.clamp(0, len) as usize;
+                let s_end = end.clamp(0, len) as usize;
+                let slice = if s_start <= s_end { &s[s_start..s_end] } else { "" };
+                alloc_spectra_string(slice)
+            }
+            None => alloc_spectra_string(""),
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Replaces all occurrences of `from` with `to` in `s`.
+extern "C" fn std_string_replace(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match (
+            read_spectra_string(args[0]),
+            read_spectra_string(args[1]),
+            read_spectra_string(args[2]),
+        ) {
+            (Some(s), Some(from), Some(to)) => alloc_spectra_string(&s.replace(from.as_str(), &to)),
+            (Some(s), _, _) => alloc_spectra_string(&s),
+            _ => alloc_spectra_string(""),
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the byte index of the first occurrence of `sub` in `s`, or -1 if not found.
+extern "C" fn std_string_index_of(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(sub)) => match s.find(sub.as_str()) {
+                Some(idx) => idx as SpectraHostValue,
+                None => -1,
+            },
+            _ => -1,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the part of `s` before the first occurrence of `sep`.
+/// Returns `s` unchanged if `sep` is not found.
+extern "C" fn std_string_split_first(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(sep)) => {
+                let part = s.splitn(2, sep.as_str()).next().unwrap_or("");
+                alloc_spectra_string(part)
+            }
+            (Some(s), _) => alloc_spectra_string(&s),
+            _ => alloc_spectra_string(""),
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the part of `s` after the last occurrence of `sep`.
+/// Returns empty string if `sep` is not found.
+extern "C" fn std_string_split_last(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let ptr = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(sep)) => {
+                let part = s.rsplitn(2, sep.as_str()).next().unwrap_or("");
+                alloc_spectra_string(part)
+            }
+            _ => alloc_spectra_string(""),
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = ptr;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns 1 if the string is empty (or null), 0 otherwise.
+extern "C" fn std_string_is_empty(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match read_spectra_string(args[0]) {
+            Some(s) => s.is_empty() as SpectraHostValue,
+            None => 1,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the number of non-overlapping occurrences of `sub` in `s`.
+extern "C" fn std_string_count_occurrences(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(s), Some(sub)) if !sub.is_empty() => s.matches(sub.as_str()).count() as SpectraHostValue,
+            _ => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
 // ── std.convert host functions ───────────────────────────────────────────────
 
 extern "C" fn std_convert_int_to_string(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -1186,6 +1743,221 @@ extern "C" fn std_convert_float_to_int(ctx: *mut SpectraHostCallContext) -> i32 
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = result;
         }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.convert extras ───────────────────────────────────────────────────────
+
+/// Parses a string as int; returns `default` if parsing fails.
+extern "C" fn std_convert_string_to_int_or(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let default_val = args[1];
+        let result = match read_spectra_string(args[0]) {
+            Some(s) => s.trim().parse::<i64>().unwrap_or(default_val),
+            None => default_val,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Parses a string as float; returns `default` (f64 bits) if parsing fails.
+extern "C" fn std_convert_string_to_float_or(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let default_val = args[1];
+        let result = match read_spectra_string(args[0]) {
+            Some(s) => match s.trim().parse::<f64>() {
+                Ok(f) => f.to_bits() as i64,
+                Err(_) => default_val,
+            },
+            None => default_val,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns 1 (true) if the string equals "true" (case-insensitive), 0 otherwise.
+extern "C" fn std_convert_string_to_bool(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match read_spectra_string(args[0]) {
+            Some(s) => s.trim().eq_ignore_ascii_case("true") as SpectraHostValue,
+            None => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Converts a bool to int: true → 1, false → 0.
+extern "C" fn std_convert_bool_to_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result: SpectraHostValue = if args[0] != 0 { 1 } else { 0 };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.random ───────────────────────────────────────────────────────────────
+
+fn random_state() -> &'static Mutex<u64> {
+    static STATE: OnceLock<Mutex<u64>> = OnceLock::new();
+    STATE.get_or_init(|| {
+        // Default seed derived from the system time for variety across runs.
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| {
+                d.subsec_nanos() as u64
+                    ^ d.as_secs().wrapping_mul(6364136223846793005)
+            })
+            .unwrap_or(12345);
+        Mutex::new(seed)
+    })
+}
+
+/// Linear Congruential Generator step (Knuth constants). Returns total state.
+#[inline]
+fn lcg_next(state: &mut u64) -> u64 {
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    *state
+}
+
+fn register_random() {
+    register_host_function(RAND_SEED, std_random_seed);
+    register_host_function(RAND_INT, std_random_int);
+    register_host_function(RAND_FLOAT, std_random_float);
+    register_host_function(RAND_BOOL, std_random_bool);
+}
+
+/// Sets the random seed.
+extern "C" fn std_random_seed(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        *random_state().lock().expect("random mutex poisoned") = args[0] as u64;
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns a random integer in [min, max). Returns `min` when min >= max.
+extern "C" fn std_random_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let min = args[0];
+        let max = args[1];
+        let result = if min >= max {
+            min
+        } else {
+            let range = (max - min) as u64;
+            let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
+            min + (rand % range) as i64
+        };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = result;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns a random float in [0.0, 1.0) as f64 bits.
+extern "C" fn std_random_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
+        // Map to [0.0, 1.0) via the 53 significant bits of f64 mantissa.
+        let f: f64 = (rand >> 11) as f64 / (1u64 << 53) as f64;
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = f.to_bits() as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns a random bool (0 or 1).
+extern "C" fn std_random_bool(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = (rand & 1) as i64;
     }
     HOST_STATUS_SUCCESS
 }

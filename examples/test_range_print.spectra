@@ -3,12 +3,12 @@ import std.io;
 
 pub fn main() -> int {
     for i in 0..5 {
-        print(i);
+        println(i);
     }
     let sum = 0;
     for j in 1..=4 {
         sum = sum + j;
     }
-    print(sum);
+    println(sum);
     return 0;
 }

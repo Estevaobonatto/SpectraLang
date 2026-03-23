@@ -5,7 +5,7 @@ import std.io;
 
 pub fn main() -> int {
     let s = square(7);
-    print(s);
-    print(100);
+    println(s);
+    println(100);
     return s;
 }

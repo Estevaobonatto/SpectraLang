@@ -7,7 +7,7 @@ import std.io;
 
 // Função principal com sintaxe limpa
 pub fn main() {
-    print("=== SpectraLang Syntax Demo ===");
+    println("=== SpectraLang Syntax Demo ===");
     
     // Variáveis com tipos opcionais
     let x: int = 10;
@@ -21,9 +21,9 @@ pub fn main() {
     let quotient = y / 2;
     let remainder = y % 3;
     
-    print("Arithmetic:");
-    print(sum);
-    print(diff);
+    println("Arithmetic:");
+    println(sum);
+    println(diff);
     
     // Operadores de comparação
     let is_equal = x == 10;
@@ -36,37 +36,37 @@ pub fn main() {
     
     // Condicional if/else simples
     if x < y {
-        print("x is less than y");
+        println("x is less than y");
     } else {
-        print("x is greater or equal to y");
+        println("x is greater or equal to y");
     }
     
     // Condicional com elif
     if x > 100 {
-        print("Large number");
+        println("Large number");
     } elif x > 50 {
-        print("Medium number");
+        println("Medium number");
     } elif x > 10 {
-        print("Small number");
+        println("Small number");
     } else {
-        print("Very small number");
+        println("Very small number");
     }
     
     // Loop while
     let counter = 0;
     while counter < 5 {
-        print(counter);
+        println(counter);
         counter = counter + 1;
     }
     
     // Loop for...in
     for i in numbers {
-        print(i);
+        println(i);
     }
     
     // Loop for...of
     for item of collection {
-        print(item);
+        println(item);
     }
     
     // Expressões aninhadas
@@ -78,9 +78,9 @@ pub fn main() {
     
     // If como expressão
     let message = if can_proceed {
-        print("Can proceed!");
+        println("Can proceed!");
     } else {
-        print("Cannot proceed!");
+        println("Cannot proceed!");
     };
     
     return;
@@ -147,12 +147,12 @@ fn complex_logic(data) {
             let squared = item * item;
             
             if squared > 100 {
-                print("Large squared value");
+                println("Large squared value");
                 break;
             } elif squared > 50 {
-                print("Medium squared value");
+                println("Medium squared value");
             } else {
-                print("Small squared value");
+                println("Small squared value");
                 continue;
             }
         }

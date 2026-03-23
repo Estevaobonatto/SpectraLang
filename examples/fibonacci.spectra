@@ -2,17 +2,18 @@
 // Demonstra loops, recursão e sintaxe limpa
 
 module fibonacci;
+import std.io;
 
 pub fn main() {
-    print("=== Fibonacci Sequence ===");
+    println("=== Fibonacci Sequence ===");
     
     // Fibonacci iterativo
-    print("Iterative approach:");
+    println("Iterative approach:");
     let fib_iter = fibonacci_iterative(10);
-    print(fib_iter);
+    println(fib_iter);
     
     // Fibonacci com loop for
-    print("First 10 Fibonacci numbers:");
+    println("First 10 Fibonacci numbers:");
     print_fibonacci_sequence(10);
     
     return;
@@ -44,7 +45,7 @@ fn print_fibonacci_sequence(count: int) {
     
     while i < count {
         let fib = fibonacci_iterative(i);
-        print(fib);
+        println(fib);
         i = i + 1;
     }
     

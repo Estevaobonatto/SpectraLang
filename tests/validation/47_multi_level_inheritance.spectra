@@ -8,7 +8,7 @@ trait Display {
 
 // Trait intermediário
 trait Printable: Display {
-    fn print(&self) -> int;
+    fn println(&self) -> int;
 }
 
 // Trait final (herda Display via Printable)
@@ -30,7 +30,7 @@ impl Debug for Point {
     }
     
     // Implementa print (herdado de Printable)
-    fn print(&self) -> int {
+    fn println(&self) -> int {
         self.x + self.y
     }
     
