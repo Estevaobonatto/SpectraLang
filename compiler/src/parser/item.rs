@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Block, Function, FunctionParam, ImplBlock, Item, Method, Parameter, TraitDeclaration,
-        TraitImpl, TraitMethod, TypeParameter, Visibility,
+        Block, ConstDecl, Function, FunctionParam, ImplBlock, Item, Method, Parameter,
+        StaticDecl, TraitDeclaration, TraitImpl, TraitMethod, TypeAlias, TypeParameter, Visibility,
     },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
@@ -53,6 +53,15 @@ impl Parser {
                 let trait_decl = self.parse_trait_declaration()?;
                 Ok(Item::Trait(trait_decl))
             }
+            crate::token::TokenKind::Keyword(Keyword::Type) => {
+                self.parse_type_alias(Visibility::Private)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Const) => {
+                self.parse_const_decl(Visibility::Private)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Static) => {
+                self.parse_static_decl(Visibility::Private)
+            }
             _ => {
                 self.error("Expected item declaration (import, fn, etc.)");
                 Err(())
@@ -75,6 +84,15 @@ impl Parser {
                 Ok(Item::Enum(enum_item))
             }
             crate::token::TokenKind::Keyword(Keyword::Impl) => self.parse_impl_block(),
+            crate::token::TokenKind::Keyword(Keyword::Type) => {
+                self.parse_type_alias(visibility)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Const) => {
+                self.parse_const_decl(visibility)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Static) => {
+                self.parse_static_decl(visibility)
+            }
             _ => {
                 self.error("Expected function, struct, enum, or impl declaration");
                 Err(())
@@ -1075,5 +1093,65 @@ impl Parser {
             }
             (None, None) => {}
         }
+    }
+
+    // ── Type Alias ────────────────────────────────────────────────────────
+
+    fn parse_type_alias(&mut self, visibility: Visibility) -> Result<Item, ()> {
+        let start_span = self.consume_keyword(Keyword::Type, "Expected 'type' keyword")?;
+        let (name, _) = self.consume_identifier("Expected alias name after 'type'")?;
+        self.consume_symbol('=', "Expected '=' after alias name")?;
+        let ty = self.parse_type_annotation()?;
+        let end_span = self.consume_symbol(';', "Expected ';' after type alias")?;
+        Ok(Item::TypeAlias(TypeAlias {
+            name,
+            span: span_union(start_span, end_span),
+            visibility,
+            ty,
+        }))
+    }
+
+    // ── Const / Static ────────────────────────────────────────────────────
+
+    fn parse_const_decl(&mut self, visibility: Visibility) -> Result<Item, ()> {
+        let start_span = self.consume_keyword(Keyword::Const, "Expected 'const' keyword")?;
+        let (name, _) = self.consume_identifier("Expected constant name")?;
+        let ty = if self.check_symbol(':') {
+            self.advance();
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        self.consume_symbol('=', "Expected '=' after constant name")?;
+        let value = self.parse_expression()?;
+        let end_span = self.consume_symbol(';', "Expected ';' after const declaration")?;
+        Ok(Item::Const(ConstDecl {
+            name,
+            span: span_union(start_span, end_span),
+            visibility,
+            ty,
+            value,
+        }))
+    }
+
+    fn parse_static_decl(&mut self, visibility: Visibility) -> Result<Item, ()> {
+        let start_span = self.consume_keyword(Keyword::Static, "Expected 'static' keyword")?;
+        let (name, _) = self.consume_identifier("Expected static variable name")?;
+        let ty = if self.check_symbol(':') {
+            self.advance();
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        self.consume_symbol('=', "Expected '=' after static variable name")?;
+        let value = self.parse_expression()?;
+        let end_span = self.consume_symbol(';', "Expected ';' after static declaration")?;
+        Ok(Item::Static(StaticDecl {
+            name,
+            span: span_union(start_span, end_span),
+            visibility,
+            ty,
+            value,
+        }))
     }
 }

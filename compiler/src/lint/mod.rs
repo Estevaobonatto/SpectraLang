@@ -157,6 +157,7 @@ impl<'a> LintRunner<'a> {
             Item::TraitImpl(trait_impl) => self.visit_trait_impl(trait_impl),
             Item::Trait(trait_decl) => self.visit_trait(trait_decl),
             Item::Import(_) | Item::Struct(_) | Item::Enum(_) => {}
+            Item::TypeAlias(_) | Item::Const(_) | Item::Static(_) => {}
         }
     }
 

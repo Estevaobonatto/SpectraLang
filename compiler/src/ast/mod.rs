@@ -74,6 +74,12 @@ pub enum Item {
     Impl(ImplBlock),
     Trait(TraitDeclaration),
     TraitImpl(TraitImpl),
+    /// `type Name = TypeAnnotation;`
+    TypeAlias(TypeAlias),
+    /// `const NAME: type = expr;`
+    Const(ConstDecl),
+    /// `static NAME: type = expr;`
+    Static(StaticDecl),
 }
 
 #[derive(Debug, Clone)]
@@ -385,6 +391,8 @@ pub enum ExpressionKind {
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
+    /// Optional guard: `pattern if <guard> => body`
+    pub guard: Option<Expression>,
     pub body: Expression,
 }
 
@@ -568,4 +576,40 @@ pub struct TraitImpl {
     pub type_name: String,    // Nome do tipo que implementa o trait
     pub methods: Vec<Method>, // Métodos implementados (com corpo)
     pub span: Span,
+}
+
+// ============================================================================
+// Type Aliases, Constants and Statics
+// ============================================================================
+
+/// `type Alias = SomeType;`
+#[derive(Debug, Clone)]
+pub struct TypeAlias {
+    pub name: String,
+    pub span: Span,
+    pub visibility: Visibility,
+    /// The type this alias expands to.
+    pub ty: TypeAnnotation,
+}
+
+/// `const NAME: Type = expr;`  — compile-time constant
+#[derive(Debug, Clone)]
+pub struct ConstDecl {
+    pub name: String,
+    pub span: Span,
+    pub visibility: Visibility,
+    /// Optional explicit type; may be inferred from the value expression.
+    pub ty: Option<TypeAnnotation>,
+    pub value: Expression,
+}
+
+/// `static NAME: Type = expr;`  — mutable global variable
+#[derive(Debug, Clone)]
+pub struct StaticDecl {
+    pub name: String,
+    pub span: Span,
+    pub visibility: Visibility,
+    /// Optional explicit type; may be inferred from the value expression.
+    pub ty: Option<TypeAnnotation>,
+    pub value: Expression,
 }

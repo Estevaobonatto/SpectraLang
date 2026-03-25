@@ -173,6 +173,7 @@ pub fn register() {
     register_math();
     register_io();
     register_collections();
+    register_map();
     register_string();
     register_convert();
     register_random();
@@ -3485,6 +3486,269 @@ extern "C" fn std_io_input(ctx: *mut SpectraHostCallContext) -> i32 {
         let ptr = alloc_spectra_string(&line);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ptr;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.collections map (HashMap<i64, i64>) ──────────────────────────────────
+
+const MAP_NEW: &str = "spectra.std.collections.map_new";
+const MAP_SET: &str = "spectra.std.collections.map_set";
+const MAP_GET: &str = "spectra.std.collections.map_get";
+const MAP_CONTAINS: &str = "spectra.std.collections.map_contains";
+const MAP_REMOVE: &str = "spectra.std.collections.map_remove";
+const MAP_LEN: &str = "spectra.std.collections.map_len";
+const MAP_CLEAR: &str = "spectra.std.collections.map_clear";
+const MAP_FREE: &str = "spectra.std.collections.map_free";
+
+fn register_map() {
+    register_host_function(MAP_NEW, std_map_new);
+    register_host_function(MAP_SET, std_map_set);
+    register_host_function(MAP_GET, std_map_get);
+    register_host_function(MAP_CONTAINS, std_map_contains);
+    register_host_function(MAP_REMOVE, std_map_remove);
+    register_host_function(MAP_LEN, std_map_len);
+    register_host_function(MAP_CLEAR, std_map_clear);
+    register_host_function(MAP_FREE, std_map_free);
+}
+
+struct MapRegistry {
+    next_id: usize,
+    maps: HashMap<usize, ManualBox<StdMap>>,
+}
+
+#[derive(Default)]
+struct StdMap {
+    data: HashMap<i64, i64>,
+}
+
+impl MapRegistry {
+    fn new() -> Self {
+        Self { next_id: 1, maps: HashMap::new() }
+    }
+
+    fn insert(&mut self, map: ManualBox<StdMap>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.maps.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.maps.insert(handle, map);
+        handle
+    }
+}
+
+fn map_registry() -> &'static Mutex<MapRegistry> {
+    static REGISTRY: OnceLock<Mutex<MapRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(MapRegistry::new()))
+}
+
+fn with_map_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut MapRegistry) -> R,
+{
+    let registry = map_registry();
+    let mut guard = registry.lock().expect("map registry mutex poisoned");
+    action(&mut guard)
+}
+
+/// Creates a new empty map and returns its handle.
+extern "C" fn std_map_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let memory = initialize().memory();
+        let map = match memory.allocate_manual(StdMap::default()) {
+            Ok(m) => m,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let handle = with_map_registry(|reg| reg.insert(map));
+        results[0] = handle as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Inserts or updates `key → value` in the map identified by `handle`.
+/// Args: [handle, key, value]. Returns 0.
+extern "C" fn std_map_set(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 3 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let key = args[1];
+        let value = args[2];
+        let ok = with_map_registry(|reg| match reg.maps.get_mut(&handle) {
+            Some(m) => { m.data.insert(key, value); true }
+            None => false,
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the value for `key` in the map, or 0 if not found.
+/// Args: [handle, key]. Returns: value.
+extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let handle = args[0] as usize;
+        let key = args[1];
+        let value = with_map_registry(|reg| {
+            reg.maps.get(&handle).and_then(|m| m.data.get(&key).copied()).unwrap_or(0)
+        });
+        results[0] = value;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns 1 if the map contains `key`, 0 otherwise.
+/// Args: [handle, key]. Returns: bool as i64.
+extern "C" fn std_map_contains(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let handle = args[0] as usize;
+        let key = args[1];
+        let found = with_map_registry(|reg| {
+            reg.maps.get(&handle).map(|m| m.data.contains_key(&key)).unwrap_or(false)
+        });
+        results[0] = if found { 1 } else { 0 };
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Removes `key` from the map. Returns the removed value, or 0 if not present.
+/// Args: [handle, key]. Returns: removed_value.
+extern "C" fn std_map_remove(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let key = args[1];
+        let removed = with_map_registry(|reg| {
+            reg.maps.get_mut(&handle).and_then(|m| m.data.remove(&key)).unwrap_or(0)
+        });
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = removed;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Returns the number of entries in the map.
+/// Args: [handle]. Returns: len.
+extern "C" fn std_map_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        let handle = args[0] as usize;
+        let len = with_map_registry(|reg| {
+            reg.maps.get(&handle).map(|m| m.data.len()).unwrap_or(0)
+        });
+        results[0] = len as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Removes all entries from the map without freeing the handle.
+/// Args: [handle]. Returns 0.
+extern "C" fn std_map_clear(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        with_map_registry(|reg| {
+            if let Some(m) = reg.maps.get_mut(&handle) {
+                m.data.clear();
+            }
+        });
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = 0;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Frees the map and its handle.
+/// Args: [handle].
+extern "C" fn std_map_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        with_map_registry(|reg| { reg.maps.remove(&handle); });
     }
     HOST_STATUS_SUCCESS
 }

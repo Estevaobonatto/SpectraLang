@@ -57,6 +57,11 @@ pub enum Keyword {
     // Literals
     True,
     False,
+
+    // Type/value declarations
+    Type,
+    Const,
+    Static,
 }
 
 impl Keyword {
@@ -116,6 +121,11 @@ impl Keyword {
             // Literals
             "true" => Some(Self::True),
             "false" => Some(Self::False),
+
+            // Type/value declarations
+            "type" => Some(Self::Type),
+            "const" => Some(Self::Const),
+            "static" => Some(Self::Static),
 
             _ => None,
         }
@@ -179,6 +189,11 @@ impl fmt::Display for Keyword {
             // Literals
             Keyword::True => "true",
             Keyword::False => "false",
+
+            // Type/value declarations
+            Keyword::Type => "type",
+            Keyword::Const => "const",
+            Keyword::Static => "static",
         };
 
         write!(f, "{}", text)

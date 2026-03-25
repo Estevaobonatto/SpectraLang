@@ -1354,6 +1354,10 @@ impl SemanticAnalyzer {
             Item::TraitImpl(trait_impl) => {
                 self.analyze_trait_impl(trait_impl);
             }
+            Item::TypeAlias(_) | Item::Const(_) | Item::Static(_) => {
+                // Type aliases, constants, and statics are resolved during the
+                // declaration pass. No further semantic checks needed here yet.
+            }
         }
     }
 

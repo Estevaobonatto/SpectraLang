@@ -1111,6 +1111,24 @@ fn item_to_completion_items(item: &spectra_compiler::ast::Item) -> Vec<Completio
                 ..Default::default()
             })
             .collect(),
+        spectra_compiler::ast::Item::TypeAlias(ta) => vec![CompletionItem {
+            label: ta.name.clone(),
+            kind: Some(CompletionItemKind::VALUE),
+            detail: Some(format!("type {}", ta.name)),
+            ..Default::default()
+        }],
+        spectra_compiler::ast::Item::Const(c) => vec![CompletionItem {
+            label: c.name.clone(),
+            kind: Some(CompletionItemKind::CONSTANT),
+            detail: Some(format!("const {}", c.name)),
+            ..Default::default()
+        }],
+        spectra_compiler::ast::Item::Static(s) => vec![CompletionItem {
+            label: s.name.clone(),
+            kind: Some(CompletionItemKind::VALUE),
+            detail: Some(format!("static {}", s.name)),
+            ..Default::default()
+        }],
     }
 }
 
@@ -1227,6 +1245,27 @@ fn item_to_document_symbol(item: &spectra_compiler::ast::Item) -> DocumentSymbol
             SymbolKind::OBJECT,
             trait_impl.span,
             Some(trait_impl.methods.iter().map(method_to_document_symbol).collect()),
+        ),
+        spectra_compiler::ast::Item::TypeAlias(ta) => document_symbol_node(
+            ta.name.clone(),
+            Some("type alias".to_string()),
+            SymbolKind::TYPE_PARAMETER,
+            ta.span,
+            None,
+        ),
+        spectra_compiler::ast::Item::Const(c) => document_symbol_node(
+            c.name.clone(),
+            Some("constant".to_string()),
+            SymbolKind::CONSTANT,
+            c.span,
+            None,
+        ),
+        spectra_compiler::ast::Item::Static(s) => document_symbol_node(
+            s.name.clone(),
+            Some("static variable".to_string()),
+            SymbolKind::VARIABLE,
+            s.span,
+            None,
         ),
     }
 }
@@ -1484,6 +1523,7 @@ fn find_call_site(module: &spectra_compiler::ast::Module, line: usize, column: u
                 }
             }
             spectra_compiler::ast::Item::Import(_) | spectra_compiler::ast::Item::Struct(_) | spectra_compiler::ast::Item::Enum(_) => {}
+            spectra_compiler::ast::Item::TypeAlias(_) | spectra_compiler::ast::Item::Const(_) | spectra_compiler::ast::Item::Static(_) => {}
         }
     }
 
@@ -2097,6 +2137,7 @@ fn collect_workspace_symbol_entries(
                 }
             }
         }
+        spectra_compiler::ast::Item::TypeAlias(_) | spectra_compiler::ast::Item::Const(_) | spectra_compiler::ast::Item::Static(_) => {}
     }
 }
 
@@ -2296,6 +2337,7 @@ fn semantic_declaration_tokens(
                     }
                 }
             }
+            spectra_compiler::ast::Item::TypeAlias(_) | spectra_compiler::ast::Item::Const(_) | spectra_compiler::ast::Item::Static(_) => {}
             spectra_compiler::ast::Item::TraitImpl(trait_impl) => {
                 if let Some(span) = named_subspan(text, trait_impl.span, &trait_impl.trait_name) {
                     tokens.push((span, TOKEN_INTERFACE));

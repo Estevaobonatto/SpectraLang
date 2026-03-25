@@ -3754,6 +3754,21 @@ impl ASTLowering {
                         ir_func,
                     );
 
+                    // Se o arm tem guard (p. ex. `Pattern if cond =>`), avaliar a condição
+                    // e saltar para o próximo check se ela for falsa.
+                    if let Some(guard_expr) = &arm.guard {
+                        let guard_val = self.lower_expression(guard_expr, ir_func);
+                        let guard_body_block =
+                            ir_func.add_block(&format!("match_guard_body_{}", idx));
+                        self.builder.build_cond_branch(
+                            ir_func,
+                            guard_val,
+                            guard_body_block,
+                            next_check,
+                        );
+                        self.builder.set_current_block(guard_body_block);
+                    }
+
                     let body_value = self.lower_expression(&arm.body, ir_func);
                     // Só emitir store+branch se o arm não terminou com return explícito
                     let arm_final_block = self.builder.get_current_block().unwrap_or(arm_body_blocks[idx]);
@@ -4806,6 +4821,47 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 runtime_name: "spectra.std.collections.list_free_all",
                 return_type: IRType::Int,
                 returns_value: true,
+            }),
+            // ── std.collections map ──────────────────────────────────────
+            ("collections", "map_new") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_new",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "map_set") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_set",
+                return_type: IRType::Int,
+                returns_value: false,
+            }),
+            ("collections", "map_get") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_get",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "map_contains") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_contains",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "map_remove") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_remove",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "map_len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "map_clear") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_clear",
+                return_type: IRType::Int,
+                returns_value: false,
+            }),
+            ("collections", "map_free") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_free",
+                return_type: IRType::Void,
+                returns_value: false,
             }),
             // ── std.string ────────────────────────────────────────────────
             ("string", "len") => Some(HostFunctionDescriptor {

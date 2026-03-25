@@ -1811,6 +1811,7 @@ mod cst {
                 Item::TraitImpl(trait_impl) => {
                     collect_nested_doc_comment_targets_trait_impl(trait_impl, lines, line_offsets);
                 }
+                Item::TypeAlias(_) | Item::Const(_) | Item::Static(_) => {}
             }
         }
     }
@@ -2144,6 +2145,7 @@ mod cst {
                 Item::Trait(trait_decl) => collect_match_spans_trait(trait_decl, spans),
                 Item::TraitImpl(trait_impl) => collect_match_spans_trait_impl(trait_impl, spans),
                 Item::Struct(_) | Item::Enum(_) | Item::Import(_) => {}
+                Item::TypeAlias(_) | Item::Const(_) | Item::Static(_) => {}
             }
         }
     }
@@ -2538,6 +2540,9 @@ mod cst {
             Item::Impl(ImplBlock { span, .. }) => span,
             Item::Trait(TraitDeclaration { span, .. }) => span,
             Item::TraitImpl(TraitImpl { span, .. }) => span,
+            Item::TypeAlias(ta) => &ta.span,
+            Item::Const(c) => &c.span,
+            Item::Static(s) => &s.span,
         }
     }
 }

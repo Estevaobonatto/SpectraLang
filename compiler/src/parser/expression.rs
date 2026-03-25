@@ -894,6 +894,14 @@ impl Parser {
             // Parse pattern
             let pattern = self.parse_pattern()?;
 
+            // Parse optional guard: if <expr>
+            let guard = if matches!(self.current().kind, TokenKind::Keyword(Keyword::If)) {
+                self.advance(); // consume 'if'
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+
             // Expect '=>' operator
             if !matches!(
                 self.current().kind,
@@ -907,7 +915,7 @@ impl Parser {
             // Parse body expression
             let body = self.parse_expression()?;
 
-            arms.push(MatchArm { pattern, body });
+            arms.push(MatchArm { pattern, guard, body });
 
             // Optional comma, or break if we see '}'
             if self.check_symbol(',') {

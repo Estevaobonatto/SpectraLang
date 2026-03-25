@@ -227,6 +227,7 @@ fn build_definition_index(module: &Module) -> HashMap<Span, DefinitionInfo> {
                 index_trait_impl(&mut definitions, trait_impl);
             }
             Item::Import(_) => {}
+            Item::TypeAlias(_) | Item::Const(_) | Item::Static(_) => {}
         }
     }
 

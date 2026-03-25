@@ -2,6 +2,7 @@
 
 pub mod constant_folding;
 pub mod dead_code_elimination;
+pub mod strength_reduction;
 pub mod validation;
 pub mod verification;
 
