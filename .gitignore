@@ -1,1 +1,32 @@
+# Build artifacts
 /target/
+**/*.o
+**/*.obj
+**/*.a
+**/*.lib
+**/*.exe
+**/*.dll
+**/*.so
+**/*.dylib
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# Debug / CI output artifacts
+cargo_errors.txt
+build_output.txt
+err.txt
+TEST_RESULTS.txt
+struct_variant_check.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp / scratch files in root
+test_boolr.spectra
+
+# Installer build output
+installer/Output/
