@@ -89,8 +89,6 @@ Root: HKCU; Subkey: "Software\Classes\.spectra"; ValueType: string; ValueName: "
 const
   EnvKey     = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
   UserEnvKey = 'Environment';
-  HWND_BROADCAST   = $FFFF;
-  WM_SETTINGCHANGE = $001A;
 
 // Broadcast environment change so running terminals pick up the new PATH
 function PostMessageA(hWnd: DWORD; Msg: UINT; wParam: UINT; lParam: DWORD): BOOL;
