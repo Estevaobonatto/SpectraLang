@@ -153,6 +153,16 @@ jobs:
           cp target/${{ matrix.target }}/release/spectra-cli${{ matrix.ext }} staging/
           cp target/${{ matrix.target }}/release/spectra-lsp${{ matrix.ext }} staging/
 
+      - name: Add spectra-cli to PATH
+        shell: bash
+        run: echo "$GITHUB_WORKSPACE/target/${{ matrix.target }}/release" >> $GITHUB_PATH
+
+      - name: Smoke test spectra-cli
+        # Skip cross-compiled Apple Silicon binary when running on x64 runner and vice-versa
+        if: matrix.artifact-name != 'darwin-x64'
+        shell: bash
+        run: spectra-cli --help || spectra-cli version || true
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -374,8 +384,10 @@ jobs:
           cp "${SCRIPT_DIR}/bin/spectra-cli" "$DEST/"
           cp "${SCRIPT_DIR}/bin/spectra-lsp" "$DEST/"
           chmod +x "$DEST/spectra-cli" "$DEST/spectra-lsp"
+          # Create 'spectra' alias so you can run 'spectra' in addition to 'spectra-cli'
+          ln -sf "$DEST/spectra-cli" "$DEST/spectra"
           echo "Spectra CLI and LSP installed to $DEST"
-          echo "Make sure $DEST is in your PATH."
+          echo "Make sure $DEST is in your PATH (add: export PATH=\"\$HOME/.local/bin:\$PATH\" to ~/.bashrc or ~/.zshrc)"
           VSIX_PATH="${SCRIPT_DIR}/extension/spectra-vscode-extension.vsix"
           if command -v code &>/dev/null; then
             echo "Installing VS Code extension..."

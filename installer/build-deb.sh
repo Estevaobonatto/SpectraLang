@@ -44,6 +44,8 @@ cp "${BIN_DIR}/spectra-cli" "${STAGING}/usr/local/bin/spectra-cli"
 cp "${BIN_DIR}/spectra-lsp" "${STAGING}/usr/local/bin/spectra-lsp"
 chmod 755 "${STAGING}/usr/local/bin/spectra-cli"
 chmod 755 "${STAGING}/usr/local/bin/spectra-lsp"
+# Create 'spectra' symlink so users can run 'spectra' as well as 'spectra-cli'
+ln -sf /usr/local/bin/spectra-cli "${STAGING}/usr/local/bin/spectra"
 
 # ── Copy VSIX (if present) ────────────────────────────────────────────────────
 if [[ -f "${VSIX_SRC}" ]]; then

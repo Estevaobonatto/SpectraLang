@@ -54,6 +54,7 @@ Name: "installvsix"; Description: "Install VS Code extension (requires VS Code)"
 [Files]
 ; Core binaries
 Source: "{#SourceDir}\spectra-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\spectra-cli.exe"; DestDir: "{app}"; DestName: "spectra.exe"; Flags: ignoreversion
 Source: "{#SourceDir}\spectra-lsp.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; VS Code extension (installed on demand)
 Source: "{#SourceDir}\spectra-vscode-extension.vsix"; DestDir: "{app}"; Flags: ignoreversion
@@ -87,8 +88,14 @@ Root: HKCU; Subkey: "Software\Classes\.spectra"; ValueType: string; ValueName: "
 // PATH management: append/remove {app} from HKCU\Environment\Path
 // ─────────────────────────────────────────────────────────────────────────────
 const
-  EnvKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+  EnvKey     = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
   UserEnvKey = 'Environment';
+  HWND_BROADCAST   = $FFFF;
+  WM_SETTINGCHANGE = $001A;
+
+// Broadcast environment change so running terminals pick up the new PATH
+function PostMessageA(hWnd: DWORD; Msg: UINT; wParam: UINT; lParam: DWORD): BOOL;
+  external 'PostMessageA@user32.dll stdcall';
 
 procedure AddToUserPath(Dir: string);
 var
@@ -104,6 +111,8 @@ begin
     else
       NewPath := OldPath + Dir;
     RegWriteStringValue(HKCU, UserEnvKey, 'Path', NewPath);
+    // Notify all running applications (cmd, PowerShell, Explorer) of the change
+    PostMessageA(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 0);
   end;
 end;
 
