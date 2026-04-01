@@ -47,9 +47,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "addtopath"; Description: "Add Spectra to the system PATH (recommended)"; GroupDescription: "Additional options:"; Flags: checked
-Name: "fileassoc"; Description: "Associate .spectra files with Spectra CLI"; GroupDescription: "Additional options:"; Flags: checked
-Name: "installvsix"; Description: "Install VS Code extension (requires VS Code)"; GroupDescription: "Additional options:"; Flags: checked
+Name: "addtopath"; Description: "Add Spectra to the system PATH (recommended)"; GroupDescription: "Additional options:"
+Name: "fileassoc"; Description: "Associate .spectra files with Spectra CLI"; GroupDescription: "Additional options:"
+Name: "installvsix"; Description: "Install VS Code extension (requires VS Code)"; GroupDescription: "Additional options:"
 
 [Files]
 ; Core binaries
@@ -65,11 +65,7 @@ Name: "{group}\Uninstall SpectraLang"; Filename: "{uninstallexe}"
 
 [Run]
 ; Install VS Code extension after setup (user can deselect the task)
-Filename: "{cmd}"; Parameters: "/c code --install-extension ""{app}\spectra-vscode-extension.vsix"" --force"; \
-  Flags: runhidden waituntilterminated; \
-  StatusMsg: "Installing VS Code extension..."; \
-  Description: "Install the SpectraLang VS Code extension"; \
-  Tasks: installvsix
+Filename: "{cmd}"; Parameters: "/c code --install-extension ""{app}\spectra-vscode-extension.vsix"" --force"; Flags: runhidden waituntilterminated; StatusMsg: "Installing VS Code extension..."; Description: "Install the SpectraLang VS Code extension"; Tasks: installvsix
 
 [Registry]
 ; ── PATH management (user-level so no UAC prompt by default) ─────────────────
