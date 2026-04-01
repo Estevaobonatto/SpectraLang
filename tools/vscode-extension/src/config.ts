@@ -8,6 +8,18 @@ function getExecutableName(baseName: string): string {
   return process.platform === 'win32' ? `${baseName}.exe` : baseName;
 }
 
+/**
+ * Maps the current platform/arch to the subdirectory name used when bundling
+ * multi-platform binaries inside the VSIX (e.g. server/win32-x64/).
+ */
+function getPlatformDir(): string {
+  const platform = process.platform; // 'win32' | 'linux' | 'darwin'
+  const arch = process.arch;         // 'x64' | 'arm64'
+  if (platform === 'win32') return 'win32-x64';
+  if (platform === 'darwin') return arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+  return 'linux-x64';
+}
+
 function existingPath(candidates: string[]): string | undefined {
   for (const candidate of candidates) {
     if (candidate && fs.existsSync(candidate)) {
@@ -26,7 +38,11 @@ export function getServerPath(context: vscode.ExtensionContext): string {
   }
 
   const executable = getExecutableName('spectra-lsp');
+  const platformDir = getPlatformDir();
   const bundledCandidates = [
+    // Multi-platform VSIX layout: server/<platform>-<arch>/<binary>
+    path.resolve(context.extensionPath, 'server', platformDir, executable),
+    // Legacy / dev layout: server/<binary>
     path.resolve(context.extensionPath, 'server', executable),
     path.resolve(context.extensionPath, 'bin', executable),
   ];
@@ -72,9 +88,13 @@ export function getCliPath(): string {
 
   const executable = getExecutableName('spectra-cli');
 
-  // Prioridade 1: bundled dentro da extensão (server/spectra-cli.exe)
+  // Prioridade 1: bundled dentro da extensão (server/<platform>-<arch>/spectra-cli)
   if (_extensionPath) {
+    const platformDir = getPlatformDir();
     const bundledCandidates = [
+      // Multi-platform VSIX layout
+      path.resolve(_extensionPath, 'server', platformDir, executable),
+      // Legacy / dev layout
       path.resolve(_extensionPath, 'server', executable),
       path.resolve(_extensionPath, 'bin', executable),
     ];

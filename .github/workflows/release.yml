@@ -1,0 +1,446 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versao a publicar (ex: 0.2.0 - sem o prefixo v)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Phase 0: Determine version (from input or Cargo.toml) and create git tag
+  # ---------------------------------------------------------------------------
+  determine-version:
+    name: Determine Version & Create Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.VERSION }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve and bump version
+        id: ver
+        run: |
+          CURRENT=$(grep '^version' tools/spectra-cli/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Auto-bump patch on every push to main
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "CURRENT=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Bumped: ${CURRENT} -> ${VERSION}"
+
+      - name: Update version in Cargo.toml and package.json
+        run: |
+          CURRENT="${{ steps.ver.outputs.CURRENT }}"
+          VERSION="${{ steps.ver.outputs.VERSION }}"
+          # Update spectra-cli Cargo.toml
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${VERSION}\"/" tools/spectra-cli/Cargo.toml
+          # Update VS Code extension package.json
+          sed -i "s/\"version\": \"${CURRENT}\"/\"version\": \"${VERSION}\"/" tools/vscode-extension/package.json
+          echo "Updated version to ${VERSION} in Cargo.toml and package.json"
+
+      - name: Commit and push version bump
+        run: |
+          VERSION="${{ steps.ver.outputs.VERSION }}"
+          git add tools/spectra-cli/Cargo.toml tools/vscode-extension/package.json
+          if git diff --staged --quiet; then
+            echo "No version changes to commit (already at ${VERSION})."
+          else
+            git commit -m "chore: bump version to ${VERSION} [skip ci]"
+            git push origin main
+          fi
+
+      - name: Create and push tag
+        run: |
+          TAG="v${{ steps.ver.outputs.VERSION }}"
+          if git ls-remote --tags origin "${TAG}" | grep -q "${TAG}"; then
+            echo "Tag ${TAG} already exists - skipping tag creation."
+          else
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}"
+            echo "Tag ${TAG} created and pushed."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Phase 1: Build Rust binaries for all platforms
+  # ---------------------------------------------------------------------------
+  build-binaries:
+    name: Build (${{ matrix.target }})
+    needs: determine-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact-name: windows-x64
+            ext: .exe
+
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact-name: linux-x64
+            ext: ''
+
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact-name: darwin-x64
+            ext: ''
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact-name: darwin-arm64
+            ext: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build spectra-cli
+        run: cargo build --release --package spectra-cli --target ${{ matrix.target }}
+
+      - name: Build spectra-lsp
+        run: cargo build --release --package spectra-lsp --target ${{ matrix.target }}
+
+      - name: Stage binaries
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/spectra-cli${{ matrix.ext }} staging/
+          cp target/${{ matrix.target }}/release/spectra-lsp${{ matrix.ext }} staging/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.artifact-name }}
+          path: staging/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 2: VS Code Extension - universal VSIX (all binaries bundled)
+  # ---------------------------------------------------------------------------
+  build-vsix:
+    name: Build VS Code Extension (Universal VSIX)
+    needs: [build-binaries, determine-version]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: all-binaries/
+          merge-multiple: false
+
+      - name: Stage binaries inside the extension
+        run: |
+          EXT="tools/vscode-extension"
+          mkdir -p \
+            "${EXT}/server/win32-x64" \
+            "${EXT}/server/linux-x64" \
+            "${EXT}/server/darwin-x64" \
+            "${EXT}/server/darwin-arm64"
+
+          cp all-binaries/binaries-windows-x64/spectra-cli.exe  "${EXT}/server/win32-x64/"
+          cp all-binaries/binaries-windows-x64/spectra-lsp.exe  "${EXT}/server/win32-x64/"
+
+          cp all-binaries/binaries-linux-x64/spectra-cli   "${EXT}/server/linux-x64/"
+          cp all-binaries/binaries-linux-x64/spectra-lsp   "${EXT}/server/linux-x64/"
+          chmod +x "${EXT}/server/linux-x64/"*
+
+          cp all-binaries/binaries-darwin-x64/spectra-cli  "${EXT}/server/darwin-x64/"
+          cp all-binaries/binaries-darwin-x64/spectra-lsp  "${EXT}/server/darwin-x64/"
+          chmod +x "${EXT}/server/darwin-x64/"*
+
+          cp all-binaries/binaries-darwin-arm64/spectra-cli "${EXT}/server/darwin-arm64/"
+          cp all-binaries/binaries-darwin-arm64/spectra-lsp "${EXT}/server/darwin-arm64/"
+          chmod +x "${EXT}/server/darwin-arm64/"*
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tools/vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        working-directory: tools/vscode-extension
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: tools/vscode-extension
+        run: npm run compile
+
+      - name: Package VSIX
+        working-directory: tools/vscode-extension
+        run: |
+          npx @vscode/vsce package \
+            --no-git-tag-version \
+            --out "spectra-vscode-extension-${{ needs.determine-version.outputs.version }}.vsix"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: tools/vscode-extension/spectra-vscode-extension-*.vsix
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 3: Windows Installer via Inno Setup
+  # ---------------------------------------------------------------------------
+  package-windows:
+    name: Windows Installer (Inno Setup)
+    needs: [build-binaries, build-vsix, determine-version]
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-windows-x64
+          path: installer/bin/
+
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: installer/vsix/
+
+      - name: Stage VSIX for installer
+        shell: bash
+        run: |
+          vsix=$(ls installer/vsix/spectra-vscode-extension-*.vsix | head -1)
+          cp "${vsix}" installer/bin/spectra-vscode-extension.vsix
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile Inno Setup script
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
+            /DAppVersion=${{ needs.determine-version.outputs.version }} ^
+            /DSourceDir=bin ^
+            installer\spectra.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: installer/Output/Spectra-Setup-*.exe
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 4: Linux .deb package
+  # ---------------------------------------------------------------------------
+  package-linux-deb:
+    name: Linux .deb Package
+    needs: [build-binaries, build-vsix, determine-version]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-linux-x64
+          path: installer/bin/
+
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: installer/vsix/
+
+      - name: Stage VSIX for package
+        run: |
+          vsix=$(ls installer/vsix/spectra-vscode-extension-*.vsix | head -1)
+          cp "${vsix}" installer/bin/spectra-vscode-extension.vsix
+
+      - name: Build .deb package
+        run: |
+          chmod +x installer/build-deb.sh
+          installer/build-deb.sh "${{ needs.determine-version.outputs.version }}" installer/bin
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-linux-deb
+          path: installer/spectra_*.deb
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 5: macOS tarballs
+  # ---------------------------------------------------------------------------
+  package-macos:
+    name: macOS Tarballs
+    needs: [build-binaries, build-vsix, determine-version]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download macOS x64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-darwin-x64
+          path: bin-darwin-x64/
+
+      - name: Download macOS ARM64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-darwin-arm64
+          path: bin-darwin-arm64/
+
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: vsix-staging/
+
+      - name: Create tarballs
+        run: |
+          VERSION="${{ needs.determine-version.outputs.version }}"
+          VSIX=$(ls vsix-staging/spectra-vscode-extension-*.vsix | head -1)
+
+          for arch in x64 arm64; do
+            src="bin-darwin-${arch}"
+            dir="spectra-${VERSION}-macos-${arch}"
+            mkdir -p "${dir}/bin" "${dir}/extension"
+            cp "${src}/spectra-cli" "${dir}/bin/"
+            cp "${src}/spectra-lsp" "${dir}/bin/"
+            cp "${VSIX}" "${dir}/extension/spectra-vscode-extension.vsix"
+            chmod +x "${dir}/bin/spectra-cli" "${dir}/bin/spectra-lsp"
+
+            cat > "${dir}/install.sh" <<'INSTALL'
+          #!/usr/bin/env bash
+          set -e
+          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+          DEST="${HOME}/.local/bin"
+          mkdir -p "$DEST"
+          cp "${SCRIPT_DIR}/bin/spectra-cli" "$DEST/"
+          cp "${SCRIPT_DIR}/bin/spectra-lsp" "$DEST/"
+          chmod +x "$DEST/spectra-cli" "$DEST/spectra-lsp"
+          echo "Spectra CLI and LSP installed to $DEST"
+          echo "Make sure $DEST is in your PATH."
+          VSIX_PATH="${SCRIPT_DIR}/extension/spectra-vscode-extension.vsix"
+          if command -v code &>/dev/null; then
+            echo "Installing VS Code extension..."
+            code --install-extension "${VSIX_PATH}" --force && \
+              echo "VS Code extension installed successfully." || \
+              echo "Warning: could not install VS Code extension automatically."
+            echo "You can install it manually: code --install-extension '${VSIX_PATH}'"
+          elif command -v code-insiders &>/dev/null; then
+            echo "Installing VS Code Insiders extension..."
+            code-insiders --install-extension "${VSIX_PATH}" --force || true
+          else
+            echo "VS Code not found. To install the extension manually:"
+            echo "  code --install-extension '${VSIX_PATH}'"
+          fi
+          INSTALL
+            chmod +x "${dir}/install.sh"
+
+            tar -czf "spectra-${VERSION}-macos-${arch}.tar.gz" "${dir}"
+          done
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-macos
+          path: spectra-*-macos-*.tar.gz
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 6: Create GitHub Release and upload all assets
+  # ---------------------------------------------------------------------------
+  create-release:
+    name: Create GitHub Release
+    needs:
+      - package-windows
+      - package-linux-deb
+      - package-macos
+      - build-vsix
+      - determine-version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release assets
+        run: find release-assets/ -type f | sort
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ needs.determine-version.outputs.version }}"
+          mapfile -t files < <(find release-assets/ -type f | sort)
+          if gh release view "${TAG}" &>/dev/null; then
+            echo "Release ${TAG} already exists - uploading/replacing assets."
+            gh release upload "${TAG}" "${files[@]}" --clobber
+          else
+            gh release create "${TAG}" \
+              --title "SpectraLang ${TAG}" \
+              --generate-notes \
+              "${files[@]}"
+          fi

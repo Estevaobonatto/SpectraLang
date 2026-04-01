@@ -7,6 +7,9 @@ ROADMAP.md
 install-extension.ps1
 package-lock.json
 
+# Keep bundled binaries inside the VSIX
+!server/**
+
 # Development-only npm artifacts
 node_modules/.bin/**
 node_modules/**/test/**

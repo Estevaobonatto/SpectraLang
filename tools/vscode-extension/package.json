@@ -169,11 +169,13 @@
     "clean": "rimraf dist",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "prepublishOnly": "npm run compile"
+    "prepublishOnly": "npm run compile",
+    "package-vsix": "npm run compile && vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.11.5",
     "@types/vscode": "^1.93.0",
+    "@vscode/vsce": "^3.0.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.5.4"
   },
