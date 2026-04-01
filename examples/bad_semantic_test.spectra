@@ -1,0 +1,7 @@
+module bad_semantic;
+
+fn foo() -> int {
+    let x: str = 42;
+    return x;
+}
+pub fn main() { foo(); }

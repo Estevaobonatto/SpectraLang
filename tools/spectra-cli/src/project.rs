@@ -48,8 +48,15 @@ impl ProjectPlan {
                 path: path.clone(),
                 error,
             })?;
-            let module = extract_module_name(&source)
-                .ok_or_else(|| ProjectError::MissingModuleHeader { path: path.clone() })?;
+            let module = extract_module_name(&source).unwrap_or_else(|| {
+                // No explicit `module <name>;` declaration — derive the name
+                // from the file stem so that single-file scripts and simple
+                // projects work without a boilerplate header.
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "main".to_string())
+            });
 
             if let Some(existing) = module_map.get(&module) {
                 return Err(ProjectError::DuplicateModule {
@@ -95,6 +102,9 @@ pub enum ProjectError {
         path: PathBuf,
         error: io::Error,
     },
+    /// Kept for potential programmatic use; the CLI itself now derives a module
+    /// name from the file stem when no `module` declaration is present.
+    #[allow(dead_code)]
     MissingModuleHeader {
         path: PathBuf,
     },
@@ -123,7 +133,8 @@ impl fmt::Display for ProjectError {
             ProjectError::MissingModuleHeader { path } => {
                 write!(
                     f,
-                    "file '{}' is missing a leading module declaration",
+                    "file '{}' is missing a module declaration\n\
+                     help: add 'module <name>;' as the first non-comment line of the file",
                     path.display()
                 )
             }
@@ -134,37 +145,45 @@ impl fmt::Display for ProjectError {
             } => {
                 write!(
                     f,
-                    "module '{}' is declared by both '{}' and '{}'",
+                    "module '{}' is declared by two different files:\n  \
+                     first:  {}\n  \
+                     second: {}\n\
+                     help: each module name must be unique within a project",
                     module,
                     existing.display(),
                     duplicate.display()
                 )
             }
             ProjectError::MissingDependencies(items) => {
-                writeln!(f, "unresolved module imports:")?;
+                writeln!(f, "unresolved imports:")?;
                 for item in items {
-                    writeln!(
-                        f,
-                        "  • '{}' is missing: {}",
-                        item.module,
-                        item.missing.join(", ")
-                    )?;
+                    for missing in &item.missing {
+                        writeln!(
+                            f,
+                            "  • module '{}' imports '{}', but no file declaring 'module {};' was found",
+                            item.module, missing, missing
+                        )?;
+                    }
                 }
-                Ok(())
+                write!(
+                    f,
+                    "help: create a source file with 'module <name>;' for each missing module"
+                )
             }
             ProjectError::CyclicDependency(cycle) => {
                 write!(
                     f,
-                    "detected module dependency cycle: {}",
+                    "cyclic dependency detected: {}\n\
+                     help: restructure your modules to break the circular import chain",
                     cycle.join(" -> ")
                 )
             }
             ProjectError::NoSourcesFound(paths) => {
-                writeln!(f, "no Spectra source files found in the given paths:")?;
+                writeln!(f, "no Spectra source files found in the given path(s):")?;
                 for path in paths {
                     writeln!(f, "  • {}", path.display())?;
                 }
-                Ok(())
+                write!(f, "help: source files must have a .spectra or .spc extension")
             }
         }
     }

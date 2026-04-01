@@ -20,6 +20,7 @@ const NEW_PROJECT_COMMAND = 'spectra.newProject';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
+let spectraRunTerminal: vscode.Terminal | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Spectra');
@@ -37,6 +38,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('spectra.serverPath')) {
         void restartClient(context);
+      }
+    })
+  );
+
+  // Link provider: torna "  --> arquivo.spectra:linha:col" clicável no terminal.
+  context.subscriptions.push(
+    vscode.window.registerTerminalLinkProvider(new SpectraTerminalLinkProvider())
+  );
+
+  // Limpar referência ao terminal quando o usuário o fechar manualmente.
+  context.subscriptions.push(
+    vscode.window.onDidCloseTerminal((t) => {
+      if (t === spectraRunTerminal) {
+        spectraRunTerminal = undefined;
       }
     })
   );
@@ -71,7 +86,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(RUN_CURRENT_FILE_COMMAND, async () => {
-      await executeCliCommandForActiveDocument('run', 'Executar arquivo atual');
+      const document = await getActiveSpectraDocumentForCommand();
+      if (!document) {
+        return;
+      }
+      const cliPath = getCliPath();
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+      runFileInTerminal(document.fileName, cliPath, workspaceFolder?.uri.fsPath);
     })
   );
 
@@ -254,6 +275,88 @@ async function executeCliCommandForActiveDocument(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Terminal integrado para execução interativa
+// ---------------------------------------------------------------------------
+
+function getOrCreateSpectraRunTerminal(cliPath: string, cwd?: string): vscode.Terminal {
+  // Reutiliza terminal existente se ainda estiver aberto.
+  if (spectraRunTerminal && vscode.window.terminals.includes(spectraRunTerminal)) {
+    return spectraRunTerminal;
+  }
+
+  spectraRunTerminal = vscode.window.createTerminal({
+    name: 'Spectra Run',
+    cwd,
+    iconPath: new vscode.ThemeIcon('play'),
+    color: new vscode.ThemeColor('terminal.ansiGreen'),
+    env: process.env as Record<string, string>,
+  });
+  return spectraRunTerminal;
+}
+
+function runFileInTerminal(filePath: string, cliPath: string, cwd?: string): void {
+  const terminal = getOrCreateSpectraRunTerminal(cliPath, cwd);
+  const quotedCli = `"${cliPath}"`;
+  const quotedFile = `"${filePath}"`;
+  // PowerShell exige o operador de invocação & antes de um executável entre aspas.
+  // Em bash/zsh a string entre aspas já funciona como comando diretamente.
+  const callPrefix = process.platform === 'win32' ? '& ' : '';
+  terminal.show(true);
+  terminal.sendText(`${callPrefix}${quotedCli} run ${quotedFile}`);
+}
+
+// ---------------------------------------------------------------------------
+// Terminal link provider — torna "  --> arquivo.spectra:linha:col" clicável
+// ---------------------------------------------------------------------------
+
+interface SpectraTerminalLink extends vscode.TerminalLink {
+  filePath: string;
+  line: number;
+  column: number;
+}
+
+class SpectraTerminalLinkProvider implements vscode.TerminalLinkProvider<SpectraTerminalLink> {
+  // Padrão: "  --> /caminho/arquivo.spectra:42:5" (com ou sem espaços antes)
+  private static readonly LINK_PATTERN = /--> (.+?\.spectra):([0-9]+):([0-9]+)/;
+
+  provideTerminalLinks(context: vscode.TerminalLinkContext): SpectraTerminalLink[] {
+    const match = SpectraTerminalLinkProvider.LINK_PATTERN.exec(context.line);
+    if (!match) {
+      return [];
+    }
+
+    const [fullMatch, filePath, lineStr, colStr] = match;
+    const startIndex = context.line.indexOf(fullMatch);
+
+    return [
+      {
+        startIndex,
+        length: fullMatch.length,
+        tooltip: `Abrir ${filePath}:${lineStr}:${colStr}`,
+        filePath,
+        line: parseInt(lineStr, 10),
+        column: parseInt(colStr, 10),
+      },
+    ];
+  }
+
+  async handleTerminalLink(link: SpectraTerminalLink): Promise<void> {
+    const uri = vscode.Uri.file(link.filePath);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc);
+    const position = new vscode.Position(
+      Math.max(0, link.line - 1),
+      Math.max(0, link.column - 1)
+    );
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(
+      new vscode.Range(position, position),
+      vscode.TextEditorRevealType.InCenter
+    );
+  }
+}
+
 async function getActiveSpectraDocumentForCommand(): Promise<vscode.TextDocument | undefined> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'spectra') {
@@ -312,8 +415,16 @@ async function showCompilerActionsQuickPick(): Promise<void> {
     {
       label: '$(play) Executar arquivo atual',
       description: 'spectra run',
-      detail: 'Compila e executa o arquivo .spectra ativo',
-      action: () => executeCliCommandForActiveDocument('run', 'Executar arquivo atual'),
+      detail: 'Compila e executa o arquivo .spectra ativo no terminal integrado',
+      action: async () => {
+        const document = await getActiveSpectraDocumentForCommand();
+        if (!document) {
+          return;
+        }
+        const cliPath = getCliPath();
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        runFileInTerminal(document.fileName, cliPath, workspaceFolder?.uri.fsPath);
+      },
     },
     {
       label: '$(check) Validar arquivo atual',

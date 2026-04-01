@@ -472,8 +472,57 @@ impl SemanticAnalyzer {
         self.errors.push(error);
     }
 
+    fn push_semantic_error_coded(
+        &mut self,
+        code: &str,
+        message: impl Into<String>,
+        span: Span,
+        context: Option<String>,
+        hint: Option<String>,
+    ) {
+        let mut error = SemanticError::new(message, span).with_code(code);
+        if let Some(context) = context {
+            error = error.with_context(context);
+        }
+        if let Some(hint) = hint {
+            error = error.with_hint(hint);
+        }
+        self.errors.push(error);
+    }
+
     fn error(&mut self, message: impl Into<String>, span: Span) {
         self.push_semantic_error(message, span, None, None);
+    }
+
+    fn error_coded(&mut self, code: &str, message: impl Into<String>, span: Span) {
+        self.push_semantic_error_coded(code, message, span, None, None);
+    }
+
+    fn error_coded_with_hint(
+        &mut self,
+        code: &str,
+        message: impl Into<String>,
+        span: Span,
+        hint: impl Into<String>,
+    ) {
+        self.push_semantic_error_coded(code, message, span, None, Some(hint.into()));
+    }
+
+    fn error_coded_with_details(
+        &mut self,
+        code: &str,
+        message: impl Into<String>,
+        span: Span,
+        context: impl Into<String>,
+        hint: impl Into<String>,
+    ) {
+        self.push_semantic_error_coded(
+            code,
+            message,
+            span,
+            Some(context.into()),
+            Some(hint.into()),
+        );
     }
 
     fn error_with_hint(&mut self, message: impl Into<String>, span: Span, hint: impl Into<String>) {
@@ -1144,7 +1193,8 @@ impl SemanticAnalyzer {
             match item {
                 Item::Function(func) => {
                     if self.functions.contains_key(&func.name) {
-                        self.error(
+                        self.error_coded(
+                            "E006",
                             format!("Function '{}' is already defined", func.name),
                             func.span,
                         );
@@ -2186,7 +2236,8 @@ impl SemanticAnalyzer {
 
                 // Declare the variable with its type
                 if !self.declare_symbol(let_stmt.name.clone(), let_stmt.span, inferred_type) {
-                    self.error_with_hint(
+                    self.error_coded_with_hint(
+                        "E002",
                         format!(
                             "Variable '{}' is already declared in this scope",
                             let_stmt.name
@@ -2251,7 +2302,8 @@ impl SemanticAnalyzer {
 
                 if !self.types_match(&value_type, &target_type) {
                     let hint = self.conversion_hint(&value_type, &target_type);
-                    self.push_semantic_error(
+                    self.push_semantic_error_coded(
+                        "E003",
                         format!(
                             "Cannot assign value of type {} to target of type {}",
                             type_name(&value_type), type_name(&target_type)
@@ -2267,7 +2319,8 @@ impl SemanticAnalyzer {
             }
             StatementKind::Return(ret_stmt) => {
                 if self.current_function.is_none() {
-                    self.error_with_hint(
+                    self.error_coded_with_hint(
+                        "E009",
                         "Return statement outside of function",
                         ret_stmt.span,
                         "Move this return inside a function body.",
@@ -2358,12 +2411,12 @@ impl SemanticAnalyzer {
             }
             StatementKind::Break => {
                 if self.loop_depth == 0 {
-                    self.error("Break statement outside of loop", statement.span);
+                    self.error_coded("E007", "Break statement outside of loop", statement.span);
                 }
             }
             StatementKind::Continue => {
                 if self.loop_depth == 0 {
-                    self.error("Continue statement outside of loop", statement.span);
+                    self.error_coded("E008", "Continue statement outside of loop", statement.span);
                 }
             }
             StatementKind::IfLet(stmt) => {
@@ -2677,13 +2730,15 @@ impl SemanticAnalyzer {
                     } else {
                         let hint = self.suggest_name(name);
                         if let Some(hint) = hint {
-                            self.error_with_hint(
+                            self.error_coded_with_hint(
+                                "E001",
                                 format!("Undefined variable or function '{}'", name),
                                 expr.span,
                                 hint,
                             );
                         } else {
-                            self.error(
+                            self.error_coded(
+                                "E001",
                                 format!("Undefined variable or function '{}'", name),
                                 expr.span,
                             );
@@ -4127,7 +4182,8 @@ impl SemanticAnalyzer {
 
                 if !self.types_match(&actual, &expected) {
                     let hint = self.conversion_hint(&actual, &expected);
-                    self.push_semantic_error(
+                    self.push_semantic_error_coded(
+                        "E004",
                         format!(
                             "Return type mismatch: expected {}, found {}",
                             type_name(&expected), type_name(&actual)
@@ -4140,7 +4196,8 @@ impl SemanticAnalyzer {
             }
             None => {
                 if !matches!(expected, Type::Unit | Type::Unknown) {
-                    self.error_with_hint(
+                    self.error_coded_with_hint(
+                        "E005",
                         format!("Return statement missing value of type {}", type_name(&expected)),
                         span,
                         "Supply a value or change the function's return type to `unit`.",

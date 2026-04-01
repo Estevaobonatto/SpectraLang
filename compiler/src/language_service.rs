@@ -1,6 +1,6 @@
 use crate::ast::{
-    Enum, Function, FunctionParam, ImplBlock, Item, Method, Module, Parameter, Struct,
-    TraitImpl, Type, TypeAnnotation, TypeAnnotationKind,
+    Block, Enum, Function, FunctionParam, ImplBlock, Item, Method, Module, Parameter, Statement,
+    StatementKind, Struct, TraitImpl, Type, TypeAnnotation, TypeAnnotationKind,
 };
 use crate::error::CompilerError;
 use crate::lint::{lint_module, LintDiagnostic};
@@ -114,10 +114,10 @@ pub fn analyze_document(
             .into_iter()
             .map(CompilerError::Semantic)
             .collect();
-        analysis.module = Some(module);
-        return analysis;
     }
 
+    // Always run lints — even when there are semantic errors, lint rules that
+    // don't depend on type-correctness still produce useful warnings.
     analysis.warnings = lint_module(&module, &options.lint);
     analysis.module = Some(module);
     analysis
@@ -419,5 +419,85 @@ fn format_type_annotation(annotation: &TypeAnnotation) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+    }
+}
+
+// ============================================================================
+// Inlay hints — inferred types for un-annotated `let` bindings
+// ============================================================================
+
+/// A single inlay hint entry for a `let` binding without an explicit annotation.
+#[derive(Debug, Clone)]
+pub struct LetInlayHint {
+    /// Span of the whole `let` statement (starts at the `let` keyword).
+    pub let_span: Span,
+    /// Variable name — used by callers to compute the display position.
+    pub name: String,
+    /// Human-readable inferred type (e.g. `"int"`, `"[bool]"`).
+    pub ty: String,
+}
+
+/// Collect inlay hints for all un-annotated `let` bindings in the module.
+pub fn collect_let_inlay_hints(analysis: &DocumentAnalysis) -> Vec<LetInlayHint> {
+    let module = match &analysis.module {
+        Some(m) => m,
+        None => return Vec::new(),
+    };
+    let mut hints = Vec::new();
+    for item in &module.items {
+        hints_from_item(item, analysis, &mut hints);
+    }
+    hints
+}
+
+fn hints_from_item(item: &Item, analysis: &DocumentAnalysis, out: &mut Vec<LetInlayHint>) {
+    match item {
+        Item::Function(func) => hints_from_block(&func.body, analysis, out),
+        Item::Impl(impl_block) => {
+            for method in &impl_block.methods {
+                hints_from_block(&method.body, analysis, out);
+            }
+        }
+        Item::TraitImpl(trait_impl) => {
+            for method in &trait_impl.methods {
+                hints_from_block(&method.body, analysis, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn hints_from_block(block: &Block, analysis: &DocumentAnalysis, out: &mut Vec<LetInlayHint>) {
+    for stmt in &block.statements {
+        hints_from_statement(stmt, analysis, out);
+    }
+}
+
+fn hints_from_statement(stmt: &Statement, analysis: &DocumentAnalysis, out: &mut Vec<LetInlayHint>) {
+    match &stmt.kind {
+        StatementKind::Let(let_stmt) if let_stmt.ty.is_none() => {
+            if let Some(info) = analysis.symbols.get(&let_stmt.span) {
+                let ty_str = type_to_string(&info.ty);
+                if ty_str != "unknown" {
+                    out.push(LetInlayHint {
+                        let_span: let_stmt.span,
+                        name: let_stmt.name.clone(),
+                        ty: ty_str,
+                    });
+                }
+            }
+        }
+        StatementKind::While(w) => hints_from_block(&w.body, analysis, out),
+        StatementKind::DoWhile(d) => hints_from_block(&d.body, analysis, out),
+        StatementKind::For(f) => hints_from_block(&f.body, analysis, out),
+        StatementKind::Loop(l) => hints_from_block(&l.body, analysis, out),
+        StatementKind::IfLet(s) => {
+            hints_from_block(&s.then_block, analysis, out);
+            if let Some(else_block) = &s.else_block {
+                hints_from_block(else_block, analysis, out);
+            }
+        }
+        StatementKind::WhileLet(s) => hints_from_block(&s.body, analysis, out),
+        _ => {}
     }
 }

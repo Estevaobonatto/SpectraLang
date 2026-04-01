@@ -109,6 +109,7 @@ pub struct LexError {
     pub span: Span,
     pub context: Option<String>,
     pub hint: Option<String>,
+    pub code: Option<String>,
 }
 
 impl LexError {
@@ -118,6 +119,7 @@ impl LexError {
             span,
             context: None,
             hint: None,
+            code: None,
         }
     }
 
@@ -128,6 +130,11 @@ impl LexError {
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
         self
     }
 }
@@ -138,6 +145,7 @@ pub struct ParseError {
     pub span: Span,
     pub context: Option<String>,
     pub hint: Option<String>,
+    pub code: Option<String>,
 }
 
 impl ParseError {
@@ -147,6 +155,7 @@ impl ParseError {
             span,
             context: None,
             hint: None,
+            code: None,
         }
     }
 
@@ -157,6 +166,11 @@ impl ParseError {
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
         self
     }
 }
@@ -167,6 +181,7 @@ pub struct SemanticError {
     pub span: Span,
     pub context: Option<String>,
     pub hint: Option<String>,
+    pub code: Option<String>,
 }
 
 impl SemanticError {
@@ -176,6 +191,7 @@ impl SemanticError {
             span,
             context: None,
             hint: None,
+            code: None,
         }
     }
 
@@ -186,6 +202,11 @@ impl SemanticError {
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
         self
     }
 }

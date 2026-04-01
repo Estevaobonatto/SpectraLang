@@ -1051,46 +1051,72 @@ fn compile_plan(
 
         let filename = module.path.to_string_lossy().to_string();
         match fs::read_to_string(&module.path) {
-            Ok(source) => match compiler.compile(&source, &filename) {
-                Ok(()) => {
-                    if !quiet {
-                        println!(
-                            "\nSuccessfully {} module '{}'",
-                            kind.module_success_verb(),
-                            module.name
-                        );
-                    }
-                    if show_pipeline_summary {
-                        if let Some(summary) = compiler.take_last_summary() {
-                            print_pipeline_summary(&summary);
+            Ok(source) => {
+                // When the source file has no explicit `module` declaration the
+                // project plan already derived a name from the filename stem.
+                // Prepend a synthetic header so the parser receives a valid AST
+                // without requiring boilerplate in every script.
+                let owned;
+                let effective_source: &str = if source_has_module_decl(&source) {
+                    &source
+                } else {
+                    owned = format!("module {};\n{}", module.name, source);
+                    &owned
+                };
+
+                match compiler.compile(effective_source, &filename) {
+                    Ok(()) => {
+                        if !quiet {
+                            println!(
+                                "\nSuccessfully {} module '{}'",
+                                kind.module_success_verb(),
+                                module.name
+                            );
+                        }
+                        if show_pipeline_summary {
+                            if let Some(summary) = compiler.take_last_summary() {
+                                print_pipeline_summary(&summary);
+                            }
                         }
                     }
+                    Err(error) => {
+                        has_failures = true;
+                        // Print the pre-formatted diagnostic block directly to stderr.
+                        // `render_errors()` already produces a fully structured
+                        // "error[phase]: msg\n  --> file:line:col\n ..." block,
+                        // including aligned source spans and carets.  Passing it
+                        // through `log_error()` would add a spurious "error: "
+                        // prefix to the first line and 7-space indent to every
+                        // subsequent line, breaking gutter alignment.
+                        eprint!("{}", error);
+                    }
                 }
-                Err(error) => {
-                    has_failures = true;
-                    println!();
-                    log_error(&format!(
-                        "Compilation failed for module '{}' ({})\n{}",
-                        module.name,
-                        module.path.display(),
-                        error
-                    ));
-                }
-            },
+            }
             Err(error) => {
                 has_failures = true;
-                println!();
-                log_error(&format!(
-                    "Failed to read file for module '{}' ({})\nError: {}",
-                    module.name,
+                eprintln!(
+                    "error[io]: cannot read '{}': {}",
                     module.path.display(),
                     error
-                ));
+                );
             }
         }
     }
 
     has_failures
+}
+
+/// Returns `true` when the source already contains an explicit `module <name>;`
+/// declaration on the first non-blank, non-comment line.
+fn source_has_module_decl(source: &str) -> bool {
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        return trimmed.starts_with("module ");
+    }
+    false
 }
 
 fn print_pipeline_summary(summary: &ModulePipelineSummary) {
@@ -1186,11 +1212,9 @@ fn execute_plan_with_options(
     }
 
     if has_failures {
-        println!();
-        return Err(CliError::compilation(format!(
-            "💥 Command '{}' completed with errors",
-            kind.name()
-        )));
+        return Err(CliError::compilation(
+            "could not compile due to previous error(s)",
+        ));
     }
 
     // Propagate the Spectra program's exit code when running via JIT.

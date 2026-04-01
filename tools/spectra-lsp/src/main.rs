@@ -1,12 +1,14 @@
 use serde_json::Value;
 use spectra_compiler::{
-    analyze_document, CompilationOptions, CompilerError, DocumentAnalysis, LintDiagnostic, Span,
+    analyze_document, collect_let_inlay_hints, CompilationOptions, CompilerError, DocumentAnalysis,
+    LintDiagnostic, Span,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::SystemTime;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::RwLock;
@@ -71,12 +73,13 @@ struct BackendState {
     workspace_cache: RwLock<HashMap<Url, WorkspaceCacheEntry>>,
     workspace_folders: RwLock<Vec<PathBuf>>,
     config: RwLock<ServerConfig>,
+    debounce_handles: tokio::sync::Mutex<HashMap<Url, tokio::task::AbortHandle>>,
 }
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    state: BackendState,
+    state: Arc<BackendState>,
 }
 
 #[tower_lsp::async_trait]
@@ -133,6 +136,7 @@ impl LanguageServer for Backend {
                     ],
                     ..Default::default()
                 }),
+                inlay_hint_provider: Some(OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
@@ -197,8 +201,32 @@ impl LanguageServer for Backend {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         if let Some(change) = params.content_changes.into_iter().last() {
-            self.analyze_and_store(params.text_document.uri, change.text, false)
-                .await;
+            let uri = params.text_document.uri;
+            let text = change.text;
+
+            // Abort any previously scheduled debounce task for this document.
+            if let Some(old) = self.state.debounce_handles.lock().await.remove(&uri) {
+                old.abort();
+            }
+
+            // Schedule a new analysis after a 300 ms typing pause.
+            let client = self.client.clone();
+            let state = Arc::clone(&self.state);
+            let uri_debounce = uri.clone();
+            let text_debounce = text;
+
+            let join = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                // Remove our own handle now that we are executing.
+                state.debounce_handles.lock().await.remove(&uri_debounce);
+                do_analyze_and_store(&client, &state, uri_debounce, text_debounce, false).await;
+            });
+
+            self.state
+                .debounce_handles
+                .lock()
+                .await
+                .insert(uri, join.abort_handle());
         }
     }
 
@@ -519,6 +547,49 @@ impl LanguageServer for Backend {
         })))
     }
 
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+
+        let raw_hints = collect_let_inlay_hints(&document.analysis);
+        if raw_hints.is_empty() {
+            return Ok(None);
+        }
+
+        let hints = raw_hints
+            .into_iter()
+            .map(|hint| {
+                // Position the hint right after the variable name:
+                // span starts at the `let` keyword (1-indexed), `let ` = 4 chars.
+                let line = hint.let_span.start_location.line.saturating_sub(1) as u32;
+                let col = (hint.let_span.start_location.column.saturating_sub(1)
+                    + 4
+                    + hint.name.len()) as u32;
+
+                InlayHint {
+                    position: Position::new(line, col),
+                    label: InlayHintLabel::String(format!(": {}", hint.ty)),
+                    kind: Some(InlayHintKind::TYPE),
+                    text_edits: None,
+                    tooltip: None,
+                    padding_left: Some(false),
+                    padding_right: Some(true),
+                    data: None,
+                }
+            })
+            .collect();
+
+        Ok(Some(hints))
+    }
+
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let documents = self.state.documents.read().await;
@@ -589,39 +660,7 @@ impl Backend {
     }
 
     async fn analyze_and_store(&self, uri: Url, text: String, include_lints: bool) {
-        let filename = uri
-            .to_file_path()
-            .ok()
-            .map(|path| path.to_string_lossy().to_string())
-            .unwrap_or_else(|| uri.to_string());
-
-        let mut options = CompilationOptions::default();
-        options.optimize = false;
-        options.lint = if include_lints {
-            spectra_compiler::LintOptions::all()
-        } else {
-            spectra_compiler::LintOptions::disabled()
-        };
-
-        let analysis = analyze_document(&text, &filename, &options, None);
-        let diagnostics = analysis_to_diagnostics(&uri, &analysis);
-        self.client
-            .publish_diagnostics(uri.clone(), diagnostics, None)
-            .await;
-        self.update_workspace_cache(
-            &uri,
-            text.clone(),
-            analysis.clone(),
-            cache_modified_time_for_uri(&uri),
-        )
-        .await;
-        self.state.documents.write().await.insert(
-            uri,
-            DocumentState {
-                text,
-                analysis,
-            },
-        );
+        do_analyze_and_store(&self.client, &self.state, uri, text, include_lints).await;
     }
 
     async fn reanalyze_document(&self, uri: &Url, include_lints: bool) {
@@ -828,6 +867,57 @@ impl Backend {
     }
 }
 
+/// Standalone analysis function — used both by `analyze_and_store` and the
+/// debounce task spawned in `did_change`.  Takes cloneable handles so it can
+/// be called from inside `tokio::spawn`.
+async fn do_analyze_and_store(
+    client: &Client,
+    state: &BackendState,
+    uri: Url,
+    text: String,
+    include_lints: bool,
+) {
+    let filename = uri
+        .to_file_path()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| uri.to_string());
+
+    let mut options = CompilationOptions::default();
+    options.optimize = false;
+    options.lint = if include_lints {
+        spectra_compiler::LintOptions::all()
+    } else {
+        spectra_compiler::LintOptions::disabled()
+    };
+
+    let analysis = analyze_document(&text, &filename, &options, None);
+    let diagnostics = analysis_to_diagnostics(&uri, &analysis);
+    client.publish_diagnostics(uri.clone(), diagnostics, None).await;
+
+    // Update workspace symbol cache.
+    let symbols = analysis
+        .module
+        .as_ref()
+        .map(|module| workspace_symbol_entries_for_module(&text, module))
+        .unwrap_or_default();
+    let references = reference_entries_for_analysis(&uri, &analysis);
+    state.workspace_cache.write().await.insert(
+        uri.clone(),
+        WorkspaceCacheEntry {
+            symbols,
+            references,
+            modified: cache_modified_time_for_uri(&uri),
+        },
+    );
+
+    state
+        .documents
+        .write()
+        .await
+        .insert(uri, DocumentState { text, analysis });
+}
+
 fn analysis_to_diagnostics(uri: &Url, analysis: &DocumentAnalysis) -> Vec<Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = analysis
         .diagnostics
@@ -840,33 +930,51 @@ fn analysis_to_diagnostics(uri: &Url, analysis: &DocumentAnalysis) -> Vec<Diagno
 
 fn compiler_error_to_diagnostic(uri: &Url, error: &CompilerError) -> Diagnostic {
     match error {
-        CompilerError::Lexical(error) => span_diagnostic(
-            uri,
-            error.span,
-            &error.message,
-            DiagnosticSeverity::ERROR,
-            Some("lexical".to_string()),
-            error.context.as_deref(),
-            error.hint.as_deref(),
-        ),
-        CompilerError::Parse(error) => span_diagnostic(
-            uri,
-            error.span,
-            &error.message,
-            DiagnosticSeverity::ERROR,
-            Some("parse".to_string()),
-            error.context.as_deref(),
-            error.hint.as_deref(),
-        ),
-        CompilerError::Semantic(error) => span_diagnostic(
-            uri,
-            error.span,
-            &error.message,
-            DiagnosticSeverity::ERROR,
-            Some("semantic".to_string()),
-            error.context.as_deref(),
-            error.hint.as_deref(),
-        ),
+        CompilerError::Lexical(error) => {
+            let mut d = span_diagnostic(
+                uri,
+                error.span,
+                &error.message,
+                DiagnosticSeverity::ERROR,
+                Some("lexical".to_string()),
+                error.context.as_deref(),
+                error.hint.as_deref(),
+            );
+            if let Some(code) = &error.code {
+                d.code = Some(NumberOrString::String(code.clone()));
+            }
+            d
+        }
+        CompilerError::Parse(error) => {
+            let mut d = span_diagnostic(
+                uri,
+                error.span,
+                &error.message,
+                DiagnosticSeverity::ERROR,
+                Some("parse".to_string()),
+                error.context.as_deref(),
+                error.hint.as_deref(),
+            );
+            if let Some(code) = &error.code {
+                d.code = Some(NumberOrString::String(code.clone()));
+            }
+            d
+        }
+        CompilerError::Semantic(error) => {
+            let mut d = span_diagnostic(
+                uri,
+                error.span,
+                &error.message,
+                DiagnosticSeverity::ERROR,
+                Some("semantic".to_string()),
+                error.context.as_deref(),
+                error.hint.as_deref(),
+            );
+            if let Some(code) = &error.code {
+                d.code = Some(NumberOrString::String(code.clone()));
+            }
+            d
+        }
         CompilerError::Midend(error) => Diagnostic {
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
             severity: Some(DiagnosticSeverity::ERROR),
@@ -2556,13 +2664,30 @@ fn quick_fix_for_diagnostic(uri: &Url, document: &DocumentState, diagnostic: &Di
         _ => "",
     };
 
+    // Lint-specific fixes
     match code {
-        "lint(unused-binding)" => unused_binding_quick_fix(uri, &document.text, diagnostic),
-        "lint(shadowing)" => shadowing_quick_fix(uri, document, diagnostic),
-        "lint(unreachable-code)" => unreachable_code_quick_fix(uri, diagnostic),
-        _ => semantic_error_quick_fix(uri, document, diagnostic)
-            .or_else(|| hint_based_quick_fix(uri, &document.text, diagnostic)),
+        "lint(unused-binding)" => return unused_binding_quick_fix(uri, &document.text, diagnostic),
+        "lint(shadowing)" => return shadowing_quick_fix(uri, document, diagnostic),
+        "lint(unreachable-code)" => return unreachable_code_quick_fix(uri, diagnostic),
+        _ => {}
     }
+
+    // Semantic error fixes routed by code (E001–E009).
+    match code {
+        // E002: Variable already declared — rename the new binding.
+        "E002" => return duplicate_binding_quick_fix(uri, &document.text, diagnostic),
+        // E005: Return statement missing value — insert a default literal.
+        "E005" => return missing_return_value_quick_fix(uri, &document.text, diagnostic, &diagnostic.message),
+        // E001: Undefined variable — prefix with `_` to suppress or declare it.
+        // E003: Type mismatch in assignment — fall through to hint-based fix.
+        // E004: Return type mismatch — fall through to hint-based fix.
+        // Others: fall through to pattern-matching fallbacks.
+        _ => {}
+    }
+
+    // Fallback: pattern-match on message strings for errors without a code.
+    semantic_error_quick_fix(uri, document, diagnostic)
+        .or_else(|| hint_based_quick_fix(uri, &document.text, diagnostic))
 }
 
 /// Tenta gerar um quick fix para erros semânticos comuns, reconhecendo padrões
@@ -2832,7 +2957,7 @@ async fn main() {
     let stdout = tokio::io::stdout();
     let (service, socket) = LspService::new(|client| Backend {
         client,
-        state: BackendState::default(),
+        state: Arc::new(BackendState::default()),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

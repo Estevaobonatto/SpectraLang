@@ -638,7 +638,10 @@ impl SpectraCompiler {
 
         for warning in warnings {
             let message = render_lint_warning(warning, filename, source);
-            log_warning(&message);
+            // Print directly — render_lint_warning already produces the full
+            // "warning[...]: ..." diagnostic block; adding another prefix would
+            // double-wrap the first line and misalign the source-span gutter.
+            eprint!("{}", message);
         }
     }
 
@@ -767,7 +770,11 @@ const COLORS_OFF: Colors = Colors {
 };
 
 fn get_colors() -> &'static Colors {
-    if std::env::var("NO_COLOR").is_ok() || std::env::var("TERM").as_deref() == Ok("dumb") {
+    use std::io::IsTerminal as _;
+    if std::env::var("NO_COLOR").is_ok()
+        || std::env::var("TERM").as_deref() == Ok("dumb")
+        || !std::io::stderr().is_terminal()
+    {
         &COLORS_OFF
     } else {
         &COLORS_ON
@@ -779,6 +786,7 @@ fn render_errors(errors: &[CompilerError], source: &str, filename: &str, stage: 
         return format!("{} failed with no diagnostics.", capitalize(stage));
     }
 
+    let c = get_colors();
     let mut output = String::new();
     for (idx, error) in errors.iter().enumerate() {
         if idx > 0 {
@@ -786,6 +794,18 @@ fn render_errors(errors: &[CompilerError], source: &str, filename: &str, stage: 
         }
         output.push_str(&render_error(error, source, filename));
     }
+
+    // Summary line — mirrors rustc: "error: aborting due to N previous error(s)"
+    let n = errors.len();
+    output.push('\n');
+    let _ = writeln!(
+        &mut output,
+        "{}error{}: aborting due to {} previous error{}",
+        c.error_label,
+        c.reset,
+        n,
+        if n == 1 { "" } else { "s" },
+    );
 
     output
 }
@@ -821,7 +841,7 @@ impl DiagnosticSeverity {
 fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
     match error {
         CompilerError::Lexical(e) => render_span_diagnostic(
-            "lexical",
+            "syntax",
             DiagnosticSeverity::Error,
             &e.message,
             &e.span,
@@ -831,7 +851,7 @@ fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
             filename,
         ),
         CompilerError::Parse(e) => render_span_diagnostic(
-            "parse",
+            "syntax",
             DiagnosticSeverity::Error,
             &e.message,
             &e.span,
@@ -853,15 +873,15 @@ fn render_error(error: &CompilerError, source: &str, filename: &str) -> String {
         CompilerError::Midend(e) => {
             let c = get_colors();
             format!(
-                "{}error{}[midend]{}: {}\n",
-                c.error_label, c.reset, c.bold, e.message
+                "{}error[internal]{}: {}{}{}\n",
+                c.error_label, c.reset, c.bold, e.message, c.reset
             )
         }
         CompilerError::Backend(e) => {
             let c = get_colors();
             format!(
-                "{}error{}[backend]{}: {}\n",
-                c.error_label, c.reset, c.bold, e.message
+                "{}error[codegen]{}: {}{}{}\n",
+                c.error_label, c.reset, c.bold, e.message, c.reset
             )
         }
     }
