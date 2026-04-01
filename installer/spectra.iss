@@ -66,6 +66,8 @@ Name: "{group}\Uninstall SpectraLang"; Filename: "{uninstallexe}"
 [Run]
 ; Install VS Code extension after setup (user can deselect the task)
 Filename: "{cmd}"; Parameters: "/c code --install-extension ""{app}\spectra-vscode-extension.vsix"" --force"; Flags: runhidden waituntilterminated; StatusMsg: "Installing VS Code extension..."; Description: "Install the SpectraLang VS Code extension"; Tasks: installvsix
+; Open a new PowerShell so the user can try spectra-cli immediately (PATH already active)
+Filename: "powershell.exe"; Parameters: "-NoExit -Command ""$env:PATH = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' + [System.Environment]::GetEnvironmentVariable('Path','Machine'); Write-Host 'SpectraLang installed. Run: spectra-cli --help' -ForegroundColor Green"""; Description: "Open a terminal to try spectra-cli"; Flags: postinstall skipifsilent nowait; Tasks: addtopath
 
 [Registry]
 ; ── PATH management (user-level so no UAC prompt by default) ─────────────────
@@ -90,13 +92,14 @@ const
   EnvKey     = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
   UserEnvKey = 'Environment';
 
-// Broadcast environment change so running terminals pick up the new PATH
-function PostMessageA(hWnd: DWORD; Msg: UINT; wParam: UINT; lParam: DWORD): BOOL;
-  external 'PostMessageA@user32.dll stdcall';
+// Broadcast environment change so new terminals pick up the updated PATH
+function SendMessageTimeoutA(hWnd: DWORD; Msg: UINT; wParam: UINT; lParam: AnsiString; fuFlags: UINT; uTimeout: UINT; var lpdwResult: DWORD): DWORD;
+  external 'SendMessageTimeoutA@user32.dll stdcall';
 
 procedure AddToUserPath(Dir: string);
 var
   OldPath, NewPath: string;
+  ResultCode: DWORD;
 begin
   if not RegQueryStringValue(HKCU, UserEnvKey, 'Path', OldPath) then
     OldPath := '';
@@ -108,8 +111,8 @@ begin
     else
       NewPath := OldPath + Dir;
     RegWriteStringValue(HKCU, UserEnvKey, 'Path', NewPath);
-    // Notify all running applications (cmd, PowerShell, Explorer) of the change
-    PostMessageA(HWND_BROADCAST, $001A, 0, 0);
+    // Properly notify the system so new terminals see the updated PATH
+    SendMessageTimeoutA(HWND_BROADCAST, $001A, 0, 'Environment', $0002, 5000, ResultCode);
   end;
 end;
 
