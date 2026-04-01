@@ -384,8 +384,6 @@ jobs:
           cp "${SCRIPT_DIR}/bin/spectra-cli" "$DEST/"
           cp "${SCRIPT_DIR}/bin/spectra-lsp" "$DEST/"
           chmod +x "$DEST/spectra-cli" "$DEST/spectra-lsp"
-          # Create 'spectra' alias so you can run 'spectra' in addition to 'spectra-cli'
-          ln -sf "$DEST/spectra-cli" "$DEST/spectra"
           echo "Spectra CLI and LSP installed to $DEST"
           echo "Make sure $DEST is in your PATH (add: export PATH=\"\$HOME/.local/bin:\$PATH\" to ~/.bashrc or ~/.zshrc)"
           VSIX_PATH="${SCRIPT_DIR}/extension/spectra-vscode-extension.vsix"

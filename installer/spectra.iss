@@ -54,7 +54,6 @@ Name: "installvsix"; Description: "Install VS Code extension (requires VS Code)"
 [Files]
 ; Core binaries
 Source: "{#SourceDir}\spectra-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\spectra-cli.exe"; DestDir: "{app}"; DestName: "spectra.exe"; Flags: ignoreversion
 Source: "{#SourceDir}\spectra-lsp.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; VS Code extension (installed on demand)
 Source: "{#SourceDir}\spectra-vscode-extension.vsix"; DestDir: "{app}"; Flags: ignoreversion
