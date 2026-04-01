@@ -109,7 +109,7 @@ begin
       NewPath := OldPath + Dir;
     RegWriteStringValue(HKCU, UserEnvKey, 'Path', NewPath);
     // Notify all running applications (cmd, PowerShell, Explorer) of the change
-    PostMessageA(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 0);
+    PostMessageA(HWND_BROADCAST, $001A, 0, 0);
   end;
 end;
 
