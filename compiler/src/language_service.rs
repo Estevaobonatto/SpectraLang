@@ -160,6 +160,7 @@ pub fn type_to_string(ty: &Type) -> String {
                 .join(", "),
             type_to_string(return_type)
         ),
+        Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }
 
@@ -419,6 +420,7 @@ fn format_type_annotation(annotation: &TypeAnnotation) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        TypeAnnotationKind::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }
 

@@ -229,6 +229,17 @@ impl Parser {
 
         // Parse fields
         while !self.check_symbol('}') && !self.is_at_end() {
+            // Parse optional visibility modifier before the field name
+            let field_visibility = if self.check_keyword(Keyword::Pub) {
+                self.advance();
+                Visibility::Public
+            } else if self.check_keyword(Keyword::Internal) {
+                self.advance();
+                Visibility::Internal
+            } else {
+                Visibility::Private
+            };
+
             // Parse field: <name>: <type>
             let (field_name, field_span) = self.consume_identifier("Expected field name")?;
 
@@ -240,6 +251,7 @@ impl Parser {
                 name: field_name,
                 span: field_span,
                 ty: field_type,
+                visibility: field_visibility,
             });
 
             // Optional comma
@@ -374,6 +386,16 @@ impl Parser {
 
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse method: fn method_name(params) -> type { body }
+            // Optional visibility modifier before 'fn'
+            let method_visibility = if self.check_keyword(Keyword::Pub) {
+                self.advance();
+                Visibility::Public
+            } else if self.check_keyword(Keyword::Internal) {
+                self.advance();
+                Visibility::Internal
+            } else {
+                Visibility::Private
+            };
             self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword for method")?;
 
             let (method_name, method_name_span) =
@@ -476,6 +498,7 @@ impl Parser {
                 return_type,
                 body,
                 span: span_union(method_name_span, body_end_span),
+                visibility: method_visibility,
             });
         }
 
@@ -669,7 +692,9 @@ impl Parser {
 
         let trait_methods_lookup = self.trait_signatures.get(&trait_name).cloned();
 
-        if trait_methods_lookup.is_none() {
+        const BUILTIN_OP_TRAITS: &[&str] = &["Add", "Sub", "Mul", "Div", "Rem", "Eq", "Ord", "Drop"];
+        let is_builtin_trait = BUILTIN_OP_TRAITS.contains(&trait_name.as_str());
+        if trait_methods_lookup.is_none() && !is_builtin_trait {
             let message = format!(
                 "Trait '{}' must be declared before its implementation",
                 trait_name
@@ -785,6 +810,8 @@ impl Parser {
                 return_type,
                 body,
                 span: span_union(method_name_span, body_end_span),
+                // Methods in trait impls always implement the (public) trait contract.
+                visibility: Visibility::Public,
             });
 
             if let Some(ref trait_methods) = trait_methods_lookup {

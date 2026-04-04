@@ -9,6 +9,18 @@ pub struct Module {
     pub name: String,
     pub functions: Vec<Function>,
     pub globals: Vec<Global>,
+    /// vtable definitions for dyn Trait dispatch
+    pub vtables: Vec<VTableDef>,
+}
+
+/// A vtable that maps a concrete type's methods for a trait.
+/// Emitted as a read-only data section of function-pointer slots.
+#[derive(Debug, Clone)]
+pub struct VTableDef {
+    /// Symbol name: `__vtable_TypeName_TraitName`
+    pub name: String,
+    /// Ordered function names (IR function names) for each slot.
+    pub methods: Vec<String>,
 }
 
 /// Global variable
@@ -207,6 +219,35 @@ pub enum InstructionKind {
         result: Value,
         value: bool,
     },
+    /// Numeric type conversion: int↔float, int↔char
+    Cast {
+        result: Value,
+        operand: Value,
+        from_ty: Type,
+        to_ty: Type,
+    },
+    /// Build a fat pointer (data_ptr, vtable_ptr) for `T as dyn Trait`.
+    MakeDynFatPtr {
+        result: Value,
+        data_ptr: Value,
+        vtable_ptr: Value,
+    },
+    /// Load the data pointer from a fat pointer (dyn Trait object).
+    LoadDynDataPtr {
+        result: Value,
+        fat_ptr: Value,
+    },
+    /// Load the vtable pointer from a fat pointer (dyn Trait object).
+    LoadDynVtablePtr {
+        result: Value,
+        fat_ptr: Value,
+    },
+    /// Load a function pointer from a vtable at a given slot index.
+    LoadVtableSlot {
+        result: Value,
+        vtable_ptr: Value,
+        slot_index: usize,
+    },
 }
 
 /// Block terminator (control flow)
@@ -266,6 +307,10 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
+    /// Fat pointer for dyn Trait objects: (data_ptr: i64, vtable_ptr: i64).
+    DynTrait {
+        trait_name: String,
+    },
 }
 
 /// Constant values
@@ -285,6 +330,7 @@ impl Module {
             name: name.into(),
             functions: Vec::new(),
             globals: Vec::new(),
+            vtables: Vec::new(),
         }
     }
 

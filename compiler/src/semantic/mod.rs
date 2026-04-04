@@ -59,6 +59,43 @@ impl fmt::Display for TypeAnnotationPattern {
     }
 }
 
+/// Returns `true` if `from_ty as to_ty` is a permitted cast.
+fn is_cast_valid(from: &Type, to: &Type) -> bool {
+    use Type::*;
+    match (from, to) {
+        // Same type — trivially OK
+        (a, b) if a == b => true,
+        // Numeric conversions
+        (Int, Float) | (Float, Int) => true,
+        // int ↔ char
+        (Int, Char) | (Char, Int) => true,
+        // coerce concrete type to dyn Trait (validated at trait-impl level)
+        (Struct { .. }, DynTrait { .. }) => true,
+        _ => false,
+    }
+}
+
+/// Maps a `BinaryOperator` to the Spectra trait name and method name that can overload it.
+/// Returns `None` for operators that cannot be overloaded (`&&` / `||`).
+fn operator_trait_and_method(op: crate::ast::BinaryOperator) -> Option<(&'static str, &'static str)> {
+    use crate::ast::BinaryOperator;
+    match op {
+        BinaryOperator::Add                => Some(("Add",  "add")),
+        BinaryOperator::Subtract           => Some(("Sub",  "sub")),
+        BinaryOperator::Multiply           => Some(("Mul",  "mul")),
+        BinaryOperator::Divide             => Some(("Div",  "div")),
+        BinaryOperator::Modulo             => Some(("Rem",  "rem")),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual         => Some(("Eq",   "eq")),
+        BinaryOperator::Less               => Some(("Ord",  "lt")),
+        BinaryOperator::LessEqual          => Some(("Ord",  "le")),
+        BinaryOperator::Greater            => Some(("Ord",  "gt")),
+        BinaryOperator::GreaterEqual       => Some(("Ord",  "ge")),
+        BinaryOperator::And
+        | BinaryOperator::Or               => None, // logical ops not overloadable
+    }
+}
+
 pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticError>> {
     let mut errors = Vec::new();
     // Build a shared registry seeded with the stdlib virtual modules.
@@ -121,6 +158,7 @@ struct StructFieldInfo {
     ty: crate::ast::TypeAnnotation,
     #[allow(dead_code)]
     span: Span,
+    visibility: Visibility,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +194,10 @@ pub struct SemanticAnalyzer {
     // Methods: maps type_name to (method_name, signature)
     methods: HashMap<String, HashMap<String, FunctionSignature>>,
     method_definitions: HashMap<String, HashMap<String, Span>>,
+    // Per-method visibility: maps type_name -> method_name -> Visibility
+    method_visibility: HashMap<String, HashMap<String, Visibility>>,
+    // Types that implement the Drop trait (have a destructor).
+    drop_types: HashSet<String>,
     // Traits: maps trait_name to (method_name, method_info)
     traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
@@ -243,6 +285,7 @@ pub fn type_name(ty: &Type) -> String {
             let ps = params.iter().map(type_name).collect::<Vec<_>>().join(", ");
             format!("fn({}) -> {}", ps, type_name(return_type))
         }
+        Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }
 
@@ -269,6 +312,8 @@ impl SemanticAnalyzer {
             enum_definitions: HashMap::new(),
             methods: HashMap::new(),
             method_definitions: HashMap::new(),
+            method_visibility: HashMap::new(),
+            drop_types: HashSet::new(),
             traits: HashMap::new(),
             trait_impls: HashMap::new(),
             struct_infos: HashMap::new(),
@@ -738,6 +783,14 @@ impl SemanticAnalyzer {
                                 Type::TypeParameter {
                                     name: other.to_string(),
                                 }
+                            } else if self.struct_infos.contains_key(other) {
+                                Type::Struct {
+                                    name: other.to_string(),
+                                }
+                            } else if self.enum_infos.contains_key(other) {
+                                Type::Enum {
+                                    name: other.to_string(),
+                                }
                             } else {
                                 Type::Unknown
                             }
@@ -753,6 +806,9 @@ impl SemanticAnalyzer {
                         elements: element_types,
                     }
                 }
+                TypeAnnotationKind::DynTrait { trait_name } => Type::DynTrait {
+                    trait_name: trait_name.clone(),
+                },
                 _ => Type::Unknown,
             },
             None => Type::Unknown,
@@ -774,6 +830,9 @@ impl SemanticAnalyzer {
             }
             TypeAnnotationKind::Generic { name, .. } => {
                 TypeAnnotationPattern::Simple(vec![name.clone()])
+            }
+            TypeAnnotationKind::DynTrait { trait_name } => {
+                TypeAnnotationPattern::Simple(vec![format!("dyn {}", trait_name)])
             }
         }
     }
@@ -967,6 +1026,7 @@ impl SemanticAnalyzer {
                     self.validate_public_type_annotation(arg, generics, context, span);
                 }
             }
+            TypeAnnotationKind::DynTrait { .. } => {}
         }
     }
 
@@ -1245,6 +1305,7 @@ impl SemanticAnalyzer {
                             StructFieldInfo {
                                 ty: field.ty.clone(),
                                 span: field.span,
+                                visibility: field.visibility,
                             },
                         );
                     }
@@ -1693,6 +1754,26 @@ impl SemanticAnalyzer {
 
         // Se for impl Trait for Type, validar que implementa todos os métodos
         if let Some(ref trait_name) = impl_block.trait_name {
+            // Special handling for Drop: validate the `drop(&mut self)` signature and
+            // mark the type as droppable so the midend can emit destructor calls.
+            if trait_name == "Drop" {
+                let has_drop_method = impl_block.methods.iter().any(|m| {
+                    m.name == "drop"
+                        && m.params.first().map(|p| p.is_self && p.is_reference && p.is_mutable).unwrap_or(false)
+                });
+                if !has_drop_method {
+                    self.error(
+                        format!(
+                            "impl Drop for '{}' must define a method `fn drop(&mut self)`",
+                            impl_block.type_name
+                        ),
+                        impl_block.span,
+                    );
+                } else {
+                    self.drop_types.insert(impl_block.type_name.clone());
+                }
+            }
+
             self.validate_trait_impl(impl_block, trait_name);
 
             // Copiar métodos padrão do trait para o tipo
@@ -1750,6 +1831,11 @@ impl SemanticAnalyzer {
                 .entry(impl_block.type_name.clone())
                 .or_insert_with(HashMap::new)
                 .insert(method.name.clone(), method.span);
+            // Track per-method visibility
+            self.method_visibility
+                .entry(impl_block.type_name.clone())
+                .or_insert_with(HashMap::new)
+                .insert(method.name.clone(), method.visibility);
 
             if type_methods
                 .insert(method.name.clone(), signature)
@@ -1934,9 +2020,16 @@ impl SemanticAnalyzer {
     /// Valida que um impl Trait for Type implementa todos os métodos do trait
     fn validate_trait_impl(&mut self, impl_block: &crate::ast::ImplBlock, trait_name: &str) {
         // Verificar se o trait existe e clonar para evitar borrow conflicts
+        const BUILTIN_OP_TRAITS: &[&str] = &["Add", "Sub", "Mul", "Div", "Rem", "Eq", "Ord", "Drop"];
         let trait_methods = match self.traits.get(trait_name).cloned() {
             Some(methods) => methods,
             None => {
+                if BUILTIN_OP_TRAITS.contains(&trait_name) {
+                    // Builtin operator/lifecycle trait — not user-declared, register impl
+                    self.trait_impls
+                        .insert((trait_name.to_string(), impl_block.type_name.clone()), true);
+                    return;
+                }
                 self.error(
                     format!("Trait '{}' is not defined", trait_name),
                     impl_block.span,
@@ -2279,6 +2372,9 @@ impl SemanticAnalyzer {
                             );
                         }
                     }
+                    crate::ast::LValue::FieldAccess { object, .. } => {
+                        self.analyze_expression(object);
+                    }
                 }
 
                 // Analyze the value expression
@@ -2294,6 +2390,24 @@ impl SemanticAnalyzer {
                             Type::Array { element_type, .. } => *element_type,
                             Type::String => Type::Char,
                             _ => Type::Unknown,
+                        }
+                    }
+                    crate::ast::LValue::FieldAccess { object, field } => {
+                        let obj_type = self.infer_expression_type(object);
+                        if let Type::Struct { name } = &obj_type {
+                            let struct_name = name.clone();
+                            if let Some(field_ty) = self
+                                .struct_infos
+                                .get(&struct_name)
+                                .and_then(|si| si.fields.get(field.as_str()))
+                                .map(|fi| self.type_annotation_to_type(&Some(fi.ty.clone())))
+                            {
+                                field_ty
+                            } else {
+                                Type::Unknown
+                            }
+                        } else {
+                            Type::Unknown
                         }
                     }
                 };
@@ -2474,6 +2588,13 @@ impl SemanticAnalyzer {
                     BinaryOperator::Add => {
                         if matches!(left_type, Type::String) || matches!(right_type, Type::String) {
                             Type::String
+                        } else if let Type::Struct { name: sn } = &left_type {
+                            // Operator overloading: if struct implements Add, return the struct type
+                            if self.trait_impls.contains_key(&("Add".to_string(), sn.clone())) {
+                                left_type
+                            } else {
+                                self.numeric_result_type(&left_type, &right_type)
+                            }
                         } else {
                             self.numeric_result_type(&left_type, &right_type)
                         }
@@ -2481,7 +2602,20 @@ impl SemanticAnalyzer {
                     BinaryOperator::Subtract
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
-                    | BinaryOperator::Modulo => self.numeric_result_type(&left_type, &right_type),
+                    | BinaryOperator::Modulo => {
+                        if let Type::Struct { name: sn } = &left_type {
+                            let trait_name = match operator {
+                                BinaryOperator::Subtract => "Sub",
+                                BinaryOperator::Multiply => "Mul",
+                                BinaryOperator::Divide   => "Div",
+                                _                        => "Rem",
+                            };
+                            if self.trait_impls.contains_key(&(trait_name.to_string(), sn.clone())) {
+                                return left_type;
+                            }
+                        }
+                        self.numeric_result_type(&left_type, &right_type)
+                    }
                     BinaryOperator::Equal
                     | BinaryOperator::NotEqual
                     | BinaryOperator::Less
@@ -2616,11 +2750,18 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
-            ExpressionKind::EnumVariant { enum_name, .. } => {
+            ExpressionKind::EnumVariant { enum_name, variant_name, .. } => {
                 if self.enum_infos.contains_key(enum_name) {
                     Type::Enum {
                         name: enum_name.clone(),
                     }
+                } else if self.struct_infos.contains_key(enum_name.as_str()) {
+                    // Static method call on a struct: StructName::method(...)
+                    self.methods
+                        .get(enum_name.as_str())
+                        .and_then(|mm| mm.get(variant_name.as_str()))
+                        .map(|sig| sig.return_type.clone())
+                        .unwrap_or(Type::Struct { name: enum_name.clone() })
                 } else {
                     Type::Unknown
                 }
@@ -2648,14 +2789,22 @@ impl SemanticAnalyzer {
                 ..
             } => {
                 let obj_type = self.infer_expression_type(object);
-                let type_name = match &obj_type {
+                // For dyn Trait: look up the method return type from trait definition
+                if let Type::DynTrait { trait_name } = &obj_type {
+                    if let Some(trait_methods) = self.traits.get(trait_name.as_str()) {
+                        if let Some(sig) = trait_methods.get(method_name.as_str()) {
+                            return sig.signature.return_type.clone();
+                        }
+                    }
+                }
+                let type_name_str = match &obj_type {
                     Type::Struct { name } => Some(name.clone()),
                     Type::Enum { name, .. } => Some(name.clone()),
                     _ => None,
                 };
 
-                if let Some(type_name) = type_name {
-                    if let Some(type_methods) = self.methods.get(&type_name) {
+                if let Some(type_name_str) = type_name_str {
+                    if let Some(type_methods) = self.methods.get(&type_name_str) {
                         if let Some(signature) = type_methods.get(method_name) {
                             return signature.return_type.clone();
                         }
@@ -2668,6 +2817,9 @@ impl SemanticAnalyzer {
             ExpressionKind::FString(_) => Type::String,
             ExpressionKind::Lambda { .. } => Type::Unknown,
             ExpressionKind::Try(inner) => self.infer_expression_type(inner),
+            ExpressionKind::Cast { target_type, .. } => {
+                self.type_annotation_to_type(&Some(target_type.clone()))
+            }
             ExpressionKind::Range { .. } => Type::Array {
                 element_type: Box::new(Type::Int),
                 size: None,
@@ -2771,6 +2923,18 @@ impl SemanticAnalyzer {
                 // Type check binary operations
                 let left_type = self.infer_expression_type(left);
                 let right_type = self.infer_expression_type(right);
+
+                // Operator overloading: if left side is a struct that implements the
+                // corresponding operator trait, skip all type-error checks.
+                if let Type::Struct { name: ref sn } = left_type {
+                    if let Some((trait_name, _method_name)) = operator_trait_and_method(*operator) {
+                        if self.trait_impls.contains_key(&(trait_name.to_string(), sn.clone())) {
+                            // Overloaded — no further checks needed.
+                            // (The method signature is validated when analyze_impl_block runs.)
+                            return; // from analyze_expression
+                        }
+                    }
+                }
 
                 use crate::ast::BinaryOperator;
                 match operator {
@@ -3238,18 +3402,57 @@ impl SemanticAnalyzer {
 
                 match object_type {
                     Type::Struct { ref name } => {
-                        if let Some(struct_info) = self.struct_infos.get(name) {
-                            if let Some(field_info) = struct_info.fields.get(field) {
-                                field_ty = self.type_annotation_to_type(&Some(field_info.ty.clone()));
-                                field_def_span = Some(field_info.span);
+                        // Collect all info from immutable borrows first, then emit errors.
+                        enum FieldLookup {
+                            Found { ty: crate::ast::TypeAnnotation, span: Span, visibility: Visibility },
+                            NoField,
+                            NoStruct,
+                        }
+                        let lookup = if let Some(struct_info) = self.struct_infos.get(name) {
+                            if let Some(field_info) = struct_info.fields.get(field.as_str()) {
+                                FieldLookup::Found {
+                                    ty: field_info.ty.clone(),
+                                    span: field_info.span,
+                                    visibility: field_info.visibility,
+                                }
                             } else {
+                                FieldLookup::NoField
+                            }
+                        } else {
+                            FieldLookup::NoStruct
+                        };
+                        let name = name.clone();
+                        match lookup {
+                            FieldLookup::Found { ty, span: fspan, visibility: fvis } => {
+                                // Enforce field visibility
+                                let accessible = match fvis {
+                                    Visibility::Public => true,
+                                    Visibility::Internal => true,
+                                    Visibility::Private => {
+                                        matches!(&self.current_function, Some(f) if f.starts_with(&format!("{}::", name)))
+                                    }
+                                };
+                                if !accessible {
+                                    self.error(
+                                        format!(
+                                            "Field '{}' of '{}' is private and cannot be accessed outside its impl block",
+                                            field, name
+                                        ),
+                                        expr.span,
+                                    );
+                                }
+                                field_ty = self.type_annotation_to_type(&Some(ty));
+                                field_def_span = Some(fspan);
+                            }
+                            FieldLookup::NoField => {
                                 self.error(
                                     format!("Struct '{}' has no field named '{}'", name, field),
                                     expr.span,
                                 );
                             }
-                        } else {
-                            self.error(format!("Struct '{}' is not defined", name), expr.span);
+                            FieldLookup::NoStruct => {
+                                self.error(format!("Struct '{}' is not defined", name), expr.span);
+                            }
                         }
                     }
                     Type::Unknown => {
@@ -3294,6 +3497,25 @@ impl SemanticAnalyzer {
                 let enum_info = match self.enum_infos.get(enum_name).cloned() {
                     Some(info) => info,
                     None => {
+                        // Check if this is a struct static method call: StructName::method(...)
+                        if self.struct_infos.contains_key(enum_name.as_str()) {
+                            // Locate the method signature to get the return type
+                            let return_type = self
+                                .methods
+                                .get(enum_name.as_str())
+                                .and_then(|mm| mm.get(variant_name.as_str()))
+                                .map(|sig| sig.return_type.clone())
+                                .unwrap_or(Type::Struct { name: enum_name.clone() });
+                            self.symbol_resolutions.insert(
+                                expr.span,
+                                SymbolInfo {
+                                    is_local: false,
+                                    def_span: None,
+                                    ty: return_type,
+                                },
+                            );
+                            return;
+                        }
                         self.error(format!("Enum '{}' is not defined", enum_name), expr.span);
                         return;
                     }
@@ -3622,6 +3844,8 @@ impl SemanticAnalyzer {
                     Type::Struct { name } => Some(name.clone()),
                     Type::Enum { name, .. } => Some(name.clone()),
                     Type::Unknown => None,
+                    // dyn Trait method calls are valid — dispatch is dynamic
+                    Type::DynTrait { .. } => None,
                     _ => {
                         self.error(
                             format!(
@@ -3682,6 +3906,30 @@ impl SemanticAnalyzer {
                     };
 
                     if let Some(signature) = signature {
+                        // Enforce method visibility
+                        let method_vis = self.method_visibility
+                            .get(type_name)
+                            .and_then(|mv| mv.get(method_name))
+                            .copied()
+                            .unwrap_or(Visibility::Public); // default pub for trait-default methods
+                        let accessible = match method_vis {
+                            Visibility::Public => true,
+                            Visibility::Internal => true,
+                            Visibility::Private => {
+                                // Accessible only within impl methods of the same type
+                                matches!(&self.current_function, Some(f) if f.starts_with(&format!("{}::", type_name)))
+                            }
+                        };
+                        if !accessible {
+                            self.error(
+                                format!(
+                                    "Method '{}' of '{}' is private and cannot be called outside its impl block",
+                                    method_name, type_name
+                                ),
+                                expr.span,
+                            );
+                        }
+
                         self.validate_method_call_signature(
                             method_name,
                             &signature,
@@ -3735,6 +3983,23 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::Try(inner) => {
                 self.analyze_expression(inner);
+            }
+            ExpressionKind::Cast { expr: inner, target_type } => {
+                self.analyze_expression(inner);
+                let from_ty = self.infer_expression_type(inner);
+                let to_ty = self.type_annotation_to_type(&Some(target_type.clone()));
+                // Validate cast legality
+                let valid = is_cast_valid(&from_ty, &to_ty);
+                if !valid {
+                    self.error(
+                        format!(
+                            "Cannot cast from `{}` to `{}`; valid casts: numeric↔numeric, int↔char, and `T as dyn Trait` where T implements Trait",
+                            type_name(&from_ty),
+                            type_name(&to_ty)
+                        ),
+                        expr.span,
+                    );
+                }
             }
             ExpressionKind::Range { start, end, .. } => {
                 self.analyze_expression(start);
@@ -4974,6 +5239,7 @@ impl SemanticAnalyzer {
                 // For now, just record the base name as a simple mapping
                 let _ = (name, type_args);
             }
+            TypeAnnotationKind::DynTrait { .. } => {}
         }
     }
 
@@ -5033,6 +5299,9 @@ impl SemanticAnalyzer {
             },
             Type::Fn { .. } => TypeAnnotationKind::Simple {
                 segments: vec!["fn".to_string()],
+            },
+            Type::DynTrait { trait_name } => TypeAnnotationKind::DynTrait {
+                trait_name: trait_name.clone(),
             },
         };
 

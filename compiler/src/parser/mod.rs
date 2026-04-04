@@ -513,6 +513,9 @@ impl TypePattern {
             }
             TypeAnnotationKind::Function { .. } => TypePattern::Simple(vec!["fn".to_string()]),
             TypeAnnotationKind::Generic { name, .. } => TypePattern::Simple(vec![name.clone()]),
+            TypeAnnotationKind::DynTrait { trait_name } => {
+                TypePattern::Simple(vec![format!("dyn {}", trait_name)])
+            }
         }
     }
 

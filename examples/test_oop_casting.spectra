@@ -1,0 +1,129 @@
+// ============================================================
+// OOP Test 5 — as Casting (Phase 5)
+// Testa: int↔float, int↔char, char↔int, struct as dyn Trait
+// ============================================================
+module test_oop_casting;
+
+import std.io;
+
+// ─── Trait para testar coerção struct → dyn Trait via as ───
+
+trait Describable {
+    fn describe(&self) -> string;
+}
+
+struct Temperature {
+    pub celsius: int,
+}
+
+impl Temperature {
+    pub fn new(c: int) -> Temperature {
+        Temperature { celsius: c }
+    }
+
+    pub fn to_fahrenheit(&self) -> int {
+        // F = C * 9/5 + 32  (inteiro aproximado)
+        self.celsius * 9 / 5 + 32
+    }
+}
+
+impl Describable for Temperature {
+    fn describe(&self) -> string {
+        let f = self.celsius * 9 / 5 + 32;
+        f"{self.celsius}°C ({f}°F)"
+    }
+}
+
+struct Distance {
+    pub meters: int,
+}
+
+impl Distance {
+    pub fn new(m: int) -> Distance {
+        Distance { meters: m }
+    }
+}
+
+impl Describable for Distance {
+    fn describe(&self) -> string {
+        let km = self.meters / 1000;
+        f"{self.meters}m ({km}km)"
+    }
+}
+
+fn print_describable(d: dyn Describable) {
+    let s = d.describe();
+    println(f"  {s}");
+}
+
+pub fn main() -> int {
+    println("=== Teste 1: int → float ===");
+    let i: int = 42;
+    let f: float = i as float;
+    println(f"int {i} as float = {f}");
+
+    let big: int = 1000;
+    let fval: float = big as float;
+    println(f"int {big} as float = {fval}");
+
+    println("");
+    println("=== Teste 2: float → int (trunca) ===");
+    let pi: float = 3.14;
+    let pi_int: int = pi as int;
+    println(f"float {pi} as int = {pi_int}");
+
+    let neg_f: float = -2.9;
+    let neg_i: int   = neg_f as int;
+    println(f"float {neg_f} as int = {neg_i}");
+
+    println("");
+    println("=== Teste 3: int → char ===");
+    let code_a: int  = 65;   // 'A' em ASCII
+    let code_z: int  = 122;  // 'z' em ASCII
+    let ch_a: char   = code_a as char;
+    let ch_z: char   = code_z as char;
+    println(f"65 as char = {ch_a}");
+    println(f"122 as char = {ch_z}");
+
+    println("");
+    println("=== Teste 4: char → int ===");
+    let letter: char = 'B';
+    let ascii_b: int = letter as int;
+    println(f"'B' as int = {ascii_b}");
+
+    let digit: char  = '0';
+    let ascii_0: int = digit as int;
+    println(f"'0' as int = {ascii_0}");
+
+    println("");
+    println("=== Teste 5: cast em expressão aritmética ===");
+    let samples: int = 7;
+    let total_f: float = 100.0;
+    let avg: float = total_f / (samples as float);
+    println(f"100.0 / 7 = {avg}");
+
+    // Conversão de volta para verificar a parte inteira
+    let avg_int: int = avg as int;
+    println(f"avg as int = {avg_int}");
+
+    println("");
+    println("=== Teste 6: struct as dyn Trait ===");
+
+    let t = Temperature::new(20);
+    let d = Distance::new(2500);
+
+    print_describable(t as dyn Describable);
+    print_describable(d as dyn Describable);
+
+    // Múltiplos casts na mesma expressão
+    let boiling = Temperature::new(100);
+    let marathon = Distance::new(42195);
+
+    print_describable(boiling  as dyn Describable);
+    print_describable(marathon as dyn Describable);
+
+    println("");
+    println("=== Casting funcionando corretamente ===");
+
+    return 0;
+}

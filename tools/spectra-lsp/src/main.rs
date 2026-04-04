@@ -1560,6 +1560,7 @@ fn format_type_annotation(ty: &spectra_compiler::ast::TypeAnnotation) -> String 
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        spectra_compiler::ast::TypeAnnotationKind::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }
 
@@ -1667,6 +1668,9 @@ fn find_call_site_in_statement(
                 spectra_compiler::ast::LValue::IndexAccess { array, index } => {
                     find_call_site_in_expression(array, line, column, best);
                     find_call_site_in_expression(index, line, column, best);
+                }
+                spectra_compiler::ast::LValue::FieldAccess { object, .. } => {
+                    find_call_site_in_expression(object, line, column, best);
                 }
                 spectra_compiler::ast::LValue::Identifier(_) => {}
             }
@@ -1842,6 +1846,9 @@ fn find_call_site_in_expression(
         }
         spectra_compiler::ast::ExpressionKind::Block(block) => {
             find_call_site_in_block(block, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::Cast { expr, .. } => {
+            find_call_site_in_expression(expr, line, column, best);
         }
         spectra_compiler::ast::ExpressionKind::Identifier(_)
         | spectra_compiler::ast::ExpressionKind::NumberLiteral(_)
@@ -2550,6 +2557,7 @@ fn collect_type_annotation_tokens(
                 collect_type_annotation_tokens(text, arg, TOKEN_TYPE, tokens);
             }
         }
+        spectra_compiler::ast::TypeAnnotationKind::DynTrait { .. } => {}
     }
 }
 

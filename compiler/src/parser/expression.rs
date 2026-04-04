@@ -379,6 +379,21 @@ impl Parser {
             }
         }
 
+        // Type cast: expr as TargetType  (left-associative, lowest postfix precedence)
+        while matches!(&self.current().kind, crate::token::TokenKind::Keyword(crate::token::Keyword::As)) {
+            let _as_span = self.current().span;
+            self.advance(); // consume 'as'
+            let target_type = self.parse_type_annotation()?;
+            let span = crate::span::span_union(expr.span, target_type.span);
+            expr = crate::ast::Expression {
+                span,
+                kind: crate::ast::ExpressionKind::Cast {
+                    expr: Box::new(expr),
+                    target_type,
+                },
+            };
+        }
+
         Ok(expr)
     }
 

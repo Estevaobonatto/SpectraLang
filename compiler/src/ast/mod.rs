@@ -33,6 +33,10 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
+    /// Dynamic trait object: dyn TraitName
+    DynTrait {
+        trait_name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +149,8 @@ pub struct StructField {
     pub name: String,
     pub span: Span,
     pub ty: TypeAnnotation,
+    /// Visibility of this field. Defaults to `Private` (accessible only within `impl` blocks of the owning type).
+    pub visibility: Visibility,
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +193,10 @@ pub enum TypeAnnotationKind {
         name: String,
         type_args: Vec<TypeAnnotation>,
     },
+    /// Dynamic trait object: dyn TraitName
+    DynTrait {
+        trait_name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -226,6 +236,10 @@ pub enum LValue {
     IndexAccess {
         array: Box<Expression>,
         index: Box<Expression>,
+    },
+    FieldAccess {
+        object: Box<Expression>,
+        field: String,
     },
 }
 
@@ -386,6 +400,12 @@ pub enum ExpressionKind {
         params: Vec<LambdaParam>,
         body: Box<Expression>,
     },
+
+    /// Type cast: expr as TargetType
+    Cast {
+        expr: Box<Expression>,
+        target_type: TypeAnnotation,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -533,6 +553,9 @@ pub struct Method {
     pub return_type: Option<TypeAnnotation>,
     pub body: Block,
     pub span: Span,
+    /// Visibility of this method. Defaults to `Private` inside `impl Type` blocks;
+    /// always `Public` inside `impl Trait for Type` blocks.
+    pub visibility: Visibility,
 }
 
 /// Parâmetro de método (pode ser self, &self, &mut self, ou parâmetro normal)

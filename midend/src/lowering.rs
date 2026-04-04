@@ -15,6 +15,29 @@ use spectra_compiler::span::Span;
 use std::collections::HashMap;
 
 /// Stack-based scope system for variable shadowing support
+
+/// Maps a `BinaryOperator` to the method name used for operator overloading.
+/// Returns `None` if the operator cannot be overloaded.
+#[inline]
+fn operator_overload_method(op: &BinaryOperator) -> Option<&'static str> {
+    match op {
+        BinaryOperator::Add      => Some("add"),
+        BinaryOperator::Subtract => Some("sub"),
+        BinaryOperator::Multiply => Some("mul"),
+        BinaryOperator::Divide   => Some("div"),
+        BinaryOperator::Modulo   => Some("rem"),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual   => Some("eq"),
+        BinaryOperator::Less         => Some("lt"),
+        BinaryOperator::LessEqual    => Some("le"),
+        BinaryOperator::Greater      => Some("gt"),
+        BinaryOperator::GreaterEqual => Some("ge"),
+        BinaryOperator::And
+        | BinaryOperator::Or => None,
+    }
+}
+
+/// Stack-based scope system for variable shadowing support
 #[derive(Clone)]
 struct ScopeStack {
     scopes: Vec<HashMap<String, Value>>,
@@ -295,6 +318,8 @@ pub struct ASTLowering {
     /// Used to resolve Generic enum type args when they can't be fully inferred from
     /// the construction expression (e.g., Result::Ok(x) in a fn -> Result<int, string>).
     current_function_return_annotation: Option<TypeAnnotation>,
+    /// Maps trait names to their methods in declaration order (for vtable slot lookup).
+    trait_method_order: HashMap<String, Vec<String>>,
 }
 
 impl ASTLowering {
@@ -324,6 +349,7 @@ impl ASTLowering {
             pending_lambdas: Vec::new(),
             closure_var_map: HashMap::new(),
             current_function_return_annotation: None,
+            trait_method_order: HashMap::new(),
         };
         lowering.register_builtin_generic_enums();
         lowering
@@ -498,6 +524,10 @@ impl ASTLowering {
                     let key = (impl_block.type_name.clone(), trait_name.clone());
                     self.trait_implementations.insert(key, true);
                 }
+            } else if let Item::Trait(trait_decl) = item {
+                // Record method declaration order for vtable slot lookup
+                let methods: Vec<String> = trait_decl.methods.iter().map(|m| m.name.clone()).collect();
+                self.trait_method_order.insert(trait_decl.name.clone(), methods);
             }
         }
 
@@ -697,6 +727,7 @@ impl ASTLowering {
                     self.substitute_type_in_annotation(arg, type_map);
                 }
             }
+            TypeAnnotationKind::DynTrait { .. } => {}
         }
     }
 
@@ -1613,6 +1644,10 @@ impl ASTLowering {
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
                     | BinaryOperator::Modulo => {
+                        // Struct operand: operator is overloaded, return the struct type itself.
+                        if let IRType::Struct { .. } = &left_type {
+                            return left_type.clone();
+                        }
                         let (left_is_float, left_is_string) = match left_type {
                             IRType::Float => (true, false),
                             IRType::String => (false, true),
@@ -1691,6 +1726,9 @@ impl ASTLowering {
                         }
                     })
                     .unwrap_or(IRType::Void)
+            }
+            ExpressionKind::Cast { target_type, .. } => {
+                self.lower_type_annotation(target_type)
             }
         }
     }
@@ -1932,14 +1970,34 @@ impl ASTLowering {
         }
 
         if create_scope {
+            // Drop semantics: before leaving the scope, call `StructName_drop(ptr)` for every
+            // struct variable whose type implements the `Drop` trait (in reverse order).
+            let drop_calls: Vec<(String, Value)> = self
+                .struct_var_map
+                .scopes
+                .last()
+                .map(|scope| {
+                    scope
+                        .values()
+                        .filter(|(_, struct_name)| {
+                            self.trait_implementations
+                                .contains_key(&(struct_name.clone(), "Drop".to_string()))
+                        })
+                        .map(|(ptr, struct_name)| (struct_name.clone(), *ptr))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (struct_name, ptr) in drop_calls.iter().rev() {
+                let fn_name = format!("{}_drop", struct_name);
+                self.builder.build_call(ir_func, fn_name, vec![*ptr], false);
+            }
+
             self.struct_var_map.pop_scope();
             self.array_map.pop_scope();
             self.variable_types.pop_scope();
             self.value_map.pop_scope();
         }
     }
-
-    /// Analyzes which variables are assigned to in a block
     fn find_assigned_variables(
         &self,
         statements: &[Statement],
@@ -2262,6 +2320,58 @@ impl ASTLowering {
 
                         // Store valor no elemento
                         self.builder.build_store(ir_func, elem_ptr, value);
+                    }
+                    spectra_compiler::ast::LValue::FieldAccess { object, field } => {
+                        // Assignment to struct field (e.g. self.x = ...)
+                        // Step 1: collect the field info before any mutable borrow
+                        let field_info: Option<(usize, IRType)> =
+                            if let spectra_compiler::ast::ExpressionKind::Identifier(var_name) = &object.kind {
+                                let lookup = self.struct_var_map.get(var_name.as_str());
+                                if let Some((_, sname)) = lookup {
+                                    let sname = sname.clone();
+                                    self.struct_definitions.get(&sname).and_then(|defs| {
+                                        defs.iter()
+                                            .enumerate()
+                                            .find(|(_, (fname, _))| fname.as_str() == field.as_str())
+                                            .map(|(idx, (_, ty))| (idx, ty.clone()))
+                                    })
+                                } else {
+                                    None
+                                }
+                            } else {
+                                match self.infer_expr_ir_type(object) {
+                                    IRType::Struct { fields, .. } => fields
+                                        .into_iter()
+                                        .enumerate()
+                                        .find(|(_, (fname, _))| fname.as_str() == field.as_str())
+                                        .map(|(idx, (_, ty))| (idx, ty)),
+                                    _ => None,
+                                }
+                            };
+
+                        // Step 2: get (or compute) the struct pointer
+                        let struct_ptr =
+                            if let spectra_compiler::ast::ExpressionKind::Identifier(var_name) = &object.kind {
+                                if let Some((ptr, _)) = self.struct_var_map.get(var_name.as_str()) {
+                                    ptr
+                                } else {
+                                    self.lower_expression(object, ir_func)
+                                }
+                            } else {
+                                self.lower_expression(object, ir_func)
+                            };
+
+                        // Step 3: GEP + store
+                        if let Some((field_idx, field_type)) = field_info {
+                            let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                            let field_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                struct_ptr,
+                                index_value,
+                                field_type,
+                            );
+                            self.builder.build_store(ir_func, field_ptr, value);
+                        }
                     }
                 }
             }
@@ -2916,6 +3026,21 @@ impl ASTLowering {
                 operator,
                 right,
             } => {
+                let left_ir_type = self.infer_expr_ir_type(left);
+
+                // Operator overloading: if the left operand is a struct, dispatch to the
+                // correspondingly named method (e.g. `Point_add(lhs, rhs)`).
+                if let IRType::Struct { name: ref sn, .. } = left_ir_type {
+                    if let Some(method_name) = operator_overload_method(operator) {
+                        let lhs = self.lower_expression(left, ir_func);
+                        let rhs = self.lower_expression(right, ir_func);
+                        let fn_name = format!("{}_{}", sn, method_name);
+                        return self.builder
+                            .build_call(ir_func, fn_name, vec![lhs, rhs], true)
+                            .unwrap_or_else(|| ir_func.next_value());
+                    }
+                }
+
                 let lhs = self.lower_expression(left, ir_func);
                 let rhs = self.lower_expression(right, ir_func);
 
@@ -2937,6 +3062,19 @@ impl ASTLowering {
             }
             ExpressionKind::Unary { operator, operand } => {
                 use spectra_compiler::ast::UnaryOperator;
+
+                // Operator overloading: if operand is a struct, dispatch `StructName_neg`.
+                if matches!(operator, UnaryOperator::Negate) {
+                    let op_ir_type = self.infer_expr_ir_type(operand);
+                    if let IRType::Struct { name: ref sn, .. } = op_ir_type {
+                        let val = self.lower_expression(operand, ir_func);
+                        let fn_name = format!("{}_neg", sn);
+                        return self.builder
+                            .build_call(ir_func, fn_name, vec![val], true)
+                            .unwrap_or_else(|| ir_func.next_value());
+                    }
+                }
+
                 let operand_value = self.lower_expression(operand, ir_func);
 
                 match operator {
@@ -3837,6 +3975,18 @@ impl ASTLowering {
                 // 1. Lower o objeto (self será o primeiro argumento)
                 let obj_value = self.lower_expression(object, ir_func);
 
+                // 1a. If the object is a dyn Trait, dispatch via vtable.
+                let obj_ir_type = self.infer_expr_ir_type(object);
+                if let IRType::DynTrait { trait_name } = &obj_ir_type {
+                    return self.lower_dyn_method_call(
+                        obj_value,
+                        trait_name.clone(),
+                        method_name,
+                        arguments,
+                        ir_func,
+                    );
+                }
+
                 // 2. Determinar o tipo do objeto
                 let obj_type_name = if let Some(name) = type_name {
                     // Tipo já foi preenchido pelo semantic analyzer
@@ -3989,7 +4139,94 @@ impl ASTLowering {
                 }
                 last_val
             }
+            ExpressionKind::Cast { expr: inner, target_type } => {
+                self.lower_cast_expression(inner, target_type, ir_func)
+            }
         }
+    }
+
+    /// Lower a `expr as TargetType` cast expression.
+    fn lower_cast_expression(
+        &mut self,
+        inner: &Expression,
+        target_type: &TypeAnnotation,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let from_ty = self.infer_expr_ir_type(inner);
+        let to_ty = self.lower_type_annotation(target_type);
+        let operand = self.lower_expression(inner, ir_func);
+
+        // Special case: coerce struct to dyn Trait
+        if let IRType::DynTrait { trait_name } = &to_ty.clone() {
+            return self.lower_coerce_to_dyn(operand, &from_ty, trait_name, ir_func);
+        }
+
+        // If same type, just copy
+        if from_ty == to_ty {
+            return operand;
+        }
+
+        self.builder.build_cast(ir_func, operand, from_ty, to_ty)
+    }
+
+    /// Dispatch a method call via vtable for `dyn Trait` objects.
+    /// The fat_ptr contains (data_ptr, vtable_ptr); we look up the method slot
+    /// and emit a `CallIndirect`.
+    fn lower_dyn_method_call(
+        &mut self,
+        fat_ptr: Value,
+        trait_name: String,
+        method_name: &str,
+        arguments: &[Expression],
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        // Extract data_ptr and vtable_ptr from fat pointer
+        let data_ptr = self.builder.build_load_dyn_data_ptr(ir_func, fat_ptr);
+        let vtable_ptr = self.builder.build_load_dyn_vtable_ptr(ir_func, fat_ptr);
+
+        // Determine slot index by looking up the trait's method order
+        let slot_index = self
+            .trait_method_order
+            .get(&trait_name)
+            .and_then(|methods| methods.iter().position(|m| m == method_name))
+            .unwrap_or(0);
+
+        // Load function pointer from vtable
+        let fn_ptr = self.builder.build_load_vtable_slot(ir_func, vtable_ptr, slot_index);
+
+        // Build argument list: data_ptr first, then the other args
+        let mut call_args = vec![data_ptr];
+        for arg in arguments {
+            call_args.push(self.lower_expression(arg, ir_func));
+        }
+
+        // Emit CallIndirect — signature will be inferred from the call context;
+        // for now use a generic (i64, ...) -> i64 signature since we don't have full type info here.
+        let sig_params: Vec<IRType> = std::iter::once(IRType::Int)
+            .chain(call_args.iter().skip(1).map(|_| IRType::Int))
+            .collect();
+        let sig_return = IRType::Int; // best effort; refined by semantic type info
+
+        self.builder
+            .build_call_indirect(ir_func, fn_ptr, call_args, sig_params, sig_return)
+            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+    }
+
+    /// Build a fat pointer (data_ptr, vtable_ptr) for coercing a concrete struct to `dyn Trait`.
+    fn lower_coerce_to_dyn(
+        &mut self,
+        data_ptr: Value,
+        from_ty: &IRType,
+        trait_name: &str,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let vtable_ptr = if let IRType::Struct { name, .. } = from_ty {
+            let vtable_name = format!("__vtable_{}_{}", name, trait_name);
+            self.builder.build_func_addr(ir_func, vtable_name)
+        } else {
+            self.builder.build_const_int(ir_func, 0)
+        };
+        self.builder.build_make_dyn_fat_ptr(ir_func, data_ptr, vtable_ptr)
     }
 
     fn lower_string_literal(&mut self, literal: &str, ir_func: &mut IRFunction) -> Value {
@@ -4347,6 +4584,9 @@ impl ASTLowering {
                     substitutions,
                 )
             }
+            TypeAnnotationKind::DynTrait { trait_name } => IRType::DynTrait {
+                trait_name: trait_name.clone(),
+            },
         }
     }
 
@@ -4419,6 +4659,9 @@ impl ASTLowering {
                     return_type: ir_return,
                 }
             }
+            ASTType::DynTrait { trait_name } => IRType::DynTrait {
+                trait_name: trait_name.clone(),
+            },
         }
     }
 
@@ -4441,6 +4684,7 @@ impl ASTLowering {
                     .collect();
                 format!("{}_{}", name, arg_strs.join("_"))
             }
+            TypeAnnotationKind::DynTrait { trait_name } => format!("dyn_{}", trait_name),
         }
     }
 
@@ -4613,6 +4857,9 @@ impl ASTLowering {
                     type_args: subst_args,
                 }
             }
+            TypeAnnotationKind::DynTrait { trait_name } => TypeAnnotationKind::DynTrait {
+                trait_name: trait_name.clone(),
+            },
         };
 
         TypeAnnotation {

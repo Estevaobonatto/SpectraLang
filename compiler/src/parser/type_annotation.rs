@@ -4,11 +4,24 @@ use crate::{
     token::{Keyword, Operator, TokenKind},
 };
 
+
+
 use super::Parser;
 
 impl Parser {
     pub(super) fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ()> {
         let start_span = self.current().span;
+
+        // Dynamic trait object: dyn TraitName
+        if matches!(&self.current().kind, TokenKind::Keyword(Keyword::Dyn)) {
+            self.advance(); // consume 'dyn'
+            let (trait_name, end_span) =
+                self.consume_identifier("Expected trait name after 'dyn'")?;
+            return Ok(TypeAnnotation {
+                kind: TypeAnnotationKind::DynTrait { trait_name },
+                span: span_union(start_span, end_span),
+            });
+        }
 
         // Function type: fn(T1, T2) -> ReturnType
         if matches!(&self.current().kind, TokenKind::Keyword(Keyword::Fn)) {

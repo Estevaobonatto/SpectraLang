@@ -1,0 +1,119 @@
+// ============================================================
+// OOP Test 1 — Encapsulation (Phase 1)
+// Testa: pub / internal / private em campos e métodos
+// ============================================================
+module test_oop_encapsulation;
+
+import std.io;
+
+// Struct com visibilidade mista nos campos
+struct BankAccount {
+    pub owner: string,          // leitura pública
+    internal balance: int,      // visível dentro do módulo
+    secret_pin: int,            // private — só o impl acessa
+}
+
+impl BankAccount {
+    // Constructor público
+    pub fn new(owner: string, initial: int, pin: int) -> BankAccount {
+        BankAccount {
+            owner: owner,
+            balance: initial,
+            secret_pin: pin,
+        }
+    }
+
+    // Getter público para o saldo
+    pub fn get_balance(&self) -> int {
+        self.balance
+    }
+
+    // Método interno: visível no módulo, não externamente
+    internal fn adjust_balance(&mut self, delta: int) {
+        self.balance = self.balance + delta;
+    }
+
+    // Método privado: só chamado por outros métodos deste impl
+    fn verify_pin(&self, pin: int) -> bool {
+        self.secret_pin == pin
+    }
+
+    // Saque autenticado: usa verify_pin (privado) internamente
+    pub fn withdraw(&mut self, amount: int, pin: int) -> bool {
+        if self.verify_pin(pin) {
+            if self.balance >= amount {
+                self.adjust_balance(0 - amount);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Depósito público
+    pub fn deposit(&mut self, amount: int) {
+        self.adjust_balance(amount);
+    }
+}
+
+// Struct simples para testar visibilidade de campos no acesso direto
+struct Point {
+    pub x: int,
+    pub y: int,
+    label: string,   // private
+}
+
+impl Point {
+    pub fn new(x: int, y: int) -> Point {
+        Point { x: x, y: y, label: "point" }
+    }
+
+    pub fn describe(&self) -> string {
+        f"Point({self.x}, {self.y})"
+    }
+
+    // Acessa o campo privado internamente
+    pub fn get_label(&self) -> string {
+        self.label
+    }
+}
+
+pub fn main() -> int {
+    // --- BankAccount ---
+    let acc = BankAccount::new("Alice", 1000, 1234);
+
+    // Acessa campo pub diretamente
+    println(acc.owner);
+
+    // Getter para campo internal
+    let bal = acc.get_balance();
+    println(f"Saldo inicial: {bal}");
+
+    // Saque válido com PIN correto
+    let ok = acc.withdraw(200, 1234);
+    let after_withdraw = acc.get_balance();
+    println(f"Saque bem-sucedido: {ok}");
+    println(f"Saldo após saque: {after_withdraw}");
+
+    // Saque com PIN errado — deve falhar
+    let fail = acc.withdraw(100, 9999);
+    println(f"Saque com PIN errado: {fail}");
+
+    // Depósito
+    acc.deposit(500);
+    let after_deposit = acc.get_balance();
+    println(f"Saldo após depósito: {after_deposit}");
+
+    // --- Point ---
+    let p = Point::new(3, 4);
+
+    // Campos pub acessíveis diretamente
+    println(f"x={p.x}, y={p.y}");
+
+    // Método pub
+    println(p.describe());
+
+    // Campo private acessado pelo getter
+    println(p.get_label());
+
+    return 0;
+}

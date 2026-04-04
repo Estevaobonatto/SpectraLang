@@ -1,6 +1,6 @@
 ﻿// IR Builder - constructs IR from AST
 
-use crate::ir::{Function, InstructionKind, Terminator, Value};
+use crate::ir::{Function, InstructionKind, Terminator, Type, Value};
 
 /// Builder for constructing IR
 pub struct IRBuilder {
@@ -278,6 +278,31 @@ impl IRBuilder {
             signature_return: Box::new(sig_return),
         });
         result
+    }
+
+    /// Emit a `Cast` instruction: convert between numeric types or int↔char.
+    pub fn build_cast(&self, func: &mut Function, operand: Value, from_ty: Type, to_ty: Type) -> Value {
+        self.try_emit(func, |result| InstructionKind::Cast { result, operand, from_ty, to_ty })
+    }
+
+    /// Build a fat pointer for `dyn Trait` from (data_ptr, vtable_ptr).
+    pub fn build_make_dyn_fat_ptr(&self, func: &mut Function, data_ptr: Value, vtable_ptr: Value) -> Value {
+        self.try_emit(func, |result| InstructionKind::MakeDynFatPtr { result, data_ptr, vtable_ptr })
+    }
+
+    /// Load the data pointer out of a fat pointer.
+    pub fn build_load_dyn_data_ptr(&self, func: &mut Function, fat_ptr: Value) -> Value {
+        self.try_emit(func, |result| InstructionKind::LoadDynDataPtr { result, fat_ptr })
+    }
+
+    /// Load the vtable pointer out of a fat pointer.
+    pub fn build_load_dyn_vtable_ptr(&self, func: &mut Function, fat_ptr: Value) -> Value {
+        self.try_emit(func, |result| InstructionKind::LoadDynVtablePtr { result, fat_ptr })
+    }
+
+    /// Load a function pointer from a vtable at the given slot index.
+    pub fn build_load_vtable_slot(&self, func: &mut Function, vtable_ptr: Value, slot_index: usize) -> Value {
+        self.try_emit(func, |result| InstructionKind::LoadVtableSlot { result, vtable_ptr, slot_index })
     }
 }
 

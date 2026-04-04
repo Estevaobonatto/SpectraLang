@@ -796,6 +796,62 @@ impl CodeGenerator {
                 value_map.insert(result.id, source_val);
             }
 
+            // Cast instruction
+            InstructionKind::Cast { result, operand, from_ty, to_ty } => {
+                let operand_val = get_value(operand)?;
+                let cl_val = match (from_ty, to_ty) {
+                    (IRType::Int, IRType::Float) => {
+                        builder.ins().fcvt_from_sint(types::F64, operand_val)
+                    }
+                    (IRType::Float, IRType::Int) => {
+                        builder.ins().fcvt_to_sint_sat(types::I64, operand_val)
+                    }
+                    (IRType::Char, IRType::Int) => {
+                        builder.ins().uextend(types::I64, operand_val)
+                    }
+                    (IRType::Int, IRType::Char) => {
+                        builder.ins().ireduce(types::I32, operand_val)
+                    }
+                    _ => operand_val, // same-type or struct->dyn: pass through
+                };
+                value_map.insert(result.id, cl_val);
+            }
+
+            // dyn Trait fat pointer operations
+            InstructionKind::MakeDynFatPtr { result, data_ptr, vtable_ptr } => {
+                // Allocate 16 bytes on stack: [data_ptr i64, vtable_ptr i64]
+                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    16,
+                    0,
+                ));
+                let data_val = get_value(data_ptr)?;
+                let vtable_val = get_value(vtable_ptr)?;
+                builder.ins().stack_store(data_val, slot, 0);
+                builder.ins().stack_store(vtable_val, slot, 8);
+                let fat_ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                value_map.insert(result.id, fat_ptr);
+            }
+
+            InstructionKind::LoadDynDataPtr { result, fat_ptr } => {
+                let ptr_val = get_value(fat_ptr)?;
+                let data = builder.ins().load(types::I64, cranelift_codegen::ir::MemFlags::new(), ptr_val, 0);
+                value_map.insert(result.id, data);
+            }
+
+            InstructionKind::LoadDynVtablePtr { result, fat_ptr } => {
+                let ptr_val = get_value(fat_ptr)?;
+                let vtable = builder.ins().load(types::I64, cranelift_codegen::ir::MemFlags::new(), ptr_val, 8);
+                value_map.insert(result.id, vtable);
+            }
+
+            InstructionKind::LoadVtableSlot { result, vtable_ptr, slot_index } => {
+                let vptr_val = get_value(vtable_ptr)?;
+                let offset = (*slot_index as i32) * 8;
+                let fn_ptr = builder.ins().load(types::I64, cranelift_codegen::ir::MemFlags::new(), vptr_val, offset);
+                value_map.insert(result.id, fn_ptr);
+            }
+
             // PHI nodes are handled during SSA construction
             InstructionKind::Phi { .. } => {
                 // PHI nodes should be resolved during SSA construction
@@ -953,6 +1009,7 @@ impl CodeGenerator {
             IRType::Struct { .. } => Ok(types::I64), // Structs são representados como ponteiros
             IRType::Enum { .. } => Ok(types::I64), // Enums são representados como ponteiros ou ints
             IRType::Function { .. } => Ok(types::I64),
+            IRType::DynTrait { .. } => Ok(types::I64), // fat pointer represented as i64 address
         }
     }
 
@@ -1000,6 +1057,7 @@ impl CodeGenerator {
                 max_variant_size
             }
             IRType::Function { .. } => 8,
+            IRType::DynTrait { .. } => 16, // fat pointer: data_ptr (8) + vtable_ptr (8)
         }
     }
 

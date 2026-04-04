@@ -331,6 +331,9 @@ impl<'a> LintRunner<'a> {
                 self.visit_expression(array);
                 self.visit_expression(index);
             }
+            LValue::FieldAccess { object, .. } => {
+                self.visit_expression(object);
+            }
         }
         self.visit_expression(&assignment.value);
     }
@@ -459,6 +462,9 @@ impl<'a> LintRunner<'a> {
             }
             ExpressionKind::Block(block) => {
                 self.visit_block(block, true);
+            }
+            ExpressionKind::Cast { expr, .. } => {
+                self.visit_expression(expr);
             }
         }
     }

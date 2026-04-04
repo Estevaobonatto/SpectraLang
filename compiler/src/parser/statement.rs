@@ -131,6 +131,9 @@ impl Parser {
                         crate::ast::ExpressionKind::IndexAccess { array, index } => {
                             (crate::ast::LValue::IndexAccess { array, index }, expr.span)
                         }
+                        crate::ast::ExpressionKind::FieldAccess { object, field } => {
+                            (crate::ast::LValue::FieldAccess { object, field }, expr.span)
+                        }
                         _ => {
                             self.error("Invalid assignment target");
                             return Err(());

@@ -1,0 +1,200 @@
+// ============================================================
+// OOP Test 4 — dyn Trait / Despacho Dinâmico (Phase 4)
+// Testa: trait, impl Trait for T, dyn Trait, coerção com as
+// ============================================================
+module test_oop_dyn_trait;
+
+import std.io;
+
+// ─── Trait: Shape (geometria) ───────────────────────────────
+
+trait Shape {
+    fn area(&self) -> int;
+    fn perimeter(&self) -> int;
+    fn name(&self) -> string;
+}
+
+// ─── Circle ─────────────────────────────────────────────────
+
+struct Circle {
+    pub radius: int,
+}
+
+impl Circle {
+    pub fn new(r: int) -> Circle {
+        Circle { radius: r }
+    }
+}
+
+impl Shape for Circle {
+    fn area(&self) -> int {
+        // π × r² ≈ 3 × r² (inteiro aproximado)
+        3 * self.radius * self.radius
+    }
+    fn perimeter(&self) -> int {
+        // 2π × r ≈ 6 × r
+        6 * self.radius
+    }
+    fn name(&self) -> string {
+        "Círculo"
+    }
+}
+
+// ─── Rectangle ──────────────────────────────────────────────
+
+struct Rectangle {
+    pub width: int,
+    pub height: int,
+}
+
+impl Rectangle {
+    pub fn new(w: int, h: int) -> Rectangle {
+        Rectangle { width: w, height: h }
+    }
+}
+
+impl Shape for Rectangle {
+    fn area(&self) -> int {
+        self.width * self.height
+    }
+    fn perimeter(&self) -> int {
+        2 * (self.width + self.height)
+    }
+    fn name(&self) -> string {
+        "Retângulo"
+    }
+}
+
+// ─── Triangle ───────────────────────────────────────────────
+
+struct Triangle {
+    pub base: int,
+    pub height: int,
+    pub side_a: int,
+    pub side_b: int,
+    pub side_c: int,
+}
+
+impl Triangle {
+    pub fn new(base: int, height: int, a: int, b: int, c: int) -> Triangle {
+        Triangle { base: base, height: height, side_a: a, side_b: b, side_c: c }
+    }
+}
+
+impl Shape for Triangle {
+    fn area(&self) -> int {
+        self.base * self.height / 2
+    }
+    fn perimeter(&self) -> int {
+        self.side_a + self.side_b + self.side_c
+    }
+    fn name(&self) -> string {
+        "Triângulo"
+    }
+}
+
+// ─── Função que aceita dyn Trait ────────────────────────────
+
+fn print_shape_info(shape: dyn Shape) {
+    let n = shape.name();
+    let a = shape.area();
+    let p = shape.perimeter();
+    println(f"  {n}: área={a}, perímetro={p}");
+}
+
+fn total_area(s1: dyn Shape, s2: dyn Shape, s3: dyn Shape) -> int {
+    s1.area() + s2.area() + s3.area()
+}
+
+// ─── Trait: Drawable (para polimorfismo diferente) ──────────
+
+trait Drawable {
+    fn draw(&self) -> string;
+    fn color(&self) -> string;
+}
+
+struct Sprite {
+    pub id: int,
+    pub x: int,
+    pub y: int,
+}
+
+impl Sprite {
+    pub fn new(id: int, x: int, y: int) -> Sprite {
+        Sprite { id: id, x: x, y: y }
+    }
+}
+
+impl Drawable for Sprite {
+    fn draw(&self) -> string {
+        f"Sprite#{self.id} em ({self.x},{self.y})"
+    }
+    fn color(&self) -> string {
+        "branco"
+    }
+}
+
+struct Background {
+    pub layer: int,
+}
+
+impl Background {
+    pub fn new(layer: int) -> Background {
+        Background { layer: layer }
+    }
+}
+
+impl Drawable for Background {
+    fn draw(&self) -> string {
+        f"Background camada {self.layer}"
+    }
+    fn color(&self) -> string {
+        "azul"
+    }
+}
+
+fn render(d: dyn Drawable) {
+    let img = d.draw();
+    let c = d.color();
+    println(f"  Renderizando: {img} [cor: {c}]");
+}
+
+pub fn main() -> int {
+    println("=== Teste 1: Shapes via dyn Trait ===");
+
+    let c = Circle::new(5);
+    let r = Rectangle::new(4, 6);
+    let t = Triangle::new(3, 4, 3, 4, 5);
+
+    // Coerção de struct para dyn Trait com 'as'
+    let sc = c as dyn Shape;
+    let sr = r as dyn Shape;
+    let st = t as dyn Shape;
+
+    print_shape_info(sc);
+    print_shape_info(sr);
+    print_shape_info(st);
+
+    let total = total_area(
+        c as dyn Shape,
+        r as dyn Shape,
+        t as dyn Shape,
+    );
+    println(f"Área total: {total}");
+
+    println("");
+    println("=== Teste 2: Drawable via dyn Trait ===");
+
+    let spr1 = Sprite::new(1, 10, 20);
+    let spr2 = Sprite::new(2, 50, 60);
+    let bg   = Background::new(0);
+
+    render(spr1 as dyn Drawable);
+    render(spr2 as dyn Drawable);
+    render(bg   as dyn Drawable);
+
+    println("");
+    println("=== dyn Trait funcionando corretamente ===");
+
+    return 0;
+}

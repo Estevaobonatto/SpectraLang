@@ -1,0 +1,129 @@
+// ============================================================
+// OOP Test 3 — Drop Trait / Destructors (Phase 3)
+// Testa: impl Drop for T com fn drop(&mut self)
+// ============================================================
+module test_oop_drop;
+
+import std.io;
+
+// ─── Buffer: recurso gerenciado com destrutor ───────────────
+
+struct Buffer {
+    pub name: string,
+    pub size: int,
+    is_open: bool,
+}
+
+impl Buffer {
+    pub fn new(name: string, size: int) -> Buffer {
+        println(f"[Buffer] Abrindo '{name}' ({size} bytes)");
+        Buffer { name: name, size: size, is_open: true }
+    }
+
+    pub fn write(&self, data: string) {
+        if self.is_open {
+            println(f"[Buffer '{self.name}'] Escrevendo: {data}");
+        }
+    }
+}
+
+// Destrutor: chamado ao final do escopo
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        self.is_open = false;
+        println(f"[Buffer] Fechando '{self.name}' e liberando {self.size} bytes");
+    }
+}
+
+// ─── Connection: simula uma conexão de rede ─────────────────
+
+struct Connection {
+    pub host: string,
+    pub port: int,
+    connected: bool,
+}
+
+impl Connection {
+    pub fn open(host: string, port: int) -> Connection {
+        println(f"[Connection] Conectando em {host}:{port}");
+        Connection { host: host, port: port, connected: true }
+    }
+
+    pub fn send(&self, msg: string) {
+        if self.connected {
+            println(f"[Connection] Enviando para {self.host}: {msg}");
+        }
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.connected
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.connected = false;
+        println(f"[Connection] Encerrando conexão com {self.host}:{self.port}");
+    }
+}
+
+// ─── Recurso aninhado: TempFile contém um Buffer ────────────
+
+struct TempFile {
+    pub path: string,
+    buf: Buffer,
+}
+
+impl TempFile {
+    pub fn create(path: string) -> TempFile {
+        let b = Buffer::new(path, 4096);
+        println(f"[TempFile] Criado: {path}");
+        TempFile { path: path, buf: b }
+    }
+
+    pub fn write_line(&self, line: string) {
+        self.buf.write(line);
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        println(f"[TempFile] Removendo arquivo temporário: {self.path}");
+        // self.buf.drop() seria chamado automaticamente pelo compilador
+    }
+}
+
+pub fn main() -> int {
+    println("=== Teste 1: Buffer simples ===");
+    {
+        let buf = Buffer::new("log.txt", 1024);
+        buf.write("linha 1");
+        buf.write("linha 2");
+        // buf.drop() chamado ao sair deste bloco
+    };
+
+    println("");
+    println("=== Teste 2: Connection ===");
+    {
+        let conn = Connection::open("db.local", 5432);
+        conn.send("SELECT 1");
+        conn.send("COMMIT");
+        let alive = conn.is_alive();
+        println(f"Conexão ativa: {alive}");
+        // conn.drop() chamado ao sair deste bloco
+    };
+
+    println("");
+    println("=== Teste 3: TempFile com Buffer aninhado ===");
+    {
+        let tmp = TempFile::create("/tmp/spec_12345.tmp");
+        tmp.write_line("dados temporários linha 1");
+        tmp.write_line("dados temporários linha 2");
+        // tmp.drop() → Buffer.drop() também são chamados
+    };
+
+    println("");
+    println("=== Todos os destrutores executados ===");
+
+    return 0;
+}

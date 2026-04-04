@@ -62,6 +62,10 @@ pub enum Keyword {
     Type,
     Const,
     Static,
+
+    // Type casting / dynamic dispatch
+    As,
+    Dyn,
 }
 
 impl Keyword {
@@ -126,6 +130,10 @@ impl Keyword {
             "type" => Some(Self::Type),
             "const" => Some(Self::Const),
             "static" => Some(Self::Static),
+
+            // Type casting / dynamic dispatch
+            "as" => Some(Self::As),
+            "dyn" => Some(Self::Dyn),
 
             _ => None,
         }
@@ -194,6 +202,10 @@ impl fmt::Display for Keyword {
             Keyword::Type => "type",
             Keyword::Const => "const",
             Keyword::Static => "static",
+
+            // Type casting / dynamic dispatch
+            Keyword::As => "as",
+            Keyword::Dyn => "dyn",
         };
 
         write!(f, "{}", text)

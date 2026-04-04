@@ -2129,6 +2129,9 @@ mod cst {
                 collect_doc_comments_from_expression(start, lines, line_offsets);
                 collect_doc_comments_from_expression(end, lines, line_offsets);
             }
+            ExpressionKind::Cast { expr, .. } => {
+                collect_doc_comments_from_expression(expr, lines, line_offsets);
+            }
             ExpressionKind::Block(block) => {
                 for stmt in &block.statements {
                     collect_doc_comments_from_statement(stmt, lines, line_offsets);
@@ -2334,6 +2337,9 @@ mod cst {
             ExpressionKind::Range { start, end, .. } => {
                 collect_match_spans_expression(start, spans);
                 collect_match_spans_expression(end, spans);
+            }
+            ExpressionKind::Cast { expr: inner, .. } => {
+                collect_match_spans_expression(inner, spans);
             }
             ExpressionKind::Block(block) => {
                 collect_match_spans_block(block, spans);
