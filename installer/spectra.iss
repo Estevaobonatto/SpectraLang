@@ -6,7 +6,7 @@
 #define AppName       "SpectraLang"
 #define AppPublisher  "SpectraLang"
 #define AppURL        "https://github.com/Estevaobonatto/SpectraLang"
-#define AppExeName    "spectra-cli.exe"
+#define AppExeName    "spectralang.exe"
 
 ; AppVersion and SourceDir are passed via /D on the command line.
 ; Provide defaults so ISCC.exe can compile the script directly for testing.
@@ -53,7 +53,7 @@ Name: "installvsix"; Description: "Install VS Code extension (requires VS Code)"
 
 [Files]
 ; Core binaries
-Source: "{#SourceDir}\spectra-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\spectralang.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\spectra-lsp.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; VS Code extension (installed on demand)
 Source: "{#SourceDir}\spectra-vscode-extension.vsix"; DestDir: "{app}"; Flags: ignoreversion
@@ -67,7 +67,7 @@ Name: "{group}\Uninstall SpectraLang"; Filename: "{uninstallexe}"
 ; Install VS Code extension after setup (user can deselect the task)
 Filename: "{cmd}"; Parameters: "/c code --install-extension ""{app}\spectra-vscode-extension.vsix"" --force"; Flags: runhidden waituntilterminated; StatusMsg: "Installing VS Code extension..."; Description: "Install the SpectraLang VS Code extension"; Tasks: installvsix
 ; Open a new PowerShell so the user can try spectra-cli immediately (PATH already active)
-Filename: "powershell.exe"; Parameters: "-NoExit -Command ""$env:PATH = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' + [System.Environment]::GetEnvironmentVariable('Path','Machine'); Write-Host 'SpectraLang installed. Run: spectra-cli --help' -ForegroundColor Green"""; Description: "Open a terminal to try spectra-cli"; Flags: postinstall skipifsilent nowait; Tasks: addtopath
+Filename: "powershell.exe"; Parameters: "-NoExit -Command ""$env:PATH = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' + [System.Environment]::GetEnvironmentVariable('Path','Machine'); Write-Host 'SpectraLang installed. Run: spectralang --help' -ForegroundColor Green"""; Description: "Open a terminal to try spectralang"; Flags: postinstall skipifsilent nowait; Tasks: addtopath
 
 [Registry]
 ; ── PATH management (user-level so no UAC prompt by default) ─────────────────

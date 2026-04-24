@@ -3,6 +3,10 @@ name = "spectra-cli"
 version = "0.1.10"
 edition = "2021"
 
+[[bin]]
+name = "spectralang"
+path = "src/main.rs"
+
 [dependencies]
 spectra-compiler = { path = "../../compiler" }
 spectra-midend = { path = "../../midend" }

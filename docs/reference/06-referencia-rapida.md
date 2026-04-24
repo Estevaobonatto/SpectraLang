@@ -399,26 +399,73 @@ genericos     = "<" IDENT (":" IDENT ("+" IDENT)*)? ("," ...)* ">" ;
 ## 13. Flags do CLI / CLI Flags
 
 ```
-spectra <comando> [flags] <arquivo>
+spectralang <comando> [flags] <arquivo>...
 ```
 
-| Comando | Descrição |
-|---------|-----------|
-| `run` | Compila e executa com JIT |
-| `build` | Compila para binário AOT |
-| `check` | Verifica erros sem executar |
-| `fmt` | Formata o código (WIP) |
-| `doc` | Gera documentação (WIP) |
+### Comandos / Commands
 
-| Flag | Descrição |
-|------|-----------|
-| `--emit-ir` | Exibe o IR intermediário |
-| `--emit-ast` | Exibe a AST em formato de debug |
-| `--emit-tokens` | Exibe os tokens do lexer |
-| `--no-color` | Desativa cores no terminal |
-| `--output <path>` | Define o caminho de saída (build) |
-| `--verbose` | Saída detalhada |
-| `--version` | Versão do compilador |
+| Comando | Descrição PT-BR | Description EN-US |
+|---------|-----------------|-------------------|
+| `compile` | Compila módulos (padrão) | Compile modules (default) |
+| `check` | Verifica tipos sem gerar código | Type-check only, no code generation |
+| `run` | Compila e executa via JIT | Compile and execute via JIT |
+| `lint` | Executa verificações de lint | Run lint checks |
+| `fmt` | Formata arquivos fonte | Format source files |
+| `repl` | Inicia o REPL interativo | Start the interactive REPL |
+| `new` | Cria um novo projeto | Scaffold a new project |
+| `help` | Exibe a mensagem de ajuda | Print help message |
+
+### Flags de Compilação / Compilation Flags
+
+| Flag | Descrição PT-BR | Description EN-US |
+|------|-----------------|-------------------|
+| `--run` / `-r` | Executa após compilar (JIT) | Execute after compilation (JIT) |
+| `--emit-object <saída>` | Gera arquivo objeto AOT | Generate AOT object file |
+| `--emit-exe <saída>` | Gera executável AOT | Generate AOT executable |
+| `--no-optimize` / `-O0` | Desativa otimizações | Disable all optimizations |
+| `-O1` | Otimizações básicas | Basic optimizations |
+| `-O2` | Otimizações moderadas **(padrão)** | Moderate optimizations **(default)** |
+| `-O3` | Todas as otimizações | All optimizations |
+| `--dump-ast` | Exibe a AST para debug | Print the AST for debugging |
+| `--dump-ir` | Exibe o IR para debug | Print the IR for debugging |
+| `--timings` / `-T` | Coleta métricas de compilação | Collect compilation timings |
+| `--summary` | Exibe sumário do pipeline | Show pipeline summaries |
+| `--verbose` / `-v` | Detalhes adicionais do build | Print additional build details |
+
+### Flags de Lint / Lint Flags
+
+| Flag | Descrição PT-BR | Description EN-US |
+|------|-----------------|-------------------|
+| `--lint` | Ativa verificações de lint | Enable lint checks |
+| `--allow <rule>` | Permite (suprime) uma regra | Allow (suppress) a lint rule |
+| `--deny <rule>` | Eleva uma regra a erro | Escalate a lint rule to error |
+| `--json` | Emite diagnósticos em JSON (lint) | Emit diagnostics as JSON (lint only) |
+
+### Flags Experimentais / Experimental Flags
+
+| Flag | Descrição PT-BR | Description EN-US |
+|------|-----------------|-------------------|
+| `--enable-experimental <feature>` | Ativa feature experimental | Enable experimental feature |
+
+> **Features experimentais disponíveis / Available experimental features:**
+> `switch`, `unless`, `do-while`, `loop`
+
+### Regras de Lint Disponíveis / Available Lint Rules
+
+| Regra / Rule | Descrição PT-BR | Description EN-US |
+|--------------|-----------------|-------------------|
+| `unused-binding` | Variável declarada mas não usada | Variable declared but not used |
+| `unreachable-code` | Código após `return` inacessível | Code after `return` is unreachable |
+| `shadowing` | Variável oculta outra do mesmo escopo pai | Variable shadows one in a parent scope |
+
+### Códigos de Saída / Exit Codes
+
+| Código / Code | Significado PT-BR | Meaning EN-US |
+|---------------|-------------------|---------------|
+| `0` | Sucesso | Success |
+| `64` | Erro de uso (argumentos inválidos) | Usage error (invalid arguments) |
+| `65` | Erro de compilação | Compilation error |
+| `74` | Erro de I/O | I/O error |
 
 ---
 

@@ -118,7 +118,7 @@ cd SpectraLang
 cargo build --release
 
 # Verificar a instalação / Verify the installation
-./target/release/spectra --help
+./target/release/spectralang --help
 ```
 
 **PT-BR:**  
@@ -132,61 +132,66 @@ Requisitos / Requirements:
 ## 5. Interface de Linha de Comando / Command-Line Interface
 
 **PT-BR:**  
-O CLI do SpectraLang (`spectra`) oferece os seguintes comandos e opções:
+O CLI do SpectraLang (`spectralang`) oferece os seguintes comandos e opções:
 
 **EN-US:**  
-The SpectraLang CLI (`spectra`) provides the following commands and options:
+The SpectraLang CLI (`spectralang`) provides the following commands and options:
 
 ### Comandos / Commands
 
 | Comando / Command | Descrição PT-BR | Description EN-US |
 |---|---|---|
-| `spectra run <arquivo>` | Compila e executa via JIT | Compile and execute via JIT |
-| `spectra compile <arquivo>` | Compila via JIT sem executar | Compile via JIT without executing |
-| `spectra check <arquivo>` | Verifica tipos sem compilar | Type-check only, no code generation |
-| `spectra lint <arquivo>` | Executa verificações de lint | Run lint checks |
-| `spectra fmt <arquivo>` | Formata o código-fonte | Format source code |
-| `spectra repl` | Inicia o REPL interativo | Start the interactive REPL |
-| `spectra new <nome>` | Cria um novo projeto | Scaffold a new project |
+| `spectralang run <arquivo>` | Compila e executa via JIT | Compile and execute via JIT |
+| `spectralang compile <arquivo>` | Compila via JIT sem executar | Compile via JIT without executing |
+| `spectralang check <arquivo>` | Verifica tipos sem compilar | Type-check only, no code generation |
+| `spectralang lint <arquivo>` | Executa verificações de lint | Run lint checks |
+| `spectralang fmt <arquivo>` | Formata o código-fonte | Format source code |
+| `spectralang repl` | Inicia o REPL interativo | Start the interactive REPL |
+| `spectralang new <nome>` | Cria um novo projeto | Scaffold a new project |
 
 ### Flags
 
 | Flag | Descrição PT-BR | Description EN-US |
 |---|---|---|
 | `--run` / `-r` | Executa após compilar (JIT) | Execute after compilation (JIT) |
-| `--emit-object <saída>` / `-o <saída>` | Gera arquivo objeto AOT | Generate AOT object file |
-| `-O0` | Sem otimizações (padrão) | No optimizations (default) |
+| `--emit-object <saída>` | Gera arquivo objeto AOT | Generate AOT object file |
+| `--no-optimize` / `-O0` | Desativa todas as otimizações | Disable all optimizations |
 | `-O1` | Constant folding ativado | Constant folding enabled |
-| `-O2` | Constant folding + eliminação de código morto | Constant folding + dead code elimination |
-| `-O3` | Todas as otimizações | All optimizations |
+| `-O2` | Constant folding + eliminação de código morto **(padrão)** | Constant folding + dead code elimination **(default)** |
+| `-O3` | Todas as otimizações agressivas | All aggressive optimizations |
 | `--dump-ast` | Exibe a árvore AST para debug | Print the AST for debugging |
 | `--dump-ir` | Exibe o IR para debug | Print the IR for debugging |
 | `--timings` / `-T` | Coleta métricas de compilação | Collect compilation metrics |
+| `--summary` | Exibe sumário do pipeline por módulo | Show per-module pipeline summaries |
+| `--verbose` / `-v` | Detalhes adicionais do build | Print additional build details |
+| `--lint` | Ativa verificações de lint | Enable lint checks |
+| `--allow <rule>` | Permite (suprime) uma regra de lint | Allow (suppress) a lint rule |
+| `--deny <rule>` | Eleva uma regra de lint a erro | Escalate a lint rule to error |
 | `--enable-experimental <feature>` | Ativa features experimentais | Enable experimental language features |
 
 ### Exemplos de Uso / Usage Examples
 
 ```bash
 # Executar um programa / Run a program
-spectra run hello.spectra
+spectralang run hello.spectra
 
 # Verificar tipos apenas / Type-check only
-spectra check meu_programa.spectra
+spectralang check meu_programa.spectra
 
 # Compilar com otimização nível 2 / Compile with level-2 optimization
-spectra compile -O2 algoritmos.spectra
+spectralang compile -O2 algoritmos.spectra
 
 # Gerar arquivo objeto AOT / Generate AOT object file
-spectra compile --emit-object meu_programa.o programa.spectra
+spectralang compile --emit-object meu_programa.o programa.spectra
 
 # Formatar o código / Format the code
-spectra fmt meu_arquivo.spectra
+spectralang fmt meu_arquivo.spectra
 
 # Lint com saída JSON / Lint with JSON output
-spectra lint --json meu_arquivo.spectra
+spectralang lint --json meu_arquivo.spectra
 
 # Iniciar REPL / Start REPL
-spectra repl
+spectralang repl
 ```
 
 ### Códigos de Saída / Exit Codes
@@ -298,7 +303,7 @@ Para executar:
 To run:
 
 ```bash
-spectra run hello.spectra
+spectralang run hello.spectra
 # Saída / Output: Hello, World!
 ```
 
@@ -332,7 +337,7 @@ fn criar_saudacao(nome: string, idade: int) -> string {
 ```
 
 ```bash
-spectra run saudacao.spectra
+spectralang run saudacao.spectra
 # Saída / Output:
 # Olá, Maria! Você tem 25 anos.
 # Olá, Maria! Bem-vindo(a)!
@@ -388,10 +393,10 @@ projeto/                   # Raiz do projeto / Project root
 ### Formatação / Formatting
 
 **PT-BR:**  
-Use `spectra fmt` para formatar automaticamente. As regras padrão são:
+Use `spectralang fmt` para formatar automaticamente. As regras padrão são:
 
 **EN-US:**  
-Use `spectra fmt` to format automatically. The default rules are:
+Use `spectralang fmt` to format automatically. The default rules are:
 
 - **Indentação / Indentation:** 4 espaços / 4 spaces
 - **Comprimento máximo de linha / Max line length:** 100 caracteres / characters

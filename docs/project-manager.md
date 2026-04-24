@@ -544,19 +544,19 @@ cargo build
 cargo test
 
 # Executar arquivo .spectra único
-.\target\debug\spectra-cli.exe run examples/basic.spectra
+.\target\debug\spectralang.exe run examples/basic.spectra
 
 # Executar projeto multi-arquivo (ordem = dependências primeiro)
-.\target\debug\spectra-cli.exe run examples/mathutils.spectra examples/main_app.spectra
+.\target\debug\spectralang.exe run examples/mathutils.spectra examples/main_app.spectra
 
 # Executar projeto via spectra.toml (auto-descoberta de src_dirs)
-.\target\debug\spectra-cli.exe build
+.\target\debug\spectralang.exe build
 
 # Criar novo projeto com spectra.toml
-.\target\debug\spectra-cli.exe new meu-projeto
+.\target\debug\spectralang.exe new meu-projeto
 
 # Verificar erros sem executar
-.\target\debug\spectra-cli.exe check examples/basic.spectra
+.\target\debug\spectralang.exe check examples/basic.spectra
 
 # Rodar script de testes de regressão
 .\run_tests.ps1

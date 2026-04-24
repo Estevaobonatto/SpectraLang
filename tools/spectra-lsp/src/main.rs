@@ -33,7 +33,7 @@ struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            cli_path: "spectra".to_string(),
+            cli_path: "spectralang".to_string(),
             lint_on_save: true,
         }
     }

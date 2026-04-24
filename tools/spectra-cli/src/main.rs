@@ -6,16 +6,14 @@ mod linker;
 mod project;
 mod runtime_lib;
 
-use compiler_integration::{forward_program_args, take_last_exec_exit, ModulePipelineSummary, SpectraCompiler};
+use compiler_integration::{
+    forward_program_args, take_last_exec_exit, ModulePipelineSummary, SpectraCompiler,
+};
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use project::ProjectPlan;
 use serde::{Deserialize, Serialize};
 use spectra_compiler::{
-    error::CompilerError,
-    lint::LintDiagnostic,
-    span::Span,
-    CompilationOptions,
-    LintOptions,
+    error::CompilerError, lint::LintDiagnostic, span::Span, CompilationOptions, LintOptions,
     LintRule,
 };
 use std::collections::BTreeMap;
@@ -473,7 +471,9 @@ where
             }
             "--json" => {
                 if command != BuildCommand::Lint {
-                    return Err(usage_error("'--json' is only supported with the 'lint' command."));
+                    return Err(usage_error(
+                        "'--json' is only supported with the 'lint' command.",
+                    ));
                 }
                 json_output = true;
             }
@@ -900,18 +900,16 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             return Err(CliError::usage("--emit-object requires a source file."));
         }
         let source_path = &entries[0];
-        let source = fs::read_to_string(source_path).map_err(|e| {
-            CliError::io(format!("Cannot read '{}': {}", source_path.display(), e))
-        })?;
+        let source = fs::read_to_string(source_path)
+            .map_err(|e| CliError::io(format!("Cannot read '{}': {}", source_path.display(), e)))?;
         let filename = source_path.to_string_lossy().to_string();
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
         let obj_bytes = compiler
             .compile_to_object_bytes(&source, &filename)
             .map_err(|e| CliError::compilation(e))?;
-        fs::write(obj_path, &obj_bytes).map_err(|e| {
-            CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e))
-        })?;
+        fs::write(obj_path, &obj_bytes)
+            .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
         println!("✅ Object file written: {}", obj_path.display());
         println!(
             "   Link with: cc {} -L<runtime_lib_dir> -lspectra_runtime -o <output>",
@@ -926,9 +924,8 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             return Err(CliError::usage("--emit-exe requires a source file."));
         }
         let source_path = &entries[0];
-        let source = fs::read_to_string(source_path).map_err(|e| {
-            CliError::io(format!("Cannot read '{}': {}", source_path.display(), e))
-        })?;
+        let source = fs::read_to_string(source_path)
+            .map_err(|e| CliError::io(format!("Cannot read '{}': {}", source_path.display(), e)))?;
         let filename = source_path.to_string_lossy().to_string();
 
         // Locate the runtime static library before spending time compiling.
@@ -981,7 +978,15 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
     let project_root: Option<std::path::PathBuf> = if entries.len() <= 1 {
         let candidate = entries
             .first()
-            .map(|p| if p.is_dir() { p.clone() } else { p.parent().map(|par| par.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from(".")) })
+            .map(|p| {
+                if p.is_dir() {
+                    p.clone()
+                } else {
+                    p.parent()
+                        .map(|par| par.to_path_buf())
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                }
+            })
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         Some(candidate)
     } else {
@@ -992,7 +997,11 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         match config::try_load_config(root) {
             Ok(Some(cfg)) => {
                 if verbose {
-                    println!("Loaded project config '{}' v{}", cfg.name(), cfg.project.version);
+                    println!(
+                        "Loaded project config '{}' v{}",
+                        cfg.name(),
+                        cfg.project.version
+                    );
                 }
                 let src_dirs = cfg.src_dirs(root);
                 let sources = discovery::discover_sources(&src_dirs);
@@ -1000,7 +1009,10 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             }
             Ok(None) => (entries, None),
             Err(err) => {
-                return Err(CliError::io(format!("Failed to load spectra.toml: {}", err)));
+                return Err(CliError::io(format!(
+                    "Failed to load spectra.toml: {}",
+                    err
+                )));
             }
         }
     } else {
@@ -1578,10 +1590,7 @@ fn execute_lint_json(entries: Vec<PathBuf>, mut options: CompilationOptions) -> 
     run_json_diagnostics(entries, options)
 }
 
-fn execute_repl_json(
-    mut options: CompilationOptions,
-    preload: Vec<PathBuf>,
-) -> CliResult<()> {
+fn execute_repl_json(mut options: CompilationOptions, preload: Vec<PathBuf>) -> CliResult<()> {
     if preload.is_empty() {
         return Err(CliError::usage(
             "Provide one or more paths when using 'spectra repl --json'.",
@@ -1607,10 +1616,7 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
                 success: false,
                 files: vec![JsonFileDiagnostics {
                     path: path_to_string(&path),
-                    diagnostics: vec![generic_error_diagnostic(
-                        format!("{}", error),
-                        Some("cli"),
-                    )],
+                    diagnostics: vec![generic_error_diagnostic(format!("{}", error), Some("cli"))],
                 }],
             };
 
@@ -1685,7 +1691,10 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
 fn emit_json_report(report: &JsonDiagnosticReport, has_errors: bool) -> CliResult<()> {
     let mut stdout = io::stdout();
     serde_json::to_writer(&mut stdout, report).map_err(|error| {
-        CliError::io(format!("Failed to serialize diagnostics to JSON: {}", error))
+        CliError::io(format!(
+            "Failed to serialize diagnostics to JSON: {}",
+            error
+        ))
     })?;
     stdout
         .write_all(b"\n")
@@ -1731,19 +1740,21 @@ fn convert_lint_diagnostic(diagnostic: LintDiagnostic) -> JsonDiagnostic {
 
 fn convert_compiler_error(error: CompilerError) -> JsonDiagnostic {
     match error {
-        CompilerError::Lexical(e) => span_error_to_json("lexical", e.message, e.span, e.context, e.hint),
-        CompilerError::Parse(e) => span_error_to_json("parse", e.message, e.span, e.context, e.hint),
+        CompilerError::Lexical(e) => {
+            span_error_to_json("lexical", e.message, e.span, e.context, e.hint)
+        }
+        CompilerError::Parse(e) => {
+            span_error_to_json("parse", e.message, e.span, e.context, e.hint)
+        }
         CompilerError::Semantic(e) => {
             span_error_to_json("semantic", e.message, e.span, e.context, e.hint)
         }
-        CompilerError::Midend(e) => generic_error_diagnostic(
-            format!("midend error: {}", e.message),
-            Some("midend"),
-        ),
-        CompilerError::Backend(e) => generic_error_diagnostic(
-            format!("backend error: {}", e.message),
-            Some("backend"),
-        ),
+        CompilerError::Midend(e) => {
+            generic_error_diagnostic(format!("midend error: {}", e.message), Some("midend"))
+        }
+        CompilerError::Backend(e) => {
+            generic_error_diagnostic(format!("backend error: {}", e.message), Some("backend"))
+        }
     }
 }
 
@@ -1929,7 +1940,7 @@ fn print_global_help() {
     println!("SpectraLang CLI");
     println!();
     println!("USAGE:");
-    println!("    spectra <COMMAND> [OPTIONS] <paths>...");
+    println!("    spectralang <COMMAND> [OPTIONS] <paths>...");
     println!();
     println!("COMMANDS:");
     println!("    compile    Compile Spectra modules (default)");
@@ -1948,15 +1959,15 @@ fn print_global_help() {
     print_compilation_options(None);
     println!();
     println!("EXAMPLES:");
-    println!("    spectra compile src/main.spectra");
-    println!("    spectra check examples/");
-    println!("    spectra run -O3 app.spectra");
-    println!("    spectra lint src/");
-    println!("    spectra repl --run");
-    println!("    spectra new my-project");
-    println!("    spectra --list-experimental");
-    println!("    spectra fmt src/");
-    println!("    spectra fmt --stdin < file.spectra");
+    println!("    spectralang compile src/main.spectra");
+    println!("    spectralang check examples/");
+    println!("    spectralang run -O3 app.spectra");
+    println!("    spectralang lint src/");
+    println!("    spectralang repl --run");
+    println!("    spectralang new my-project");
+    println!("    spectralang --list-experimental");
+    println!("    spectralang fmt src/");
+    println!("    spectralang fmt --stdin < file.spectra");
     println!();
     print_experimental_features();
     println!();
@@ -1974,7 +1985,7 @@ fn print_build_help(command: BuildCommand) {
     println!("SpectraLang CLI – '{}' command", command.name());
     println!();
     println!("USAGE:");
-    println!("    spectra {} [OPTIONS] <paths>...", command.name());
+    println!("    spectralang {} [OPTIONS] <paths>...", command.name());
     println!();
     println!("{}", command.description());
     println!();
@@ -1983,31 +1994,31 @@ fn print_build_help(command: BuildCommand) {
     println!("Examples:");
     match command {
         BuildCommand::Compile => {
-            println!("    spectra compile src/main.spectra");
-            println!("    spectra compile --dump-ir project/");
+            println!("    spectralang compile src/main.spectra");
+            println!("    spectralang compile --dump-ir project/");
         }
         BuildCommand::Check => {
-            println!("    spectra check src/");
-            println!("    spectra check --dump-ast main.spectra");
+            println!("    spectralang check src/");
+            println!("    spectralang check --dump-ast main.spectra");
         }
         BuildCommand::Run => {
-            println!("    spectra run app.spectra");
-            println!("    spectra run --timings src/main.spectra");
+            println!("    spectralang run app.spectra");
+            println!("    spectralang run --timings src/main.spectra");
         }
         BuildCommand::Lint => {
-            println!("    spectra lint src/");
-            println!("    spectra lint --deny shadowing examples/");
+            println!("    spectralang lint src/");
+            println!("    spectralang lint --deny shadowing examples/");
         }
     }
     println!();
-    println!("Use 'spectra --list-experimental' to see available experimental features.");
+    println!("Use 'spectralang --list-experimental' to see available experimental features.");
 }
 
 fn print_repl_help() {
     println!("SpectraLang CLI – 'repl' command");
     println!();
     println!("USAGE:");
-    println!("    spectra repl [OPTIONS] [paths]...");
+    println!("    spectralang repl [OPTIONS] [paths]...");
     println!();
     println!("Starts an interactive prompt that can compile, check, or run Spectra modules.");
     println!();
@@ -2036,7 +2047,7 @@ fn print_new_help() {
     println!("SpectraLang CLI – 'new' command");
     println!();
     println!("USAGE:");
-    println!("    spectra new [OPTIONS] <path>");
+    println!("    spectralang new [OPTIONS] <path>");
     println!();
     println!("Create a new Spectra project with a starter module and manifest.");
     println!();
@@ -2044,15 +2055,15 @@ fn print_new_help() {
     println!("    -f, --force        Scaffold even if the directory already exists");
     println!();
     println!("Examples:");
-    println!("    spectra new hello-world");
-    println!("    spectra new --force .");
+    println!("    spectralang new hello-world");
+    println!("    spectralang new --force .");
 }
 
 fn print_format_help() {
     println!("SpectraLang CLI – 'fmt' command");
     println!();
     println!("USAGE:");
-    println!("    spectra fmt [OPTIONS] <paths>...");
+    println!("    spectralang fmt [OPTIONS] <paths>...");
     println!();
     println!("Format Spectra source files in-place or verify formatting with --check.");
     println!();
@@ -2066,17 +2077,17 @@ fn print_format_help() {
     println!("    -h, --help          Show this help text");
     println!();
     println!("Examples:");
-    println!("    spectra fmt src/");
-    println!("    spectra fmt --check examples/test.spectra");
-    println!("    spectra fmt --stdin < script.spectra");
-    println!("    spectra fmt --stdout src/main.spectra");
+    println!("    spectralang fmt src/");
+    println!("    spectralang fmt --check examples/test.spectra");
+    println!("    spectralang fmt --stdin < script.spectra");
+    println!("    spectralang fmt --stdout src/main.spectra");
 }
 
 fn print_lint_help() {
     println!("SpectraLang CLI – 'lint' command");
     println!();
     println!("USAGE:");
-    println!("    spectra lint [OPTIONS] <paths>...");
+    println!("    spectralang lint [OPTIONS] <paths>...");
     println!();
     println!("Run Spectra's lint checks across the provided files or directories.");
     println!("Warnings are reported to stdout; denied rules cause the command to fail with exit code 65.");
@@ -2098,8 +2109,8 @@ fn print_lint_help() {
     println!("Available lint rules: {}", lint_rule_list());
     println!();
     println!("Examples:");
-    println!("    spectra lint src/");
-    println!("    spectra lint --deny shadowing examples/");
+    println!("    spectralang lint src/");
+    println!("    spectralang lint --deny shadowing examples/");
 }
 
 fn print_compilation_options(command: Option<BuildCommand>) {
@@ -2148,7 +2159,10 @@ fn print_experimental_features() {
 
 fn usage_error(message: &str) -> CliError {
     let trimmed = message.trim_end();
-    let formatted = format!("{}\nUse 'spectra --help' for usage information.", trimmed);
+    let formatted = format!(
+        "{}\nUse 'spectralang --help' for usage information.",
+        trimmed
+    );
     CliError::usage(formatted)
 }
 

@@ -9,7 +9,7 @@
 #   ./build-deb.sh 0.1.0 /path/to/bin
 #
 # The script expects the following files in <binaries-dir>:
-#   spectra-cli
+#   spectralang
 #   spectra-lsp
 #   spectra-vscode-extension.vsix   (optional — bundled when present)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ set -euo pipefail
 VERSION="${1:?Usage: $0 <version> <binaries-dir>}"
 BIN_DIR="${2:?Usage: $0 <version> <binaries-dir>}"
 ARCH="amd64"
-PACKAGE="spectra"
+PACKAGE="spectralang"
 MAINTAINER="SpectraLang <support@spectralang.dev>"
 DESCRIPTION="SpectraLang compiler, CLI, and language server"
 HOMEPAGE="https://github.com/Estevaobonatto/SpectraLang"
@@ -40,9 +40,9 @@ mkdir -p "${STAGING}/usr/share/spectra"
 mkdir -p "${STAGING}/usr/share/doc/${PACKAGE}"
 
 # ── Copy binaries ─────────────────────────────────────────────────────────────
-cp "${BIN_DIR}/spectra-cli" "${STAGING}/usr/local/bin/spectra-cli"
+cp "${BIN_DIR}/spectralang" "${STAGING}/usr/local/bin/spectralang"
 cp "${BIN_DIR}/spectra-lsp" "${STAGING}/usr/local/bin/spectra-lsp"
-chmod 755 "${STAGING}/usr/local/bin/spectra-cli"
+chmod 755 "${STAGING}/usr/local/bin/spectralang"
 chmod 755 "${STAGING}/usr/local/bin/spectra-lsp"
 
 # ── Copy VSIX (if present) ────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ Description: ${DESCRIPTION}
  SpectraLang is a statically-typed, compiled programming language.
  .
  This package provides:
-  - spectra-cli: the command-line compiler and REPL
+  - spectralang: the command-line compiler and REPL
   - spectra-lsp: the Language Server Protocol daemon for editor integration
 EOF
 

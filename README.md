@@ -41,16 +41,16 @@ cargo build
 ## Run An Example
 
 ```bash
-spectra-cli -- run examples/basic.spectra
+spectralang run examples/basic.spectra
 ```
 
 ## Useful CLI Commands
 
 ```bash
-spectra-cli -- check examples/basic.spectra
-spectra-cli -- lint examples/basic.spectra
-spectra-cli -- compile examples/basic.spectra
-spectra-cli -- format examples/basic.spectra
+spectralang check examples/basic.spectra
+spectralang lint examples/basic.spectra
+spectralang compile examples/basic.spectra
+spectralang fmt examples/basic.spectra
 ```
 
 ## Project Status
