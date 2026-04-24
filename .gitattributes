@@ -1,0 +1,46 @@
+# SpectraLang — Git Line Ending Policy
+# Ensures shell scripts and CI configs always use LF (Unix),
+# and Windows-specific files use CRLF where appropriate.
+
+# Default: normalize all text files to LF in the repository
+* text=auto eol=lf
+
+# Explicitly enforce LF for scripts and configs that run on Linux/macOS
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.toml      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.rs        text eol=lf
+*.spectra   text eol=lf
+*.spc       text eol=lf
+Makefile    text eol=lf
+
+# Windows-specific files: keep CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Inno Setup scripts run only on Windows
+*.iss       text eol=crlf
+
+# Binary files: no line ending conversion
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.exe       binary
+*.obj       binary
+*.o         binary
+*.lib       binary
+*.a         binary
+*.dll       binary
+*.so        binary
+*.dylib     binary
+*.vsix      binary
+*.zip       binary
+*.tar.gz    binary
+*.deb       binary
