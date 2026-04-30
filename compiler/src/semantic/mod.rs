@@ -2414,6 +2414,14 @@ impl SemanticAnalyzer {
 
                 let value_type = self.infer_expression_type(&assign_stmt.value);
 
+                if matches!(value_type, Type::Unknown) && !matches!(target_type, Type::Unknown) {
+                    self.error_with_hint(
+                        "Cannot determine the type of the assigned value",
+                        assign_stmt.value.span,
+                        "Add an explicit type annotation to the expression or variable.",
+                    );
+                }
+
                 if !self.types_match(&value_type, &target_type) {
                     let hint = self.conversion_hint(&value_type, &target_type);
                     self.push_semantic_error_coded(
@@ -3103,17 +3111,26 @@ impl SemanticAnalyzer {
                                 arguments.iter().zip(&signature.params).enumerate()
                             {
                                 let arg_type = self.infer_expression_type(arg);
-                                if arg_type != Type::Unknown
-                                    && *expected_type != Type::Unknown
-                                    && arg_type != *expected_type
+                                if matches!(arg_type, Type::Unknown) {
+                                    self.error_with_hint(
+                                        format!(
+                                            "Argument {} of function '{}' has an unknown or uninferrable type",
+                                            i + 1,
+                                            name,
+                                        ),
+                                        arg.span,
+                                        "Add an explicit type annotation to resolve the argument type.",
+                                    );
+                                } else if *expected_type != Type::Unknown
+                                    && !self.types_match(&arg_type, expected_type)
                                 {
                                     self.error(
                                         format!(
-                                            "Argument {} of function '{}' has type {:?}, expected {:?}",
+                                            "Argument {} of function '{}' has type {}, expected {}",
                                             i + 1,
                                             name,
-                                            arg_type,
-                                            expected_type
+                                            type_name(&arg_type),
+                                            type_name(expected_type)
                                         ),
                                         arg.span,
                                     );
@@ -3988,8 +4005,32 @@ impl SemanticAnalyzer {
                 self.analyze_expression(inner);
                 let from_ty = self.infer_expression_type(inner);
                 let to_ty = self.type_annotation_to_type(&Some(target_type.clone()));
+
+                if matches!(from_ty, Type::Unknown) {
+                    self.error_with_hint(
+                        "Cannot cast an expression with unknown type",
+                        expr.span,
+                        "Add an explicit type annotation before casting.",
+                    );
+                }
+
                 // Validate cast legality
-                let valid = is_cast_valid(&from_ty, &to_ty);
+                let mut valid = is_cast_valid(&from_ty, &to_ty);
+
+                // For dyn Trait casts, verify that the concrete type actually implements the trait.
+                if let (Type::Struct { name: struct_name }, Type::DynTrait { trait_name }) = (&from_ty, &to_ty) {
+                    if !self.trait_impls.contains_key(&(trait_name.clone(), struct_name.clone())) {
+                        valid = false;
+                        self.error(
+                            format!(
+                                "Cannot cast `{}` to `dyn {}`: type `{}` does not implement trait `{}`",
+                                struct_name, trait_name, struct_name, trait_name
+                            ),
+                            expr.span,
+                        );
+                    }
+                }
+
                 if !valid {
                     self.error(
                         format!(
@@ -4441,7 +4482,16 @@ impl SemanticAnalyzer {
                 }
 
                 let actual = self.infer_expression_type(expr);
-                if matches!(actual, Type::Unknown) || matches!(expected, Type::Unknown) {
+                if matches!(actual, Type::Unknown) {
+                    self.error_with_hint(
+                        "Cannot determine return type: the expression has an unknown or uninferrable type",
+                        expr.span,
+                        "Add an explicit type annotation to help the compiler resolve the type.",
+                    );
+                    return;
+                }
+                if matches!(expected, Type::Unknown) {
+                    // The function itself has an unresolvable return type; error already reported elsewhere.
                     return;
                 }
 

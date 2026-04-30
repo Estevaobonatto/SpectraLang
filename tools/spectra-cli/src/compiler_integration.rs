@@ -220,7 +220,15 @@ impl BackendDriver for FullPipelineBackend {
     ) -> Result<Self::Artifacts, Vec<CompilerError>> {
         let mut lowering = ASTLowering::new();
         let lowering_start = Instant::now();
-        let mut ir_module = lowering.lower_module(ast);
+        let mut ir_module = match lowering.lower_module(ast) {
+            Ok(module) => module,
+            Err(errors) => {
+                return Err(errors
+                    .into_iter()
+                    .map(|e| CompilerError::Midend(e))
+                    .collect());
+            }
+        };
         let lowering_duration = lowering_start.elapsed();
 
         let mut pass_reports = Vec::new();
@@ -313,10 +321,9 @@ impl BackendDriver for FullPipelineBackend {
             println!();
         }
 
-        // Reuse the same CodeGenerator across module compilations so that the
-        // Cranelift JIT module and function_map persist, allowing later modules
-        // to reference functions declared by earlier modules.
-        let codegen = self.codegen.get_or_insert_with(CodeGenerator::new);
+        // Start a fresh CodeGenerator for every module so that symbol names
+        // from previously compiled modules cannot clash with the current one.
+        let mut codegen = CodeGenerator::new();
         let codegen_start = Instant::now();
         let codegen_result = codegen.generate_module(&ir_module);
         let codegen_duration = codegen_start.elapsed();
@@ -324,6 +331,7 @@ impl BackendDriver for FullPipelineBackend {
         if let Err(error) = codegen_result {
             return Err(vec![CompilerError::Backend(BackendError::new(error))]);
         }
+        self.codegen = Some(codegen);
 
         Ok(FullPipelineArtifacts {
             ir_module,

@@ -195,6 +195,14 @@ impl IRBuilder {
         }
     }
 
+    pub fn build_unreachable(&self, func: &mut Function) {
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.set_terminator(Terminator::Unreachable);
+            }
+        }
+    }
+
     pub fn build_call(
         &self,
         func: &mut Function,

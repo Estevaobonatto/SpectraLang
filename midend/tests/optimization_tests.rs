@@ -45,6 +45,7 @@ fn test_constant_folding_add() {
             }],
         }],
         globals: vec![],
+        vtables: vec![],
     };
 
     // Apply constant folding
@@ -106,6 +107,7 @@ fn test_constant_folding_mul() {
             }],
         }],
         globals: vec![],
+        vtables: vec![],
     };
 
     let modified = constant_folding::run(&mut module);
@@ -165,6 +167,7 @@ fn test_dead_code_elimination_basic() {
             }],
         }],
         globals: vec![],
+        vtables: vec![],
     };
 
     let initial_count = module.functions[0].blocks[0].instructions.len();
@@ -206,6 +209,7 @@ fn test_dead_code_elimination_preserves_used() {
             }],
         }],
         globals: vec![],
+        vtables: vec![],
     };
 
     let initial_count = module.functions[0].blocks[0].instructions.len();
@@ -261,6 +265,7 @@ fn test_combined_optimizations() {
             }],
         }],
         globals: vec![],
+        vtables: vec![],
     };
 
     // First pass: constant folding
@@ -310,6 +315,7 @@ fn test_no_optimization_when_not_applicable() {
             }],
         }],
         globals: vec![],
+        vtables: vec![],
     };
 
     let cf_modified = constant_folding::run(&mut module);

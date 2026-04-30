@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "spectra-cli"
-version = "0.1.10"
+version = "0.1.12"
 dependencies = [
  "diff",
  "serde",

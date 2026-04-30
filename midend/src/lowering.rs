@@ -12,6 +12,7 @@ use spectra_compiler::ast::{
     UnaryOperator, Visibility, WhileLetStatement,
 };
 use spectra_compiler::span::Span;
+use spectra_compiler::error::MidendError;
 use std::collections::HashMap;
 
 /// Stack-based scope system for variable shadowing support
@@ -320,6 +321,8 @@ pub struct ASTLowering {
     current_function_return_annotation: Option<TypeAnnotation>,
     /// Maps trait names to their methods in declaration order (for vtable slot lookup).
     trait_method_order: HashMap<String, Vec<String>>,
+    /// Accumulated lowering errors that replace previous panics.
+    errors: Vec<MidendError>,
 }
 
 impl ASTLowering {
@@ -350,6 +353,7 @@ impl ASTLowering {
             closure_var_map: HashMap::new(),
             current_function_return_annotation: None,
             trait_method_order: HashMap::new(),
+            errors: Vec::new(),
         };
         lowering.register_builtin_generic_enums();
         lowering
@@ -420,7 +424,11 @@ impl ASTLowering {
         self.generic_enums.insert("Result".to_string(), result_enum);
     }
 
-    pub fn lower_module(&mut self, ast_module: &ASTModule) -> IRModule {
+    fn error(&mut self, message: impl Into<String>) {
+        self.errors.push(MidendError::new(message));
+    }
+
+    pub fn lower_module(&mut self, ast_module: &ASTModule) -> Result<IRModule, Vec<MidendError>> {
         let mut ir_module = IRModule::new(&ast_module.name);
 
         // Populate stdlib alias map for unqualified call resolution.
@@ -573,7 +581,11 @@ impl ASTLowering {
             ir_module.add_function(lambda_func);
         }
 
-        ir_module
+        if self.errors.is_empty() {
+            Ok(ir_module)
+        } else {
+            Err(std::mem::take(&mut self.errors))
+        }
     }
 
     /// Process all pending monomorphization requests
@@ -647,14 +659,14 @@ impl ASTLowering {
                 for bound in &type_param.bounds {
                     if !self.type_satisfies_trait(concrete_type, bound) {
                         let type_name = self.ir_type_to_ast_name(concrete_type);
-                        panic!(
-                            "Trait bound violation: Type '{}' does not implement trait '{}' required by type parameter '{}'.\n\
-                             Function '{}' requires {} to have trait {}.\n\
-                             Specialization: {} -> {}",
+                        self.error(format!(
+                            "Trait bound violation: Type '{}' does not implement trait '{}' required by type parameter '{}'. \
+                             Function '{}' requires {} to have trait {}. \
+                             Specialization: {}",
                             type_name, bound, type_param.name,
                             generic_func.name, type_param.name, bound,
-                            generic_func.name, request.mangled_name()
-                        );
+                            request.mangled_name()
+                        ));
                     }
                 }
             }
@@ -871,10 +883,11 @@ impl ASTLowering {
                 return self.ensure_struct_definition(base_name, &fallback_args);
             }
 
-            panic!(
-                "Struct '{}' não foi registrada antes do lowering; verifique a etapa semântica",
+            self.error(format!(
+                "Struct '{}' was not registered before lowering; check the semantic phase",
                 base_name
-            );
+            ));
+            return (base_name.to_string(), Vec::new());
         }
 
         let type_names: Vec<String> = type_args
@@ -884,25 +897,24 @@ impl ASTLowering {
         let mangled = format!("{}_{}", base_name, type_names.join("_"));
 
         if !self.struct_definitions.contains_key(&mangled) {
-            let generic_struct =
-                self.generic_structs
-                    .get(base_name)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        panic!(
-                    "Struct genérica '{}' não encontrada para especialização com argumentos {:?}",
+            if let Some(generic_struct) = self.generic_structs.get(base_name).cloned() {
+                self.specialize_struct(&generic_struct, type_args, &mangled);
+            } else {
+                self.error(format!(
+                    "Generic struct '{}' not found for specialization with arguments {:?}",
                     base_name, type_names
-                )
-                    });
-
-            self.specialize_struct(&generic_struct, type_args, &mangled);
+                ));
+            }
         }
 
         let fields = self
             .struct_definitions
             .get(&mangled)
             .cloned()
-            .unwrap_or_else(|| panic!("Struct '{}' não registrada após especialização", mangled));
+            .unwrap_or_else(|| {
+                self.error(format!("Struct '{}' not registered after specialization", mangled));
+                Vec::new()
+            });
 
         (mangled, fields)
     }
@@ -926,10 +938,11 @@ impl ASTLowering {
                 return self.ensure_enum_definition(base_name, &fallback_args);
             }
 
-            panic!(
-                "Enum '{}' não foi registrado antes do lowering; verifique a etapa semântica",
+            self.error(format!(
+                "Enum '{}' was not registered before lowering; check the semantic phase",
                 base_name
-            );
+            ));
+            return (base_name.to_string(), Vec::new());
         }
 
         let type_names: Vec<String> = type_args
@@ -939,25 +952,24 @@ impl ASTLowering {
         let mangled = format!("{}_{}", base_name, type_names.join("_"));
 
         if !self.enum_definitions.contains_key(&mangled) {
-            let generic_enum = self
-                .generic_enums
-                .get(base_name)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Enum genérico '{}' não encontrado para especialização com argumentos {:?}",
-                        base_name, type_names
-                    )
-                });
-
-            self.specialize_enum(&generic_enum, type_args, &mangled);
+            if let Some(generic_enum) = self.generic_enums.get(base_name).cloned() {
+                self.specialize_enum(&generic_enum, type_args, &mangled);
+            } else {
+                self.error(format!(
+                    "Generic enum '{}' not found for specialization with arguments {:?}",
+                    base_name, type_names
+                ));
+            }
         }
 
         let variants = self
             .enum_definitions
             .get(&mangled)
             .cloned()
-            .unwrap_or_else(|| panic!("Enum '{}' não registrado após especialização", mangled));
+            .unwrap_or_else(|| {
+                self.error(format!("Enum '{}' not registered after specialization", mangled));
+                Vec::new()
+            });
 
         (mangled, variants)
     }
@@ -2521,10 +2533,13 @@ impl ASTLowering {
 
                 let (element_type, length) = match iterable_type {
                     IRType::Array { element_type, size } => (*element_type, size),
-                    other => panic!(
-                        "for-loop lowering currently supports arrays only, found {:?}",
-                        other
-                    ),
+                    other => {
+                        self.error(format!(
+                            "for-loop lowering currently supports arrays only, found {:?}",
+                            other
+                        ));
+                        (IRType::Int, 0)
+                    }
                 };
 
                 let header_block = ir_func.add_block("for.header");
@@ -2647,10 +2662,11 @@ impl ASTLowering {
                     let pattern_int = self
                         .evaluate_int_constant(&case.pattern)
                         .unwrap_or_else(|| {
-                            panic!(
+                            self.error(format!(
                                 "Switch case pattern must be a constant integer expression, found {:?}",
                                 case.pattern.kind
-                            )
+                            ));
+                            0
                         });
                     cases.push((pattern_int, case_block));
                 }
@@ -3317,6 +3333,10 @@ impl ASTLowering {
                         ir_func.next_value()
                     }
                 } else {
+                    // Merge block is unreachable (all branches return/tail-call);
+                    // seal it with Unreachable so the IR verifier is happy.
+                    self.builder.set_current_block(merge_bb);
+                    self.builder.build_unreachable(ir_func);
                     ir_func.next_value()
                 }
             }
@@ -3417,7 +3437,9 @@ impl ASTLowering {
                         ir_func.next_value()
                     }
                 } else {
-                    // Both branches have terminators (returns), no merge needed
+                    // Both branches have terminators (returns), merge block is unreachable.
+                    self.builder.set_current_block(unless_merge_bb);
+                    self.builder.build_unreachable(ir_func);
                     ir_func.next_value()
                 }
             }
@@ -3570,10 +3592,11 @@ impl ASTLowering {
                         .find(|(_, (fname, _))| fname == field_name)
                         .map(|(idx, (_, ty))| (idx, ty.clone()))
                         .unwrap_or_else(|| {
-                            panic!(
-                                "Campo '{}' não encontrado na definição de struct '{}'",
+                            self.error(format!(
+                                "Field '{}' not found in struct '{}' definition",
                                 field_name, actual_name
-                            );
+                            ));
+                            (0, IRType::Int)
                         });
 
                     let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
@@ -3995,10 +4018,13 @@ impl ASTLowering {
                     match self.infer_expr_ir_type(object) {
                         IRType::Struct { name, .. } => name,
                         IRType::Enum { name, .. } => name,
-                        other => panic!(
-                            "Não foi possível determinar o tipo do objeto para chamada de método '{method_name}' (tipo inferido: {:?})",
-                            other
-                        ),
+                        other => {
+                            self.error(format!(
+                                "Could not determine object type for method call '{method_name}' (inferred type: {:?})",
+                                other
+                            ));
+                            String::new()
+                        }
                     }
                 };
 
@@ -4699,12 +4725,13 @@ impl ASTLowering {
         let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
 
         if generic.type_params.len() != type_args.len() {
-            panic!(
+            self.error(format!(
                 "Type argument count mismatch for struct '{}': expected {}, got {}",
                 generic.name,
                 generic.type_params.len(),
                 type_args.len()
-            );
+            ));
+            return;
         }
 
         for (param, arg) in generic.type_params.iter().zip(type_args.iter()) {
@@ -4743,12 +4770,13 @@ impl ASTLowering {
         let mut type_map: HashMap<String, TypeAnnotation> = HashMap::new();
 
         if generic.type_params.len() != type_args.len() {
-            panic!(
+            self.error(format!(
                 "Type argument count mismatch for enum '{}': expected {}, got {}",
                 generic.name,
                 generic.type_params.len(),
                 type_args.len()
-            );
+            ));
+            return;
         }
 
         for (param, arg) in generic.type_params.iter().zip(type_args.iter()) {
