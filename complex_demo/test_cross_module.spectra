@@ -1,0 +1,22 @@
+module test_cross_module;
+
+import test_utils;
+import std.io;
+
+pub fn main() -> int {
+    // Cross-module function call
+    let p = test_utils::make_point(3, 4);
+
+    // Cross-module enum variant construction
+    let ok_val = test_utils::Status::Ok(42);
+    let err_val = test_utils::Status::Err("oops");
+
+    // Cross-module function consuming cross-module enum
+    let a = test_utils::status_value(ok_val);
+    let b = test_utils::status_value(err_val);
+
+    let result = a + b;
+    println(result);
+    return result;
+
+}

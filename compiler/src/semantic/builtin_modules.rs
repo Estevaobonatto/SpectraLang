@@ -161,6 +161,8 @@ fn make_std_collections() -> ModuleExports {
         members: vec!["new".to_string(), "push".to_string(), "len".to_string()],
         visibility: ExportVisibility::Public,
         is_enum: false,
+        struct_fields: None,
+        enum_variants: None,
     });
 
     exports

@@ -1,0 +1,22 @@
+module test_utils;
+
+pub enum Status {
+    Ok(int),
+    Err(string),
+}
+
+pub struct Point {
+    x: int,
+    y: int,
+}
+
+pub fn make_point(x: int, y: int) -> Point {
+    return Point { x: x, y: y };
+}
+
+pub fn status_value(s: Status) -> int {
+    match s {
+        Status::Ok(v) => { return v; }
+        Status::Err(_) => { return 0 - 1; }
+    }
+}

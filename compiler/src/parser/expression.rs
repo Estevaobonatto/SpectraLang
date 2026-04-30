@@ -448,7 +448,10 @@ impl Parser {
                     Vec::new()
                 };
 
-                // Check if it's an enum variant: Name::Variant or Name::Variant(data)
+                // Check if it's an enum variant or qualified path:
+                //   Name::Variant
+                //   module::Item
+                //   module::Enum::Variant
                 if self.check_symbol(':')
                     && self.position + 1 < self.tokens.len()
                     && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
@@ -456,10 +459,33 @@ impl Parser {
                     self.advance(); // consume first ':'
                     self.advance(); // consume second ':'
 
-                    let (variant_name, _) =
-                        self.consume_identifier("Expected variant name after '::")?;
+                    let mut segments = vec![name.clone()];
+                    loop {
+                        let (seg, _) = self.consume_identifier("Expected name after '::")?;
+                        segments.push(seg);
+                        if self.check_symbol(':')
+                            && self.position + 1 < self.tokens.len()
+                            && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
+                        {
+                            self.advance();
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
 
-                    // Check for tuple variant data
+                    // segments.len() >= 2
+                    let (module_path, enum_name, variant_name) = match segments.len() {
+                        2 => (None, segments[0].clone(), segments[1].clone()),
+                        _ => {
+                            let mp = segments[..segments.len() - 2].join("::");
+                            let en = segments[segments.len() - 2].clone();
+                            let vn = segments[segments.len() - 1].clone();
+                            (Some(mp), en, vn)
+                        }
+                    };
+
+                    // Check for tuple variant data / function args
                     let data = if self.check_symbol('(') {
                         self.advance(); // consume '('
 
@@ -506,7 +532,8 @@ impl Parser {
                     return Ok(Expression {
                         span: crate::span::span_union(start_span, self.current().span),
                         kind: ExpressionKind::EnumVariant {
-                            enum_name: name,
+                            module_path,
+                            enum_name,
                             type_args,
                             variant_name,
                             data,
@@ -969,7 +996,7 @@ impl Parser {
                 Vec::new()
             };
 
-            // Check for ::
+            // Check for :: (enum variant or qualified path)
             if self.check_symbol(':')
                 && self.position + 1 < self.tokens.len()
                 && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
@@ -977,7 +1004,30 @@ impl Parser {
                 self.advance(); // consume first ':'
                 self.advance(); // consume second ':'
 
-                let (variant_name, _) = self.consume_identifier("Expected variant name")?;
+                let mut segments = vec![first_name.clone()];
+                loop {
+                    let (seg, _) = self.consume_identifier("Expected name after '::")?;
+                    segments.push(seg);
+                    if self.check_symbol(':')
+                        && self.position + 1 < self.tokens.len()
+                        && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
+                    {
+                        self.advance();
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                let (module_path, enum_name, variant_name) = match segments.len() {
+                    2 => (None, segments[0].clone(), segments[1].clone()),
+                    _ => {
+                        let mp = segments[..segments.len() - 2].join("::");
+                        let en = segments[segments.len() - 2].clone();
+                        let vn = segments[segments.len() - 1].clone();
+                        (Some(mp), en, vn)
+                    }
+                };
 
                 // Check for data patterns: (pattern, pattern, ...)
                 let data = if self.check_symbol('(') {
@@ -1027,7 +1077,8 @@ impl Parser {
                 };
 
                 return Ok(Pattern::EnumVariant {
-                    enum_name: first_name,
+                    module_path,
+                    enum_name,
                     type_args,
                     variant_name,
                     data,

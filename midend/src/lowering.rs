@@ -447,6 +447,77 @@ impl ASTLowering {
             self.function_return_types.entry(name.clone()).or_insert(ir_ty);
         }
 
+        // Pre-register enum/struct definitions from imported user modules so
+        // that cross-module type references resolve before the local first pass.
+        for enum_def in &ast_module.imported_enum_defs {
+            if self.enum_definitions.contains_key(&enum_def.name) {
+                continue; // already registered (e.g. by a previous compilation unit)
+            }
+            if !enum_def.type_params.is_empty() {
+                self.generic_enums
+                    .entry(enum_def.name.clone())
+                    .or_insert_with(|| enum_def.clone());
+            } else {
+                let mut field_names = HashMap::new();
+                let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
+                    .variants
+                    .iter()
+                    .enumerate()
+                    .map(|(tag, variant)| {
+                        let data_types = if let Some(types) = variant.data.as_ref() {
+                            Some(
+                                types
+                                    .iter()
+                                    .map(|ty| self.lower_type_annotation(ty))
+                                    .collect(),
+                            )
+                        } else if let Some(fields) = variant.struct_data.as_ref() {
+                            field_names.insert(
+                                variant.name.clone(),
+                                fields.iter().map(|(name, _)| name.clone()).collect(),
+                            );
+                            Some(
+                                fields
+                                    .iter()
+                                    .map(|(_, ty)| self.lower_type_annotation(ty))
+                                    .collect(),
+                            )
+                        } else {
+                            None
+                        };
+                        (variant.name.clone(), tag, data_types)
+                    })
+                    .collect();
+                self.enum_definitions
+                    .insert(enum_def.name.clone(), variants);
+                if !field_names.is_empty() {
+                    self.enum_variant_field_names
+                        .insert(enum_def.name.clone(), field_names);
+                }
+            }
+        }
+        for struct_def in &ast_module.imported_struct_defs {
+            if self.struct_definitions.contains_key(&struct_def.name) {
+                continue;
+            }
+            if !struct_def.type_params.is_empty() {
+                self.generic_structs
+                    .entry(struct_def.name.clone())
+                    .or_insert_with(|| struct_def.clone());
+            } else {
+                let fields: Vec<(String, IRType)> = struct_def
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        let field_type = self.lower_type_annotation(&field.ty);
+                        (field.name.clone(), field_type)
+                    })
+                    .collect();
+                self.struct_definitions
+                    .insert(struct_def.name.clone(), fields);
+            }
+        }
+
         // First pass: collect struct and enum definitions, and trait implementations
         for item in &ast_module.items {
             if let Item::Struct(struct_def) = item {
@@ -1491,6 +1562,7 @@ impl ASTLowering {
                 }
             }
             ExpressionKind::EnumVariant {
+                module_path: _,
                 enum_name,
                 type_args,
                 variant_name,
@@ -3853,6 +3925,7 @@ impl ASTLowering {
                 ir_func.next_value()
             }
             ExpressionKind::EnumVariant {
+                module_path: _,
                 enum_name,
                 type_args,
                 variant_name,
@@ -3879,6 +3952,48 @@ impl ASTLowering {
                         .builder
                         .build_call(ir_func, function_name, call_args, true)
                         .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                }
+
+                // Handle qualified-path function calls: module::function(args)
+                // The parser can't distinguish these from EnumVariant, so we detect
+                // them here when enum_name is not a known local type.
+                let is_known_type = self.enum_definitions.contains_key(enum_name.as_str())
+                    || self.generic_enums.contains_key(enum_name.as_str());
+                let looks_like_call = data.is_some() || struct_data.is_some();
+                if !is_known_type && looks_like_call {
+                    let callee = variant_name.clone();
+                    if self.function_return_types.contains_key(&callee)
+                        || self.generic_functions.contains_key(&callee)
+                    {
+                        let mut call_args: Vec<Value> = Vec::new();
+                        if let Some(data_exprs) = data {
+                            for arg in data_exprs.iter() {
+                                call_args.push(self.lower_expression(arg, ir_func));
+                            }
+                        } else if let Some(named_fields) = struct_data {
+                            for (_, val_expr) in named_fields.iter() {
+                                call_args.push(self.lower_expression(val_expr, ir_func));
+                            }
+                        }
+                        let final_name = if self.generic_functions.contains_key(&callee) {
+                            let concrete_types = self.infer_argument_types(data.as_deref().unwrap_or(&[]));
+                            let request = MonomorphizationRequest {
+                                generic_name: callee.clone(),
+                                concrete_types,
+                            };
+                            let mangled = request.mangled_name();
+                            if !self.generated_specializations.contains_key(&mangled) {
+                                self.pending_specializations.push(request);
+                            }
+                            mangled
+                        } else {
+                            callee
+                        };
+                        return self
+                            .builder
+                            .build_call(ir_func, final_name, call_args, true)
+                            .unwrap_or_else(|| ir_func.next_value());
+                    }
                 }
 
                 let needs_refinement = type_args.is_empty()

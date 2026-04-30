@@ -55,6 +55,14 @@ pub struct Module {
     /// can pre-register the return types and generate correct cross-module calls.
     /// e.g. ("square", Type::Int) when `import mathutils;` brings in `square`.
     pub imported_function_return_types: Vec<(String, Type)>,
+    /// Enum AST definitions from imported user modules.
+    /// Populated by the semantic analyser so the midend can register
+    /// cross-module enum layouts before lowering.
+    pub imported_enum_defs: Vec<Enum>,
+    /// Struct AST definitions from imported user modules.
+    /// Populated by the semantic analyser so the midend can register
+    /// cross-module struct layouts before lowering.
+    pub imported_struct_defs: Vec<Struct>,
 }
 
 impl Module {
@@ -65,6 +73,8 @@ impl Module {
             items: Vec::new(),
             std_import_aliases: Vec::new(),
             imported_function_return_types: Vec::new(),
+            imported_enum_defs: Vec::new(),
+            imported_struct_defs: Vec::new(),
         }
     }
 }
@@ -372,8 +382,9 @@ pub enum ExpressionKind {
         field: String,
     },
 
-    // Enums
+    // Enums / qualified paths
     EnumVariant {
+        module_path: Option<String>, // Some("math_utils") for math_utils::distance(...)
         enum_name: String,
         type_args: Vec<TypeAnnotation>, // Generic type arguments: Option<int>
         variant_name: String,
@@ -429,6 +440,7 @@ pub enum Pattern {
 
     // Enum variant patterns: Option::Some(x), Color::Red
     EnumVariant {
+        module_path: Option<String>, // Some("math_utils") for math_utils::distance(...)
         enum_name: String,
         type_args: Vec<TypeAnnotation>, // Generic type arguments: Option<int>
         variant_name: String,

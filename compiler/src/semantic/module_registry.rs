@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::Type;
+use crate::ast::{Type, TypeAnnotation};
 
 /// How visible an exported symbol is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +31,10 @@ pub struct ExportedType {
     pub visibility: ExportVisibility,
     /// True if it's an enum, false if struct.
     pub is_enum: bool,
+    /// For structs: field name -> type annotation.
+    pub struct_fields: Option<HashMap<String, TypeAnnotation>>,
+    /// For enums: variant name -> payload types (None for unit, Some for tuple).
+    pub enum_variants: Option<HashMap<String, Option<Vec<TypeAnnotation>>>>,
 }
 
 /// All public symbols exported by a single module.

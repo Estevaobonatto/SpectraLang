@@ -235,6 +235,9 @@ pub struct SemanticAnalyzer {
     // Module namespace prefixes registered via imports (e.g. "std", "std.string")
     // so that qualified stdlib calls like `std.string.len(x)` are accepted.
     module_namespaces: HashSet<String>,
+    // Functions discovered via qualified paths (module::fn) during expression analysis.
+    // Flushed to module.imported_function_return_types at the end of analyze_module.
+    qualified_fn_types: Vec<(String, crate::ast::Type)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +334,7 @@ impl SemanticAnalyzer {
             current_package: package_name,
             symbol_resolutions: HashMap::new(),
             module_namespaces: HashSet::new(),
+            qualified_fn_types: Vec::new(),
         };
         analyzer.register_builtin_generic_types();
         analyzer
@@ -474,9 +478,20 @@ impl SemanticAnalyzer {
                         ExportVisibility::Internal
                     };
                     let members = s.fields.iter().map(|f| f.name.clone()).collect();
+                    let struct_fields: HashMap<String, crate::ast::TypeAnnotation> = s
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.clone(), f.ty.clone()))
+                        .collect();
                     exports.types.insert(
                         s.name.clone(),
-                        ExportedType { members, visibility: vis, is_enum: false },
+                        ExportedType {
+                            members,
+                            visibility: vis,
+                            is_enum: false,
+                            struct_fields: Some(struct_fields),
+                            enum_variants: None,
+                        },
                     );
                 }
                 Item::Enum(e)
@@ -489,9 +504,27 @@ impl SemanticAnalyzer {
                         ExportVisibility::Internal
                     };
                     let members = e.variants.iter().map(|v| v.name.clone()).collect();
+                    let enum_variants: HashMap<String, Option<Vec<crate::ast::TypeAnnotation>>> = e
+                        .variants
+                        .iter()
+                        .map(|v| {
+                            let payload = v.data.clone().or_else(|| {
+                                v.struct_data.as_ref().map(|fields| {
+                                    fields.iter().map(|(_, ty)| ty.clone()).collect()
+                                })
+                            });
+                            (v.name.clone(), payload)
+                        })
+                        .collect();
                     exports.types.insert(
                         e.name.clone(),
-                        ExportedType { members, visibility: vis, is_enum: true },
+                        ExportedType {
+                            members,
+                            visibility: vis,
+                            is_enum: true,
+                            struct_fields: None,
+                            enum_variants: Some(enum_variants),
+                        },
                     );
                 }
                 _ => {}
@@ -1277,12 +1310,16 @@ impl SemanticAnalyzer {
 
         let mut new_aliases: Vec<(String, Vec<String>)> = Vec::new();
         let mut new_user_fn_types: Vec<(String, crate::ast::Type)> = Vec::new();
+        let mut new_enum_defs: Vec<crate::ast::Enum> = Vec::new();
+        let mut new_struct_defs: Vec<crate::ast::Struct> = Vec::new();
         for import in &imports {
-            let aliases = self.analyze_import(import, &mut new_user_fn_types);
+            let aliases = self.analyze_import(import, &mut new_user_fn_types, &mut new_enum_defs, &mut new_struct_defs);
             new_aliases.extend(aliases);
         }
         module.std_import_aliases.extend(new_aliases);
         module.imported_function_return_types.extend(new_user_fn_types);
+        module.imported_enum_defs.extend(new_enum_defs);
+        module.imported_struct_defs.extend(new_struct_defs);
 
         // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
@@ -1482,6 +1519,10 @@ impl SemanticAnalyzer {
             self.fill_method_call_types_in_item(item);
         }
 
+        // Flush qualified-path function discoveries so the midend knows
+        // about cross-module calls that weren't brought in via `import`.
+        module.imported_function_return_types.extend(self.qualified_fn_types.drain(..));
+
         // Return collected errors
         std::mem::take(&mut self.errors)
     }
@@ -1531,6 +1572,8 @@ impl SemanticAnalyzer {
         &mut self,
         import: &crate::ast::Import,
         user_fn_types: &mut Vec<(String, crate::ast::Type)>,
+        user_enum_defs: &mut Vec<crate::ast::Enum>,
+        user_struct_defs: &mut Vec<crate::ast::Struct>,
     ) -> Vec<(String, Vec<String>)> {
         let module_path = import.path.join(".");
         let mut aliases: Vec<(String, Vec<String>)> = Vec::new();
@@ -1764,6 +1807,76 @@ impl SemanticAnalyzer {
                         type_params: Vec::new(),
                         fields: field_map,
                     });
+                }
+            }
+        }
+
+        // For user (non-stdlib) modules: reconstruct AST enum/struct definitions
+        // so the midend can register their layouts before lowering.
+        if stdlib_path_prefix.is_none() {
+            let dummy_span = import.span;
+            for (type_name, type_export) in &exports.types {
+                if type_export.visibility == ExportVisibility::Public
+                    || type_export.visibility == ExportVisibility::Internal
+                {
+                    let vis = if type_export.visibility == ExportVisibility::Public {
+                        crate::ast::Visibility::Public
+                    } else {
+                        crate::ast::Visibility::Internal
+                    };
+                    if type_export.is_enum {
+                        // Reconstruct ast::Enum using `members` for stable variant order.
+                        let variants: Vec<crate::ast::EnumVariant> = type_export
+                            .members
+                            .iter()
+                            .map(|vname| {
+                                let data = type_export
+                                    .enum_variants
+                                    .as_ref()
+                                    .and_then(|m| m.get(vname))
+                                    .and_then(|p| p.clone());
+                                crate::ast::EnumVariant {
+                                    name: vname.clone(),
+                                    span: dummy_span,
+                                    data,
+                                    struct_data: None,
+                                }
+                            })
+                            .collect();
+                        user_enum_defs.push(crate::ast::Enum {
+                            name: type_name.clone(),
+                            span: dummy_span,
+                            visibility: vis,
+                            variants,
+                            type_params: Vec::new(),
+                        });
+                    } else {
+                        // Reconstruct ast::Struct from struct_fields.
+                        let fields: Vec<crate::ast::StructField> = type_export
+                            .members
+                            .iter()
+                            .filter_map(|fname| {
+                                let ty = type_export
+                                    .struct_fields
+                                    .as_ref()
+                                    .and_then(|m| m.get(fname))
+                                    .cloned()?;
+                                Some(crate::ast::StructField {
+                                    name: fname.clone(),
+                                    span: dummy_span,
+                                    ty,
+                                    visibility: crate::ast::Visibility::Public,
+                                })
+                            })
+                            .collect();
+                        user_struct_defs.push(crate::ast::Struct {
+                            name: type_name.clone(),
+                            span: dummy_span,
+                            visibility: vis,
+                            fields,
+                            type_params: Vec::new(),
+                        });
+                    }
                 }
             }
         }
@@ -2361,17 +2474,18 @@ impl SemanticAnalyzer {
     fn analyze_statement(&mut self, statement: &Statement) {
         match &statement.kind {
             StatementKind::Let(let_stmt) => {
+                // Check if value expression is valid (if present) BEFORE inferring
+                // its type so that qualified-path resolutions are already recorded.
+                if let Some(ref value) = let_stmt.value {
+                    self.analyze_expression(value);
+                }
+
                 // Infer type from value expression or annotation
                 let inferred_type = if let Some(ref value) = let_stmt.value {
                     self.infer_expression_type(value)
                 } else {
                     self.type_annotation_to_type_checked(&let_stmt.ty)
                 };
-
-                // Check if value expression is valid (if present)
-                if let Some(ref value) = let_stmt.value {
-                    self.analyze_expression(value);
-                }
 
                 // Declare the variable with its type
                 if !self.declare_symbol(let_stmt.name.clone(), let_stmt.span, inferred_type) {
@@ -2822,7 +2936,12 @@ impl SemanticAnalyzer {
                         .map(|sig| sig.return_type.clone())
                         .unwrap_or(Type::Struct { name: enum_name.clone() })
                 } else {
-                    Type::Unknown
+                    // Fallback: the semantic pass may have resolved this as a
+                    // cross-module function call and recorded the type.
+                    self.symbol_resolutions
+                        .get(&expr.span)
+                        .map(|info| info.ty.clone())
+                        .unwrap_or(Type::Unknown)
                 }
             }
             ExpressionKind::Match { scrutinee: _, arms } => {
@@ -3542,6 +3661,7 @@ impl SemanticAnalyzer {
                 });
             }
             ExpressionKind::EnumVariant {
+                module_path,
                 enum_name,
                 type_args,
                 variant_name,
@@ -3549,6 +3669,229 @@ impl SemanticAnalyzer {
                 struct_data,
                 ..
             } => {
+                // ------------------------------------------------------------------
+                // Qualified path resolution: module::item or module::Enum::Variant
+                // ------------------------------------------------------------------
+                let is_qualified = module_path.is_some()
+                    || self.module_namespaces.contains(enum_name.as_str());
+
+                if is_qualified {
+                    let module_name = module_path
+                        .clone()
+                        .unwrap_or_else(|| enum_name.clone());
+                    let item_name = if module_path.is_some() {
+                        enum_name.clone()
+                    } else {
+                        variant_name.clone()
+                    };
+                    let inner_variant = if module_path.is_some() {
+                        variant_name.clone()
+                    } else {
+                        String::new()
+                    };
+
+                    let exports_cloned: Option<ModuleExports> = self
+                        .registry
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .get_module(&module_name)
+                        .cloned();
+
+                    if let Some(exports) = exports_cloned {
+                        // Cross-module function: module::function(args)
+                        if let Some(func) = exports.functions.get(&item_name) {
+                            if let Some(args) = data {
+                                for arg in args {
+                                    self.analyze_expression(arg);
+                                }
+                                if args.len() != func.params.len() {
+                                    self.error(
+                                        format!(
+                                            "Function '{}' from module '{}' expects {} argument(s), got {}",
+                                            item_name, module_name, func.params.len(), args.len()
+                                        ),
+                                        expr.span,
+                                    );
+                                } else {
+                                    for (idx, (arg, expected)) in args.iter().zip(func.params.iter()).enumerate() {
+                                        let arg_ty = self.infer_expression_type(arg);
+                                        if arg_ty != *expected && arg_ty != Type::Unknown && *expected != Type::Unknown {
+                                            self.error(
+                                                format!(
+                                                    "Argument {} of '{}' expects {}, found {}",
+                                                    idx + 1, item_name, type_name(expected), type_name(&arg_ty)
+                                                ),
+                                                arg.span,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            self.symbol_resolutions.insert(
+                                expr.span,
+                                SymbolInfo {
+                                    is_local: false,
+                                    def_span: None,
+                                    ty: func.return_type.clone(),
+                                },
+                            );
+                            // Make the function available for later direct calls
+                            self.functions.entry(item_name.clone()).or_insert_with(|| FunctionSignature {
+                                params: func.params.clone(),
+                                return_type: func.return_type.clone(),
+                                self_kind: None,
+                            });
+                            // Register for the midend so lowering knows the return type.
+                            self.qualified_fn_types.push((item_name.clone(), func.return_type.clone()));
+                            return;
+                        }
+
+                        // Cross-module type: struct or enum
+                        if let Some(type_export) = exports.types.get(&item_name) {
+                            if type_export.is_enum {
+                                // Validate as local enum variant
+                                if let Some(ref variants) = type_export.enum_variants {
+                                    if !variants.contains_key(&inner_variant) {
+                                        self.error(
+                                            format!(
+                                                "Enum '{}' from module '{}' has no variant '{}'",
+                                                item_name, module_name, inner_variant
+                                            ),
+                                            expr.span,
+                                        );
+                                        return;
+                                    }
+                                    let expected_payload = variants.get(&inner_variant).cloned().flatten();
+                                    if let Some(args) = data {
+                                        if let Some(ref expected_types) = expected_payload {
+                                            if args.len() != expected_types.len() {
+                                                self.error(
+                                                    format!(
+                                                        "Variant '{}' expects {} argument(s), got {}",
+                                                        inner_variant, expected_types.len(), args.len()
+                                                    ),
+                                                    expr.span,
+                                                );
+                                            }
+                                            for (idx, (arg, expected_ty_ann)) in args.iter().zip(expected_types.iter()).enumerate() {
+                                                self.analyze_expression(arg);
+                                                let expected_ty = self.type_annotation_to_type(&Some(expected_ty_ann.clone()));
+                                                let arg_ty = self.infer_expression_type(arg);
+                                                if arg_ty != expected_ty && arg_ty != Type::Unknown && expected_ty != Type::Unknown {
+                                                    self.error(
+                                                        format!(
+                                                            "Argument {} of variant '{}' expects {}, found {}",
+                                                            idx + 1, inner_variant, type_name(&expected_ty), type_name(&arg_ty)
+                                                        ),
+                                                        arg.span,
+                                                    );
+                                                }
+                                            }
+                                        } else {
+                                            self.error(
+                                                format!(
+                                                    "Variant '{}' does not accept arguments",
+                                                    inner_variant
+                                                ),
+                                                expr.span,
+                                            );
+                                        }
+                                    }
+                                    if let Some(ref _fields) = struct_data {
+                                        self.error(
+                                            format!(
+                                                "Enum variant '{}' does not support struct-style fields",
+                                                inner_variant
+                                            ),
+                                            expr.span,
+                                        );
+                                    }
+                                }
+                                self.symbol_resolutions.insert(
+                                    expr.span,
+                                    SymbolInfo {
+                                        is_local: false,
+                                        def_span: None,
+                                        ty: Type::Enum { name: item_name.clone() },
+                                    },
+                                );
+                                return;
+                            } else {
+                                // Struct literal: module::Struct { fields }
+                                if let Some(ref fields) = struct_data {
+                                    if let Some(ref field_types) = type_export.struct_fields {
+                                        for (field_name, field_value) in fields.iter() {
+                                            self.analyze_expression(field_value);
+                                            if let Some(expected_ty_ann) = field_types.get(field_name) {
+                                                let expected_ty = self.type_annotation_to_type(&Some(expected_ty_ann.clone()));
+                                                let val_ty = self.infer_expression_type(field_value);
+                                                if val_ty != expected_ty && val_ty != Type::Unknown && expected_ty != Type::Unknown {
+                                                    self.error(
+                                                        format!(
+                                                            "Field '{}' of struct '{}' expects {}, found {}",
+                                                            field_name, item_name, type_name(&expected_ty), type_name(&val_ty)
+                                                        ),
+                                                        field_value.span,
+                                                    );
+                                                }
+                                            } else {
+                                                self.error(
+                                                    format!(
+                                                        "Struct '{}' from module '{}' has no field '{}'",
+                                                        item_name, module_name, field_name
+                                                    ),
+                                                    field_value.span,
+                                                );
+                                            }
+                                        }
+                                        for (expected_field, _) in field_types.iter() {
+                                            if !fields.iter().any(|(n, _)| n == expected_field) {
+                                                self.error(
+                                                    format!(
+                                                        "Missing field '{}' in struct '{}' from module '{}'",
+                                                        expected_field, item_name, module_name
+                                                    ),
+                                                    expr.span,
+                                                );
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    self.error(
+                                        format!(
+                                            "Struct '{}' from module '{}' requires field initialization",
+                                            item_name, module_name
+                                        ),
+                                        expr.span,
+                                    );
+                                    return;
+                                }
+                                self.symbol_resolutions.insert(
+                                    expr.span,
+                                    SymbolInfo {
+                                        is_local: false,
+                                        def_span: None,
+                                        ty: Type::Struct { name: item_name.clone() },
+                                    },
+                                );
+                                return;
+                            }
+                        }
+                    }
+
+                    self.error(
+                        format!(
+                            "Module '{}' does not export '{}'",
+                            module_name, item_name
+                        ),
+                        expr.span,
+                    );
+                    return;
+                }
+
+                // ------------------------------------------------------------------
+                // Local enum / struct static method (existing behaviour)
+                // ------------------------------------------------------------------
                 if let Some(args) = data {
                     for arg in args {
                         self.analyze_expression(arg);
@@ -3582,23 +3925,7 @@ impl SemanticAnalyzer {
                             );
                             return;
                         }
-                        // Check if the user tried to use a qualified path like module::item()
-                        if self.module_namespaces.contains(enum_name.as_str()) {
-                            self.error_with_hint(
-                                format!(
-                                    "'{}' is an imported module, not an enum or struct",
-                                    enum_name
-                                ),
-                                expr.span,
-                                format!(
-                                    "Spectra does not support qualified paths (module::item). \
-                                     Use 'import {}; {}(...)' instead.",
-                                    enum_name, variant_name
-                                ),
-                            );
-                        } else {
-                            self.error(format!("Enum '{}' is not defined", enum_name), expr.span);
-                        }
+                        self.error(format!("Enum '{}' is not defined", enum_name), expr.span);
                         return;
                     }
                 };
@@ -4201,16 +4528,78 @@ impl SemanticAnalyzer {
                 }
             }
             Pattern::EnumVariant {
+                module_path,
                 enum_name,
                 type_args,
                 variant_name,
                 data,
                 struct_data,
             } => {
-                let enum_info = match self.enum_infos.get(enum_name).cloned() {
+                // ------------------------------------------------------------------
+                // Qualified path in pattern: module::Enum::Variant
+                // ------------------------------------------------------------------
+                let (resolved_enum_name, _resolved_variant_name) =
+                    if let Some(ref mod_path) = module_path {
+                        let exports_cloned: Option<ModuleExports> = self
+                            .registry
+                            .read()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .get_module(mod_path)
+                            .cloned();
+                        if let Some(exports) = exports_cloned {
+                            if let Some(type_export) = exports.types.get(enum_name) {
+                                if !type_export.is_enum {
+                                    self.error(
+                                        format!("'{}' from module '{}' is a struct, not an enum", enum_name, mod_path),
+                                        match_span,
+                                    );
+                                    return;
+                                }
+                                // Inject enum info locally if not present
+                                if !self.enum_infos.contains_key(enum_name) {
+                                    if let Some(ref variants_map) = type_export.enum_variants {
+                                        let mut variants = std::collections::HashMap::new();
+                                        for (vname, _) in variants_map.iter() {
+                                            variants.insert(vname.clone(), EnumVariantInfo {
+                                                data: None,
+                                                struct_data: None,
+                                                span: Span::dummy(),
+                                            });
+                                        }
+                                        self.enum_infos.insert(enum_name.clone(), EnumInfo {
+                                            visibility: Visibility::Public,
+                                            type_params: vec![],
+                                            variants,
+                                        });
+                                        self.enum_definitions.insert(enum_name.clone(), variants_map.keys().cloned().collect());
+                                    }
+                                }
+                                (enum_name.clone(), variant_name.clone())
+                            } else {
+                                self.error(
+                                    format!(
+                                        "Module '{}' does not export type '{}'",
+                                        mod_path, enum_name
+                                    ),
+                                    match_span,
+                                );
+                                return;
+                            }
+                        } else {
+                            self.error(
+                                format!("Module '{}' is not defined", mod_path),
+                                match_span,
+                            );
+                            return;
+                        }
+                    } else {
+                        (enum_name.clone(), variant_name.clone())
+                    };
+
+                let enum_info = match self.enum_infos.get(&resolved_enum_name).cloned() {
                     Some(info) => info,
                     None => {
-                        self.error(format!("Enum '{}' is not defined", enum_name), match_span);
+                        self.error(format!("Enum '{}' is not defined", resolved_enum_name), match_span);
                         return;
                     }
                 };
@@ -5143,6 +5532,7 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::EnumVariant {
+                module_path: _,
                 enum_name,
                 type_args,
                 variant_name,
