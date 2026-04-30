@@ -1,0 +1,95 @@
+module sa_report;
+
+import sa_grades;
+import sa_math;
+
+// Convert score to GPA points (calls imported enum functions chain)
+pub fn score_to_gpa(score: int) -> int {
+    let g = score_to_grade(score);
+    grade_points(g)
+}
+
+// Aid decision: returns status_points for a given average
+pub fn aid_decision(avg: int) -> int {
+    let s = score_status(avg);
+    status_points(s)
+}
+
+// Class summary: returns class_avg*10 + score_range
+pub fn class_summary(a1: int, a2: int, a3: int, a4: int, a5: int) -> int {
+    let total = a1 + a2 + a3 + a4 + a5;
+    let class_avg = total / 5;
+    let lo = min2(min2(min2(min2(a1, a2), a3), a4), a5);
+    let hi = max2(max2(max2(max2(a1, a2), a3), a4), a5);
+    let range = hi - lo;
+    class_avg * 10 + range
+}
+
+// Scholarship based purely on numeric average (no cross-module enum match)
+pub fn scholarship(avg: int, gpa: int) -> int {
+    if avg >= 90 { return 500 * gpa; }
+    if avg >= 60 { return 100 * gpa; }
+    return 0;
+}
+
+// GPA-weighted class rank (higher is better)
+pub fn gpa_rank(avgs_sum: int, student_count: int) -> int {
+    let class_avg = avgs_sum / student_count;
+    let g = score_to_grade(class_avg);
+    grade_points(g) * 25
+}
+
+// Fibonacci award: students scoring fib(n) get bonus points
+pub fn fib_award(score: int) -> int {
+    // Check if score is fib(n) for n in 1..12
+    let a = 0;
+    let b = 1;
+    let i = 1;
+    while i <= 12 {
+        if b == score { return b * 10; }
+        let tmp = a + b;
+        a = b;
+        b = tmp;
+        i = i + 1;
+    }
+    return 0;
+}
+
+pub fn run_report_tests() -> int {
+    // 5 students' averages
+    let avg1 = 91;   // Honors  → A(4) → aid=10
+    let avg2 = 71;   // Passing → C(2) → aid=5
+    let avg3 = 58;   // Failing → F(0) → aid=0
+    let avg4 = 85;   // Passing → B(3) → aid=5
+    let avg5 = 94;   // Honors  → A(4) → aid=10
+
+    // GPA points
+    let gpa1 = score_to_gpa(avg1);  // 4
+    let gpa2 = score_to_gpa(avg2);  // 2
+    let gpa3 = score_to_gpa(avg3);  // 0
+    let gpa4 = score_to_gpa(avg4);  // 3
+    let gpa5 = score_to_gpa(avg5);  // 4
+
+    // Aid decisions
+    let aid1 = aid_decision(avg1);  // 10
+    let aid2 = aid_decision(avg2);  // 5
+    let aid3 = aid_decision(avg3);  // 2 (probation: 58>=50)
+
+    // Class summary: avgs 91+71+58+85+94=399, avg=79, lo=58, hi=94, range=36
+    // 79*10+36 = 826
+    let summary = class_summary(avg1, avg2, avg3, avg4, avg5);  // 826
+
+    // Scholarships
+    let sch1 = scholarship(avg1, gpa1);  // 500*4=2000
+    let sch3 = scholarship(avg3, gpa3);  // 0 (failing, <60)
+    let sch4 = scholarship(avg4, gpa4);  // 100*3=300
+
+    // GPA rank: sum=91+71+58+85+94=399, count=5, class_avg=79 → C(2) → 2*25=50
+    let rank = gpa_rank(399, 5);  // 50
+
+    // Fib award: 89 is fib(11) → 89*10=890
+    let award = fib_award(89);   // 890
+
+    // 4+2+0+3+4+10+5+2+826+2000+0+300+50+890 = 4096
+    gpa1 + gpa2 + gpa3 + gpa4 + gpa5 + aid1 + aid2 + aid3 + summary + sch1 + sch3 + sch4 + rank + award
+}

@@ -1,0 +1,94 @@
+module sa_grades;
+
+pub enum Grade {
+    A,
+    B,
+    C,
+    D,
+    F,
+}
+
+pub enum Status {
+    Honors,
+    Passing,
+    Probation,
+    Failing,
+}
+
+pub fn score_to_grade(score: int) -> Grade {
+    if score >= 90 { return Grade::A; }
+    if score >= 80 { return Grade::B; }
+    if score >= 70 { return Grade::C; }
+    if score >= 60 { return Grade::D; }
+    return Grade::F;
+}
+
+pub fn grade_points(g: Grade) -> int {
+    match g {
+        Grade::A => 4,
+        Grade::B => 3,
+        Grade::C => 2,
+        Grade::D => 1,
+        Grade::F => 0,
+    }
+}
+
+pub fn score_status(avg: int) -> Status {
+    if avg >= 90 { return Status::Honors; }
+    if avg >= 60 { return Status::Passing; }
+    if avg >= 50 { return Status::Probation; }
+    return Status::Failing;
+}
+
+pub fn status_points(s: Status) -> int {
+    match s {
+        Status::Honors    => 10,
+        Status::Passing   => 5,
+        Status::Probation => 2,
+        Status::Failing   => 0,
+    }
+}
+
+pub fn grade_label(g: Grade) -> int {
+    // Numeric label for display: A=4, B=3, ...
+    match g {
+        Grade::A => 4,
+        Grade::B => 3,
+        Grade::C => 2,
+        Grade::D => 1,
+        Grade::F => 0,
+    }
+}
+
+pub fn run_grades_tests() -> int {
+    // score_to_grade + grade_points
+    let ga = score_to_grade(95);  // A
+    let gb = score_to_grade(85);  // B
+    let gc = score_to_grade(75);  // C
+    let gd = score_to_grade(65);  // D
+    let gf = score_to_grade(55);  // F
+
+    let pa = grade_points(ga);   // 4
+    let pb = grade_points(gb);   // 3
+    let pc = grade_points(gc);   // 2
+    let pd = grade_points(gd);   // 1
+    let pf = grade_points(gf);   // 0
+
+    // score_status + status_points
+    let sh = score_status(92);   // Honors
+    let sp = score_status(75);   // Passing
+    let sr = score_status(55);   // Probation
+    let sf = score_status(40);   // Failing
+
+    let vh = status_points(sh);  // 10
+    let vp = status_points(sp);  // 5
+    let vr = status_points(sr);  // 2
+    let vf = status_points(sf);  // 0
+
+    // grade_label uses match too
+    let la = grade_label(ga);    // 4
+    let lb = grade_label(gb);    // 3
+
+    // Sum: 4+3+2+1+0+10+5+2+0+4+3 = 34
+    pa + pb + pc + pd + pf + vh + vp + vr + vf + la + lb
+}

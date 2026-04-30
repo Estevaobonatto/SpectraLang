@@ -1,0 +1,117 @@
+module sa_student;
+
+import sa_math;
+
+// Trait: anything that has a score profile
+trait Scorable {
+    fn total_score(&self) -> int;
+    fn average_score(&self) -> int;
+    fn best_subject(&self) -> int;
+    fn worst_subject(&self) -> int;
+}
+
+pub struct Student {
+    id: int,
+    math_score: int,
+    science_score: int,
+    english_score: int,
+    history_score: int,
+}
+
+impl Student {
+    pub fn new(id: int, m: int, s: int, e: int, h: int) -> Student {
+        Student {
+            id: id,
+            math_score: m,
+            science_score: s,
+            english_score: e,
+            history_score: h,
+        }
+    }
+
+    pub fn get_id(&self) -> int {
+        self.id
+    }
+
+    pub fn is_honor_roll(&self) -> bool {
+        let avg = (self.math_score + self.science_score + self.english_score + self.history_score) / 4;
+        avg >= 90
+    }
+
+    pub fn score_range(&self) -> int {
+        let best  = max2(max2(self.math_score, self.science_score), max2(self.english_score, self.history_score));
+        let worst = min2(min2(self.math_score, self.science_score), min2(self.english_score, self.history_score));
+        best - worst
+    }
+}
+
+impl Scorable for Student {
+    fn total_score(&self) -> int {
+        self.math_score + self.science_score + self.english_score + self.history_score
+    }
+
+    fn average_score(&self) -> int {
+        (self.math_score + self.science_score + self.english_score + self.history_score) / 4
+    }
+
+    fn best_subject(&self) -> int {
+        max2(max2(self.math_score, self.science_score), max2(self.english_score, self.history_score))
+    }
+
+    fn worst_subject(&self) -> int {
+        min2(min2(self.math_score, self.science_score), min2(self.english_score, self.history_score))
+    }
+}
+
+// Helper pub fns: create a student, run one computation, return int/bool
+// (keeps struct instances inside this module, avoiding cross-module struct exposure)
+pub fn student_total(m: int, s: int, e: int, h: int) -> int {
+    let st = Student::new(0, m, s, e, h);
+    st.total_score()
+}
+
+pub fn student_average(m: int, s: int, e: int, h: int) -> int {
+    let st = Student::new(0, m, s, e, h);
+    st.average_score()
+}
+
+pub fn student_best(m: int, s: int, e: int, h: int) -> int {
+    let st = Student::new(0, m, s, e, h);
+    st.best_subject()
+}
+
+pub fn student_worst(m: int, s: int, e: int, h: int) -> int {
+    let st = Student::new(0, m, s, e, h);
+    st.worst_subject()
+}
+
+pub fn student_honor(m: int, s: int, e: int, h: int) -> bool {
+    let st = Student::new(0, m, s, e, h);
+    st.is_honor_roll()
+}
+
+pub fn student_range(m: int, s: int, e: int, h: int) -> int {
+    let st = Student::new(0, m, s, e, h);
+    st.score_range()
+}
+
+pub fn run_student_tests() -> int {
+    // Student 1: High achiever (95,92,88,91)
+    let t1 = student_total(95, 92, 88, 91);    // 366
+    let a1 = student_average(95, 92, 88, 91);  // 91
+    let b1 = student_best(95, 92, 88, 91);     // 95
+    let w1 = student_worst(95, 92, 88, 91);    // 88
+    let r1 = student_range(95, 92, 88, 91);    // 7
+
+    // Student 2: Average (75,68,72,70)
+    let a2 = student_average(75, 68, 72, 70);  // 71
+    let b2 = student_best(75, 68, 72, 70);     // 75
+    let w2 = student_worst(75, 68, 72, 70);    // 68
+
+    // Student 3: Struggling (55,60,58,62)
+    let a3 = student_average(55, 60, 58, 62);  // 58
+    let t3 = student_total(55, 60, 58, 62);    // 235
+
+    // 366+91+95+88+7+71+75+68+58+235 = 1154
+    t1 + a1 + b1 + w1 + r1 + a2 + b2 + w2 + a3 + t3
+}

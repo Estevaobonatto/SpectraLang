@@ -1,0 +1,109 @@
+module spectra_academy;
+
+import std.io;
+import sa_math;
+import sa_grades;
+import sa_student;
+import sa_analytics;
+import sa_algo;
+import sa_report;
+
+pub fn main() -> int {
+    println("=== Spectra Academy - Student Performance System ===");
+
+    // ── Math Utilities ──────────────────────────────────────────
+    println("--- Math ---");
+    let fib10 = fib(10);
+    println(fib10);          // 55
+
+    let g = gcd(48, 18);
+    println(g);              // 6
+
+    let prime17 = is_prime(17);
+    println(prime17);        // true
+
+    let digits = count_digits(12345);
+    println(digits);         // 5
+
+    let dsum = digit_sum(9999);
+    println(dsum);           // 36
+
+    let p2_10 = pow(2, 10);
+    println(p2_10);          // 1024
+
+    // ── Grade System ────────────────────────────────────────────
+    println("--- Grades ---");
+    let grades_score = run_grades_tests();
+    println(grades_score);   // 34
+
+    // ── Students ────────────────────────────────────────────────
+    println("--- Students ---");
+    let student_score = run_student_tests();
+    println(student_score);  // 1154
+
+    // Individual student queries using module helpers
+    let alice_avg = student_average(95, 92, 88, 91);
+    println(alice_avg);      // 91
+
+    let bob_best = student_best(75, 68, 72, 70);
+    println(bob_best);       // 75
+
+    let charlie_honor = student_honor(55, 60, 58, 62);
+    println(charlie_honor);  // false
+
+    let dave_range = student_range(100, 60, 80, 70);
+    println(dave_range);     // 40
+
+    // ── Analytics ───────────────────────────────────────────────
+    println("--- Analytics ---");
+    let analytics_score = run_analytics_tests();
+    println(analytics_score);  // 6315
+
+    // Stand-alone calls
+    let wa = weighted_avg(95, 4, 80, 3, 70, 3);
+    println(wa);             // (380+240+210)/10 = 83
+
+    let ca = count_a_grades(95, 90, 85, 78, 92);
+    println(ca);             // 95,90,92 → 3
+
+    let pr = passing_rate(90, 75, 55, 80, 65);
+    println(pr);             // 4 pass / 5 = 80
+
+    // ── Algorithms ──────────────────────────────────────────────
+    println("--- Algorithms ---");
+    let algo_score = run_algo_tests();
+    println(algo_score);     // 9277
+
+    // Stand-alone calls
+    let ps = prefix_sum(10);
+    println(ps);             // 55
+
+    let bs = binary_search(50);
+    println(bs);             // 4 (index of 50)
+
+    let cf = fizzbuzz_count(15);
+    println(cf);             // 3+5+6+9+10+12+15 → 7
+
+    // ── Reports ─────────────────────────────────────────────────
+    println("--- Reports ---");
+    let report_score = run_report_tests();
+    println(report_score);   // 4096
+
+    // Stand-alone report calls
+    let gpa_alice = score_to_gpa(91);
+    println(gpa_alice);      // 4
+
+    let aid_bob = aid_decision(71);
+    println(aid_bob);        // 5
+
+    let summary = class_summary(91, 71, 58, 85, 94);
+    println(summary);        // 826
+
+    // ── Final Total ─────────────────────────────────────────────
+    println("--- Total ---");
+    let total = grades_score + student_score + analytics_score + algo_score + report_score;
+    println(total);          // 34+1154+6315+9277+4096 = 20876
+
+    println("=== Spectra Academy OK ===");
+    return 0;
+}

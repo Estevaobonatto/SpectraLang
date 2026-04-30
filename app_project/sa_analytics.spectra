@@ -1,0 +1,102 @@
+module sa_analytics;
+
+import sa_math;
+
+// Weighted average with explicit weights
+pub fn weighted_avg(a: int, wa: int, b: int, wb: int, c: int, wc: int) -> int {
+    let total = a * wa + b * wb + c * wc;
+    let weight_sum = wa + wb + wc;
+    return total / weight_sum;
+}
+
+// Count scores strictly above threshold (out of 5)
+pub fn count_above(threshold: int, s1: int, s2: int, s3: int, s4: int, s5: int) -> int {
+    let count = 0;
+    if s1 > threshold { count = count + 1; }
+    if s2 > threshold { count = count + 1; }
+    if s3 > threshold { count = count + 1; }
+    if s4 > threshold { count = count + 1; }
+    if s5 > threshold { count = count + 1; }
+    return count;
+}
+
+// Simple variance (integer): sum of (|xi - avg|)^2 / n  (n=3)
+pub fn variance3(a: int, b: int, c: int, avg: int) -> int {
+    let da = abs_val(a - avg);
+    let db = abs_val(b - avg);
+    let dc = abs_val(c - avg);
+    return (da * da + db * db + dc * dc) / 3;
+}
+
+// Percentile rank: what % of students scored worse than this one
+pub fn percentile_rank(total_students: int, better_than: int) -> int {
+    return (better_than * 100) / total_students;
+}
+
+// Financial aid in dollars based on average
+pub fn financial_aid(avg: int) -> int {
+    if avg >= 90 { return 5000; }
+    if avg >= 80 { return 3000; }
+    if avg >= 70 { return 1000; }
+    return 0;
+}
+
+// Count A grades (>=90) among 5 scores
+pub fn count_a_grades(s1: int, s2: int, s3: int, s4: int, s5: int) -> int {
+    let a_count = 0;
+    if s1 >= 90 { a_count = a_count + 1; }
+    if s2 >= 90 { a_count = a_count + 1; }
+    if s3 >= 90 { a_count = a_count + 1; }
+    if s4 >= 90 { a_count = a_count + 1; }
+    if s5 >= 90 { a_count = a_count + 1; }
+    return a_count;
+}
+
+// Class improvement: returns +1 if avg3 > avg1, -1 if worse, 0 if same
+pub fn trend(first: int, second: int, third: int) -> int {
+    if third > first { return 1; }
+    if third < first { return 0 - 1; }
+    return 0;
+}
+
+// Compute passing rate * 100 (integer percent)
+pub fn passing_rate(s1: int, s2: int, s3: int, s4: int, s5: int) -> int {
+    let passing = 0;
+    if s1 >= 60 { passing = passing + 1; }
+    if s2 >= 60 { passing = passing + 1; }
+    if s3 >= 60 { passing = passing + 1; }
+    if s4 >= 60 { passing = passing + 1; }
+    if s5 >= 60 { passing = passing + 1; }
+    return (passing * 100) / 5;
+}
+
+pub fn run_analytics_tests() -> int {
+    // Weighted average: math(4), science(3), english(3) weights
+    let avg1 = weighted_avg(90, 4, 80, 3, 70, 3);  // (360+240+210)/10 = 81
+
+    // Count above 70 from [85,72,60,91,75]
+    let above70 = count_above(70, 85, 72, 60, 91, 75);  // 85,72,91,75 > 70 → 4
+
+    // Variance of [90,80,70] around mean 80
+    let var1 = variance3(90, 80, 70, 80);  // (100+0+100)/3 = 66
+
+    // Percentile: out of 5 students, 4 scored worse
+    let pct = percentile_rank(5, 4);  // 80
+
+    // Financial aid
+    let aid_a = financial_aid(92);  // 5000
+    let aid_b = financial_aid(75);  // 1000
+    let aid_f = financial_aid(50);  // 0
+
+    // Count A grades in [92, 85, 90, 78, 95]
+    let a_count = count_a_grades(92, 85, 90, 78, 95);  // 92,90,95 → 3
+
+    // Trend: 70 → 75 → 80 = improving
+    let t = trend(70, 75, 80);  // 1
+
+    // Passing rate: [85, 72, 55, 91, 68] — 85,72,91,68 pass → 4/5 = 80%
+    let pr = passing_rate(85, 72, 55, 91, 68);  // 80
+
+    // 81+4+66+80+5000+1000+0+3+1+80 = 6315
+    avg1 + above70 + var1 + pct + aid_a + aid_b + aid_f + a_count + t + pr
+}

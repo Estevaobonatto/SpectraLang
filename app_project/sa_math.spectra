@@ -1,0 +1,94 @@
+module sa_math;
+
+pub fn clamp(v: int, lo: int, hi: int) -> int {
+    if v < lo { return lo; }
+    if v > hi { return hi; }
+    return v;
+}
+
+pub fn abs_val(n: int) -> int {
+    if n < 0 { return 0 - n; }
+    return n;
+}
+
+pub fn max2(a: int, b: int) -> int {
+    if a >= b { return a; }
+    return b;
+}
+
+pub fn min2(a: int, b: int) -> int {
+    if a <= b { return a; }
+    return b;
+}
+
+pub fn average4(a: int, b: int, c: int, d: int) -> int {
+    return (a + b + c + d) / 4;
+}
+
+pub fn gcd(a: int, b: int) -> int {
+    let x = a;
+    let y = b;
+    while y != 0 {
+        let t = y;
+        y = x % y;
+        x = t;
+    }
+    return x;
+}
+
+pub fn is_prime(n: int) -> bool {
+    if n <= 1 { return false; }
+    if n <= 3 { return true; }
+    if n % 2 == 0 { return false; }
+    let i = 3;
+    while i * i <= n {
+        if n % i == 0 { return false; }
+        i = i + 2;
+    }
+    return true;
+}
+
+pub fn fib(n: int) -> int {
+    if n <= 1 { return n; }
+    let a = 0;
+    let b = 1;
+    let i = 2;
+    while i <= n {
+        let tmp = a + b;
+        a = b;
+        b = tmp;
+        i = i + 1;
+    }
+    return b;
+}
+
+pub fn count_digits(n: int) -> int {
+    if n == 0 { return 1; }
+    let num = abs_val(n);
+    let count = 0;
+    while num > 0 {
+        count = count + 1;
+        num = num / 10;
+    }
+    return count;
+}
+
+pub fn digit_sum(n: int) -> int {
+    let num = abs_val(n);
+    let sum = 0;
+    while num > 0 {
+        sum = sum + (num % 10);
+        num = num / 10;
+    }
+    return sum;
+}
+
+pub fn pow(base: int, exp: int) -> int {
+    let result = 1;
+    let i = 0;
+    while i < exp {
+        result = result * base;
+        i = i + 1;
+    }
+    return result;
+}
