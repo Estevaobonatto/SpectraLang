@@ -332,7 +332,55 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Phase 5: macOS tarballs
+  # Phase 5: Linux tarball (universal installer script)
+  # ---------------------------------------------------------------------------
+  package-linux-tarball:
+    name: Linux Tarball (Universal)
+    needs: [build-binaries, build-vsix, determine-version]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-linux-x64
+          path: bin-linux-x64/
+
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: vsix-staging/
+
+      - name: Create tarball
+        run: |
+          VERSION="${{ needs.determine-version.outputs.version }}"
+          VSIX=$(ls vsix-staging/spectra-vscode-extension-*.vsix | head -1)
+          dir="spectra-${VERSION}-linux-x64"
+
+          mkdir -p "${dir}/bin" "${dir}/extension"
+          cp "bin-linux-x64/spectralang" "${dir}/bin/"
+          cp "bin-linux-x64/spectra-lsp" "${dir}/bin/"
+          cp "${VSIX}" "${dir}/extension/spectra-vscode-extension.vsix"
+          chmod +x "${dir}/bin/spectralang" "${dir}/bin/spectra-lsp"
+
+          cp "installer/install-linux.sh" "${dir}/install.sh"
+          chmod +x "${dir}/install.sh"
+
+          tar -czf "spectra-${VERSION}-linux-x64.tar.gz" "${dir}"
+
+      - name: Upload Linux tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-linux-tarball
+          path: spectra-*-linux-x64.tar.gz
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 6: macOS tarballs
   # ---------------------------------------------------------------------------
   package-macos:
     name: macOS Tarballs
@@ -414,13 +462,14 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Phase 6: Create GitHub Release and upload all assets
+  # Phase 7: Create GitHub Release and upload all assets
   # ---------------------------------------------------------------------------
   create-release:
     name: Create GitHub Release
     needs:
       - package-windows
       - package-linux-deb
+      - package-linux-tarball
       - package-macos
       - build-vsix
       - determine-version
