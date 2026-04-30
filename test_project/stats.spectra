@@ -1,0 +1,39 @@
+module stats;
+
+import mathlib;
+
+// Sum of first n integers
+pub fn sum_n(n: int) -> int {
+    let sum = 0;
+    let i = 1;
+    while i <= n {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}
+
+// Count of integers in range [lo, hi]
+pub fn range_count(lo: int, hi: int) -> int {
+    if hi < lo {
+        return 0;
+    }
+    return hi - lo + 1;
+}
+
+// Power: base ^ exp (integer)
+pub fn power(base: int, exp: int) -> int {
+    let result = 1;
+    let i = 0;
+    while i < exp {
+        result = result * base;
+        i = i + 1;
+    }
+    return result;
+}
+
+// Check if a number is even
+pub fn is_even(n: int) -> bool {
+    let r = n - (n / 2) * 2;
+    return r == 0;
+}

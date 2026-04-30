@@ -1,0 +1,25 @@
+module geometry;
+
+import mathlib;
+
+// Distance (Manhattan) between two points
+pub fn manhattan_distance(x1: int, y1: int, x2: int, y2: int) -> int {
+    let dx = abs_val(x2 - x1);
+    let dy = abs_val(y2 - y1);
+    return dx + dy;
+}
+
+// Area of a rectangle
+pub fn rect_area(width: int, height: int) -> int {
+    return width * height;
+}
+
+// Perimeter of a rectangle
+pub fn rect_perimeter(width: int, height: int) -> int {
+    return 2 * (width + height);
+}
+
+// Area of a square (uses mathlib.square)
+pub fn square_area(side: int) -> int {
+    return square(side);
+}

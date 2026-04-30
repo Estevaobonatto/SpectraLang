@@ -321,9 +321,11 @@ impl BackendDriver for FullPipelineBackend {
             println!();
         }
 
-        // Start a fresh CodeGenerator for every module so that symbol names
-        // from previously compiled modules cannot clash with the current one.
-        let mut codegen = CodeGenerator::new();
+        // Reuse the same CodeGenerator (and its underlying JITModule) across all
+        // modules in a project build.  This keeps every previously compiled function
+        // in the JIT's function_map so that cross-module calls (e.g. main_app
+        // calling square() from mathutils) can be resolved correctly.
+        let codegen = self.codegen.get_or_insert_with(CodeGenerator::new);
         let codegen_start = Instant::now();
         let codegen_result = codegen.generate_module(&ir_module);
         let codegen_duration = codegen_start.elapsed();
@@ -331,7 +333,6 @@ impl BackendDriver for FullPipelineBackend {
         if let Err(error) = codegen_result {
             return Err(vec![CompilerError::Backend(BackendError::new(error))]);
         }
-        self.codegen = Some(codegen);
 
         Ok(FullPipelineArtifacts {
             ir_module,
@@ -362,9 +363,10 @@ impl BackendDriver for FullPipelineBackend {
             .iter()
             .any(|func| func.name == "main")
         {
-            return Err(vec![CompilerError::Backend(BackendError::new(
-                "no entry point 'main' found; define a 'fn main()' function to run the program",
-            ))]);
+            // Library modules have no entry point — skip JIT execution silently.
+            // The caller is responsible for ensuring that at least one module in
+            // the project defines `main`; see execute_plan_with_options().
+            return Ok(());
         }
 
         let runtime_state = spectra_runtime::initialize();

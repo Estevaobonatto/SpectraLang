@@ -1260,9 +1260,17 @@ fn execute_plan_with_options(
 
     // Propagate the Spectra program's exit code when running via JIT.
     if kind == BuildCommand::Run {
-        if let Some(code) = take_last_exec_exit() {
-            if code != 0 {
-                std::process::exit(code);
+        match take_last_exec_exit() {
+            Some(code) => {
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            None => {
+                // No module defined `main` — nothing was executed.
+                return Err(CliError::compilation(
+                    "no entry point 'main' found; define a 'pub fn main() -> int' function",
+                ));
             }
         }
     }

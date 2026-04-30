@@ -1,0 +1,61 @@
+module main_project;
+
+import std.io;
+import mathlib;
+import geometry;
+import stats;
+
+pub fn main() -> int {
+    println("=== Multi-Module Test Project ===");
+
+    // Test mathlib
+    println("--- mathlib ---");
+    let sq = square(7);
+    println(sq);
+
+    let cb = cube(3);
+    println(cb);
+
+    let fact = factorial(6);
+    println(fact);
+
+    let mx = max(10, 25);
+    println(mx);
+
+    let mn = min(10, 25);
+    println(mn);
+
+    let av = abs_val(-42);
+    println(av);
+
+    // Test geometry
+    println("--- geometry ---");
+    let dist = manhattan_distance(0, 0, 3, 4);
+    println(dist);
+
+    let area = rect_area(5, 8);
+    println(area);
+
+    let perim = rect_perimeter(5, 8);
+    println(perim);
+
+    let sq_area = square_area(6);
+    println(sq_area);
+
+    // Test stats
+    println("--- stats ---");
+    let s = sum_n(10);
+    println(s);
+
+    let cnt = range_count(3, 7);
+    println(cnt);
+
+    let pw = power(2, 8);
+    println(pw);
+
+    let ev = is_even(42);
+    println(ev);
+
+    println("=== All tests passed ===");
+    return 0;
+}
