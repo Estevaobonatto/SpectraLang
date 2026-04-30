@@ -34,6 +34,7 @@ pub struct AotCodeGenerator {
     manual_free_func: FuncId,
     manual_frame_enter_func: FuncId,
     manual_frame_exit_func: FuncId,
+    manual_escape_func: FuncId,
     host_invoke_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
@@ -92,6 +93,13 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare frame-exit import");
 
+        let mut escape_sig = module.make_signature();
+        escape_sig.params.push(AbiParam::new(types::I64));
+        escape_sig.params.push(AbiParam::new(types::I64));
+        let manual_escape_func = module
+            .declare_function("spectra_rt_manual_escape", Linkage::Import, &escape_sig)
+            .expect("Failed to declare escape import");
+
         let mut host_invoke_sig = module.make_signature();
         for _ in 0..6 {
             host_invoke_sig.params.push(AbiParam::new(types::I64));
@@ -110,6 +118,7 @@ impl AotCodeGenerator {
             manual_free_func,
             manual_frame_enter_func,
             manual_frame_exit_func,
+            manual_escape_func,
             host_invoke_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
@@ -245,6 +254,7 @@ impl AotCodeGenerator {
                 self.manual_alloc_func,
                 self.manual_free_func,
                 self.manual_frame_exit_func,
+                self.manual_escape_func,
                 self.host_invoke_func,
                 &mut builder,
                 ir_block,

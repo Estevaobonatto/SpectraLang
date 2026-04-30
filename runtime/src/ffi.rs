@@ -363,6 +363,45 @@ pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {
     }
 }
 
+/// Moves a manual allocation from the current function's frame to its parent frame,
+/// so that it survives the current function's `frame_exit` call.
+///
+/// Only moves the allocation if it currently belongs to `current_frame_id` — this
+/// prevents accidentally re-parenting allocations that were passed in from the caller.
+/// If `ptr` is not a tracked allocation (e.g. a scalar value), this is a no-op.
+#[no_mangle]
+pub extern "C" fn spectra_rt_manual_escape(ptr: *mut u8, current_frame_id: usize) {
+    if ptr.is_null() {
+        return;
+    }
+    let ptr_value = ptr as usize;
+    let table = allocation_table();
+    let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Only escape allocations that belong to the current frame.
+    let old_frame_id = match guard.allocations.get(&ptr_value) {
+        Some(entry) if entry.frame_id == current_frame_id => entry.frame_id,
+        _ => return,
+    };
+
+    guard.remove_from_frame(old_frame_id, ptr_value);
+
+    // Find the parent frame (second from the top of the stack).
+    let parent_frame_id = if guard.frames.len() >= 2 {
+        guard.frames[guard.frames.len() - 2].id
+    } else {
+        0 // base frame
+    };
+
+    if let Some(entry) = guard.allocations.get_mut(&ptr_value) {
+        entry.frame_id = parent_frame_id;
+    }
+
+    if let Some(parent) = guard.frames.iter_mut().rev().find(|f| f.id == parent_frame_id) {
+        parent.allocations.push(ptr_value);
+    }
+}
+
 /// Clears all outstanding manual allocations owned by the runtime.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_clear() {

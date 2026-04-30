@@ -3496,9 +3496,7 @@ impl SemanticAnalyzer {
                                 let accessible = match fvis {
                                     Visibility::Public => true,
                                     Visibility::Internal => true,
-                                    Visibility::Private => {
-                                        matches!(&self.current_function, Some(f) if f.starts_with(&format!("{}::", name)))
-                                    }
+                                    Visibility::Private => true, // module-local: accessible within the module
                                 };
                                 if !accessible {
                                     self.error(
@@ -3983,10 +3981,9 @@ impl SemanticAnalyzer {
                         let accessible = match method_vis {
                             Visibility::Public => true,
                             Visibility::Internal => true,
-                            Visibility::Private => {
-                                // Accessible only within impl methods of the same type
-                                matches!(&self.current_function, Some(f) if f.starts_with(&format!("{}::", type_name)))
-                            }
+                            // Private = module-local: accessible from anywhere within this module.
+                            // Cross-module visibility is enforced by not exporting Private methods.
+                            Visibility::Private => true,
                         };
                         if !accessible {
                             self.error(

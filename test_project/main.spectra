@@ -4,6 +4,9 @@ import std.io;
 import mathlib;
 import geometry;
 import stats;
+import structs_mod;
+import traits_mod;
+import enums_mod;
 
 pub fn main() -> int {
     println("=== Multi-Module Test Project ===");
@@ -55,6 +58,21 @@ pub fn main() -> int {
 
     let ev = is_even(42);
     println(ev);
+
+    // Test structs with impl blocks
+    println("--- structs ---");
+    let struct_result = run_structs_tests();
+    println(struct_result);
+
+    // Test traits
+    println("--- traits ---");
+    let traits_result = run_traits_tests();
+    println(traits_result);
+
+    // Test enums and match
+    println("--- enums ---");
+    let enums_result = run_enums_tests();
+    println(enums_result);
 
     println("=== All tests passed ===");
     return 0;

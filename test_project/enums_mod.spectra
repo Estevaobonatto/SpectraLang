@@ -1,0 +1,66 @@
+// Enums: definition, variants, match patterns, Option/Result usage
+module enums_mod;
+
+pub enum Direction {
+    North,
+    South,
+    East,
+    West
+}
+
+pub enum Status {
+    Active(int),
+    Inactive,
+    Error(int)
+}
+
+pub fn direction_code(d: Direction) -> int {
+    match d {
+        Direction::North => 1,
+        Direction::South => 2,
+        Direction::East  => 3,
+        Direction::West  => 4
+    }
+}
+
+pub fn status_value(s: Status) -> int {
+    match s {
+        Status::Active(v) => v,
+        Status::Inactive  => 0,
+        Status::Error(e)  => e * -1
+    }
+}
+
+pub fn run_enums_tests() -> int {
+    // Enum variant dispatch
+    let n = direction_code(Direction::North);  // 1
+    let s = direction_code(Direction::South);  // 2
+    let e = direction_code(Direction::East);   // 3
+    let w = direction_code(Direction::West);   // 4
+
+    // Enums with data
+    let active = Status::Active(42);
+    let inactive = Status::Inactive;
+    let err = Status::Error(5);
+
+    let av = status_value(active);    // 42
+    let iv = status_value(inactive);  // 0
+    let ev = status_value(err);       // -5
+
+    // Option usage
+    let some_val: Option<int> = Option::Some(100);
+    let none_val: Option<int> = Option::None;
+
+    let some_result = match some_val {
+        Option::Some(v) => v,
+        Option::None    => 0
+    };
+
+    let none_result = match none_val {
+        Option::Some(v) => v,
+        Option::None    => 99
+    };
+
+    // Sum: 1+2+3+4+42+0-5+100+99 = 246
+    n + s + e + w + av + iv + ev + some_result + none_result
+}

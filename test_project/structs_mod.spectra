@@ -1,0 +1,87 @@
+// Structs with impl blocks, constructors, methods, and operator overloading
+module structs_mod;
+
+struct Vec2 {
+    x: int,
+    y: int
+}
+
+impl Vec2 {
+    fn new(x: int, y: int) -> Vec2 {
+        Vec2 { x: x, y: y }
+    }
+
+    fn get_x(&self) -> int {
+        self.x
+    }
+
+    fn get_y(&self) -> int {
+        self.y
+    }
+
+    fn magnitude_sq(&self) -> int {
+        self.x * self.x + self.y * self.y
+    }
+
+    fn scale(&self, factor: int) -> Vec2 {
+        Vec2 { x: self.x * factor, y: self.y * factor }
+    }
+
+    fn dot(&self, other: Vec2) -> int {
+        self.x * other.x + self.y * other.y
+    }
+
+    fn add(&self, other: Vec2) -> Vec2 {
+        Vec2 { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+
+struct Counter {
+    value: int,
+    step: int
+}
+
+impl Counter {
+    fn new(step: int) -> Counter {
+        Counter { value: 0, step: step }
+    }
+
+    fn increment(&self) -> Counter {
+        Counter { value: self.value + self.step, step: self.step }
+    }
+
+    fn get(&self) -> int {
+        self.value
+    }
+}
+
+pub fn run_structs_tests() -> int {
+    // Vec2 constructor and getters
+    let v1 = Vec2::new(3, 4);
+    let x = v1.get_x();          // 3
+    let y = v1.get_y();          // 4
+    let mag = v1.magnitude_sq(); // 9 + 16 = 25
+
+    // Scaling
+    let v2 = v1.scale(2);
+    let vx2 = v2.get_x();  // 6
+    let vy2 = v2.get_y();  // 8
+
+    // Dot product
+    let v3 = Vec2::new(1, 2);
+    let dot = v1.dot(v3);  // 3*1 + 4*2 = 11
+
+    // Add
+    let v4 = v1.add(v3);
+    let ax = v4.get_x();   // 3+1 = 4
+    let ay = v4.get_y();   // 4+2 = 6
+
+    // Counter
+    let c = Counter::new(5);
+    let c1 = c.increment();     // value = 5
+    let c2 = c1.increment();    // value = 10
+    let cv = c2.get();          // 10
+
+    // Return sum: 3+4+25+6+8+11+4+6+10 = 77
+    x + y + mag + vx2 + vy2 + dot + ax + ay + cv
+}

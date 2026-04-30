@@ -1,0 +1,78 @@
+// Traits: declaration and implementation across multiple types
+module traits_mod;
+
+trait Shape {
+    fn area(&self) -> int;
+    fn perimeter(&self) -> int;
+    fn name(&self) -> int;  // returns a code: 1=circle-like, 2=rect-like
+}
+
+trait Scalable {
+    fn scale(&self, factor: int) -> int;  // returns scaled area
+}
+
+struct Rect {
+    width: int,
+    height: int
+}
+
+struct Square {
+    side: int
+}
+
+impl Shape for Rect {
+    fn area(&self) -> int {
+        self.width * self.height
+    }
+
+    fn perimeter(&self) -> int {
+        2 * (self.width + self.height)
+    }
+
+    fn name(&self) -> int {
+        2
+    }
+}
+
+impl Scalable for Rect {
+    fn scale(&self, factor: int) -> int {
+        self.width * factor * self.height * factor
+    }
+}
+
+impl Shape for Square {
+    fn area(&self) -> int {
+        self.side * self.side
+    }
+
+    fn perimeter(&self) -> int {
+        4 * self.side
+    }
+
+    fn name(&self) -> int {
+        2
+    }
+}
+
+impl Scalable for Square {
+    fn scale(&self, factor: int) -> int {
+        self.side * factor * self.side * factor
+    }
+}
+
+pub fn run_traits_tests() -> int {
+    let r = Rect { width: 5, height: 3 };
+    let r_area = r.area();          // 15
+    let r_peri = r.perimeter();     // 16
+    let r_scaled = r.scale(2);      // 5*2 * 3*2 = 60
+    let r_name = r.name();          // 2
+
+    let s = Square { side: 4 };
+    let s_area = s.area();          // 16
+    let s_peri = s.perimeter();     // 16
+    let s_scaled = s.scale(3);      // 4*3 * 4*3 = 144
+    let s_name = s.name();          // 2
+
+    // Sum: 15+16+60+2+16+16+144+2 = 271
+    r_area + r_peri + r_scaled + r_name + s_area + s_peri + s_scaled + s_name
+}

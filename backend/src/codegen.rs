@@ -55,6 +55,8 @@ pub struct CodeGenerator {
     manual_frame_enter_func: FuncId,
     /// Import for ending a manual allocation frame
     manual_frame_exit_func: FuncId,
+    /// Import for escaping a struct allocation to the parent frame on return
+    manual_escape_func: FuncId,
     /// Import for invoking host functions by name
     host_invoke_func: FuncId,
     /// Cached host name pointers and backing storage
@@ -83,6 +85,10 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_manual_frame_exit",
             spectra_runtime::ffi::spectra_rt_manual_frame_exit as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_manual_escape",
+            spectra_runtime::ffi::spectra_rt_manual_escape as *const u8,
         );
         builder.symbol(
             "spectra_rt_host_invoke",
@@ -127,6 +133,14 @@ impl CodeGenerator {
             )
             .expect("Failed to declare runtime frame exit import");
 
+        // escape(ptr: i64, current_frame_id: i64) — moves struct to parent frame on return
+        let mut escape_sig = module.make_signature();
+        escape_sig.params.push(AbiParam::new(types::I64));
+        escape_sig.params.push(AbiParam::new(types::I64));
+        let manual_escape_func = module
+            .declare_function("spectra_rt_manual_escape", Linkage::Import, &escape_sig)
+            .expect("Failed to declare runtime escape import");
+
         let mut host_invoke_sig = module.make_signature();
         host_invoke_sig.params.push(AbiParam::new(types::I64));
         host_invoke_sig.params.push(AbiParam::new(types::I64));
@@ -149,6 +163,7 @@ impl CodeGenerator {
             manual_free_func,
             manual_frame_enter_func,
             manual_frame_exit_func,
+            manual_escape_func,
             host_invoke_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
@@ -270,6 +285,7 @@ impl CodeGenerator {
                 self.manual_alloc_func,
                 self.manual_free_func,
                 self.manual_frame_exit_func,
+                self.manual_escape_func,
                 self.host_invoke_func,
                 &mut builder,
                 ir_block,
@@ -313,6 +329,7 @@ impl CodeGenerator {
         manual_alloc_func: FuncId,
         manual_free_func: FuncId,
         manual_frame_exit_func: FuncId,
+        manual_escape_func: FuncId,
         host_invoke_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
@@ -360,6 +377,7 @@ impl CodeGenerator {
                 module,
                 manual_free_func,
                 manual_frame_exit_func,
+                manual_escape_func,
                 allocation_vars.as_slice(),
                 frame_var,
             )?;
@@ -887,6 +905,7 @@ impl CodeGenerator {
         module: &mut M,
         manual_free_func: FuncId,
         manual_frame_exit_func: FuncId,
+        manual_escape_func: FuncId,
         allocation_vars: &[Variable],
         frame_var: Variable,
     ) -> Result<(), String> {
@@ -912,16 +931,27 @@ impl CodeGenerator {
                 if let Some(val) = value {
                     let return_val = get_value(val)?;
                     return_values.push(return_val);
-                }
 
-                if !allocation_vars.is_empty() {
-                    let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
-                    for &var in allocation_vars {
-                        let ptr_val = builder.use_var(var);
-                        builder.ins().call(free_ref, &[ptr_val]);
+                    // Escape the return value from the current frame to the parent frame so it
+                    // survives frame_exit below. Only applies to pointer-sized values (i64);
+                    // booleans/i8 are scalars and the escape call would fail the Cranelift
+                    // verifier with a type mismatch.
+                    let return_type = builder.func.dfg.value_type(return_val);
+                    if return_type == cranelift::prelude::types::I64 {
+                        let escape_ref =
+                            module.declare_func_in_func(manual_escape_func, builder.func);
+                        let frame_val_for_escape = builder.use_var(frame_var);
+                        builder
+                            .ins()
+                            .call(escape_ref, &[return_val, frame_val_for_escape]);
                     }
                 }
 
+                // Free all locally alloca'd allocations that are still in this frame.
+                // Any allocation that was escaped above has already been moved to the parent
+                // frame and will therefore not be found by frame_exit, so it is safe to call
+                // frame_exit unconditionally for the remaining ones.
+                let _ = manual_free_func; // kept for API compat; frame_exit handles cleanup
                 let frame_exit_ref =
                     module.declare_func_in_func(manual_frame_exit_func, builder.func);
                 let frame_val = builder.use_var(frame_var);

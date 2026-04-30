@@ -7,9 +7,10 @@ use crate::ir::{
 };
 use spectra_compiler::ast::{
     BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
-    Function as ASTFunction, IfLetStatement, Item, Module as ASTModule, Statement, StatementKind,
-    Struct as ASTStruct, Type as ASTType, TypeAnnotation, TypeAnnotationKind, TypeParameter,
-    UnaryOperator, Visibility, WhileLetStatement,
+    Function as ASTFunction, IfLetStatement, Item, Method as ASTMethod,
+    Module as ASTModule, Statement, StatementKind,
+    Struct as ASTStruct, Type as ASTType, TypeAnnotation,
+    TypeAnnotationKind, TypeParameter, UnaryOperator, Visibility, WhileLetStatement,
 };
 use spectra_compiler::span::Span;
 use spectra_compiler::error::MidendError;
@@ -527,11 +528,13 @@ impl ASTLowering {
                     }
                 }
             } else if let Item::Impl(impl_block) = item {
-                // Collect trait implementations
-                if let Some(ref trait_name) = impl_block.trait_name {
-                    let key = (impl_block.type_name.clone(), trait_name.clone());
-                    self.trait_implementations.insert(key, true);
-                }
+                // `impl Type { ... }` never has a trait_name (that goes to Item::TraitImpl).
+                // Nothing to do here for trait registration in this path.
+                let _ = impl_block;
+            } else if let Item::TraitImpl(trait_impl) = item {
+                // Register that `type_name` implements `trait_name`
+                let key = (trait_impl.type_name.clone(), trait_impl.trait_name.clone());
+                self.trait_implementations.insert(key, true);
             } else if let Item::Trait(trait_decl) = item {
                 // Record method declaration order for vtable slot lookup
                 let methods: Vec<String> = trait_decl.methods.iter().map(|m| m.name.clone()).collect();
@@ -539,7 +542,7 @@ impl ASTLowering {
             }
         }
 
-        // Second pass: lower functions
+        // Second pass: pre-register return types for regular functions and impl methods
         for item in &ast_module.items {
             if let Item::Function(func) = item {
                 if func.type_params.is_empty() {
@@ -551,9 +554,30 @@ impl ASTLowering {
                     self.function_return_types
                         .insert(func.name.clone(), return_type);
                 }
+            } else if let Item::Impl(impl_block) = item {
+                for method in &impl_block.methods {
+                    let mangled = format!("{}_{}", impl_block.type_name, method.name);
+                    let return_type = method
+                        .return_type
+                        .as_ref()
+                        .map(|t| self.lower_type_annotation(t))
+                        .unwrap_or(IRType::Void);
+                    self.function_return_types.entry(mangled).or_insert(return_type);
+                }
+            } else if let Item::TraitImpl(trait_impl) = item {
+                for method in &trait_impl.methods {
+                    let mangled = format!("{}_{}", trait_impl.type_name, method.name);
+                    let return_type = method
+                        .return_type
+                        .as_ref()
+                        .map(|t| self.lower_type_annotation(t))
+                        .unwrap_or(IRType::Void);
+                    self.function_return_types.entry(mangled).or_insert(return_type);
+                }
             }
         }
 
+        // Third pass: lower regular functions and impl block methods to IR
         for item in &ast_module.items {
             if let Item::Function(func) = item {
                 // Store generic functions for later monomorphization
@@ -569,6 +593,16 @@ impl ASTLowering {
 
                 let ir_func = self.lower_function(func);
                 ir_module.add_function(ir_func);
+            } else if let Item::Impl(impl_block) = item {
+                for method in &impl_block.methods {
+                    let ir_func = self.lower_method(method, &impl_block.type_name);
+                    ir_module.add_function(ir_func);
+                }
+            } else if let Item::TraitImpl(trait_impl) = item {
+                for method in &trait_impl.methods {
+                    let ir_func = self.lower_method(method, &trait_impl.type_name);
+                    ir_module.add_function(ir_func);
+                }
             }
         }
 
@@ -1473,6 +1507,30 @@ impl ASTLowering {
                 data,
                 struct_data,
             } => {
+                // Handle StructName::method(args) — the parser treats `Name::Other(...)` as
+                // EnumVariant even for struct static/associated-function calls.
+                if let Some(fields) = self.struct_definitions.get(enum_name.as_str()) {
+                    let mangled = format!("{}_{}", enum_name, variant_name);
+                    if let Some(ret) = self.function_return_types.get(&mangled) {
+                        return ret.clone();
+                    }
+                    // Fallback: assume the static call returns an instance of the struct.
+                    return IRType::Struct {
+                        name: enum_name.clone(),
+                        fields: fields.clone(),
+                    };
+                }
+                if self.generic_structs.contains_key(enum_name.as_str()) {
+                    let mangled = format!("{}_{}", enum_name, variant_name);
+                    if let Some(ret) = self.function_return_types.get(&mangled) {
+                        return ret.clone();
+                    }
+                    return IRType::Struct {
+                        name: enum_name.clone(),
+                        fields: vec![],
+                    };
+                }
+
                 let needs_refinement = type_args.is_empty()
                     || type_args
                         .iter()
@@ -1846,6 +1904,146 @@ impl ASTLowering {
 
         // Ensure function has a return in the current block
         // (After lowering all statements, we should be in the final block)
+        if let Some(current_block_id) = self.builder.get_current_block() {
+            if let Some(block) = ir_func.get_block_mut(current_block_id) {
+                if block.terminator.is_none() {
+                    block.set_terminator(Terminator::Return {
+                        value: implicit_return_value,
+                    });
+                }
+            }
+        }
+
+        ir_func
+    }
+
+    /// Lower an impl block method into a top-level IR function.
+    ///
+    /// The method `foo` on type `TypeName` becomes a function named `TypeName_foo`
+    /// where `self` (in all forms: `self`, `&self`, `&mut self`) is passed as the
+    /// first regular parameter of type `TypeName`.
+    fn lower_method(&mut self, method: &ASTMethod, type_name: &str) -> IRFunction {
+        let mangled_name = format!("{}_{}", type_name, method.name);
+
+        // Convert method parameters to IR parameters.
+        // `self` parameters become a parameter typed as the owning struct/enum.
+        let params: Vec<Parameter> = method
+            .params
+            .iter()
+            .enumerate()
+            .map(|(idx, param)| {
+                let ty = if param.is_self {
+                    // Resolve the concrete type of `self`
+                    if let Some(fields) = self.struct_definitions.get(type_name) {
+                        IRType::Struct {
+                            name: type_name.to_string(),
+                            fields: fields.clone(),
+                        }
+                    } else if let Some(variants) = self.enum_definitions.get(type_name) {
+                        let simplified = variants
+                            .iter()
+                            .map(|(vn, _, data)| (vn.clone(), data.clone()))
+                            .collect();
+                        IRType::Enum {
+                            name: type_name.to_string(),
+                            variants: simplified,
+                        }
+                    } else {
+                        // Type not yet registered — use a named struct as placeholder.
+                        IRType::Struct {
+                            name: type_name.to_string(),
+                            fields: vec![],
+                        }
+                    }
+                } else {
+                    param
+                        .type_annotation
+                        .as_ref()
+                        .map(|t| self.lower_type_annotation(t))
+                        .unwrap_or(IRType::Void)
+                };
+                Parameter {
+                    id: idx,
+                    name: param.name.clone(),
+                    ty,
+                }
+            })
+            .collect();
+
+        let return_type = method
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type_annotation(t))
+            .unwrap_or(IRType::Void);
+
+        self.function_return_types
+            .insert(mangled_name.clone(), return_type.clone());
+
+        let mut ir_func = IRFunction::new(&mangled_name, params.clone(), return_type);
+        let entry_block = ir_func.add_block("entry");
+        self.builder.set_current_block(entry_block);
+
+        // Reset per-function lowering state (mirrors lower_function).
+        self.value_map.clear();
+        self.variable_types.clear();
+        self.alloca_map.clear();
+        self.array_map.clear();
+        self.struct_var_map.clear();
+
+        for (idx, param) in params.iter().enumerate() {
+            let value = Value { id: idx };
+            self.value_map.insert(param.name.clone(), value);
+
+            if param.ty != IRType::Void {
+                self.variable_types
+                    .insert(param.name.clone(), param.ty.clone());
+
+                if let IRType::Struct { name, .. } = &param.ty {
+                    self.struct_var_map
+                        .insert(param.name.clone(), (value, name.clone()));
+                }
+
+                if let IRType::Array { element_type, size } = &param.ty {
+                    self.array_map.insert(
+                        param.name.clone(),
+                        ArrayInfo {
+                            ptr: value,
+                            element_type: element_type.as_ref().clone(),
+                            size: *size,
+                        },
+                    );
+                }
+            }
+        }
+
+        // Allocate slots for variables that are assigned inside the body.
+        let assigned_vars = self.find_assigned_variables(&method.body.statements);
+        for var_name in &assigned_vars {
+            let alloca_value = self.builder.build_alloca(&mut ir_func, IRType::Int);
+            self.alloca_map.insert(var_name.clone(), alloca_value);
+        }
+
+        self.current_function = Some(ir_func.clone());
+        self.current_function_return_annotation = method.return_type.clone();
+
+        // Lower the body; support implicit returns (last expression = return value).
+        let mut implicit_return_value = None;
+        if let Some(last_stmt) = method.body.statements.last() {
+            if let StatementKind::Expression(expr) = &last_stmt.kind {
+                if method.body.statements.len() > 1 {
+                    for stmt in &method.body.statements[..method.body.statements.len() - 1] {
+                        self.lower_statement(stmt, &mut ir_func);
+                    }
+                }
+                implicit_return_value = Some(self.lower_expression(expr, &mut ir_func));
+            } else {
+                self.lower_block(&method.body.statements, &mut ir_func);
+            }
+        } else {
+            self.lower_block(&method.body.statements, &mut ir_func);
+        }
+
+        // Seal the current block with a return terminator if one is missing.
         if let Some(current_block_id) = self.builder.get_current_block() {
             if let Some(block) = ir_func.get_block_mut(current_block_id) {
                 if block.terminator.is_none() {
@@ -3022,8 +3220,10 @@ impl ASTLowering {
                 }
                 // Check if this is a struct variable
                 else if let Some((struct_ptr, _)) = self.struct_var_map.get(name) {
-                    // Load struct from memory
-                    self.builder.build_load(ir_func, struct_ptr)
+                    // Struct variables are represented as pointers — return the pointer directly.
+                    // Field access via FieldAccess/struct_var_map uses the pointer for GEP;
+                    // method calls receive the pointer as `self`.
+                    struct_ptr
                 }
                 // Check if variable is in memory (mutable)
                 else if let Some(&alloca_ptr) = self.alloca_map.get(name) {
@@ -3672,6 +3872,28 @@ impl ASTLowering {
                 data,
                 struct_data,
             } => {
+                // Handle `StructType::static_method(args)` — parsed as EnumVariant by the
+                // parser but is actually a static/associated function call.
+                if self.struct_definitions.contains_key(enum_name.as_str())
+                    || self.generic_structs.contains_key(enum_name.as_str())
+                {
+                    let function_name = format!("{}_{}", enum_name, variant_name);
+                    let mut call_args: Vec<Value> = Vec::new();
+                    if let Some(data_exprs) = data {
+                        for arg in data_exprs.iter() {
+                            call_args.push(self.lower_expression(arg, ir_func));
+                        }
+                    } else if let Some(named_fields) = struct_data {
+                        for (_, val_expr) in named_fields.iter() {
+                            call_args.push(self.lower_expression(val_expr, ir_func));
+                        }
+                    }
+                    return self
+                        .builder
+                        .build_call(ir_func, function_name, call_args, true)
+                        .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                }
+
                 let needs_refinement = type_args.is_empty()
                     || type_args
                         .iter()
