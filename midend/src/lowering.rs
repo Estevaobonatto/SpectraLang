@@ -455,10 +455,7 @@ impl ASTLowering {
                     // Store generic struct for later monomorphization
                     self.generic_structs
                         .insert(struct_def.name.clone(), struct_def.clone());
-                    eprintln!(
-                        "Info: Stored generic struct '{}' for monomorphization",
-                        struct_def.name
-                    );
+                    // generic struct stored for monomorphization
                 } else {
                     // Regular struct - process immediately
                     let fields: Vec<(String, IRType)> = struct_def
@@ -484,10 +481,7 @@ impl ASTLowering {
                     // Store generic enum for later monomorphization
                     self.generic_enums
                         .insert(enum_def.name.clone(), enum_def.clone());
-                    eprintln!(
-                        "Info: Stored generic enum '{}' for monomorphization",
-                        enum_def.name
-                    );
+                    // generic enum stored for monomorphization
                 } else {
                     // Regular enum - process immediately
                     let mut field_names = HashMap::new();
@@ -584,10 +578,7 @@ impl ASTLowering {
                 if !func.type_params.is_empty() {
                     self.generic_functions
                         .insert(func.name.clone(), func.clone());
-                    eprintln!(
-                        "Info: Stored generic function '{}' for monomorphization",
-                        func.name
-                    );
+                    // generic function stored for monomorphization
                     continue;
                 }
 
@@ -633,8 +624,7 @@ impl ASTLowering {
         while let Some(request) = self.pending_specializations.pop() {
             if total_processed >= MAX_SPECIALIZATIONS {
                 eprintln!(
-                    "Warning: monomorphization limit ({}) reached — possible infinite \
-                     expansion involving '{}'. Remaining specializations skipped.",
+                    "monomorphization limit ({}) reached for '{}'; remaining specializations skipped.",
                     MAX_SPECIALIZATIONS, request.generic_name
                 );
                 self.pending_specializations.clear();
@@ -650,7 +640,7 @@ impl ASTLowering {
 
             // Get the generic function AST
             if let Some(generic_func) = self.generic_functions.get(&request.generic_name).cloned() {
-                eprintln!("Info: Generating specialization: {}", mangled);
+                // generating specialization
 
                 // Generate specialized function
                 let specialized_func = self.specialize_function(&generic_func, &request);
@@ -665,7 +655,7 @@ impl ASTLowering {
                 total_processed += 1;
             } else {
                 eprintln!(
-                    "Warning: Generic function '{}' not found for monomorphization",
+                    "generic function '{}' not found for monomorphization",
                     request.generic_name
                 );
             }
@@ -3400,10 +3390,7 @@ impl ASTLowering {
                     // Check if we already generated this specialization
                     if !self.generated_specializations.contains_key(&mangled) {
                         // Mark it as pending
-                        eprintln!(
-                            "Info: Requesting specialization: {} -> {}",
-                            function_name, mangled
-                        );
+                        // requesting specialization
                         self.pending_specializations.push(request);
                     }
 
@@ -4975,10 +4962,7 @@ impl ASTLowering {
         self.struct_definitions
             .insert(mangled_name.to_string(), specialized_fields);
 
-        eprintln!(
-            "Info: Specialized struct '{}' as '{}'",
-            generic.name, mangled_name
-        );
+        // specialized struct
     }
 
     /// Specialize a generic enum with concrete type arguments
@@ -5053,10 +5037,7 @@ impl ASTLowering {
                 .insert(mangled_name.to_string(), field_names);
         }
 
-        eprintln!(
-            "Info: Specialized enum '{}' as '{}'",
-            generic.name, mangled_name
-        );
+        // specialized enum
     }
 
     /// Substitute type parameters in a type annotation

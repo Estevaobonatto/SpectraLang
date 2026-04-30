@@ -131,49 +131,49 @@ impl AggregateMetrics {
         }
 
         println!(
-            "\n📊 Aggregated build metrics ({} file{}):",
+            "\naggregate metrics ({} file{}):",
             self.files,
             if self.files == 1 { "" } else { "s" }
         );
 
         println!(
-            "  • Front-end total: {:?} (avg {:?})",
+            "  - Front-end total: {:?} (avg {:?})",
             self.front_total,
             average(self.front_total, self.files)
         );
         println!(
-            "  • Lexing total:    {:?} (avg {:?})",
+            "  - Lexing total:    {:?} (avg {:?})",
             self.lexing_total,
             average(self.lexing_total, self.files)
         );
         println!(
-            "  • Parsing total:   {:?} (avg {:?})",
+            "  - Parsing total:   {:?} (avg {:?})",
             self.parsing_total,
             average(self.parsing_total, self.files)
         );
         println!(
-            "  • Semantic total:  {:?} (avg {:?})",
+            "  - Semantic total:  {:?} (avg {:?})",
             self.semantic_total,
             average(self.semantic_total, self.files)
         );
         println!(
-            "  • Backend total:   {:?} (avg {:?})",
+            "  - Backend total:   {:?} (avg {:?})",
             self.backend_total,
             average(self.backend_total, self.files)
         );
         println!(
-            "  • Lowering total:  {:?} (avg {:?})",
+            "  - Lowering total:  {:?} (avg {:?})",
             self.lowering_total,
             average(self.lowering_total, self.files)
         );
         println!(
-            "  • Codegen total:   {:?} (avg {:?})",
+            "  - Codegen total:   {:?} (avg {:?})",
             self.codegen_total,
             average(self.codegen_total, self.files)
         );
 
         if !self.passes.is_empty() {
-            println!("  • Optimization passes:");
+            println!("  - Optimization passes:");
             let mut entries: Vec<_> = self.passes.iter().collect();
             entries.sort_by(|a, b| b.1.total_duration.cmp(&a.1.total_duration));
             for (name, data) in entries {
@@ -350,10 +350,9 @@ impl BackendDriver for FullPipelineBackend {
         let codegen = match self.codegen.as_mut() {
             Some(codegen) => codegen,
             None => {
-                println!(
-                    "\n⚠️ Backend artifacts missing code generator; JIT execution unavailable"
-                );
-                return Ok(());
+                return Err(vec![CompilerError::Backend(BackendError::new(
+                    "JIT execution requested but no code generator is available".to_string(),
+                ))]);
             }
         };
 
@@ -369,7 +368,7 @@ impl BackendDriver for FullPipelineBackend {
             return Ok(());
         }
 
-        let runtime_state = spectra_runtime::initialize();
+        let _runtime_state = spectra_runtime::initialize();
         // Ensure stdlib host calls are registered before bridging into JITed code.
         spectra_runtime::register_standard_library();
         let execution_start = Instant::now();
@@ -387,22 +386,12 @@ impl BackendDriver for FullPipelineBackend {
         let exit_code = return_value.map(|v| v as i32).unwrap_or(0);
         LAST_EXEC_EXIT.with(|cell| cell.set(Some(exit_code)));
 
-        // Print the execution summary only when the user asked for timing data
-        // or when quiet_execution has not been requested.
+        // Print the execution summary only when timing data was requested.
         if !self.quiet_execution || options.collect_metrics {
-            let runtime_uptime = runtime_state.uptime();
-            let init_thread = runtime_state.init_thread_id();
-
-            if let Some(value) = return_value {
-                println!(
-                    "\n✅ Execution completed (JIT)\n   - main() returned {}\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
-                    value, execution_duration, runtime_uptime, init_thread
-                );
+            if let Some(exit) = return_value {
+                println!("    Finished in {:?} (exit: {})", execution_duration, exit);
             } else {
-                println!(
-                    "\n✅ Execution completed (JIT)\n   - main() returned void\n   - execution time {:?}\n   - runtime uptime {:?} (init thread {:?})",
-                    execution_duration, runtime_uptime, init_thread
-                );
+                println!("    Finished in {:?}", execution_duration);
             }
         }
 
@@ -448,12 +437,6 @@ impl SpectraCompiler {
 
     /// Compile source code to native code
     pub fn compile(&mut self, source: &str, filename: &str) -> Result<(), String> {
-        if self.emit_output {
-            println!("🚀 SpectraLang Compiler");
-            println!("━━━━━━━━━━━━━━━━━━━━");
-            println!();
-        }
-
         let report = self
             .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
@@ -461,7 +444,7 @@ impl SpectraCompiler {
         if self.emit_output {
             self.emit_lint_warnings(&report.warnings, filename, source);
 
-            if self.options.optimize {
+            if self.options.optimize && self.emit_internal_metrics && self.options.collect_metrics {
                 let modified_passes: Vec<_> = report
                     .artifacts
                     .passes
@@ -470,13 +453,8 @@ impl SpectraCompiler {
                     .map(|entry| entry.name)
                     .collect();
 
-                if modified_passes.is_empty() {
-                    println!("Optimization passes applied: none (IR unchanged)");
-                } else {
-                    println!(
-                        "Optimization passes applied: {}",
-                        modified_passes.join(", ")
-                    );
+                if !modified_passes.is_empty() {
+                    println!("optimization passes: {}", modified_passes.join(", "));
                 }
             }
 
@@ -484,43 +462,31 @@ impl SpectraCompiler {
                 && self.emit_internal_metrics
                 && !report.artifacts.passes.is_empty()
             {
-                println!("Pass timings:");
+                println!("pass timings:");
                 for entry in &report.artifacts.passes {
-                    let status = if entry.modified {
-                        "modified"
-                    } else {
-                        "no change"
-                    };
+                    let status = if entry.modified { "modified" } else { "no change" };
                     println!(
-                        "  • {:<28} {:>10?} ({})",
+                        "  {:<28} {:>10?}  {}",
                         entry.name, entry.duration, status
                     );
                 }
             }
 
             if self.options.collect_metrics && self.emit_internal_metrics {
-                println!("Lowering time: {:?}", report.artifacts.lowering_duration);
-                println!("Code generation time: {:?}", report.artifacts.codegen_duration);
+                println!("  lowering   {:?}", report.artifacts.lowering_duration);
+                println!("  codegen    {:?}", report.artifacts.codegen_duration);
             }
 
             if self.emit_internal_metrics {
                 if let Some(metrics) = report.metrics.as_ref() {
-                    println!("Front-end timings:");
-                    println!("  • Lexing:    {:?}", metrics.lexing);
-                    println!("  • Parsing:   {:?}", metrics.parsing);
-                    println!("  • Semantic:  {:?}", metrics.semantic);
-                    println!("  • Backend:   {:?}", metrics.backend);
-                    println!("  • Total:     {:?}", metrics.total);
+                    println!("front-end timings:");
+                    println!("  lexing     {:?}", metrics.lexing);
+                    println!("  parsing    {:?}", metrics.parsing);
+                    println!("  semantic   {:?}", metrics.semantic);
+                    println!("  backend    {:?}", metrics.backend);
+                    println!("  total      {:?}", metrics.total);
                 }
             }
-
-            println!(
-                "IR functions emitted: {}",
-                report.artifacts.ir_module.functions.len()
-            );
-
-            println!("✨ Compilation successful!");
-            println!("━━━━━━━━━━━━━━━━━━━━");
         }
 
         if self.options.run_jit {
@@ -658,10 +624,6 @@ impl SpectraCompiler {
     /// Compile and execute (JIT)
     #[allow(dead_code)]
     pub fn compile_and_execute(&mut self, source: &str) -> Result<(), String> {
-        println!("🚀 SpectraLang Compiler");
-        println!("━━━━━━━━━━━━━━━━━━━━");
-        println!();
-
         let compilation = self
             .pipeline
             .compile(source, "<jit>")
@@ -676,7 +638,7 @@ impl SpectraCompiler {
 
         self.emit_lint_warnings(&warnings, "<jit>", source);
 
-        if self.options.optimize {
+        if self.options.optimize && self.options.collect_metrics {
             let modified_passes: Vec<_> = artifacts
                 .passes
                 .iter()
@@ -684,56 +646,39 @@ impl SpectraCompiler {
                 .map(|report| report.name)
                 .collect();
 
-            if modified_passes.is_empty() {
-                println!("Optimization passes applied: none (IR unchanged)");
-            } else {
-                println!(
-                    "Optimization passes applied: {}",
-                    modified_passes.join(", ")
-                );
+            if !modified_passes.is_empty() {
+                println!("optimization passes: {}", modified_passes.join(", "));
             }
         }
 
         if self.options.collect_metrics && !artifacts.passes.is_empty() {
-            println!("Pass timings:");
+            println!("pass timings:");
             for report in &artifacts.passes {
-                let status = if report.modified {
-                    "modified"
-                } else {
-                    "no change"
-                };
+                let status = if report.modified { "modified" } else { "no change" };
                 println!(
-                    "  • {:<28} {:>10?} ({})",
+                    "  {:<28} {:>10?}  {}",
                     report.name, report.duration, status
                 );
             }
         }
 
         if self.options.collect_metrics {
-            println!("Lowering time: {:?}", artifacts.lowering_duration);
-            println!("Code generation time: {:?}", artifacts.codegen_duration);
+            println!("  lowering   {:?}", artifacts.lowering_duration);
+            println!("  codegen    {:?}", artifacts.codegen_duration);
         }
 
         if let Some(metrics) = metrics.as_ref() {
-            println!("Front-end timings:");
-            println!("  • Lexing:    {:?}", metrics.lexing);
-            println!("  • Parsing:   {:?}", metrics.parsing);
-            println!("  • Semantic:  {:?}", metrics.semantic);
-            println!("  • Backend:   {:?}", metrics.backend);
-            println!("  • Total:     {:?}", metrics.total);
+            println!("front-end timings:");
+            println!("  lexing     {:?}", metrics.lexing);
+            println!("  parsing    {:?}", metrics.parsing);
+            println!("  semantic   {:?}", metrics.semantic);
+            println!("  backend    {:?}", metrics.backend);
+            println!("  total      {:?}", metrics.total);
         }
-
-        println!(
-            "IR functions emitted: {}",
-            artifacts.ir_module.functions.len()
-        );
 
         self.pipeline
             .execute_artifacts(&artifacts)
             .map_err(|errors| render_errors(&errors, source, "<jit>", "execution"))?;
-
-        println!("✨ Compilation successful!");
-        println!("━━━━━━━━━━━━━━━━━━━━");
 
         Ok(())
     }

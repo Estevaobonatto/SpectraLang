@@ -164,10 +164,10 @@ impl BuildCommand {
 
     fn success_message(self) -> &'static str {
         match self {
-            BuildCommand::Compile => "All files compiled successfully!",
-            BuildCommand::Check => "Check completed. No errors detected.",
-            BuildCommand::Run => "Compilation and execution finished successfully.",
-            BuildCommand::Lint => "Lint checks completed without findings.",
+            BuildCommand::Compile => "    Finished",
+            BuildCommand::Check => "    Finished (no errors detected)",
+            BuildCommand::Run => "",
+            BuildCommand::Lint => "    Finished (no lint findings)",
         }
     }
 
@@ -176,14 +176,6 @@ impl BuildCommand {
             BuildCommand::Check => "Checking",
             BuildCommand::Lint => "Linting",
             BuildCommand::Compile | BuildCommand::Run => "Compiling",
-        }
-    }
-
-    fn module_success_verb(self) -> &'static str {
-        match self {
-            BuildCommand::Check => "checked",
-            BuildCommand::Lint => "linted",
-            BuildCommand::Compile | BuildCommand::Run => "compiled",
         }
     }
 }
@@ -910,11 +902,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             .map_err(|e| CliError::compilation(e))?;
         fs::write(obj_path, &obj_bytes)
             .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
-        println!("✅ Object file written: {}", obj_path.display());
-        println!(
-            "   Link with: cc {} -L<runtime_lib_dir> -lspectra_runtime -o <output>",
-            obj_path.display()
-        );
+        println!("     Written object {}", obj_path.display());
         return Ok(());
     }
 
@@ -958,7 +946,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         let _ = fs::remove_file(&obj_path); // always clean up the temp object
         link_result.map_err(|e| CliError::compilation(e))?;
 
-        println!("✅ Executable written: {}", exe_path.display());
+        println!("     Written executable {}", exe_path.display());
         return Ok(());
     }
 
@@ -1046,7 +1034,7 @@ fn compile_plan(
     for module in plan.modules() {
         if !quiet {
             println!(
-                "\n{} module: {} ({})",
+                "{:>12} {} ({})",
                 kind.module_verb(),
                 module.name,
                 module.path.display()
@@ -1055,9 +1043,9 @@ fn compile_plan(
 
         if verbose {
             if module.imports.is_empty() {
-                println!("    imports: (none)");
+                println!("             imports: (none)");
             } else {
-                println!("    imports: {}", module.imports.join(", "));
+                println!("             imports: {}", module.imports.join(", "));
             }
         }
 
@@ -1078,13 +1066,6 @@ fn compile_plan(
 
                 match compiler.compile(effective_source, &filename) {
                     Ok(()) => {
-                        if !quiet {
-                            println!(
-                                "\nSuccessfully {} module '{}'",
-                                kind.module_success_verb(),
-                                module.name
-                            );
-                        }
                         if show_pipeline_summary {
                             if let Some(summary) = compiler.take_last_summary() {
                                 print_pipeline_summary(&summary);
@@ -1166,12 +1147,10 @@ fn print_pipeline_summary(summary: &ModulePipelineSummary) {
 
     if let Some(metrics) = &summary.frontend_metrics {
         println!("      Front-end total: {:?}", metrics.total);
-        println!("        • Lexing:    {:?}", metrics.lexing);
-        println!("        • Parsing:   {:?}", metrics.parsing);
-        println!("        • Semantic:  {:?}", metrics.semantic);
-        println!("        • Backend:   {:?}", metrics.backend);
-    } else {
-        println!("      Front-end timings unavailable (enable --timings to collect).",);
+        println!("        - Lexing:    {:?}", metrics.lexing);
+        println!("        - Parsing:   {:?}", metrics.parsing);
+        println!("        - Semantic:  {:?}", metrics.semantic);
+        println!("        - Backend:   {:?}", metrics.backend);
     }
 
     println!("      Lowering: {:?}", summary.lowering_duration);
@@ -1276,17 +1255,19 @@ fn execute_plan_with_options(
     }
 
     if print_success && kind != BuildCommand::Run {
-        println!("\n{}", kind.success_message());
+        let msg = kind.success_message();
+        if !msg.is_empty() {
+            println!("{}", msg);
+        }
     }
 
     Ok(())
 }
 
 fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions) {
-    println!("Verbose mode enabled");
-    println!("  • Command: {}", kind.name());
+    println!("  - Command: {}", kind.name());
     println!(
-        "  • Optimization level: O{} ({})",
+        "  - Optimization level: O{} ({})",
         options.opt_level,
         if options.optimize {
             "optimizations on"
@@ -1295,24 +1276,24 @@ fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions)
         }
     );
     println!(
-        "  • Dump AST: {}",
+        "  - Dump AST: {}",
         if options.dump_ast { "yes" } else { "no" }
     );
     println!(
-        "  • Dump IR: {}",
+        "  - Dump IR: {}",
         if options.dump_ir { "yes" } else { "no" }
     );
     println!(
-        "  • Collect metrics: {}",
+        "  - Collect metrics: {}",
         if options.collect_metrics { "yes" } else { "no" }
     );
     println!(
-        "  • Run JIT after build: {}",
+        "  - Run JIT after build: {}",
         if options.run_jit { "yes" } else { "no" }
     );
 
     if options.lint.enabled.is_empty() {
-        println!("  • Linting: disabled");
+        println!("  - Linting: disabled");
     } else {
         let mut denied: Vec<_> = options.lint.deny.iter().map(|rule| rule.code()).collect();
         denied.sort();
@@ -1321,16 +1302,16 @@ fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions)
         } else {
             denied.join(", ")
         };
-        println!("  • Linting: enabled (denied rules: {})", denied_display);
+        println!("  - Linting: enabled (denied rules: {})", denied_display);
     }
 
     let mut features: Vec<_> = options.experimental_features.iter().collect();
     features.sort();
     if features.is_empty() {
-        println!("  • Experimental features: (none)");
+        println!("  - Experimental features: (none)");
     } else {
         println!(
-            "  • Experimental features: {}",
+            "  - Experimental features: {}",
             features
                 .into_iter()
                 .map(|feature| feature.as_str())
@@ -1601,13 +1582,9 @@ fn create_new_project(options: NewProjectOptions) -> CliResult<()> {
         ))
     })?;
 
-    println!("✨ Created Spectra project at '{}'", path.display());
-    println!("   • Manifest: {}", manifest_path.display());
-    println!("   • Entry:    {}", main_source_path.display());
-    println!();
-    println!("Next steps:");
-    println!("  1. spectra run {}", main_source_path.display());
-    println!("  2. Explore and adjust 'Spectra.toml' to suit your project.");
+    println!("     Created \"{}\" project", path.display());
+    println!("       entry: {}", main_source_path.display());
+    println!("         run: spectra run \"{}\"", main_source_path.display());
 
     Ok(())
 }
@@ -2019,7 +1996,7 @@ fn print_global_help() {
 }
 
 fn print_build_help(command: BuildCommand) {
-    println!("SpectraLang CLI – '{}' command", command.name());
+    println!("SpectraLang CLI - '{}' command", command.name());
     println!();
     println!("USAGE:");
     println!("    spectralang {} [OPTIONS] <paths>...", command.name());
@@ -2052,7 +2029,7 @@ fn print_build_help(command: BuildCommand) {
 }
 
 fn print_repl_help() {
-    println!("SpectraLang CLI – 'repl' command");
+    println!("SpectraLang CLI - 'repl' command");
     println!();
     println!("USAGE:");
     println!("    spectralang repl [OPTIONS] [paths]...");
@@ -2081,7 +2058,7 @@ fn print_repl_help() {
 }
 
 fn print_new_help() {
-    println!("SpectraLang CLI – 'new' command");
+    println!("SpectraLang CLI - 'new' command");
     println!();
     println!("USAGE:");
     println!("    spectralang new [OPTIONS] <path>");
@@ -2097,7 +2074,7 @@ fn print_new_help() {
 }
 
 fn print_format_help() {
-    println!("SpectraLang CLI – 'fmt' command");
+    println!("SpectraLang CLI - 'fmt' command");
     println!();
     println!("USAGE:");
     println!("    spectralang fmt [OPTIONS] <paths>...");
@@ -2121,7 +2098,7 @@ fn print_format_help() {
 }
 
 fn print_lint_help() {
-    println!("SpectraLang CLI – 'lint' command");
+    println!("SpectraLang CLI - 'lint' command");
     println!();
     println!("USAGE:");
     println!("    spectralang lint [OPTIONS] <paths>...");

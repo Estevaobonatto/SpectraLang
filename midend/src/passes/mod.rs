@@ -31,9 +31,7 @@ impl PassManager {
     pub fn run(&mut self, module: &mut Module) {
         for pass in &mut self.passes {
             let modified = pass.run(module);
-            if modified {
-                println!("Pass '{}' modified the IR", pass.name());
-            }
+            let _modified = modified;
         }
     }
 }

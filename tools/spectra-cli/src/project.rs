@@ -160,7 +160,7 @@ impl fmt::Display for ProjectError {
                     for missing in &item.missing {
                         writeln!(
                             f,
-                            "  • module '{}' imports '{}', but no file declaring 'module {};' was found",
+                            "  - module '{}' imports '{}', but no file declaring 'module {};' was found",
                             item.module, missing, missing
                         )?;
                     }
@@ -181,7 +181,7 @@ impl fmt::Display for ProjectError {
             ProjectError::NoSourcesFound(paths) => {
                 writeln!(f, "no Spectra source files found in the given path(s):")?;
                 for path in paths {
-                    writeln!(f, "  • {}", path.display())?;
+                    writeln!(f, "  - {}", path.display())?;
                 }
                 write!(f, "help: source files must have a .spectra or .spc extension")
             }
