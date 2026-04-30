@@ -163,6 +163,7 @@ fn make_std_collections() -> ModuleExports {
         is_enum: false,
         struct_fields: None,
         enum_variants: None,
+        enum_struct_variants: None,
     });
 
     exports

@@ -26,15 +26,18 @@ pub struct ExportedFunction {
 /// A type (struct or enum) exported from a module.
 #[derive(Debug, Clone)]
 pub struct ExportedType {
-    /// Field names for structs, variant names for enums.
+    /// Field names for structs, variant names for enums (in declaration order).
     pub members: Vec<String>,
     pub visibility: ExportVisibility,
     /// True if it's an enum, false if struct.
     pub is_enum: bool,
     /// For structs: field name -> type annotation.
     pub struct_fields: Option<HashMap<String, TypeAnnotation>>,
-    /// For enums: variant name -> payload types (None for unit, Some for tuple).
+    /// For enums: variant name -> tuple payload types (None for unit/struct-data variants).
     pub enum_variants: Option<HashMap<String, Option<Vec<TypeAnnotation>>>>,
+    /// For enums: variant name -> named-field list, for struct-data variants only.
+    /// e.g. `Variant { x: int, y: int }` -> `Some([("x", int), ("y", int)])`.
+    pub enum_struct_variants: Option<HashMap<String, Vec<(String, TypeAnnotation)>>>,
 }
 
 /// All public symbols exported by a single module.

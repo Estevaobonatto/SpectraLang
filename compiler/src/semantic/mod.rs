@@ -491,6 +491,7 @@ impl SemanticAnalyzer {
                             is_enum: false,
                             struct_fields: Some(struct_fields),
                             enum_variants: None,
+                            enum_struct_variants: None,
                         },
                     );
                 }
@@ -504,18 +505,33 @@ impl SemanticAnalyzer {
                         ExportVisibility::Internal
                     };
                     let members = e.variants.iter().map(|v| v.name.clone()).collect();
+                    // enum_variants: stores tuple-payload types only (None for unit and struct-data variants).
                     let enum_variants: HashMap<String, Option<Vec<crate::ast::TypeAnnotation>>> = e
                         .variants
                         .iter()
                         .map(|v| {
-                            let payload = v.data.clone().or_else(|| {
-                                v.struct_data.as_ref().map(|fields| {
-                                    fields.iter().map(|(_, ty)| ty.clone()).collect()
-                                })
-                            });
+                            let payload = if v.struct_data.is_some() {
+                                // struct-data variants are tracked separately in enum_struct_variants.
+                                None
+                            } else {
+                                v.data.clone()
+                            };
                             (v.name.clone(), payload)
                         })
                         .collect();
+                    // enum_struct_variants: stores named-field lists for struct-data variants.
+                    let mut enum_struct_variants: HashMap<String, Vec<(String, crate::ast::TypeAnnotation)>> =
+                        HashMap::new();
+                    for v in &e.variants {
+                        if let Some(ref fields) = v.struct_data {
+                            enum_struct_variants.insert(v.name.clone(), fields.clone());
+                        }
+                    }
+                    let enum_struct_variants_opt = if enum_struct_variants.is_empty() {
+                        None
+                    } else {
+                        Some(enum_struct_variants)
+                    };
                     exports.types.insert(
                         e.name.clone(),
                         ExportedType {
@@ -524,6 +540,7 @@ impl SemanticAnalyzer {
                             is_enum: true,
                             struct_fields: None,
                             enum_variants: Some(enum_variants),
+                            enum_struct_variants: enum_struct_variants_opt,
                         },
                     );
                 }
@@ -1767,18 +1784,34 @@ impl SemanticAnalyzer {
                 );
                 let members = &type_export.members;
                 if type_export.is_enum {
-                    // Minimal enum registration so type checks resolve.
+                    // Build full EnumVariantInfo, preserving tuple payload and struct-data fields.
                     self.enum_definitions
                         .entry(local_name.clone())
                         .or_insert_with(|| members.clone());
                     let variant_map: HashMap<String, EnumVariantInfo> = members
                         .iter()
                         .map(|m| {
+                            // Check for struct-data variant first.
+                            let struct_data = type_export
+                                .enum_struct_variants
+                                .as_ref()
+                                .and_then(|sv| sv.get(m))
+                                .cloned();
+                            // Tuple payload (only meaningful when struct_data is None).
+                            let data = if struct_data.is_none() {
+                                type_export
+                                    .enum_variants
+                                    .as_ref()
+                                    .and_then(|map| map.get(m))
+                                    .and_then(|p| p.clone())
+                            } else {
+                                None
+                            };
                             (
                                 m.clone(),
                                 EnumVariantInfo {
-                                    data: None,
-                                    struct_data: None,
+                                    data,
+                                    struct_data,
                                     span: import.span,
                                 },
                             )
@@ -1795,13 +1828,30 @@ impl SemanticAnalyzer {
                         variants: variant_map,
                     });
                 } else {
-                    // Minimal struct registration.
-                    let field_map: HashMap<String, StructFieldInfo> = HashMap::new();
+                    // Struct registration: populate fields from the exported type.
                     let vis = if type_export.visibility == ExportVisibility::Public {
                         Visibility::Public
                     } else {
                         Visibility::Internal
                     };
+                    let field_map: HashMap<String, StructFieldInfo> = type_export
+                        .struct_fields
+                        .as_ref()
+                        .map(|sf| {
+                            sf.iter()
+                                .map(|(fname, fty)| {
+                                    (
+                                        fname.clone(),
+                                        StructFieldInfo {
+                                            ty: fty.clone(),
+                                            span: import.span,
+                                            visibility: Visibility::Public,
+                                        },
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     self.struct_infos.entry(local_name).or_insert(StructInfo {
                         visibility: vis,
                         type_params: Vec::new(),
@@ -4555,24 +4605,43 @@ impl SemanticAnalyzer {
                                     );
                                     return;
                                 }
-                                // Inject enum info locally if not present
-                                if !self.enum_infos.contains_key(enum_name) {
-                                    if let Some(ref variants_map) = type_export.enum_variants {
-                                        let mut variants = std::collections::HashMap::new();
-                                        for (vname, _) in variants_map.iter() {
-                                            variants.insert(vname.clone(), EnumVariantInfo {
+                                // Inject or update enum info with full payload data from registry.
+                                if let Some(ref variants_map) = type_export.enum_variants {
+                                    let mut variants: HashMap<String, EnumVariantInfo> = HashMap::new();
+                                    for (vname, payload) in variants_map.iter() {
+                                        let struct_data = type_export
+                                            .enum_struct_variants
+                                            .as_ref()
+                                            .and_then(|sv| sv.get(vname))
+                                            .cloned();
+                                        let data = if struct_data.is_none() {
+                                            payload.clone()
+                                        } else {
+                                            None
+                                        };
+                                        variants.insert(vname.clone(), EnumVariantInfo {
+                                            data,
+                                            struct_data,
+                                            span: Span::dummy(),
+                                        });
+                                    }
+                                    // Also include struct-data variants not in enum_variants.
+                                    if let Some(ref sv) = type_export.enum_struct_variants {
+                                        for (vname, fields) in sv.iter() {
+                                            variants.entry(vname.clone()).or_insert(EnumVariantInfo {
                                                 data: None,
-                                                struct_data: None,
+                                                struct_data: Some(fields.clone()),
                                                 span: Span::dummy(),
                                             });
                                         }
-                                        self.enum_infos.insert(enum_name.clone(), EnumInfo {
-                                            visibility: Visibility::Public,
-                                            type_params: vec![],
-                                            variants,
-                                        });
-                                        self.enum_definitions.insert(enum_name.clone(), variants_map.keys().cloned().collect());
                                     }
+                                    let member_names: Vec<String> = variants.keys().cloned().collect();
+                                    self.enum_infos.insert(enum_name.clone(), EnumInfo {
+                                        visibility: Visibility::Public,
+                                        type_params: vec![],
+                                        variants,
+                                    });
+                                    self.enum_definitions.insert(enum_name.clone(), member_names);
                                 }
                                 (enum_name.clone(), variant_name.clone())
                             } else {

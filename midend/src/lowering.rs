@@ -451,7 +451,24 @@ impl ASTLowering {
         // that cross-module type references resolve before the local first pass.
         for enum_def in &ast_module.imported_enum_defs {
             if self.enum_definitions.contains_key(&enum_def.name) {
-                continue; // already registered (e.g. by a previous compilation unit)
+                // Check whether the existing registration is identical (same variant names).
+                // Identical → safe duplicate (same type imported via two paths), skip.
+                // Different → two modules export different types with the same name → error.
+                let existing_variants: Vec<String> = self
+                    .enum_definitions
+                    .get(&enum_def.name)
+                    .map(|v| v.iter().map(|(name, _, _)| name.clone()).collect())
+                    .unwrap_or_default();
+                let incoming_variants: Vec<String> =
+                    enum_def.variants.iter().map(|v| v.name.clone()).collect();
+                if existing_variants != incoming_variants {
+                    self.error(format!(
+                        "Name collision: two imported modules export different enum types named '{}'. \
+                         Rename one of them to resolve the conflict.",
+                        enum_def.name
+                    ));
+                }
+                continue;
             }
             if !enum_def.type_params.is_empty() {
                 self.generic_enums
@@ -498,6 +515,21 @@ impl ASTLowering {
         }
         for struct_def in &ast_module.imported_struct_defs {
             if self.struct_definitions.contains_key(&struct_def.name) {
+                // Check whether the existing registration is identical (same field names).
+                let existing_fields: Vec<String> = self
+                    .struct_definitions
+                    .get(&struct_def.name)
+                    .map(|v| v.iter().map(|(name, _)| name.clone()).collect())
+                    .unwrap_or_default();
+                let incoming_fields: Vec<String> =
+                    struct_def.fields.iter().map(|f| f.name.clone()).collect();
+                if existing_fields != incoming_fields {
+                    self.error(format!(
+                        "Name collision: two imported modules export different struct types named '{}'. \
+                         Rename one of them to resolve the conflict.",
+                        struct_def.name
+                    ));
+                }
                 continue;
             }
             if !struct_def.type_params.is_empty() {

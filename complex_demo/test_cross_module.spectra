@@ -15,8 +15,14 @@ pub fn main() -> int {
     let a = test_utils::status_value(ok_val);
     let b = test_utils::status_value(err_val);
 
-    let result = a + b;
+    // Direct match on a cross-module enum value (exercises validate_pattern / bind_pattern)
+    let ok_val2 = test_utils::Status::Ok(10);
+    let matched = match ok_val2 {
+        Status::Ok(v) => { v }
+        Status::Err(_) => { 0 - 1 }
+    };
+
+    let result = a + b + matched;
     println(result);
     return result;
-
 }
