@@ -1,0 +1,83 @@
+module data_types;
+
+enum Status {
+    Active { code: int },
+    Inactive,
+    Error { code: int, message: string },
+}
+
+enum Maybe {
+    Just(int),
+    Nothing,
+}
+
+enum Outcome {
+    Success(int),
+    Failure(string),
+}
+
+fn status_code(s: Status) -> int {
+    match s {
+        Status::Active { code } => {
+            return code;
+        }
+        Status::Inactive => {
+            return 0;
+        }
+        Status::Error { code, message } => {
+            return code;
+        }
+    }
+}
+
+fn maybe_double(m: Maybe) -> Maybe {
+    match m {
+        Maybe::Just(n) => {
+            return Maybe::Just(n * 2);
+        }
+        Maybe::Nothing => {
+            return Maybe::Nothing;
+        }
+    }
+}
+
+fn outcome_value(o: Outcome) -> int {
+    match o {
+        Outcome::Success(v) => {
+            return v;
+        }
+        Outcome::Failure(msg) => {
+            return -1;
+        }
+    }
+}
+
+fn safe_divide(a: int, b: int) -> Maybe {
+    if b == 0 {
+        return Maybe::Nothing;
+    }
+    return Maybe::Just(a / b);
+}
+
+pub fn test_status_codes() -> int {
+    let s1 = Status::Active { code: 200 };
+    let s2 = Status::Inactive;
+    let s3 = Status::Error { code: 404, message: "not found" };
+    return status_code(s1) + status_code(s2) + status_code(s3);
+}
+
+pub fn test_maybe() -> int {
+    let m1 = Maybe::Just(21);
+    let m2 = safe_divide(100, 4);
+    let m3 = safe_divide(10, 0);
+    let d1 = maybe_double(m1);
+    let d2 = maybe_double(m2);
+    let d3 = maybe_double(m3);
+    return 0;
+}
+
+pub fn test_outcome() -> int {
+    let o1 = Outcome::Success(42);
+    let o2 = Outcome::Failure("error");
+    return outcome_value(o1) + outcome_value(o2);
+}

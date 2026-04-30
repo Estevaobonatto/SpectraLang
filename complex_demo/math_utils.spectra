@@ -1,0 +1,29 @@
+module math_utils;
+
+pub fn distance(ax: int, ay: int, bx: int, by: int) -> int {
+    let dx = ax - bx;
+    let dy = ay - by;
+    return dx * dx + dy * dy;
+}
+
+pub fn factorial(n: int) -> int {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+pub fn gcd(a: int, b: int) -> int {
+    if b == 0 {
+        return a;
+    }
+    return gcd(b, a % b);
+}
+
+pub fn circle_area(radius: int) -> int {
+    return radius * radius * 3;
+}
+
+pub fn rect_area(w: int, h: int) -> int {
+    return w * h;
+}

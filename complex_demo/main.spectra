@@ -1,0 +1,42 @@
+module complex_demo;
+
+import std.io;
+import math_utils;
+import data_types;
+import algorithms;
+
+pub fn main() -> int {
+    let dist = distance(0, 0, 3, 4);
+    let ca = circle_area(5);
+    let ra = rect_area(4, 6);
+    let fact5 = factorial(5);
+    let g = gcd(48, 18);
+
+    let s = sum_range(1, 10);
+    let p = power(2, 10);
+    let fib10 = fibonacci(10);
+    let steps = collatz_steps(27);
+
+    let data1 = test_status_codes();
+    let data2 = test_maybe();
+    let data3 = test_outcome();
+
+    println("=== Complex Demo Results ===");
+    println(dist);
+    println(ca);
+    println(ra);
+    println(fact5);
+    println(g);
+    println(s);
+    println(p);
+    println(fib10);
+    println(steps);
+    println(data1);
+    println(data3);
+
+    let total = dist + ca + ra + fact5 + g + s + p + fib10 + steps + data1 + data3;
+    println(total);
+    println("=== Done ===");
+
+    return 0;
+}

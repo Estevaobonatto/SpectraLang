@@ -3582,7 +3582,23 @@ impl SemanticAnalyzer {
                             );
                             return;
                         }
-                        self.error(format!("Enum '{}' is not defined", enum_name), expr.span);
+                        // Check if the user tried to use a qualified path like module::item()
+                        if self.module_namespaces.contains(enum_name.as_str()) {
+                            self.error_with_hint(
+                                format!(
+                                    "'{}' is an imported module, not an enum or struct",
+                                    enum_name
+                                ),
+                                expr.span,
+                                format!(
+                                    "Spectra does not support qualified paths (module::item). \
+                                     Use 'import {}; {}(...)' instead.",
+                                    enum_name, variant_name
+                                ),
+                            );
+                        } else {
+                            self.error(format!("Enum '{}' is not defined", enum_name), expr.span);
+                        }
                         return;
                     }
                 };
