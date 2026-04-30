@@ -111,9 +111,10 @@ pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticEr
 
         // Register the exports of this module so subsequent modules can import it.
         let exports = analyzer.collect_module_exports(module, None);
-        if let Ok(mut reg) = registry.write() {
-            reg.register_module(module.name.clone(), exports);
-        }
+        let mut reg = registry
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        reg.register_module(module.name.clone(), exports);
 
         errors.extend(module_errors);
     }
@@ -815,6 +816,41 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// Like `type_annotation_to_type` but emits a semantic error when a named
+    /// type annotation resolves to `Unknown` (i.e. the type is not declared).
+    /// Use this in pass-2 body analysis where all user types must already be
+    /// registered; do **not** use it in pass-1 declaration collection.
+    fn type_annotation_to_type_checked(
+        &mut self,
+        type_ann: &Option<crate::ast::TypeAnnotation>,
+    ) -> Type {
+        use crate::ast::TypeAnnotationKind;
+
+        let resolved = self.type_annotation_to_type(type_ann);
+
+        if resolved == Type::Unknown {
+            if let Some(ann) = type_ann {
+                if let TypeAnnotationKind::Simple { segments } = &ann.kind {
+                    if segments.len() == 1 {
+                        let name = &segments[0];
+                        // Primitive keywords and `_` are handled by the base
+                        // method; reaching here means the type is truly unknown.
+                        self.error_with_hint(
+                            format!("Unknown type '{}'", name),
+                            ann.span,
+                            &format!(
+                                "Make sure '{}' is declared as a struct, enum, or type alias.",
+                                name
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
+        resolved
+    }
+
     fn annotation_to_pattern(annotation: &crate::ast::TypeAnnotation) -> TypeAnnotationPattern {
         use crate::ast::TypeAnnotationKind;
 
@@ -1281,8 +1317,16 @@ impl SemanticAnalyzer {
                             self_kind: None,
                         };
 
-                        self.functions.insert(func.name.clone(), signature);
-                        self.declare_symbol(func.name.clone(), func.span, return_type);
+                        self.functions.insert(func.name.clone(), signature.clone());
+                        // Store the full function type so that passing the
+                        // function as a first-class value gives the correct
+                        // `Fn(params) -> return_type` type instead of just the
+                        // bare return type.
+                        let fn_type = Type::Fn {
+                            params: signature.params.clone(),
+                            return_type: Box::new(signature.return_type.clone()),
+                        };
+                        self.declare_symbol(func.name.clone(), func.span, fn_type);
                     }
                 }
                 Item::Struct(struct_def) => {
@@ -1493,10 +1537,12 @@ impl SemanticAnalyzer {
 
         // Read-lock the registry, clone what we need, then immediately drop the
         // guard so we can use `&mut self` freely for the rest of the method.
-        let exports_cloned: Option<ModuleExports> = match self.registry.read() {
-            Ok(reg) => reg.get_module(&module_path).cloned(),
-            Err(_) => return aliases,
-        };
+        let exports_cloned: Option<ModuleExports> = self
+            .registry
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_module(&module_path)
+            .cloned();
 
         let Some(exports) = exports_cloned else {
             // Unknown module — emit a diagnostic but don't hard-fail so that
@@ -2319,7 +2365,7 @@ impl SemanticAnalyzer {
                 let inferred_type = if let Some(ref value) = let_stmt.value {
                     self.infer_expression_type(value)
                 } else {
-                    self.type_annotation_to_type(&let_stmt.ty)
+                    self.type_annotation_to_type_checked(&let_stmt.ty)
                 };
 
                 // Check if value expression is valid (if present)
@@ -2578,7 +2624,12 @@ impl SemanticAnalyzer {
                 if let Some(info) = self.lookup_symbol(name) {
                     info.ty.clone()
                 } else if let Some(sig) = self.functions.get(name) {
-                    sig.return_type.clone()
+                    // Fallback for functions not yet registered in the symbol
+                    // table — return the full Fn type, not just return_type.
+                    Type::Fn {
+                        params: sig.params.clone(),
+                        return_type: Box::new(sig.return_type.clone()),
+                    }
                 } else {
                     Type::Unknown
                 }

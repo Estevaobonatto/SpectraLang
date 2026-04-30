@@ -454,22 +454,26 @@ Além disso, se o tipo de origem for `Unknown`, um erro separado pede anotação
 
 ### 4.2 Sérios — Limitam robustez ou corretude
 
-#### P6. Parser não lida com comentários de bloco (`/* */`)
+#### P6. Parser não lida com comentários de bloco (`/* */`) ✅ CORRIGIDO
 **Local:** `compiler/src/lexer/mod.rs`.
 
-Apenas comentários de linha (`//`) são suportados. Comentários de bloco são tratados como tokens inválidos ou sequências de operadores.
+Apenas comentários de linha (`//`) eram suportados. Comentários de bloco eram tratados como tokens inválidos ou sequências de operadores.
 
-#### P7. Recuperação de erros do parser pode entrar em loop infinito
+**Correção:** Adicionado tratamento de comentários de bloco `/* */` no lexer, com suporte a múltiplas linhas e atualização correta de posição. Comentários não terminados emitem `LexError` com hint.
+
+#### P7. Recuperação de erros do parser pode entrar em loop infinito ✅ CORRIGIDO
 **Local:** `compiler/src/parser/mod.rs` — `synchronize()`.
 
 Se o parser encontrar um erro seguido de um token que não é reconhecido como fronteira de sincronização, ele avança um token e tenta novamente. Em certos casos (ex: stream de tokens totalmente malformado), `synchronize()` pode não avançar suficientemente, causando loop de erros repetidos no mesmo ponto.
+
+**Correção:** `synchronize()` agora verifica se o token atual já é uma fronteira de sincronização *antes* do `advance()` inicial, evitando pular tokens válidos. Extraído para método auxiliar `is_at_boundary()`.
 
 #### P8. Semantic Analyzer faz múltiplas passadas desnecessárias
 **Local:** `compiler/src/semantic/mod.rs`.
 
 A análise semântica percorre `module.items` quatro vezes (imports, declarações, corpos, inferência genérica, preenchimento de method calls). Isso é **O(5n)** na AST. Em teoria, uma passada com estados de resolução seria suficiente para a maioria das linguagens.
 
-#### P9. `ModuleRegistry` usa `RwLock` mas não trata poison
+#### P9. `ModuleRegistry` usa `RwLock` mas não trata poison ✅ CORRIGIDO
 **Local:** `compiler/src/semantic/module_registry.rs` e `mod.rs`.
 
 ```rust
@@ -478,6 +482,8 @@ if let Ok(mut reg) = self.registry.write() { ... }
 
 Se uma thread fizer panic enquanto segura o lock, o `RwLock` fica "envenenado" e todas as escritas subsequentes são silenciosamente ignoradas (o `if let Ok(...)` descarta o erro). Em compilação multi-threaded futura, isso causaria comportamento silenciosamente incorreto.
 
+**Correção:** Todas as chamadas `registry.read()` e `registry.write()` agora usam `.unwrap_or_else(|p| p.into_inner())`, recuperando o valor interno mesmo em caso de lock envenenado.
+
 #### P10. O sistema de imports não detecta ciclos de dependência
 **Local:** `compiler/src/semantic/mod.rs` — `analyze_import()`.
 
@@ -485,28 +491,31 @@ Se o módulo A importa B e B importa A, o `ModuleRegistry` pode não ter os expo
 
 ### 4.3 Médios — Melhorias de qualidade e manutenção
 
-#### P11. `type_annotation_to_type` retorna `Unknown` para tipos não-resolvidos
+#### P11. `type_annotation_to_type` retorna `Unknown` para tipos não-resolvidos ✅ CORRIGIDO
 **Local:** `compiler/src/semantic/mod.rs`.
 
-Quando um tipo não é reconhecido (ex: typo em anotação), o analisador retorna `Type::Unknown` em vez de emitir um erro imediato. O erro só aparece posteriormente (se aparecer) em contextos de uso.
+Quando um tipo não é reconhecido (ex: typo em anotação), o analisador retornava `Type::Unknown` em vez de emitir um erro imediato. O erro só aparecia posteriormente (se aparecesse) em contextos de uso.
+
+**Correção:** Adicionado método `type_annotation_to_type_checked` que envolve o método base e emite `SemanticError` quando um nome de tipo `Simple` não pode ser resolvido. Usado na análise de corpo (pass 2), especialmente em `let` statements.
 
 #### P12. O backend AOT não implementa otimizações
 **Local:** `backend/src/aot.rs`.
 
 O AOT reutiliza `generate_block` do JIT, mas não aplica nenhuma otimização de nível de máquina (register allocation é feita pelo Cranelift, mas sem passes adicionais como inlining ou LICM).
 
-#### P13. `Source` sem `module` declaration recebe prefixo sintético sem verificação de colisão
+#### P13. `Source` sem `module` declaration recebe prefixo sintético sem verificação de colisão ✅ CORRIGIDO
 **Local:** `tools/spectra-cli/src/main.rs` — `source_has_module_decl()`.
 
-O CLI prefixa `module <nome>;
-` ao source. Se o arquivo já tiver declarações antes do `module` (ex: shebang, atributos), elas ficam após a declaração sintética, o que pode ser semanticamente inválido.
+O CLI prefixa `module <nome>;` ao source. Se o arquivo já tiver declarações antes do `module` (ex: comentários de bloco), elas ficavam após a declaração sintética, o que pode ser semanticamente inválido.
+
+**Correção:** `source_has_module_decl` foi reescrita com um scanner char-by-char que ignora corretamente comentários `//` e `/* */` antes de verificar a presença de `module`.
 
 #### P14. O campo `span` de tokens e AST não considera Unicode multi-byte
 **Local:** `compiler/src/span.rs`.
 
 O sistema de spans usa byte offsets (`usize`). Caracteres Unicode multi-byte (ex: emojis, kanji) ocupam múltiplos bytes. Se o span apontar para o meio de um caractere multi-byte, o renderizador de erros pode quebrar ao tentar extrair a linha ou calcular a coluna.
 
-#### P15. `infer_expression_type` para `Identifier` consulta `functions` como fallback
+#### P15. `infer_expression_type` para `Identifier` consulta `functions` como fallback ✅ CORRIGIDO
 **Local:** `compiler/src/semantic/mod.rs`.
 
 ```rust
@@ -517,7 +526,9 @@ ExpressionKind::Identifier(name) => {
 }
 ```
 
-Isso confunde o **tipo da função** com o **tipo de retorno da função**. Se `foo` é uma função `fn() -> int`, o tipo de `foo` (a entidade função) deveria ser `fn() -> int`, não `int`. Isso pode causar inferência incorreta em contextos de higher-order functions.
+Isso confundia o **tipo da função** com o **tipo de retorno da função**. Se `foo` é uma função `fn() -> int`, o tipo de `foo` (a entidade função) deveria ser `fn() -> int`, não `int`. Isso causava inferência incorreta em contextos de higher-order functions.
+
+**Correção:** Em `collect_declarations_pass`, funções são registradas com `Type::Fn { params, return_type }` em vez de apenas `return_type`. O fallback em `infer_expression_type` também foi corrigido para retornar o tipo `Fn` completo.
 
 #### P16. O runtime usa `unsafe` transmute sem verificação de assinatura
 **Local:** `backend/src/codegen.rs` — `execute_entry_point()`.
@@ -634,12 +645,12 @@ Quando todos os branches de uma expressão `if` ou `unless` terminam com `return
 ## 7. Recomendações de Prioridade (Pendentes)
 
 1. ~~**Eliminar `panic!` do lowering** (P1)~~ ✅ Corrigido.
-2. **Adicionar verificação de exhaustividade em match** (P20) — crítico para segurança.
+2. ~~**Adicionar verificação de exhaustividade em match** (P20)~~ ✅ Corrigido.
 3. ~~**Corrigir a semântica de `Type::Unknown`** (P3)~~ ✅ Corrigido.
-4. **Implementar comentários de bloco** (P6) — melhora UX significativamente.
+4. ~~**Implementar comentários de bloco** (P6)~~ ✅ Corrigido.
 5. **Adicionar detecção de ciclos em imports** (P10) — necessário para projetos multi-módulo.
 6. **Revisar o tratamento de spans com UTF-8 multi-byte** (P14) — evita crashes no renderizador de erros.
-7. **Separar tipos de função de tipos de retorno** (P15) — fundamental para higher-order functions corretas.
+7. ~~**Separar tipos de função de tipos de retorno** (P15)~~ ✅ Corrigido.
 
 ---
 

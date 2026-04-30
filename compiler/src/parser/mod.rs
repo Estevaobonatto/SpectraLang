@@ -164,6 +164,16 @@ impl Parser {
     // === Synchronization ===
 
     fn synchronize(&mut self) {
+        // Check if the current token is already a recovery boundary before
+        // advancing, so we don't inadvertently skip valid constructs.
+        if self.is_at_boundary() {
+            // Consume a ';' boundary so the caller starts fresh after it.
+            if self.check_symbol(';') {
+                self.advance();
+            }
+            return;
+        }
+
         self.advance();
 
         while !self.is_at_end() {
@@ -172,12 +182,23 @@ impl Parser {
                 return;
             }
 
-            if self.check_symbol('}') {
+            if self.is_at_boundary() {
                 return;
             }
 
-            match &self.current().kind {
-                TokenKind::Keyword(Keyword::Module)
+            self.advance();
+        }
+    }
+
+    /// Returns `true` when the current token is a natural recovery boundary
+    /// (a `}` or a keyword that starts a new top-level / statement construct).
+    fn is_at_boundary(&self) -> bool {
+        if self.check_symbol('}') {
+            return true;
+        }
+        matches!(
+            &self.current().kind,
+            TokenKind::Keyword(Keyword::Module)
                 | TokenKind::Keyword(Keyword::Import)
                 | TokenKind::Keyword(Keyword::Fn)
                 | TokenKind::Keyword(Keyword::Class)
@@ -188,12 +209,8 @@ impl Parser {
                 | TokenKind::Keyword(Keyword::Elif)
                 | TokenKind::Keyword(Keyword::ElseIf)
                 | TokenKind::Keyword(Keyword::Case)
-                | TokenKind::Keyword(Keyword::Switch) => return,
-                _ => {}
-            }
-
-            self.advance();
-        }
+                | TokenKind::Keyword(Keyword::Switch)
+        )
     }
 
     fn is_feature_enabled(&self, feature: &str) -> bool {

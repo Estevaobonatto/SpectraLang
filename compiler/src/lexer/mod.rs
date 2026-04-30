@@ -37,7 +37,7 @@ impl<'source> Lexer<'source> {
                     index += 1;
                 }
                 '/' if index + 1 < length && characters[index + 1].1 == '/' => {
-                    // Consume comment start
+                    // Consume line comment start
                     bump_position('/', &mut line, &mut column);
                     index += 1;
                     bump_position('/', &mut line, &mut column);
@@ -50,6 +50,47 @@ impl<'source> Lexer<'source> {
                         }
                         bump_position(comment_char, &mut line, &mut column);
                         index += 1;
+                    }
+                }
+                '/' if index + 1 < length && characters[index + 1].1 == '*' => {
+                    // Consume block comment /* ... */
+                    bump_position('/', &mut line, &mut column);
+                    index += 1;
+                    bump_position('*', &mut line, &mut column);
+                    index += 1;
+
+                    let mut closed = false;
+                    while index < length {
+                        let (_, comment_char) = characters[index];
+                        if comment_char == '*'
+                            && index + 1 < length
+                            && characters[index + 1].1 == '/'
+                        {
+                            bump_position('*', &mut line, &mut column);
+                            index += 1;
+                            bump_position('/', &mut line, &mut column);
+                            index += 1;
+                            closed = true;
+                            break;
+                        }
+                        bump_position(comment_char, &mut line, &mut column);
+                        index += 1;
+                    }
+
+                    if !closed {
+                        let end_location = Location::new(line, column);
+                        errors.push(
+                            LexError::new(
+                                "unterminated block comment",
+                                Span::new(
+                                    offset,
+                                    self.source.len(),
+                                    start_location,
+                                    end_location,
+                                ),
+                            )
+                            .with_hint("Close the block comment with `*/`."),
+                        );
                     }
                 }
                 ch if is_identifier_start(ch) => {

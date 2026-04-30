@@ -1119,16 +1119,45 @@ fn compile_plan(
 }
 
 /// Returns `true` when the source already contains an explicit `module <name>;`
-/// declaration on the first non-blank, non-comment line.
+/// declaration at the start of the file, ignoring blank lines and both `//`
+/// line comments and `/* */` block comments.
 fn source_has_module_decl(source: &str) -> bool {
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            continue;
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    loop {
+        // Skip whitespace
+        while i < len && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
+            i += 1;
         }
-        return trimmed.starts_with("module ");
+
+        if i >= len {
+            return false;
+        }
+
+        if bytes[i] == b'/' {
+            if i + 1 < len && bytes[i + 1] == b'/' {
+                // Skip line comment
+                i += 2;
+                while i < len && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            } else if i + 1 < len && bytes[i + 1] == b'*' {
+                // Skip block comment
+                i += 2;
+                while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2; // consume '*/'
+                continue;
+            }
+        }
+
+        // Next non-whitespace, non-comment content: check for `module `
+        return bytes[i..].starts_with(b"module ");
     }
-    false
 }
 
 fn print_pipeline_summary(summary: &ModulePipelineSummary) {
