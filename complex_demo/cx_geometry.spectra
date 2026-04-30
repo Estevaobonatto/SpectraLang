@@ -1,0 +1,44 @@
+module cx_geometry;
+
+pub enum Shape {
+    Circle(int),
+    Rect(int, int),
+    Dot,
+}
+
+pub struct Vec2 {
+    x: int,
+    y: int,
+}
+
+impl Vec2 {
+    pub fn len_sq(&self) -> int {
+        return self.x * self.x + self.y * self.y;
+    }
+}
+
+pub fn make_vec2(x: int, y: int) -> Vec2 {
+    return Vec2 { x: x, y: y };
+}
+
+pub fn vec2_len_sq(v: Vec2) -> int {
+    return v.len_sq();
+}
+
+// area: Circle(r)=r*r*3, Rect(w,h)=w*h, Dot=0
+pub fn shape_area(s: Shape) -> int {
+    match s {
+        Shape::Circle(r)    => { return r * r * 3; }
+        Shape::Rect(w, h)   => { return w * h; }
+        Shape::Dot          => { return 0; }
+    }
+}
+
+// perimeter: Circle(r)=r*6, Rect(w,h)=2*(w+h), Dot=0
+pub fn shape_perimeter(s: Shape) -> int {
+    match s {
+        Shape::Circle(r)    => { return r * 6; }
+        Shape::Rect(w, h)   => { return 2 * (w + h); }
+        Shape::Dot          => { return 0; }
+    }
+}

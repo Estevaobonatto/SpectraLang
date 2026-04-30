@@ -1,0 +1,79 @@
+module cx_main;
+
+import cx_geometry;
+import cx_ledger;
+import cx_pipeline;
+import std.io;
+
+pub fn main() -> int {
+    // --- cx_geometry: Vec2 struct + field access ---
+    let v     = cx_geometry::make_vec2(3, 4);
+    let len_sq = cx_geometry::vec2_len_sq(v);       // 3*3 + 4*4 = 25
+
+    // --- cx_geometry: Shape tuple + unit enum variants ---
+    let circ5a  = cx_geometry::Shape::Circle(5);
+    let rect67a = cx_geometry::Shape::Rect(6, 7);
+    let dot1    = cx_geometry::Shape::Dot;
+
+    let a_circ = cx_geometry::shape_area(circ5a);   // 5*5*3  = 75
+    let a_rect = cx_geometry::shape_area(rect67a);  // 6*7    = 42
+    let a_dot  = cx_geometry::shape_area(dot1);     //          0
+
+    let circ5b  = cx_geometry::Shape::Circle(5);
+    let rect67b = cx_geometry::Shape::Rect(6, 7);
+    let p_circ = cx_geometry::shape_perimeter(circ5b);   // 5*6       = 30
+    let p_rect = cx_geometry::shape_perimeter(rect67b);  // 2*(6+7)   = 26
+
+    // Direct match on imported Shape (bare variant names in patterns)
+    let circ10 = cx_geometry::Shape::Circle(10);
+    let matched_area = match circ10 {
+        Shape::Circle(r)  => { r * r * 3 }
+        Shape::Rect(w, h) => { w * h }
+        Shape::Dot        => { 0 }
+    };  // 10*10*3 = 300
+
+    // --- cx_ledger: TxKind tuple enum + AccountStatus unit enum + Account struct ---
+    let acc = cx_ledger::make_account(1, 500);
+    let bal = cx_ledger::account_balance(acc);          //           500
+
+    let credit100 = cx_ledger::TxKind::Credit(100);
+    let debit30   = cx_ledger::TxKind::Debit(30);
+    let amt_c = cx_ledger::tx_amount(credit100);        //           100
+    let amt_d = cx_ledger::tx_amount(debit30);          //           30
+
+    let credit50 = cx_ledger::TxKind::Credit(50);
+    let new_bal = cx_ledger::apply_tx(500, credit50);   // 500+50  = 550
+
+    let st_active = cx_ledger::AccountStatus::Active;
+    let st_frozen = cx_ledger::AccountStatus::Frozen;
+    let st_closed = cx_ledger::AccountStatus::Closed;
+    let sc_active = cx_ledger::status_code(st_active);  //           1
+    let sc_frozen = cx_ledger::status_code(st_frozen);  //           2
+    let sc_closed = cx_ledger::status_code(st_closed);  //           0
+
+    // --- cx_pipeline: classify area into SizeClass ---
+    // Also tests that cx_pipeline can internally call cx_geometry (multi-hop import)
+    let circ6  = cx_geometry::Shape::Circle(6);
+    let rect33 = cx_geometry::Shape::Rect(3, 3);
+    let dot2   = cx_geometry::Shape::Dot;
+    let area1 = cx_geometry::shape_area(circ6);         // 6*6*3 = 108
+    let area2 = cx_geometry::shape_area(rect33);        // 3*3   =   9
+    let area3 = cx_geometry::shape_area(dot2);          //            0
+
+    let cv1 = cx_pipeline::shape_class_value(area1);    // 108 >= 100 -> Large  = 4
+    let cv2 = cx_pipeline::shape_class_value(area2);    //   9 <  10  -> Tiny   = 1
+    let cv3 = cx_pipeline::shape_class_value(area3);    //   0 <  10  -> Tiny   = 1
+
+    // Multi-hop: cx_main -> cx_pipeline -> cx_geometry (internal qualified call)
+    let sq_area = cx_pipeline::area_of_square(4);       // Rect(4,4) area = 16
+
+    // Expected sum: 25+75+42+0+30+26+300+500+100+30+550+1+2+0+4+1+1+16 = 1703
+    let result = len_sq + a_circ + a_rect + a_dot
+               + p_circ + p_rect + matched_area
+               + bal + amt_c + amt_d + new_bal
+               + sc_active + sc_frozen + sc_closed
+               + cv1 + cv2 + cv3
+               + sq_area;
+    println(result);
+    return result;
+}

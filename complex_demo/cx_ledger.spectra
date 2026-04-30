@@ -1,0 +1,59 @@
+module cx_ledger;
+
+pub enum TxKind {
+    Credit(int),
+    Debit(int),
+    Transfer(int),
+}
+
+pub enum AccountStatus {
+    Active,
+    Frozen,
+    Closed,
+}
+
+pub struct Account {
+    id: int,
+    balance: int,
+}
+
+impl Account {
+    pub fn get_balance(&self) -> int {
+        return self.balance;
+    }
+}
+
+pub fn make_account(id: int, balance: int) -> Account {
+    return Account { id: id, balance: balance };
+}
+
+pub fn account_balance(a: Account) -> int {
+    return a.get_balance();
+}
+
+// Returns the magnitude of the transaction amount
+pub fn tx_amount(t: TxKind) -> int {
+    match t {
+        TxKind::Credit(amt)   => { return amt; }
+        TxKind::Debit(amt)    => { return amt; }
+        TxKind::Transfer(amt) => { return amt; }
+    }
+}
+
+// Applies a transaction to a balance and returns the new balance
+pub fn apply_tx(balance: int, t: TxKind) -> int {
+    match t {
+        TxKind::Credit(amt)   => { return balance + amt; }
+        TxKind::Debit(amt)    => { return balance - amt; }
+        TxKind::Transfer(amt) => { return balance - amt; }
+    }
+}
+
+// Returns a numeric code for an account status
+pub fn status_code(s: AccountStatus) -> int {
+    match s {
+        AccountStatus::Active  => { return 1; }
+        AccountStatus::Frozen  => { return 2; }
+        AccountStatus::Closed  => { return 0; }
+    }
+}
