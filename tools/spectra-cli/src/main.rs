@@ -2189,7 +2189,7 @@ fn print_experimental_features() {
 fn usage_error(message: &str) -> CliError {
     let trimmed = message.trim_end();
     let formatted = format!(
-        "{}\nUse 'spectralang --help' for usage information.",
+        "{}\nUse 'spectra --help' for usage information.",
         trimmed
     );
     CliError::usage(formatted)

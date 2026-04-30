@@ -937,6 +937,23 @@ fn finalize_output(mut lines: Vec<FormattedLine>, config: &FormatterConfig) -> S
     }
 }
 
+/// Returns true if `result` (trimmed) ends with a keyword that syntactically
+/// expects an expression to follow (e.g. `return`, `else`, `if`).
+/// Used to detect unary operators like `-` and `!` after these keywords.
+fn ends_with_expression_keyword(result: &str) -> bool {
+    let trimmed = result.trim_end();
+    const KEYWORDS: &[&str] = &[
+        "return", "else", "if", "while", "for", "match", "unless", "not",
+    ];
+    KEYWORDS.iter().any(|&kw| {
+        if let Some(rest) = trimmed.strip_suffix(kw) {
+            rest.is_empty() || !rest.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+        } else {
+            false
+        }
+    })
+}
+
 fn normalize_spacing(content: &str) -> String {
     let mut result = String::new();
     let mut chars = content.chars().peekable();
@@ -1013,6 +1030,13 @@ fn normalize_spacing(content: &str) -> String {
                 pending_space = true;
             }
             '(' | '[' | '{' => {
+                // Force a space before '{' when it immediately follows an identifier or
+                // keyword (e.g. `else{` → `else {`, `if cond{` → `if cond {`).
+                if ch == '{' {
+                    if matches!(result.chars().last(), Some(c) if c.is_alphanumeric() || c == '_') {
+                        pending_space = true;
+                    }
+                }
                 push_pending_space(&mut result, &mut pending_space);
                 result.push(ch);
             }
@@ -1024,6 +1048,14 @@ fn normalize_spacing(content: &str) -> String {
                     result.push('/');
                     result.push('/');
                     chars.next();
+                    // Detect doc comment (`///`) and ensure a space after the marker.
+                    if matches!(chars.peek(), Some('/')) {
+                        chars.next();
+                        result.push('/');
+                        if !matches!(chars.peek(), Some(' ') | None) {
+                            result.push(' ');
+                        }
+                    }
                     while let Some(next) = chars.next() {
                         result.push(next);
                     }
@@ -1035,10 +1067,11 @@ fn normalize_spacing(content: &str) -> String {
             _ => {
                 if let Some(op) = read_operator(ch, &mut chars) {
                     let prev = previous_non_space(&result);
-                    let is_unary_minus =
-                        op == "-" && matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':'));
-                    let is_unary_not =
-                        op == "!" && matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':'));
+                    let after_unary_context =
+                        matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':'))
+                            || ends_with_expression_keyword(&result);
+                    let is_unary_minus = op == "-" && after_unary_context;
+                    let is_unary_not = op == "!" && after_unary_context;
 
                     if is_unary_minus || is_unary_not {
                         push_pending_space(&mut result, &mut pending_space);
@@ -2589,7 +2622,7 @@ mod tests {
         let input =
             "fn demo(){\nlet short=1;\nlet much_longer_name=2;\nlet mid=short+much_longer_name;\n}\n";
         let expected =
-            "fn demo() {\n    let short             = 1;\n    let much_longer_name = 2;\n    let mid              = short + much_longer_name;\n}\n";
+            "fn demo() {\n    let short            = 1;\n    let much_longer_name = 2;\n    let mid              = short + much_longer_name;\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
