@@ -64,6 +64,38 @@ pub struct CodeGenerator {
     host_name_storage: Vec<Box<[u8]>>,
 }
 
+/// Describes a PHI node so that the backend can emit Cranelift block parameters.
+#[derive(Debug, Clone)]
+pub(crate) struct PhiDescriptor {
+    pub result_id: usize,
+    pub incoming: HashMap<usize, usize>, // predecessor_block_id -> incoming_value_id
+}
+
+/// Collect the Cranelift block arguments that should be passed for the PHIs
+/// in `target_block` when jumping from `current_block`.
+fn get_phi_args(
+    target_block: usize,
+    current_block: usize,
+    phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
+    value_map: &HashMap<usize, Value>,
+) -> Result<Vec<cranelift_codegen::ir::BlockArg>, String> {
+    let mut args = Vec::new();
+    if let Some(phis) = phi_map.get(&target_block) {
+        for phi in phis {
+            let incoming_id = phi
+                .incoming
+                .get(&current_block)
+                .ok_or_else(|| format!("PHI missing incoming for block {}", current_block))?;
+            let val = value_map
+                .get(incoming_id)
+                .copied()
+                .ok_or_else(|| format!("Value {} not found", incoming_id))?;
+            args.push(val.into());
+        }
+    }
+    Ok(args)
+}
+
 impl CodeGenerator {
     /// Create a new code generator
     pub fn new() -> Self {
@@ -274,6 +306,39 @@ impl CodeGenerator {
             }
         }
 
+        // Collect PHI descriptors and add block parameters to Cranelift blocks.
+        // Cranelift uses block parameters (not PHI nodes) for SSA values that
+        // are defined by predecessor terminators.
+        let mut phi_map: HashMap<usize, Vec<PhiDescriptor>> = HashMap::new();
+        for ir_block in &ir_func.blocks {
+            let mut phis = Vec::new();
+            for instr in &ir_block.instructions {
+                if let InstructionKind::Phi { result, incoming } = &instr.kind {
+                    let mut incoming_map = HashMap::new();
+                    for (val, pred_bb) in incoming {
+                        incoming_map.insert(*pred_bb, val.id);
+                    }
+                    phis.push(PhiDescriptor {
+                        result_id: result.id,
+                        incoming: incoming_map,
+                    });
+                }
+            }
+            if !phis.is_empty() {
+                phi_map.insert(ir_block.id, phis);
+            }
+        }
+
+        // Add block parameters for PHI nodes to Cranelift blocks.
+        for ir_block in &ir_func.blocks {
+            if let Some(phis) = phi_map.get(&ir_block.id) {
+                let block = *block_map.get(&ir_block.id).unwrap();
+                for _ in phis {
+                    builder.append_block_param(block, types::I64);
+                }
+            }
+        }
+
         // Generate code for each block
         let blocks = ir_func.blocks.clone();
         for ir_block in &blocks {
@@ -293,6 +358,8 @@ impl CodeGenerator {
                 &block_map,
                 &mut allocation_vars,
                 frame_var,
+                ir_block.id,
+                &phi_map,
             )?;
         }
 
@@ -337,6 +404,8 @@ impl CodeGenerator {
         block_map: &HashMap<usize, Block>,
         allocation_vars: &mut Vec<Variable>,
         frame_var: Variable,
+        current_block_id: usize,
+        phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
     ) -> Result<(), String> {
         // Get Cranelift block
         let block = *block_map
@@ -364,6 +433,9 @@ impl CodeGenerator {
                 value_map,
                 allocation_vars,
                 track_allocations,
+                ir_block.id,
+                block_map,
+                phi_map,
             )?;
         }
 
@@ -380,6 +452,8 @@ impl CodeGenerator {
                 manual_escape_func,
                 allocation_vars.as_slice(),
                 frame_var,
+                current_block_id,
+                phi_map,
             )?;
         }
 
@@ -400,7 +474,13 @@ impl CodeGenerator {
         value_map: &mut HashMap<usize, Value>,
         allocation_vars: &mut Vec<Variable>,
         track_allocations: bool,
+        current_block_id: usize,
+        block_map: &HashMap<usize, Block>,
+        phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
     ) -> Result<(), String> {
+        if matches!(instr.kind, InstructionKind::Phi { .. }) {
+            eprintln!("DEBUG generate_instruction: block={} instr.id={} kind=Phi", current_block_id, instr.id);
+        }
         // Helper to get value from map
         let get_value = |v: &IRValue| -> Result<Value, String> {
             value_map
@@ -870,10 +950,26 @@ impl CodeGenerator {
                 value_map.insert(result.id, fn_ptr);
             }
 
-            // PHI nodes are handled during SSA construction
-            InstructionKind::Phi { .. } => {
-                // PHI nodes should be resolved during SSA construction
-                // For now, we skip them in code generation
+            // PHI nodes are lowered to Cranelift block parameters.
+            // The block was already created with the appropriate parameters in
+            // define_function(). Here we simply read the parameter that
+            // corresponds to this PHI and expose it in the value_map.
+            InstructionKind::Phi { result, .. } => {
+                let block = *block_map
+                    .get(&current_block_id)
+                    .ok_or_else(|| format!("Block {} not found", current_block_id))?;
+                if let Some(phis) = phi_map.get(&current_block_id) {
+                    for (idx, phi) in phis.iter().enumerate() {
+                        if phi.result_id == result.id {
+                            let phi_val = builder.block_params(block)[idx];
+                            eprintln!("DEBUG: PHI result_id={} block={} idx={} phi_val={:?}", result.id, current_block_id, idx, phi_val);
+                            value_map.insert(result.id, phi_val);
+                            break;
+                        }
+                    }
+                } else {
+                    eprintln!("DEBUG: PHI {} in block {} not found in phi_map", result.id, current_block_id);
+                }
             }
 
             // Constant instructions
@@ -908,6 +1004,8 @@ impl CodeGenerator {
         manual_escape_func: FuncId,
         allocation_vars: &[Variable],
         frame_var: Variable,
+        current_block_id: usize,
+        phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
     ) -> Result<(), String> {
         // Helper to get value from map
         let get_value = |v: &IRValue| -> Result<Value, String> {
@@ -968,7 +1066,8 @@ impl CodeGenerator {
                 let target_block = *block_map
                     .get(target)
                     .ok_or_else(|| format!("Block {} not found", target))?;
-                builder.ins().jump(target_block, &[]);
+                let phi_args = get_phi_args(*target, current_block_id, phi_map, value_map)?;
+                builder.ins().jump(target_block, &phi_args);
             }
 
             Terminator::CondBranch {
@@ -983,7 +1082,9 @@ impl CodeGenerator {
                 let false_bb = *block_map
                     .get(false_block)
                     .ok_or_else(|| format!("Block {} not found", false_block))?;
-                builder.ins().brif(cond_val, true_bb, &[], false_bb, &[]);
+                let true_args = get_phi_args(*true_block, current_block_id, phi_map, value_map)?;
+                let false_args = get_phi_args(*false_block, current_block_id, phi_map, value_map)?;
+                builder.ins().brif(cond_val, true_bb, &true_args, false_bb, &false_args);
             }
 
             Terminator::Switch {
@@ -995,8 +1096,11 @@ impl CodeGenerator {
                 let default_bb = *block_map
                     .get(default)
                     .ok_or_else(|| format!("Block {} not found", default))?;
+                let default_args = get_phi_args(*default, current_block_id, phi_map, value_map)?;
 
-                // Create switch using series of conditional branches
+                // Create switch using series of conditional branches.
+                // For intermediate "next_check" blocks we do not need PHI args
+                // because they are internal control-flow blocks, not user BBs.
                 for (idx, (case_val, target)) in cases.iter().enumerate() {
                     let target_bb = *block_map
                         .get(target)
@@ -1005,18 +1109,20 @@ impl CodeGenerator {
                     let case_const = builder.ins().iconst(types::I64, *case_val);
                     let cmp = builder.ins().icmp(IntCC::Equal, switch_val, case_const);
 
+                    let target_args = get_phi_args(*target, current_block_id, phi_map, value_map)?;
+
                     if idx < cases.len() - 1 {
                         let next_check = builder.create_block();
-                        builder.ins().brif(cmp, target_bb, &[], next_check, &[]);
+                        builder.ins().brif(cmp, target_bb, &target_args, next_check, &[]);
                         builder.seal_block(next_check);
                         builder.switch_to_block(next_check);
                     } else {
-                        builder.ins().brif(cmp, target_bb, &[], default_bb, &[]);
+                        builder.ins().brif(cmp, target_bb, &target_args, default_bb, &default_args);
                     }
                 }
 
                 if cases.is_empty() {
-                    builder.ins().jump(default_bb, &[]);
+                    builder.ins().jump(default_bb, &default_args);
                 }
             }
         }

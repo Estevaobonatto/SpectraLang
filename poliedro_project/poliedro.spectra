@@ -1,0 +1,43 @@
+module poliedro;
+
+import std.io;
+
+enum Solido {
+    Cubo,
+    Tetraedro,
+    Octaedro,
+    Dodecaedro,
+    Icosaedro,
+}
+
+fn print_poliedro(nome: string, f: int, v: int, a: int) -> int {
+    let euler = v - a + f;
+    println(f"--- {nome} ---");
+    println(f"  Faces: {f}  Vertices: {v}  Arestas: {a}  V-E+F: {euler}");
+    return 0;
+}
+
+fn exibir_solido(s: Solido) -> int {
+    match s {
+        Solido::Cubo       => { return print_poliedro("Cubo",              6,  8, 12); }
+        Solido::Tetraedro  => { return print_poliedro("Tetraedro Regular", 4,  4,  6); }
+        Solido::Octaedro   => { return print_poliedro("Octaedro Regular",  8,  6, 12); }
+        Solido::Dodecaedro => { return print_poliedro("Dodecaedro Regular",12, 20, 30); }
+        Solido::Icosaedro  => { return print_poliedro("Icosaedro Regular", 20, 12, 30); }
+    }
+}
+
+pub fn main() -> int {
+    println("=== OS 5 SOLIDOS PLATONICOS ===");
+    println("");
+    let _r1 = exibir_solido(Solido::Cubo);
+    let _r2 = exibir_solido(Solido::Tetraedro);
+    let _r3 = exibir_solido(Solido::Octaedro);
+    let _r4 = exibir_solido(Solido::Dodecaedro);
+    let _r5 = exibir_solido(Solido::Icosaedro);
+    println("");
+    println("Teorema de Euler: para todo poliedro convexo, V - E + F = 2.");
+    return 0;
+}
+
+

@@ -1,0 +1,50 @@
+module notas;
+
+// Classificacao por conceito
+pub enum Conceito {
+    A,
+    B,
+    C,
+    D,
+    F,
+}
+
+// Qualquer tipo que possa ser avaliado implementa este trait
+pub trait Avaliavel {
+    fn media(&self) -> int;
+    fn aprovado(&self) -> bool;
+    fn conceito(&self) -> Conceito;
+}
+
+// Retorna o Conceito correspondente a uma media numerica
+pub fn conceito_de_media(m: int) -> Conceito {
+    if m >= 90 { return Conceito::A; }
+    elif m >= 75 { return Conceito::B; }
+    elif m >= 60 { return Conceito::C; }
+    elif m >= 50 { return Conceito::D; }
+    return Conceito::F;
+}
+
+// Retorna o nome descritivo de um Conceito
+pub fn nome_conceito(c: Conceito) -> string {
+    let nome = match c {
+        Conceito::A => "A - Excelente",
+        Conceito::B => "B - Bom",
+        Conceito::C => "C - Regular",
+        Conceito::D => "D - Insuficiente",
+        Conceito::F => "F - Reprovado",
+    };
+    return nome;
+}
+
+// Retorna a pontuacao em escala 0-10 para um Conceito
+pub fn pontos_conceito(c: Conceito) -> int {
+    let pts = match c {
+        Conceito::A => 10,
+        Conceito::B => 8,
+        Conceito::C => 6,
+        Conceito::D => 4,
+        Conceito::F => 0,
+    };
+    return pts;
+}

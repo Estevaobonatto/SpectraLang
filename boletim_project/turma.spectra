@@ -1,0 +1,65 @@
+module turma;
+
+import std.io;
+import std.collections;
+import notas;
+
+// Calcula a media aritmetica de uma lista de medias
+pub fn media_da_turma(medias: int) -> int {
+    let n = list_len(medias);
+    if n == 0 { return 0; }
+    let total = list_reduce(medias, 0, |acc, x| acc + x);
+    return total / n;
+}
+
+// Conta quantos alunos foram aprovados (media >= 60)
+pub fn contar_aprovados(medias: int) -> int {
+    let aprovados = list_filter(medias, |x| x >= 60);
+    let n = list_len(aprovados);
+    list_free(aprovados);
+    return n;
+}
+
+// Imprime a distribuicao de alunos por faixa de conceito
+fn distribuicao_conceitos(medias: int) {
+    let n = list_len(medias);
+    let cnt_a = 0;
+    let cnt_b = 0;
+    let cnt_c = 0;
+    let cnt_d = 0;
+    let cnt_f = 0;
+    let i = 0;
+    while i < n {
+        let m = list_get(medias, i);
+        if m >= 90 { cnt_a = cnt_a + 1; }
+        elif m >= 75 { cnt_b = cnt_b + 1; }
+        elif m >= 60 { cnt_c = cnt_c + 1; }
+        elif m >= 50 { cnt_d = cnt_d + 1; }
+        else { cnt_f = cnt_f + 1; }
+        i = i + 1;
+    }
+    println(f"    A (>= 90): {cnt_a} aluno(s)");
+    println(f"    B (>= 75): {cnt_b} aluno(s)");
+    println(f"    C (>= 60): {cnt_c} aluno(s)");
+    println(f"    D (>= 50): {cnt_d} aluno(s)");
+    println(f"    F (<  50): {cnt_f} aluno(s)");
+}
+
+// Exibe o relatorio completo da turma
+pub fn relatorio_turma(nome_turma: string, medias: int) {
+    let n = list_len(medias);
+    let mt = media_da_turma(medias);
+    let aprov = contar_aprovados(medias);
+    let reprov = n - aprov;
+    let c = conceito_de_media(mt);
+    let nome_c = nome_conceito(c);
+
+    println(f"=== RELATORIO DA TURMA: {nome_turma} ===");
+    println(f"  Total de alunos: {n}");
+    println(f"  Media da turma:  {mt}  ({nome_c})");
+    println(f"  Aprovados:       {aprov}/{n}");
+    println(f"  Reprovados:      {reprov}/{n}");
+    println("  Distribuicao por conceito:");
+    distribuicao_conceitos(medias);
+    println("");
+}

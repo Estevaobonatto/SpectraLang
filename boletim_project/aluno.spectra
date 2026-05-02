@@ -1,0 +1,44 @@
+module aluno;
+
+import std.io;
+import notas;
+
+pub struct Aluno {
+    pub nome: string,
+    nota1: int,
+    nota2: int,
+    nota3: int,
+}
+
+impl Aluno {
+    // Construtor
+    pub fn novo(nome: string, n1: int, n2: int, n3: int) -> Aluno {
+        Aluno { nome: nome, nota1: n1, nota2: n2, nota3: n3 }
+    }
+
+    // Imprime o boletim individual do aluno
+    pub fn imprimir(&self) {
+        let m = self.media();
+        let status = if self.aprovado() { "APROVADO" } else { "REPROVADO" };
+        let c = self.conceito();
+        let nome_c = nome_conceito(c);
+        println(f"  {self.nome}");
+        println(f"    Notas: {self.nota1} | {self.nota2} | {self.nota3}");
+        println(f"    Media: {m}  |  Conceito: {nome_c}  |  {status}");
+    }
+}
+
+// Implementa o trait Avaliavel para Aluno
+impl Avaliavel for Aluno {
+    fn media(&self) -> int {
+        (self.nota1 + self.nota2 + self.nota3) / 3
+    }
+
+    fn aprovado(&self) -> bool {
+        self.media() >= 60
+    }
+
+    fn conceito(&self) -> Conceito {
+        conceito_de_media(self.media())
+    }
+}

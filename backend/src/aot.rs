@@ -10,7 +10,7 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
-use crate::codegen::{CodeGenerator, HostNameRecord};
+use crate::codegen::{CodeGenerator, HostNameRecord, PhiDescriptor};
 
 /// Options that control AOT code generation.
 #[derive(Debug, Clone, Default)]
@@ -244,6 +244,37 @@ impl AotCodeGenerator {
             }
         }
 
+        // Collect PHI descriptors and add block parameters to Cranelift blocks.
+        let mut phi_map: HashMap<usize, Vec<PhiDescriptor>> = HashMap::new();
+        for ir_block in &ir_func.blocks {
+            let mut phis = Vec::new();
+            for instr in &ir_block.instructions {
+                if let InstructionKind::Phi { result, incoming } = &instr.kind {
+                    let mut incoming_map = HashMap::new();
+                    for (val, pred_bb) in incoming {
+                        incoming_map.insert(*pred_bb, val.id);
+                    }
+                    phis.push(PhiDescriptor {
+                        result_id: result.id,
+                        incoming: incoming_map,
+                    });
+                }
+            }
+            if !phis.is_empty() {
+                phi_map.insert(ir_block.id, phis);
+            }
+        }
+
+        // Add block parameters for PHI nodes to Cranelift blocks.
+        for ir_block in &ir_func.blocks {
+            if let Some(phis) = phi_map.get(&ir_block.id) {
+                let block = *block_map.get(&ir_block.id).unwrap();
+                for _ in phis {
+                    builder.append_block_param(block, types::I64);
+                }
+            }
+        }
+
         let blocks = ir_func.blocks.clone();
         for ir_block in &blocks {
             CodeGenerator::generate_block(
@@ -262,6 +293,8 @@ impl AotCodeGenerator {
                 &block_map,
                 &mut allocation_vars,
                 frame_var,
+                ir_block.id,
+                &phi_map,
             )?;
         }
 
