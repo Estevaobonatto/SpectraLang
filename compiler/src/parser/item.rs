@@ -185,6 +185,7 @@ impl Parser {
 
         while !self.check_symbol('}') && !self.is_at_end() {
             // Try to parse as statement
+            let start_position = self.position;
             match self.parse_statement() {
                 Ok(stmt) => statements.push(stmt),
                 Err(_) => {
@@ -192,7 +193,7 @@ impl Parser {
                     if self.check_symbol('}') {
                         break; // Let the error propagate, block might be empty
                     }
-                    self.synchronize();
+                    self.synchronize_with_progress(start_position);
                 }
             }
         }

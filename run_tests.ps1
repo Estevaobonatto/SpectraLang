@@ -1,9 +1,24 @@
 # Script de teste automatizado para SpectraLang
-# Cobre todos os diretórios de testes:
-#   tests/validation/   — devem COMPILAR com sucesso
-#   tests/control_flow/ — devem COMPILAR com sucesso
-#   tests/errors/       — devem FALHAR na compilação (erros esperados)
-#   tests/semantic/     — executados e reportados sem expectativa forçada
+# Cobre todos os diretorios de testes:
+#   tests/validation/   - devem COMPILAR com sucesso
+#   tests/control_flow/ - devem COMPILAR com sucesso
+#   tests/errors/       - devem FALHAR na compilacao (erros esperados)
+#   tests/semantic/     - executados e reportados sem expectativa forcada
+#
+# Requer que o binario ja esteja compilado:
+#   cargo build -p spectra-cli
+
+$binary = ".\target\debug\spectralang.exe"
+
+if (-not (Test-Path $binary)) {
+    Write-Host "Binario nao encontrado. Compilando..." -ForegroundColor Yellow
+    $env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
+    & "C:\Users\estev\.cargo\bin\cargo.exe" build -p spectra-cli 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERRO: Falha ao compilar o compilador." -ForegroundColor Red
+        exit 1
+    }
+}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "   SPECTRALANG - SUITE DE TESTES" -ForegroundColor Cyan
@@ -16,22 +31,34 @@ $totalInfo    = 0
 $results      = @()
 
 # ---------------------------------------------------------------------------
-# Função auxiliar: executa um arquivo .spectra e retorna o resultado
+# Funcao auxiliar: executa um arquivo .spectra e retorna o resultado
 # ---------------------------------------------------------------------------
 function Invoke-SpectraFile([string]$filePath) {
-    $output = cargo run -- $filePath 2>&1 | Out-String
+    $proc = Start-Process -FilePath $binary `
+        -ArgumentList "run", "`"$filePath`"" `
+        -NoNewWindow -PassThru -Wait `
+        -RedirectStandardOutput "$env:TEMP\spectra_out.txt" `
+        -RedirectStandardError  "$env:TEMP\spectra_err.txt"
+
+    $stdout = Get-Content "$env:TEMP\spectra_out.txt" -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content "$env:TEMP\spectra_err.txt" -Raw -ErrorAction SilentlyContinue
+    $combined = "$stdout`n$stderr"
+
     return [PSCustomObject]@{
-        ExitCode = $LASTEXITCODE
-        Output   = $output
+        ExitCode = $proc.ExitCode
+        Output   = $combined
     }
 }
 
 function Get-FirstError([string]$output) {
-    $line = ($output -split "`n" | Where-Object { $_ -match "error:|Error:" } | Select-Object -First 1)
+    $line = ($output -split "`n" | Where-Object { $_ -match "error\[|error:|Error:" } | Select-Object -First 1)
     if (-not $line) {
-        $line = ($output -split "`n" | Where-Object { $_ -match "Expected|Undefined" } | Select-Object -First 1)
+        $line = ($output -split "`n" | Where-Object { $_ -match "Expected|Undefined|not defined" } | Select-Object -First 1)
     }
-    return $line.Trim()
+    if ($line) {
+        return $line.Trim().Substring(0, [Math]::Min(80, $line.Trim().Length))
+    }
+    return ""
 }
 
 # ---------------------------------------------------------------------------
@@ -50,21 +77,21 @@ foreach ($dir in $successDirs) {
         $r = Invoke-SpectraFile $file.FullName
 
         if ($r.ExitCode -eq 0) {
-            Write-Host " ✅ PASSOU" -ForegroundColor Green
+            Write-Host " PASSOU" -ForegroundColor Green
             $totalPassed++
-            $results += [PSCustomObject]@{ Diretório = $dir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "" }
+            $results += [PSCustomObject]@{ Diretorio = $dir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "" }
         } else {
             $err = Get-FirstError $r.Output
-            Write-Host " ❌ FALHOU" -ForegroundColor Red
+            Write-Host " FALHOU" -ForegroundColor Red
             Write-Host "     $err" -ForegroundColor DarkRed
             $totalFailed++
-            $results += [PSCustomObject]@{ Diretório = $dir; Teste = $file.Name; Status = "FALHOU"; Detalhe = $err }
+            $results += [PSCustomObject]@{ Diretorio = $dir; Teste = $file.Name; Status = "FALHOU"; Detalhe = $err }
         }
     }
 }
 
 # ---------------------------------------------------------------------------
-# Grupo 2: testes de erro — devem FALHAR na compilação
+# Grupo 2: testes de erro - devem FALHAR na compilacao
 # ---------------------------------------------------------------------------
 $errorDir = "tests\errors"
 if (Test-Path $errorDir) {
@@ -77,19 +104,19 @@ if (Test-Path $errorDir) {
         $r = Invoke-SpectraFile $file.FullName
 
         if ($r.ExitCode -ne 0) {
-            Write-Host " ✅ PASSOU (erro esperado)" -ForegroundColor Green
+            Write-Host " PASSOU (erro esperado)" -ForegroundColor Green
             $totalPassed++
-            $results += [PSCustomObject]@{ Diretório = $errorDir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "erro esperado detectado" }
+            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "erro esperado detectado" }
         } else {
-            Write-Host " ❌ FALHOU (deveria produzir erro, mas compilou)" -ForegroundColor Red
+            Write-Host " FALHOU (deveria produzir erro, mas compilou)" -ForegroundColor Red
             $totalFailed++
-            $results += [PSCustomObject]@{ Diretório = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "compilou sem erro — erro esperado não detectado" }
+            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "compilou sem erro - erro esperado nao detectado" }
         }
     }
 }
 
 # ---------------------------------------------------------------------------
-# Grupo 3: testes semânticos — informativo apenas
+# Grupo 3: testes semanticos - informativo apenas
 # ---------------------------------------------------------------------------
 $semanticDir = "tests\semantic"
 if (Test-Path $semanticDir) {
@@ -102,14 +129,14 @@ if (Test-Path $semanticDir) {
         $r = Invoke-SpectraFile $file.FullName
 
         if ($r.ExitCode -eq 0) {
-            Write-Host " ℹ COMPILOU" -ForegroundColor Cyan
+            Write-Host " COMPILOU" -ForegroundColor Cyan
             $totalInfo++
-            $results += [PSCustomObject]@{ Diretório = $semanticDir; Teste = $file.Name; Status = "INFO:COMPILOU"; Detalhe = "" }
+            $results += [PSCustomObject]@{ Diretorio = $semanticDir; Teste = $file.Name; Status = "INFO:COMPILOU"; Detalhe = "" }
         } else {
             $err = Get-FirstError $r.Output
-            Write-Host " ℹ ERRO" -ForegroundColor DarkYellow
+            Write-Host " ERRO" -ForegroundColor DarkYellow
             $totalInfo++
-            $results += [PSCustomObject]@{ Diretório = $semanticDir; Teste = $file.Name; Status = "INFO:ERRO"; Detalhe = $err }
+            $results += [PSCustomObject]@{ Diretorio = $semanticDir; Teste = $file.Name; Status = "INFO:ERRO"; Detalhe = $err }
         }
     }
 }
@@ -140,7 +167,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 $results | Format-Table -AutoSize
 
-# Salva relatório
+# Salva relatorio
 $reportPath = "TEST_RESULTS.txt"
 $results | Out-File -FilePath $reportPath -Encoding UTF8
-Write-Host "Relatório salvo em: $reportPath" -ForegroundColor Cyan
+Write-Host "Relatorio salvo em: $reportPath" -ForegroundColor Cyan

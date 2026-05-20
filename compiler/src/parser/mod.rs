@@ -190,6 +190,13 @@ impl Parser {
         }
     }
 
+    fn synchronize_with_progress(&mut self, start_position: usize) {
+        self.synchronize();
+        if self.position == start_position && !self.is_at_end() {
+            self.advance();
+        }
+    }
+
     /// Returns `true` when the current token is a natural recovery boundary
     /// (a `}` or a keyword that starts a new top-level / statement construct).
     fn is_at_boundary(&self) -> bool {

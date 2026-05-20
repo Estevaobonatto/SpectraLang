@@ -37,9 +37,10 @@ impl Parser {
 
         // Parse module items
         while !self.is_at_end() {
+            let start_position = self.position;
             match self.parse_item() {
                 Ok(item) => module.items.push(item),
-                Err(_) => self.synchronize(),
+                Err(_) => self.synchronize_with_progress(start_position),
             }
         }
 
