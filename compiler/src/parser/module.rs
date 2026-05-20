@@ -115,7 +115,7 @@ impl Parser {
 
         // Optional alias: import path as alias;
         let alias = match &self.current().kind {
-            crate::token::TokenKind::Identifier(kw) if kw == "as" => {
+            crate::token::TokenKind::Keyword(Keyword::As) => {
                 self.advance(); // consume 'as'
                 let (alias_name, _) = self.consume_identifier("Expected alias name after 'as'")?;
                 Some(alias_name)

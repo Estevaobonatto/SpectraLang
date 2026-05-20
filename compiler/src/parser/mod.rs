@@ -505,6 +505,53 @@ mod tests {
         assert!(parse_with_features(source, &[]).is_err());
         assert!(parse_with_features(source, &["unless"]).is_ok());
     }
+
+    #[test]
+    fn parses_import_forms() {
+        let source = r#"
+            module demo;
+
+            import std.io;
+            import std.math as math;
+            import { println, print } from std.io;
+            pub import { println } from std.io;
+        "#;
+
+        let module = parse_with_features(source, &[]).expect("imports should parse");
+        let imports: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                crate::ast::Item::Import(import) => Some(import),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(imports.len(), 4);
+
+        assert_eq!(imports[0].path, vec!["std".to_string(), "io".to_string()]);
+        assert_eq!(imports[0].alias, None);
+        assert_eq!(imports[0].names, None);
+        assert!(!imports[0].is_reexport);
+
+        assert_eq!(imports[1].path, vec!["std".to_string(), "math".to_string()]);
+        assert_eq!(imports[1].alias.as_deref(), Some("math"));
+        assert_eq!(imports[1].names, None);
+
+        assert_eq!(imports[2].path, vec!["std".to_string(), "io".to_string()]);
+        assert_eq!(
+            imports[2].names.as_ref().map(|names| names.as_slice()),
+            Some(&["println".to_string(), "print".to_string()][..])
+        );
+        assert!(!imports[2].is_reexport);
+
+        assert_eq!(imports[3].path, vec!["std".to_string(), "io".to_string()]);
+        assert_eq!(
+            imports[3].names.as_ref().map(|names| names.as_slice()),
+            Some(&["println".to_string()][..])
+        );
+        assert!(imports[3].is_reexport);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

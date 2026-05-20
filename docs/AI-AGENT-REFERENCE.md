@@ -1799,7 +1799,7 @@ let credit = cx_ledger::TxKind::Credit(100);    // qualified enum constructor
 | `do-while` | `do { } while` loop |
 | `loop` | Infinite `loop { }` |
 
-> Note: In practice these features are already widely supported without the flag. The flag is only required when strict experimental-feature gating is enabled.
+> Note: Experimental syntax is feature-gated in the current compiler. Use `--enable-experimental <feature>` explicitly when compiling examples that depend on it.
 
 ### Exit Codes
 

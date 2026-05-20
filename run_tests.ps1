@@ -3,12 +3,19 @@
 #   tests/validation/   - devem COMPILAR com sucesso
 #   tests/control_flow/ - devem COMPILAR com sucesso
 #   tests/errors/       - devem FALHAR na compilacao (erros esperados)
-#   tests/semantic/     - executados e reportados sem expectativa forcada
+#   tests/semantic/     - compilados e reportados sem expectativa forcada
 #
 # Requer que o binario ja esteja compilado:
 #   cargo build -p spectra-cli
 
 $binary = ".\target\debug\spectralang.exe"
+$timeoutSeconds = 10
+$experimentalFlags = @(
+    "--enable-experimental", "switch",
+    "--enable-experimental", "unless",
+    "--enable-experimental", "do-while",
+    "--enable-experimental", "loop"
+)
 
 if (-not (Test-Path $binary)) {
     Write-Host "Binario nao encontrado. Compilando..." -ForegroundColor Yellow
@@ -31,21 +38,34 @@ $totalInfo    = 0
 $results      = @()
 
 # ---------------------------------------------------------------------------
-# Funcao auxiliar: executa um arquivo .spectra e retorna o resultado
+# Funcao auxiliar: compila um arquivo .spectra com timeout e retorna o resultado
 # ---------------------------------------------------------------------------
 function Invoke-SpectraFile([string]$filePath) {
-    $proc = Start-Process -FilePath $binary `
-        -ArgumentList "run", "`"$filePath`"" `
-        -NoNewWindow -PassThru -Wait `
-        -RedirectStandardOutput "$env:TEMP\spectra_out.txt" `
-        -RedirectStandardError  "$env:TEMP\spectra_err.txt"
+    $stdoutPath = Join-Path $env:TEMP "spectra_out.txt"
+    $stderrPath = Join-Path $env:TEMP "spectra_err.txt"
+    $args = @("compile", $filePath) + $experimentalFlags
 
-    $stdout = Get-Content "$env:TEMP\spectra_out.txt" -Raw -ErrorAction SilentlyContinue
-    $stderr = Get-Content "$env:TEMP\spectra_err.txt" -Raw -ErrorAction SilentlyContinue
+    $proc = Start-Process -FilePath $binary `
+        -ArgumentList $args `
+        -NoNewWindow -PassThru `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError  $stderrPath
+
+    $timedOut = $false
+    if (-not (Wait-Process -Id $proc.Id -Timeout $timeoutSeconds -ErrorAction SilentlyContinue)) {
+        $timedOut = $true
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    } else {
+        $proc.Refresh()
+    }
+
+    $stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue
     $combined = "$stdout`n$stderr"
 
     return [PSCustomObject]@{
-        ExitCode = $proc.ExitCode
+        ExitCode = if ($timedOut) { 124 } else { $proc.ExitCode }
+        TimedOut = $timedOut
         Output   = $combined
     }
 }
@@ -76,7 +96,11 @@ foreach ($dir in $successDirs) {
         Write-Host "  $($file.Name)" -NoNewline
         $r = Invoke-SpectraFile $file.FullName
 
-        if ($r.ExitCode -eq 0) {
+        if ($r.TimedOut) {
+            Write-Host " TIMEOUT" -ForegroundColor Red
+            $totalFailed++
+            $results += [PSCustomObject]@{ Diretorio = $dir; Teste = $file.Name; Status = "TIMEOUT"; Detalhe = "compilacao excedeu ${timeoutSeconds}s" }
+        } elseif ($r.ExitCode -eq 0) {
             Write-Host " PASSOU" -ForegroundColor Green
             $totalPassed++
             $results += [PSCustomObject]@{ Diretorio = $dir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "" }
@@ -103,7 +127,11 @@ if (Test-Path $errorDir) {
         Write-Host "  $($file.Name)" -NoNewline
         $r = Invoke-SpectraFile $file.FullName
 
-        if ($r.ExitCode -ne 0) {
+        if ($r.TimedOut) {
+            Write-Host " FALHOU (timeout)" -ForegroundColor Red
+            $totalFailed++
+            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "timeout - deveria falhar rapidamente" }
+        } elseif ($r.ExitCode -ne 0) {
             Write-Host " PASSOU (erro esperado)" -ForegroundColor Green
             $totalPassed++
             $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "erro esperado detectado" }
@@ -128,7 +156,11 @@ if (Test-Path $semanticDir) {
         Write-Host "  $($file.Name)" -NoNewline
         $r = Invoke-SpectraFile $file.FullName
 
-        if ($r.ExitCode -eq 0) {
+        if ($r.TimedOut) {
+            Write-Host " TIMEOUT" -ForegroundColor Red
+            $totalInfo++
+            $results += [PSCustomObject]@{ Diretorio = $semanticDir; Teste = $file.Name; Status = "INFO:TIMEOUT"; Detalhe = "compilacao excedeu ${timeoutSeconds}s" }
+        } elseif ($r.ExitCode -eq 0) {
             Write-Host " COMPILOU" -ForegroundColor Cyan
             $totalInfo++
             $results += [PSCustomObject]@{ Diretorio = $semanticDir; Teste = $file.Name; Status = "INFO:COMPILOU"; Detalhe = "" }

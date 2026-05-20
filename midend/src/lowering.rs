@@ -1924,7 +1924,7 @@ impl ASTLowering {
         self.function_return_types
             .insert(ast_func.name.clone(), return_type.clone());
 
-        let mut ir_func = IRFunction::new(&ast_func.name, params.clone(), return_type);
+        let mut ir_func = IRFunction::new(&ast_func.name, params.clone(), return_type.clone());
 
         // Create entry block
         let entry_block = ir_func.add_block("entry");
@@ -1985,8 +1985,12 @@ impl ASTLowering {
                         self.lower_statement(stmt, &mut ir_func);
                     }
                 }
-                // Lower last expression and capture its value
-                implicit_return_value = Some(self.lower_expression(expr, &mut ir_func));
+                // Lower the last expression for side effects. Only treat it as an
+                // implicit return value when the function does not return void.
+                let last_value = self.lower_expression(expr, &mut ir_func);
+                if return_type != IRType::Void {
+                    implicit_return_value = Some(last_value);
+                }
             } else {
                 // No implicit return, lower all statements
                 self.lower_block(&ast_func.body.statements, &mut ir_func);
@@ -2073,7 +2077,7 @@ impl ASTLowering {
         self.function_return_types
             .insert(mangled_name.clone(), return_type.clone());
 
-        let mut ir_func = IRFunction::new(&mangled_name, params.clone(), return_type);
+        let mut ir_func = IRFunction::new(&mangled_name, params.clone(), return_type.clone());
         let entry_block = ir_func.add_block("entry");
         self.builder.set_current_block(entry_block);
 
@@ -2129,7 +2133,10 @@ impl ASTLowering {
                         self.lower_statement(stmt, &mut ir_func);
                     }
                 }
-                implicit_return_value = Some(self.lower_expression(expr, &mut ir_func));
+                let last_value = self.lower_expression(expr, &mut ir_func);
+                if return_type != IRType::Void {
+                    implicit_return_value = Some(last_value);
+                }
             } else {
                 self.lower_block(&method.body.statements, &mut ir_func);
             }
@@ -2379,6 +2386,11 @@ impl ASTLowering {
         ir_func: &mut IRFunction,
         entry_block: usize,
     ) -> (Option<Value>, usize, bool) {
+        self.value_map.push_scope();
+        self.variable_types.push_scope();
+        self.array_map.push_scope();
+        self.struct_var_map.push_scope();
+
         // Lower all statements and extract the value of the last expression.
         // Previously this called lower_block (which lowers ALL stmts) and then
         // re-evaluated the last stmt with lower_expression, causing the last
@@ -2407,6 +2419,11 @@ impl ASTLowering {
             .get_block(current_block_id)
             .map(|block| block.terminator.is_some())
             .unwrap_or(false);
+
+        self.struct_var_map.pop_scope();
+        self.array_map.pop_scope();
+        self.variable_types.pop_scope();
+        self.value_map.pop_scope();
 
         (produced_value, current_block_id, has_terminator)
     }
@@ -3389,8 +3406,11 @@ impl ASTLowering {
 
                 match operator {
                     UnaryOperator::Negate => {
-                        // Negate: 0 - operand
-                        let zero = self.builder.build_const_int(ir_func, 0);
+                        // Negate: 0 - operand, preserving numeric kind.
+                        let zero = match self.infer_expr_ir_type(operand) {
+                            IRType::Float => self.builder.build_const_float(ir_func, 0.0),
+                            _ => self.builder.build_const_int(ir_func, 0),
+                        };
                         self.builder.build_sub(ir_func, zero, operand_value)
                     }
                     UnaryOperator::Not => self.builder.build_not(ir_func, operand_value),
@@ -5649,6 +5669,63 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 runtime_name: "spectra.std.convert.bool_to_int",
                 return_type: IRType::Int,
                 returns_value: true,
+            }),
+            // ── std.char ──────────────────────────────────────────────────
+            ("char", "is_alpha") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.is_alpha",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("char", "is_digit_char") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.is_digit_char",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("char", "is_whitespace_char") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.is_whitespace_char",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("char", "is_upper_char") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.is_upper_char",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("char", "is_lower_char") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.is_lower_char",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("char", "to_upper_char") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.to_upper_char",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("char", "to_lower_char") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.to_lower_char",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("char", "is_alphanumeric") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.char.is_alphanumeric",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            // ── std.time ──────────────────────────────────────────────────
+            ("time", "time_now_millis") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.time_now_millis",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "time_now_secs") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.time_now_secs",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "sleep_ms") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.sleep_ms",
+                return_type: IRType::Void,
+                returns_value: false,
             }),
             // ── std.random ────────────────────────────────────────────────
             ("random", "random_seed") => Some(HostFunctionDescriptor {

@@ -294,6 +294,45 @@ pub fn type_name(ty: &Type) -> String {
 }
 
 impl SemanticAnalyzer {
+    fn seed_builtin_module_namespaces(&mut self) {
+        const BUILTIN_MODULES: &[&str] = &[
+            "std",
+            "std.io",
+            "std.math",
+            "std.collections",
+            "std.string",
+            "std.convert",
+            "std.random",
+            "std.fs",
+            "std.env",
+            "std.option",
+            "std.result",
+            "std.char",
+            "std.time",
+            "spectra",
+            "spectra.std",
+            "spectra.std.io",
+            "spectra.std.math",
+            "spectra.std.collections",
+            "spectra.std.string",
+            "spectra.std.convert",
+            "spectra.std.random",
+            "spectra.std.fs",
+            "spectra.std.env",
+            "spectra.std.option",
+            "spectra.std.result",
+            "spectra.std.char",
+            "spectra.std.time",
+        ];
+
+        for module_path in BUILTIN_MODULES {
+            let segments: Vec<&str> = module_path.split('.').collect();
+            for i in 0..segments.len() {
+                self.module_namespaces.insert(segments[..=i].join("."));
+            }
+        }
+    }
+
     /// Create an analyzer with a private registry seeded with stdlib modules.
     /// Suitable for single-file use (e.g. tests, REPL).
     pub fn new() -> Self {
@@ -337,6 +376,7 @@ impl SemanticAnalyzer {
             qualified_fn_types: Vec::new(),
         };
         analyzer.register_builtin_generic_types();
+        analyzer.seed_builtin_module_namespaces();
         analyzer
     }
 
@@ -857,6 +897,18 @@ impl SemanticAnalyzer {
                         elements: element_types,
                     }
                 }
+                TypeAnnotationKind::Function { params, return_type } => {
+                    let param_types = params
+                        .iter()
+                        .map(|param_ann| self.type_annotation_to_type(&Some(param_ann.clone())))
+                        .collect();
+                    let return_type =
+                        self.type_annotation_to_type(&Some((**return_type).clone()));
+                    Type::Fn {
+                        params: param_types,
+                        return_type: Box::new(return_type),
+                    }
+                }
                 TypeAnnotationKind::DynTrait { trait_name } => Type::DynTrait {
                     trait_name: trait_name.clone(),
                 },
@@ -1225,6 +1277,31 @@ impl SemanticAnalyzer {
             // Enums com mesmo nome
             (Type::Enum { name: n1, .. }, Type::Enum { name: n2, .. }) => n1 == n2,
 
+            // Function types must agree on arity, parameter types, and return type.
+            (
+                Type::Fn {
+                    params: p1,
+                    return_type: r1,
+                },
+                Type::Fn {
+                    params: p2,
+                    return_type: r2,
+                },
+            ) => {
+                p1.len() == p2.len()
+                    && p1
+                        .iter()
+                        .zip(p2.iter())
+                        .all(|(a, b)| self.types_match(a, b))
+                    && self.types_match(r1, r2)
+            }
+
+            // Dynamic trait objects match structurally by trait name.
+            (
+                Type::DynTrait { trait_name: a },
+                Type::DynTrait { trait_name: b },
+            ) => a == b,
+
             // Unknown aceita qualquer coisa (inferência incompleta)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
 
@@ -1442,14 +1519,8 @@ impl SemanticAnalyzer {
                     }
                 }
                 Item::Enum(enum_def) => {
-                    // Skip redefinition of built-in generic enums (Option, Result).
-                    // User code from the Alpha/early-Beta era declares these locally;
-                    // we silently preserve the canonical built-in definitions.
-                    if self.enum_infos.contains_key(&enum_def.name)
-                        && matches!(enum_def.name.as_str(), "Option" | "Result")
-                    {
-                        continue;
-                    }
+                    let shadows_builtin_generic =
+                        matches!(enum_def.name.as_str(), "Option" | "Result");
 
                     let variant_type_params: Vec<String> = enum_def
                         .type_params
@@ -1493,6 +1564,7 @@ impl SemanticAnalyzer {
                         .enum_infos
                         .insert(enum_def.name.clone(), enum_info)
                         .is_some()
+                        && !shadows_builtin_generic
                     {
                         self.error(
                             format!("Enum '{}' is already defined", enum_def.name),
@@ -1511,6 +1583,8 @@ impl SemanticAnalyzer {
                             enum_def.variants.iter().map(|v| v.name.clone()).collect();
                         self.generic_enums
                             .insert(enum_def.name.clone(), (type_params, variant_names));
+                    } else if shadows_builtin_generic {
+                        self.generic_enums.remove(&enum_def.name);
                     }
                 }
                 _ => {}
@@ -2753,9 +2827,12 @@ impl SemanticAnalyzer {
             }
             StatementKind::IfLet(stmt) => {
                 self.analyze_expression(&stmt.value);
+                let value_type = self.infer_expression_type(&stmt.value);
                 self.push_scope();
-                self.register_pattern_bindings(&stmt.pattern);
-                self.analyze_block(&stmt.then_block);
+                self.register_typed_pattern_bindings(&stmt.pattern, &value_type);
+                for statement in &stmt.then_block.statements {
+                    self.analyze_statement(statement);
+                }
                 self.pop_scope();
                 if let Some(else_b) = &stmt.else_block {
                     self.analyze_block(else_b);
@@ -2763,10 +2840,13 @@ impl SemanticAnalyzer {
             }
             StatementKind::WhileLet(stmt) => {
                 self.analyze_expression(&stmt.value);
+                let value_type = self.infer_expression_type(&stmt.value);
                 self.loop_depth += 1;
                 self.push_scope();
-                self.register_pattern_bindings(&stmt.pattern);
-                self.analyze_block(&stmt.body);
+                self.register_typed_pattern_bindings(&stmt.pattern, &value_type);
+                for statement in &stmt.body.statements {
+                    self.analyze_statement(statement);
+                }
                 self.pop_scope();
                 self.loop_depth -= 1;
             }
@@ -2855,6 +2935,9 @@ impl SemanticAnalyzer {
                     if let Some(sig) = self.functions.get(name) {
                         return sig.return_type.clone();
                     }
+                }
+                if let Type::Fn { return_type, .. } = self.infer_expression_type(callee) {
+                    return (*return_type).clone();
                 }
                 Type::Unknown
             }
@@ -3043,7 +3126,26 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::CharLiteral(_) => Type::Char,
             ExpressionKind::FString(_) => Type::String,
-            ExpressionKind::Lambda { .. } => Type::Unknown,
+            ExpressionKind::Lambda { params, body } => {
+                self.push_scope();
+
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|param| {
+                        let ty = self.type_annotation_to_type_checked(&param.ty);
+                        self.declare_symbol(param.name.clone(), param.span, ty.clone());
+                        ty
+                    })
+                    .collect();
+
+                let return_type = self.infer_expression_type(body);
+                self.pop_scope();
+
+                Type::Fn {
+                    params: param_types,
+                    return_type: Box::new(return_type),
+                }
+            }
             ExpressionKind::Try(inner) => self.infer_expression_type(inner),
             ExpressionKind::Cast { target_type, .. } => {
                 self.type_annotation_to_type(&Some(target_type.clone()))
@@ -3356,6 +3458,55 @@ impl SemanticAnalyzer {
                                     );
                                 }
                             }
+                        }
+                    } else if let Some(symbol_ty) = self.lookup_symbol(name).map(|info| info.ty.clone()) {
+                        if let Type::Fn { params, return_type: _ } = symbol_ty {
+                            if arguments.len() != params.len() {
+                                self.error(
+                                    format!(
+                                        "Function value '{}' expects {} arguments, but {} were provided",
+                                        name,
+                                        params.len(),
+                                        arguments.len()
+                                    ),
+                                    expr.span,
+                                );
+                            } else {
+                                for (i, (arg, expected_type)) in
+                                    arguments.iter().zip(params.iter()).enumerate()
+                                {
+                                    let arg_type = self.infer_expression_type(arg);
+                                    if matches!(arg_type, Type::Unknown) {
+                                        self.error_with_hint(
+                                            format!(
+                                                "Argument {} of function value '{}' has an unknown or uninferrable type",
+                                                i + 1,
+                                                name,
+                                            ),
+                                            arg.span,
+                                            "Add an explicit type annotation to resolve the argument type.",
+                                        );
+                                    } else if *expected_type != Type::Unknown
+                                        && !self.types_match(&arg_type, expected_type)
+                                    {
+                                        self.error(
+                                            format!(
+                                                "Argument {} of function value '{}' has type {}, expected {}",
+                                                i + 1,
+                                                name,
+                                                type_name(&arg_type),
+                                                type_name(expected_type)
+                                            ),
+                                            arg.span,
+                                        );
+                                    }
+                                }
+                            }
+                        } else {
+                            self.error(
+                                format!("'{}' is not callable", name),
+                                callee.span,
+                            );
                         }
                     } else if self.lookup_symbol(name).is_none() {
                         let hint = self.suggest_name(name);
@@ -4540,6 +4691,100 @@ impl SemanticAnalyzer {
                 if let Some(named_patterns) = struct_data {
                     for (_, sub_pattern) in named_patterns {
                         self.register_pattern_bindings(sub_pattern);
+                    }
+                }
+            }
+        }
+    }
+
+    fn register_typed_pattern_bindings(&mut self, pattern: &Pattern, ty: &Type) {
+        use crate::ast::Pattern;
+
+        let mut effective_type = ty.clone();
+        if matches!(effective_type, Type::Unknown) {
+            if let Some(inferred) = self.infer_pattern_type(pattern) {
+                effective_type = inferred;
+            }
+        }
+
+        match pattern {
+            Pattern::Wildcard | Pattern::Literal(_) => {}
+            Pattern::Identifier(name) => {
+                let is_local = self.symbols.len() > 1;
+                if let Some(scope) = self.symbols.last_mut() {
+                    scope.insert(
+                        name.clone(),
+                        SymbolInfo {
+                            is_local,
+                            def_span: None,
+                            ty: effective_type,
+                        },
+                    );
+                }
+            }
+            Pattern::EnumVariant {
+                enum_name,
+                variant_name,
+                data,
+                struct_data,
+                ..
+            } => {
+                let enum_type = match &effective_type {
+                    Type::Enum { name } => name.clone(),
+                    _ => {
+                        if let Some(Type::Enum { name }) = self.infer_pattern_type(pattern) {
+                            name
+                        } else {
+                            return;
+                        }
+                    }
+                };
+
+                if enum_type != *enum_name {
+                    return;
+                }
+
+                let Some(enum_info) = self.enum_infos.get(enum_name) else {
+                    return;
+                };
+                let Some(variant_info) = enum_info.variants.get(variant_name).cloned() else {
+                    return;
+                };
+
+                if let (Some(sub_patterns), Some(field_types)) = (&data, &variant_info.data) {
+                    if sub_patterns.len() != field_types.len() {
+                        return;
+                    }
+
+                    let inferred_field_types: Vec<Type> = field_types
+                        .iter()
+                        .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                        .collect();
+
+                    for (sub_pattern, field_type) in
+                        sub_patterns.iter().zip(inferred_field_types.iter())
+                    {
+                        self.register_typed_pattern_bindings(sub_pattern, field_type);
+                    }
+                }
+
+                if let (Some(named_patterns), Some(field_types)) =
+                    (&struct_data, &variant_info.struct_data)
+                {
+                    let inferred_field_types: HashMap<String, Type> = field_types
+                        .iter()
+                        .map(|(name, ann)| {
+                            (
+                                name.clone(),
+                                self.type_annotation_to_type(&Some(ann.clone())),
+                            )
+                        })
+                        .collect();
+
+                    for (field_name, sub_pattern) in named_patterns {
+                        if let Some(field_type) = inferred_field_types.get(field_name) {
+                            self.register_typed_pattern_bindings(sub_pattern, field_type);
+                        }
                     }
                 }
             }
