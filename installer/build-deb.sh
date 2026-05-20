@@ -31,13 +31,17 @@ VSIX_SRC="${BIN_DIR}/spectra-vscode-extension.vsix"
 rm -rf "${STAGING}"
 
 # ── Directory layout ──────────────────────────────────────────────────────────
-# /usr/local/bin           — executables
-# /usr/share/spectra       — VS Code extension VSIX
-# /usr/share/doc/spectra   — doc placeholder
+# /usr/local/bin                — executables
+# /usr/share/spectra            — VS Code extension VSIX
+# /usr/share/doc/spectra        — doc placeholder
+# /usr/share/applications       — .desktop entry for .spectra association
+# /usr/share/mime/packages      — MIME type definition
 mkdir -p "${STAGING}/DEBIAN"
 mkdir -p "${STAGING}/usr/local/bin"
 mkdir -p "${STAGING}/usr/share/spectra"
 mkdir -p "${STAGING}/usr/share/doc/${PACKAGE}"
+mkdir -p "${STAGING}/usr/share/applications"
+mkdir -p "${STAGING}/usr/share/mime/packages"
 
 # ── Copy binaries ─────────────────────────────────────────────────────────────
 cp "${BIN_DIR}/spectralang" "${STAGING}/usr/local/bin/spectralang"
@@ -54,6 +58,32 @@ else
   INCLUDES_VSIX=false
   echo "Note: VSIX not found at ${VSIX_SRC}, skipping VS Code extension bundling."
 fi
+
+# ── MIME type for .spectra files ──────────────────────────────────────────────
+cat > "${STAGING}/usr/share/mime/packages/spectra.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/x-spectra">
+    <comment>SpectraLang source file</comment>
+    <glob pattern="*.spectra"/>
+    <sub-class-of type="text/plain"/>
+  </mime-type>
+</mime-info>
+EOF
+
+# ── .desktop entry to open .spectra with spectralang ──────────────────────────
+cat > "${STAGING}/usr/share/applications/spectra.desktop" <<'EOF'
+[Desktop Entry]
+Name=SpectraLang
+Comment=SpectraLang compiler and runtime
+Exec=/usr/local/bin/spectralang run %f
+Icon=utilities-terminal
+Type=Application
+Terminal=true
+MimeType=text/x-spectra;
+Categories=Development;IDE;
+NoDisplay=true
+EOF
 
 # ── Changelog stub (required by lintian) ─────────────────────────────────────
 cat > "${STAGING}/usr/share/doc/${PACKAGE}/changelog.Debian" <<EOF
@@ -96,10 +126,20 @@ Description: ${DESCRIPTION}
   - spectra-lsp: the Language Server Protocol daemon for editor integration
 EOF
 
-# ── postinst / prerm hooks (optional) ────────────────────────────────────────
+# ── postinst ──────────────────────────────────────────────────────────────────
 cat > "${STAGING}/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+
+# Update MIME and desktop databases so .spectra files are recognized
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications
+fi
+
+# Install VS Code extension if VSIX is bundled
 VSIX="/usr/share/spectra/spectra-vscode-extension.vsix"
 if [ -f "${VSIX}" ]; then
     for cmd in code code-insiders; do
@@ -110,16 +150,53 @@ if [ -f "${VSIX}" ]; then
         fi
     done
 fi
+
+# Remind user about PATH (usually /usr/local/bin is already there)
+if ! echo "$PATH" | tr ':' '\n' | grep -qx '/usr/local/bin'; then
+    echo "====================================================================="
+    echo "WARNING: /usr/local/bin is not in your PATH."
+    echo "Add the following line to your shell profile (~/.bashrc, ~/.zshrc, etc):"
+    echo "  export PATH=\"/usr/local/bin:\$PATH\""
+    echo "====================================================================="
+fi
+
 exit 0
 EOF
 chmod 755 "${STAGING}/DEBIAN/postinst"
 
+# ── prerm ─────────────────────────────────────────────────────────────────────
 cat > "${STAGING}/DEBIAN/prerm" <<'EOF'
 #!/bin/sh
 set -e
+
+# Uninstall VS Code extension before removing files
+for cmd in code code-insiders; do
+    if command -v "${cmd}" >/dev/null 2>&1; then
+        echo "Removing SpectraLang VS Code extension from ${cmd}..."
+        "${cmd}" --uninstall-extension spectralang.spectra-vscode-extension >/dev/null 2>&1 || true
+    fi
+done
+
 exit 0
 EOF
 chmod 755 "${STAGING}/DEBIAN/prerm"
+
+# ── postrm ────────────────────────────────────────────────────────────────────
+cat > "${STAGING}/DEBIAN/postrm" <<'EOF'
+#!/bin/sh
+set -e
+
+# Clean up MIME and desktop databases
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications
+fi
+
+exit 0
+EOF
+chmod 755 "${STAGING}/DEBIAN/postrm"
 
 # ── Build .deb ────────────────────────────────────────────────────────────────
 dpkg-deb --root-owner-group --build "${STAGING}" "installer/${DEB_NAME}"
