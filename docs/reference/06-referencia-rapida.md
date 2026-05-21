@@ -50,18 +50,18 @@
 | `elif` | ✅ Implementado | Senão-se |
 | `elseif` | ✅ Implementado | Alias de `elif` |
 | `else` | ✅ Implementado | Senão |
-| `unless` | ✅ Implementado | Condicional negada |
+| `unless` | 🧪 Experimental | Requer `--enable-experimental unless` |
 | `while` | ✅ Implementado | Laço condicional |
-| `do` | ✅ Implementado | Laço do-while (com `while`) |
+| `do` | 🧪 Experimental | Requer `--enable-experimental do-while` |
 | `for` | ✅ Implementado | Laço `for in` |
 | `foreach` | 🚧 Reservado | (futuro / future) |
 | `in` | ✅ Implementado | Em `for x in` |
 | `of` | ✅ Implementado | Alias de `in` em `for x of` |
-| `loop` | ✅ Implementado | Laço infinito |
+| `loop` | 🧪 Experimental | Requer `--enable-experimental loop` |
 | `repeat` | 🚧 Reservado | (futuro / future) |
 | `until` | 🚧 Reservado | (futuro / future) |
 | `match` | ✅ Implementado | Pattern matching |
-| `switch` | ✅ Implementado | Comparação por valor |
+| `switch` | 🧪 Experimental | Requer `--enable-experimental switch` |
 | `case` | ✅ Implementado | Braço de switch/match |
 | `cond` | 🚧 Reservado | (futuro / future) |
 | `return` | ✅ Implementado | Retorno explícito |
@@ -444,7 +444,7 @@ spectralang <comando> [flags] <arquivo>...
 | `--lint` | Ativa verificações de lint | Enable lint checks |
 | `--allow <rule>` | Permite (suprime) uma regra | Allow (suppress) a lint rule |
 | `--deny <rule>` | Eleva uma regra a erro | Escalate a lint rule to error |
-| `--json` | Emite diagnósticos em JSON (lint) | Emit diagnostics as JSON (lint only) |
+| `--json` | Emite diagnósticos em JSON | Emit diagnostics as JSON |
 
 ### Flags Experimentais / Experimental Flags
 

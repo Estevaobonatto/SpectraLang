@@ -263,6 +263,20 @@ $cliTests = @(
         UseStdin = $false
     }
     [PSCustomObject]@{
+        Nome = "check_json_invalid_file"
+        Args = @("check", "--json", "tests\errors\type_mismatch.spectra")
+        ExpectExit = 65
+        Contains = '"phase":"semantic"'
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
+        Nome = "compile_json_invalid_file"
+        Args = @("compile", "--json", "tests\errors\type_mismatch.spectra")
+        ExpectExit = 65
+        Contains = '"code":"E004"'
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
         Nome = "lint_clean"
         Args = @("lint", "tests\cli\lint_clean.spectra")
         ExpectExit = 0

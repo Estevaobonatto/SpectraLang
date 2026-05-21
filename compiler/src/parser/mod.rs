@@ -99,7 +99,7 @@ impl Parser {
                 Self::describe_token(self.current())
             );
             let hint = self.keyword_hint(keyword.clone());
-            self.push_error(error_message, span, hint, Some(context));
+            self.push_error_coded("P001", error_message, span, hint, Some(context));
             Err(())
         }
     }
@@ -118,7 +118,7 @@ impl Parser {
             let hint = self
                 .symbol_hint(symbol)
                 .or_else(|| Some(format!("Insert `{}` here.", symbol)));
-            self.push_error(error_message, recovery_span, hint, Some(context));
+            self.push_error_coded("P002", error_message, recovery_span, hint, Some(context));
             Ok(recovery_span)
         } else {
             let span = self.current().span;
@@ -128,7 +128,7 @@ impl Parser {
                 Self::describe_token(self.current())
             );
             let hint = self.symbol_hint(symbol);
-            self.push_error(error_message, span, hint, Some(context));
+            self.push_error_coded("P002", error_message, span, hint, Some(context));
             Err(())
         }
     }
@@ -145,7 +145,7 @@ impl Parser {
                 "expected identifier, found {}",
                 Self::describe_token(self.current())
             );
-            self.push_error(error_message, span, None, Some(context));
+            self.push_error_coded("P003", error_message, span, None, Some(context));
             Err(())
         }
     }
@@ -239,7 +239,7 @@ impl Parser {
             description.to_lowercase()
         );
         let context = format!("feature '{}' is disabled for this compilation", feature);
-        self.push_error(message, span, Some(hint), Some(context));
+        self.push_error_coded("P004", message, span, Some(hint), Some(context));
         Err(())
     }
 
@@ -385,7 +385,18 @@ impl Parser {
         hint: Option<String>,
         context: Option<String>,
     ) {
-        let mut error = ParseError::new(message, span);
+        self.push_error_coded("P999", message, span, hint, context);
+    }
+
+    fn push_error_coded(
+        &mut self,
+        code: &str,
+        message: impl Into<String>,
+        span: Span,
+        hint: Option<String>,
+        context: Option<String>,
+    ) {
+        let mut error = ParseError::new(message, span).with_code(code);
 
         if let Some(context) = context {
             error = error.with_context(context);

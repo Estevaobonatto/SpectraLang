@@ -1,0 +1,714 @@
+version = 1
+title = "SpectraLang Production AI Roadmap"
+updated_at = "2026-05-21"
+status_scale = ["not_started", "in_progress", "blocked", "complete"]
+priority_scale = ["P0", "P1", "P2", "P3"]
+
+[metadata]
+source_plan = "docs/production-ai-implementation-plan.md"
+source_backlog = "docs/roadmap-backlog.md"
+target_state = "production-ready AI language and platform"
+
+[[phases]]
+id = "phase_0"
+name = "Governance and Execution"
+goal = "Establish delivery governance, ownership, and reporting."
+
+[[phases]]
+id = "phase_1"
+name = "Compiler Productionization"
+goal = "Raise compiler reliability and test coverage to production standards."
+
+[[phases]]
+id = "phase_2"
+name = "Scientific Type System"
+goal = "Extend the language for serious numerical and scientific computing."
+
+[[phases]]
+id = "phase_3"
+name = "Tensor Core"
+goal = "Introduce a first-class tensor system with shape- and layout-aware runtime semantics."
+
+[[phases]]
+id = "phase_4"
+name = "Numerical Runtime and Kernels"
+goal = "Build high-performance CPU numerical execution."
+
+[[phases]]
+id = "phase_5"
+name = "Autodiff"
+goal = "Enable gradient-based model training."
+
+[[phases]]
+id = "phase_6"
+name = "ML Framework Layer"
+goal = "Provide layers, losses, optimizers, and data loading."
+
+[[phases]]
+id = "phase_7"
+name = "Acceleration"
+goal = "Support one or more serious device backends for training and inference."
+
+[[phases]]
+id = "phase_8"
+name = "Interoperability"
+goal = "Integrate with Python, C/Rust, and common model/data formats."
+
+[[phases]]
+id = "phase_9"
+name = "Package Manager and Registry"
+goal = "Deliver dependency management and package distribution."
+
+[[phases]]
+id = "phase_10"
+name = "Tooling Maturity"
+goal = "Make the language practical for daily development."
+
+[[phases]]
+id = "phase_11"
+name = "Concurrency and Serving"
+goal = "Support realistic training pipelines and inference serving."
+
+[[phases]]
+id = "phase_12"
+name = "Security and Operations"
+goal = "Meet baseline production delivery and operational standards."
+
+[[phases]]
+id = "phase_13"
+name = "Documentation and Adoption"
+goal = "Make the platform learnable and adoptable by real teams."
+
+[[items]]
+id = "R-001"
+title = "ADR Foundation"
+phase = "phase_0"
+owner = "ecosystem"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = []
+summary = "Create decision records for major architectural choices."
+acceptance = [
+  "docs/adr/ exists",
+  "at least 5 ADRs are committed",
+  "major subsystems reference an ADR or explicitly mark decision pending"
+]
+
+[[items]]
+id = "R-002"
+title = "Ownership Map"
+phase = "phase_0"
+owner = "ecosystem"
+priority = "P0"
+status = "complete"
+risk = "low"
+dependencies = ["R-001"]
+summary = "Define owners and review responsibilities across all top-level subsystems."
+acceptance = [
+  "ownership document exists",
+  "each top-level crate has a primary owner group"
+]
+
+[[items]]
+id = "R-003"
+title = "Roadmap Reporting Script"
+phase = "phase_0"
+owner = "tooling"
+priority = "P1"
+status = "complete"
+risk = "low"
+dependencies = []
+summary = "Create a script that reads roadmap.toml and emits progress reports."
+acceptance = [
+  "reporting script exists",
+  "roadmap data validates",
+  "script outputs grouped phase summary"
+]
+
+[[items]]
+id = "R-101"
+title = "Frontend Coverage Audit"
+phase = "phase_1"
+owner = "frontend"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-001"]
+summary = "Audit lexer/parser coverage against the documented language."
+acceptance = [
+  "frontend audit document exists",
+  "every syntax form is labeled supported, gated, partial, or deferred"
+]
+
+[[items]]
+id = "R-102"
+title = "Semantic Coverage Audit"
+phase = "phase_1"
+owner = "semantic"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-101"]
+summary = "Map every AST node kind to semantic validation coverage."
+acceptance = [
+  "semantic coverage matrix exists",
+  "no AST kind remains unclassified"
+]
+
+[[items]]
+id = "R-103"
+title = "Lowering and Backend Coverage Audit"
+phase = "phase_1"
+owner = "midend"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-102"]
+summary = "Map AST coverage to lowering and IR coverage to backend support."
+acceptance = [
+  "lowering/backend coverage matrix exists",
+  "unsupported paths are converted into backlog items"
+]
+
+[[items]]
+id = "R-104"
+title = "Compiler Test Pyramid"
+phase = "phase_1"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-101", "R-102", "R-103"]
+summary = "Add unit, snapshot, regression, and fuzz tests across compiler stages."
+acceptance = [
+  "each compiler crate has stage-local tests",
+  "fuzz targets exist",
+  "regression test policy is documented"
+]
+
+[[items]]
+id = "R-105"
+title = "Diagnostics Standardization"
+phase = "phase_1"
+owner = "frontend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-102"]
+summary = "Unify diagnostics, add stable codes, and improve machine-readable output."
+acceptance = [
+  "stable error code table exists",
+  "JSON diagnostics are consumable by tooling",
+  "at least 20 high-frequency diagnostics have actionable hints"
+]
+
+[[items]]
+id = "R-106"
+title = "Experimental Feature Policy"
+phase = "phase_1"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-101", "R-105"]
+summary = "Classify features as stable, beta, experimental, or deferred."
+acceptance = [
+  "docs and CLI match maturity policy exactly",
+  "no feature remains undocumented in maturity level"
+]
+
+[[items]]
+id = "R-201"
+title = "Numeric Type Expansion"
+phase = "phase_2"
+owner = "semantic"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-103"]
+summary = "Add production-grade numeric primitive coverage for scientific workloads."
+acceptance = [
+  "numeric primitive matrix is implemented end-to-end",
+  "casts and promotions are documented and tested",
+  "backend supports implemented primitives correctly"
+]
+
+[[items]]
+id = "R-202"
+title = "Const Evaluation Engine"
+phase = "phase_2"
+owner = "semantic"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-201"]
+summary = "Evaluate numeric expressions in compile-time contexts."
+acceptance = [
+  "const expressions work in supported compile-time contexts",
+  "invalid const usage emits targeted diagnostics"
+]
+
+[[items]]
+id = "R-203"
+title = "Destructuring and Pattern Ergonomics"
+phase = "phase_2"
+owner = "frontend"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-102"]
+summary = "Add tuple/struct/enum destructuring and richer pattern ergonomics."
+acceptance = [
+  "destructuring syntax is parsed, validated, and lowered",
+  "exhaustiveness checks account for new supported patterns"
+]
+
+[[items]]
+id = "R-204"
+title = "Closure Completion"
+phase = "phase_2"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-102", "R-103"]
+summary = "Finish closure capture and invocation support."
+acceptance = [
+  "closures can be passed, returned, stored, and invoked",
+  "capture semantics are documented and tested"
+]
+
+[[items]]
+id = "R-301"
+title = "Tensor Type Design"
+phase = "phase_3"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-201", "R-202"]
+summary = "Define first-class tensor API, metadata, ownership, layout, and device model."
+acceptance = [
+  "tensor ADR is approved",
+  "prototype tensor API compiles in examples/tests"
+]
+
+[[items]]
+id = "R-302"
+title = "Tensor Runtime Representation"
+phase = "phase_3"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-301"]
+summary = "Implement runtime storage, shape, stride, and view semantics for tensors."
+acceptance = [
+  "tensor allocation/destruction tests pass",
+  "view semantics are validated for correctness and safety"
+]
+
+[[items]]
+id = "R-303"
+title = "Tensor Operations MVP"
+phase = "phase_3"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-302"]
+summary = "Implement core tensor creation, transform, elementwise, reduction, and matmul ops."
+acceptance = [
+  "core ops have shape and numeric correctness tests",
+  "CPU benchmark harness exists"
+]
+
+[[items]]
+id = "R-304"
+title = "Shape System"
+phase = "phase_3"
+owner = "semantic"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-303"]
+summary = "Add rank/axis/broadcast validation and reshape diagnostics."
+acceptance = [
+  "invalid shape operations produce specific diagnostics",
+  "rank and axis validation are enforced consistently"
+]
+
+[[items]]
+id = "R-401"
+title = "CPU Kernel Library"
+phase = "phase_4"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-303"]
+summary = "Implement optimized CPU kernels and define BLAS integration strategy."
+acceptance = [
+  "core kernels outperform naive scalar references",
+  "repeatable performance benchmarks exist"
+]
+
+[[items]]
+id = "R-402"
+title = "Tensor Allocator and Buffer Pool"
+phase = "phase_4"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-302", "R-401"]
+summary = "Reduce allocation overhead for tensor-heavy workloads."
+acceptance = [
+  "allocation churn is reduced on repeated workloads",
+  "tensor allocation metrics are exposed"
+]
+
+[[items]]
+id = "R-403"
+title = "RNG and Statistical Primitives"
+phase = "phase_4"
+owner = "numerics"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-401"]
+summary = "Provide reproducible random generation and statistical distributions."
+acceptance = [
+  "RNG is reproducible by seed",
+  "distribution sanity tests pass"
+]
+
+[[items]]
+id = "R-501"
+title = "Reverse-Mode Autodiff Core"
+phase = "phase_5"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-303"]
+summary = "Add computation graph and backward propagation from scalar loss."
+acceptance = [
+  "reverse-mode examples work end-to-end",
+  "analytical gradient tests pass"
+]
+
+[[items]]
+id = "R-502"
+title = "Gradient Rules"
+phase = "phase_5"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-501"]
+summary = "Implement correct gradient rules for core tensor operations."
+acceptance = [
+  "finite-difference checks pass for supported ops"
+]
+
+[[items]]
+id = "R-503"
+title = "Graph Lifetime and Inference Mode"
+phase = "phase_5"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-501"]
+summary = "Control graph retention, no-grad mode, and memory behavior during training/inference."
+acceptance = [
+  "training loops do not leak graph memory",
+  "inference mode avoids autograd overhead"
+]
+
+[[items]]
+id = "R-601"
+title = "Module and Layer System"
+phase = "phase_6"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-502"]
+summary = "Provide neural network modules, layers, and parameter registration."
+acceptance = [
+  "MLP and CNN examples train end-to-end"
+]
+
+[[items]]
+id = "R-602"
+title = "Losses and Optimizers"
+phase = "phase_6"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-601"]
+summary = "Implement standard losses, optimizers, and LR scheduling."
+acceptance = [
+  "toy models converge on baseline examples"
+]
+
+[[items]]
+id = "R-603"
+title = "Dataset and Dataloader APIs"
+phase = "phase_6"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-601"]
+summary = "Support batching, shuffling, and input pipelines for ML workloads."
+acceptance = [
+  "minibatch training works with real sample datasets"
+]
+
+[[items]]
+id = "R-701"
+title = "Device Abstraction"
+phase = "phase_7"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-302"]
+summary = "Define CPU/GPU device abstraction and tensor placement semantics."
+acceptance = [
+  "device-aware tensor placement is implemented and tested"
+]
+
+[[items]]
+id = "R-702"
+title = "GPU Backend MVP"
+phase = "phase_7"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-701", "R-401"]
+summary = "Deliver one production-grade accelerator backend for core tensor ops."
+acceptance = [
+  "same semantics on CPU and GPU",
+  "benchmarks show meaningful speedup"
+]
+
+[[items]]
+id = "R-703"
+title = "Mixed Precision"
+phase = "phase_7"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-702"]
+summary = "Support f16/bf16 execution and mixed-precision training."
+acceptance = [
+  "mixed precision training example converges on supported hardware"
+]
+
+[[items]]
+id = "R-801"
+title = "Python Interop"
+phase = "phase_8"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-303", "R-602"]
+summary = "Allow Python to call Spectra and exchange tensor data."
+acceptance = [
+  "Python demo calls Spectra code successfully",
+  "tensor exchange works with at least NumPy"
+]
+
+[[items]]
+id = "R-802"
+title = "C and Rust FFI"
+phase = "phase_8"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-701"]
+summary = "Define a stable foreign-function boundary for native interop."
+acceptance = [
+  "C and Rust samples compile and run against Spectra exports"
+]
+
+[[items]]
+id = "R-803"
+title = "Model and Data Formats"
+phase = "phase_8"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-801"]
+summary = "Support mainstream tensor/model interchange formats."
+acceptance = [
+  "at least one model/data interchange format round-trips correctly"
+]
+
+[[items]]
+id = "R-901"
+title = "Package Manager MVP"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-003"]
+summary = "Provide dependency resolution, lockfiles, and workspace builds."
+acceptance = [
+  "multi-package workspace builds reproducibly",
+  "lockfile guarantees deterministic resolution"
+]
+
+[[items]]
+id = "R-902"
+title = "Registry MVP"
+phase = "phase_9"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-901"]
+summary = "Deliver publish/install package registry flow."
+acceptance = [
+  "package can be published and installed from registry",
+  "artifact integrity is validated"
+]
+
+[[items]]
+id = "R-1001"
+title = "LSP Completion"
+phase = "phase_10"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-105", "R-901"]
+summary = "Make the language server usable for real-world workspace development."
+acceptance = [
+  "hover, go-to-def, references, rename, completion, and semantic tokens work in non-trivial projects"
+]
+
+[[items]]
+id = "R-1002"
+title = "Debugger and Stack Traces"
+phase = "phase_10"
+owner = "backend"
+priority = "P2"
+status = "not_started"
+risk = "high"
+dependencies = ["R-103"]
+summary = "Add source-aware runtime diagnostics and debug strategy."
+acceptance = [
+  "runtime failures produce actionable source-level traces"
+]
+
+[[items]]
+id = "R-1003"
+title = "Profiling and Benchmark Tooling"
+phase = "phase_10"
+owner = "tooling"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-401"]
+summary = "Expose benchmark and profiling tools for compiler and runtime performance."
+acceptance = [
+  "benchmark suite exists and perf regressions are reportable"
+]
+
+[[items]]
+id = "R-1101"
+title = "Concurrency Model"
+phase = "phase_11"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-402"]
+summary = "Implement the concurrency primitives needed for real pipelines."
+acceptance = [
+  "parallel data pipeline sample works and is tested"
+]
+
+[[items]]
+id = "R-1102"
+title = "Inference Serving Foundations"
+phase = "phase_11"
+owner = "ml"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1101", "R-702"]
+summary = "Provide the runtime features needed for inference serving."
+acceptance = [
+  "toy inference server benchmark exists"
+]
+
+[[items]]
+id = "R-1201"
+title = "Build and Release Security"
+phase = "phase_12"
+owner = "ecosystem"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-901"]
+summary = "Add signing, checksums, SBOM, and dependency security scanning."
+acceptance = [
+  "release artifacts are signed and traceable",
+  "dependency scanning is present in CI"
+]
+
+[[items]]
+id = "R-1202"
+title = "Stress and Soak Testing"
+phase = "phase_12"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-104", "R-402", "R-503"]
+summary = "Run long-run stress and soak suites across compiler, runtime, and numerics."
+acceptance = [
+  "defined stress suites complete without crashes or unbounded leaks"
+]
+
+[[items]]
+id = "R-1301"
+title = "Spectra Book"
+phase = "phase_13"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-106", "R-303", "R-602"]
+summary = "Write the full user-facing book for language, numerics, tensors, and ML."
+acceptance = [
+  "a user can train a toy model from docs alone"
+]
+
+[[items]]
+id = "R-1302"
+title = "AI Reference Examples"
+phase = "phase_13"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-602", "R-603"]
+summary = "Provide end-to-end AI examples for adoption and validation."
+acceptance = [
+  "at least 3 AI examples run end-to-end in automated environments"
+]

@@ -462,9 +462,9 @@ where
                 lint_deny_cli.push(rule);
             }
             "--json" => {
-                if command != BuildCommand::Lint {
+                if command == BuildCommand::Run {
                     return Err(usage_error(
-                        "'--json' is only supported with the 'lint' command.",
+                        "'--json' is only supported with the 'compile', 'check', or 'lint' commands.",
                     ));
                 }
                 json_output = true;
@@ -882,8 +882,15 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         program_args,
     } = invocation;
 
-    if kind == BuildCommand::Lint && json_output {
-        return execute_lint_json(entries, options);
+    if json_output {
+        return match kind {
+            BuildCommand::Compile | BuildCommand::Check | BuildCommand::Lint => {
+                execute_lint_json(entries, options)
+            }
+            BuildCommand::Run => Err(usage_error(
+                "'--json' is only supported with the 'compile', 'check', or 'lint' commands.",
+            )),
+        };
     }
 
     // AOT object emission: compile the first entry file and write the object bytes.
@@ -1755,13 +1762,13 @@ fn convert_lint_diagnostic(diagnostic: LintDiagnostic) -> JsonDiagnostic {
 fn convert_compiler_error(error: CompilerError) -> JsonDiagnostic {
     match error {
         CompilerError::Lexical(e) => {
-            span_error_to_json("lexical", e.message, e.span, e.context, e.hint)
+            span_error_to_json("lexical", e.code, e.message, e.span, e.context, e.hint)
         }
         CompilerError::Parse(e) => {
-            span_error_to_json("parse", e.message, e.span, e.context, e.hint)
+            span_error_to_json("parse", e.code, e.message, e.span, e.context, e.hint)
         }
         CompilerError::Semantic(e) => {
-            span_error_to_json("semantic", e.message, e.span, e.context, e.hint)
+            span_error_to_json("semantic", e.code, e.message, e.span, e.context, e.hint)
         }
         CompilerError::Midend(e) => {
             generic_error_diagnostic(format!("midend error: {}", e.message), Some("midend"))
@@ -1774,6 +1781,7 @@ fn convert_compiler_error(error: CompilerError) -> JsonDiagnostic {
 
 fn span_error_to_json(
     phase: &'static str,
+    code: Option<String>,
     message: String,
     span: Span,
     context: Option<String>,
@@ -1789,7 +1797,7 @@ fn span_error_to_json(
 
     JsonDiagnostic {
         severity: JsonSeverity::Error,
-        code: Some(phase.to_string()),
+        code: Some(code.unwrap_or_else(|| phase.to_string())),
         message,
         phase: Some(phase.to_string()),
         hint,
@@ -2114,6 +2122,7 @@ fn print_lint_help() {
     println!("    --timings, -T       Collect front-end timings");
     println!("    --summary           Print pipeline summaries (semantic + lint)");
     println!("    --verbose, -v       Print additional plan diagnostics");
+    println!("    --json              Emit diagnostics as JSON");
     println!("    --enable-experimental <feature>");
     println!("                        Enable experimental language feature (may repeat)");
     println!(
@@ -2158,6 +2167,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     }
     println!("    --allow <rule>         Allow (suppress) a lint rule (may be repeated)");
     println!("    --deny <rule>          Deny a lint rule and escalate matches to errors");
+    println!("    --json                 Emit diagnostics as JSON");
     println!(
         "                           Available rules: {}",
         lint_rule_list()
@@ -2212,5 +2222,36 @@ mod tests {
 
         let io = CliError::io("io issue");
         assert_eq!(io.code.as_i32(), ExitCode::IoError.as_i32());
+    }
+
+    #[test]
+    fn json_is_allowed_for_check() {
+        let mut args = vec![
+            "--json".to_string(),
+            "../../tests/validation/60_pattern_control_surface.spectra".to_string(),
+        ]
+        .into_iter()
+        .peekable();
+
+        let invocation = parse_compilation_invocation(&mut args, BuildCommand::Check, false)
+            .expect("check --json should parse");
+
+        assert!(invocation.json_output);
+    }
+
+    #[test]
+    fn json_is_rejected_for_run() {
+        let mut args = vec![
+            "--json".to_string(),
+            "../../tests/validation/60_pattern_control_surface.spectra".to_string(),
+        ]
+        .into_iter()
+        .peekable();
+
+        let error =
+            parse_compilation_invocation(&mut args, BuildCommand::Run, false).unwrap_err();
+
+        assert!(error.message.contains("--json"));
+        assert_eq!(error.code.as_i32(), ExitCode::Usage.as_i32());
     }
 }

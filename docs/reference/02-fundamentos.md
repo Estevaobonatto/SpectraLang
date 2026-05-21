@@ -479,6 +479,8 @@ let classificacao = if nota >= 60 { "Aprovado" } else { "Reprovado" };
 
 ### `unless`
 
+> **Status:** experimental. Enable with `--enable-experimental unless`.
+
 **PT-BR:**  
 `unless` é o inverso do `if` — executa quando a condição é **falsa**. É equivalente a `if !condicao`.
 
@@ -525,6 +527,8 @@ while x < 5 && y > 0 {
 
 ### `do...while`
 
+> **Status:** experimental. Enable with `--enable-experimental do-while`.
+
 **PT-BR:**  
 Executa o bloco **pelo menos uma vez** e depois verifica a condição.
 
@@ -568,6 +572,8 @@ for i in 0..5 {
 
 ### `loop`
 
+> **Status:** experimental. Enable with `--enable-experimental loop`.
+
 **PT-BR:**  
 Loop infinito. Use `break` para sair.
 
@@ -586,6 +592,8 @@ loop {
 ```
 
 ### `switch...case`
+
+> **Status:** experimental. Enable with `--enable-experimental switch`.
 
 **PT-BR:**  
 `switch` compara um valor contra múltiplos padrões explícitos. Requer um caso `else` padrão ou cobertura exaustiva.

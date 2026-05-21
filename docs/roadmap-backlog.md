@@ -1,0 +1,911 @@
+# SpectraLang Roadmap Backlog
+
+## Purpose
+
+This backlog converts the production AI implementation plan into executable work packages.
+
+It is designed for:
+
+- sprint planning
+- issue creation
+- milestone tracking
+- architecture review
+- acceptance-based delivery
+
+This file is human-oriented.
+The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/roadmap/roadmap.toml).
+
+---
+
+## Status Legend
+
+| Status | Meaning |
+|---|---|
+| `not_started` | Work has not begun |
+| `in_progress` | Work is active |
+| `blocked` | Work cannot continue due to unmet dependency or design blocker |
+| `complete` | Work finished and accepted |
+
+## Priority Legend
+
+| Priority | Meaning |
+|---|---|
+| `P0` | Foundational blocker for the roadmap |
+| `P1` | High-value next step |
+| `P2` | Important but can follow core delivery |
+| `P3` | Nice-to-have or late-stage maturity item |
+
+## Owner Groups
+
+| Owner | Scope |
+|---|---|
+| `frontend` | lexer, parser, AST, diagnostics |
+| `semantic` | type system, imports, traits, validation |
+| `midend` | IR lowering, optimization, validation |
+| `backend` | Cranelift, object emission, targets |
+| `runtime` | runtime services, allocators, stdlib host calls |
+| `numerics` | tensor core, kernels, BLAS/GPU integration |
+| `ml` | autodiff, modules, optimizers, datasets |
+| `tooling` | CLI, formatter, lint, LSP, debugger |
+| `ecosystem` | package manager, registry, interop, docs |
+
+---
+
+# Phase 0: Governance and Execution
+
+## R-001 ADR Foundation
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Dependencies: none
+
+### Scope
+
+- Create `docs/adr/`
+- Add ADR templates
+- Write initial ADRs for:
+  - memory model
+  - tensor design direction
+  - autodiff execution model
+  - GPU backend strategy
+  - package manager scope
+
+### Acceptance
+
+- `docs/adr/` exists
+- at least 5 ADRs are committed
+- every major subsystem references an ADR or states pending ADR explicitly
+
+## R-002 Ownership Map
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Dependencies: `R-001`
+
+### Scope
+
+- Define code ownership by subsystem
+- Document review requirements for cross-cutting changes
+- Add escalation path for architecture conflicts
+
+### Acceptance
+
+- ownership document exists
+- every top-level workspace crate has a primary owner group
+
+## R-003 Roadmap Reporting Script
+
+- Status: `complete`
+- Priority: `P1`
+- Owner: `tooling`
+- Dependencies: none
+
+### Scope
+
+- Add a script that reads `roadmap/roadmap.toml`
+- Emit:
+  - Markdown summary
+  - status counts
+  - dependency readiness report
+
+### Acceptance
+
+- script exists under `tools/` or `scripts/`
+- script validates roadmap structure
+- script outputs grouped report by phase
+
+---
+
+# Phase 1: Compiler Productionization
+
+## R-101 Frontend Coverage Audit
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `frontend`
+- Dependencies: `R-001`
+
+### Scope
+
+- Audit lexer coverage vs docs
+- Audit parser coverage vs docs
+- Audit syntax recovery paths
+- Identify all unsupported but documented forms
+
+### Acceptance
+
+- audit document exists
+- every syntax form is labeled as supported, gated, partial, or deferred
+
+## R-102 Semantic Coverage Audit
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `semantic`
+- Dependencies: `R-101`
+
+### Scope
+
+- Map every AST expression and statement kind to semantic handling
+- Identify partial validation zones
+- Identify missing invariants and weak diagnostics
+
+### Acceptance
+
+- semantic coverage matrix exists
+- no AST kind remains unclassified
+
+## R-103 Lowering and Backend Coverage Audit
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `midend`
+- Dependencies: `R-102`
+
+### Scope
+
+- Map every AST construct to lowering path
+- Map every IR instruction to backend coverage
+- Identify mismatch between type inference and codegen assumptions
+
+### Acceptance
+
+- lowering/backend coverage matrix exists
+- all unsupported constructs are tracked as backlog items
+
+## R-104 Compiler Test Pyramid
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-101`, `R-102`, `R-103`
+
+### Scope
+
+- Add unit tests per stage
+- Add AST/IR/diagnostic snapshots
+- Add regression suite policy
+- Add parser and semantic fuzz targets
+
+### Acceptance
+
+- each compiler crate has stage-local tests
+- fuzz targets exist
+- regression policy documented
+
+## R-105 Diagnostics Standardization
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `frontend`
+- Dependencies: `R-102`
+
+### Scope
+
+- stable diagnostic codes
+- JSON and SARIF output
+- better hints for common failures
+
+### Acceptance
+
+- stable error code table committed
+- JSON diagnostics usable by tooling
+- at least 20 top diagnostics include actionable hints
+
+## R-106 Experimental Feature Policy
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Dependencies: `R-101`, `R-105`
+
+### Scope
+
+- classify current features into stable, beta, experimental, deferred
+- align docs and CLI behavior
+
+### Acceptance
+
+- language docs and CLI help match
+- no feature remains undocumented in maturity level
+
+---
+
+# Phase 2: Scientific Type System
+
+## R-201 Numeric Type Expansion
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `semantic`
+- Dependencies: `R-103`
+
+### Scope
+
+- add signed integer families
+- add unsigned integer families
+- add `f32`, `f64`, `f16`, `bf16`
+- define promotions and casts
+- backend support for all implemented primitives
+
+### Acceptance
+
+- numeric primitive matrix implemented end-to-end
+- invalid conversions rejected deterministically
+- tests cover arithmetic, casts, and ABI representation
+
+## R-202 Const Evaluation Engine
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `semantic`
+- Dependencies: `R-201`
+
+### Scope
+
+- compile-time numeric expression evaluation
+- shape- and size-related const contexts
+
+### Acceptance
+
+- const expressions usable in declared const contexts
+- failures produce targeted diagnostics
+
+## R-203 Destructuring and Pattern Ergonomics
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `frontend`
+- Dependencies: `R-102`
+
+### Scope
+
+- tuple destructuring
+- struct destructuring
+- enum destructuring in `let`
+- OR-patterns
+
+### Acceptance
+
+- syntax, semantics, lowering, and tests all implemented
+
+## R-204 Closure Completion
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `midend`
+- Dependencies: `R-102`, `R-103`
+
+### Scope
+
+- closure capture model
+- function values and invocation completion
+- returning/storing closures
+
+### Acceptance
+
+- closures work outside parser/check-only scenarios
+- captures are documented and tested
+
+---
+
+# Phase 3: Tensor Core
+
+## R-301 Tensor Type Design
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-201`, `R-202`
+
+### Scope
+
+- define tensor API and metadata
+- define ownership and view model
+- define dtype/device/layout model
+
+### Acceptance
+
+- tensor ADR approved
+- prototype API compiles in examples and tests
+
+## R-302 Tensor Runtime Representation
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-301`
+
+### Scope
+
+- tensor header
+- storage abstraction
+- shape/stride validation
+- view semantics
+
+### Acceptance
+
+- runtime allocation and destruction tests pass
+- views and slicing do not leak or corrupt memory
+
+## R-303 Tensor Operations MVP
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-302`
+
+### Scope
+
+- creation ops
+- reshape/transpose/flatten
+- elementwise arithmetic
+- reductions
+- matmul
+
+### Acceptance
+
+- all ops tested for shape correctness and numeric correctness
+- benchmark harness exists for CPU baselines
+
+## R-304 Shape System
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `semantic`
+- Dependencies: `R-303`
+
+### Scope
+
+- rank/axis validation
+- broadcast validation
+- invalid reshape diagnostics
+
+### Acceptance
+
+- invalid shape operations fail with specific diagnostics
+
+---
+
+# Phase 4: Numerical Runtime and Kernels
+
+## R-401 CPU Kernel Library
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-303`
+
+### Scope
+
+- scalar kernels
+- vectorized kernels
+- BLAS integration strategy
+
+### Acceptance
+
+- core tensor ops outperform naive scalar reference implementations
+- reproducible perf benchmarks exist
+
+## R-402 Tensor Allocator and Buffer Pool
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-302`, `R-401`
+
+### Scope
+
+- alignment guarantees
+- scratch buffer reuse
+- allocation metrics
+
+### Acceptance
+
+- allocation churn drops on repeated workloads
+- memory metrics are exposed in tests/benchmarks
+
+## R-403 RNG and Statistical Primitives
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `numerics`
+- Dependencies: `R-401`
+
+### Scope
+
+- deterministic RNG
+- uniform/normal/Bernoulli
+- tensor random fills
+
+### Acceptance
+
+- seeding is reproducible
+- distribution tests pass sanity checks
+
+---
+
+# Phase 5: Autodiff
+
+## R-501 Reverse-Mode Autodiff Core
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Dependencies: `R-303`
+
+### Scope
+
+- computation graph
+- `requires_grad`
+- backward pass
+- gradient storage
+
+### Acceptance
+
+- analytical gradient tests pass
+- scalar loss backward works end-to-end
+
+## R-502 Gradient Rules
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Dependencies: `R-501`
+
+### Scope
+
+- gradient rules for elementwise, reduction, matmul, transpose, activations
+- broadcast-aware gradient handling
+
+### Acceptance
+
+- finite-difference checks pass on all supported ops
+
+## R-503 Graph Lifetime and Inference Mode
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-501`
+
+### Scope
+
+- graph release policy
+- `no_grad` / inference mode
+- checkpointing strategy
+
+### Acceptance
+
+- repeated training iterations do not show graph retention leaks
+
+---
+
+# Phase 6: ML Framework Layer
+
+## R-601 Module and Layer System
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Dependencies: `R-502`
+
+### Scope
+
+- module abstraction
+- parameter registration
+- base layers
+
+### Acceptance
+
+- MLP and CNN examples train end-to-end
+
+## R-602 Losses and Optimizers
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Dependencies: `R-601`
+
+### Scope
+
+- MSE, BCE, cross entropy
+- SGD, Adam, AdamW
+- LR scheduling
+
+### Acceptance
+
+- toy models converge on standard examples
+
+## R-603 Dataset and Dataloader APIs
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-601`
+
+### Scope
+
+- dataset abstraction
+- batching
+- shuffling
+- prefetching
+- simple data readers
+
+### Acceptance
+
+- minibatch training loop works on real sample datasets
+
+---
+
+# Phase 7: Acceleration
+
+## R-701 Device Abstraction
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-302`
+
+### Scope
+
+- CPU/GPU device model
+- placement and transfer semantics
+
+### Acceptance
+
+- tensors can be created and moved across supported devices
+
+## R-702 GPU Backend MVP
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-701`, `R-401`
+
+### Scope
+
+- one production-grade accelerator backend
+- elementwise/reduction/matmul support
+
+### Acceptance
+
+- same program semantics on CPU and GPU
+- measurable speedup on benchmark workloads
+
+## R-703 Mixed Precision
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-702`
+
+### Scope
+
+- `f16`/`bf16`
+- autocast or explicit mixed precision
+- loss scaling
+
+### Acceptance
+
+- mixed precision training example converges on supported hardware
+
+---
+
+# Phase 8: Interoperability
+
+## R-801 Python Interop
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Dependencies: `R-303`, `R-602`
+
+### Scope
+
+- call Spectra from Python
+- tensor exchange with NumPy
+- optional PyTorch interop
+
+### Acceptance
+
+- Python demo can call compiled Spectra code and exchange tensor data
+
+## R-802 C and Rust FFI
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Dependencies: `R-701`
+
+### Scope
+
+- stable C ABI
+- Rust helper crate
+- headers/bindings generation
+
+### Acceptance
+
+- FFI samples compile and run in C and Rust
+
+## R-803 Model and Data Formats
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Dependencies: `R-801`
+
+### Scope
+
+- ONNX
+- `.npy` / `.npz`
+- safetensors
+- checkpoints
+
+### Acceptance
+
+- at least one model/data interchange format round-trips correctly
+
+---
+
+# Phase 9: Package Manager and Registry
+
+## R-901 Package Manager MVP
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-003`
+
+### Scope
+
+- dependency resolver
+- lockfile
+- workspace support
+- package commands
+
+### Acceptance
+
+- multi-package workspace builds reproducibly
+
+## R-902 Registry MVP
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Dependencies: `R-901`
+
+### Scope
+
+- publish/install flow
+- integrity validation
+- semver compatibility
+
+### Acceptance
+
+- package can be published and consumed from a registry instance
+
+---
+
+# Phase 10: Tooling Maturity
+
+## R-1001 LSP Completion
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Dependencies: `R-105`, `R-901`
+
+### Scope
+
+- hover
+- definitions
+- references
+- rename
+- completion
+- semantic tokens
+
+### Acceptance
+
+- editor workflow supports daily coding in a non-trivial Spectra workspace
+
+## R-1002 Debugger and Stack Traces
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `backend`
+- Dependencies: `R-103`
+
+### Scope
+
+- source-aware stack traces
+- AOT debug info strategy
+- JIT introspection strategy
+
+### Acceptance
+
+- runtime failures produce actionable source-level traces
+
+## R-1003 Profiling and Benchmark Tooling
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `tooling`
+- Dependencies: `R-401`
+
+### Scope
+
+- `spectra bench`
+- op-level timing
+- perf regression tracking
+
+### Acceptance
+
+- benchmark suite exists and perf deltas are reportable
+
+---
+
+# Phase 11: Concurrency and Serving
+
+## R-1101 Concurrency Model
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-402`
+
+### Scope
+
+- threads/tasks/channels
+- synchronization primitives
+
+### Acceptance
+
+- parallel data pipeline sample works and is tested
+
+## R-1102 Inference Serving Foundations
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `ml`
+- Dependencies: `R-1101`, `R-702`
+
+### Scope
+
+- request batching
+- warmup
+- timeout/cancellation
+- model residency controls
+
+### Acceptance
+
+- toy inference server benchmark exists
+
+---
+
+# Phase 12: Security and Operations
+
+## R-1201 Build and Release Security
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `ecosystem`
+- Dependencies: `R-901`
+
+### Scope
+
+- checksums
+- signatures
+- SBOM
+- dependency scanning
+
+### Acceptance
+
+- release artifacts are signed and traceable
+
+## R-1202 Stress and Soak Testing
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Dependencies: `R-104`, `R-402`, `R-503`
+
+### Scope
+
+- long-run compile stress
+- tensor stress
+- runtime soak tests
+- JIT stress
+
+### Acceptance
+
+- no crashes or unbounded leaks under defined stress runs
+
+---
+
+# Phase 13: Documentation and Adoption
+
+## R-1301 Spectra Book
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Dependencies: `R-106`, `R-303`, `R-602`
+
+### Scope
+
+- language guide
+- numerics guide
+- tensor guide
+- autodiff guide
+- ML tutorial path
+
+### Acceptance
+
+- user can train a toy model using docs alone
+
+## R-1302 AI Reference Examples
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-602`, `R-603`
+
+### Scope
+
+- linear regression
+- logistic regression
+- MLP
+- CNN
+- toy transformer inference
+
+### Acceptance
+
+- at least 3 AI examples run end-to-end in automated environments
+
+---
+
+## Recommended First Execution Slice
+
+If implementation starts immediately, the recommended first sequence is:
+
+1. `R-001`
+2. `R-003`
+3. `R-101`
+4. `R-102`
+5. `R-103`
+6. `R-104`
+7. `R-105`
+8. `R-106`
+9. `R-201`
+10. `R-301`
+
+This sequence establishes:
+
+- governance
+- reporting
+- coverage visibility
+- compiler confidence
+- the first real foundation for AI workloads

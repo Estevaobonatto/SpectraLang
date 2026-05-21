@@ -1,0 +1,85 @@
+# Language Feature Maturity Policy
+
+Updated: 2026-05-21  
+Roadmap item: `R-106`
+
+This file is the source of truth for language maturity labels. Documentation, examples, and CLI behavior must match this policy exactly.
+
+## Maturity Levels
+
+- `stable`: enabled by default, documented as part of the normal language contract, and covered by the positive test suite
+- `beta`: enabled by default and usable, but still expected to evolve in ergonomics or performance
+- `experimental`: available only behind `--enable-experimental <feature>`
+- `deferred`: documented only as roadmap/future work, not as usable language syntax
+
+## Current Feature Matrix
+
+### Stable
+
+- modules and multi-file project discovery
+- imports:
+  - `import module.path;`
+  - `import module.path as alias;`
+  - `import { name } from module.path;`
+  - `pub import { name } from module.path;`
+- visibility: `pub`, `internal`
+- functions and methods
+- structs, enums, traits, impl blocks
+- generics in the currently validated surface
+- `dyn Trait` in the currently validated surface
+- primitives, tuples, function types
+- control flow:
+  - `if`, `elif`, `else`
+  - `if let`
+  - `while`
+  - `while let`
+  - `for ... in ...`
+  - `for ... of ...`
+  - `match`
+  - `return`, `break`, `continue`
+- closures/lambdas in the currently validated surface
+- qualified stdlib calls such as `std.io.println(...)`
+
+### Beta
+
+- class syntax footprint
+- const/static item surface without full const-eval
+- closure/runtime representation as an optimization target
+
+These are usable where covered, but still not treated as fully production-hardened language design.
+
+### Experimental
+
+These features must remain hidden behind the CLI feature gate and are the exact values returned by `spectralang --list-experimental`.
+
+- `switch`
+- `unless`
+- `do-while`
+- `loop`
+
+CLI contract:
+
+- enable with `--enable-experimental <feature>`
+- repeat the flag to enable more than one feature
+- parser diagnostics for disabled use must emit a feature-gate error with code `P004`
+
+### Deferred
+
+- Unicode identifiers
+- advanced numeric literal syntax beyond current decimal forms
+- `repeat/until`
+- `foreach`
+- `goto`
+- `yield`
+- raw strings and advanced literal modes
+- production tensor syntax and scientific type surface
+
+## Synchronization Rules
+
+When a feature changes maturity:
+
+1. update this file
+2. update the user-facing reference docs
+3. update examples if their required invocation changes
+4. update CLI help or `--list-experimental` if the change affects experimental gating
+5. add or adjust tests in `tests/validation`, `tests/errors`, `tests/cli`, or `examples`

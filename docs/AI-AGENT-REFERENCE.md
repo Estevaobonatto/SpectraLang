@@ -1759,7 +1759,7 @@ let credit = TxKind::Credit(100);
 | `--dump-ir` | Print IR to stderr (debug) |
 | `--verbose` / `-v` | Verbose build output |
 | `--summary` | Per-module pipeline summary |
-| `--json` | JSON diagnostic output (lint) |
+| `--json` | JSON diagnostic output (`compile`, `check`, `lint`, and `repl --json`) |
 | `--enable-experimental <feature>` | Enable experimental feature |
 
 ### Available Experimental Features
@@ -2230,15 +2230,15 @@ pub fn main() -> int {
 | `elif` | ✅ Implemented | Else-if |
 | `elseif` | ✅ Implemented | Alias for elif |
 | `else` | ✅ Implemented | Else branch |
-| `unless` | ✅ Implemented | Negated conditional |
+| `unless` | 🧪 Experimental | Requires `--enable-experimental unless` |
 | `while` | ✅ Implemented | While loop |
-| `do` | ✅ Implemented | Do-while loop |
+| `do` | 🧪 Experimental | `do { } while` requires `--enable-experimental do-while` |
 | `for` | ✅ Implemented | For loop |
 | `in` | ✅ Implemented | For x in iterable |
 | `of` | ✅ Implemented | Alias for in (for x of iterable) |
-| `loop` | ✅ Implemented | Infinite loop |
+| `loop` | 🧪 Experimental | Requires `--enable-experimental loop` |
 | `match` | ✅ Implemented | Pattern matching |
-| `switch` | ✅ Implemented | Value comparison |
+| `switch` | 🧪 Experimental | Requires `--enable-experimental switch` |
 | `case` | ✅ Implemented | Switch/match arm |
 | `return` | ✅ Implemented | Return from function |
 | `break` | ✅ Implemented | Exit loop |

@@ -89,6 +89,7 @@ impl<'source> Lexer<'source> {
                                     end_location,
                                 ),
                             )
+                            .with_code("L006")
                             .with_hint("Close the block comment with `*/`."),
                         );
                     }
@@ -159,6 +160,7 @@ impl<'source> Lexer<'source> {
                                     "unterminated f-string literal",
                                     Span::new(offset, self.source.len(), start_location, end_location),
                                 )
+                                .with_code("L005")
                                 .with_hint("Close the f-string with a matching \" character."),
                             );
                         }
@@ -297,6 +299,7 @@ impl<'source> Lexer<'source> {
                                 "unterminated string literal",
                                 Span::new(offset, self.source.len(), start_location, end_location),
                             )
+                            .with_code("L002")
                             .with_hint("Close the string with a matching \" character."),
                         );
                     }
@@ -359,6 +362,7 @@ impl<'source> Lexer<'source> {
                                     "empty character literal",
                                     Span::new(offset, end_offset, start_location, end_location),
                                 )
+                                .with_code("L004")
                                 .with_hint("Character literals must contain exactly one character."),
                             );
                         }
@@ -368,6 +372,7 @@ impl<'source> Lexer<'source> {
                                 "unterminated character literal",
                                 Span::new(offset, self.source.len(), start_location, end_location),
                             )
+                            .with_code("L003")
                             .with_hint("Close the character literal with a matching ' character."),
                         );
                     }
@@ -438,6 +443,7 @@ impl<'source> Lexer<'source> {
                             format!("unexpected character `{}`", ch),
                             Span::new(offset, end_offset, start_location, end_location),
                         )
+                        .with_code("L001")
                         .with_hint(
                             "Remove this character or escape it if you intended it to appear literally.",
                         ),
