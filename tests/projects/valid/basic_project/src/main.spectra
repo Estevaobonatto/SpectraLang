@@ -1,0 +1,17 @@
+module main;
+
+import mathutils;
+
+pub fn main() -> int {
+    let a = triple(7);
+    let b = sum_to(4);
+
+    if a != 21 {
+        return a;
+    }
+    if b != 10 {
+        return b;
+    }
+
+    return 0;
+}

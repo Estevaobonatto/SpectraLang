@@ -1,0 +1,17 @@
+module mathutils;
+
+pub fn triple(x: int) -> int {
+    return x * 3;
+}
+
+pub fn sum_to(n: int) -> int {
+    let total = 0;
+    let i = 0;
+
+    while i <= n {
+        total = total + i;
+        i = i + 1;
+    }
+
+    return total;
+}

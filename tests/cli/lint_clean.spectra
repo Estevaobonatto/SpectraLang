@@ -1,0 +1,10 @@
+module lint_clean;
+
+fn square(x: int) -> int {
+    return x * x;
+}
+
+pub fn main() -> int {
+    let value = square(4);
+    return value - 16;
+}

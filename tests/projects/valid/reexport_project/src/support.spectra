@@ -1,0 +1,9 @@
+module support;
+
+pub fn answer() -> int {
+    return 42;
+}
+
+pub fn half_answer() -> int {
+    return 21;
+}

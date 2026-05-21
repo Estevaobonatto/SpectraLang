@@ -1,0 +1,10 @@
+module lint_warning_shadowing;
+
+pub fn main() -> int {
+    let value = 10;
+    if value > 0 {
+        let value = 20;
+        return value - 20;
+    }
+    return 0;
+}

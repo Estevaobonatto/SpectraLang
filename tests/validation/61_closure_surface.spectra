@@ -1,0 +1,36 @@
+// Teste 61: closures, HOFs e inferencia de assinatura fn(...)
+module closure_surface;
+
+fn apply_twice(x: int, f: fn(int) -> int) -> int {
+    return f(f(x));
+}
+
+fn combine(a: int, b: int, f: fn(int, int) -> int) -> int {
+    return f(a, b);
+}
+
+pub fn main() -> int {
+    let double: fn(int) -> int = |x: int| x * 2;
+    let inc = |x: int| x + 1;
+    let add = |a: int, b: int| a + b;
+
+    let a = apply_twice(3, double);
+    let b = apply_twice(5, |x: int| x - 1);
+    let c = combine(10, 20, add);
+    let d = inc(9);
+
+    if a != 12 {
+        return a;
+    }
+    if b != 3 {
+        return b;
+    }
+    if c != 30 {
+        return c;
+    }
+    if d != 10 {
+        return d;
+    }
+
+    return 0;
+}

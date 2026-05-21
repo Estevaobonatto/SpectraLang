@@ -1,0 +1,7 @@
+module prelude;
+
+pub import { answer, half_answer } from support;
+
+pub fn total() -> int {
+    return answer() + half_answer();
+}

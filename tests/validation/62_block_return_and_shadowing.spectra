@@ -1,0 +1,34 @@
+// Teste 62: retorno implicito de bloco, shadowing e statement final sem valor
+module block_return_and_shadowing;
+
+fn classify(n: int) -> int {
+    let result = {
+        let n = n + 1;
+        if n > 5 {
+            n
+        } else {
+            5
+        }
+    };
+
+    match result {
+        6 => {}
+        _ => {
+            return result;
+        }
+    };
+
+    let guard = 0;
+    loop {
+        guard = guard + 1;
+        if guard == 1 {
+            break;
+        }
+    }
+
+    return 0;
+}
+
+pub fn main() -> int {
+    return classify(5);
+}

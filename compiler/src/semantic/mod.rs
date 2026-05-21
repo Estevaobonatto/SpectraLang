@@ -293,6 +293,19 @@ pub fn type_name(ty: &Type) -> String {
     }
 }
 
+fn namespace_path(expr: &Expression) -> Option<String> {
+    match &expr.kind {
+        ExpressionKind::Identifier(name) => Some(name.clone()),
+        ExpressionKind::FieldAccess { object, field } => {
+            let mut prefix = namespace_path(object)?;
+            prefix.push('.');
+            prefix.push_str(field);
+            Some(prefix)
+        }
+        _ => None,
+    }
+}
+
 impl SemanticAnalyzer {
     fn seed_builtin_module_namespaces(&mut self) {
         const BUILTIN_MODULES: &[&str] = &[
@@ -1867,6 +1880,9 @@ impl SemanticAnalyzer {
         // is valid.  For stdlib we also record the bare alias as a prefix for
         // the midend.
         let alias = import.alias.clone();
+        if let Some(alias_name) = &alias {
+            self.module_namespaces.insert(alias_name.clone());
+        }
 
         for name in &names_to_import {
             // Check visibility restrictions for non-internal callers.
@@ -3206,6 +3222,25 @@ impl SemanticAnalyzer {
                 method_name,
                 ..
             } => {
+                if let Some(path) = namespace_path(object) {
+                    let qualified_name = format!("{}.{}", path, method_name);
+                    if let Some(signature) = self.functions.get(&qualified_name) {
+                        return signature.return_type.clone();
+                    }
+
+                    let exports_cloned: Option<ModuleExports> = self
+                        .registry
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .get_module(&path)
+                        .cloned();
+                    if let Some(exports) = exports_cloned {
+                        if let Some(func) = exports.functions.get(method_name.as_str()) {
+                            return func.return_type.clone();
+                        }
+                    }
+                }
+
                 let obj_type = self.infer_expression_type(object);
                 if let Type::TypeParameter { name } = &obj_type {
                     if let Some((signature, _trait_name)) =
@@ -4524,6 +4559,72 @@ impl SemanticAnalyzer {
                 // Analisar argumentos
                 for arg in arguments {
                     self.analyze_expression(arg);
+                }
+
+                if let Some(path) = namespace_path(object) {
+                    let qualified_name = format!("{}.{}", path, method_name);
+                    let qualified_sig = self.functions.get(&qualified_name).cloned().or_else(|| {
+                        let exports_cloned: Option<ModuleExports> = self
+                            .registry
+                            .read()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .get_module(&path)
+                            .cloned();
+                        exports_cloned.and_then(|exports| {
+                            exports.functions.get(method_name.as_str()).map(|func| FunctionSignature {
+                                params: func.params.clone(),
+                                return_type: func.return_type.clone(),
+                                self_kind: None,
+                            })
+                        })
+                    });
+
+                    if let Some(signature) = qualified_sig {
+                        if arguments.len() != signature.params.len() {
+                            self.error(
+                                format!(
+                                    "Function '{}' expects {} arguments, but {} were provided",
+                                    qualified_name,
+                                    signature.params.len(),
+                                    arguments.len()
+                                ),
+                                expr.span,
+                            );
+                        } else {
+                            for (i, (arg, expected_type)) in
+                                arguments.iter().zip(signature.params.iter()).enumerate()
+                            {
+                                let arg_type = self.infer_expression_type(arg);
+                                if matches!(arg_type, Type::Unknown) {
+                                    self.error_with_hint(
+                                        format!(
+                                            "Argument {} of function '{}' has an unknown or uninferrable type",
+                                            i + 1,
+                                            qualified_name,
+                                        ),
+                                        arg.span,
+                                        "Add an explicit type annotation to resolve the argument type.",
+                                    );
+                                } else if *expected_type != Type::Unknown
+                                    && !self.types_match(&arg_type, expected_type)
+                                {
+                                    self.error(
+                                        format!(
+                                            "Argument {} of function '{}' has type {}, expected {}",
+                                            i + 1,
+                                            qualified_name,
+                                            type_name(&arg_type),
+                                            type_name(expected_type)
+                                        ),
+                                        arg.span,
+                                    );
+                                }
+                            }
+                        }
+
+                        self.record_expression_type(expr);
+                        return;
+                    }
                 }
 
                 // Verificar se método existe para o tipo do objeto

@@ -1,0 +1,11 @@
+module main;
+
+import prelude;
+
+pub fn main() -> int {
+    let value = total();
+    if value != 63 {
+        return value;
+    }
+    return 0;
+}

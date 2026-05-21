@@ -1,0 +1,5 @@
+module fmt_unformatted;
+pub fn main()->int{
+let value=1+2;
+return value-3;
+}

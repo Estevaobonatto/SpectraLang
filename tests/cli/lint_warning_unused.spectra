@@ -1,0 +1,6 @@
+module lint_warning_unused;
+
+pub fn main() -> int {
+    let never_used = 42;
+    return 0;
+}
