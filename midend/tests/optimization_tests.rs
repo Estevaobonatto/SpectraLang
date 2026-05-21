@@ -324,3 +324,55 @@ fn test_no_optimization_when_not_applicable() {
     let dce_modified = dead_code_elimination::run(&mut module);
     assert!(!dce_modified, "DCE should not remove used value");
 }
+
+#[test]
+fn test_dead_code_elimination_preserves_cast_operands() {
+    let mut module = Module {
+        name: "test".to_string(),
+        functions: vec![Function {
+            name: "test_func".to_string(),
+            params: vec![],
+            return_type: Type::Char,
+            next_value_id: 0,
+            next_block_id: 1,
+            blocks: vec![BasicBlock {
+                id: 0,
+                label: "entry".to_string(),
+                instructions: vec![
+                    Instruction {
+                        id: 0,
+                        kind: InstructionKind::ConstInt {
+                            result: Value { id: 0 },
+                            value: 65,
+                        },
+                    },
+                    Instruction {
+                        id: 1,
+                        kind: InstructionKind::Cast {
+                            result: Value { id: 1 },
+                            operand: Value { id: 0 },
+                            from_ty: Type::Int,
+                            to_ty: Type::Char,
+                        },
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: Some(Value { id: 1 }),
+                }),
+            }],
+        }],
+        globals: vec![],
+        vtables: vec![],
+    };
+
+    let modified = dead_code_elimination::run(&mut module);
+    assert!(!modified, "DCE should preserve cast chains that feed a return");
+
+    let instructions = &module.functions[0].blocks[0].instructions;
+    assert_eq!(instructions.len(), 2, "Cast operand and cast must remain");
+    assert!(matches!(
+        instructions[0].kind,
+        InstructionKind::ConstInt { value: 65, .. }
+    ));
+    assert!(matches!(instructions[1].kind, InstructionKind::Cast { .. }));
+}

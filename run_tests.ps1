@@ -8,7 +8,7 @@
 # Requer que o binario ja esteja compilado:
 #   cargo build -p spectra-cli
 
-$binary = ".\target\debug\spectralang.exe"
+$binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
 $timeoutSeconds = 10
 $experimentalFlags = @(
     "--enable-experimental", "switch",
@@ -52,10 +52,14 @@ function Invoke-SpectraFile([string]$filePath) {
         -RedirectStandardError  $stderrPath
 
     $timedOut = $false
-    if (-not (Wait-Process -Id $proc.Id -Timeout $timeoutSeconds -ErrorAction SilentlyContinue)) {
+    try {
+        Wait-Process -Id $proc.Id -Timeout $timeoutSeconds -ErrorAction Stop
+    } catch {
         $timedOut = $true
         Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    } else {
+    }
+
+    if (-not $timedOut) {
         $proc.Refresh()
     }
 

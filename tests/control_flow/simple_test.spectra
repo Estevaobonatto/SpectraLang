@@ -9,8 +9,8 @@ pub fn main() {
         let done = counter >= 5;
         if done {
             break;
-        };
-    };
+        }
+    }
     
     // Test do-while
     let x = 0;
@@ -30,7 +30,7 @@ pub fn main() {
         else => {
             let c = 30;
         }
-    };
+    }
     
     return;
 }

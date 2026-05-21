@@ -96,6 +96,9 @@ impl DeadCodeElimination {
             InstructionKind::Not { operand, .. } => {
                 used.insert(operand.id);
             }
+            InstructionKind::Cast { operand, .. } => {
+                used.insert(operand.id);
+            }
             InstructionKind::Load { ptr, .. } => {
                 used.insert(ptr.id);
             }
@@ -107,7 +110,28 @@ impl DeadCodeElimination {
                 used.insert(ptr.id);
                 used.insert(index.id);
             }
+            InstructionKind::MakeDynFatPtr {
+                data_ptr,
+                vtable_ptr,
+                ..
+            } => {
+                used.insert(data_ptr.id);
+                used.insert(vtable_ptr.id);
+            }
+            InstructionKind::LoadDynDataPtr { fat_ptr, .. }
+            | InstructionKind::LoadDynVtablePtr { fat_ptr, .. } => {
+                used.insert(fat_ptr.id);
+            }
+            InstructionKind::LoadVtableSlot { vtable_ptr, .. } => {
+                used.insert(vtable_ptr.id);
+            }
             InstructionKind::Call { args, .. } => {
+                for arg in args {
+                    used.insert(arg.id);
+                }
+            }
+            InstructionKind::CallIndirect { fn_ptr, args, .. } => {
+                used.insert(fn_ptr.id);
                 for arg in args {
                     used.insert(arg.id);
                 }
@@ -147,12 +171,21 @@ impl DeadCodeElimination {
             | InstructionKind::Not { result, .. }
             | InstructionKind::Alloca { result, .. }
             | InstructionKind::Load { result, .. }
+            | InstructionKind::GetElementPtr { result, .. }
             | InstructionKind::Copy { result, .. }
             | InstructionKind::Phi { result, .. }
             | InstructionKind::ConstInt { result, .. }
             | InstructionKind::ConstFloat { result, .. }
-            | InstructionKind::ConstBool { result, .. } => Some(result.id),
-            InstructionKind::Call { result, .. } => result.as_ref().map(|r| r.id),
+            | InstructionKind::ConstBool { result, .. }
+            | InstructionKind::Cast { result, .. }
+            | InstructionKind::FuncAddr { result, .. }
+            | InstructionKind::MakeDynFatPtr { result, .. }
+            | InstructionKind::LoadDynDataPtr { result, .. }
+            | InstructionKind::LoadDynVtablePtr { result, .. }
+            | InstructionKind::LoadVtableSlot { result, .. } => Some(result.id),
+            InstructionKind::Call { result, .. }
+            | InstructionKind::HostCall { result, .. }
+            | InstructionKind::CallIndirect { result, .. } => result.as_ref().map(|r| r.id),
             _ => None,
         }
     }
@@ -162,6 +195,7 @@ impl DeadCodeElimination {
             instr,
             InstructionKind::Store { .. }
                 | InstructionKind::Call { .. }
+                | InstructionKind::CallIndirect { .. }
                 | InstructionKind::HostCall { .. }
         )
     }

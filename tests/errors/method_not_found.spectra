@@ -10,7 +10,5 @@ fn main() -> int {
     let x = create_value();
     
     // Isso deve gerar erro: int não tem método 'nonexistent'
-    // x.nonexistent()
-    
-    x
+    x.nonexistent()
 }

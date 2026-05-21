@@ -702,26 +702,6 @@ impl SemanticAnalyzer {
         for param in params {
             set.insert(param.name.clone());
             bounds_map.insert(param.name.clone(), param.bounds.clone());
-
-            for bound in &param.bounds {
-                if !self.traits.contains_key(bound) {
-                    self.error_with_details(
-                        format!(
-                            "Trait '{}' referenced in bound for type parameter '{}' is not defined",
-                            bound, param.name
-                        ),
-                        param.span,
-                        format!(
-                            "generic bound `{}: {}` cannot be resolved",
-                            param.name, bound
-                        ),
-                        format!(
-                            "Declare `trait {}` or import it before using it as a bound.",
-                            bound
-                        ),
-                    );
-                }
-            }
         }
         self.generic_params.push(set);
         self.generic_param_bounds.push(bounds_map);
@@ -778,6 +758,105 @@ impl SemanticAnalyzer {
         }
 
         None
+    }
+
+    fn infer_type_parameter_substitutions(
+        &mut self,
+        param_types: &[Type],
+        arguments: &[Expression],
+    ) -> HashMap<String, Type> {
+        let mut substitutions = HashMap::new();
+        for (param_ty, arg_expr) in param_types.iter().zip(arguments.iter()) {
+            let arg_ty = self.infer_expression_type(arg_expr);
+            self.collect_type_parameter_substitutions(param_ty, &arg_ty, &mut substitutions);
+        }
+        substitutions
+    }
+
+    fn collect_type_parameter_substitutions(
+        &self,
+        expected: &Type,
+        actual: &Type,
+        substitutions: &mut HashMap<String, Type>,
+    ) {
+        match expected {
+            Type::TypeParameter { name } => {
+                substitutions.entry(name.clone()).or_insert_with(|| actual.clone());
+            }
+            Type::Array { element_type, .. } => {
+                if let Type::Array {
+                    element_type: actual_element,
+                    ..
+                } = actual
+                {
+                    self.collect_type_parameter_substitutions(
+                        element_type,
+                        actual_element,
+                        substitutions,
+                    );
+                }
+            }
+            Type::Tuple { elements } => {
+                if let Type::Tuple {
+                    elements: actual_elements,
+                } = actual
+                {
+                    for (lhs, rhs) in elements.iter().zip(actual_elements.iter()) {
+                        self.collect_type_parameter_substitutions(lhs, rhs, substitutions);
+                    }
+                }
+            }
+            Type::Fn { params, return_type } => {
+                if let Type::Fn {
+                    params: actual_params,
+                    return_type: actual_return,
+                } = actual
+                {
+                    for (lhs, rhs) in params.iter().zip(actual_params.iter()) {
+                        self.collect_type_parameter_substitutions(lhs, rhs, substitutions);
+                    }
+                    self.collect_type_parameter_substitutions(
+                        return_type,
+                        actual_return,
+                        substitutions,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn substitute_type_parameters(
+        &self,
+        ty: &Type,
+        substitutions: &HashMap<String, Type>,
+    ) -> Type {
+        match ty {
+            Type::TypeParameter { name } => substitutions
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| ty.clone()),
+            Type::Array { element_type, size } => Type::Array {
+                element_type: Box::new(self.substitute_type_parameters(element_type, substitutions)),
+                size: *size,
+            },
+            Type::Tuple { elements } => Type::Tuple {
+                elements: elements
+                    .iter()
+                    .map(|elem| self.substitute_type_parameters(elem, substitutions))
+                    .collect(),
+            },
+            Type::Fn { params, return_type } => Type::Fn {
+                params: params
+                    .iter()
+                    .map(|param| self.substitute_type_parameters(param, substitutions))
+                    .collect(),
+                return_type: Box::new(
+                    self.substitute_type_parameters(return_type, substitutions),
+                ),
+            },
+            other => other.clone(),
+        }
     }
 
     fn validate_method_call_signature(
@@ -1369,6 +1448,10 @@ impl SemanticAnalyzer {
     }
 
     fn infer_block_type(&mut self, block: &Block) -> Type {
+        if self.block_guaranteed_return(block) {
+            return Type::Unknown;
+        }
+
         if let Some(last_stmt) = block.statements.last() {
             match &last_stmt.kind {
                 StatementKind::Expression(expr) => self.infer_expression_type(expr),
@@ -1416,6 +1499,12 @@ impl SemanticAnalyzer {
         module.imported_struct_defs.extend(new_struct_defs);
 
         // First pass: collect all declarations (functions, generic structs, generic enums)
+        for item in &module.items {
+            if let Item::Trait(trait_decl) = item {
+                self.analyze_trait_declaration(trait_decl);
+            }
+        }
+
         for item in &module.items {
             match item {
                 Item::Function(func) => {
@@ -1635,9 +1724,10 @@ impl SemanticAnalyzer {
             Item::Impl(impl_block) => {
                 self.analyze_impl_block(impl_block);
             }
-            Item::Trait(trait_decl) => {
-                self.analyze_trait_declaration(trait_decl);
-            }
+                Item::Trait(_trait_decl) => {
+                    // Trait declarations are registered during the declaration pass
+                    // so generic bounds can resolve regardless of later item order.
+                }
             Item::TraitImpl(trait_impl) => {
                 self.analyze_trait_impl(trait_impl);
             }
@@ -2930,10 +3020,15 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::Unary { operand, .. } => self.infer_expression_type(operand),
-            ExpressionKind::Call { callee, .. } => {
+            ExpressionKind::Call { callee, arguments } => {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if let Some(sig) = self.functions.get(name) {
-                        return sig.return_type.clone();
+                    if let Some(sig) = self.functions.get(name).cloned() {
+                        let substitutions =
+                            self.infer_type_parameter_substitutions(&sig.params, arguments);
+                        return self.substitute_type_parameters(
+                            &sig.return_type,
+                            &substitutions,
+                        );
                     }
                 }
                 if let Type::Fn { return_type, .. } = self.infer_expression_type(callee) {
@@ -3082,9 +3177,21 @@ impl SemanticAnalyzer {
                     return Type::Unknown;
                 }
 
+                let scrutinee_type = match &expr.kind {
+                    ExpressionKind::Match { scrutinee, .. } => self.infer_expression_type(scrutinee),
+                    _ => Type::Unknown,
+                };
+
                 let arm_types: Vec<Type> = arms
                     .iter()
-                    .map(|arm| self.infer_expression_type(&arm.body))
+                    .map(|arm| {
+                        self.push_scope();
+                        self.register_pattern_bindings(&arm.pattern);
+                        self.bind_pattern_types(&arm.pattern, &scrutinee_type);
+                        let arm_type = self.infer_expression_type(&arm.body);
+                        self.pop_scope();
+                        arm_type
+                    })
                     .collect();
 
                 if self.branch_type_mismatch(&arm_types).is_some() {
@@ -3100,6 +3207,13 @@ impl SemanticAnalyzer {
                 ..
             } => {
                 let obj_type = self.infer_expression_type(object);
+                if let Type::TypeParameter { name } = &obj_type {
+                    if let Some((signature, _trait_name)) =
+                        self.trait_method_signature_for_type_param(name, method_name)
+                    {
+                        return signature.return_type;
+                    }
+                }
                 // For dyn Trait: look up the method return type from trait definition
                 if let Type::DynTrait { trait_name } = &obj_type {
                     if let Some(trait_methods) = self.traits.get(trait_name.as_str()) {
@@ -3155,6 +3269,10 @@ impl SemanticAnalyzer {
                 size: None,
             },
             ExpressionKind::Block(block) => {
+                if self.block_guaranteed_return(block) {
+                    return Type::Unknown;
+                }
+
                 // Block type is the type of the last expression statement, or Unit
                 let mut result = Type::Unit;
                 for stmt in &block.statements {
@@ -5310,9 +5428,7 @@ impl SemanticAnalyzer {
         match &statement.kind {
             StatementKind::Return(_) => true,
             StatementKind::Expression(expr) if is_last => self.expression_guaranteed_return(expr),
-            StatementKind::Loop(loop_stmt) if is_last => {
-                self.block_guaranteed_return(&loop_stmt.body)
-            }
+            StatementKind::Loop(_) if is_last => true,
             _ => false,
         }
     }
@@ -5357,7 +5473,7 @@ impl SemanticAnalyzer {
                         .iter()
                         .all(|arm| self.expression_guaranteed_return(&arm.body))
             }
-            _ => true,
+            _ => false,
         }
     }
 
@@ -5377,17 +5493,8 @@ impl SemanticAnalyzer {
                 }
             }
             expected_type => {
-                if !self.block_guaranteed_return(body) {
-                    self.error(
-                        format!(
-                            "Function declared to return {:?} may exit without returning a value",
-                            expected_type
-                        ),
-                        span,
-                    );
-                }
-
                 let block_type = self.infer_block_type(body);
+
                 match block_type {
                     Type::Unknown => {}
                     Type::Unit => {

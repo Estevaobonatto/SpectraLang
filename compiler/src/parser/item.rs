@@ -665,16 +665,20 @@ impl Parser {
             span: span_union(start_span, end_span),
         };
 
-        let signature_map: HashMap<String, TraitMethodSignature> = trait_decl
-            .methods
-            .iter()
-            .map(|method| {
-                (
-                    method.name.clone(),
-                    Self::trait_method_signature_from_decl(method),
-                )
-            })
-            .collect();
+        let mut signature_map: HashMap<String, TraitMethodSignature> = HashMap::new();
+        for parent_trait in &trait_decl.parent_traits {
+            if let Some(parent_sigs) = self.trait_signatures.get(parent_trait).cloned() {
+                for (method_name, signature) in parent_sigs {
+                    signature_map.insert(method_name, signature);
+                }
+            }
+        }
+        for method in &trait_decl.methods {
+            signature_map.insert(
+                method.name.clone(),
+                Self::trait_method_signature_from_decl(method),
+            );
+        }
 
         self.trait_signatures
             .insert(trait_decl.name.clone(), signature_map);
@@ -691,11 +695,9 @@ impl Parser {
     ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
-        let trait_methods_lookup = self.trait_signatures.get(&trait_name).cloned();
-
         const BUILTIN_OP_TRAITS: &[&str] = &["Add", "Sub", "Mul", "Div", "Rem", "Eq", "Ord", "Drop"];
         let is_builtin_trait = BUILTIN_OP_TRAITS.contains(&trait_name.as_str());
-        if trait_methods_lookup.is_none() && !is_builtin_trait {
+        if !self.trait_signatures.contains_key(&trait_name) && !is_builtin_trait {
             let message = format!(
                 "Trait '{}' must be declared before its implementation",
                 trait_name
@@ -797,13 +799,6 @@ impl Parser {
             let body_end_span = body.span;
 
             let method_name_for_checks = method_name.clone();
-            let return_type_clone = return_type.clone();
-            let actual_param_signatures: Vec<ParameterSignature> = params
-                .iter()
-                .map(Self::parameter_signature_from_param)
-                .collect();
-            let actual_return_signature =
-                return_type_clone.as_ref().map(TypePattern::from_annotation);
 
             methods.push(Method {
                 name: method_name,
@@ -814,28 +809,6 @@ impl Parser {
                 // Methods in trait impls always implement the (public) trait contract.
                 visibility: Visibility::Public,
             });
-
-            if let Some(ref trait_methods) = trait_methods_lookup {
-                match trait_methods.get(&method_name_for_checks) {
-                    Some(expected_signature) => {
-                        self.validate_trait_method_signature(
-                            &trait_name,
-                            &method_name_for_checks,
-                            expected_signature,
-                            &actual_param_signatures,
-                            actual_return_signature.as_ref(),
-                            method_name_span,
-                        );
-                    }
-                    None => {
-                        let message = format!(
-                            "Method '{}' is not declared in trait '{}'",
-                            method_name_for_checks, trait_name
-                        );
-                        self.error_at(&message, method_name_span);
-                    }
-                }
-            }
 
             if !implemented_methods.insert(method_name_for_checks.clone()) {
                 let message = format!(
@@ -917,6 +890,7 @@ impl Parser {
         Ok(type_params)
     }
 
+    #[allow(dead_code)]
     fn trait_method_signature_from_decl(method: &TraitMethod) -> TraitMethodSignature {
         TraitMethodSignature {
             params: method
@@ -932,6 +906,7 @@ impl Parser {
         }
     }
 
+    #[allow(dead_code)]
     fn parameter_signature_from_param(param: &Parameter) -> ParameterSignature {
         ParameterSignature {
             is_self: param.is_self,
@@ -944,6 +919,7 @@ impl Parser {
         }
     }
 
+    #[allow(dead_code)]
     fn validate_trait_method_signature(
         &mut self,
         trait_name: &str,
@@ -951,6 +927,7 @@ impl Parser {
         expected: &TraitMethodSignature,
         actual_params: &[ParameterSignature],
         actual_return: Option<&TypePattern>,
+        impl_type_name: &str,
         method_span: Span,
     ) {
         if expected.params.len() != actual_params.len() {
@@ -1053,7 +1030,8 @@ impl Parser {
             }
 
             match (&expected_param.ty, &actual_param.ty) {
-                (Some(expected_ty), Some(actual_ty)) if expected_ty == actual_ty => {}
+                (Some(expected_ty), Some(actual_ty))
+                    if Self::trait_types_compatible(expected_ty, actual_ty, impl_type_name) => {}
                 (Some(expected_ty), Some(actual_ty)) => {
                     let message = format!(
                         "Method '{}' in impl for trait '{}' has mismatched type for parameter {}: expected {}, found {}",
@@ -1090,7 +1068,8 @@ impl Parser {
         }
 
         match (&expected.return_type, actual_return) {
-            (Some(expected_ty), Some(actual_ty)) if expected_ty == actual_ty => {}
+            (Some(expected_ty), Some(actual_ty))
+                if Self::trait_types_compatible(expected_ty, actual_ty, impl_type_name) => {}
             (Some(expected_ty), Some(actual_ty)) => {
                 let message = format!(
                     "Method '{}' in impl for trait '{}' has mismatched return type: expected {}, found {}",
@@ -1120,6 +1099,34 @@ impl Parser {
                 self.error_at(&message, method_span);
             }
             (None, None) => {}
+        }
+    }
+
+    #[allow(dead_code)]
+    fn trait_types_compatible(
+        expected: &TypePattern,
+        actual: &TypePattern,
+        impl_type_name: &str,
+    ) -> bool {
+        match (expected, actual) {
+            (TypePattern::Simple(lhs), TypePattern::Simple(rhs)) => {
+                if lhs == rhs {
+                    return true;
+                }
+
+                lhs.len() == 1
+                    && lhs[0] == "Self"
+                    && rhs.len() == 1
+                    && rhs[0] == impl_type_name
+            }
+            (TypePattern::Tuple(lhs), TypePattern::Tuple(rhs)) => {
+                lhs.len() == rhs.len()
+                    && lhs
+                        .iter()
+                        .zip(rhs.iter())
+                        .all(|(l, r)| Self::trait_types_compatible(l, r, impl_type_name))
+            }
+            _ => false,
         }
     }
 

@@ -1,0 +1,514 @@
+   Compiling validation_return_paths (\\?\D:\Lang\SpectraLang\tests\validation\58_return_paths_combined.spectra)
+=== IR (before optimization) ===
+module validation_return_paths {
+
+  fn evaluate(bool flag, int value) -> int {
+    entry:
+      %v2 = alloca int
+      br.if %v0 -> bb1, else bb3
+    if.then:
+      %v3 = const.int 3
+      %v4 = rem %v1, %v3
+      %v5 = alloca int
+      br bb5
+    if.merge:
+      %v39 = phi [%v11, bb4], [%v38, bb15]
+      ret %v39
+    if.else:
+      store %v2, %v1
+      br bb9
+    match_exit:
+      %v11 = load(int) %v5
+      br bb2
+    match_check_0:
+      %v6 = const.int 0
+      %v7 = eq %v4, %v6
+      br.if %v7 -> bb6, else bb7
+    match_body_0:
+      store %v5, %v1
+      br bb4
+    match_check_1:
+      %v8 = const.int 1
+      br.if %v8 -> bb8, else bb4
+    match_body_1:
+      %v9 = const.int 1
+      %v10 = add %v1, %v9
+      store %v5, %v10
+      br bb4
+    loop.body:
+      %v12 = load(int) %v2
+      %v13 = const.int 5
+      %v14 = gt %v12, %v13
+      br.if %v14 -> bb11, else bb12
+    loop.exit:
+      %v26 = load(int) %v2
+      %v27 = const.int 10
+      %v28 = gt %v26, %v27
+      %v29 = alloca int
+      br bb16
+    if.then:
+      br bb10
+    if.merge:
+      %v16 = load(int) %v2
+      %v17 = const.int 5
+      %v18 = eq %v16, %v17
+      br.if %v18 -> bb13, else bb14
+    if.then:
+      %v19 = load(int) %v2
+      %v20 = const.int 2
+      %v21 = mul %v19, %v20
+      ret %v21
+    if.merge:
+      %v23 = load(int) %v2
+      %v24 = const.int 1
+      %v25 = add %v23, %v24
+      store %v2, %v25
+      br bb9
+    match_exit:
+      %v38 = load(int) %v29
+      br bb2
+    match_check_0:
+      %v30 = const.bool true
+      %v31 = eq %v28, %v30
+      br.if %v31 -> bb17, else bb18
+    match_body_0:
+      %v32 = load(int) %v2
+      store %v29, %v32
+      br bb15
+    match_check_1:
+      %v33 = const.bool false
+      %v34 = eq %v28, %v33
+      br.if %v34 -> bb19, else bb15
+    match_body_1:
+      %v35 = load(int) %v2
+      %v36 = const.int 2
+      %v37 = add %v35, %v36
+      store %v29, %v37
+      br bb15
+  }
+
+  fn analyze(bool choice, int depth) -> int {
+    entry:
+      %v2 = alloca int
+      br bb2
+    match_exit:
+      %v37 = load(int) %v2
+      ret %v37
+    match_check_0:
+      %v3 = const.bool true
+      %v4 = eq %v0, %v3
+      br.if %v4 -> bb3, else bb4
+    match_body_0:
+      %v5 = const.int 1
+      %v6 = add %v1, %v5
+      %v7 = const.int 3
+      %v8 = gt %v6, %v7
+      br.if %v8 -> bb6, else bb7
+    match_check_1:
+      %v22 = const.bool false
+      %v23 = eq %v0, %v22
+      br.if %v23 -> bb5, else bb1
+    match_body_1:
+      %v24 = const.int 2
+      %v25 = mul %v1, %v24
+      %v26 = alloca int
+      br bb13
+    if.then:
+      %v9 = const.int 3
+      %v10 = mul %v6, %v9
+      ret %v10
+    if.merge:
+      br bb8
+    loop.body:
+      %v12 = const.int 2
+      %v13 = rem %v6, %v12
+      %v14 = const.int 0
+      %v15 = eq %v13, %v14
+      br.if %v15 -> bb10, else bb11
+    loop.exit:
+      %v21 = const.int 0
+      store %v2, %v21
+      br bb1
+    if.then:
+      %v16 = const.int 7
+      %v17 = add %v6, %v16
+      ret %v17
+    if.merge:
+      %v19 = const.int 1
+      %v20 = add %v6, %v19
+      br bb8
+    match_exit:
+      %v36 = load(int) %v26
+      store %v2, %v36
+      br bb1
+    match_check_0:
+      %v27 = const.int 0
+      %v28 = eq %v25, %v27
+      br.if %v28 -> bb14, else bb15
+    match_body_0:
+      %v29 = const.int 10
+      store %v26, %v29
+      br bb12
+    match_check_1:
+      %v30 = const.int 1
+      br.if %v30 -> bb16, else bb12
+    match_body_1:
+      %v31 = const.int 10
+      %v32 = gt %v25, %v31
+      br.if %v32 -> bb17, else bb19
+    if.then:
+      br bb18
+    if.merge:
+      %v35 = phi [%v25, bb17], [%v34, bb19]
+      store %v26, %v35
+      br bb12
+    if.else:
+      %v33 = const.int 5
+      %v34 = add %v25, %v33
+      br bb18
+  }
+
+  fn branch_with_unless(bool flag, int start) -> int {
+    entry:
+      %v2 = not %v0
+      br.if %v2 -> bb1, else bb2
+    unless.then:
+      br bb4
+    unless.else:
+      br bb3
+    unless.merge:
+      %v19 = alloca int
+      br bb14
+    loop.body:
+      %v3 = const.int 8
+      %v4 = gt %v1, %v3
+      br.if %v4 -> bb6, else bb7
+    loop.exit:
+      br bb3
+    if.then:
+      ret %v1
+    if.merge:
+      %v6 = const.int 4
+      %v7 = rem %v1, %v6
+      br bb9
+    match_exit:
+      %v17 = const.int 0
+      br bb4
+    match_check_0:
+      %v8 = const.int 0
+      %v9 = eq %v7, %v8
+      br.if %v9 -> bb10, else bb11
+    match_body_0:
+      %v10 = const.int 3
+      %v11 = add %v1, %v10
+      %v12 = const.int 0
+      br bb8
+    match_check_1:
+      %v13 = const.int 1
+      br.if %v13 -> bb12, else bb8
+    match_body_1:
+      %v14 = const.int 2
+      %v15 = add %v1, %v14
+      %v16 = const.int 0
+      br bb8
+    match_exit:
+      %v26 = load(int) %v19
+      ret %v26
+    match_check_0:
+      %v20 = const.bool true
+      %v21 = eq %v0, %v20
+      br.if %v21 -> bb15, else bb16
+    match_body_0:
+      %v22 = const.int 1
+      %v23 = add %v1, %v22
+      store %v19, %v23
+      br bb13
+    match_check_1:
+      %v24 = const.bool false
+      %v25 = eq %v0, %v24
+      br.if %v25 -> bb17, else bb13
+    match_body_1:
+      store %v19, %v1
+      br bb13
+  }
+
+  fn main() -> int {
+    entry:
+      %v0 = const.bool true
+      %v1 = const.int 4
+      %v2 = call evaluate(%v0, %v1)
+      %v3 = const.bool false
+      %v4 = const.int 3
+      %v5 = call evaluate(%v3, %v4)
+      %v6 = const.bool true
+      %v7 = const.int 2
+      %v8 = call analyze(%v6, %v7)
+      %v9 = const.bool false
+      %v10 = const.int 6
+      %v11 = call analyze(%v9, %v10)
+      %v12 = const.bool false
+      %v13 = const.int 1
+      %v14 = call branch_with_unless(%v12, %v13)
+      %v15 = add %v2, %v5
+      %v16 = add %v15, %v8
+      %v17 = add %v16, %v11
+      %v18 = add %v17, %v14
+      ret %v18
+  }
+}
+
+
+=== IR (after optimization) ===
+module validation_return_paths {
+
+  fn evaluate(bool flag, int value) -> int {
+    entry:
+      %v2 = alloca int
+      br.if %v0 -> bb1, else bb3
+    if.then:
+      %v3 = const.int 3
+      %v4 = rem %v1, %v3
+      %v5 = alloca int
+      br bb5
+    if.merge:
+      %v39 = phi [%v11, bb4], [%v38, bb15]
+      ret %v39
+    if.else:
+      store %v2, %v1
+      br bb9
+    match_exit:
+      %v11 = load(int) %v5
+      br bb2
+    match_check_0:
+      %v6 = const.int 0
+      %v7 = eq %v4, %v6
+      br.if %v7 -> bb6, else bb7
+    match_body_0:
+      store %v5, %v1
+      br bb4
+    match_check_1:
+      %v8 = const.int 1
+      br.if %v8 -> bb8, else bb4
+    match_body_1:
+      %v9 = const.int 1
+      %v10 = add %v1, %v9
+      store %v5, %v10
+      br bb4
+    loop.body:
+      %v12 = load(int) %v2
+      %v13 = const.int 5
+      %v14 = gt %v12, %v13
+      br.if %v14 -> bb11, else bb12
+    loop.exit:
+      %v26 = load(int) %v2
+      %v27 = const.int 10
+      %v28 = gt %v26, %v27
+      %v29 = alloca int
+      br bb16
+    if.then:
+      br bb10
+    if.merge:
+      %v16 = load(int) %v2
+      %v17 = const.int 5
+      %v18 = eq %v16, %v17
+      br.if %v18 -> bb13, else bb14
+    if.then:
+      %v19 = load(int) %v2
+      %v20 = const.int 2
+      %v21 = mul %v19, %v20
+      ret %v21
+    if.merge:
+      %v23 = load(int) %v2
+      %v24 = const.int 1
+      %v25 = add %v23, %v24
+      store %v2, %v25
+      br bb9
+    match_exit:
+      %v38 = load(int) %v29
+      br bb2
+    match_check_0:
+      %v30 = const.bool true
+      %v31 = eq %v28, %v30
+      br.if %v31 -> bb17, else bb18
+    match_body_0:
+      %v32 = load(int) %v2
+      store %v29, %v32
+      br bb15
+    match_check_1:
+      %v33 = const.bool false
+      %v34 = eq %v28, %v33
+      br.if %v34 -> bb19, else bb15
+    match_body_1:
+      %v35 = load(int) %v2
+      %v36 = const.int 2
+      %v37 = add %v35, %v36
+      store %v29, %v37
+      br bb15
+  }
+
+  fn analyze(bool choice, int depth) -> int {
+    entry:
+      %v2 = alloca int
+      br bb2
+    match_exit:
+      %v37 = load(int) %v2
+      ret %v37
+    match_check_0:
+      %v3 = const.bool true
+      %v4 = eq %v0, %v3
+      br.if %v4 -> bb3, else bb4
+    match_body_0:
+      %v5 = const.int 1
+      %v6 = add %v1, %v5
+      %v7 = const.int 3
+      %v8 = gt %v6, %v7
+      br.if %v8 -> bb6, else bb7
+    match_check_1:
+      %v22 = const.bool false
+      %v23 = eq %v0, %v22
+      br.if %v23 -> bb5, else bb1
+    match_body_1:
+      %v24 = const.int 2
+      %v25 = mul %v1, %v24
+      %v26 = alloca int
+      br bb13
+    if.then:
+      %v9 = const.int 3
+      %v10 = mul %v6, %v9
+      ret %v10
+    if.merge:
+      br bb8
+    loop.body:
+      %v12 = const.int 2
+      %v13 = rem %v6, %v12
+      %v14 = const.int 0
+      %v15 = eq %v13, %v14
+      br.if %v15 -> bb10, else bb11
+    loop.exit:
+      %v21 = const.int 0
+      store %v2, %v21
+      br bb1
+    if.then:
+      %v16 = const.int 7
+      %v17 = add %v6, %v16
+      ret %v17
+    if.merge:
+      %v19 = const.int 1
+      br bb8
+    match_exit:
+      %v36 = load(int) %v26
+      store %v2, %v36
+      br bb1
+    match_check_0:
+      %v27 = const.int 0
+      %v28 = eq %v25, %v27
+      br.if %v28 -> bb14, else bb15
+    match_body_0:
+      %v29 = const.int 10
+      store %v26, %v29
+      br bb12
+    match_check_1:
+      %v30 = const.int 1
+      br.if %v30 -> bb16, else bb12
+    match_body_1:
+      %v31 = const.int 10
+      %v32 = gt %v25, %v31
+      br.if %v32 -> bb17, else bb19
+    if.then:
+      br bb18
+    if.merge:
+      %v35 = phi [%v25, bb17], [%v34, bb19]
+      store %v26, %v35
+      br bb12
+    if.else:
+      %v33 = const.int 5
+      %v34 = add %v25, %v33
+      br bb18
+  }
+
+  fn branch_with_unless(bool flag, int start) -> int {
+    entry:
+      %v2 = not %v0
+      br.if %v2 -> bb1, else bb2
+    unless.then:
+      br bb4
+    unless.else:
+      br bb3
+    unless.merge:
+      %v19 = alloca int
+      br bb14
+    loop.body:
+      %v3 = const.int 8
+      %v4 = gt %v1, %v3
+      br.if %v4 -> bb6, else bb7
+    loop.exit:
+      br bb3
+    if.then:
+      ret %v1
+    if.merge:
+      %v6 = const.int 4
+      %v7 = rem %v1, %v6
+      br bb9
+    match_exit:
+      br bb4
+    match_check_0:
+      %v8 = const.int 0
+      %v9 = eq %v7, %v8
+      br.if %v9 -> bb10, else bb11
+    match_body_0:
+      %v10 = const.int 3
+      br bb8
+    match_check_1:
+      %v13 = const.int 1
+      br.if %v13 -> bb12, else bb8
+    match_body_1:
+      %v14 = const.int 2
+      br bb8
+    match_exit:
+      %v26 = load(int) %v19
+      ret %v26
+    match_check_0:
+      %v20 = const.bool true
+      %v21 = eq %v0, %v20
+      br.if %v21 -> bb15, else bb16
+    match_body_0:
+      %v22 = const.int 1
+      %v23 = add %v1, %v22
+      store %v19, %v23
+      br bb13
+    match_check_1:
+      %v24 = const.bool false
+      %v25 = eq %v0, %v24
+      br.if %v25 -> bb17, else bb13
+    match_body_1:
+      store %v19, %v1
+      br bb13
+  }
+
+  fn main() -> int {
+    entry:
+      %v0 = const.bool true
+      %v1 = const.int 4
+      %v2 = call evaluate(%v0, %v1)
+      %v3 = const.bool false
+      %v4 = const.int 3
+      %v5 = call evaluate(%v3, %v4)
+      %v6 = const.bool true
+      %v7 = const.int 2
+      %v8 = call analyze(%v6, %v7)
+      %v9 = const.bool false
+      %v10 = const.int 6
+      %v11 = call analyze(%v9, %v10)
+      %v12 = const.bool false
+      %v13 = const.int 1
+      %v14 = call branch_with_unless(%v12, %v13)
+      %v15 = add %v2, %v5
+      %v16 = add %v15, %v8
+      %v17 = add %v16, %v11
+      %v18 = add %v17, %v14
+      ret %v18
+  }
+}
+
+
+    Finished

@@ -13,7 +13,7 @@ fn identity<T>(x: T) -> T {
 
 // Função genérica com trait bound
 fn process<T: Printable>(item: T) -> int {
-    return item.print();
+    return item.println();
 }
 
 // Função genérica com múltiplos type parameters

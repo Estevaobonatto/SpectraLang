@@ -11,7 +11,7 @@ enum Result<T> {
 }
 
 // Teste básico de match
-fn unwrap_or(opt: Option, default: int) -> int {
+fn unwrap_or(opt: Option<int>, default: int) -> int {
     match opt {
         Option::Some(value) => value,
         Option::None => default
@@ -19,7 +19,7 @@ fn unwrap_or(opt: Option, default: int) -> int {
 }
 
 // Match com Result
-fn handle_result(res: Result) -> int {
+fn handle_result(res: Result<int>) -> int {
     match res {
         Result::Ok(value) => value,
         Result::Err(code) => code * -1
@@ -27,7 +27,7 @@ fn handle_result(res: Result) -> int {
 }
 
 // Match aninhado
-fn process(opt: Option) -> int {
+fn process(opt: Option<int>) -> int {
     match opt {
         Option::Some(x) => {
             match x {
@@ -39,9 +39,9 @@ fn process(opt: Option) -> int {
 }
 
 fn main() -> int {
-    let some_val = Option::Some(42);
+    let some_val: Option<int> = Option::Some(42);
     let result = unwrap_or(some_val, 0);
-    let status = Option::Some("ready");
+    let status: Option<string> = Option::Some("ready");
     let message = match status {
         Option::Some(text) => text,
         Option::None => "unknown",

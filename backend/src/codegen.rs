@@ -478,9 +478,6 @@ impl CodeGenerator {
         block_map: &HashMap<usize, Block>,
         phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
     ) -> Result<(), String> {
-        if matches!(instr.kind, InstructionKind::Phi { .. }) {
-            eprintln!("DEBUG generate_instruction: block={} instr.id={} kind=Phi", current_block_id, instr.id);
-        }
         // Helper to get value from map
         let get_value = |v: &IRValue| -> Result<Value, String> {
             value_map
@@ -659,7 +656,7 @@ impl CodeGenerator {
 
             InstructionKind::Load { result, ptr, ty } => {
                 let ptr_val = get_value(ptr)?;
-                let cranelift_ty = if *ty == IRType::Float { types::F64 } else { types::I64 };
+                let cranelift_ty = Self::ir_type_to_cranelift(ty)?;
                 let result_val = builder.ins().load(cranelift_ty, MemFlags::new(), ptr_val, 0);
                 value_map.insert(result.id, result_val);
             }
@@ -683,7 +680,8 @@ impl CodeGenerator {
                 // Calcular o tamanho do elemento em bytes
                 let elem_size = match element_type {
                     IRType::Int | IRType::Float => 8,
-                    IRType::Bool | IRType::Char => 1,
+                    IRType::Bool => 1,
+                    IRType::Char => 4,
                     _ => 8, // default
                 };
 
@@ -897,6 +895,7 @@ impl CodeGenerator {
             // Cast instruction
             InstructionKind::Cast { result, operand, from_ty, to_ty } => {
                 let operand_val = get_value(operand)?;
+                let operand_cl_ty = builder.func.dfg.value_type(operand_val);
                 let cl_val = match (from_ty, to_ty) {
                     (IRType::Int, IRType::Float) => {
                         builder.ins().fcvt_from_sint(types::F64, operand_val)
@@ -905,10 +904,23 @@ impl CodeGenerator {
                         builder.ins().fcvt_to_sint_sat(types::I64, operand_val)
                     }
                     (IRType::Char, IRType::Int) => {
-                        builder.ins().uextend(types::I64, operand_val)
+                        match operand_cl_ty {
+                            types::I8 | types::I16 | types::I32 => {
+                                builder.ins().uextend(types::I64, operand_val)
+                            }
+                            types::I64 => operand_val,
+                            _ => operand_val,
+                        }
                     }
                     (IRType::Int, IRType::Char) => {
-                        builder.ins().ireduce(types::I32, operand_val)
+                        match operand_cl_ty {
+                            types::I64 => builder.ins().ireduce(types::I32, operand_val),
+                            types::I32 => operand_val,
+                            types::I8 | types::I16 => {
+                                builder.ins().uextend(types::I32, operand_val)
+                            }
+                            _ => operand_val,
+                        }
                     }
                     _ => operand_val, // same-type or struct->dyn: pass through
                 };
@@ -962,13 +974,10 @@ impl CodeGenerator {
                     for (idx, phi) in phis.iter().enumerate() {
                         if phi.result_id == result.id {
                             let phi_val = builder.block_params(block)[idx];
-                            eprintln!("DEBUG: PHI result_id={} block={} idx={} phi_val={:?}", result.id, current_block_id, idx, phi_val);
                             value_map.insert(result.id, phi_val);
                             break;
                         }
                     }
-                } else {
-                    eprintln!("DEBUG: PHI {} in block {} not found in phi_map", result.id, current_block_id);
                 }
             }
 

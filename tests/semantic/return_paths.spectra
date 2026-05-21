@@ -106,7 +106,7 @@ fn valid_loop_match(flag: bool, limit: int) -> int {
                     break;
                 }
             }
-        }
+        };
 
         current = current + 1;
     }
@@ -136,14 +136,19 @@ fn valid_match_chain(choice: int) -> int {
 
 pub fn main() {
     // funções válidas
-    let _ = valid_nested_if(true);
-    let _ = valid_loop_match(false, 3);
-    let _ = valid_match_chain(6);
+    let ok_nested = valid_nested_if(true);
+    let ok_loop = valid_loop_match(false, 3);
+    let ok_match = valid_match_chain(6);
 
     // Exercitar caminhos problemáticos
-    let _ = missing_final_expr();
-    let _ = missing_else(true);
-    let _ = loop_with_break(false, 4);
-    let _ = nested_if_loop(true, false);
-    let _ = match_with_partial_return(1);
+    let bad_missing_final = missing_final_expr();
+    let bad_missing_else = missing_else(true);
+    let bad_loop_break = loop_with_break(false, 4);
+    let bad_nested_if_loop = nested_if_loop(true, false);
+    let bad_match_partial = match_with_partial_return(1);
+
+    let _sink =
+        ok_nested + ok_loop + ok_match
+        + bad_missing_final + bad_missing_else + bad_loop_break
+        + bad_nested_if_loop + bad_match_partial;
 }
