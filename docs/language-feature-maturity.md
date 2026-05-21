@@ -45,12 +45,14 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - tuple, struct, enum, and OR-patterns in the validated pattern surface
 - closures/lambdas in the currently validated surface
 - qualified stdlib calls such as `std.io.println(...)`
+- `std.tensor` alpha runtime API for tensor handles, shape metadata, elementwise ops, reductions, reshape/flatten, and 2D matmul
 
 ### Beta
 
 - class syntax footprint
 - `static` item surface
 - closure/runtime representation as an optimization target
+- first-class tensor language design beyond the current stdlib handle API
 
 These are usable where covered, but still not treated as fully production-hardened language design.
 
@@ -80,7 +82,7 @@ CLI contract:
 - `goto`
 - `yield`
 - raw strings and advanced literal modes
-- production tensor syntax and scientific type surface
+- production tensor syntax, static shape types, device placement, and GPU kernels
 
 ## Synchronization Rules
 

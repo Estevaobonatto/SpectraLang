@@ -1517,6 +1517,45 @@ let total = list_reduce(lst, 0, |acc, x| acc + x);  // 60
 list_free(lst);
 ```
 
+### std.tensor — Tensor Handles
+
+```spectra
+import std.tensor as tensor;
+```
+
+The alpha tensor API uses opaque `int` handles managed by the runtime. Tensors currently store contiguous CPU data with dtype `int` or `float`, shape, and strides.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `zeros`, `ones` | `(size: int) -> int` | 1D int tensor |
+| `full` | `(size: int, value: int) -> int` | 1D int tensor |
+| `full_f` | `(size: int, value: float) -> int` | 1D float tensor |
+| `arange` | `(start: int, end: int, step: int) -> int` | 1D int range |
+| `zeros2`, `ones2` | `(rows: int, cols: int) -> int` | 2D int tensor |
+| `full2`, `full2_f` | `(rows: int, cols: int, value) -> int` | 2D tensor |
+| `len`, `rank`, `dim`, `rows`, `cols` | metadata queries | Shape metadata |
+| `get`, `get_f`, `get2`, `get2_f` | indexed reads | Scalar value |
+| `set`, `set_f`, `set2`, `set2_f` | indexed writes | `unit` |
+| `reshape`, `flatten` | shape transforms | New tensor handle |
+| `add`, `sub`, `mul`, `div` | elementwise ops | New tensor handle |
+| `sum`, `sum_f`, `mean_f`, `min`, `max` | reductions | Scalar value |
+| `matmul` | `(lhs: int, rhs: int) -> int` | 2D matrix multiplication |
+| `free`, `free_all` | release handles | `unit` / freed count |
+
+```spectra
+let a = tensor.arange(1, 5, 1);
+let b = tensor.full(4, 2);
+let c = tensor.add(a, b);
+
+let total = tensor.sum(c);       // 18
+let matrix = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
+let product = tensor.matmul(matrix, tensor.ones2(3, 2));
+
+tensor.free_all();
+```
+
+Current limitation: tensors are stdlib handles, not first-class static tensor types. Device placement, slicing views, GPU kernels, and autodiff are later phases.
+
 ### std.random — Random Numbers
 
 ```spectra

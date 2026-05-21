@@ -22,6 +22,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.result".to_string(), make_std_result());
     registry.register_module("std.char".to_string(), make_std_char());
     registry.register_module("std.time".to_string(), make_std_time());
+    registry.register_module("std.tensor".to_string(), make_std_tensor());
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
@@ -38,6 +39,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.result".to_string(), make_std_result());
     registry.register_module("spectra.std.char".to_string(), make_std_char());
     registry.register_module("spectra.std.time".to_string(), make_std_time());
+    registry.register_module("spectra.std.tensor".to_string(), make_std_tensor());
 }
 
 fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
@@ -295,6 +297,124 @@ fn make_std_collections() -> ModuleExports {
         "List".to_string(),
         ExportedType {
             members: vec!["new".to_string(), "push".to_string(), "len".to_string()],
+            visibility: ExportVisibility::Public,
+            is_enum: false,
+            struct_fields: None,
+            enum_variants: None,
+            enum_struct_variants: None,
+        },
+    );
+
+    exports
+}
+
+fn make_std_tensor() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "tensor".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    let int = Type::Int;
+    let float = Type::Float;
+    let unit = Type::Unit;
+    let bool_ty = Type::Bool;
+
+    let functions = [
+        ("zeros", vec![int.clone()], int.clone()),
+        ("ones", vec![int.clone()], int.clone()),
+        ("full", vec![int.clone(), int.clone()], int.clone()),
+        ("full_f", vec![int.clone(), float.clone()], int.clone()),
+        (
+            "arange",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("zeros2", vec![int.clone(), int.clone()], int.clone()),
+        ("ones2", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "full2",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "full2_f",
+            vec![int.clone(), int.clone(), float.clone()],
+            int.clone(),
+        ),
+        ("len", vec![int.clone()], int.clone()),
+        ("rank", vec![int.clone()], int.clone()),
+        ("dim", vec![int.clone(), int.clone()], int.clone()),
+        ("rows", vec![int.clone()], int.clone()),
+        ("cols", vec![int.clone()], int.clone()),
+        ("is_valid", vec![int.clone()], bool_ty.clone()),
+        ("get", vec![int.clone(), int.clone()], int.clone()),
+        ("get_f", vec![int.clone(), int.clone()], float.clone()),
+        (
+            "set",
+            vec![int.clone(), int.clone(), int.clone()],
+            unit.clone(),
+        ),
+        (
+            "set_f",
+            vec![int.clone(), int.clone(), float.clone()],
+            unit.clone(),
+        ),
+        (
+            "get2",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "get2_f",
+            vec![int.clone(), int.clone(), int.clone()],
+            float.clone(),
+        ),
+        (
+            "set2",
+            vec![int.clone(), int.clone(), int.clone(), int.clone()],
+            unit.clone(),
+        ),
+        (
+            "set2_f",
+            vec![int.clone(), int.clone(), int.clone(), float.clone()],
+            unit.clone(),
+        ),
+        (
+            "reshape",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("flatten", vec![int.clone()], int.clone()),
+        ("add", vec![int.clone(), int.clone()], int.clone()),
+        ("sub", vec![int.clone(), int.clone()], int.clone()),
+        ("mul", vec![int.clone(), int.clone()], int.clone()),
+        ("div", vec![int.clone(), int.clone()], int.clone()),
+        ("sum", vec![int.clone()], int.clone()),
+        ("sum_f", vec![int.clone()], float.clone()),
+        ("mean_f", vec![int.clone()], float.clone()),
+        ("max", vec![int.clone()], int.clone()),
+        ("min", vec![int.clone()], int.clone()),
+        ("matmul", vec![int.clone(), int.clone()], int.clone()),
+        ("free", vec![int.clone()], unit.clone()),
+        ("free_all", vec![], int.clone()),
+    ];
+
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+
+    exports.types.insert(
+        "Tensor".to_string(),
+        ExportedType {
+            members: vec![
+                "shape".to_string(),
+                "dtype".to_string(),
+                "device".to_string(),
+                "layout".to_string(),
+            ],
             visibility: ExportVisibility::Public,
             is_enum: false,
             struct_fields: None,

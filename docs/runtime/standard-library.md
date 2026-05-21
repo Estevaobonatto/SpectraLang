@@ -40,6 +40,30 @@ terminates.
 | `spectra.std.collections.list_free` | Drops the list allocation associated with the handle. | `handle` | `0` when `results` provided |
 | `spectra.std.collections.list_free_all` | Drops every list managed by the runtime. | *(none)* | number of freed lists |
 
+## tensor namespace
+
+Spectra exposes tensor operations through runtime-managed opaque handles. The alpha tensor runtime
+stores contiguous CPU tensors with dtype (`int` or `float`), shape, and strides. Float values use the
+same host-call convention as other float stdlib functions: f64 bits encoded in `SpectraHostValue`.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.tensor.zeros` | Allocate 1D int tensor filled with zero. | `size` | handle |
+| `spectra.std.tensor.ones` | Allocate 1D int tensor filled with one. | `size` | handle |
+| `spectra.std.tensor.full` | Allocate 1D int tensor filled with value. | `size`, `value` | handle |
+| `spectra.std.tensor.full_f` | Allocate 1D float tensor filled with value. | `size`, `value_bits` | handle |
+| `spectra.std.tensor.arange` | Allocate 1D int range tensor. | `start`, `end`, `step` | handle |
+| `spectra.std.tensor.zeros2` / `ones2` / `full2` / `full2_f` | Allocate 2D tensors. | `rows`, `cols`, optional `value` | handle |
+| `spectra.std.tensor.len` / `rank` / `dim` / `rows` / `cols` | Query tensor metadata. | `handle`, optional `axis` | integer metadata |
+| `spectra.std.tensor.get` / `get_f` / `get2` / `get2_f` | Read tensor values. | `handle`, index or row/col | scalar |
+| `spectra.std.tensor.set` / `set_f` / `set2` / `set2_f` | Mutate tensor values. | `handle`, index/row/col, value | `0` |
+| `spectra.std.tensor.reshape` | Return a new handle with validated 2D shape. | `handle`, `rows`, `cols` | handle |
+| `spectra.std.tensor.flatten` | Return a new 1D tensor handle. | `handle` | handle |
+| `spectra.std.tensor.add` / `sub` / `mul` / `div` | Elementwise arithmetic with exact shape and dtype match. | `lhs`, `rhs` | handle |
+| `spectra.std.tensor.sum` / `sum_f` / `mean_f` / `min` / `max` | Reductions. | `handle` | scalar |
+| `spectra.std.tensor.matmul` | 2D matrix multiplication with shape validation. | `lhs`, `rhs` | handle |
+| `spectra.std.tensor.free` / `free_all` | Release tensor handles. | `handle` or none | `0` or freed count |
+
 ## Usage Notes
 
 - All collection handles are process-local and must be treated as opaque identifiers by Spectra
@@ -47,6 +71,8 @@ terminates.
 - Allocation failures (for example, when the manual heap exceeds its soft limit) produce
   `HOST_STATUS_INTERNAL_ERROR`.
 - Passing invalid handles or mismatched argument counts yields `HOST_STATUS_INVALID_ARGUMENT` or
+  `HOST_STATUS_NOT_FOUND`.
+- Tensor shape mismatches return `HOST_STATUS_INVALID_ARGUMENT`; invalid handles return
   `HOST_STATUS_NOT_FOUND`.
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

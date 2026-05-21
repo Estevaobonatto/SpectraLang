@@ -165,6 +165,45 @@ const TIME_NOW_MILLIS: &str = "spectra.std.time.time_now_millis";
 const TIME_NOW_SECS: &str = "spectra.std.time.time_now_secs";
 const TIME_SLEEP_MS: &str = "spectra.std.time.sleep_ms";
 
+// ── std.tensor ──────────────────────────────────────────────────────────────
+const TENSOR_ZEROS: &str = "spectra.std.tensor.zeros";
+const TENSOR_ONES: &str = "spectra.std.tensor.ones";
+const TENSOR_FULL: &str = "spectra.std.tensor.full";
+const TENSOR_FULL_F: &str = "spectra.std.tensor.full_f";
+const TENSOR_ARANGE: &str = "spectra.std.tensor.arange";
+const TENSOR_ZEROS2: &str = "spectra.std.tensor.zeros2";
+const TENSOR_ONES2: &str = "spectra.std.tensor.ones2";
+const TENSOR_FULL2: &str = "spectra.std.tensor.full2";
+const TENSOR_FULL2_F: &str = "spectra.std.tensor.full2_f";
+const TENSOR_LEN: &str = "spectra.std.tensor.len";
+const TENSOR_RANK: &str = "spectra.std.tensor.rank";
+const TENSOR_DIM: &str = "spectra.std.tensor.dim";
+const TENSOR_ROWS: &str = "spectra.std.tensor.rows";
+const TENSOR_COLS: &str = "spectra.std.tensor.cols";
+const TENSOR_IS_VALID: &str = "spectra.std.tensor.is_valid";
+const TENSOR_GET: &str = "spectra.std.tensor.get";
+const TENSOR_GET_F: &str = "spectra.std.tensor.get_f";
+const TENSOR_SET: &str = "spectra.std.tensor.set";
+const TENSOR_SET_F: &str = "spectra.std.tensor.set_f";
+const TENSOR_GET2: &str = "spectra.std.tensor.get2";
+const TENSOR_GET2_F: &str = "spectra.std.tensor.get2_f";
+const TENSOR_SET2: &str = "spectra.std.tensor.set2";
+const TENSOR_SET2_F: &str = "spectra.std.tensor.set2_f";
+const TENSOR_RESHAPE: &str = "spectra.std.tensor.reshape";
+const TENSOR_FLATTEN: &str = "spectra.std.tensor.flatten";
+const TENSOR_ADD: &str = "spectra.std.tensor.add";
+const TENSOR_SUB: &str = "spectra.std.tensor.sub";
+const TENSOR_MUL: &str = "spectra.std.tensor.mul";
+const TENSOR_DIV: &str = "spectra.std.tensor.div";
+const TENSOR_SUM: &str = "spectra.std.tensor.sum";
+const TENSOR_SUM_F: &str = "spectra.std.tensor.sum_f";
+const TENSOR_MEAN_F: &str = "spectra.std.tensor.mean_f";
+const TENSOR_MAX: &str = "spectra.std.tensor.max";
+const TENSOR_MIN: &str = "spectra.std.tensor.min";
+const TENSOR_MATMUL: &str = "spectra.std.tensor.matmul";
+const TENSOR_FREE: &str = "spectra.std.tensor.free";
+const TENSOR_FREE_ALL: &str = "spectra.std.tensor.free_all";
+
 // ── std.io (novos) ───────────────────────────────────────────────────────────
 const IO_INPUT: &str = "spectra.std.io.input";
 
@@ -183,6 +222,7 @@ pub fn register() {
     register_result();
     register_char();
     register_time();
+    register_tensor();
 }
 
 fn register_math() {
@@ -242,6 +282,46 @@ fn register_collections() {
     register_host_function(LIST_FILTER, std_list_filter);
     register_host_function(LIST_REDUCE, std_list_reduce);
     register_host_function(LIST_SORT_BY, std_list_sort_by);
+}
+
+fn register_tensor() {
+    register_host_function(TENSOR_ZEROS, std_tensor_zeros);
+    register_host_function(TENSOR_ONES, std_tensor_ones);
+    register_host_function(TENSOR_FULL, std_tensor_full);
+    register_host_function(TENSOR_FULL_F, std_tensor_full_f);
+    register_host_function(TENSOR_ARANGE, std_tensor_arange);
+    register_host_function(TENSOR_ZEROS2, std_tensor_zeros2);
+    register_host_function(TENSOR_ONES2, std_tensor_ones2);
+    register_host_function(TENSOR_FULL2, std_tensor_full2);
+    register_host_function(TENSOR_FULL2_F, std_tensor_full2_f);
+    register_host_function(TENSOR_LEN, std_tensor_len);
+    register_host_function(TENSOR_RANK, std_tensor_rank);
+    register_host_function(TENSOR_DIM, std_tensor_dim);
+    register_host_function(TENSOR_ROWS, std_tensor_rows);
+    register_host_function(TENSOR_COLS, std_tensor_cols);
+    register_host_function(TENSOR_IS_VALID, std_tensor_is_valid);
+    register_host_function(TENSOR_GET, std_tensor_get);
+    register_host_function(TENSOR_GET_F, std_tensor_get_f);
+    register_host_function(TENSOR_SET, std_tensor_set);
+    register_host_function(TENSOR_SET_F, std_tensor_set_f);
+    register_host_function(TENSOR_GET2, std_tensor_get2);
+    register_host_function(TENSOR_GET2_F, std_tensor_get2_f);
+    register_host_function(TENSOR_SET2, std_tensor_set2);
+    register_host_function(TENSOR_SET2_F, std_tensor_set2_f);
+    register_host_function(TENSOR_RESHAPE, std_tensor_reshape);
+    register_host_function(TENSOR_FLATTEN, std_tensor_flatten);
+    register_host_function(TENSOR_ADD, std_tensor_add);
+    register_host_function(TENSOR_SUB, std_tensor_sub);
+    register_host_function(TENSOR_MUL, std_tensor_mul);
+    register_host_function(TENSOR_DIV, std_tensor_div);
+    register_host_function(TENSOR_SUM, std_tensor_sum);
+    register_host_function(TENSOR_SUM_F, std_tensor_sum_f);
+    register_host_function(TENSOR_MEAN_F, std_tensor_mean_f);
+    register_host_function(TENSOR_MAX, std_tensor_max);
+    register_host_function(TENSOR_MIN, std_tensor_min);
+    register_host_function(TENSOR_MATMUL, std_tensor_matmul);
+    register_host_function(TENSOR_FREE, std_tensor_free);
+    register_host_function(TENSOR_FREE_ALL, std_tensor_free_all);
 }
 
 fn register_fs() {
@@ -1229,6 +1309,801 @@ impl ListRegistry {
         if let Some(list) = self.lists.get_mut(&handle) {
             list.data = data;
         }
+    }
+}
+
+// ── std.tensor runtime ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TensorDType {
+    Int,
+    Float,
+}
+
+#[derive(Debug, Clone)]
+struct StdTensor {
+    dtype: TensorDType,
+    shape: Vec<usize>,
+    strides: Vec<usize>,
+    data: Vec<SpectraHostValue>,
+}
+
+impl StdTensor {
+    fn new(dtype: TensorDType, shape: Vec<usize>, data: Vec<SpectraHostValue>) -> Option<Self> {
+        if shape.is_empty() || shape.iter().any(|&dim| dim == 0) {
+            return None;
+        }
+        let expected_len = shape
+            .iter()
+            .try_fold(1usize, |acc, dim| acc.checked_mul(*dim))?;
+        if expected_len != data.len() {
+            return None;
+        }
+        let strides = tensor_strides(&shape);
+        Some(Self {
+            dtype,
+            shape,
+            strides,
+            data,
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn offset(&self, indices: &[usize]) -> Option<usize> {
+        if indices.len() != self.shape.len() {
+            return None;
+        }
+        let mut offset = 0usize;
+        for ((idx, dim), stride) in indices
+            .iter()
+            .zip(self.shape.iter())
+            .zip(self.strides.iter())
+        {
+            if *idx >= *dim {
+                return None;
+            }
+            offset = offset.checked_add(idx.checked_mul(*stride)?)?;
+        }
+        Some(offset)
+    }
+}
+
+struct TensorRegistry {
+    next_id: usize,
+    tensors: HashMap<usize, ManualBox<StdTensor>>,
+}
+
+impl TensorRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            tensors: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, tensor: ManualBox<StdTensor>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.tensors.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.tensors.insert(handle, tensor);
+        handle
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<(), i32> {
+        if self.tensors.remove(&handle).is_some() {
+            Ok(())
+        } else {
+            Err(HOST_STATUS_NOT_FOUND)
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.tensors.len();
+        self.tensors.clear();
+        self.next_id = 1;
+        count
+    }
+
+    fn get(&self, handle: usize) -> Option<&StdTensor> {
+        self.tensors.get(&handle).map(|boxed| boxed.as_ref())
+    }
+
+    fn get_mut(&mut self, handle: usize) -> Option<&mut StdTensor> {
+        self.tensors.get_mut(&handle).map(|boxed| boxed.as_mut())
+    }
+}
+
+fn tensor_registry() -> &'static Mutex<TensorRegistry> {
+    static REGISTRY: OnceLock<Mutex<TensorRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(TensorRegistry::new()))
+}
+
+fn with_tensor_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut TensorRegistry) -> R,
+{
+    let mut guard = tensor_registry()
+        .lock()
+        .expect("tensor registry mutex poisoned");
+    action(&mut guard)
+}
+
+fn tensor_strides(shape: &[usize]) -> Vec<usize> {
+    let mut strides = vec![1; shape.len()];
+    if shape.len() > 1 {
+        for idx in (0..shape.len() - 1).rev() {
+            strides[idx] = strides[idx + 1] * shape[idx + 1];
+        }
+    }
+    strides
+}
+
+fn tensor_alloc(
+    dtype: TensorDType,
+    shape: Vec<usize>,
+    data: Vec<SpectraHostValue>,
+) -> Result<usize, i32> {
+    let Some(tensor) = StdTensor::new(dtype, shape, data) else {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    };
+    let memory = initialize().memory();
+    let tensor = memory
+        .allocate_manual(tensor)
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    Ok(with_tensor_registry(|registry| registry.insert(tensor)))
+}
+
+fn tensor_result(ctx_ref: &mut SpectraHostCallContext, value: SpectraHostValue) -> i32 {
+    if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = value;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+unsafe fn tensor_args<'a>(
+    ctx: *mut SpectraHostCallContext,
+    expected: usize,
+) -> Result<(&'a mut SpectraHostCallContext, &'a [SpectraHostValue]), i32> {
+    if ctx.is_null() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let ctx_ref = &mut *ctx;
+    if ctx_ref.arg_len != expected || (expected > 0 && ctx_ref.args.is_null()) {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let args = if expected == 0 {
+        &[] as &[SpectraHostValue]
+    } else {
+        slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len)
+    };
+    Ok((ctx_ref, args))
+}
+
+fn tensor_create_1d(
+    ctx: *mut SpectraHostCallContext,
+    value: SpectraHostValue,
+    dtype: TensorDType,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let size = args[0];
+        if size <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let data = vec![value; size as usize];
+        match tensor_alloc(dtype, vec![size as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+fn tensor_create_2d(
+    ctx: *mut SpectraHostCallContext,
+    value: SpectraHostValue,
+    dtype: TensorDType,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let rows = args[0];
+        let cols = args[1];
+        if rows <= 0 || cols <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(len) = (rows as usize).checked_mul(cols as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let data = vec![value; len];
+        match tensor_alloc(dtype, vec![rows as usize, cols as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_zeros(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_create_1d(ctx, 0, TensorDType::Int)
+}
+
+extern "C" fn std_tensor_ones(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_create_1d(ctx, 1, TensorDType::Int)
+}
+
+extern "C" fn std_tensor_full(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[0] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let data = vec![args[1]; args[0] as usize];
+        match tensor_alloc(TensorDType::Int, vec![args[0] as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_full_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[0] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let data = vec![args[1]; args[0] as usize];
+        match tensor_alloc(TensorDType::Float, vec![args[0] as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_arange(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (start, end, step) = (args[0], args[1], args[2]);
+        if step == 0 || (step > 0 && start >= end) || (step < 0 && start <= end) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let mut data = Vec::new();
+        let mut current = start;
+        while (step > 0 && current < end) || (step < 0 && current > end) {
+            data.push(current);
+            current = current.saturating_add(step);
+            if data.len() > 10_000_000 {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+        }
+        match tensor_alloc(TensorDType::Int, vec![data.len()], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_zeros2(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_create_2d(ctx, 0, TensorDType::Int)
+}
+
+extern "C" fn std_tensor_ones2(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_create_2d(ctx, 1, TensorDType::Int)
+}
+
+extern "C" fn std_tensor_full2(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[0] <= 0 || args[1] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(len) = (args[0] as usize).checked_mul(args[1] as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let data = vec![args[2]; len];
+        match tensor_alloc(
+            TensorDType::Int,
+            vec![args[0] as usize, args[1] as usize],
+            data,
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_full2_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[0] <= 0 || args[1] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(len) = (args[0] as usize).checked_mul(args[1] as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let data = vec![args[2]; len];
+        match tensor_alloc(
+            TensorDType::Float,
+            vec![args[0] as usize, args[1] as usize],
+            data,
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| tensor.len() as SpectraHostValue)
+}
+
+extern "C" fn std_tensor_rank(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| tensor.shape.len() as SpectraHostValue)
+}
+
+extern "C" fn std_tensor_dim(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| {
+            registry
+                .get(args[0] as usize)
+                .and_then(|tensor| tensor.shape.get(args[1] as usize).copied())
+                .map(|dim| dim as SpectraHostValue)
+                .unwrap_or(-1)
+        });
+        tensor_result(ctx_ref, value)
+    }
+}
+
+extern "C" fn std_tensor_rows(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| {
+        tensor.shape.first().copied().unwrap_or(0) as i64
+    })
+}
+
+extern "C" fn std_tensor_cols(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| {
+        tensor.shape.get(1).copied().unwrap_or(1) as i64
+    })
+}
+
+extern "C" fn std_tensor_is_valid(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let valid = with_tensor_registry(|registry| registry.get(args[0] as usize).is_some());
+        tensor_result(ctx_ref, valid as SpectraHostValue)
+    }
+}
+
+fn tensor_query_i64(
+    ctx: *mut SpectraHostCallContext,
+    query: impl FnOnce(&StdTensor) -> SpectraHostValue,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(value) =
+            with_tensor_registry(|registry| registry.get(args[0] as usize).map(query))
+        else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, value)
+    }
+}
+
+extern "C" fn std_tensor_get(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_get_linear(ctx, false)
+}
+
+extern "C" fn std_tensor_get_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_get_linear(ctx, true)
+}
+
+fn tensor_get_linear(ctx: *mut SpectraHostCallContext, as_float: bool) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let index = args[1];
+        if index < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(value) = with_tensor_registry(|registry| {
+            registry
+                .get(args[0] as usize)
+                .and_then(|tensor| tensor.data.get(index as usize).copied())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let value = if as_float {
+            value
+        } else {
+            f64_bits_to_i64_if_needed(value)
+        };
+        tensor_result(ctx_ref, value)
+    }
+}
+
+extern "C" fn std_tensor_set(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_set_linear(ctx, false)
+}
+
+extern "C" fn std_tensor_set_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_set_linear(ctx, true)
+}
+
+fn tensor_set_linear(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ok = with_tensor_registry(|registry| {
+            let Some(tensor) = registry.get_mut(args[0] as usize) else {
+                return false;
+            };
+            if (args[1] as usize) >= tensor.data.len() {
+                return false;
+            }
+            tensor.dtype = if is_float {
+                TensorDType::Float
+            } else {
+                TensorDType::Int
+            };
+            tensor.data[args[1] as usize] = args[2];
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_tensor_get2(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_get_2d(ctx, false)
+}
+
+extern "C" fn std_tensor_get2_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_get_2d(ctx, true)
+}
+
+fn tensor_get_2d(ctx: *mut SpectraHostCallContext, as_float: bool) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 || args[2] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(value) = with_tensor_registry(|registry| {
+            let tensor = registry.get(args[0] as usize)?;
+            let offset = tensor.offset(&[args[1] as usize, args[2] as usize])?;
+            tensor.data.get(offset).copied()
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let value = if as_float {
+            value
+        } else {
+            f64_bits_to_i64_if_needed(value)
+        };
+        tensor_result(ctx_ref, value)
+    }
+}
+
+extern "C" fn std_tensor_set2(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_set_2d(ctx, false)
+}
+
+extern "C" fn std_tensor_set2_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_set_2d(ctx, true)
+}
+
+fn tensor_set_2d(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 4) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 || args[2] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ok = with_tensor_registry(|registry| {
+            let Some(tensor) = registry.get_mut(args[0] as usize) else {
+                return false;
+            };
+            let Some(offset) = tensor.offset(&[args[1] as usize, args[2] as usize]) else {
+                return false;
+            };
+            tensor.dtype = if is_float {
+                TensorDType::Float
+            } else {
+                TensorDType::Int
+            };
+            tensor.data[offset] = args[3];
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_tensor_reshape(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (handle, rows, cols) = (args[0] as usize, args[1], args[2]);
+        if rows <= 0 || cols <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(new_len) = (rows as usize).checked_mul(cols as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, data)) = with_tensor_registry(|registry| {
+            registry
+                .get(handle)
+                .map(|tensor| (tensor.dtype, tensor.data.clone()))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if data.len() != new_len {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        match tensor_alloc(dtype, vec![rows as usize, cols as usize], data) {
+            Ok(new_handle) => tensor_result(ctx_ref, new_handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_flatten(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, data)) = with_tensor_registry(|registry| {
+            registry
+                .get(args[0] as usize)
+                .map(|tensor| (tensor.dtype, tensor.data.clone()))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        match tensor_alloc(dtype, vec![data.len()], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_add(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_binary(ctx, |a, b| a + b, |a, b| a + b)
+}
+
+extern "C" fn std_tensor_sub(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_binary(ctx, |a, b| a - b, |a, b| a - b)
+}
+
+extern "C" fn std_tensor_mul(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_binary(ctx, |a, b| a * b, |a, b| a * b)
+}
+
+extern "C" fn std_tensor_div(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_binary(
+        ctx,
+        |a, b| if b == 0 { 0 } else { a / b },
+        |a, b| if b == 0.0 { f64::NAN } else { a / b },
+    )
+}
+
+fn tensor_binary(
+    ctx: *mut SpectraHostCallContext,
+    int_op: impl Fn(i64, i64) -> i64,
+    float_op: impl Fn(f64, f64) -> f64,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let left = registry.get(args[0] as usize)?;
+            let right = registry.get(args[1] as usize)?;
+            if left.shape != right.shape || left.dtype != right.dtype {
+                return None;
+            }
+            let data = match left.dtype {
+                TensorDType::Int => left
+                    .data
+                    .iter()
+                    .zip(right.data.iter())
+                    .map(|(a, b)| int_op(*a, *b))
+                    .collect(),
+                TensorDType::Float => left
+                    .data
+                    .iter()
+                    .zip(right.data.iter())
+                    .map(|(a, b)| {
+                        float_op(f64::from_bits(*a as u64), f64::from_bits(*b as u64)).to_bits()
+                            as i64
+                    })
+                    .collect(),
+            };
+            Some((left.dtype, left.shape.clone(), data))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc(dtype, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_sum(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| match tensor.dtype {
+        TensorDType::Int => tensor.data.iter().sum(),
+        TensorDType::Float => tensor
+            .data
+            .iter()
+            .map(|bits| f64::from_bits(*bits as u64))
+            .sum::<f64>() as i64,
+    })
+}
+
+extern "C" fn std_tensor_sum_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| {
+        let sum = match tensor.dtype {
+            TensorDType::Int => tensor.data.iter().map(|v| *v as f64).sum::<f64>(),
+            TensorDType::Float => tensor
+                .data
+                .iter()
+                .map(|bits| f64::from_bits(*bits as u64))
+                .sum::<f64>(),
+        };
+        sum.to_bits() as i64
+    })
+}
+
+extern "C" fn std_tensor_mean_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| {
+        if tensor.data.is_empty() {
+            return f64::NAN.to_bits() as i64;
+        }
+        let sum = match tensor.dtype {
+            TensorDType::Int => tensor.data.iter().map(|v| *v as f64).sum::<f64>(),
+            TensorDType::Float => tensor
+                .data
+                .iter()
+                .map(|bits| f64::from_bits(*bits as u64))
+                .sum::<f64>(),
+        };
+        (sum / tensor.data.len() as f64).to_bits() as i64
+    })
+}
+
+extern "C" fn std_tensor_max(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| tensor.data.iter().copied().max().unwrap_or(0))
+}
+
+extern "C" fn std_tensor_min(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| tensor.data.iter().copied().min().unwrap_or(0))
+}
+
+extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let a = registry.get(args[0] as usize)?;
+            let b = registry.get(args[1] as usize)?;
+            if a.shape.len() != 2 || b.shape.len() != 2 || a.dtype != b.dtype {
+                return None;
+            }
+            let (m, k) = (a.shape[0], a.shape[1]);
+            let (bk, n) = (b.shape[0], b.shape[1]);
+            if k != bk {
+                return None;
+            }
+            let mut out = vec![0; m * n];
+            match a.dtype {
+                TensorDType::Int => {
+                    for row in 0..m {
+                        for col in 0..n {
+                            let mut acc = 0i64;
+                            for idx in 0..k {
+                                acc += a.data[row * k + idx] * b.data[idx * n + col];
+                            }
+                            out[row * n + col] = acc;
+                        }
+                    }
+                }
+                TensorDType::Float => {
+                    for row in 0..m {
+                        for col in 0..n {
+                            let mut acc = 0.0f64;
+                            for idx in 0..k {
+                                let lhs = f64::from_bits(a.data[row * k + idx] as u64);
+                                let rhs = f64::from_bits(b.data[idx * n + col] as u64);
+                                acc += lhs * rhs;
+                            }
+                            out[row * n + col] = acc.to_bits() as i64;
+                        }
+                    }
+                }
+            }
+            Some((a.dtype, vec![m, n], out))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc(dtype, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_tensor_registry(|registry| registry.remove(args[0] as usize)) {
+            Ok(()) => tensor_result(ctx_ref, 0),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_free_all(ctx: *mut SpectraHostCallContext) -> i32 {
+    let freed = with_tensor_registry(|registry| registry.clear_all());
+    if ctx.is_null() {
+        return HOST_STATUS_SUCCESS;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        tensor_result(ctx_ref, freed as SpectraHostValue)
+    }
+}
+
+fn f64_bits_to_i64_if_needed(value: SpectraHostValue) -> SpectraHostValue {
+    let as_float = f64::from_bits(value as u64);
+    if as_float.is_finite() && as_float.fract() == 0.0 && as_float.abs() <= i64::MAX as f64 {
+        as_float as i64
+    } else {
+        value
     }
 }
 
@@ -3803,6 +4678,24 @@ mod tests {
             .expect("stdlib test guard poisoned")
     }
 
+    fn call_host(name: &str, args: &[SpectraHostValue]) -> (i32, SpectraHostValue) {
+        let func = lookup_host_function(name).expect("host function not registered");
+        let mut results = [0];
+        let mut ctx = SpectraHostCallContext {
+            args: if args.is_empty() {
+                ptr::null()
+            } else {
+                args.as_ptr()
+            },
+            arg_len: args.len(),
+            results: results.as_mut_ptr(),
+            result_len: 1,
+            invoke_fn: None,
+        };
+        let status = func(&mut ctx);
+        (status, results[0])
+    }
+
     #[test]
     fn math_abs_host_function_produces_positive_value() {
         let _lock = test_guard();
@@ -3832,7 +4725,7 @@ mod tests {
         register();
 
         let func = lookup_host_function(IO_PRINT).expect("io print not registered");
-        let args = [1, 2, 3];
+        let args = [0, 1, 0, 2, 0, 3];
         let mut results = [0];
         let mut ctx = SpectraHostCallContext {
             args: args.as_ptr(),
@@ -3928,5 +4821,76 @@ mod tests {
         };
         assert_eq!(free_all_fn(&mut free_all_ctx), HOST_STATUS_SUCCESS);
         assert_eq!(free_all_results[0], 0);
+    }
+
+    #[test]
+    fn tensor_runtime_lifecycle_and_elementwise_ops() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+
+        let (status, a) = call_host(TENSOR_FULL, &[4, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b) = call_host(TENSOR_ARANGE, &[1, 5, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        let (status, c) = call_host(TENSOR_ADD, &[a, b]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, len) = call_host(TENSOR_LEN, &[c]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(len, 4);
+        let (status, first) = call_host(TENSOR_GET, &[c, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(first, 3);
+        let (status, sum) = call_host(TENSOR_SUM, &[c]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(sum, 18);
+
+        let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(freed >= 3);
+    }
+
+    #[test]
+    fn tensor_runtime_reshape_matmul_and_float_reduction() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+
+        let (status, a) = call_host(TENSOR_ARANGE, &[1, 7, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, a2) = call_host(TENSOR_RESHAPE, &[a, 2, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b) = call_host(TENSOR_ONES2, &[3, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, product) = call_host(TENSOR_MATMUL, &[a2, b]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, rows) = call_host(TENSOR_ROWS, &[product]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(rows, 2);
+        let (status, cols) = call_host(TENSOR_COLS, &[product]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(cols, 2);
+        let (status, p00) = call_host(TENSOR_GET2, &[product, 0, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(p00, 6);
+        let (status, p10) = call_host(TENSOR_GET2, &[product, 1, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(p10, 15);
+
+        let two = 2.0f64.to_bits() as i64;
+        let (status, floats) = call_host(TENSOR_FULL_F, &[4, two]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, mean_bits) = call_host(TENSOR_MEAN_F, &[floats]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(f64::from_bits(mean_bits as u64), 2.0);
+
+        let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(freed >= 5);
     }
 }

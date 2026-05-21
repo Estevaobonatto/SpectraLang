@@ -814,7 +814,88 @@ pub fn main() {
 
 ---
 
-## 6. std.random — Números Aleatórios / Random Numbers
+## 6. std.tensor — Tensores / Tensors
+
+**PT-BR:**  
+`std.tensor` fornece o núcleo alpha de tensores para IA/ML por meio de handles opacos (`int`). Cada tensor tem dtype (`int` ou `float`), shape, strides e armazenamento CPU contíguo gerenciado pelo runtime.
+
+**EN-US:**  
+`std.tensor` provides the alpha tensor core for AI/ML through opaque handles (`int`). Each tensor has dtype (`int` or `float`), shape, strides, and runtime-managed contiguous CPU storage.
+
+```spectra
+import std.tensor as tensor;
+```
+
+### Criação / Creation
+
+| Função / Function | Assinatura / Signature | Descrição / Description |
+|---|---|---|
+| `zeros` | `(size: int) -> int` | 1D int tensor filled with `0` |
+| `ones` | `(size: int) -> int` | 1D int tensor filled with `1` |
+| `full` | `(size: int, value: int) -> int` | 1D int tensor filled with `value` |
+| `full_f` | `(size: int, value: float) -> int` | 1D float tensor filled with `value` |
+| `arange` | `(start: int, end: int, step: int) -> int` | 1D int range tensor |
+| `zeros2`, `ones2` | `(rows: int, cols: int) -> int` | 2D int tensors |
+| `full2`, `full2_f` | `(rows: int, cols: int, value) -> int` | 2D tensors filled with value |
+
+### Metadados e Acesso / Metadata and Access
+
+| Função / Function | Assinatura / Signature |
+|---|---|
+| `len` | `(handle: int) -> int` |
+| `rank` | `(handle: int) -> int` |
+| `dim` | `(handle: int, axis: int) -> int` |
+| `rows`, `cols` | `(handle: int) -> int` |
+| `get`, `get_f` | `(handle: int, index: int) -> int/float` |
+| `set`, `set_f` | `(handle: int, index: int, value) -> unit` |
+| `get2`, `get2_f` | `(handle: int, row: int, col: int) -> int/float` |
+| `set2`, `set2_f` | `(handle: int, row: int, col: int, value) -> unit` |
+
+### Operações / Operations
+
+| Função / Function | Descrição / Description |
+|---|---|
+| `reshape(handle, rows, cols)` | Returns a new handle with validated 2D shape |
+| `flatten(handle)` | Returns a new 1D tensor handle |
+| `add`, `sub`, `mul`, `div` | Elementwise ops; shapes and dtypes must match |
+| `sum`, `sum_f`, `mean_f`, `min`, `max` | Reductions |
+| `matmul(lhs, rhs)` | 2D matrix multiplication |
+| `free(handle)`, `free_all()` | Release tensor handles |
+
+### Exemplo / Example
+
+```spectra
+module tensor_demo;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let a = tensor.arange(1, 5, 1);    // [1, 2, 3, 4]
+    let b = tensor.full(4, 2);         // [2, 2, 2, 2]
+    let c = tensor.add(a, b);          // [3, 4, 5, 6]
+
+    if tensor.sum(c) != 18 {
+        return tensor.sum(c);
+    }
+
+    let m = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
+    let ones = tensor.ones2(3, 2);
+    let product = tensor.matmul(m, ones);
+
+    if tensor.get2(product, 1, 0) != 15 {
+        return tensor.get2(product, 1, 0);
+    }
+
+    tensor.free_all();
+    return 0;
+}
+```
+
+Limitação alpha: tensores ainda são handles de runtime, não tipos first-class com shape estático. Slicing zero-copy, device placement, GPU kernels e autodiff ficam para as próximas fases.
+
+---
+
+## 7. std.random — Números Aleatórios / Random Numbers
 
 ```spectra
 import std.random;
@@ -856,7 +937,7 @@ let b = std.random.random_bool();    // true ou false
 
 ---
 
-## 7. std.fs — Sistema de Arquivos / File System
+## 8. std.fs — Sistema de Arquivos / File System
 
 ```spectra
 import std.fs;
@@ -908,7 +989,7 @@ let removido = std.fs.fs_remove("temp.txt");
 
 ---
 
-## 8. std.env — Ambiente / Environment
+## 9. std.env — Ambiente / Environment
 
 ```spectra
 import std.env;
@@ -958,7 +1039,7 @@ for i in 0..n {
 
 ---
 
-## 9. std.option — Operações em Option / Option Operations
+## 10. std.option — Operações em Option / Option Operations
 
 ```spectra
 import std.option;
@@ -1000,7 +1081,7 @@ let def = std.option.option_unwrap_or(Option::None, 99);      // 99
 
 ---
 
-## 10. std.result — Operações em Result / Result Operations
+## 11. std.result — Operações em Result / Result Operations
 
 ```spectra
 import std.result;
@@ -1046,7 +1127,7 @@ let msg = std.result.result_unwrap_err(Result::Err("algo errado"));   // "algo e
 
 ---
 
-## 11. std.char — Operações em Caracteres / Character Operations
+## 12. std.char — Operações em Caracteres / Character Operations
 
 **PT-BR:**  
 As funções de `std.char` operam sobre **códigos Unicode** (inteiros), o mesmo formato retornado por `std.string.char_at()`.
@@ -1134,7 +1215,7 @@ pub fn main() {
 
 ---
 
-## 12. std.time — Tempo / Time
+## 13. std.time — Tempo / Time
 
 ```spectra
 import std.time;

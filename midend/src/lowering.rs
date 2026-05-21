@@ -6570,6 +6570,47 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("tensor", "zeros") => Some(host_int("spectra.std.tensor.zeros")),
+            ("tensor", "ones") => Some(host_int("spectra.std.tensor.ones")),
+            ("tensor", "full") => Some(host_int("spectra.std.tensor.full")),
+            ("tensor", "full_f") => Some(host_int("spectra.std.tensor.full_f")),
+            ("tensor", "arange") => Some(host_int("spectra.std.tensor.arange")),
+            ("tensor", "zeros2") => Some(host_int("spectra.std.tensor.zeros2")),
+            ("tensor", "ones2") => Some(host_int("spectra.std.tensor.ones2")),
+            ("tensor", "full2") => Some(host_int("spectra.std.tensor.full2")),
+            ("tensor", "full2_f") => Some(host_int("spectra.std.tensor.full2_f")),
+            ("tensor", "len") => Some(host_int("spectra.std.tensor.len")),
+            ("tensor", "rank") => Some(host_int("spectra.std.tensor.rank")),
+            ("tensor", "dim") => Some(host_int("spectra.std.tensor.dim")),
+            ("tensor", "rows") => Some(host_int("spectra.std.tensor.rows")),
+            ("tensor", "cols") => Some(host_int("spectra.std.tensor.cols")),
+            ("tensor", "is_valid") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.tensor.is_valid",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("tensor", "get") => Some(host_int("spectra.std.tensor.get")),
+            ("tensor", "get_f") => Some(host_float("spectra.std.tensor.get_f")),
+            ("tensor", "set") => Some(host_void("spectra.std.tensor.set")),
+            ("tensor", "set_f") => Some(host_void("spectra.std.tensor.set_f")),
+            ("tensor", "get2") => Some(host_int("spectra.std.tensor.get2")),
+            ("tensor", "get2_f") => Some(host_float("spectra.std.tensor.get2_f")),
+            ("tensor", "set2") => Some(host_void("spectra.std.tensor.set2")),
+            ("tensor", "set2_f") => Some(host_void("spectra.std.tensor.set2_f")),
+            ("tensor", "reshape") => Some(host_int("spectra.std.tensor.reshape")),
+            ("tensor", "flatten") => Some(host_int("spectra.std.tensor.flatten")),
+            ("tensor", "add") => Some(host_int("spectra.std.tensor.add")),
+            ("tensor", "sub") => Some(host_int("spectra.std.tensor.sub")),
+            ("tensor", "mul") => Some(host_int("spectra.std.tensor.mul")),
+            ("tensor", "div") => Some(host_int("spectra.std.tensor.div")),
+            ("tensor", "sum") => Some(host_int("spectra.std.tensor.sum")),
+            ("tensor", "sum_f") => Some(host_float("spectra.std.tensor.sum_f")),
+            ("tensor", "mean_f") => Some(host_float("spectra.std.tensor.mean_f")),
+            ("tensor", "max") => Some(host_int("spectra.std.tensor.max")),
+            ("tensor", "min") => Some(host_int("spectra.std.tensor.min")),
+            ("tensor", "matmul") => Some(host_int("spectra.std.tensor.matmul")),
+            ("tensor", "free") => Some(host_void("spectra.std.tensor.free")),
+            ("tensor", "free_all") => Some(host_int("spectra.std.tensor.free_all")),
             // ── std.collections map ──────────────────────────────────────
             ("collections", "map_new") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.map_new",
@@ -6979,6 +7020,30 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+fn host_int(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Int,
+        returns_value: true,
+    }
+}
+
+fn host_float(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Float,
+        returns_value: true,
+    }
+}
+
+fn host_void(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Void,
+        returns_value: false,
     }
 }
 

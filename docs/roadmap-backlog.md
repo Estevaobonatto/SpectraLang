@@ -331,7 +331,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-301 Tensor Type Design
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-201`, `R-202`
@@ -344,12 +344,17 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- tensor ADR approved
-- prototype API compiles in examples and tests
+- tensor data model documented as an opaque-handle alpha runtime API
+- prototype API compiles and runs in validation tests
+
+### Implementation Notes
+
+- `std.tensor` is the current alpha API. Tensors are runtime-managed handles (`int`) with dtype, shape, strides, and contiguous CPU storage.
+- This is intentionally not final first-class tensor syntax; it is the runtime/API foundation for later type-level tensor work.
 
 ## R-302 Tensor Runtime Representation
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P0`
 - Owner: `runtime`
 - Dependencies: `R-301`
@@ -364,11 +369,17 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - runtime allocation and destruction tests pass
-- views and slicing do not leak or corrupt memory
+- reshape/flatten produce validated tensor handles and do not mutate source storage
+- explicit `free` and `free_all` release runtime-managed tensor handles
+
+### Implementation Notes
+
+- Storage is CPU host memory through the existing runtime manual allocation layer.
+- Zero-copy slicing/views are deferred; alpha reshape/flatten return validated handle copies.
 
 ## R-303 Tensor Operations MVP
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-302`
@@ -383,12 +394,13 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- all ops tested for shape correctness and numeric correctness
-- benchmark harness exists for CPU baselines
+- creation, metadata, elementwise arithmetic, reductions, reshape/flatten, and 2D matmul are implemented in `std.tensor`
+- runtime unit tests and Spectra validation programs cover shape and numeric correctness
+- benchmark harness remains future Phase 4 work
 
 ## R-304 Shape System
 
-- Status: `not_started`
+- Status: `partial_alpha`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-303`
@@ -402,6 +414,11 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - invalid shape operations fail with specific diagnostics
+
+### Implementation Notes
+
+- Rank, dimension, reshape, and matmul compatibility are validated at runtime with deterministic host status codes.
+- Compile-time/rank-static shape diagnostics are deferred until tensor types become first-class semantic objects.
 
 ---
 

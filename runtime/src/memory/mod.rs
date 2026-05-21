@@ -970,7 +970,7 @@ mod tests {
         };
         let memory = HybridMemory::with_config(config);
 
-        memory.allocate_manual([0_u8; 16]).expect("within limit");
+        let _first = memory.allocate_manual([0_u8; 16]).expect("within limit");
         assert!(memory
             .allocate_manual([0_u8; 24])
             .unwrap_err()

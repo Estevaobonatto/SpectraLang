@@ -359,6 +359,7 @@ impl SemanticAnalyzer {
             "std.result",
             "std.char",
             "std.time",
+            "std.tensor",
             "spectra",
             "spectra.std",
             "spectra.std.io",
@@ -373,6 +374,7 @@ impl SemanticAnalyzer {
             "spectra.std.result",
             "spectra.std.char",
             "spectra.std.time",
+            "spectra.std.tensor",
         ];
 
         for module_path in BUILTIN_MODULES {
@@ -2154,7 +2156,7 @@ impl SemanticAnalyzer {
                 self.error_with_hint(
                     format!("Unknown standard library module '{}'", module_path),
                     import.span,
-                    "Available stdlib modules: std.io, std.math, std.collections",
+                    "Available stdlib modules: std.io, std.math, std.collections, std.tensor",
                 );
             }
             // For user modules: silently skip — they may be registered in a
