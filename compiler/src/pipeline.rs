@@ -304,7 +304,9 @@ mod tests {
         let result = pipeline.compile(source, "test.spectra");
 
         if let Err(ref errors) = result {
-            for e in errors { eprintln!("  [test error] {e}"); }
+            for e in errors {
+                eprintln!("  [test error] {e}");
+            }
         }
         assert!(result.is_ok());
         let result = result.unwrap();

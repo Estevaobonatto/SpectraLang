@@ -7,35 +7,42 @@ use crate::ir::{
 };
 use spectra_compiler::ast::{
     BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
-    Function as ASTFunction, IfLetStatement, Item, Method as ASTMethod,
-    Module as ASTModule, Statement, StatementKind, TraitDeclaration,
-    Struct as ASTStruct, Type as ASTType, TypeAnnotation,
-    TypeAnnotationKind, TypeParameter, UnaryOperator, Visibility, WhileLetStatement,
+    Function as ASTFunction, IfLetStatement, Item, Method as ASTMethod, Module as ASTModule,
+    Statement, StatementKind, Struct as ASTStruct, TraitDeclaration, Type as ASTType,
+    TypeAnnotation, TypeAnnotationKind, TypeParameter, UnaryOperator, Visibility,
+    WhileLetStatement,
 };
-use spectra_compiler::span::Span;
 use spectra_compiler::error::MidendError;
+use spectra_compiler::span::Span;
 use std::collections::HashMap;
 
 /// Stack-based scope system for variable shadowing support
+
+#[derive(Debug, Clone)]
+enum LoweredConstValue {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    String(String),
+    Char(char),
+}
 
 /// Maps a `BinaryOperator` to the method name used for operator overloading.
 /// Returns `None` if the operator cannot be overloaded.
 #[inline]
 fn operator_overload_method(op: &BinaryOperator) -> Option<&'static str> {
     match op {
-        BinaryOperator::Add      => Some("add"),
+        BinaryOperator::Add => Some("add"),
         BinaryOperator::Subtract => Some("sub"),
         BinaryOperator::Multiply => Some("mul"),
-        BinaryOperator::Divide   => Some("div"),
-        BinaryOperator::Modulo   => Some("rem"),
-        BinaryOperator::Equal
-        | BinaryOperator::NotEqual   => Some("eq"),
-        BinaryOperator::Less         => Some("lt"),
-        BinaryOperator::LessEqual    => Some("le"),
-        BinaryOperator::Greater      => Some("gt"),
+        BinaryOperator::Divide => Some("div"),
+        BinaryOperator::Modulo => Some("rem"),
+        BinaryOperator::Equal | BinaryOperator::NotEqual => Some("eq"),
+        BinaryOperator::Less => Some("lt"),
+        BinaryOperator::LessEqual => Some("le"),
+        BinaryOperator::Greater => Some("gt"),
         BinaryOperator::GreaterEqual => Some("ge"),
-        BinaryOperator::And
-        | BinaryOperator::Or => None,
+        BinaryOperator::And | BinaryOperator::Or => None,
     }
 }
 
@@ -328,6 +335,8 @@ pub struct ASTLowering {
     trait_declarations: HashMap<String, TraitDeclaration>,
     /// Accumulated lowering errors that replace previous panics.
     errors: Vec<MidendError>,
+    /// Compile-time constants lowered as literals at each use site.
+    const_values: HashMap<String, LoweredConstValue>,
 }
 
 impl ASTLowering {
@@ -361,6 +370,7 @@ impl ASTLowering {
             trait_method_signatures: HashMap::new(),
             trait_declarations: HashMap::new(),
             errors: Vec::new(),
+            const_values: HashMap::new(),
         };
         lowering.register_builtin_generic_enums();
         lowering
@@ -435,22 +445,203 @@ impl ASTLowering {
         self.errors.push(MidendError::new(message));
     }
 
+    fn eval_const_expression(&self, expr: &Expression) -> Option<LoweredConstValue> {
+        match &expr.kind {
+            ExpressionKind::NumberLiteral(raw) => {
+                if raw.contains('.') {
+                    raw.parse::<f64>().ok().map(LoweredConstValue::Float)
+                } else {
+                    raw.parse::<i64>().ok().map(LoweredConstValue::Int)
+                }
+            }
+            ExpressionKind::StringLiteral(value) => Some(LoweredConstValue::String(value.clone())),
+            ExpressionKind::BoolLiteral(value) => Some(LoweredConstValue::Bool(*value)),
+            ExpressionKind::CharLiteral(value) => Some(LoweredConstValue::Char(*value)),
+            ExpressionKind::Identifier(name) => self.const_values.get(name).cloned(),
+            ExpressionKind::Grouping(inner) => self.eval_const_expression(inner),
+            ExpressionKind::Unary { operator, operand } => {
+                let value = self.eval_const_expression(operand)?;
+                match (operator, value) {
+                    (UnaryOperator::Negate, LoweredConstValue::Int(v)) => {
+                        Some(LoweredConstValue::Int(-v))
+                    }
+                    (UnaryOperator::Negate, LoweredConstValue::Float(v)) => {
+                        Some(LoweredConstValue::Float(-v))
+                    }
+                    (UnaryOperator::Not, LoweredConstValue::Bool(v)) => {
+                        Some(LoweredConstValue::Bool(!v))
+                    }
+                    _ => None,
+                }
+            }
+            ExpressionKind::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                let left = self.eval_const_expression(left)?;
+                let right = self.eval_const_expression(right)?;
+                self.eval_const_binary(left, *operator, right)
+            }
+            ExpressionKind::Cast {
+                expr: inner,
+                target_type,
+            } => {
+                let value = self.eval_const_expression(inner)?;
+                let target = self.lower_type_annotation(target_type);
+                self.cast_const_value(value, &target)
+            }
+            _ => None,
+        }
+    }
+
+    fn eval_const_binary(
+        &self,
+        left: LoweredConstValue,
+        operator: BinaryOperator,
+        right: LoweredConstValue,
+    ) -> Option<LoweredConstValue> {
+        use LoweredConstValue::*;
+
+        match operator {
+            BinaryOperator::Add => match (left, right) {
+                (Int(a), Int(b)) => Some(Int(a + b)),
+                (Float(a), Float(b)) => Some(Float(a + b)),
+                (Int(a), Float(b)) => Some(Float(a as f64 + b)),
+                (Float(a), Int(b)) => Some(Float(a + b as f64)),
+                (String(a), String(b)) => Some(String(format!("{}{}", a, b))),
+                _ => None,
+            },
+            BinaryOperator::Subtract => match (left, right) {
+                (Int(a), Int(b)) => Some(Int(a - b)),
+                (Float(a), Float(b)) => Some(Float(a - b)),
+                (Int(a), Float(b)) => Some(Float(a as f64 - b)),
+                (Float(a), Int(b)) => Some(Float(a - b as f64)),
+                _ => None,
+            },
+            BinaryOperator::Multiply => match (left, right) {
+                (Int(a), Int(b)) => Some(Int(a * b)),
+                (Float(a), Float(b)) => Some(Float(a * b)),
+                (Int(a), Float(b)) => Some(Float(a as f64 * b)),
+                (Float(a), Int(b)) => Some(Float(a * b as f64)),
+                _ => None,
+            },
+            BinaryOperator::Divide => match (left, right) {
+                (Int(_), Int(0)) => None,
+                (Int(a), Int(b)) => Some(Int(a / b)),
+                (Float(a), Float(b)) if b != 0.0 => Some(Float(a / b)),
+                (Int(a), Float(b)) if b != 0.0 => Some(Float(a as f64 / b)),
+                (Float(a), Int(b)) if b != 0 => Some(Float(a / b as f64)),
+                _ => None,
+            },
+            BinaryOperator::Modulo => match (left, right) {
+                (Int(_), Int(0)) => None,
+                (Int(a), Int(b)) => Some(Int(a % b)),
+                _ => None,
+            },
+            BinaryOperator::Equal => Some(Bool(self.const_values_equal(&left, &right))),
+            BinaryOperator::NotEqual => Some(Bool(!self.const_values_equal(&left, &right))),
+            BinaryOperator::Less => self.eval_const_order(left, right, |a, b| a < b),
+            BinaryOperator::LessEqual => self.eval_const_order(left, right, |a, b| a <= b),
+            BinaryOperator::Greater => self.eval_const_order(left, right, |a, b| a > b),
+            BinaryOperator::GreaterEqual => self.eval_const_order(left, right, |a, b| a >= b),
+            BinaryOperator::And => match (left, right) {
+                (Bool(a), Bool(b)) => Some(Bool(a && b)),
+                _ => None,
+            },
+            BinaryOperator::Or => match (left, right) {
+                (Bool(a), Bool(b)) => Some(Bool(a || b)),
+                _ => None,
+            },
+        }
+    }
+
+    fn eval_const_order(
+        &self,
+        left: LoweredConstValue,
+        right: LoweredConstValue,
+        cmp: impl FnOnce(f64, f64) -> bool,
+    ) -> Option<LoweredConstValue> {
+        Some(LoweredConstValue::Bool(cmp(
+            self.const_value_as_f64(&left)?,
+            self.const_value_as_f64(&right)?,
+        )))
+    }
+
+    fn const_value_as_f64(&self, value: &LoweredConstValue) -> Option<f64> {
+        match value {
+            LoweredConstValue::Int(v) => Some(*v as f64),
+            LoweredConstValue::Float(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    fn const_values_equal(&self, left: &LoweredConstValue, right: &LoweredConstValue) -> bool {
+        match (left, right) {
+            (LoweredConstValue::Int(a), LoweredConstValue::Int(b)) => a == b,
+            (LoweredConstValue::Float(a), LoweredConstValue::Float(b)) => a == b,
+            (LoweredConstValue::Int(a), LoweredConstValue::Float(b)) => (*a as f64) == *b,
+            (LoweredConstValue::Float(a), LoweredConstValue::Int(b)) => *a == (*b as f64),
+            (LoweredConstValue::Bool(a), LoweredConstValue::Bool(b)) => a == b,
+            (LoweredConstValue::String(a), LoweredConstValue::String(b)) => a == b,
+            (LoweredConstValue::Char(a), LoweredConstValue::Char(b)) => a == b,
+            _ => false,
+        }
+    }
+
+    fn cast_const_value(
+        &self,
+        value: LoweredConstValue,
+        target: &IRType,
+    ) -> Option<LoweredConstValue> {
+        match (value, target) {
+            (LoweredConstValue::Int(v), IRType::Int) => Some(LoweredConstValue::Int(v)),
+            (LoweredConstValue::Int(v), IRType::Float) => Some(LoweredConstValue::Float(v as f64)),
+            (LoweredConstValue::Int(v), IRType::Char) => {
+                char::from_u32(v as u32).map(LoweredConstValue::Char)
+            }
+            (LoweredConstValue::Float(v), IRType::Float) => Some(LoweredConstValue::Float(v)),
+            (LoweredConstValue::Float(v), IRType::Int) => Some(LoweredConstValue::Int(v as i64)),
+            (LoweredConstValue::Char(v), IRType::Char) => Some(LoweredConstValue::Char(v)),
+            (LoweredConstValue::Char(v), IRType::Int) => Some(LoweredConstValue::Int(v as i64)),
+            (LoweredConstValue::Bool(v), IRType::Bool) => Some(LoweredConstValue::Bool(v)),
+            (LoweredConstValue::String(v), IRType::String) => Some(LoweredConstValue::String(v)),
+            _ => None,
+        }
+    }
+
+    fn emit_const_value(&mut self, value: &LoweredConstValue, ir_func: &mut IRFunction) -> Value {
+        match value {
+            LoweredConstValue::Int(v) => self.builder.build_const_int(ir_func, *v),
+            LoweredConstValue::Float(v) => self.builder.build_const_float(ir_func, *v),
+            LoweredConstValue::Bool(v) => self.builder.build_const_bool(ir_func, *v),
+            LoweredConstValue::String(v) => self.lower_string_literal(v, ir_func),
+            LoweredConstValue::Char(v) => self.builder.build_const_int(ir_func, *v as i64),
+        }
+    }
+
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> Result<IRModule, Vec<MidendError>> {
         let mut ir_module = IRModule::new(&ast_module.name);
 
         // Populate stdlib alias map for unqualified call resolution.
-        self.std_import_aliases = ast_module
-            .std_import_aliases
-            .iter()
-            .cloned()
-            .collect();
+        self.std_import_aliases = ast_module.std_import_aliases.iter().cloned().collect();
+        self.const_values.clear();
+        for item in &ast_module.items {
+            if let Item::Const(decl) = item {
+                if let Some(value) = self.eval_const_expression(&decl.value) {
+                    self.const_values.insert(decl.name.clone(), value);
+                }
+            }
+        }
 
         // Pre-register return types of imported user functions so that
         // cross-module calls are not mis-classified as unknown closures by
         // the temporary bypass code in lower_expression.
         for (name, ty) in &ast_module.imported_function_return_types {
             let ir_ty = self.lower_type(ty);
-            self.function_return_types.entry(name.clone()).or_insert(ir_ty);
+            self.function_return_types
+                .entry(name.clone())
+                .or_insert(ir_ty);
         }
 
         // Pre-register enum/struct definitions from imported user modules so
@@ -641,8 +832,10 @@ impl ASTLowering {
                 self.trait_declarations
                     .insert(trait_decl.name.clone(), trait_decl.clone());
                 // Record method declaration order for vtable slot lookup
-                let methods: Vec<String> = trait_decl.methods.iter().map(|m| m.name.clone()).collect();
-                self.trait_method_order.insert(trait_decl.name.clone(), methods);
+                let methods: Vec<String> =
+                    trait_decl.methods.iter().map(|m| m.name.clone()).collect();
+                self.trait_method_order
+                    .insert(trait_decl.name.clone(), methods);
                 let signatures = trait_decl
                     .methods
                     .iter()
@@ -687,7 +880,9 @@ impl ASTLowering {
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
-                    self.function_return_types.entry(mangled).or_insert(return_type);
+                    self.function_return_types
+                        .entry(mangled)
+                        .or_insert(return_type);
                 }
             } else if let Item::TraitImpl(trait_impl) = item {
                 for method in &trait_impl.methods {
@@ -697,19 +892,22 @@ impl ASTLowering {
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
-                    self.function_return_types.entry(mangled).or_insert(return_type);
+                    self.function_return_types
+                        .entry(mangled)
+                        .or_insert(return_type);
                 }
-                for method in self.collect_default_trait_methods(
-                    &trait_impl.trait_name,
-                    &trait_impl.methods,
-                ) {
+                for method in
+                    self.collect_default_trait_methods(&trait_impl.trait_name, &trait_impl.methods)
+                {
                     let mangled = format!("{}_{}", trait_impl.type_name, method.name);
                     let return_type = method
                         .return_type
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
-                    self.function_return_types.entry(mangled).or_insert(return_type);
+                    self.function_return_types
+                        .entry(mangled)
+                        .or_insert(return_type);
                 }
             }
         }
@@ -737,10 +935,9 @@ impl ASTLowering {
                     let ir_func = self.lower_method(method, &trait_impl.type_name);
                     ir_module.add_function(ir_func);
                 }
-                for method in self.collect_default_trait_methods(
-                    &trait_impl.trait_name,
-                    &trait_impl.methods,
-                ) {
+                for method in
+                    self.collect_default_trait_methods(&trait_impl.trait_name, &trait_impl.methods)
+                {
                     let ir_func = self.lower_method(&method, &trait_impl.type_name);
                     ir_module.add_function(ir_func);
                 }
@@ -902,7 +1099,10 @@ impl ASTLowering {
                     self.substitute_type_in_annotation(elem, type_map);
                 }
             }
-            TypeAnnotationKind::Function { params, return_type } => {
+            TypeAnnotationKind::Function {
+                params,
+                return_type,
+            } => {
                 for param in params {
                     self.substitute_type_in_annotation(param, type_map);
                 }
@@ -1086,7 +1286,10 @@ impl ASTLowering {
             .get(&mangled)
             .cloned()
             .unwrap_or_else(|| {
-                self.error(format!("Struct '{}' not registered after specialization", mangled));
+                self.error(format!(
+                    "Struct '{}' not registered after specialization",
+                    mangled
+                ));
                 Vec::new()
             });
 
@@ -1141,7 +1344,10 @@ impl ASTLowering {
             .get(&mangled)
             .cloned()
             .unwrap_or_else(|| {
-                self.error(format!("Enum '{}' not registered after specialization", mangled));
+                self.error(format!(
+                    "Enum '{}' not registered after specialization",
+                    mangled
+                ));
                 Vec::new()
             });
 
@@ -1320,10 +1526,9 @@ impl ASTLowering {
             IRType::Bool => Self::simple_type_annotation("bool"),
             IRType::String => Self::simple_type_annotation("string"),
             IRType::Char => Self::simple_type_annotation("char"),
-            IRType::Struct { name, .. } => {
-                self.specialized_generic_annotation(name)
-                    .unwrap_or_else(|| Self::simple_type_annotation(name))
-            }
+            IRType::Struct { name, .. } => self
+                .specialized_generic_annotation(name)
+                .unwrap_or_else(|| Self::simple_type_annotation(name)),
             IRType::Enum { name, variants } => self
                 .specialized_generic_annotation_from_enum(name, variants)
                 .or_else(|| self.specialized_generic_annotation(name))
@@ -1421,10 +1626,13 @@ impl ASTLowering {
                 param_positions.insert(param.name.clone(), idx);
             }
 
-            let mut inferred = vec![Self::unknown_type_annotation(); generic_enum.type_params.len()];
+            let mut inferred =
+                vec![Self::unknown_type_annotation(); generic_enum.type_params.len()];
             let mut matches_shape = true;
 
-            for (template_variant, actual_variant) in generic_enum.variants.iter().zip(variants.iter()) {
+            for (template_variant, actual_variant) in
+                generic_enum.variants.iter().zip(variants.iter())
+            {
                 let (actual_name, actual_data) = actual_variant;
                 if template_variant.name != *actual_name {
                     matches_shape = false;
@@ -1438,7 +1646,9 @@ impl ASTLowering {
                             break;
                         }
 
-                        for (template, actual_type) in template_types.iter().zip(actual_types.iter()) {
+                        for (template, actual_type) in
+                            template_types.iter().zip(actual_types.iter())
+                        {
                             self.fill_type_args_from_annotation(
                                 template,
                                 actual_type,
@@ -1596,11 +1806,17 @@ impl ASTLowering {
     fn infer_expr_type_annotation(&self, expr: &Expression) -> Option<TypeAnnotation> {
         match &expr.kind {
             ExpressionKind::NumberLiteral(num) => {
-                Some(Self::simple_type_annotation(if num.contains('.') { "float" } else { "int" }))
+                Some(Self::simple_type_annotation(if num.contains('.') {
+                    "float"
+                } else {
+                    "int"
+                }))
             }
             ExpressionKind::StringLiteral(_) => Some(Self::simple_type_annotation("string")),
             ExpressionKind::BoolLiteral(_) => Some(Self::simple_type_annotation("bool")),
-            ExpressionKind::StructLiteral { name, type_args, .. } => {
+            ExpressionKind::StructLiteral {
+                name, type_args, ..
+            } => {
                 if type_args.is_empty() {
                     Some(Self::simple_type_annotation(name))
                 } else {
@@ -1640,7 +1856,8 @@ impl ASTLowering {
                         .or_else(|| self.default_type_args_for_enum(enum_name))
                         .unwrap_or_default()
                     } else {
-                        self.default_type_args_for_enum(enum_name).unwrap_or_default()
+                        self.default_type_args_for_enum(enum_name)
+                            .unwrap_or_default()
                     }
                 } else {
                     type_args.clone()
@@ -1915,7 +2132,7 @@ impl ASTLowering {
                             variant_name,
                             named_fields,
                         )
-                            .or_else(|| self.default_type_args_for_enum(enum_name))
+                        .or_else(|| self.default_type_args_for_enum(enum_name))
                     } else {
                         self.default_type_args_for_enum(enum_name)
                     }
@@ -2132,7 +2349,11 @@ impl ASTLowering {
                 // Return IRType::Function so callers can emit CallIndirect with the right sig.
                 let param_types: Vec<IRType> = params
                     .iter()
-                    .map(|p| p.ty.as_ref().map(|t| self.lower_type_annotation(t)).unwrap_or(IRType::Int))
+                    .map(|p| {
+                        p.ty.as_ref()
+                            .map(|t| self.lower_type_annotation(t))
+                            .unwrap_or(IRType::Int)
+                    })
                     .collect();
                 let ret = self.infer_expr_ir_type(body);
                 IRType::Function {
@@ -2145,7 +2366,10 @@ impl ASTLowering {
                 // Until Result<T,E> is a first-class stdlib type, fall back to Int.
                 let inner_type = self.infer_expr_ir_type(inner);
                 match inner_type {
-                    IRType::Enum { name: _, ref variants } => {
+                    IRType::Enum {
+                        name: _,
+                        ref variants,
+                    } => {
                         // Expect Ok at tag 0 with a single data field
                         if let Some((_, ok_payload)) = variants.first() {
                             if let Some(payload_types) = ok_payload {
@@ -2163,22 +2387,20 @@ impl ASTLowering {
                 element_type: Box::new(IRType::Int),
                 size: 0,
             },
-            ExpressionKind::Block(block) => {
-                block.statements.last()
-                    .and_then(|stmt| {
-                        match &stmt.kind {
-                            spectra_compiler::ast::StatementKind::Expression(expr) => Some(self.infer_expr_ir_type(expr)),
-                            spectra_compiler::ast::StatementKind::Return(ret) => {
-                                ret.value.as_ref().map(|v| self.infer_expr_ir_type(v))
-                            },
-                            _ => None
-                        }
-                    })
-                    .unwrap_or(IRType::Void)
-            }
-            ExpressionKind::Cast { target_type, .. } => {
-                self.lower_type_annotation(target_type)
-            }
+            ExpressionKind::Block(block) => block
+                .statements
+                .last()
+                .and_then(|stmt| match &stmt.kind {
+                    spectra_compiler::ast::StatementKind::Expression(expr) => {
+                        Some(self.infer_expr_ir_type(expr))
+                    }
+                    spectra_compiler::ast::StatementKind::Return(ret) => {
+                        ret.value.as_ref().map(|v| self.infer_expr_ir_type(v))
+                    }
+                    _ => None,
+                })
+                .unwrap_or(IRType::Void),
+            ExpressionKind::Cast { target_type, .. } => self.lower_type_annotation(target_type),
         }
     }
 
@@ -2198,6 +2420,31 @@ impl ASTLowering {
                     out.insert(name.clone(), ty.clone());
                 }
             }
+            Pattern::Tuple(elements) => {
+                if let Some(IRType::Tuple {
+                    elements: tuple_types,
+                }) = scrutinee_type
+                {
+                    for (pattern, ty) in elements.iter().zip(tuple_types.iter()) {
+                        self.infer_pattern_binding_types(pattern, None, Some(ty), out);
+                    }
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                if let Some(IRType::Struct {
+                    fields: struct_fields,
+                    ..
+                }) = scrutinee_type
+                {
+                    let field_map: HashMap<String, IRType> =
+                        struct_fields.iter().cloned().collect();
+                    for (field_name, pattern) in fields {
+                        if let Some(field_ty) = field_map.get(field_name) {
+                            self.infer_pattern_binding_types(pattern, None, Some(field_ty), out);
+                        }
+                    }
+                }
+            }
             Pattern::EnumVariant {
                 enum_name,
                 type_args,
@@ -2206,14 +2453,19 @@ impl ASTLowering {
                 struct_data,
                 ..
             } => {
-                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> = if let Some(patterns) = data {
-                    patterns.iter().collect()
-                } else if let Some(named_patterns) = struct_data {
-                    self.reorder_named_variant_patterns(scrutinee_enum.unwrap_or(enum_name), variant_name, named_patterns)
+                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> =
+                    if let Some(patterns) = data {
+                        patterns.iter().collect()
+                    } else if let Some(named_patterns) = struct_data {
+                        self.reorder_named_variant_patterns(
+                            scrutinee_enum.unwrap_or(enum_name),
+                            variant_name,
+                            named_patterns,
+                        )
                         .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
+                    } else {
+                        Vec::new()
+                    };
 
                 if ordered_patterns.is_empty() {
                     return;
@@ -2232,8 +2484,10 @@ impl ASTLowering {
                     .or_else(|| self.enum_definitions.get(enum_name).cloned());
 
                 if variants.is_none() && !type_args.is_empty() {
-                    if let Some(IRType::Enum { variants: specialized, .. }) =
-                        self.resolve_enum_type(enum_name, type_args.as_slice())
+                    if let Some(IRType::Enum {
+                        variants: specialized,
+                        ..
+                    }) = self.resolve_enum_type(enum_name, type_args.as_slice())
                     {
                         variants = Some(
                             specialized
@@ -2266,6 +2520,11 @@ impl ASTLowering {
                             }
                         }
                     }
+                }
+            }
+            Pattern::Or(patterns) => {
+                if let Some(first) = patterns.first() {
+                    self.infer_pattern_binding_types(first, scrutinee_enum, scrutinee_type, out);
                 }
             }
         }
@@ -2609,7 +2868,9 @@ impl ASTLowering {
             .map(|(idx, p)| Parameter {
                 id: idx,
                 name: p.name.clone(),
-                ty: p.ty.as_ref()
+                ty: p
+                    .ty
+                    .as_ref()
                     .map(|t| self.lower_type_annotation(t))
                     .unwrap_or(IRType::Int),
             })
@@ -2619,7 +2880,8 @@ impl ASTLowering {
         let return_type = self.infer_expr_ir_type(body);
 
         // Register the function so recursive/forward references resolve correctly
-        self.function_return_types.insert(name.clone(), return_type.clone());
+        self.function_return_types
+            .insert(name.clone(), return_type.clone());
 
         // --- Save outer function state ---
         let saved_value_map = self.value_map.clone();
@@ -2646,7 +2908,8 @@ impl ASTLowering {
             let value = Value { id: idx };
             self.value_map.insert(param.name.clone(), value);
             if param.ty != IRType::Void {
-                self.variable_types.insert(param.name.clone(), param.ty.clone());
+                self.variable_types
+                    .insert(param.name.clone(), param.ty.clone());
             }
         }
 
@@ -2669,7 +2932,9 @@ impl ASTLowering {
             if let Some(block) = lambda_func.get_block_mut(cur_block_id) {
                 if block.terminator.is_none() {
                     if return_type != IRType::Void {
-                        block.set_terminator(Terminator::Return { value: Some(result_value) });
+                        block.set_terminator(Terminator::Return {
+                            value: Some(result_value),
+                        });
                     } else {
                         block.set_terminator(Terminator::Return { value: None });
                     }
@@ -2960,6 +3225,11 @@ impl ASTLowering {
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
         match &stmt.kind {
             StatementKind::Let(let_stmt) => {
+                let binding_name = match &let_stmt.pattern {
+                    spectra_compiler::ast::Pattern::Identifier(name) => Some(name.clone()),
+                    _ => None,
+                };
+
                 // Discover variable type either from initializer or annotation
                 let inferred_type = if let Some(ref value_expr) = let_stmt.value {
                     Some(self.infer_expr_ir_type(value_expr))
@@ -2969,26 +3239,46 @@ impl ASTLowering {
                     None
                 };
 
-                if let Some(ref ty) = inferred_type {
-                    self.variable_types
-                        .insert(let_stmt.name.clone(), ty.clone());
+                if let (Some(name), Some(ty)) = (binding_name.as_ref(), inferred_type.as_ref()) {
+                    self.variable_types.insert(name.clone(), (*ty).clone());
                 }
 
                 if let Some(ref value_expr) = let_stmt.value {
                     // Track the lambda function name BEFORE lowering so closure_var_map
                     // is populated even if the lambda itself modifies lambda_counter.
-                    let lambda_func_name_hint = if let ExpressionKind::Lambda { .. } = &value_expr.kind {
-                        Some(format!("__lambda_{}", self.lambda_counter))
-                    } else {
-                        None
-                    };
+                    let lambda_func_name_hint =
+                        if let ExpressionKind::Lambda { .. } = &value_expr.kind {
+                            Some(format!("__lambda_{}", self.lambda_counter))
+                        } else {
+                            None
+                        };
 
                     let value = self.lower_expression(value_expr, ir_func);
 
                     // Register in closure_var_map when the value bound is a lambda
-                    if let Some(lambda_name) = lambda_func_name_hint {
-                        self.closure_var_map.insert(let_stmt.name.clone(), lambda_name);
+                    if let (Some(name), Some(lambda_name)) =
+                        (binding_name.as_ref(), lambda_func_name_hint)
+                    {
+                        self.closure_var_map.insert(name.clone(), lambda_name);
                     }
+
+                    if binding_name.is_none() {
+                        let scrutinee_type = inferred_type.as_ref();
+                        let scrutinee_enum = match scrutinee_type {
+                            Some(IRType::Enum { name, .. }) => Some(name.as_str()),
+                            _ => None,
+                        };
+                        self.lower_pattern_bindings(
+                            &let_stmt.pattern,
+                            value,
+                            scrutinee_enum,
+                            scrutinee_type,
+                            ir_func,
+                        );
+                        return;
+                    }
+
+                    let name = binding_name.expect("identifier pattern should be present");
 
                     match &value_expr.kind {
                         ExpressionKind::ArrayLiteral { .. } => {
@@ -2996,7 +3286,7 @@ impl ASTLowering {
                                 inferred_type.clone()
                             {
                                 self.array_map.insert(
-                                    let_stmt.name.clone(),
+                                    name.clone(),
                                     ArrayInfo {
                                         ptr: value,
                                         element_type: *element_type,
@@ -3004,43 +3294,47 @@ impl ASTLowering {
                                     },
                                 );
                             }
-                            self.value_map.insert(let_stmt.name.clone(), value);
+                            self.value_map.insert(name.clone(), value);
                         }
                         ExpressionKind::StructLiteral {
-                            name, type_args, ..
+                            name: struct_name,
+                            type_args,
+                            ..
                         } => {
                             let (actual_name, _) =
-                                self.ensure_struct_definition(name, type_args.as_slice());
+                                self.ensure_struct_definition(struct_name, type_args.as_slice());
                             self.struct_var_map
-                                .insert(let_stmt.name.clone(), (value, actual_name.clone()));
-                            self.value_map.insert(let_stmt.name.clone(), value);
+                                .insert(name.clone(), (value, actual_name.clone()));
+                            self.value_map.insert(name.clone(), value);
                         }
                         _ => {
                             if let Some(ref type_ann) = let_stmt.ty {
                                 let var_type = self.lower_type_annotation(type_ann);
-                                if let IRType::Struct { name, fields } = var_type {
+                                if let IRType::Struct {
+                                    name: struct_type_name,
+                                    fields,
+                                } = var_type
+                                {
                                     let struct_ptr = self.builder.build_alloca(
                                         ir_func,
                                         IRType::Struct {
-                                            name: name.clone(),
+                                            name: struct_type_name.clone(),
                                             fields: fields.clone(),
                                         },
                                     );
                                     self.builder.build_store(ir_func, struct_ptr, value);
                                     self.struct_var_map
-                                        .insert(let_stmt.name.clone(), (struct_ptr, name));
-                                    self.value_map.insert(let_stmt.name.clone(), struct_ptr);
-                                } else if let Some(&alloca_ptr) =
-                                    self.alloca_map.get(&let_stmt.name)
-                                {
+                                        .insert(name.clone(), (struct_ptr, struct_type_name));
+                                    self.value_map.insert(name.clone(), struct_ptr);
+                                } else if let Some(&alloca_ptr) = self.alloca_map.get(&name) {
                                     self.builder.build_store(ir_func, alloca_ptr, value);
                                 } else {
-                                    self.value_map.insert(let_stmt.name.clone(), value);
+                                    self.value_map.insert(name.clone(), value);
                                 }
-                            } else if let Some(&alloca_ptr) = self.alloca_map.get(&let_stmt.name) {
+                            } else if let Some(&alloca_ptr) = self.alloca_map.get(&name) {
                                 self.builder.build_store(ir_func, alloca_ptr, value);
                             } else {
-                                self.value_map.insert(let_stmt.name.clone(), value);
+                                self.value_map.insert(name.clone(), value);
                             }
                         }
                     }
@@ -3124,14 +3418,18 @@ impl ASTLowering {
                         // Assignment to struct field (e.g. self.x = ...)
                         // Step 1: collect the field info before any mutable borrow
                         let field_info: Option<(usize, IRType)> =
-                            if let spectra_compiler::ast::ExpressionKind::Identifier(var_name) = &object.kind {
+                            if let spectra_compiler::ast::ExpressionKind::Identifier(var_name) =
+                                &object.kind
+                            {
                                 let lookup = self.struct_var_map.get(var_name.as_str());
                                 if let Some((_, sname)) = lookup {
                                     let sname = sname.clone();
                                     self.struct_definitions.get(&sname).and_then(|defs| {
                                         defs.iter()
                                             .enumerate()
-                                            .find(|(_, (fname, _))| fname.as_str() == field.as_str())
+                                            .find(|(_, (fname, _))| {
+                                                fname.as_str() == field.as_str()
+                                            })
                                             .map(|(idx, (_, ty))| (idx, ty.clone()))
                                     })
                                 } else {
@@ -3150,7 +3448,9 @@ impl ASTLowering {
 
                         // Step 2: get (or compute) the struct pointer
                         let struct_ptr =
-                            if let spectra_compiler::ast::ExpressionKind::Identifier(var_name) = &object.kind {
+                            if let spectra_compiler::ast::ExpressionKind::Identifier(var_name) =
+                                &object.kind
+                            {
                                 if let Some((ptr, _)) = self.struct_var_map.get(var_name.as_str()) {
                                     ptr
                                 } else {
@@ -3162,7 +3462,8 @@ impl ASTLowering {
 
                         // Step 3: GEP + store
                         if let Some((field_idx, field_type)) = field_info {
-                            let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+                            let index_value =
+                                self.builder.build_const_int(ir_func, field_idx as i64);
                             let field_ptr = self.builder.build_getelementptr(
                                 ir_func,
                                 struct_ptr,
@@ -3241,7 +3542,12 @@ impl ASTLowering {
             StatementKind::For(for_stmt) => {
                 // Check if iterable is a range expression — handle as an integer range loop
                 // rather than loading array elements.
-                if let ExpressionKind::Range { start, end, inclusive } = &for_stmt.iterable.kind {
+                if let ExpressionKind::Range {
+                    start,
+                    end,
+                    inclusive,
+                } = &for_stmt.iterable.kind
+                {
                     let start_val = self.lower_expression(start, ir_func);
                     let end_val = self.lower_expression(end, ir_func);
                     let is_inclusive = *inclusive;
@@ -3270,7 +3576,8 @@ impl ASTLowering {
                     } else {
                         self.builder.build_lt(ir_func, current_index, current_end)
                     };
-                    self.builder.build_cond_branch(ir_func, condition, body_block, exit_block);
+                    self.builder
+                        .build_cond_branch(ir_func, condition, body_block, exit_block);
 
                     // Body block
                     self.builder.set_current_block(body_block);
@@ -3286,7 +3593,8 @@ impl ASTLowering {
 
                     let body_index = self.builder.build_load(ir_func, index_alloca);
                     self.value_map.insert(for_stmt.iterator.clone(), body_index);
-                    self.variable_types.insert(for_stmt.iterator.clone(), IRType::Int);
+                    self.variable_types
+                        .insert(for_stmt.iterator.clone(), IRType::Int);
 
                     self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
 
@@ -3314,102 +3622,104 @@ impl ASTLowering {
 
                     self.builder.set_current_block(exit_block);
                 } else {
-                // Lower iterable expression once to avoid recomputation
-                let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
-                let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
+                    // Lower iterable expression once to avoid recomputation
+                    let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
+                    let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
 
-                let (element_type, length) = match iterable_type {
-                    IRType::Array { element_type, size } => (*element_type, size),
-                    other => {
-                        self.error(format!(
-                            "for-loop lowering currently supports arrays only, found {:?}",
-                            other
-                        ));
-                        (IRType::Int, 0)
+                    let (element_type, length) = match iterable_type {
+                        IRType::Array { element_type, size } => (*element_type, size),
+                        other => {
+                            self.error(format!(
+                                "for-loop lowering currently supports arrays only, found {:?}",
+                                other
+                            ));
+                            (IRType::Int, 0)
+                        }
+                    };
+
+                    let header_block = ir_func.add_block("for.header");
+                    let body_block = ir_func.add_block("for.body");
+                    let increment_block = ir_func.add_block("for.increment");
+                    let exit_block = ir_func.add_block("for.exit");
+
+                    // Allocate and initialise loop index
+                    let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
+                    let zero = self.builder.build_const_int(ir_func, 0);
+                    self.builder.build_store(ir_func, index_alloca, zero);
+
+                    // Jump to header to evaluate guard
+                    self.builder.build_branch(ir_func, header_block);
+
+                    // Header: check index < length
+                    self.builder.set_current_block(header_block);
+                    let current_index = self.builder.build_load(ir_func, index_alloca);
+                    let length_const = self.builder.build_const_int(ir_func, length as i64);
+                    let condition = self.builder.build_lt(ir_func, current_index, length_const);
+                    self.builder
+                        .build_cond_branch(ir_func, condition, body_block, exit_block);
+
+                    // Body block
+                    self.builder.set_current_block(body_block);
+                    self.loop_stack.push(LoopContext {
+                        header_block: increment_block,
+                        exit_block,
+                    });
+
+                    // Scoped bindings for iterator variable
+                    self.value_map.push_scope();
+                    self.variable_types.push_scope();
+                    self.array_map.push_scope();
+                    self.struct_var_map.push_scope();
+
+                    let body_index = self.builder.build_load(ir_func, index_alloca);
+                    let element_ptr = self.builder.build_getelementptr(
+                        ir_func,
+                        iterable_value,
+                        body_index,
+                        element_type.clone(),
+                    );
+                    let element_value =
+                        self.builder
+                            .build_load_typed(ir_func, element_ptr, element_type.clone());
+
+                    // Bind iterator variable in current scope
+                    self.value_map
+                        .insert(for_stmt.iterator.clone(), element_value);
+                    self.variable_types
+                        .insert(for_stmt.iterator.clone(), element_type.clone());
+
+                    if let IRType::Struct { name, .. } = &element_type {
+                        self.struct_var_map
+                            .insert(for_stmt.iterator.clone(), (element_value, name.clone()));
                     }
-                };
 
-                let header_block = ir_func.add_block("for.header");
-                let body_block = ir_func.add_block("for.body");
-                let increment_block = ir_func.add_block("for.increment");
-                let exit_block = ir_func.add_block("for.exit");
+                    self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
 
-                // Allocate and initialise loop index
-                let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
-                let zero = self.builder.build_const_int(ir_func, 0);
-                self.builder.build_store(ir_func, index_alloca, zero);
-
-                // Jump to header to evaluate guard
-                self.builder.build_branch(ir_func, header_block);
-
-                // Header: check index < length
-                self.builder.set_current_block(header_block);
-                let current_index = self.builder.build_load(ir_func, index_alloca);
-                let length_const = self.builder.build_const_int(ir_func, length as i64);
-                let condition = self.builder.build_lt(ir_func, current_index, length_const);
-                self.builder
-                    .build_cond_branch(ir_func, condition, body_block, exit_block);
-
-                // Body block
-                self.builder.set_current_block(body_block);
-                self.loop_stack.push(LoopContext {
-                    header_block: increment_block,
-                    exit_block,
-                });
-
-                // Scoped bindings for iterator variable
-                self.value_map.push_scope();
-                self.variable_types.push_scope();
-                self.array_map.push_scope();
-                self.struct_var_map.push_scope();
-
-                let body_index = self.builder.build_load(ir_func, index_alloca);
-                let element_ptr = self.builder.build_getelementptr(
-                    ir_func,
-                    iterable_value,
-                    body_index,
-                    element_type.clone(),
-                );
-                let element_value = self.builder.build_load_typed(ir_func, element_ptr, element_type.clone());
-
-                // Bind iterator variable in current scope
-                self.value_map
-                    .insert(for_stmt.iterator.clone(), element_value);
-                self.variable_types
-                    .insert(for_stmt.iterator.clone(), element_type.clone());
-
-                if let IRType::Struct { name, .. } = &element_type {
-                    self.struct_var_map
-                        .insert(for_stmt.iterator.clone(), (element_value, name.clone()));
-                }
-
-                self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
-
-                // Determine if body naturally falls through
-                if let Some(current_block) = self.builder.get_current_block() {
-                    if let Some(block) = ir_func.get_block_mut(current_block) {
-                        if block.terminator.is_none() {
-                            self.builder.build_branch(ir_func, increment_block);
+                    // Determine if body naturally falls through
+                    if let Some(current_block) = self.builder.get_current_block() {
+                        if let Some(block) = ir_func.get_block_mut(current_block) {
+                            if block.terminator.is_none() {
+                                self.builder.build_branch(ir_func, increment_block);
+                            }
                         }
                     }
-                }
 
-                self.struct_var_map.pop_scope();
-                self.array_map.pop_scope();
-                self.variable_types.pop_scope();
-                self.value_map.pop_scope();
-                self.loop_stack.pop();
+                    self.struct_var_map.pop_scope();
+                    self.array_map.pop_scope();
+                    self.variable_types.pop_scope();
+                    self.value_map.pop_scope();
+                    self.loop_stack.pop();
 
-                // Increment block
-                self.builder.set_current_block(increment_block);
-                let step_index = self.builder.build_load(ir_func, index_alloca);
-                let one = self.builder.build_const_int(ir_func, 1);
-                let next_index = self.builder.build_add(ir_func, step_index, one);
-                self.builder.build_store(ir_func, index_alloca, next_index);
-                self.builder.build_branch(ir_func, header_block);
+                    // Increment block
+                    self.builder.set_current_block(increment_block);
+                    let step_index = self.builder.build_load(ir_func, index_alloca);
+                    let one = self.builder.build_const_int(ir_func, 1);
+                    let next_index = self.builder.build_add(ir_func, step_index, one);
+                    self.builder.build_store(ir_func, index_alloca, next_index);
+                    self.builder.build_branch(ir_func, header_block);
 
-                // Exit block becomes current for following statements
-                self.builder.set_current_block(exit_block);
+                    // Exit block becomes current for following statements
+                    self.builder.set_current_block(exit_block);
                 } // end else (array-based for)
             }
             StatementKind::Loop(loop_stmt) => {
@@ -3537,7 +3847,9 @@ impl ASTLowering {
                 // Create basic blocks
                 let then_blk = ir_func.add_block("if_let.then");
                 let exit_blk = ir_func.add_block("if_let.exit");
-                let else_blk_opt = else_block.as_ref().map(|_| ir_func.add_block("if_let.else"));
+                let else_blk_opt = else_block
+                    .as_ref()
+                    .map(|_| ir_func.add_block("if_let.else"));
                 let false_target = else_blk_opt.unwrap_or(exit_blk);
 
                 // Pattern check in the current block
@@ -3548,7 +3860,8 @@ impl ASTLowering {
                     Some(&scrutinee_type),
                     ir_func,
                 );
-                self.builder.build_cond_branch(ir_func, matches, then_blk, false_target);
+                self.builder
+                    .build_cond_branch(ir_func, matches, then_blk, false_target);
 
                 // --- Then block ---
                 self.builder.set_current_block(then_blk);
@@ -3599,7 +3912,12 @@ impl ASTLowering {
                 // --- Exit block ---
                 self.builder.set_current_block(exit_blk);
             }
-            StatementKind::WhileLet(WhileLetStatement { pattern, value, body, .. }) => {
+            StatementKind::WhileLet(WhileLetStatement {
+                pattern,
+                value,
+                body,
+                ..
+            }) => {
                 let header_block = ir_func.add_block("while_let.header");
                 let body_block = ir_func.add_block("while_let.body");
                 let exit_block = ir_func.add_block("while_let.exit");
@@ -3804,7 +4122,11 @@ impl ASTLowering {
             ExpressionKind::BoolLiteral(b) => self.builder.build_const_bool(ir_func, *b),
             ExpressionKind::Identifier(name) => {
                 // Check if this is an array - return pointer directly
-                if let Some(info) = self.array_map.get(name) {
+                if let Some(value) = self.const_values.get(name).cloned() {
+                    self.emit_const_value(&value, ir_func)
+                }
+                // Check if this is an array - return pointer directly
+                else if let Some(info) = self.array_map.get(name) {
                     info.ptr
                 }
                 // Check if this is a struct variable
@@ -3840,7 +4162,8 @@ impl ASTLowering {
                         let lhs = self.lower_expression(left, ir_func);
                         let rhs = self.lower_expression(right, ir_func);
                         let fn_name = format!("{}_{}", sn, method_name);
-                        return self.builder
+                        return self
+                            .builder
                             .build_call(ir_func, fn_name, vec![lhs, rhs], true)
                             .unwrap_or_else(|| ir_func.next_value());
                     }
@@ -3874,7 +4197,8 @@ impl ASTLowering {
                     if let IRType::Struct { name: ref sn, .. } = op_ir_type {
                         let val = self.lower_expression(operand, ir_func);
                         let fn_name = format!("{}_neg", sn);
-                        return self.builder
+                        return self
+                            .builder
                             .build_call(ir_func, fn_name, vec![val], true)
                             .unwrap_or_else(|| ir_func.next_value());
                     }
@@ -3950,7 +4274,8 @@ impl ASTLowering {
                 // If the identifier is a known closure variable, call the lambda function directly.
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(lambda_name) = self.closure_var_map.get(name).cloned() {
-                        return self.builder
+                        return self
+                            .builder
                             .build_call(ir_func, lambda_name, arg_values, true)
                             .unwrap_or_else(|| ir_func.next_value());
                     }
@@ -3958,21 +4283,39 @@ impl ASTLowering {
                     // --- Function pointer parameter (fn(T) -> R) ---
                     // If the identifier is a variable of Function type, call through the pointer.
                     if let Some(var_type) = self.variable_types.get(name) {
-                        if let IRType::Function { params: sig_params, return_type: sig_return } = var_type.clone() {
+                        if let IRType::Function {
+                            params: sig_params,
+                            return_type: sig_return,
+                        } = var_type.clone()
+                        {
                             if let Some(fn_ptr) = self.value_map.get(name) {
                                 let returns_value = *sig_return != IRType::Void;
-                                return self.builder
-                                    .build_call_indirect(ir_func, fn_ptr, arg_values, sig_params, *sig_return)
-                                    .unwrap_or_else(|| if returns_value { ir_func.next_value() } else { ir_func.next_value() });
+                                return self
+                                    .builder
+                                    .build_call_indirect(
+                                        ir_func,
+                                        fn_ptr,
+                                        arg_values,
+                                        sig_params,
+                                        *sig_return,
+                                    )
+                                    .unwrap_or_else(|| {
+                                        if returns_value {
+                                            ir_func.next_value()
+                                        } else {
+                                            ir_func.next_value()
+                                        }
+                                    });
                             }
                         }
                     }
                 }
 
                 // temporary bypass for closures
-                if !self.function_return_types.contains_key(&function_name) 
-                   && !self.generic_functions.contains_key(&function_name) 
-                   && function_name != "unknown" {
+                if !self.function_return_types.contains_key(&function_name)
+                    && !self.generic_functions.contains_key(&function_name)
+                    && function_name != "unknown"
+                {
                     return self.builder.build_const_int(ir_func, 0);
                 }
 
@@ -4347,9 +4690,12 @@ impl ASTLowering {
                     }
                 };
 
-                let elem_ptr =
-                    self.builder
-                        .build_getelementptr(ir_func, tuple_ptr, index_value, elem_type.clone());
+                let elem_ptr = self.builder.build_getelementptr(
+                    ir_func,
+                    tuple_ptr,
+                    index_value,
+                    elem_type.clone(),
+                );
 
                 // Carregar o valor do elemento
                 self.builder.build_load_typed(ir_func, elem_ptr, elem_type)
@@ -4425,7 +4771,11 @@ impl ASTLowering {
                                 );
 
                                 // Load do campo
-                                return self.builder.build_load_typed(ir_func, field_ptr, field_type.clone());
+                                return self.builder.build_load_typed(
+                                    ir_func,
+                                    field_ptr,
+                                    field_type.clone(),
+                                );
                             }
                         }
                     }
@@ -4448,7 +4798,9 @@ impl ASTLowering {
                             index_value,
                             field_ty.clone(),
                         );
-                        return self.builder.build_load_typed(ir_func, field_ptr, field_ty.clone());
+                        return self
+                            .builder
+                            .build_load_typed(ir_func, field_ptr, field_ty.clone());
                     }
                 }
 
@@ -4506,7 +4858,8 @@ impl ASTLowering {
                             }
                         }
                         let final_name = if self.generic_functions.contains_key(&callee) {
-                            let concrete_types = self.infer_argument_types(data.as_deref().unwrap_or(&[]));
+                            let concrete_types =
+                                self.infer_argument_types(data.as_deref().unwrap_or(&[]));
                             let request = MonomorphizationRequest {
                                 generic_name: callee.clone(),
                                 concrete_types,
@@ -4553,9 +4906,16 @@ impl ASTLowering {
                     // If some args are still "unknown", try to fill them from the function's
                     // declared return type annotation (e.g., fn -> Result<int, string> means
                     // both Result::Ok and Result::Err should use the same specialization).
-                    if args.iter().any(|a| self.type_annotation_needs_refinement(a)) {
+                    if args
+                        .iter()
+                        .any(|a| self.type_annotation_needs_refinement(a))
+                    {
                         if let Some(ret_ann) = self.current_function_return_annotation.clone() {
-                            if let TypeAnnotationKind::Generic { name: ret_name, type_args: ret_args } = &ret_ann.kind {
+                            if let TypeAnnotationKind::Generic {
+                                name: ret_name,
+                                type_args: ret_args,
+                            } = &ret_ann.kind
+                            {
                                 if ret_name == enum_name && ret_args.len() == args.len() {
                                     for (arg, ret_arg) in args.iter_mut().zip(ret_args.iter()) {
                                         if self.type_annotation_needs_refinement(arg) {
@@ -4570,7 +4930,11 @@ impl ASTLowering {
                 } else {
                     // Check the function return annotation as the primary source of type args
                     if let Some(ret_ann) = self.current_function_return_annotation.clone() {
-                        if let TypeAnnotationKind::Generic { name: ret_name, type_args: ret_args } = &ret_ann.kind {
+                        if let TypeAnnotationKind::Generic {
+                            name: ret_name,
+                            type_args: ret_args,
+                        } = &ret_ann.kind
+                        {
                             if ret_name == enum_name {
                                 ret_args.clone()
                             } else {
@@ -4617,7 +4981,9 @@ impl ASTLowering {
                             let tag_val = self.builder.build_const_int(ir_func, *tag as i64);
                             let tag_alloc = self.builder.build_alloca(
                                 ir_func,
-                                IRType::Tuple { elements: vec![IRType::Int] },
+                                IRType::Tuple {
+                                    elements: vec![IRType::Int],
+                                },
                             );
                             let zero = self.builder.build_const_int(ir_func, 0);
                             let tag_slot = self.builder.build_getelementptr(
@@ -4791,7 +5157,10 @@ impl ASTLowering {
 
                     let body_value = self.lower_expression(&arm.body, ir_func);
                     // Só emitir store+branch se o arm não terminou com return explícito
-                    let arm_final_block = self.builder.get_current_block().unwrap_or(arm_body_blocks[idx]);
+                    let arm_final_block = self
+                        .builder
+                        .get_current_block()
+                        .unwrap_or(arm_body_blocks[idx]);
                     let arm_terminated = ir_func
                         .get_block(arm_final_block)
                         .map(|b| b.terminator.is_some())
@@ -4812,7 +5181,8 @@ impl ASTLowering {
                 // Bloco de saída
                 self.builder.set_current_block(exit_block);
                 if let Some(result_alloca) = result_alloca {
-                    self.builder.build_load_typed(ir_func, result_alloca, result_type.clone())
+                    self.builder
+                        .build_load_typed(ir_func, result_alloca, result_type.clone())
                 } else {
                     self.builder.build_const_int(ir_func, 0)
                 }
@@ -4909,9 +5279,7 @@ impl ASTLowering {
                     .build_call(ir_func, function_name, call_args, true)
                     .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
-            ExpressionKind::CharLiteral(c) => {
-                self.builder.build_const_int(ir_func, *c as i64)
-            }
+            ExpressionKind::CharLiteral(c) => self.builder.build_const_int(ir_func, *c as i64),
             ExpressionKind::FString(parts) => {
                 // Lower each part to a string value:
                 // - Literal parts: inline string literals (already String type)
@@ -4953,7 +5321,8 @@ impl ASTLowering {
                 }
                 let mut result = string_parts[0];
                 for part in &string_parts[1..] {
-                    result = self.builder
+                    result = self
+                        .builder
                         .build_host_call(
                             ir_func,
                             "spectra.std.string.concat".to_string(),
@@ -4975,9 +5344,9 @@ impl ASTLowering {
 
                 // Load tag (first field of the tagged tuple)
                 let zero_idx = self.builder.build_const_int(ir_func, 0);
-                let tag_ptr = self.builder.build_getelementptr(
-                    ir_func, result_ptr, zero_idx, IRType::Int,
-                );
+                let tag_ptr =
+                    self.builder
+                        .build_getelementptr(ir_func, result_ptr, zero_idx, IRType::Int);
                 let tag_val = self.builder.build_load(ir_func, tag_ptr);
 
                 // is_ok = (tag == 0)
@@ -4986,7 +5355,8 @@ impl ASTLowering {
 
                 let ok_block = ir_func.add_block("try.ok");
                 let err_block = ir_func.add_block("try.err");
-                self.builder.build_cond_branch(ir_func, is_ok, ok_block, err_block);
+                self.builder
+                    .build_cond_branch(ir_func, is_ok, ok_block, err_block);
 
                 // Err branch: early return the error result pointer
                 self.builder.set_current_block(err_block);
@@ -4995,9 +5365,9 @@ impl ASTLowering {
                 // Ok branch: extract the Ok payload from slot 1
                 self.builder.set_current_block(ok_block);
                 let one_idx = self.builder.build_const_int(ir_func, 1);
-                let payload_ptr = self.builder.build_getelementptr(
-                    ir_func, result_ptr, one_idx, IRType::Int,
-                );
+                let payload_ptr =
+                    self.builder
+                        .build_getelementptr(ir_func, result_ptr, one_idx, IRType::Int);
                 self.builder.build_load(ir_func, payload_ptr)
             }
             ExpressionKind::Range { start, end, .. } => {
@@ -5040,9 +5410,10 @@ impl ASTLowering {
                     }
                 }
             }
-            ExpressionKind::Cast { expr: inner, target_type } => {
-                self.lower_cast_expression(inner, target_type, ir_func)
-            }
+            ExpressionKind::Cast {
+                expr: inner,
+                target_type,
+            } => self.lower_cast_expression(inner, target_type, ir_func),
         }
     }
 
@@ -5093,7 +5464,9 @@ impl ASTLowering {
             .unwrap_or(0);
 
         // Load function pointer from vtable
-        let fn_ptr = self.builder.build_load_vtable_slot(ir_func, vtable_ptr, slot_index);
+        let fn_ptr = self
+            .builder
+            .build_load_vtable_slot(ir_func, vtable_ptr, slot_index);
 
         // Build argument list: data_ptr first, then the other args
         let mut call_args = vec![data_ptr];
@@ -5150,9 +5523,12 @@ impl ASTLowering {
                 let fn_name = format!("{}_{}", name, method_name);
                 let fn_addr = self.builder.build_func_addr(ir_func, fn_name);
                 let slot_index = self.builder.build_const_int(ir_func, slot as i64);
-                let slot_ptr =
-                    self.builder
-                        .build_getelementptr(ir_func, vtable_storage, slot_index, IRType::Int);
+                let slot_ptr = self.builder.build_getelementptr(
+                    ir_func,
+                    vtable_storage,
+                    slot_index,
+                    IRType::Int,
+                );
                 self.builder.build_store(ir_func, slot_ptr, fn_addr);
             }
 
@@ -5160,7 +5536,8 @@ impl ASTLowering {
         } else {
             self.builder.build_const_int(ir_func, 0)
         };
-        self.builder.build_make_dyn_fat_ptr(ir_func, data_ptr, vtable_ptr)
+        self.builder
+            .build_make_dyn_fat_ptr(ir_func, data_ptr, vtable_ptr)
     }
 
     fn lower_string_literal(&mut self, literal: &str, ir_func: &mut IRFunction) -> Value {
@@ -5219,6 +5596,79 @@ impl ASTLowering {
                 let literal_value = self.lower_expression(expr, ir_func);
                 self.builder.build_eq(ir_func, scrutinee, literal_value)
             }
+            Pattern::Tuple(elements) => {
+                if let Some(IRType::Tuple {
+                    elements: tuple_types,
+                }) = scrutinee_type
+                {
+                    let mut result = self.builder.build_const_int(ir_func, 1);
+                    for (idx, pattern) in elements.iter().enumerate() {
+                        if let Some(field_ty) = tuple_types.get(idx) {
+                            let index_value = self.builder.build_const_int(ir_func, idx as i64);
+                            let field_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                scrutinee,
+                                index_value,
+                                field_ty.clone(),
+                            );
+                            let field_value =
+                                self.builder
+                                    .build_load_typed(ir_func, field_ptr, field_ty.clone());
+                            let sub_match = self.lower_pattern_check(
+                                pattern,
+                                field_value,
+                                None,
+                                Some(field_ty),
+                                ir_func,
+                            );
+                            result = self.builder.build_and(ir_func, result, sub_match);
+                        }
+                    }
+                    result
+                } else {
+                    self.builder.build_const_int(ir_func, 0)
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                if let Some(IRType::Struct {
+                    fields: struct_fields,
+                    ..
+                }) = scrutinee_type
+                {
+                    let field_map: HashMap<String, (usize, IRType)> = struct_fields
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(idx, (name, ty))| (name, (idx, ty)))
+                        .collect();
+                    let mut result = self.builder.build_const_int(ir_func, 1);
+                    for (field_name, pattern) in fields {
+                        if let Some((idx, field_ty)) = field_map.get(field_name) {
+                            let index_value = self.builder.build_const_int(ir_func, *idx as i64);
+                            let field_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                scrutinee,
+                                index_value,
+                                field_ty.clone(),
+                            );
+                            let field_value =
+                                self.builder
+                                    .build_load_typed(ir_func, field_ptr, field_ty.clone());
+                            let sub_match = self.lower_pattern_check(
+                                pattern,
+                                field_value,
+                                None,
+                                Some(field_ty),
+                                ir_func,
+                            );
+                            result = self.builder.build_and(ir_func, result, sub_match);
+                        }
+                    }
+                    result
+                } else {
+                    self.builder.build_const_int(ir_func, 0)
+                }
+            }
             Pattern::EnumVariant {
                 enum_name,
                 type_args,
@@ -5268,6 +5718,31 @@ impl ASTLowering {
                 // Fallback: sempre false
                 self.builder.build_const_int(ir_func, 0)
             }
+            Pattern::Or(patterns) => {
+                let mut branches = patterns.iter();
+                if let Some(first) = branches.next() {
+                    let mut result = self.lower_pattern_check(
+                        first,
+                        scrutinee,
+                        scrutinee_enum,
+                        scrutinee_type,
+                        ir_func,
+                    );
+                    for branch in branches {
+                        let next = self.lower_pattern_check(
+                            branch,
+                            scrutinee,
+                            scrutinee_enum,
+                            scrutinee_type,
+                            ir_func,
+                        );
+                        result = self.builder.build_or(ir_func, result, next);
+                    }
+                    result
+                } else {
+                    self.builder.build_const_int(ir_func, 0)
+                }
+            }
         }
     }
 
@@ -5297,6 +5772,69 @@ impl ASTLowering {
             Pattern::Literal(_) => {
                 // Literal não cria bindings
             }
+            Pattern::Tuple(elements) => {
+                if let Some(IRType::Tuple {
+                    elements: tuple_types,
+                }) = scrutinee_type
+                {
+                    for (idx, pattern) in elements.iter().enumerate() {
+                        if let Some(field_ty) = tuple_types.get(idx) {
+                            let index_value = self.builder.build_const_int(ir_func, idx as i64);
+                            let field_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                scrutinee,
+                                index_value,
+                                field_ty.clone(),
+                            );
+                            let field_value =
+                                self.builder
+                                    .build_load_typed(ir_func, field_ptr, field_ty.clone());
+                            self.lower_pattern_bindings(
+                                pattern,
+                                field_value,
+                                None,
+                                Some(field_ty),
+                                ir_func,
+                            );
+                        }
+                    }
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                if let Some(IRType::Struct {
+                    fields: struct_fields,
+                    ..
+                }) = scrutinee_type
+                {
+                    let field_map: HashMap<String, (usize, IRType)> = struct_fields
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(idx, (name, ty))| (name, (idx, ty)))
+                        .collect();
+                    for (field_name, pattern) in fields {
+                        if let Some((idx, field_ty)) = field_map.get(field_name) {
+                            let index_value = self.builder.build_const_int(ir_func, *idx as i64);
+                            let field_ptr = self.builder.build_getelementptr(
+                                ir_func,
+                                scrutinee,
+                                index_value,
+                                field_ty.clone(),
+                            );
+                            let field_value =
+                                self.builder
+                                    .build_load_typed(ir_func, field_ptr, field_ty.clone());
+                            self.lower_pattern_bindings(
+                                pattern,
+                                field_value,
+                                None,
+                                Some(field_ty),
+                                ir_func,
+                            );
+                        }
+                    }
+                }
+            }
             Pattern::EnumVariant {
                 enum_name,
                 type_args,
@@ -5306,14 +5844,19 @@ impl ASTLowering {
                 ..
             } => {
                 // Se há patterns de data, extrair valores e fazer binding recursivo
-                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> = if let Some(patterns) = data {
-                    patterns.iter().collect()
-                } else if let Some(named_patterns) = struct_data {
-                    self.reorder_named_variant_patterns(scrutinee_enum.unwrap_or(enum_name), variant_name, named_patterns)
+                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> =
+                    if let Some(patterns) = data {
+                        patterns.iter().collect()
+                    } else if let Some(named_patterns) = struct_data {
+                        self.reorder_named_variant_patterns(
+                            scrutinee_enum.unwrap_or(enum_name),
+                            variant_name,
+                            named_patterns,
+                        )
                         .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
+                    } else {
+                        Vec::new()
+                    };
 
                 if !ordered_patterns.is_empty() {
                     let mut variants = scrutinee_enum
@@ -5351,8 +5894,11 @@ impl ASTLowering {
                                             index_value,
                                             sub_type.clone(),
                                         );
-                                        let element_value =
-                                            self.builder.build_load_typed(ir_func, element_ptr, sub_type.clone());
+                                        let element_value = self.builder.build_load_typed(
+                                            ir_func,
+                                            element_ptr,
+                                            sub_type.clone(),
+                                        );
 
                                         let next_enum = match sub_type {
                                             IRType::Enum { name, .. } => Some(name.clone()),
@@ -5372,6 +5918,17 @@ impl ASTLowering {
                             }
                         }
                     }
+                }
+            }
+            Pattern::Or(patterns) => {
+                if let Some(first) = patterns.first() {
+                    self.lower_pattern_bindings(
+                        first,
+                        scrutinee,
+                        scrutinee_enum,
+                        scrutinee_type,
+                        ir_func,
+                    );
                 }
             }
         }
@@ -5397,8 +5954,9 @@ impl ASTLowering {
                 }
 
                 match type_name {
-                    "int" => IRType::Int,
-                    "float" => IRType::Float,
+                    "int" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32"
+                    | "u64" | "usize" => IRType::Int,
+                    "float" | "f16" | "bf16" | "f32" | "f64" => IRType::Float,
                     "bool" => IRType::Bool,
                     "string" => IRType::String,
                     "char" => IRType::Char,
@@ -5451,12 +6009,16 @@ impl ASTLowering {
                     elements: ir_elements,
                 }
             }
-            TypeAnnotationKind::Function { params, return_type } => {
+            TypeAnnotationKind::Function {
+                params,
+                return_type,
+            } => {
                 let ir_params = params
                     .iter()
                     .map(|ann| self.lower_type_annotation_with_map(ann, substitutions))
                     .collect();
-                let ir_return_type = Box::new(self.lower_type_annotation_with_map(return_type, substitutions));
+                let ir_return_type =
+                    Box::new(self.lower_type_annotation_with_map(return_type, substitutions));
                 IRType::Function {
                     params: ir_params,
                     return_type: ir_return_type,
@@ -5513,7 +6075,9 @@ impl ASTLowering {
                 // Ultimate fallback: treat as simple named type
                 self.lower_type_annotation_with_map(
                     &TypeAnnotation {
-                        kind: TypeAnnotationKind::Simple { segments: vec![name.clone()] },
+                        kind: TypeAnnotationKind::Simple {
+                            segments: vec![name.clone()],
+                        },
                         span: spectra_compiler::span::Span::dummy(),
                     },
                     substitutions,
@@ -5586,7 +6150,10 @@ impl ASTLowering {
                 // Por enquanto, tratar como ponteiro genérico (será resolvido no contexto)
                 IRType::Pointer(Box::new(IRType::Void))
             }
-            ASTType::Fn { params, return_type } => {
+            ASTType::Fn {
+                params,
+                return_type,
+            } => {
                 let ir_params = params.iter().map(|t| self.lower_type(t)).collect();
                 let ir_return = Box::new(self.lower_type(return_type));
                 IRType::Function {
@@ -5767,7 +6334,10 @@ impl ASTLowering {
                     elements: subst_elements,
                 }
             }
-            TypeAnnotationKind::Function { params, return_type } => {
+            TypeAnnotationKind::Function {
+                params,
+                return_type,
+            } => {
                 let subst_params = params
                     .iter()
                     .map(|el| self.substitute_type(el, type_map))

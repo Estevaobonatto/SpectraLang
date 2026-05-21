@@ -24,7 +24,7 @@ Status labels:
 | Trait impl blocks | supported | Signature conformance is validated. |
 | Inherent impl blocks | supported | Method registration and lookup are active. |
 | Type aliases | supported | Aliases are parsed and registered in current semantic flows. |
-| Const/static items | partial | Surface exists, but const-eval remains roadmap work under `R-202`. |
+| Const/static items | partial | Top-level `const` eval is supported for primitive constant expressions; `static` remains a surface/global item model. |
 | Class declarations | partial | Frontend admits the syntax, but semantic support is not yet treated as production-grade. |
 
 ## Statements
@@ -76,14 +76,14 @@ Status labels:
 | Enum variant tuple pattern | supported | |
 | Enum variant struct pattern | supported | |
 | Pattern guards | supported | |
-| OR-patterns | deferred | No parser or semantic contract yet. |
+| OR-patterns | supported | Parsed, validated, included in exhaustiveness checks, and covered by validation tests. |
 | Slice patterns | deferred | No parser or semantic contract yet. |
 
 ## Type System Surface
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Primitive types | supported | `int`, `float`, `bool`, `char`, `string`, `unit` |
+| Primitive types | supported | `int`, `float`, `bool`, `char`, `string`, `unit`, plus numeric aliases over the current canonical ABI. |
 | Tuples | supported | |
 | Functions as types | supported | |
 | Generics | supported | Includes current monomorphization pipeline. |
@@ -91,11 +91,11 @@ Status labels:
 | Trait bounds | supported | Current validation handles the supported generic method surface. |
 | Trait objects | supported | Current dyn-trait flows compile in the test suite. |
 | Higher-ranked generics | deferred | |
-| Production-grade scientific numeric lattice | deferred | Covered by `R-201`. |
+| Production-grade scientific numeric lattice | partial | Numeric aliases are accepted and checked; exact-width storage/overflow semantics remain future work. |
 
 ## Known Partial or Deferred Areas
 
-- const evaluation: `R-202`
+- static/global initialization beyond the current alpha surface
 - deeper class model finalization: future semantic backlog
 - production-grade indexed collections and shape-aware types: `R-201` through `R-301`
-- richer pattern ergonomics: `R-203`
+- exact-width numeric runtime semantics beyond the canonical alpha ABI

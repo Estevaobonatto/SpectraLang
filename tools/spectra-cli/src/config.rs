@@ -27,11 +27,7 @@ impl ProjectConfig {
         if self.project.src_dirs.is_empty() {
             vec![root.join("src")]
         } else {
-            self.project
-                .src_dirs
-                .iter()
-                .map(|d| root.join(d))
-                .collect()
+            self.project.src_dirs.iter().map(|d| root.join(d)).collect()
         }
     }
 

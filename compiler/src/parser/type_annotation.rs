@@ -4,8 +4,6 @@ use crate::{
     token::{Keyword, Operator, TokenKind},
 };
 
-
-
 use super::Parser;
 
 impl Parser {
@@ -37,20 +35,18 @@ impl Parser {
                 }
             }
             self.consume_symbol(')', "Expected ')' after function parameter types")?;
-            let return_type = if matches!(
-                &self.current().kind,
-                TokenKind::Operator(Operator::Arrow)
-            ) {
-                self.advance(); // consume '->'
-                self.parse_type_annotation()?
-            } else {
-                TypeAnnotation {
-                    kind: TypeAnnotationKind::Simple {
-                        segments: vec!["unit".to_string()],
-                    },
-                    span: start_span,
-                }
-            };
+            let return_type =
+                if matches!(&self.current().kind, TokenKind::Operator(Operator::Arrow)) {
+                    self.advance(); // consume '->'
+                    self.parse_type_annotation()?
+                } else {
+                    TypeAnnotation {
+                        kind: TypeAnnotationKind::Simple {
+                            segments: vec!["unit".to_string()],
+                        },
+                        span: start_span,
+                    }
+                };
             let end_span = self
                 .tokens
                 .get(self.position.saturating_sub(1))
@@ -80,7 +76,7 @@ impl Parser {
         // Check if it's an array type: [int], [string], etc.
         if self.check_symbol('[') {
             self.advance(); // consume '['
-            // Parse the element type but discard it — stored as Simple { "array" }
+                            // Parse the element type but discard it — stored as Simple { "array" }
             if !self.check_symbol(']') {
                 let _ = self.parse_type_annotation(); // element type
             }
@@ -226,7 +222,7 @@ impl Parser {
                             | TokenKind::Symbol(')')    // end of parameter list / tuple
                             | TokenKind::Symbol(';')    // statement end
                             | TokenKind::Operator(Operator::Arrow) // -> return type
-                            | TokenKind::Symbol('[')    // array index after type
+                            | TokenKind::Symbol('[') // array index after type
                         );
                     }
                 }

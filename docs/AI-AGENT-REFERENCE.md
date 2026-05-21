@@ -971,6 +971,25 @@ match event {
 }
 ```
 
+#### Tuple and Struct Destructuring in let
+
+```spectra
+let pair = (10, 20);
+let (left, right) = pair;
+
+let point = Point { x: left, y: right };
+let Point { x, y: renamed_y } = point;
+```
+
+#### OR-patterns
+
+```spectra
+match token {
+    Token::Number(value) => value,
+    Token::Plus | Token::Minus => 1,
+}
+```
+
 #### Nested Patterns
 
 ```spectra
@@ -1197,6 +1216,17 @@ let pi: float = 3.14;
 let i: int = pi as int;        // float → int (truncates)
 ```
 
+Numeric aliases currently accepted by the compiler:
+
+```spectra
+let a: i32 = 10;
+let b: u64 = 20;
+let c: f32 = 1.5;
+let d: bf16 = 2.5;
+```
+
+Alpha ABI note: integer aliases canonicalize to `int`; float aliases canonicalize to `float`. Exact-width storage and overflow behavior are future backend/runtime work.
+
 ### std.convert Functions
 
 For all other conversions:
@@ -1239,6 +1269,7 @@ pub static global_flag: bool = false;
 ### Rules
 
 - `const` values cannot be mutated.
+- `const` initializers must be compile-time expressions: literals, earlier constants, grouping, unary/binary operations, valid casts, and string concatenation.
 - `static` variables are mutable globals.
 - Both `const` and `static` can have `pub` visibility.
 - Type annotation is optional but recommended.

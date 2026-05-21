@@ -183,7 +183,10 @@ impl fmt::Display for ProjectError {
                 for path in paths {
                     writeln!(f, "  - {}", path.display())?;
                 }
-                write!(f, "help: source files must have a .spectra or .spc extension")
+                write!(
+                    f,
+                    "help: source files must have a .spectra or .spc extension"
+                )
             }
         }
     }
@@ -273,9 +276,7 @@ fn extract_imports(source: &str) -> Vec<String> {
         let trimmed = line.trim();
 
         // Strip `pub` prefix (re-exports: `pub import path`)
-        let trimmed = trimmed
-            .strip_prefix("pub ")
-            .unwrap_or(trimmed);
+        let trimmed = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
 
         if !trimmed.starts_with("import ") {
             continue;

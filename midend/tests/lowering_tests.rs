@@ -1,7 +1,7 @@
-﻿/// Tests for AST lowering to IR
+/// Tests for AST lowering to IR
 use spectra_compiler::ast::{
-    BinaryOperator, Block, Expression, ExpressionKind, Function, FunctionParam, Item,
-    LetStatement, LoopStatement, Module, ReturnStatement, Statement, StatementKind, Visibility,
+    BinaryOperator, Block, Expression, ExpressionKind, Function, FunctionParam, Item, LetStatement,
+    LoopStatement, Module, Pattern, ReturnStatement, Statement, StatementKind, Visibility,
     WhileLoop,
 };
 use spectra_compiler::span::Span;
@@ -52,7 +52,7 @@ fn let_stmt(name: &str, value: Expression) -> Statement {
     Statement {
         span: s(),
         kind: StatementKind::Let(LetStatement {
-            name: name.to_string(),
+            pattern: Pattern::Identifier(name.to_string()),
             span: s(),
             ty: None,
             value: Some(value),
@@ -153,7 +153,9 @@ fn test_lower_simple_arithmetic() {
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     assert_eq!(ir_module.name, "test");
     assert_eq!(ir_module.functions.len(), 1);
@@ -181,16 +183,15 @@ fn test_lower_multiple_operations() {
             "main",
             vec![
                 let_stmt("a", bin(int_lit(10), BinaryOperator::Subtract, int_lit(4))),
-                let_stmt(
-                    "b",
-                    bin(ident("a"), BinaryOperator::Multiply, int_lit(2)),
-                ),
+                let_stmt("b", bin(ident("a"), BinaryOperator::Multiply, int_lit(2))),
             ],
         )],
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     let func = &ir_module.functions[0];
     assert!(!func.blocks.is_empty());
@@ -233,7 +234,9 @@ fn test_lower_while_loop() {
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     let func = &ir_module.functions[0];
     // while loop generates at least: header block + body block + exit block
@@ -268,7 +271,9 @@ fn test_lower_loop_infinite() {
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     let func = &ir_module.functions[0];
     // loop produces at least a header block and a body block
@@ -302,7 +307,9 @@ fn test_lower_function_call() {
     let module = make_module("test", vec![add_fn, main_fn]);
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     assert_eq!(ir_module.functions.len(), 2);
 
@@ -337,7 +344,9 @@ fn test_lower_boolean_literals() {
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     let func = &ir_module.functions[0];
     let entry = &func.blocks[0];
@@ -370,7 +379,9 @@ fn test_lower_comparison() {
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     let func = &ir_module.functions[0];
     let entry = &func.blocks[0];
@@ -388,7 +399,9 @@ fn test_lower_empty_function() {
     let module = make_module("test", vec![make_function("empty", vec![])]);
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     assert_eq!(ir_module.functions.len(), 1);
     let func = &ir_module.functions[0];
@@ -408,7 +421,9 @@ fn test_lower_multiple_functions() {
     );
 
     let mut lowering = ASTLowering::new();
-    let ir_module = lowering.lower_module(&module).expect("lowering should succeed");
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
 
     assert_eq!(ir_module.functions.len(), 3);
     assert!(ir_module.functions.iter().any(|f| f.name == "foo"));

@@ -1,0 +1,38 @@
+// Teste 64: const eval e aliases numericos de superficie
+module const_eval_and_numeric_aliases;
+
+const BASE: i32 = 40 + 2;
+const SCALE: f32 = BASE as f32;
+const FLAG: bool = BASE == 42 && SCALE > 41.0;
+const LETTER: char = 65 as char;
+
+pub fn main() -> int {
+    let tiny: i8 = 1;
+    let small: i16 = 2;
+    let regular: i32 = 3;
+    let wide: i64 = 4;
+    let unsigned: u8 = 5;
+    let unsigned_wide: u64 = 6;
+    let half: f16 = 1.5;
+    let brain: bf16 = 2.5;
+    let single: f32 = 3.5;
+    let double: f64 = 4.5;
+
+    let float_total: f64 = half + brain + single + double + SCALE;
+    let int_total: int = tiny + small + regular + wide + unsigned + unsigned_wide + BASE;
+
+    if !FLAG {
+        return 1;
+    }
+    if LETTER as int != 65 {
+        return 2;
+    }
+    if int_total != 63 {
+        return int_total;
+    }
+    if float_total as int != 54 {
+        return float_total as int;
+    }
+
+    return 0;
+}

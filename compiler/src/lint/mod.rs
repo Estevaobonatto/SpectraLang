@@ -1,6 +1,6 @@
 use crate::ast::{
-    self, Block, Expression, ExpressionKind, Function, ImplBlock, Item, LValue,
-    Method, Module, Statement, StatementKind, TraitDeclaration, TraitImpl, TraitMethod,
+    self, Block, Expression, ExpressionKind, Function, ImplBlock, Item, LValue, Method, Module,
+    Statement, StatementKind, TraitDeclaration, TraitImpl, TraitMethod,
 };
 use crate::span::Span;
 use std::collections::{HashMap, HashSet};
@@ -247,7 +247,7 @@ impl<'a> LintRunner<'a> {
                 if let Some(value) = &let_stmt.value {
                     self.visit_expression(value);
                 }
-                self.declare_binding(let_stmt.name.clone(), let_stmt.span, BindingKind::Variable);
+                self.declare_let_pattern_bindings(&let_stmt.pattern, let_stmt.span);
                 true
             }
             StatementKind::Assignment(assign_stmt) => {
@@ -338,6 +338,44 @@ impl<'a> LintRunner<'a> {
         self.visit_expression(&assignment.value);
     }
 
+    fn declare_let_pattern_bindings(&mut self, pattern: &ast::Pattern, span: Span) {
+        match pattern {
+            ast::Pattern::Identifier(name) => {
+                self.declare_binding(name.clone(), span, BindingKind::Variable);
+            }
+            ast::Pattern::Tuple(elements) => {
+                for element in elements {
+                    self.declare_let_pattern_bindings(element, span);
+                }
+            }
+            ast::Pattern::Struct { fields, .. } => {
+                for (_, pattern) in fields {
+                    self.declare_let_pattern_bindings(pattern, span);
+                }
+            }
+            ast::Pattern::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(patterns) = data {
+                    for pattern in patterns {
+                        self.declare_let_pattern_bindings(pattern, span);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, pattern) in fields {
+                        self.declare_let_pattern_bindings(pattern, span);
+                    }
+                }
+            }
+            ast::Pattern::Or(patterns) => {
+                if let Some(first) = patterns.first() {
+                    self.declare_let_pattern_bindings(first, span);
+                }
+            }
+            ast::Pattern::Wildcard | ast::Pattern::Literal(_) => {}
+        }
+    }
+
     fn visit_expression(&mut self, expression: &Expression) {
         match &expression.kind {
             ExpressionKind::Identifier(name) => {
@@ -414,7 +452,9 @@ impl<'a> LintRunner<'a> {
             ExpressionKind::FieldAccess { object, .. } => {
                 self.visit_expression(object);
             }
-            ExpressionKind::EnumVariant { data, struct_data, .. } => {
+            ExpressionKind::EnumVariant {
+                data, struct_data, ..
+            } => {
                 if let Some(values) = data {
                     for value in values {
                         self.visit_expression(value);

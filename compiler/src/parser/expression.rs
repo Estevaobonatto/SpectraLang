@@ -1,7 +1,5 @@
 use crate::{
-    ast::{
-        BinaryOperator, Expression, ExpressionKind, FStringPart, LambdaParam, UnaryOperator,
-    },
+    ast::{BinaryOperator, Expression, ExpressionKind, FStringPart, LambdaParam, UnaryOperator},
     token::{Keyword, Operator, TokenKind},
 };
 
@@ -380,7 +378,10 @@ impl Parser {
         }
 
         // Type cast: expr as TargetType  (left-associative, lowest postfix precedence)
-        while matches!(&self.current().kind, crate::token::TokenKind::Keyword(crate::token::Keyword::As)) {
+        while matches!(
+            &self.current().kind,
+            crate::token::TokenKind::Keyword(crate::token::Keyword::As)
+        ) {
             let _as_span = self.current().span;
             self.advance(); // consume 'as'
             let target_type = self.parse_type_annotation()?;
@@ -651,7 +652,7 @@ impl Parser {
             TokenKind::Operator(Operator::Or) => {
                 // '||' detected as Operator::Or in primary position = empty lambda params
                 self.advance(); // consume '||'
-                // Body can be a block `{ ... }` or a single expression
+                                // Body can be a block `{ ... }` or a single expression
                 let body = if self.check_symbol('{') {
                     let block = self.parse_block()?;
                     let block_span = block.span;
@@ -849,9 +850,16 @@ impl Parser {
                 let mut depth = 1;
                 let mut j = i + 1;
                 while j < chars.len() && depth > 0 {
-                    if chars[j] == '{' { depth += 1; }
-                    else if chars[j] == '}' { depth -= 1; }
-                    if depth > 0 { j += 1; } else { break; }
+                    if chars[j] == '{' {
+                        depth += 1;
+                    } else if chars[j] == '}' {
+                        depth -= 1;
+                    }
+                    if depth > 0 {
+                        j += 1;
+                    } else {
+                        break;
+                    }
                 }
                 // chars[i+1..j] is the expression source
                 let expr_src: String = chars[i + 1..j].iter().collect();
@@ -864,7 +872,10 @@ impl Parser {
                                 parts.push(FStringPart::Interpolated(Box::new(inner_expr)));
                             }
                             Err(_) => {
-                                self.error_at("Invalid expression inside f-string interpolation", span);
+                                self.error_at(
+                                    "Invalid expression inside f-string interpolation",
+                                    span,
+                                );
                             }
                         }
                     }
@@ -957,7 +968,11 @@ impl Parser {
             // Parse body expression
             let body = self.parse_expression()?;
 
-            arms.push(MatchArm { pattern, guard, body });
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+            });
 
             // Optional comma, or break if we see '}'
             if self.check_symbol(',') {
@@ -976,12 +991,44 @@ impl Parser {
     }
 
     pub(super) fn parse_pattern(&mut self) -> Result<crate::ast::Pattern, ()> {
+        let mut patterns = vec![self.parse_pattern_atom()?];
+
+        while self.check_symbol('|') {
+            self.advance();
+            patterns.push(self.parse_pattern_atom()?);
+        }
+
+        if patterns.len() == 1 {
+            Ok(patterns.remove(0))
+        } else {
+            Ok(crate::ast::Pattern::Or(patterns))
+        }
+    }
+
+    fn parse_pattern_atom(&mut self) -> Result<crate::ast::Pattern, ()> {
         use crate::ast::Pattern;
 
         // Wildcard pattern: _
         if self.check_symbol('_') {
             self.advance();
             return Ok(Pattern::Wildcard);
+        }
+
+        // Tuple pattern: (a, b, _)
+        if self.check_symbol('(') {
+            self.advance();
+            let mut elements = Vec::new();
+            if !self.check_symbol(')') {
+                loop {
+                    elements.push(self.parse_pattern()?);
+                    if !self.check_symbol(',') {
+                        break;
+                    }
+                    self.advance();
+                }
+            }
+            self.consume_symbol(')', "Expected ')' after tuple pattern")?;
+            return Ok(Pattern::Tuple(elements));
         }
 
         // Check for enum variant pattern: EnumName::VariantName or EnumName<Type>::VariantName
@@ -1055,8 +1102,8 @@ impl Parser {
 
                     let mut fields = Vec::new();
                     while !self.check_symbol('}') && !self.is_at_end() {
-                        let (field_name, _) =
-                            self.consume_identifier("Expected field name in struct variant pattern")?;
+                        let (field_name, _) = self
+                            .consume_identifier("Expected field name in struct variant pattern")?;
                         let field_pattern = if self.check_symbol(':') {
                             self.advance();
                             self.parse_pattern()?
@@ -1086,6 +1133,31 @@ impl Parser {
                 });
             }
 
+            if self.check_symbol('{') {
+                self.advance();
+                let mut fields = Vec::new();
+                while !self.check_symbol('}') && !self.is_at_end() {
+                    let (field_name, _) =
+                        self.consume_identifier("Expected field name in struct pattern")?;
+                    let field_pattern = if self.check_symbol(':') {
+                        self.advance();
+                        self.parse_pattern()?
+                    } else {
+                        Pattern::Identifier(field_name.clone())
+                    };
+                    fields.push((field_name, field_pattern));
+
+                    if self.check_symbol(',') {
+                        self.advance();
+                    }
+                }
+                self.consume_symbol('}', "Expected '}' after struct pattern")?;
+                return Ok(Pattern::Struct {
+                    name: first_name,
+                    fields,
+                });
+            }
+
             // Just an identifier pattern (binding)
             return Ok(Pattern::Identifier(first_name));
         }
@@ -1096,7 +1168,9 @@ impl Parser {
     }
 
     fn is_likely_type_args_lookahead(&self) -> bool {
-        if !self.check_symbol('<') { return false; }
+        if !self.check_symbol('<') {
+            return false;
+        }
         let mut i = self.position + 1;
         let mut depth = 1;
         while i < self.tokens.len() && depth > 0 {
@@ -1104,13 +1178,17 @@ impl Parser {
             match kind {
                 TokenKind::Symbol('<') => depth += 1,
                 TokenKind::Symbol('>') => depth -= 1,
-                TokenKind::Symbol(';') | TokenKind::Symbol('{') | 
-                TokenKind::Keyword(_) | TokenKind::Symbol('=') => return false,
+                TokenKind::Symbol(';')
+                | TokenKind::Symbol('{')
+                | TokenKind::Keyword(_)
+                | TokenKind::Symbol('=') => return false,
                 _ => {}
             }
             i += 1;
         }
-        if depth > 0 { return false; }
+        if depth > 0 {
+            return false;
+        }
         // The token after `>` must be either `:` (for `::`) or `{` (for struct literal)
         if i < self.tokens.len() {
             let next_kind = &self.tokens[i].kind;

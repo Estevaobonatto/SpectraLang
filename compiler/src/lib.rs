@@ -11,11 +11,11 @@ pub mod token;
 
 pub use ast::{BinaryOperator, Module, UnaryOperator};
 pub use error::{BackendError, CompilerError, LexError, MidendError, ParseError, SemanticError};
-pub use lexer::Lexer;
 pub use language_service::{
     analyze_document, collect_let_inlay_hints, DefinitionInfo, DocumentAnalysis, LetInlayHint,
     ResolvedSymbol,
 };
+pub use lexer::Lexer;
 pub use lint::{LintDiagnostic, LintOptions, LintRule};
 pub use parser::Parser;
 pub use pipeline::{

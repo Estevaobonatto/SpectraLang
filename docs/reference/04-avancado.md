@@ -655,6 +655,27 @@ pub fn main() -> int {
 }
 ```
 
+### OR-patterns
+
+Use `|` para compartilhar o mesmo corpo entre padrões equivalentes:
+
+```spectra
+enum Token {
+    Plus,
+    Minus,
+    Number(int),
+}
+
+fn peso(token: Token) -> int {
+    return match token {
+        Token::Number(value) => value,
+        Token::Plus | Token::Minus => 1
+    };
+}
+```
+
+O checker de exaustividade conta cada alternativa do OR-pattern separadamente.
+
 ### Restrições do Sistema de Módulos / Module System Restrictions
 
 **PT-BR:**  

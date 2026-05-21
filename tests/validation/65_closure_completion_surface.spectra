@@ -1,0 +1,35 @@
+// Teste 65: closures nao capturantes armazenadas, chamadas e passadas como fn(...)
+module closure_completion_surface;
+
+fn apply(value: int, f: fn(int) -> int) -> int {
+    return f(value);
+}
+
+fn select(adjust: bool) -> fn(int) -> int {
+    if adjust {
+        return |x: int| x + 10;
+    }
+    return |x: int| x - 10;
+}
+
+pub fn main() -> int {
+    let inc: fn(int) -> int = |x: int| x + 1;
+    let dec: fn(int) -> int = |x: int| x - 1;
+    let chosen = select(true);
+
+    let a = inc(4);
+    let b = apply(10, dec);
+    let c = chosen(5);
+
+    if a != 5 {
+        return a;
+    }
+    if b != 9 {
+        return b;
+    }
+    if c != 15 {
+        return c;
+    }
+
+    return 0;
+}

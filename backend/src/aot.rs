@@ -127,7 +127,11 @@ impl AotCodeGenerator {
 
     /// Compile an IR module to a native object file.
     /// Returns the raw bytes of the `.o` / `.obj` file.
-    pub fn compile_to_object(mut self, ir_module: &IRModule, opts: &AotOptions) -> Result<Vec<u8>, String> {
+    pub fn compile_to_object(
+        mut self,
+        ir_module: &IRModule,
+        opts: &AotOptions,
+    ) -> Result<Vec<u8>, String> {
         let rename_main = opts.emit_executable;
 
         // Pre-intern all host-function names as .rodata data sections so that
@@ -160,14 +164,18 @@ impl AotCodeGenerator {
         }
 
         // Emit the finished object.
-        let product: ObjectProduct = self
-            .module
-            .finish();
+        let product: ObjectProduct = self.module.finish();
 
-        Ok(product.emit().map_err(|e| format!("Object emit error: {}", e))?)
+        Ok(product
+            .emit()
+            .map_err(|e| format!("Object emit error: {}", e))?)
     }
 
-    fn declare_function(&mut self, ir_func: &IRFunction, rename_main: bool) -> Result<FuncId, String> {
+    fn declare_function(
+        &mut self,
+        ir_func: &IRFunction,
+        rename_main: bool,
+    ) -> Result<FuncId, String> {
         let mut sig = self.module.make_signature();
         for param in &ir_func.params {
             let cl_type = CodeGenerator::ir_type_to_cranelift(&param.ty)?;
@@ -367,8 +375,7 @@ impl AotCodeGenerator {
             .signature
             .clone();
 
-        let mut builder =
-            FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let block = builder.create_block();
         builder.append_block_params_for_function_params(block);
         builder.switch_to_block(block);
@@ -440,7 +447,9 @@ impl AotCodeGenerator {
         let safe = name.replace('.', "__").replace('-', "_");
         let symbol = format!(".__spectra_host_{safe}");
 
-        let data_id: DataId = match self.module.declare_data(&symbol, Linkage::Local, false, false)
+        let data_id: DataId = match self
+            .module
+            .declare_data(&symbol, Linkage::Local, false, false)
         {
             Ok(id) => id,
             Err(_) => return, // Already declared — shouldn't happen but be defensive.

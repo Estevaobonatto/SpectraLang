@@ -112,9 +112,8 @@ fn find_msvc_link() -> Option<PathBuf> {
     }
 
     // 3. vswhere.exe — installed by every VS 2017+ installer.
-    let vswhere = PathBuf::from(
-        r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe",
-    );
+    let vswhere =
+        PathBuf::from(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe");
     if vswhere.is_file() {
         if let Ok(out) = Command::new(&vswhere)
             .args(["-latest", "-property", "installationPath"])
@@ -122,7 +121,10 @@ fn find_msvc_link() -> Option<PathBuf> {
         {
             let vs_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !vs_path.is_empty() {
-                let msvc = PathBuf::from(&vs_path).join("VC").join("Tools").join("MSVC");
+                let msvc = PathBuf::from(&vs_path)
+                    .join("VC")
+                    .join("Tools")
+                    .join("MSVC");
                 if let Some(p) = find_link_in_msvc_dir(&msvc) {
                     return Some(p);
                 }
@@ -212,7 +214,9 @@ pub fn link_executable(
     })?;
 
     match &linker {
-        LinkerKind::Msvc(link_exe) => link_with_msvc(link_exe, obj_path, runtime_lib_path, output_path),
+        LinkerKind::Msvc(link_exe) => {
+            link_with_msvc(link_exe, obj_path, runtime_lib_path, output_path)
+        }
         LinkerKind::Cc(cc) => link_with_cc(cc, obj_path, runtime_lib_path, output_path),
     }
 }
@@ -223,9 +227,12 @@ fn link_with_cc(
     runtime_lib_path: &Path,
     output_path: &Path,
 ) -> Result<(), String> {
-    let runtime_lib_dir = runtime_lib_path
-        .parent()
-        .ok_or_else(|| format!("Cannot determine parent directory of '{}'", runtime_lib_path.display()))?;
+    let runtime_lib_dir = runtime_lib_path.parent().ok_or_else(|| {
+        format!(
+            "Cannot determine parent directory of '{}'",
+            runtime_lib_path.display()
+        )
+    })?;
 
     // Derive the bare library name (strip `lib` prefix and `.a` / `.so` suffix).
     let lib_stem = runtime_lib_path
@@ -306,10 +313,11 @@ fn collect_msvc_lib_paths(link_exe: &Path) -> Vec<PathBuf> {
     // link.exe is at: <vs_root>\VC\Tools\MSVC\<ver>\bin\HostX64\x64\link.exe
     // MSVC libs are:  <vs_root>\VC\Tools\MSVC\<ver>\lib\x64\
     if let Some(msvc_ver_dir) = link_exe
-        .parent()   // x64
+        .parent() // x64
         .and_then(Path::parent) // HostX64
         .and_then(Path::parent) // bin
-        .and_then(Path::parent) // <ver>
+        .and_then(Path::parent)
+    // <ver>
     {
         let msvc_lib = msvc_ver_dir.join("lib").join("x64");
         if msvc_lib.is_dir() {
@@ -320,9 +328,7 @@ fn collect_msvc_lib_paths(link_exe: &Path) -> Vec<PathBuf> {
     // Find the Windows 10/11 SDK library paths.
     // Try the registry via `reg.exe query` first, then fall back to filesystem.
     let wk_root = find_windows_kits_root();
-    let wk = wk_root.unwrap_or_else(|| {
-        PathBuf::from(r"C:\Program Files (x86)\Windows Kits\10")
-    });
+    let wk = wk_root.unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)\Windows Kits\10"));
     let lib_root = wk.join("Lib");
     if lib_root.is_dir() {
         // Enumerate SDK versions, pick the newest one.
@@ -334,10 +340,14 @@ fn collect_msvc_lib_paths(link_exe: &Path) -> Vec<PathBuf> {
                 .collect();
             versions.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
             if let Some(sdk_ver) = versions.first() {
-                let um   = sdk_ver.join("um").join("x64");
+                let um = sdk_ver.join("um").join("x64");
                 let ucrt = sdk_ver.join("ucrt").join("x64");
-                if um.is_dir()   { paths.push(um); }
-                if ucrt.is_dir() { paths.push(ucrt); }
+                if um.is_dir() {
+                    paths.push(um);
+                }
+                if ucrt.is_dir() {
+                    paths.push(ucrt);
+                }
             }
         }
     }
@@ -401,8 +411,6 @@ fn run_linker_command(mut cmd: Command, name: &str) -> Result<(), String> {
 
     Err(format!(
         "Linker '{}' exited with status {}.\n{}",
-        name,
-        output.status,
-        detail
+        name, output.status, detail
     ))
 }

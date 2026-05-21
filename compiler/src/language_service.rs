@@ -85,14 +85,12 @@ pub fn analyze_document(
         Ok(parsed) => parsed.module,
         Err(error) => {
             analysis.diagnostics = match error {
-                crate::parser::workspace::ModuleParseError::Lexical(errors) => errors
-                    .into_iter()
-                    .map(CompilerError::Lexical)
-                    .collect(),
-                crate::parser::workspace::ModuleParseError::Parse(errors) => errors
-                    .into_iter()
-                    .map(CompilerError::Parse)
-                    .collect(),
+                crate::parser::workspace::ModuleParseError::Lexical(errors) => {
+                    errors.into_iter().map(CompilerError::Lexical).collect()
+                }
+                crate::parser::workspace::ModuleParseError::Parse(errors) => {
+                    errors.into_iter().map(CompilerError::Parse).collect()
+                }
             };
             return analysis;
         }
@@ -222,7 +220,10 @@ fn build_definition_index(module: &Module) -> HashMap<Span, DefinitionInfo> {
                     trait_impl.span,
                     DefinitionInfo {
                         span: trait_impl.span,
-                        label: format!("impl {} for {}", trait_impl.trait_name, trait_impl.type_name),
+                        label: format!(
+                            "impl {} for {}",
+                            trait_impl.trait_name, trait_impl.type_name
+                        ),
                     },
                 );
                 index_trait_impl(&mut definitions, trait_impl);
@@ -249,7 +250,11 @@ fn index_struct(definitions: &mut HashMap<Span, DefinitionInfo>, struct_def: &St
             field.span,
             DefinitionInfo {
                 span: field.span,
-                label: format!("field {}: {}", field.name, format_type_annotation(&field.ty)),
+                label: format!(
+                    "field {}: {}",
+                    field.name,
+                    format_type_annotation(&field.ty)
+                ),
             },
         );
     }
@@ -359,7 +364,10 @@ fn format_method(type_name: &str, method: &Method) -> String {
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    format!("fn {}::{}({}) -> {}", type_name, method.name, params, return_type)
+    format!(
+        "fn {}::{}({}) -> {}",
+        type_name, method.name, params, return_type
+    )
 }
 
 fn format_function_param(param: &FunctionParam) -> String {
@@ -475,17 +483,23 @@ fn hints_from_block(block: &Block, analysis: &DocumentAnalysis, out: &mut Vec<Le
     }
 }
 
-fn hints_from_statement(stmt: &Statement, analysis: &DocumentAnalysis, out: &mut Vec<LetInlayHint>) {
+fn hints_from_statement(
+    stmt: &Statement,
+    analysis: &DocumentAnalysis,
+    out: &mut Vec<LetInlayHint>,
+) {
     match &stmt.kind {
         StatementKind::Let(let_stmt) if let_stmt.ty.is_none() => {
-            if let Some(info) = analysis.symbols.get(&let_stmt.span) {
-                let ty_str = type_to_string(&info.ty);
-                if ty_str != "unknown" {
-                    out.push(LetInlayHint {
-                        let_span: let_stmt.span,
-                        name: let_stmt.name.clone(),
-                        ty: ty_str,
-                    });
+            if let crate::ast::Pattern::Identifier(name) = &let_stmt.pattern {
+                if let Some(info) = analysis.symbols.get(&let_stmt.span) {
+                    let ty_str = type_to_string(&info.ty);
+                    if ty_str != "unknown" {
+                        out.push(LetInlayHint {
+                            let_span: let_stmt.span,
+                            name: name.clone(),
+                            ty: ty_str,
+                        });
+                    }
                 }
             }
         }

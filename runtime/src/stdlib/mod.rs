@@ -702,7 +702,9 @@ extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
                         let mut offset = 0usize;
                         loop {
                             let b = *ptr.add(offset) as u8;
-                            if b == 0 { break; }
+                            if b == 0 {
+                                break;
+                            }
                             bytes.push(b);
                             offset += 1;
                         }
@@ -712,7 +714,9 @@ extern "C" fn std_io_print(ctx: *mut SpectraHostCallContext) -> i32 {
                         }
                     }
                 }
-                PRINT_TAG_BOOL => write!(stdout, "{}", if value != 0 { "true" } else { "false" }).is_ok(),
+                PRINT_TAG_BOOL => {
+                    write!(stdout, "{}", if value != 0 { "true" } else { "false" }).is_ok()
+                }
                 PRINT_TAG_FLOAT => {
                     let f = f64::from_bits(value as u64);
                     write!(stdout, "{}", f).is_ok()
@@ -786,7 +790,9 @@ extern "C" fn std_io_eprint(ctx: *mut SpectraHostCallContext) -> i32 {
                         let mut offset = 0usize;
                         loop {
                             let b = *ptr.add(offset) as u8;
-                            if b == 0 { break; }
+                            if b == 0 {
+                                break;
+                            }
                             bytes.push(b);
                             offset += 1;
                         }
@@ -796,7 +802,9 @@ extern "C" fn std_io_eprint(ctx: *mut SpectraHostCallContext) -> i32 {
                         }
                     }
                 }
-                PRINT_TAG_BOOL => write!(stderr, "{}", if value != 0 { "true" } else { "false" }).is_ok(),
+                PRINT_TAG_BOOL => {
+                    write!(stderr, "{}", if value != 0 { "true" } else { "false" }).is_ok()
+                }
                 PRINT_TAG_FLOAT => {
                     let f = f64::from_bits(value as u64);
                     write!(stderr, "{}", f).is_ok()
@@ -1963,7 +1971,11 @@ extern "C" fn std_string_substring(ctx: *mut SpectraHostCallContext) -> i32 {
                 let len = s.len() as i64;
                 let s_start = start.clamp(0, len) as usize;
                 let s_end = end.clamp(0, len) as usize;
-                let slice = if s_start <= s_end { &s[s_start..s_end] } else { "" };
+                let slice = if s_start <= s_end {
+                    &s[s_start..s_end]
+                } else {
+                    ""
+                };
                 alloc_spectra_string(slice)
             }
             None => alloc_spectra_string(""),
@@ -2120,7 +2132,9 @@ extern "C" fn std_string_count_occurrences(ctx: *mut SpectraHostCallContext) -> 
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
-            (Some(s), Some(sub)) if !sub.is_empty() => s.matches(sub.as_str()).count() as SpectraHostValue,
+            (Some(s), Some(sub)) if !sub.is_empty() => {
+                s.matches(sub.as_str()).count() as SpectraHostValue
+            }
             _ => 0,
         };
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
@@ -2383,10 +2397,7 @@ fn random_state() -> &'static Mutex<u64> {
         use std::time::{SystemTime, UNIX_EPOCH};
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| {
-                d.subsec_nanos() as u64
-                    ^ d.as_secs().wrapping_mul(6364136223846793005)
-            })
+            .map(|d| d.subsec_nanos() as u64 ^ d.as_secs().wrapping_mul(6364136223846793005))
             .unwrap_or(12345);
         Mutex::new(seed)
     })
@@ -2954,7 +2965,9 @@ extern "C" fn std_char_is_alpha(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let v = char::from_u32(args[0] as u32).map(|c| c.is_alphabetic()).unwrap_or(false);
+        let v = char::from_u32(args[0] as u32)
+            .map(|c| c.is_alphabetic())
+            .unwrap_or(false);
         results[0] = v as i64;
     }
     HOST_STATUS_SUCCESS
@@ -2974,7 +2987,9 @@ extern "C" fn std_char_is_digit(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let v = char::from_u32(args[0] as u32).map(|c| c.is_ascii_digit()).unwrap_or(false);
+        let v = char::from_u32(args[0] as u32)
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false);
         results[0] = v as i64;
     }
     HOST_STATUS_SUCCESS
@@ -2994,7 +3009,9 @@ extern "C" fn std_char_is_whitespace(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let v = char::from_u32(args[0] as u32).map(|c| c.is_whitespace()).unwrap_or(false);
+        let v = char::from_u32(args[0] as u32)
+            .map(|c| c.is_whitespace())
+            .unwrap_or(false);
         results[0] = v as i64;
     }
     HOST_STATUS_SUCCESS
@@ -3014,7 +3031,9 @@ extern "C" fn std_char_is_upper(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let v = char::from_u32(args[0] as u32).map(|c| c.is_uppercase()).unwrap_or(false);
+        let v = char::from_u32(args[0] as u32)
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
         results[0] = v as i64;
     }
     HOST_STATUS_SUCCESS
@@ -3034,7 +3053,9 @@ extern "C" fn std_char_is_lower(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let v = char::from_u32(args[0] as u32).map(|c| c.is_lowercase()).unwrap_or(false);
+        let v = char::from_u32(args[0] as u32)
+            .map(|c| c.is_lowercase())
+            .unwrap_or(false);
         results[0] = v as i64;
     }
     HOST_STATUS_SUCCESS
@@ -3100,7 +3121,9 @@ extern "C" fn std_char_is_alphanumeric(ctx: *mut SpectraHostCallContext) -> i32 
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let v = char::from_u32(args[0] as u32).map(|c| c.is_alphanumeric()).unwrap_or(false);
+        let v = char::from_u32(args[0] as u32)
+            .map(|c| c.is_alphanumeric())
+            .unwrap_or(false);
         results[0] = v as i64;
     }
     HOST_STATUS_SUCCESS
@@ -3524,7 +3547,10 @@ struct StdMap {
 
 impl MapRegistry {
     fn new() -> Self {
-        Self { next_id: 1, maps: HashMap::new() }
+        Self {
+            next_id: 1,
+            maps: HashMap::new(),
+        }
     }
 
     fn insert(&mut self, map: ManualBox<StdMap>) -> usize {
@@ -3593,7 +3619,10 @@ extern "C" fn std_map_set(ctx: *mut SpectraHostCallContext) -> i32 {
         let key = args[1];
         let value = args[2];
         let ok = with_map_registry(|reg| match reg.maps.get_mut(&handle) {
-            Some(m) => { m.data.insert(key, value); true }
+            Some(m) => {
+                m.data.insert(key, value);
+                true
+            }
             None => false,
         });
         if !ok {
@@ -3626,7 +3655,10 @@ extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let key = args[1];
         let value = with_map_registry(|reg| {
-            reg.maps.get(&handle).and_then(|m| m.data.get(&key).copied()).unwrap_or(0)
+            reg.maps
+                .get(&handle)
+                .and_then(|m| m.data.get(&key).copied())
+                .unwrap_or(0)
         });
         results[0] = value;
     }
@@ -3652,7 +3684,10 @@ extern "C" fn std_map_contains(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let key = args[1];
         let found = with_map_registry(|reg| {
-            reg.maps.get(&handle).map(|m| m.data.contains_key(&key)).unwrap_or(false)
+            reg.maps
+                .get(&handle)
+                .map(|m| m.data.contains_key(&key))
+                .unwrap_or(false)
         });
         results[0] = if found { 1 } else { 0 };
     }
@@ -3674,7 +3709,10 @@ extern "C" fn std_map_remove(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let key = args[1];
         let removed = with_map_registry(|reg| {
-            reg.maps.get_mut(&handle).and_then(|m| m.data.remove(&key)).unwrap_or(0)
+            reg.maps
+                .get_mut(&handle)
+                .and_then(|m| m.data.remove(&key))
+                .unwrap_or(0)
         });
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
@@ -3701,9 +3739,7 @@ extern "C" fn std_map_len(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
-        let len = with_map_registry(|reg| {
-            reg.maps.get(&handle).map(|m| m.data.len()).unwrap_or(0)
-        });
+        let len = with_map_registry(|reg| reg.maps.get(&handle).map(|m| m.data.len()).unwrap_or(0));
         results[0] = len as i64;
     }
     HOST_STATUS_SUCCESS
@@ -3748,7 +3784,9 @@ extern "C" fn std_map_free(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        with_map_registry(|reg| { reg.maps.remove(&handle); });
+        with_map_registry(|reg| {
+            reg.maps.remove(&handle);
+        });
     }
     HOST_STATUS_SUCCESS
 }

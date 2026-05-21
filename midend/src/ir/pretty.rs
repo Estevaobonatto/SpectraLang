@@ -172,7 +172,12 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                 format!("{} = alloca {}", fmt_value(*result), fmt_type(ty))
             }
             InstructionKind::Load { result, ptr, ty } => {
-                format!("{} = load({}) {}", fmt_value(*result), fmt_type(ty), fmt_value(*ptr))
+                format!(
+                    "{} = load({}) {}",
+                    fmt_value(*result),
+                    fmt_type(ty),
+                    fmt_value(*ptr)
+                )
             }
             InstructionKind::Store { ptr, value } => {
                 format!("store {}, {}", fmt_value(*ptr), fmt_value(*value))
@@ -247,7 +252,12 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     .join(", ");
                 match result {
                     Some(value) => {
-                        format!("{} = call_indirect {}({})", fmt_value(*value), fmt_value(*fn_ptr), arg_list)
+                        format!(
+                            "{} = call_indirect {}({})",
+                            fmt_value(*value),
+                            fmt_value(*fn_ptr),
+                            arg_list
+                        )
                     }
                     None => format!("call_indirect {}({})", fmt_value(*fn_ptr), arg_list),
                 }
@@ -261,20 +271,57 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::ConstBool { result, value } => {
                 format!("{} = const.bool {}", fmt_value(*result), value)
             }
-            InstructionKind::Cast { result, operand, from_ty, to_ty } => {
-                format!("{} = cast({} -> {}) {}", fmt_value(*result), fmt_type(from_ty), fmt_type(to_ty), fmt_value(*operand))
+            InstructionKind::Cast {
+                result,
+                operand,
+                from_ty,
+                to_ty,
+            } => {
+                format!(
+                    "{} = cast({} -> {}) {}",
+                    fmt_value(*result),
+                    fmt_type(from_ty),
+                    fmt_type(to_ty),
+                    fmt_value(*operand)
+                )
             }
-            InstructionKind::MakeDynFatPtr { result, data_ptr, vtable_ptr } => {
-                format!("{} = make_fat_ptr({}, {})", fmt_value(*result), fmt_value(*data_ptr), fmt_value(*vtable_ptr))
+            InstructionKind::MakeDynFatPtr {
+                result,
+                data_ptr,
+                vtable_ptr,
+            } => {
+                format!(
+                    "{} = make_fat_ptr({}, {})",
+                    fmt_value(*result),
+                    fmt_value(*data_ptr),
+                    fmt_value(*vtable_ptr)
+                )
             }
             InstructionKind::LoadDynDataPtr { result, fat_ptr } => {
-                format!("{} = load_data_ptr {}", fmt_value(*result), fmt_value(*fat_ptr))
+                format!(
+                    "{} = load_data_ptr {}",
+                    fmt_value(*result),
+                    fmt_value(*fat_ptr)
+                )
             }
             InstructionKind::LoadDynVtablePtr { result, fat_ptr } => {
-                format!("{} = load_vtable_ptr {}", fmt_value(*result), fmt_value(*fat_ptr))
+                format!(
+                    "{} = load_vtable_ptr {}",
+                    fmt_value(*result),
+                    fmt_value(*fat_ptr)
+                )
             }
-            InstructionKind::LoadVtableSlot { result, vtable_ptr, slot_index } => {
-                format!("{} = vtable_slot({}) {}", fmt_value(*result), slot_index, fmt_value(*vtable_ptr))
+            InstructionKind::LoadVtableSlot {
+                result,
+                vtable_ptr,
+                slot_index,
+            } => {
+                format!(
+                    "{} = vtable_slot({}) {}",
+                    fmt_value(*result),
+                    slot_index,
+                    fmt_value(*vtable_ptr)
+                )
             }
         };
 

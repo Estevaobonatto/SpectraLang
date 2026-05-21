@@ -16,7 +16,10 @@ impl Parser {
         // Check for `if let` before falling into the general match
         if matches!(&self.current().kind, TokenKind::Keyword(Keyword::If))
             && self.position + 1 < self.tokens.len()
-            && matches!(self.tokens[self.position + 1].kind, TokenKind::Keyword(Keyword::Let))
+            && matches!(
+                self.tokens[self.position + 1].kind,
+                TokenKind::Keyword(Keyword::Let)
+            )
         {
             self.advance(); // consume 'if'
             self.advance(); // consume 'let'
@@ -35,7 +38,10 @@ impl Parser {
         // Check for `while let` before the general while branch
         if matches!(&self.current().kind, TokenKind::Keyword(Keyword::While))
             && self.position + 1 < self.tokens.len()
-            && matches!(self.tokens[self.position + 1].kind, TokenKind::Keyword(Keyword::Let))
+            && matches!(
+                self.tokens[self.position + 1].kind,
+                TokenKind::Keyword(Keyword::Let)
+            )
         {
             self.advance(); // consume 'while'
             self.advance(); // consume 'let'
@@ -180,7 +186,10 @@ impl Parser {
         })
     }
 
-    fn parse_if_let_statement(&mut self, start_span: crate::span::Span) -> Result<StatementKind, ()> {
+    fn parse_if_let_statement(
+        &mut self,
+        start_span: crate::span::Span,
+    ) -> Result<StatementKind, ()> {
         // `if let Pattern = expr { ... } [else { ... }]`
         // 'if' and 'let' are already consumed
         let pattern = self.parse_pattern()?;
@@ -230,8 +239,9 @@ impl Parser {
     }
 
     fn parse_let_statement(&mut self) -> Result<StatementKind, ()> {
-        // Expect: let <name> [: type] [= expr];
-        let (name, name_span) = self.consume_identifier("Expected variable name after 'let'")?;
+        // Expect: let <pattern> [: type] [= expr];
+        let pattern_span = self.current().span;
+        let pattern = self.parse_pattern()?;
 
         // Optional type annotation
         let ty = if self.check_symbol(':') {
@@ -252,8 +262,8 @@ impl Parser {
         self.consume_symbol(';', "Expected ';' after let statement")?;
 
         Ok(StatementKind::Let(LetStatement {
-            name,
-            span: name_span,
+            pattern,
+            span: pattern_span,
             ty,
             value,
         }))

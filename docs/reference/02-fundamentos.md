@@ -125,10 +125,10 @@ pub fn main() {
 ## 3. Tipos Primitivos / Primitive Types
 
 **PT-BR:**  
-SpectraLang tem 5 tipos primitivos e o tipo `unit` para ausência de valor:
+SpectraLang tem 5 tipos primitivos principais, aliases numéricos e o tipo `unit` para ausência de valor:
 
 **EN-US:**  
-SpectraLang has 5 primitive types and the `unit` type for absence of value:
+SpectraLang has 5 main primitive types, numeric aliases, and the `unit` type for absence of value:
 
 | Tipo / Type | Descrição PT-BR | Description EN-US | Exemplos / Examples |
 |---|---|---|---|
@@ -139,13 +139,23 @@ SpectraLang has 5 primitive types and the `unit` type for absence of value:
 | `char` | Caractere Unicode único | Single Unicode character | `'a'`, `'\n'`, `'Z'` |
 | `unit` | Ausência de valor (implícito) | Absence of value (implicit) | (retorno de funções void) |
 
+Aliases numéricos aceitos atualmente:
+
+| Família / Family | Tipos / Types | ABI atual / Current ABI |
+|---|---|---|
+| Inteiros com sinal / Signed integers | `i8`, `i16`, `i32`, `i64`, `isize` | Canonicalizados para `int` |
+| Inteiros sem sinal / Unsigned integers | `u8`, `u16`, `u32`, `u64`, `usize` | Canonicalizados para `int` |
+| Floats | `f16`, `bf16`, `f32`, `f64` | Canonicalizados para `float` |
+
+Esses aliases deixam a superfície da linguagem pronta para código científico, mas a ABI alpha ainda usa `int` e `float` como representação canônica. Semântica de largura exata, overflow e armazenamento compacto são trabalho de backend/runtime futuro.
+
 ### Promoção Numérica / Numeric Promotion
 
 **PT-BR:**  
-A única conversão implícita permitida em SpectraLang é o **alargamento de `int` para `float`**. Todas as outras conversões devem ser explícitas via `std.convert`.
+A única conversão implícita permitida em SpectraLang é o **alargamento de `int` para `float`**. Todas as outras conversões devem ser explícitas via `as` quando suportado ou via `std.convert`.
 
 **EN-US:**  
-The only implicit conversion allowed in SpectraLang is **widening from `int` to `float`**. All other conversions must be explicit via `std.convert`.
+The only implicit conversion allowed in SpectraLang is **widening from `int` to `float`**. All other conversions must be explicit via supported `as` casts or `std.convert`.
 
 ```spectra
 module tipos;

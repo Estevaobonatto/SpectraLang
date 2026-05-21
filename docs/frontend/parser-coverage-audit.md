@@ -53,15 +53,17 @@ _Branch: devlop_
 
 ### Pattern Ergonomics
 - `match` patterns cover wildcard (`_`), identifier bindings, literal patterns, enum variants with tuple payloads, and struct-style enum patterns.
+- `let` supports tuple, struct, and enum destructuring patterns in the validated surface.
 - `if let` and `while let` are fully parsed and lowered.
-- OR-patterns (`A | B`) and guard clauses remain unsupported in `match`.
+- OR-patterns (`A | B`) are supported in the validated match surface.
+- Match guards remain unsupported.
 
 ## Remaining Gaps
 1. Trait and impl generics are still narrower than the long-term planned surface.
-2. OR-patterns and `match` guards remain unsupported.
+2. `match` guards remain unsupported.
 3. Control-flow keywords flagged in docs (`foreach`, `repeat`, `until`, `yield`, `goto`) remain deferred.
 
 ## Suggested Follow-Up Tasks
 1. Extend trait and impl parsing to accept the remaining generic forms from the roadmap.
 2. Introduce parser branches for the reserved control-flow keywords that emit deliberate "deferred" diagnostics instead of generic errors.
-3. Expand pattern parsing with OR-patterns and guards to align with planned match ergonomics.
+3. Expand pattern parsing with guards to align with planned match ergonomics.

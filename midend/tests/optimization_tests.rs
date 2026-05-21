@@ -366,7 +366,10 @@ fn test_dead_code_elimination_preserves_cast_operands() {
     };
 
     let modified = dead_code_elimination::run(&mut module);
-    assert!(!modified, "DCE should preserve cast chains that feed a return");
+    assert!(
+        !modified,
+        "DCE should preserve cast chains that feed a return"
+    );
 
     let instructions = &module.functions[0].blocks[0].instructions;
     assert_eq!(instructions.len(), 2, "Cast operand and cast must remain");

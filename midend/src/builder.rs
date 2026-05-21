@@ -1,4 +1,4 @@
-﻿// IR Builder - constructs IR from AST
+// IR Builder - constructs IR from AST
 
 use crate::ir::{Function, InstructionKind, Terminator, Type, Value};
 
@@ -111,7 +111,11 @@ impl IRBuilder {
     }
 
     pub fn build_load(&self, func: &mut Function, ptr: Value) -> Value {
-        self.try_emit(func, |result| InstructionKind::Load { result, ptr, ty: crate::ir::Type::Int })
+        self.try_emit(func, |result| InstructionKind::Load {
+            result,
+            ptr,
+            ty: crate::ir::Type::Int,
+        })
     }
 
     pub fn build_load_typed(&self, func: &mut Function, ptr: Value, ty: crate::ir::Type) -> Value {
@@ -257,7 +261,10 @@ impl IRBuilder {
 
     /// Emit a `FuncAddr` instruction: returns the address of `function` as an i64.
     pub fn build_func_addr(&self, func: &mut Function, function: String) -> Value {
-        self.try_emit(func, |result| InstructionKind::FuncAddr { result, function })
+        self.try_emit(func, |result| InstructionKind::FuncAddr {
+            result,
+            function,
+        })
     }
 
     /// Emit a `CallIndirect` instruction: call through a function pointer.
@@ -277,7 +284,11 @@ impl IRBuilder {
             return None;
         };
         let has_return = sig_return != crate::ir::Type::Void;
-        let result = if has_return { Some(func.next_value()) } else { None };
+        let result = if has_return {
+            Some(func.next_value())
+        } else {
+            None
+        };
         func.blocks[pos].add_instruction(InstructionKind::CallIndirect {
             result,
             fn_ptr,
@@ -289,28 +300,63 @@ impl IRBuilder {
     }
 
     /// Emit a `Cast` instruction: convert between numeric types or int↔char.
-    pub fn build_cast(&self, func: &mut Function, operand: Value, from_ty: Type, to_ty: Type) -> Value {
-        self.try_emit(func, |result| InstructionKind::Cast { result, operand, from_ty, to_ty })
+    pub fn build_cast(
+        &self,
+        func: &mut Function,
+        operand: Value,
+        from_ty: Type,
+        to_ty: Type,
+    ) -> Value {
+        self.try_emit(func, |result| InstructionKind::Cast {
+            result,
+            operand,
+            from_ty,
+            to_ty,
+        })
     }
 
     /// Build a fat pointer for `dyn Trait` from (data_ptr, vtable_ptr).
-    pub fn build_make_dyn_fat_ptr(&self, func: &mut Function, data_ptr: Value, vtable_ptr: Value) -> Value {
-        self.try_emit(func, |result| InstructionKind::MakeDynFatPtr { result, data_ptr, vtable_ptr })
+    pub fn build_make_dyn_fat_ptr(
+        &self,
+        func: &mut Function,
+        data_ptr: Value,
+        vtable_ptr: Value,
+    ) -> Value {
+        self.try_emit(func, |result| InstructionKind::MakeDynFatPtr {
+            result,
+            data_ptr,
+            vtable_ptr,
+        })
     }
 
     /// Load the data pointer out of a fat pointer.
     pub fn build_load_dyn_data_ptr(&self, func: &mut Function, fat_ptr: Value) -> Value {
-        self.try_emit(func, |result| InstructionKind::LoadDynDataPtr { result, fat_ptr })
+        self.try_emit(func, |result| InstructionKind::LoadDynDataPtr {
+            result,
+            fat_ptr,
+        })
     }
 
     /// Load the vtable pointer out of a fat pointer.
     pub fn build_load_dyn_vtable_ptr(&self, func: &mut Function, fat_ptr: Value) -> Value {
-        self.try_emit(func, |result| InstructionKind::LoadDynVtablePtr { result, fat_ptr })
+        self.try_emit(func, |result| InstructionKind::LoadDynVtablePtr {
+            result,
+            fat_ptr,
+        })
     }
 
     /// Load a function pointer from a vtable at the given slot index.
-    pub fn build_load_vtable_slot(&self, func: &mut Function, vtable_ptr: Value, slot_index: usize) -> Value {
-        self.try_emit(func, |result| InstructionKind::LoadVtableSlot { result, vtable_ptr, slot_index })
+    pub fn build_load_vtable_slot(
+        &self,
+        func: &mut Function,
+        vtable_ptr: Value,
+        slot_index: usize,
+    ) -> Value {
+        self.try_emit(func, |result| InstructionKind::LoadVtableSlot {
+            result,
+            vtable_ptr,
+            slot_index,
+        })
     }
 }
 

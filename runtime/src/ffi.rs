@@ -285,9 +285,7 @@ pub extern "C" fn spectra_rt_std_register() {
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_frame_enter() -> usize {
     let table = allocation_table();
-    let mut guard = table
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
     guard.push_frame()
 }
 
@@ -295,9 +293,7 @@ pub extern "C" fn spectra_rt_manual_frame_enter() -> usize {
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_frame_exit(frame_id: usize) {
     let table = allocation_table();
-    let mut guard = table
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
     let allocations = guard.pop_frame(frame_id);
 
     for ptr in allocations {
@@ -324,9 +320,7 @@ pub extern "C" fn spectra_rt_manual_alloc(size: usize) -> *mut u8 {
     let ptr_value = ptr as usize;
 
     let table = allocation_table();
-    let mut guard = table
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
 
     let frame_id = guard.current_frame_mut().map(|frame| frame.id).unwrap_or(0);
 
@@ -354,9 +348,7 @@ pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {
 
     let ptr_value = ptr as usize;
     let table = allocation_table();
-    let mut guard = table
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(entry) = guard.allocations.remove(&ptr_value) {
         guard.remove_from_frame(entry.frame_id, ptr_value);
@@ -397,7 +389,12 @@ pub extern "C" fn spectra_rt_manual_escape(ptr: *mut u8, current_frame_id: usize
         entry.frame_id = parent_frame_id;
     }
 
-    if let Some(parent) = guard.frames.iter_mut().rev().find(|f| f.id == parent_frame_id) {
+    if let Some(parent) = guard
+        .frames
+        .iter_mut()
+        .rev()
+        .find(|f| f.id == parent_frame_id)
+    {
         parent.allocations.push(ptr_value);
     }
 }
@@ -406,9 +403,7 @@ pub extern "C" fn spectra_rt_manual_escape(ptr: *mut u8, current_frame_id: usize
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_clear() {
     let table = allocation_table();
-    let mut guard = table
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
     guard.clear_all();
 }
 
@@ -629,7 +624,10 @@ pub extern "C" fn spectra_rt_maybe_pause() {
         if standalone {
             use std::io::{Read, Write};
             let _ = std::io::stdout().flush();
-            let _ = write!(std::io::stderr(), "\nAperte qualquer tecla para continuar...");
+            let _ = write!(
+                std::io::stderr(),
+                "\nAperte qualquer tecla para continuar..."
+            );
             let _ = std::io::stderr().flush();
             // Read one byte — waits until the user presses Enter (or any key
             // that produces input on the console's stdin stream).

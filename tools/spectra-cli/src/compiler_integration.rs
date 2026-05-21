@@ -464,11 +464,12 @@ impl SpectraCompiler {
             {
                 println!("pass timings:");
                 for entry in &report.artifacts.passes {
-                    let status = if entry.modified { "modified" } else { "no change" };
-                    println!(
-                        "  {:<28} {:>10?}  {}",
-                        entry.name, entry.duration, status
-                    );
+                    let status = if entry.modified {
+                        "modified"
+                    } else {
+                        "no change"
+                    };
+                    println!("  {:<28} {:>10?}  {}", entry.name, entry.duration, status);
                 }
             }
 
@@ -499,7 +500,11 @@ impl SpectraCompiler {
     }
 
     /// Compile a source file to a native object file. Returns the raw object bytes.
-    pub fn compile_to_object_bytes(&mut self, source: &str, filename: &str) -> Result<Vec<u8>, String> {
+    pub fn compile_to_object_bytes(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<Vec<u8>, String> {
         let report = self
             .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
@@ -524,7 +529,9 @@ impl SpectraCompiler {
         let aot = AotCodeGenerator::new();
         aot.compile_to_object(
             &report.artifacts.ir_module,
-            &AotOptions { emit_executable: true },
+            &AotOptions {
+                emit_executable: true,
+            },
         )
     }
 
@@ -654,11 +661,12 @@ impl SpectraCompiler {
         if self.options.collect_metrics && !artifacts.passes.is_empty() {
             println!("pass timings:");
             for report in &artifacts.passes {
-                let status = if report.modified { "modified" } else { "no change" };
-                println!(
-                    "  {:<28} {:>10?}  {}",
-                    report.name, report.duration, status
-                );
+                let status = if report.modified {
+                    "modified"
+                } else {
+                    "no change"
+                };
+                println!("  {:<28} {:>10?}  {}", report.name, report.duration, status);
             }
         }
 
@@ -873,11 +881,7 @@ fn render_span_diagnostic(
     let _ = writeln!(
         &mut buf,
         "  {}-->{} {}:{}:{}",
-        c.arrow,
-        c.reset,
-        filename,
-        span.start_location.line,
-        span.start_location.column
+        c.arrow, c.reset, filename, span.start_location.line, span.start_location.column
     );
 
     if let Some(raw_line) = get_source_line(source, span.start_location.line) {
@@ -886,7 +890,14 @@ fn render_span_diagnostic(
         let pipe = format!("{}|{}", c.gutter, c.reset);
 
         // Empty gutter line
-        let _ = writeln!(&mut buf, "  {}{:>width$} {}", c.gutter, "", c.reset, width = gutter_width);
+        let _ = writeln!(
+            &mut buf,
+            "  {}{:>width$} {}",
+            c.gutter,
+            "",
+            c.reset,
+            width = gutter_width
+        );
 
         // Source line
         let _ = writeln!(
@@ -921,9 +932,7 @@ fn render_span_diagnostic(
         let _ = writeln!(
             &mut buf,
             "  {}= note:{} spans lines {}–{}",
-            c.note_label, c.reset,
-            span.start_location.line,
-            span.end_location.line
+            c.note_label, c.reset, span.start_location.line, span.end_location.line
         );
     }
 
@@ -944,9 +953,7 @@ fn render_lint_warning(diagnostic: &LintDiagnostic, filename: &str, source: &str
     if let Some(secondary) = diagnostic.secondary_span {
         let related = format!(
             "related location: {}:{}:{}",
-            filename,
-            secondary.start_location.line,
-            secondary.start_location.column
+            filename, secondary.start_location.line, secondary.start_location.column
         );
 
         if context.is_empty() {
@@ -957,7 +964,11 @@ fn render_lint_warning(diagnostic: &LintDiagnostic, filename: &str, source: &str
         }
     }
 
-    let context_owned = if context.is_empty() { None } else { Some(context) };
+    let context_owned = if context.is_empty() {
+        None
+    } else {
+        Some(context)
+    };
     let context_ref = context_owned.as_deref();
 
     render_span_diagnostic(

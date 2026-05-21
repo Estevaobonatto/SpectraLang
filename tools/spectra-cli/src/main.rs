@@ -1591,7 +1591,10 @@ fn create_new_project(options: NewProjectOptions) -> CliResult<()> {
 
     println!("     Created \"{}\" project", path.display());
     println!("       entry: {}", main_source_path.display());
-    println!("         run: spectra run \"{}\"", main_source_path.display());
+    println!(
+        "         run: spectra run \"{}\"",
+        main_source_path.display()
+    );
 
     Ok(())
 }
@@ -2183,10 +2186,7 @@ fn print_experimental_features() {
 
 fn usage_error(message: &str) -> CliError {
     let trimmed = message.trim_end();
-    let formatted = format!(
-        "{}\nUse 'spectra --help' for usage information.",
-        trimmed
-    );
+    let formatted = format!("{}\nUse 'spectra --help' for usage information.", trimmed);
     CliError::usage(formatted)
 }
 
@@ -2248,8 +2248,7 @@ mod tests {
         .into_iter()
         .peekable();
 
-        let error =
-            parse_compilation_invocation(&mut args, BuildCommand::Run, false).unwrap_err();
+        let error = parse_compilation_invocation(&mut args, BuildCommand::Run, false).unwrap_err();
 
         assert!(error.message.contains("--json"));
         assert_eq!(error.code.as_i32(), ExitCode::Usage.as_i32());

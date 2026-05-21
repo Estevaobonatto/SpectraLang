@@ -8,7 +8,7 @@ pub mod workspace;
 use crate::{
     ast::{Module, TypeAnnotation, TypeAnnotationKind},
     error::ParseError,
-    span::{Span, Location},
+    span::{Location, Span},
     token::{Keyword, Token, TokenKind},
 };
 use std::collections::{HashMap, HashSet};
@@ -55,9 +55,7 @@ impl Parser {
     // === Token Navigation Methods ===
 
     fn current(&self) -> &Token {
-        self.tokens
-            .get(self.position)
-            .unwrap_or(&self.eof_sentinel)
+        self.tokens.get(self.position).unwrap_or(&self.eof_sentinel)
     }
 
     fn advance(&mut self) {

@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Block, ConstDecl, Function, FunctionParam, ImplBlock, Item, Method, Parameter,
-        StaticDecl, TraitDeclaration, TraitImpl, TraitMethod, TypeAlias, TypeParameter, Visibility,
+        Block, ConstDecl, Function, FunctionParam, ImplBlock, Item, Method, Parameter, StaticDecl,
+        TraitDeclaration, TraitImpl, TraitMethod, TypeAlias, TypeParameter, Visibility,
     },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
@@ -19,8 +19,11 @@ impl Parser {
             }
             crate::token::TokenKind::Keyword(Keyword::Pub) => {
                 self.advance(); // consume 'pub'
-                // `pub import ...` is a re-export: imported symbols are exposed to callers.
-                if matches!(&self.current().kind, crate::token::TokenKind::Keyword(Keyword::Import)) {
+                                // `pub import ...` is a re-export: imported symbols are exposed to callers.
+                if matches!(
+                    &self.current().kind,
+                    crate::token::TokenKind::Keyword(Keyword::Import)
+                ) {
                     let import = self.parse_import(true)?;
                     return Ok(Item::Import(import));
                 }
@@ -28,8 +31,11 @@ impl Parser {
             }
             crate::token::TokenKind::Keyword(Keyword::Internal) => {
                 self.advance(); // consume 'internal'
-                // `internal import ...` re-exports within the same package only.
-                if matches!(&self.current().kind, crate::token::TokenKind::Keyword(Keyword::Import)) {
+                                // `internal import ...` re-exports within the same package only.
+                if matches!(
+                    &self.current().kind,
+                    crate::token::TokenKind::Keyword(Keyword::Import)
+                ) {
                     let mut import = self.parse_import(false)?;
                     // Mark as internal re-export (visible only within the package).
                     // We reuse the is_reexport flag and rely on the visibility of the
@@ -84,15 +90,9 @@ impl Parser {
                 Ok(Item::Enum(enum_item))
             }
             crate::token::TokenKind::Keyword(Keyword::Impl) => self.parse_impl_block(),
-            crate::token::TokenKind::Keyword(Keyword::Type) => {
-                self.parse_type_alias(visibility)
-            }
-            crate::token::TokenKind::Keyword(Keyword::Const) => {
-                self.parse_const_decl(visibility)
-            }
-            crate::token::TokenKind::Keyword(Keyword::Static) => {
-                self.parse_static_decl(visibility)
-            }
+            crate::token::TokenKind::Keyword(Keyword::Type) => self.parse_type_alias(visibility),
+            crate::token::TokenKind::Keyword(Keyword::Const) => self.parse_const_decl(visibility),
+            crate::token::TokenKind::Keyword(Keyword::Static) => self.parse_static_decl(visibility),
             _ => {
                 self.error("Expected function, struct, enum, or impl declaration");
                 Err(())
@@ -695,7 +695,8 @@ impl Parser {
     ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
-        const BUILTIN_OP_TRAITS: &[&str] = &["Add", "Sub", "Mul", "Div", "Rem", "Eq", "Ord", "Drop"];
+        const BUILTIN_OP_TRAITS: &[&str] =
+            &["Add", "Sub", "Mul", "Div", "Rem", "Eq", "Ord", "Drop"];
         let is_builtin_trait = BUILTIN_OP_TRAITS.contains(&trait_name.as_str());
         if !self.trait_signatures.contains_key(&trait_name) && !is_builtin_trait {
             let message = format!(
@@ -1114,10 +1115,7 @@ impl Parser {
                     return true;
                 }
 
-                lhs.len() == 1
-                    && lhs[0] == "Self"
-                    && rhs.len() == 1
-                    && rhs[0] == impl_type_name
+                lhs.len() == 1 && lhs[0] == "Self" && rhs.len() == 1 && rhs[0] == impl_type_name
             }
             (TypePattern::Tuple(lhs), TypePattern::Tuple(rhs)) => {
                 lhs.len() == rhs.len()

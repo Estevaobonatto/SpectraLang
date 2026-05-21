@@ -1,0 +1,7 @@
+// Deve falhar: bool nao pode ser convertido para int com as.
+module numeric_invalid_cast;
+
+pub fn main() -> int {
+    let flag = true;
+    return flag as int;
+}

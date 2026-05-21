@@ -33,7 +33,11 @@ pub(crate) fn intern_host_name(
     let len = boxed.len();
     host_name_storage.push(boxed);
 
-    let record = HostNameRecord { ptr, len, data_id: None };
+    let record = HostNameRecord {
+        ptr,
+        len,
+        data_id: None,
+    };
     host_name_data.insert(name.to_string(), record);
     record
 }
@@ -577,7 +581,9 @@ impl CodeGenerator {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
                 let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
-                    builder.ins().fcmp(FloatCC::LessThanOrEqual, lhs_val, rhs_val)
+                    builder
+                        .ins()
+                        .fcmp(FloatCC::LessThanOrEqual, lhs_val, rhs_val)
                 } else {
                     builder
                         .ins()
@@ -603,7 +609,9 @@ impl CodeGenerator {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
                 let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
-                    builder.ins().fcmp(FloatCC::GreaterThanOrEqual, lhs_val, rhs_val)
+                    builder
+                        .ins()
+                        .fcmp(FloatCC::GreaterThanOrEqual, lhs_val, rhs_val)
                 } else {
                     builder
                         .ins()
@@ -657,7 +665,9 @@ impl CodeGenerator {
             InstructionKind::Load { result, ptr, ty } => {
                 let ptr_val = get_value(ptr)?;
                 let cranelift_ty = Self::ir_type_to_cranelift(ty)?;
-                let result_val = builder.ins().load(cranelift_ty, MemFlags::new(), ptr_val, 0);
+                let result_val = builder
+                    .ins()
+                    .load(cranelift_ty, MemFlags::new(), ptr_val, 0);
                 value_map.insert(result.id, result_val);
             }
 
@@ -847,7 +857,9 @@ impl CodeGenerator {
                     .ok_or_else(|| format!("Function '{}' not found", function))?;
 
                 let func_ref = module.declare_func_in_func(func_id, builder.func);
-                let func_addr = builder.ins().func_addr(module.target_config().pointer_type(), func_ref);
+                let func_addr = builder
+                    .ins()
+                    .func_addr(module.target_config().pointer_type(), func_ref);
                 value_map.insert(result.id, func_addr);
             }
 
@@ -893,7 +905,12 @@ impl CodeGenerator {
             }
 
             // Cast instruction
-            InstructionKind::Cast { result, operand, from_ty, to_ty } => {
+            InstructionKind::Cast {
+                result,
+                operand,
+                from_ty,
+                to_ty,
+            } => {
                 let operand_val = get_value(operand)?;
                 let operand_cl_ty = builder.func.dfg.value_type(operand_val);
                 let cl_val = match (from_ty, to_ty) {
@@ -903,38 +920,37 @@ impl CodeGenerator {
                     (IRType::Float, IRType::Int) => {
                         builder.ins().fcvt_to_sint_sat(types::I64, operand_val)
                     }
-                    (IRType::Char, IRType::Int) => {
-                        match operand_cl_ty {
-                            types::I8 | types::I16 | types::I32 => {
-                                builder.ins().uextend(types::I64, operand_val)
-                            }
-                            types::I64 => operand_val,
-                            _ => operand_val,
+                    (IRType::Char, IRType::Int) => match operand_cl_ty {
+                        types::I8 | types::I16 | types::I32 => {
+                            builder.ins().uextend(types::I64, operand_val)
                         }
-                    }
-                    (IRType::Int, IRType::Char) => {
-                        match operand_cl_ty {
-                            types::I64 => builder.ins().ireduce(types::I32, operand_val),
-                            types::I32 => operand_val,
-                            types::I8 | types::I16 => {
-                                builder.ins().uextend(types::I32, operand_val)
-                            }
-                            _ => operand_val,
-                        }
-                    }
+                        types::I64 => operand_val,
+                        _ => operand_val,
+                    },
+                    (IRType::Int, IRType::Char) => match operand_cl_ty {
+                        types::I64 => builder.ins().ireduce(types::I32, operand_val),
+                        types::I32 => operand_val,
+                        types::I8 | types::I16 => builder.ins().uextend(types::I32, operand_val),
+                        _ => operand_val,
+                    },
                     _ => operand_val, // same-type or struct->dyn: pass through
                 };
                 value_map.insert(result.id, cl_val);
             }
 
             // dyn Trait fat pointer operations
-            InstructionKind::MakeDynFatPtr { result, data_ptr, vtable_ptr } => {
+            InstructionKind::MakeDynFatPtr {
+                result,
+                data_ptr,
+                vtable_ptr,
+            } => {
                 // Allocate 16 bytes on stack: [data_ptr i64, vtable_ptr i64]
-                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    16,
-                    0,
-                ));
+                let slot =
+                    builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        16,
+                        0,
+                    ));
                 let data_val = get_value(data_ptr)?;
                 let vtable_val = get_value(vtable_ptr)?;
                 builder.ins().stack_store(data_val, slot, 0);
@@ -945,20 +961,39 @@ impl CodeGenerator {
 
             InstructionKind::LoadDynDataPtr { result, fat_ptr } => {
                 let ptr_val = get_value(fat_ptr)?;
-                let data = builder.ins().load(types::I64, cranelift_codegen::ir::MemFlags::new(), ptr_val, 0);
+                let data = builder.ins().load(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    ptr_val,
+                    0,
+                );
                 value_map.insert(result.id, data);
             }
 
             InstructionKind::LoadDynVtablePtr { result, fat_ptr } => {
                 let ptr_val = get_value(fat_ptr)?;
-                let vtable = builder.ins().load(types::I64, cranelift_codegen::ir::MemFlags::new(), ptr_val, 8);
+                let vtable = builder.ins().load(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    ptr_val,
+                    8,
+                );
                 value_map.insert(result.id, vtable);
             }
 
-            InstructionKind::LoadVtableSlot { result, vtable_ptr, slot_index } => {
+            InstructionKind::LoadVtableSlot {
+                result,
+                vtable_ptr,
+                slot_index,
+            } => {
                 let vptr_val = get_value(vtable_ptr)?;
                 let offset = (*slot_index as i32) * 8;
-                let fn_ptr = builder.ins().load(types::I64, cranelift_codegen::ir::MemFlags::new(), vptr_val, offset);
+                let fn_ptr = builder.ins().load(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    vptr_val,
+                    offset,
+                );
                 value_map.insert(result.id, fn_ptr);
             }
 
@@ -1093,7 +1128,9 @@ impl CodeGenerator {
                     .ok_or_else(|| format!("Block {} not found", false_block))?;
                 let true_args = get_phi_args(*true_block, current_block_id, phi_map, value_map)?;
                 let false_args = get_phi_args(*false_block, current_block_id, phi_map, value_map)?;
-                builder.ins().brif(cond_val, true_bb, &true_args, false_bb, &false_args);
+                builder
+                    .ins()
+                    .brif(cond_val, true_bb, &true_args, false_bb, &false_args);
             }
 
             Terminator::Switch {
@@ -1122,11 +1159,15 @@ impl CodeGenerator {
 
                     if idx < cases.len() - 1 {
                         let next_check = builder.create_block();
-                        builder.ins().brif(cmp, target_bb, &target_args, next_check, &[]);
+                        builder
+                            .ins()
+                            .brif(cmp, target_bb, &target_args, next_check, &[]);
                         builder.seal_block(next_check);
                         builder.switch_to_block(next_check);
                     } else {
-                        builder.ins().brif(cmp, target_bb, &target_args, default_bb, &default_args);
+                        builder
+                            .ins()
+                            .brif(cmp, target_bb, &target_args, default_bb, &default_args);
                     }
                 }
 

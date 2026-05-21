@@ -19,9 +19,8 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 const COMMAND_RUN_DIAGNOSTICS: &str = "spectra.diagnostics.run";
 const COMMAND_LINT_WORKSPACE: &str = "spectra.lintWorkspace";
 const KEYWORDS: &[&str] = &[
-    "fn", "let", "return", "if", "else", "match", "while", "for", "loop", "break",
-    "continue", "struct", "enum", "impl", "trait", "import", "pub", "internal",
-    "true", "false", "self",
+    "fn", "let", "return", "if", "else", "match", "while", "for", "loop", "break", "continue",
+    "struct", "enum", "impl", "trait", "import", "pub", "internal", "true", "false", "self",
 ];
 
 #[derive(Debug, Clone)]
@@ -99,7 +98,9 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
@@ -117,17 +118,21 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
                     ..Default::default()
                 }),
-                code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
-                    code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
-                    ..Default::default()
-                })),
-                semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
-                        legend: semantic_tokens_legend(),
-                        range: Some(false),
-                        full: Some(SemanticTokensFullOptions::Bool(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
                         ..Default::default()
-                    }),
+                    },
+                )),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: semantic_tokens_legend(),
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            ..Default::default()
+                        },
+                    ),
                 ),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![
@@ -191,12 +196,8 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.analyze_and_store(
-            params.text_document.uri,
-            params.text_document.text,
-            false,
-        )
-        .await;
+        self.analyze_and_store(params.text_document.uri, params.text_document.text, false)
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -236,13 +237,19 @@ impl LanguageServer for Backend {
             self.analyze_and_store(params.text_document.uri, text, include_lints)
                 .await;
         } else {
-            self.reanalyze_document(&params.text_document.uri, include_lints).await;
+            self.reanalyze_document(&params.text_document.uri, include_lints)
+                .await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.state.documents.write().await.remove(&params.text_document.uri);
-        self.refresh_cache_from_disk(&params.text_document.uri).await;
+        self.state
+            .documents
+            .write()
+            .await
+            .remove(&params.text_document.uri);
+        self.refresh_cache_from_disk(&params.text_document.uri)
+            .await;
         self.client
             .publish_diagnostics(params.text_document.uri, Vec::new(), None)
             .await;
@@ -250,7 +257,14 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let text_position = params.text_document_position_params;
-        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&text_position.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
 
@@ -265,7 +279,11 @@ impl LanguageServer for Backend {
             .as_ref()
             .map(|definition| definition.label.clone())
             .unwrap_or_else(|| spectra_compiler::language_service::type_to_string(&symbol.info.ty));
-        let scope = if symbol.info.is_local { "local" } else { "global" };
+        let scope = if symbol.info.is_local {
+            "local"
+        } else {
+            "global"
+        };
         let type_label = spectra_compiler::language_service::type_to_string(&symbol.info.ty);
         let contents = HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
@@ -286,7 +304,14 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let text_position = params.text_document_position_params;
-        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&text_position.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
 
@@ -305,15 +330,22 @@ impl LanguageServer for Backend {
         })))
     }
 
-    async fn formatting(
-        &self,
-        params: DocumentFormattingParams,
-    ) -> Result<Option<Vec<TextEdit>>> {
-        let Some(document) = self.state.documents.read().await.get(&params.text_document.uri).cloned() else {
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
 
-        match self.format_document(&params.text_document.uri, &document.text).await {
+        match self
+            .format_document(&params.text_document.uri, &document.text)
+            .await
+        {
             Ok(Some(formatted)) if formatted != document.text => {
                 let edit = TextEdit {
                     range: full_document_range(&document.text),
@@ -331,7 +363,14 @@ impl LanguageServer for Backend {
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let text_position = params.text_document_position;
-        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&text_position.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
 
@@ -368,7 +407,11 @@ impl LanguageServer for Backend {
             }
         }
 
-        if include_declaration && !locations.iter().any(|location| location.range == span_to_range(definition_span)) {
+        if include_declaration
+            && !locations
+                .iter()
+                .any(|location| location.range == span_to_range(definition_span))
+        {
             let location = Location {
                 uri: current_uri.clone(),
                 range: declaration_range,
@@ -408,14 +451,23 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let Some(document) = self.state.documents.read().await.get(&params.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
         let Some(module) = &document.analysis.module else {
             return Ok(None);
         };
 
-        Ok(Some(DocumentSymbolResponse::Nested(document_symbols(module))))
+        Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
+            module,
+        ))))
     }
 
     async fn symbol(
@@ -432,7 +484,14 @@ impl LanguageServer for Backend {
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
         let text_position = params.text_document_position_params;
-        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&text_position.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
 
@@ -475,7 +534,14 @@ impl LanguageServer for Backend {
 
     async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
         let text_position = params.text_document_position_params;
-        let Some(document) = self.state.documents.read().await.get(&text_position.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&text_position.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
         let Some(module) = &document.analysis.module else {
@@ -499,8 +565,9 @@ impl LanguageServer for Backend {
             })
             .collect::<Vec<_>>();
 
-        let active_parameter = active_parameter_index(&document.text, &call_site, text_position.position)
-            .min(parameters.len().saturating_sub(1));
+        let active_parameter =
+            active_parameter_index(&document.text, &call_site, text_position.position)
+                .min(parameters.len().saturating_sub(1));
 
         Ok(Some(SignatureHelp {
             signatures: vec![SignatureInformation {
@@ -515,13 +582,22 @@ impl LanguageServer for Backend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let Some(document) = self.state.documents.read().await.get(&params.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
 
         let mut actions = Vec::new();
         for diagnostic in &params.context.diagnostics {
-            if let Some(action) = quick_fix_for_diagnostic(&params.text_document.uri, &document, diagnostic) {
+            if let Some(action) =
+                quick_fix_for_diagnostic(&params.text_document.uri, &document, diagnostic)
+            {
                 actions.push(CodeActionOrCommand::CodeAction(action));
             }
         }
@@ -533,7 +609,14 @@ impl LanguageServer for Backend {
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let Some(document) = self.state.documents.read().await.get(&params.text_document.uri).cloned() else {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+        else {
             return Ok(None);
         };
         let Some(module) = &document.analysis.module else {
@@ -642,10 +725,7 @@ impl LanguageServer for Backend {
 
 impl Backend {
     async fn update_config(&self, value: Value) {
-        let settings = value
-            .get("spectra")
-            .cloned()
-            .unwrap_or(value);
+        let settings = value.get("spectra").cloned().unwrap_or(value);
 
         let mut config = self.state.config.write().await;
         if let Some(cli_path) = settings.get("cliPath").and_then(Value::as_str) {
@@ -672,7 +752,10 @@ impl Backend {
 
         if let Ok(path) = uri.to_file_path() {
             match fs::read_to_string(&path) {
-                Ok(text) => self.analyze_and_store(uri.clone(), text, include_lints).await,
+                Ok(text) => {
+                    self.analyze_and_store(uri.clone(), text, include_lints)
+                        .await
+                }
                 Err(error) => {
                     self.client
                         .log_message(
@@ -717,7 +800,11 @@ impl Backend {
                 let haystack = format!(
                     "{} {}",
                     symbol.name.to_ascii_lowercase(),
-                    symbol.detail.clone().unwrap_or_default().to_ascii_lowercase()
+                    symbol
+                        .detail
+                        .clone()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
                 );
                 if !normalized_query.is_empty() && !haystack.contains(&normalized_query) {
                     continue;
@@ -769,15 +856,21 @@ impl Backend {
                 known.insert(uri.clone());
 
                 if let Some(document) = open_documents.get(&uri) {
-                    self.update_workspace_cache(&uri, document.text.clone(), document.analysis.clone(), None)
-                        .await;
+                    self.update_workspace_cache(
+                        &uri,
+                        document.text.clone(),
+                        document.analysis.clone(),
+                        None,
+                    )
+                    .await;
                     continue;
                 }
 
                 let modified = fs::metadata(&file).and_then(|meta| meta.modified()).ok();
                 let should_refresh = {
                     let cache = self.state.workspace_cache.read().await;
-                    cache.get(&uri)
+                    cache
+                        .get(&uri)
                         .map(|entry| entry.modified != modified)
                         .unwrap_or(true)
                 };
@@ -790,11 +883,16 @@ impl Backend {
                     continue;
                 };
                 let analysis = analyze_cache_document(&text, &file.to_string_lossy());
-                self.update_workspace_cache(&uri, text, analysis, modified).await;
+                self.update_workspace_cache(&uri, text, analysis, modified)
+                    .await;
             }
         }
 
-        self.state.workspace_cache.write().await.retain(|uri, _| known.contains(uri) || open_documents.contains_key(uri));
+        self.state
+            .workspace_cache
+            .write()
+            .await
+            .retain(|uri, _| known.contains(uri) || open_documents.contains_key(uri));
     }
 
     async fn refresh_cache_from_disk(&self, uri: &Url) {
@@ -808,10 +906,15 @@ impl Backend {
 
         let analysis = analyze_cache_document(&text, &path.to_string_lossy());
         let modified = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
-        self.update_workspace_cache(uri, text, analysis, modified).await;
+        self.update_workspace_cache(uri, text, analysis, modified)
+            .await;
     }
 
-    async fn format_document(&self, uri: &Url, text: &str) -> std::result::Result<Option<String>, String> {
+    async fn format_document(
+        &self,
+        uri: &Url,
+        text: &str,
+    ) -> std::result::Result<Option<String>, String> {
         let config = self.state.config.read().await.clone();
         let workspace_folders = self.state.workspace_folders.read().await.clone();
         let cwd = uri
@@ -832,9 +935,12 @@ impl Backend {
             command.current_dir(cwd);
         }
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("Falha ao iniciar formatter '{}': {}", config.cli_path, error))?;
+        let mut child = command.spawn().map_err(|error| {
+            format!(
+                "Falha ao iniciar formatter '{}': {}",
+                config.cli_path, error
+            )
+        })?;
 
         if let Some(mut stdin) = child.stdin.take() {
             stdin
@@ -893,7 +999,9 @@ async fn do_analyze_and_store(
 
     let analysis = analyze_document(&text, &filename, &options, None);
     let diagnostics = analysis_to_diagnostics(&uri, &analysis);
-    client.publish_diagnostics(uri.clone(), diagnostics, None).await;
+    client
+        .publish_diagnostics(uri.clone(), diagnostics, None)
+        .await;
 
     // Update workspace symbol cache.
     let symbols = analysis
@@ -924,7 +1032,12 @@ fn analysis_to_diagnostics(uri: &Url, analysis: &DocumentAnalysis) -> Vec<Diagno
         .iter()
         .map(|error| compiler_error_to_diagnostic(uri, error))
         .collect();
-    diagnostics.extend(analysis.warnings.iter().map(|warning| lint_to_diagnostic(uri, warning)));
+    diagnostics.extend(
+        analysis
+            .warnings
+            .iter()
+            .map(|warning| lint_to_diagnostic(uri, warning)),
+    );
     diagnostics
 }
 
@@ -997,7 +1110,10 @@ fn lint_to_diagnostic(uri: &Url, diagnostic: &LintDiagnostic) -> Diagnostic {
         range: span_to_range(diagnostic.span),
         severity: Some(DiagnosticSeverity::WARNING),
         source: Some("spectra/lint".to_string()),
-        code: Some(NumberOrString::String(format!("lint({})", diagnostic.rule.code()))),
+        code: Some(NumberOrString::String(format!(
+            "lint({})",
+            diagnostic.rule.code()
+        ))),
         message: diagnostic.message.clone(),
         ..Default::default()
     };
@@ -1110,7 +1226,10 @@ fn collect_spectra_files(root: &Path, files: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            let name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
             if matches!(name, ".git" | "node_modules" | "target" | ".vscode") {
                 continue;
             }
@@ -1241,11 +1360,7 @@ fn item_to_completion_items(item: &spectra_compiler::ast::Item) -> Vec<Completio
 }
 
 fn document_symbols(module: &spectra_compiler::ast::Module) -> Vec<DocumentSymbol> {
-    module
-        .items
-        .iter()
-        .map(item_to_document_symbol)
-        .collect()
+    module.items.iter().map(item_to_document_symbol).collect()
 }
 
 fn item_to_document_symbol(item: &spectra_compiler::ast::Item) -> DocumentSymbol {
@@ -1332,7 +1447,13 @@ fn item_to_document_symbol(item: &spectra_compiler::ast::Item) -> DocumentSymbol
             Some("implementation".to_string()),
             SymbolKind::OBJECT,
             impl_block.span,
-            Some(impl_block.methods.iter().map(method_to_document_symbol).collect()),
+            Some(
+                impl_block
+                    .methods
+                    .iter()
+                    .map(method_to_document_symbol)
+                    .collect(),
+            ),
         ),
         spectra_compiler::ast::Item::Trait(trait_def) => document_symbol_node(
             trait_def.name.clone(),
@@ -1348,11 +1469,20 @@ fn item_to_document_symbol(item: &spectra_compiler::ast::Item) -> DocumentSymbol
             ),
         ),
         spectra_compiler::ast::Item::TraitImpl(trait_impl) => document_symbol_node(
-            format!("impl {} for {}", trait_impl.trait_name, trait_impl.type_name),
+            format!(
+                "impl {} for {}",
+                trait_impl.trait_name, trait_impl.type_name
+            ),
             Some("trait implementation".to_string()),
             SymbolKind::OBJECT,
             trait_impl.span,
-            Some(trait_impl.methods.iter().map(method_to_document_symbol).collect()),
+            Some(
+                trait_impl
+                    .methods
+                    .iter()
+                    .map(method_to_document_symbol)
+                    .collect(),
+            ),
         ),
         spectra_compiler::ast::Item::TypeAlias(ta) => document_symbol_node(
             ta.name.clone(),
@@ -1470,7 +1600,10 @@ fn format_method_signature(type_name: &str, method: &spectra_compiler::ast::Meth
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    format!("fn {}::{}({}) -> {}", type_name, method.name, params, return_type)
+    format!(
+        "fn {}::{}({}) -> {}",
+        type_name, method.name, params, return_type
+    )
 }
 
 fn format_trait_method_signature(method: &spectra_compiler::ast::TraitMethod) -> String {
@@ -1560,7 +1693,9 @@ fn format_type_annotation(ty: &spectra_compiler::ast::TypeAnnotation) -> String 
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        spectra_compiler::ast::TypeAnnotationKind::DynTrait { trait_name } => format!("dyn {}", trait_name),
+        spectra_compiler::ast::TypeAnnotationKind::DynTrait { trait_name } => {
+            format!("dyn {}", trait_name)
+        }
     }
 }
 
@@ -1606,7 +1741,11 @@ fn semantic_tokens_legend() -> SemanticTokensLegend {
     }
 }
 
-fn find_call_site(module: &spectra_compiler::ast::Module, line: usize, column: usize) -> Option<CallSite> {
+fn find_call_site(
+    module: &spectra_compiler::ast::Module,
+    line: usize,
+    column: usize,
+) -> Option<CallSite> {
     let mut best = None;
 
     for item in &module.items {
@@ -1631,8 +1770,12 @@ fn find_call_site(module: &spectra_compiler::ast::Module, line: usize, column: u
                     find_call_site_in_block(&method.body, line, column, &mut best);
                 }
             }
-            spectra_compiler::ast::Item::Import(_) | spectra_compiler::ast::Item::Struct(_) | spectra_compiler::ast::Item::Enum(_) => {}
-            spectra_compiler::ast::Item::TypeAlias(_) | spectra_compiler::ast::Item::Const(_) | spectra_compiler::ast::Item::Static(_) => {}
+            spectra_compiler::ast::Item::Import(_)
+            | spectra_compiler::ast::Item::Struct(_)
+            | spectra_compiler::ast::Item::Enum(_) => {}
+            spectra_compiler::ast::Item::TypeAlias(_)
+            | spectra_compiler::ast::Item::Const(_)
+            | spectra_compiler::ast::Item::Static(_) => {}
         }
     }
 
@@ -1719,7 +1862,8 @@ fn find_call_site_in_statement(
             find_call_site_in_expression(&while_let_stmt.value, line, column, best);
             find_call_site_in_block(&while_let_stmt.body, line, column, best);
         }
-        spectra_compiler::ast::StatementKind::Break | spectra_compiler::ast::StatementKind::Continue => {}
+        spectra_compiler::ast::StatementKind::Break
+        | spectra_compiler::ast::StatementKind::Continue => {}
     }
 }
 
@@ -1750,12 +1894,16 @@ fn find_call_site_in_expression(
                 find_call_site_in_expression(arg, line, column, best);
             }
         }
-        spectra_compiler::ast::ExpressionKind::MethodCall { object, arguments, .. } => {
+        spectra_compiler::ast::ExpressionKind::MethodCall {
+            object, arguments, ..
+        } => {
             record_call_site(
                 CallSite {
                     span: expr.span,
                     search_start: object.span.end,
-                    kind: CallKind::Method { call_span: expr.span },
+                    kind: CallKind::Method {
+                        call_span: expr.span,
+                    },
                 },
                 best,
             );
@@ -1774,7 +1922,10 @@ fn find_call_site_in_expression(
             find_call_site_in_expression(operand, line, column, best);
         }
         spectra_compiler::ast::ExpressionKind::Range { start, end, .. }
-        | spectra_compiler::ast::ExpressionKind::IndexAccess { array: start, index: end } => {
+        | spectra_compiler::ast::ExpressionKind::IndexAccess {
+            array: start,
+            index: end,
+        } => {
             find_call_site_in_expression(start, line, column, best);
             find_call_site_in_expression(end, line, column, best);
         }
@@ -1820,9 +1971,7 @@ fn find_call_site_in_expression(
             find_call_site_in_expression(object, line, column, best);
         }
         spectra_compiler::ast::ExpressionKind::EnumVariant {
-            data,
-            struct_data,
-            ..
+            data, struct_data, ..
         } => {
             if let Some(data) = data {
                 for value in data {
@@ -1883,7 +2032,10 @@ fn signature_label_for_call(document: &DocumentState, call_site: &CallSite) -> O
     match call_site.kind {
         CallKind::Function { callee_span } => document
             .analysis
-            .symbol_at(callee_span.start_location.line, callee_span.start_location.column)
+            .symbol_at(
+                callee_span.start_location.line,
+                callee_span.start_location.column,
+            )
             .and_then(|symbol| symbol.definition.map(|definition| definition.label)),
         CallKind::Method { call_span } => document
             .analysis
@@ -1915,7 +2067,9 @@ fn split_signature_parameters(label: &str) -> Vec<String> {
 
 fn active_parameter_index(text: &str, call_site: &CallSite, position: Position) -> usize {
     let cursor_offset = position_to_offset(text, position);
-    let Some(open_paren_offset) = find_open_paren_offset(text, call_site.search_start, call_site.span.end) else {
+    let Some(open_paren_offset) =
+        find_open_paren_offset(text, call_site.search_start, call_site.span.end)
+    else {
         return 0;
     };
     if cursor_offset <= open_paren_offset + 1 {
@@ -1965,7 +2119,8 @@ fn split_top_level(input: &str, separator: char) -> Vec<String> {
                 && paren_depth == 0
                 && bracket_depth == 0
                 && angle_depth == 0
-                && brace_depth == 0 => {
+                && brace_depth == 0 =>
+            {
                 parts.push(input[start..idx].to_string());
                 start = idx + ch.len_utf8();
             }
@@ -2137,7 +2292,10 @@ fn collect_workspace_symbol_entries(
     match item {
         spectra_compiler::ast::Item::Import(import) => {
             output.push(CachedWorkspaceSymbol {
-                name: import.alias.clone().unwrap_or_else(|| import.path.join("::")),
+                name: import
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| import.path.join("::")),
                 detail: Some("import".to_string()),
                 kind: SymbolKind::MODULE,
                 span: import.span,
@@ -2252,7 +2410,9 @@ fn collect_workspace_symbol_entries(
                 }
             }
         }
-        spectra_compiler::ast::Item::TypeAlias(_) | spectra_compiler::ast::Item::Const(_) | spectra_compiler::ast::Item::Static(_) => {}
+        spectra_compiler::ast::Item::TypeAlias(_)
+        | spectra_compiler::ast::Item::Const(_)
+        | spectra_compiler::ast::Item::Static(_) => {}
     }
 }
 
@@ -2283,12 +2443,24 @@ fn semantic_tokens_for_document(
         let token_type = info
             .def_span
             .and_then(|definition_span| declaration_kinds.get(&definition_span).copied())
-            .unwrap_or_else(|| if info.is_local { TOKEN_VARIABLE } else { TOKEN_FUNCTION });
+            .unwrap_or_else(|| {
+                if info.is_local {
+                    TOKEN_VARIABLE
+                } else {
+                    TOKEN_FUNCTION
+                }
+            });
 
         all_tokens.push((*span, token_type));
     }
 
-    all_tokens.sort_by_key(|(span, _)| (span.start_location.line, span.start_location.column, span.end));
+    all_tokens.sort_by_key(|(span, _)| {
+        (
+            span.start_location.line,
+            span.start_location.column,
+            span.end,
+        )
+    });
     all_tokens.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
 
     encode_semantic_tokens(all_tokens)
@@ -2452,7 +2624,9 @@ fn semantic_declaration_tokens(
                     }
                 }
             }
-            spectra_compiler::ast::Item::TypeAlias(_) | spectra_compiler::ast::Item::Const(_) | spectra_compiler::ast::Item::Static(_) => {}
+            spectra_compiler::ast::Item::TypeAlias(_)
+            | spectra_compiler::ast::Item::Const(_)
+            | spectra_compiler::ast::Item::Static(_) => {}
             spectra_compiler::ast::Item::TraitImpl(trait_impl) => {
                 if let Some(span) = named_subspan(text, trait_impl.span, &trait_impl.trait_name) {
                     tokens.push((span, TOKEN_INTERFACE));
@@ -2562,7 +2736,10 @@ fn collect_type_annotation_tokens(
 }
 
 fn is_type_like_name(name: &str) -> bool {
-    name.chars().next().map(|ch| ch.is_ascii_uppercase()).unwrap_or(false)
+    name.chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false)
 }
 
 fn encode_semantic_tokens(tokens: Vec<(Span, u32)>) -> Vec<SemanticToken> {
@@ -2577,7 +2754,10 @@ fn encode_semantic_tokens(tokens: Vec<(Span, u32)>) -> Vec<SemanticToken> {
 
         let line = span.start_location.line.saturating_sub(1) as u32;
         let start = span.start_location.column.saturating_sub(1) as u32;
-        let length = span.end_location.column.saturating_sub(span.start_location.column) as u32;
+        let length = span
+            .end_location
+            .column
+            .saturating_sub(span.start_location.column) as u32;
         if length == 0 {
             continue;
         }
@@ -2666,7 +2846,11 @@ fn offset_to_location(text: &str, offset: usize) -> spectra_compiler::span::Loca
     spectra_compiler::span::Location { line, column }
 }
 
-fn quick_fix_for_diagnostic(uri: &Url, document: &DocumentState, diagnostic: &Diagnostic) -> Option<CodeAction> {
+fn quick_fix_for_diagnostic(
+    uri: &Url,
+    document: &DocumentState,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
     let code = match &diagnostic.code {
         Some(NumberOrString::String(code)) => code.as_str(),
         _ => "",
@@ -2685,7 +2869,14 @@ fn quick_fix_for_diagnostic(uri: &Url, document: &DocumentState, diagnostic: &Di
         // E002: Variable already declared — rename the new binding.
         "E002" => return duplicate_binding_quick_fix(uri, &document.text, diagnostic),
         // E005: Return statement missing value — insert a default literal.
-        "E005" => return missing_return_value_quick_fix(uri, &document.text, diagnostic, &diagnostic.message),
+        "E005" => {
+            return missing_return_value_quick_fix(
+                uri,
+                &document.text,
+                diagnostic,
+                &diagnostic.message,
+            )
+        }
         // E001: Undefined variable — prefix with `_` to suppress or declare it.
         // E003: Type mismatch in assignment — fall through to hint-based fix.
         // E004: Return type mismatch — fall through to hint-based fix.
@@ -2722,7 +2913,11 @@ fn semantic_error_quick_fix(
     None
 }
 
-fn duplicate_binding_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {
+fn duplicate_binding_quick_fix(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
     let binding_name = extract_quoted_name(&diagnostic.message)?;
     let replacement = unique_identifier_name(text, &binding_name);
     let binding_range = find_name_range_in_range(text, diagnostic.range, &binding_name)?;
@@ -2811,10 +3006,15 @@ fn unused_binding_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> O
     ))
 }
 
-fn shadowing_quick_fix(uri: &Url, document: &DocumentState, diagnostic: &Diagnostic) -> Option<CodeAction> {
+fn shadowing_quick_fix(
+    uri: &Url,
+    document: &DocumentState,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
     let binding_name = extract_quoted_name(&diagnostic.message)?;
     let replacement = unique_identifier_name(&document.text, &binding_name);
-    let definition_range = find_name_range_in_range(&document.text, diagnostic.range, &binding_name)?;
+    let definition_range =
+        find_name_range_in_range(&document.text, diagnostic.range, &binding_name)?;
     let definition_span = range_to_span(&document.text, definition_range);
 
     let mut edits = Vec::new();
@@ -2888,7 +3088,12 @@ fn hint_based_quick_fix(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Optio
     None
 }
 
-fn quick_fix_action(uri: &Url, diagnostic: &Diagnostic, title: String, edits: Vec<TextEdit>) -> CodeAction {
+fn quick_fix_action(
+    uri: &Url,
+    diagnostic: &Diagnostic,
+    title: String,
+    edits: Vec<TextEdit>,
+) -> CodeAction {
     let mut changes = HashMap::new();
     changes.insert(uri.clone(), edits);
 
@@ -2927,8 +3132,13 @@ fn contains_identifier(text: &str, name: &str) -> bool {
     text.match_indices(name).any(|(start, _)| {
         let before = text[..start].chars().next_back();
         let end = start + name.len();
-        let after = if end < text.len() { text[end..].chars().next() } else { None };
-        !before.map(is_identifier_char).unwrap_or(false) && !after.map(is_identifier_char).unwrap_or(false)
+        let after = if end < text.len() {
+            text[end..].chars().next()
+        } else {
+            None
+        };
+        !before.map(is_identifier_char).unwrap_or(false)
+            && !after.map(is_identifier_char).unwrap_or(false)
     })
 }
 
@@ -2941,16 +3151,30 @@ fn find_name_range_in_range(text: &str, range: Range, name: &str) -> Option<Rang
 
     let slice = &text[start_offset..end_offset];
     let relative = slice.find(name)?;
-    let before = if relative == 0 { None } else { slice[..relative].chars().next_back() };
+    let before = if relative == 0 {
+        None
+    } else {
+        slice[..relative].chars().next_back()
+    };
     let after_index = relative + name.len();
-    let after = if after_index >= slice.len() { None } else { slice[after_index..].chars().next() };
-    if before.map(is_identifier_char).unwrap_or(false) || after.map(is_identifier_char).unwrap_or(false) {
+    let after = if after_index >= slice.len() {
+        None
+    } else {
+        slice[after_index..].chars().next()
+    };
+    if before.map(is_identifier_char).unwrap_or(false)
+        || after.map(is_identifier_char).unwrap_or(false)
+    {
         return None;
     }
 
     let absolute_start = start_offset + relative;
     let absolute_end = absolute_start + name.len();
-    Some(span_to_range(span_from_offsets(text, absolute_start, absolute_end)))
+    Some(span_to_range(span_from_offsets(
+        text,
+        absolute_start,
+        absolute_end,
+    )))
 }
 
 fn range_to_span(text: &str, range: Range) -> Span {

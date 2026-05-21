@@ -82,12 +82,7 @@ impl<'source> Lexer<'source> {
                         errors.push(
                             LexError::new(
                                 "unterminated block comment",
-                                Span::new(
-                                    offset,
-                                    self.source.len(),
-                                    start_location,
-                                    end_location,
-                                ),
+                                Span::new(offset, self.source.len(), start_location, end_location),
                             )
                             .with_code("L006")
                             .with_hint("Close the block comment with `*/`."),
@@ -96,10 +91,7 @@ impl<'source> Lexer<'source> {
                 }
                 ch if is_identifier_start(ch) => {
                     // Special case: f"..." is an f-string literal, not an identifier
-                    if ch == 'f'
-                        && index + 1 < length
-                        && characters[index + 1].1 == '"'
-                    {
+                    if ch == 'f' && index + 1 < length && characters[index + 1].1 == '"' {
                         // Consume 'f'
                         bump_position('f', &mut line, &mut column);
                         index += 1;
@@ -118,12 +110,12 @@ impl<'source> Lexer<'source> {
                                 bump_position('\\', &mut line, &mut column);
                                 bump_position(escaped, &mut line, &mut column);
                                 match escaped {
-                                    '"'  => raw_content.push('"'),
+                                    '"' => raw_content.push('"'),
                                     '\\' => raw_content.push('\\'),
-                                    'n'  => raw_content.push('\n'),
-                                    't'  => raw_content.push('\t'),
-                                    'r'  => raw_content.push('\r'),
-                                    '0'  => raw_content.push('\0'),
+                                    'n' => raw_content.push('\n'),
+                                    't' => raw_content.push('\t'),
+                                    'r' => raw_content.push('\r'),
+                                    '0' => raw_content.push('\0'),
                                     other => {
                                         raw_content.push('\\');
                                         raw_content.push(other);
@@ -158,7 +150,12 @@ impl<'source> Lexer<'source> {
                             errors.push(
                                 LexError::new(
                                     "unterminated f-string literal",
-                                    Span::new(offset, self.source.len(), start_location, end_location),
+                                    Span::new(
+                                        offset,
+                                        self.source.len(),
+                                        start_location,
+                                        end_location,
+                                    ),
                                 )
                                 .with_code("L005")
                                 .with_hint("Close the f-string with a matching \" character."),
@@ -322,10 +319,10 @@ impl<'source> Lexer<'source> {
                             let ch_val = match escaped {
                                 '\'' => '\'',
                                 '\\' => '\\',
-                                'n'  => '\n',
-                                't'  => '\t',
-                                'r'  => '\r',
-                                '0'  => '\0',
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                '0' => '\0',
                                 other => other,
                             };
                             char_value = Some(ch_val);
@@ -363,7 +360,9 @@ impl<'source> Lexer<'source> {
                                     Span::new(offset, end_offset, start_location, end_location),
                                 )
                                 .with_code("L004")
-                                .with_hint("Character literals must contain exactly one character."),
+                                .with_hint(
+                                    "Character literals must contain exactly one character.",
+                                ),
                             );
                         }
                     } else {
@@ -387,27 +386,21 @@ impl<'source> Lexer<'source> {
                     };
 
                     let (token_kind, chars_consumed) = match (ch, next_char) {
-                        ('=', Some('=')) => {
-                            (TokenKind::Operator(Operator::EqualEqual), 2)
-                        }
-                        ('=', Some('>')) => {
-                            (TokenKind::Operator(Operator::FatArrow), 2)
-                        }
-                        ('!', Some('=')) => {
-                            (TokenKind::Operator(Operator::NotEqual), 2)
-                        }
-                        ('<', Some('=')) => {
-                            (TokenKind::Operator(Operator::LessEqual), 2)
-                        }
-                        ('>', Some('=')) => {
-                            (TokenKind::Operator(Operator::GreaterEqual), 2)
-                        }
+                        ('=', Some('=')) => (TokenKind::Operator(Operator::EqualEqual), 2),
+                        ('=', Some('>')) => (TokenKind::Operator(Operator::FatArrow), 2),
+                        ('!', Some('=')) => (TokenKind::Operator(Operator::NotEqual), 2),
+                        ('<', Some('=')) => (TokenKind::Operator(Operator::LessEqual), 2),
+                        ('>', Some('=')) => (TokenKind::Operator(Operator::GreaterEqual), 2),
                         ('&', Some('&')) => (TokenKind::Operator(Operator::And), 2),
                         ('|', Some('|')) => (TokenKind::Operator(Operator::Or), 2),
                         ('-', Some('>')) => (TokenKind::Operator(Operator::Arrow), 2),
                         // Range operators: ..= and ..
                         ('.', Some('.')) => {
-                            let third = if index + 2 < length { Some(characters[index + 2].1) } else { None };
+                            let third = if index + 2 < length {
+                                Some(characters[index + 2].1)
+                            } else {
+                                None
+                            };
                             if third == Some('=') {
                                 (TokenKind::Operator(Operator::RangeInclusive), 3)
                             } else {

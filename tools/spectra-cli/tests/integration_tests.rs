@@ -23,7 +23,11 @@ fn test_compile_simple_test() {
 
     assert!(!source.is_empty(), "Source file should not be empty");
     let result = compile_source(&source);
-    assert!(result.is_ok(), "simple_test.spectra should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "simple_test.spectra should compile: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -33,7 +37,11 @@ fn test_compile_math_functions() {
 
     assert!(!source.is_empty(), "Source file should not be empty");
     let result = compile_source(&source);
-    assert!(result.is_ok(), "math_functions.spectra should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "math_functions.spectra should compile: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -43,7 +51,11 @@ fn test_compile_test_optimization() {
 
     assert!(!source.is_empty(), "Source file should not be empty");
     let result = compile_source(&source);
-    assert!(result.is_ok(), "test_optimization.spectra should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "test_optimization.spectra should compile: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -61,7 +73,11 @@ fn test_inline_basic_program() {
         }
     "#;
     let result = compile_source(source);
-    assert!(result.is_ok(), "inline basic program should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "inline basic program should compile: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -78,7 +94,11 @@ fn test_inline_if_else() {
         }
     "#;
     let result = compile_source(source);
-    assert!(result.is_ok(), "if-else program should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "if-else program should compile: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -97,5 +117,9 @@ fn test_inline_while_loop() {
         }
     "#;
     let result = compile_source(source);
-    assert!(result.is_ok(), "while loop program should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "while loop program should compile: {:?}",
+        result
+    );
 }

@@ -28,8 +28,8 @@ Status labels:
 | Enum construction and destructuring | supported | Includes nested generic enum inference cases in the test suite. |
 | Trait objects / vtables | supported | Current suite passes for dyn-trait examples. |
 | `Drop` flows | supported | Current destructor examples compile successfully. |
-| Closures | partial | Supported in validated example paths, but runtime representation and optimization are not yet a production-optimized closure ABI. |
-| Const/static lowering | partial | Surface exists but a full const-eval pipeline is not present yet. |
+| Closures | partial | Non-capturing closures are stored, passed, invoked, and returned in validated paths; captured environments are deferred. |
+| Const/static lowering | partial | Top-level `const` values lower as literals at use sites; `static` remains a surface/global item model. |
 | Tensor/ndarray primitives | deferred | Not part of the current lowering design yet. |
 
 ## IR Verification Coverage
@@ -60,8 +60,8 @@ Status labels:
 
 | Gap | Backlog item |
 | --- | --- |
-| Scientific numeric type expansion | `R-201` |
-| Compile-time evaluation | `R-202` |
+| Exact-width numeric runtime semantics | post-`R-201` production hardening |
+| Shape/size const contexts | `R-202` follow-up under tensor/type-system work |
 | Tensor-first lowering model | `R-301` and `R-302` |
 | CPU numerical kernels | `R-401` through `R-403` |
 | Autodiff graph and gradient lowering | `R-501` through `R-503` |

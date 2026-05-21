@@ -28,6 +28,11 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - generics in the currently validated surface
 - `dyn Trait` in the currently validated surface
 - primitives, tuples, function types
+- numeric aliases over the current canonical ABI:
+  - `i8`, `i16`, `i32`, `i64`, `isize`
+  - `u8`, `u16`, `u32`, `u64`, `usize`
+  - `f16`, `bf16`, `f32`, `f64`
+- top-level `const` evaluation for primitive literal/arithmetic/logical expressions
 - control flow:
   - `if`, `elif`, `else`
   - `if let`
@@ -37,13 +42,14 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `for ... of ...`
   - `match`
   - `return`, `break`, `continue`
+- tuple, struct, enum, and OR-patterns in the validated pattern surface
 - closures/lambdas in the currently validated surface
 - qualified stdlib calls such as `std.io.println(...)`
 
 ### Beta
 
 - class syntax footprint
-- const/static item surface without full const-eval
+- `static` item surface
 - closure/runtime representation as an optimization target
 
 These are usable where covered, but still not treated as fully production-hardened language design.
@@ -67,6 +73,8 @@ CLI contract:
 
 - Unicode identifiers
 - advanced numeric literal syntax beyond current decimal forms
+- exact-width numeric storage and overflow semantics beyond current canonical ABI
+- closure captures with environment objects
 - `repeat/until`
 - `foreach`
 - `goto`

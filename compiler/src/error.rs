@@ -214,36 +214,76 @@ impl SemanticError {
 // --- DiagnosticError implementations ---
 
 impl DiagnosticError for LexError {
-    fn message(&self) -> &str { &self.message }
-    fn span(&self) -> Option<&Span> { Some(&self.span) }
-    fn hint(&self) -> Option<&str> { self.hint.as_deref() }
-    fn context(&self) -> Option<&str> { self.context.as_deref() }
+    fn message(&self) -> &str {
+        &self.message
+    }
+    fn span(&self) -> Option<&Span> {
+        Some(&self.span)
+    }
+    fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+    fn context(&self) -> Option<&str> {
+        self.context.as_deref()
+    }
 }
 
 impl DiagnosticError for ParseError {
-    fn message(&self) -> &str { &self.message }
-    fn span(&self) -> Option<&Span> { Some(&self.span) }
-    fn hint(&self) -> Option<&str> { self.hint.as_deref() }
-    fn context(&self) -> Option<&str> { self.context.as_deref() }
+    fn message(&self) -> &str {
+        &self.message
+    }
+    fn span(&self) -> Option<&Span> {
+        Some(&self.span)
+    }
+    fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+    fn context(&self) -> Option<&str> {
+        self.context.as_deref()
+    }
 }
 
 impl DiagnosticError for SemanticError {
-    fn message(&self) -> &str { &self.message }
-    fn span(&self) -> Option<&Span> { Some(&self.span) }
-    fn hint(&self) -> Option<&str> { self.hint.as_deref() }
-    fn context(&self) -> Option<&str> { self.context.as_deref() }
+    fn message(&self) -> &str {
+        &self.message
+    }
+    fn span(&self) -> Option<&Span> {
+        Some(&self.span)
+    }
+    fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+    fn context(&self) -> Option<&str> {
+        self.context.as_deref()
+    }
 }
 
 impl DiagnosticError for MidendError {
-    fn message(&self) -> &str { &self.message }
-    fn span(&self) -> Option<&Span> { None }
-    fn hint(&self) -> Option<&str> { None }
-    fn context(&self) -> Option<&str> { None }
+    fn message(&self) -> &str {
+        &self.message
+    }
+    fn span(&self) -> Option<&Span> {
+        None
+    }
+    fn hint(&self) -> Option<&str> {
+        None
+    }
+    fn context(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl DiagnosticError for BackendError {
-    fn message(&self) -> &str { &self.message }
-    fn span(&self) -> Option<&Span> { None }
-    fn hint(&self) -> Option<&str> { None }
-    fn context(&self) -> Option<&str> { None }
+    fn message(&self) -> &str {
+        &self.message
+    }
+    fn span(&self) -> Option<&Span> {
+        None
+    }
+    fn hint(&self) -> Option<&str> {
+        None
+    }
+    fn context(&self) -> Option<&str> {
+        None
+    }
 }

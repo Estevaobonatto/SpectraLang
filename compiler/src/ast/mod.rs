@@ -176,7 +176,7 @@ pub struct Enum {
 pub struct EnumVariant {
     pub name: String,
     pub span: Span,
-    pub data: Option<Vec<TypeAnnotation>>,   // None for unit variants, Some for tuple variants
+    pub data: Option<Vec<TypeAnnotation>>, // None for unit variants, Some for tuple variants
     /// Struct-style variant fields: `Variant { field: Type }`. When set, `data` is None.
     pub struct_data: Option<Vec<(String, TypeAnnotation)>>,
 }
@@ -204,9 +204,7 @@ pub enum TypeAnnotationKind {
         type_args: Vec<TypeAnnotation>,
     },
     /// Dynamic trait object: dyn TraitName
-    DynTrait {
-        trait_name: String,
-    },
+    DynTrait { trait_name: String },
 }
 
 #[derive(Debug, Clone)]
@@ -278,7 +276,7 @@ pub struct ForLoop {
 
 #[derive(Debug, Clone)]
 pub struct LetStatement {
-    pub name: String,
+    pub pattern: Pattern,
     pub span: Span,
     pub ty: Option<TypeAnnotation>,
     pub value: Option<Expression>,
@@ -438,6 +436,15 @@ pub enum Pattern {
     // Identifier pattern: x (binds value)
     Identifier(String),
 
+    // Tuple pattern: (a, b, _)
+    Tuple(Vec<Pattern>),
+
+    // Struct pattern: Point { x, y: local_y }
+    Struct {
+        name: String,
+        fields: Vec<(String, Pattern)>,
+    },
+
     // Enum variant patterns: Option::Some(x), Color::Red
     EnumVariant {
         module_path: Option<String>, // Some("math_utils") for math_utils::distance(...)
@@ -447,6 +454,53 @@ pub enum Pattern {
         data: Option<Vec<Pattern>>, // None for unit, Some(patterns) for tuple
         struct_data: Option<Vec<(String, Pattern)>>, // Named fields for struct variants
     },
+
+    // OR-patterns: A | B
+    Or(Vec<Pattern>),
+}
+
+impl Pattern {
+    pub fn span(&self) -> Span {
+        match self {
+            Pattern::Wildcard => Span::dummy(),
+            Pattern::Literal(expr) => expr.span,
+            Pattern::Identifier(_) => Span::dummy(),
+            Pattern::Tuple(elements) => elements
+                .iter()
+                .map(Pattern::span)
+                .reduce(crate::span::span_union)
+                .unwrap_or_else(Span::dummy),
+            Pattern::Struct { fields, .. } => fields
+                .iter()
+                .map(|(_, pattern)| pattern.span())
+                .reduce(crate::span::span_union)
+                .unwrap_or_else(Span::dummy),
+            Pattern::EnumVariant {
+                data, struct_data, ..
+            } => data
+                .as_ref()
+                .and_then(|patterns| {
+                    patterns
+                        .iter()
+                        .map(Pattern::span)
+                        .reduce(crate::span::span_union)
+                })
+                .or_else(|| {
+                    struct_data.as_ref().and_then(|fields| {
+                        fields
+                            .iter()
+                            .map(|(_, pattern)| pattern.span())
+                            .reduce(crate::span::span_union)
+                    })
+                })
+                .unwrap_or_else(Span::dummy),
+            Pattern::Or(patterns) => patterns
+                .iter()
+                .map(Pattern::span)
+                .reduce(crate::span::span_union)
+                .unwrap_or_else(Span::dummy),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -237,7 +237,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-201 Numeric Type Expansion
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-103`
@@ -252,13 +252,19 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- numeric primitive matrix implemented end-to-end
-- invalid conversions rejected deterministically
-- tests cover arithmetic, casts, and ABI representation
+- alpha numeric aliases are implemented end-to-end over the current canonical `int`/`float` ABI
+- invalid conversions are rejected deterministically
+- tests cover arithmetic, casts, and current ABI representation
+
+### Implementation Notes
+
+- `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, `u32`, `u64`, and `usize` currently canonicalize to `int`.
+- `f16`, `bf16`, `f32`, and `f64` currently canonicalize to `float`.
+- Exact-width storage and overflow semantics remain future runtime/backend work before production AI/ML numerics.
 
 ## R-202 Const Evaluation Engine
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-201`
@@ -270,12 +276,17 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- const expressions usable in declared const contexts
-- failures produce targeted diagnostics
+- const expressions are usable in declared top-level `const` contexts
+- failures produce targeted diagnostics for non-const initializers
+
+### Implementation Notes
+
+- Supported const expressions: primitive literals, references to previous constants, grouping, unary operators, binary arithmetic/comparison/logical operators, string concatenation, and valid casts.
+- Shape/size const contexts remain future tensor/type-system work.
 
 ## R-203 Destructuring and Pattern Ergonomics
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P2`
 - Owner: `frontend`
 - Dependencies: `R-102`
@@ -293,7 +304,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-204 Closure Completion
 
-- Status: `not_started`
+- Status: `partial_alpha`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-102`, `R-103`
@@ -306,8 +317,13 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- closures work outside parser/check-only scenarios
-- captures are documented and tested
+- non-capturing closures work outside parser/check-only scenarios
+- storing, passing, indirect invocation, and returning non-capturing closures are covered
+
+### Implementation Notes
+
+- Closure captures are not production-ready yet because the IR still represents closures as function values without an environment object.
+- Capturing closures must remain documented as deferred until an explicit environment/capture ABI is implemented.
 
 ---
 

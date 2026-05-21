@@ -205,6 +205,9 @@ let ponto = (10, 20);
 let x = ponto.0;
 let y = ponto.1;
 
+// Desestruturação em let / Destructuring in let
+let (a, b) = ponto;
+
 // Usando em match / Using in match
 match ponto_resultado {
     (0, 0) => println("Origem"),
@@ -212,6 +215,18 @@ match ponto_resultado {
     (0, y) => println(f"Eixo Y em {y}"),
     (x, y) => println(f"Ponto ({x}, {y})")
 }
+```
+
+Structs também podem ser desestruturadas em `let`:
+
+```spectra
+struct Point {
+    pub x: int,
+    pub y: int,
+}
+
+let p = Point { x: 10, y: 20 };
+let Point { x, y: renamed_y } = p;
 ```
 
 ---
@@ -915,16 +930,21 @@ pub fn main() {
 // Closures como variáveis tipadas / Closures as typed variables
 let transformador: fn(int) -> int = |x: int| x + 10;
 
-// Funções que retornam closures / Functions that return closures
-fn criar_multiplicador(fator: int) -> fn(int) -> int {
-    return |x: int| x * fator;
+// Funções que retornam closures não capturantes / Functions that return non-capturing closures
+fn escolher(incrementar: bool) -> fn(int) -> int {
+    if incrementar {
+        return |x: int| x + 1;
+    }
+    return |x: int| x - 1;
 }
 
 pub fn main() {
-    let triplicar = criar_multiplicador(3);
-    let resultado = triplicar(7);    // 21
+    let transformar = escolher(true);
+    let resultado = transformar(7);    // 8
 }
 ```
+
+Limitação alpha: closures que capturam variáveis externas ainda não têm ABI de ambiente/captura no IR. Use closures não capturantes ou passe os valores explicitamente como argumentos.
 
 ### Closures em Expressões / Closures in Expressions
 
