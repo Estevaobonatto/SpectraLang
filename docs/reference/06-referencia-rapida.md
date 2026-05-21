@@ -56,7 +56,7 @@
 | `for` | ✅ Implementado | Laço `for in` |
 | `foreach` | 🚧 Reservado | (futuro / future) |
 | `in` | ✅ Implementado | Em `for x in` |
-| `of` | 🚧 Reservado | (futuro / future) |
+| `of` | ✅ Implementado | Alias de `in` em `for x of` |
 | `loop` | ✅ Implementado | Laço infinito |
 | `repeat` | 🚧 Reservado | (futuro / future) |
 | `until` | 🚧 Reservado | (futuro / future) |
@@ -168,11 +168,11 @@
 | Modificador | Acessível de / Accessible from |
 |-------------|-------------------------------|
 | `pub` | Qualquer código / Any code |
-| `internal` | Mesmo módulo / Same module |
-| *(sem/none)* | Apenas definindo / Only defining scope |
+| `internal` | Mesmo pacote/projeto / Same package/project |
+| *(sem/none)* | Apenas no módulo/escopo atual / Current module/scope only |
 
 **Regras / Rules:**
-- `pub fn main()` é o ponto de entrada obrigatório.
+- A forma documentada e recomendada do ponto de entrada é `pub fn main() -> int`.
 - Structs com campos `pub` precisam declarar cada campo com `pub`.
 - Funções sem `pub` ou `internal` são privadas ao bloco de declaração.
 
@@ -192,6 +192,9 @@ import std.math as m;
 // Forma 3: importar símbolos nomeados / Import named symbols
 import { println, print } from std.io;
 // Uso: println("hello")
+
+// Forma 4: re-exportar publicamente / Public re-export
+pub import { println } from std.io;
 
 // Módulo do arquivo / File module declaration
 module meu_modulo;
@@ -241,9 +244,9 @@ loop {
 
 // switch (comparação por valor / value comparison)
 switch valor {
-    case 1 => println("um"),
-    case 2 | 3 => println("dois ou três"),
-    _ => println("outro")
+    case 1 => { println("um"); }
+    case 2 => { println("dois"); }
+    else => { println("outro"); }
 }
 
 // match (pattern matching)
@@ -291,13 +294,12 @@ Todo `match` deve cobrir **todos** os casos possíveis. Use `_` como wildcard.
 | Erro | Causa | Solução |
 |------|-------|---------|
 | `type mismatch: int and float` | Operação mista sem conversão | Use `int_to_float()` ou `float_to_int()` |
-| `cannot assign to immutable variable` | Reatribuição de `let` sem `mut` | Declare `let mut x = ...` |
 | `non-exhaustive match` | Casos faltando no `match` | Adicione `_ =>` ou os casos faltantes |
 | `return outside function` | `return` fora de função | Mova para dentro de uma função |
 | `undefined variable` | Uso fora do escopo | Garanta que `let` está no escopo correto |
 | `break/continue outside loop` | Fora de laço | Mova para dentro de `while`/`for`/`loop` |
 | `module declaration missing` | Arquivo sem `module nome;` | Adicione `module nome;` no topo |
-| `main not found` | Sem `pub fn main()` | Adicione `pub fn main() { ... }` |
+| `main not found` | Sem ponto de entrada válido | Adicione `pub fn main() -> int { return 0; }` |
 | `cannot use bool in arithmetic` | `bool + int` | Use `bool_to_int()` explicitamente |
 | `field not found` | Campo inexistente na struct | Verifique o nome do campo |
 
@@ -329,7 +331,8 @@ declaracao_modulo = "module" IDENT ";" ;
 
 import        = "import" caminho_modulo ";"
               | "import" caminho_modulo "as" IDENT ";"
-              | "import" "{" IDENT ("," IDENT)* "}" "from" caminho_modulo ";" ;
+              | "import" "{" IDENT ("," IDENT)* "}" "from" caminho_modulo ";"
+              | "pub" "import" "{" IDENT ("," IDENT)* "}" "from" caminho_modulo ";" ;
 
 declaracao    = decl_fn | decl_struct | decl_enum | decl_impl | decl_trait | decl_trait_impl ;
 
@@ -350,7 +353,9 @@ decl_trait    = visib? "trait" IDENT (":" IDENT)? "{" assinatura* "}" ;
 
 bloco         = "{" stmt* expr? "}" ;
 
-stmt          = decl_let | atribuicao | retorno | expr ";" | laço | condicional | match ;
+stmt          = decl_let | atribuicao | retorno | expr ";" | laço | condicional | match_stmt ;
+
+match_stmt    = "match" expr "{" braço* "}" ";"? ;
 
 decl_let      = "let" "mut"? IDENT (":" tipo)? "=" expr ";" ;
 

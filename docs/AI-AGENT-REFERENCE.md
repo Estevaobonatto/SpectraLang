@@ -44,7 +44,7 @@ SpectraLang is a statically typed, compiled, general-purpose language that:
 - Has strict static typing — no implicit conversions except `int` → `float`
 - Supports modules, generics, traits, enums, structs, and closures
 - Every source file is one module; each module is one file
-- The entry point is always `pub fn main() -> int { ... }`
+- Documents `pub fn main() -> int { ... }` as the canonical entry point form
 
 **File extension:** `.spectra` or `.spc`
 
@@ -88,8 +88,8 @@ pub fn main() -> int {
 
 - `module` must be the first non-comment, non-blank line.
 - Only `//` line comments are supported. Block comments (`/* */`) are **not** supported.
-- The entry point function is `pub fn main() -> int { ... }`.
-- A file without a `module` declaration uses the file stem as its module name (CLI behavior).
+- The canonical runnable entry point is `pub fn main() -> int { ... }`.
+- Standalone expressions used as statements should end with `;`. This is especially important for `match` when more statements follow in the same block.
 
 ---
 
@@ -98,22 +98,20 @@ pub fn main() -> int {
 ### Import Forms
 
 ```spectra
-// Form 1: import entire module (use fully-qualified names)
-import std.math;
-// Usage: std.math.abs(-5)   or after import:  abs(-5)  when unqualified
-
-// Form 2: import stdlib module — all exported names become available unqualified
+// Form 1: stdlib module import
 import std.io;
+// Usage: println("hello") and std.io.println("hello")
+
+// Form 2: alias import
+import std.math as math;
+// Usage: math.sqrt_f(25.0)
+
+// Form 3: named import
+import { println, print } from std.io;
 // Usage: println("hello")
 
-// Form 3: import user module — all exported names become available unqualified
-import my_module;
-// Usage: my_func(), MyStruct { ... }, MyEnum::Variant
-
-// Form 4: qualified module access (cross-module calls)
-import cx_geometry;
-// Usage: cx_geometry::make_vec2(3, 4)
-//        cx_geometry::Shape::Circle(5)
+// Form 4: public re-export
+pub import { println } from std.io;
 ```
 
 ### Stdlib Module Names
@@ -148,23 +146,10 @@ pub fn main() -> int {
 }
 ```
 
-### Qualified Module Access
-
-When calling a function or constructing a type from a named user module, use `ModuleName::`:
-```spectra
-import cx_geometry;
-
-pub fn main() -> int {
-    let s = cx_geometry::Shape::Circle(5);
-    let area = cx_geometry::shape_area(s);
-    return 0;
-}
-```
-
 ### Re-exports
 
 ```spectra
-pub import some_module;  // makes some_module's public symbols available to importers of this module
+pub import { println } from std.io;  // makes println available to importers of this module
 ```
 
 ---
@@ -500,7 +485,7 @@ while i < 100 {
 
 ### switch
 
-`switch` compares a value against literal cases. Use `_` or omit for default:
+`switch` compares a value against literal cases. The default arm uses `else => { ... }`:
 
 ```spectra
 switch day {
@@ -521,7 +506,7 @@ With default:
 switch option {
     case 1 => { result = 10; }
     case 2 => { result = 20; }
-    _ => { result = 0; }
+    else => { result = 0; }
 }
 ```
 
@@ -1707,28 +1692,15 @@ spectralang run main.spectra module_a.spectra module_b.spectra
 
 ### Cross-Module Function Calls
 
-After `import module_name;`, all `pub` functions from that module are available unqualified **or** qualified:
+After `import module_name;`, public items from that module participate in name resolution for the current compilation:
 
 ```spectra
 // sa_report.spectra
 import sa_grades;
 
 pub fn score_to_gpa(score: int) -> int {
-    let g = score_to_grade(score);   // unqualified call to sa_grades::score_to_grade
-    return grade_points(g);          // unqualified call to sa_grades::grade_points
-}
-```
-
-### Cross-Module Qualified Calls
-
-Use `ModuleName::function_name()` when calling functions from a specific module:
-
-```spectra
-import cx_geometry;
-
-pub fn area_of_square(side: int) -> int {
-    let sq = cx_geometry::Shape::Rect(side, side);   // qualified enum constructor
-    return cx_geometry::shape_area(sq);               // qualified function call
+    let g = score_to_grade(score);
+    return grade_points(g);
 }
 ```
 
@@ -1749,8 +1721,8 @@ pub enum TxKind {
 // In cx_main.spectra
 import cx_ledger;
 
-let acc = cx_ledger::make_account(1, 500);      // factory function (recommended)
-let credit = cx_ledger::TxKind::Credit(100);    // qualified enum constructor
+let acc = make_account(1, 500);      // factory function (recommended)
+let credit = TxKind::Credit(100);
 ```
 
 **Important:** Direct struct construction across modules is only possible if the struct and its fields are both `pub`. The recommended pattern is to provide a factory function (`pub fn new(...)`) in the owning module.

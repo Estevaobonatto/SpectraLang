@@ -6,7 +6,11 @@ This document captures the currently implemented SpectraLang surface that define
 
 ## Source File Layout
 - Every source file must begin with a `module` declaration: `module path.to.module;`. The parser treats the first tokens as the module header and emits an error if it is missing.
-- Zero or more `import` statements may follow. Imports accept dotted paths but do not yet support aliasing or glob patterns.
+- Zero or more `import` statements may follow. Supported forms today:
+  - `import std.io;`
+  - `import std.math as math;`
+  - `import { println, print } from std.io;`
+  - `pub import { println } from std.io;`
 - Top-level items supported in Alpha:
   - Function definitions (`fn`), with optional `pub` visibility and generic parameters `<T>`.
   - Struct definitions (`struct`), optionally generic, with named fields.
@@ -18,7 +22,7 @@ This document captures the currently implemented SpectraLang surface that define
 
 ### Module and Package Semantics
 - Module paths use dot-separated identifiers (`module physics.vector;`). By convention the path should mirror the folder hierarchy, but the compiler does not enforce this yet.
-- Each source file is compiled independently by the CLI. Cross-file linkage is limited: imports are parsed so the structure is known, but no name resolution or automatic loading of imported files occurs in alpha.
+- The CLI can resolve and compile multi-file projects. Imports participate in semantic resolution and examples/tests rely on that flow today.
 - Duplicate module names within the same compilation session are not detected; the caller is responsible for organising files to avoid conflicts.
 - Future package metadata (versioning, manifests) is out of scope for alpha and will be introduced alongside the package manager tooling.
 
@@ -35,10 +39,10 @@ This document captures the currently implemented SpectraLang surface that define
 - Primitive types: `int`, `float`, `bool`, `string`, `char`.
 - The unit type is implicit for statements that yield no value.
 - Composite types:
-  - Arrays: `[T; N]` syntax is not yet parsed; arrays appear as `Type::Array` internally when created via array literals.
+  - Arrays: array literals use `[a, b, c]`, and user-facing type annotations use `[T]`.
   - Tuples: `(T1, T2, ...)`.
   - Structs: `StructName { field: value, ... }`.
-  - Enums: `EnumName::Variant` with optional tuple payload.
+  - Enums: `EnumName::Variant` with optional tuple or struct payload.
 - Generic type parameters are accepted in function, struct, enum, and trait signatures, but semantic resolution of generic arguments is limited.
 - Implicit conversions are restricted to numeric widening (`int` → `float`) in expressions and assignments; all other implicit coercions produce diagnostics requiring explicit handling.
 - `Self` denotes the implementing type inside trait/impl contexts.
@@ -69,7 +73,7 @@ enum Option<T> {
     None,
 }
 ```
-- Tuple-style variants are supported; struct-style variants are not yet parsed.
+- Unit, tuple-style, and struct-style enum variants are supported.
 
 ### Traits
 - Traits may specify parent traits (`trait Child: Parent { ... }`).
@@ -84,13 +88,13 @@ enum Option<T> {
 - Variable binding: `let name: Type = expression;` (type and initializer optional).
 - Assignment: `identifier = expression;` or `array[index] = expression;`.
 - Return: `return expr;` or `return;`.
-- Expression statements allow trailing `if`/`unless` expressions without semicolons.
+- Expression statements use the standard `expr;` form. When `match`, `if`, or `unless` are used as statements and more statements follow in the same block, terminate them with `;`.
 - Loops and control flow:
   - `while condition { ... }`
   - `do { ... } while condition;`
   - `for item in iterable { ... }` and `for item of iterable { ... }`
   - `loop { ... }`
-  - `switch value { case pattern => { ... } else => { ... } }`
+  - `switch value { case literal => { ... } ... else => { ... } }`
   - `break;`, `continue;`
 - `goto`, `repeat`, `until`, `foreach`, and `yield` are reserved but not implemented.
 
@@ -116,8 +120,8 @@ enum Option<T> {
   - `_` wildcard.
   - Literal patterns (numbers, booleans, strings).
   - Identifier bindings (`value`).
-  - Enum variants with nested patterns (`Option::Some(x)`).
-- Exhaustiveness checking covers enums (including payload guard validation) and tuples of booleans; when coverage cannot be proven, the analyser requires a wildcard arm to guarantee totality.
+  - Enum variants with nested patterns (`Option::Some(x)`, `Shape::Rect { w, h }`).
+- Exhaustiveness checking covers enums and selected structured cases; when coverage cannot be proven, the analyser requires a wildcard arm to guarantee totality.
 
 ## Semantics Overview
 - Symbol tables are scoped lexically within blocks.
@@ -138,20 +142,16 @@ These keywords or constructs are tokenised but not yet parsed or semantically va
 - `yield`
 - `goto`
 - Weak typing mode directives (not implemented)
-- Struct-style enum variants (`Variant { field: value }`)
-- Module aliasing/import renaming
 - Weak typing directives (`#pragma weak` style or attribute-based opt-outs)
-
 ## Weak Typing Mode Status
 - All compilation currently uses strict (strong) typing rules; there is no directive or flag to switch to a weak mode.
 - Any attempt to emulate weak typing (e.g., by omitting annotations) results in `Unknown` types that must be resolved by later passes; implicit coercions are not performed.
 - Planned directives for weakening type checks are deferred; once designed, they will be documented as language attributes and gated behind explicit flags.
 
 ## Known Limitations for Alpha
-- String escape sequences, character literals, and byte literals are not yet supported.
+- String and character literal support is narrower than the long-term roadmap; prefer the basic forms exercised by the examples and tests.
 - Visibility enforcement currently focuses on API boundaries: public functions, structs, and enums cannot expose private user-defined types, but cross-module lookup remains limited.
 - Trait bounds are enforced for generic method calls, but broader generic inference still defaults to `Unknown` in unsupported scenarios.
-- The standard library is not yet defined; examples rely on user-defined constructs.
 - Error recovery in the parser is basic; multiple syntax errors may cascade.
 
 ## Next Steps

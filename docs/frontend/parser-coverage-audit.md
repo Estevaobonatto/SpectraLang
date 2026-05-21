@@ -19,7 +19,11 @@ _Branch: devlop_
 
 ### Module & Imports
 - Enforces `module <path>;` header before items; missing headers trigger a parse error followed by synchronisation.
-- `import` accepts dotted paths only; aliasing (`import foo as bar;`) and glob imports are not parsed.
+- `import` supports:
+  - dotted module imports (`import std.io;`)
+  - alias imports (`import std.math as math;`)
+  - named imports (`import { println, print } from std.io;`)
+  - public re-exports (`pub import { println } from std.io;`)
 
 ### Items & Visibility
 - Handles `pub fn/struct/enum` correctly; `pub impl` falls back to inherent impl parsing but visibility is discarded (consistent with current AST).
@@ -27,43 +31,37 @@ _Branch: devlop_
 - Generic parameters are parsed for functions, structs, and enums; there is no support for where clauses, default type parameters, or const generics.
 
 ### Traits & Trait Inheritance
-- `trait Name: Parent + Another { .. }` is accepted with `+` separators. Comma-separated parent lists are rejected (lexer treats comma but parser stops at first non-`+`).
-- Trait declarations lack generic parameter parsing; `trait Name<T> {}` currently produces an error at `<`.
+- `trait Name: Parent + Another { .. }` is accepted with `+` separators. Comma-separated parent lists are rejected.
 - Default method bodies and receiver qualifiers (`self`, `&self`, `&mut self`) are parsed and recorded.
-- Trait impls require the trait definition to appear earlier in the same file; cross-file trait references still parse but emit an error recorded on the impl span.
-- Trait impls cannot express generics on either side (`impl<T> Trait<T> for Type<T>` is not supported).
+- Trait inheritance, default methods, trait-bound method resolution, and `Self` substitution are exercised by the validation suite.
 
 ### Impl Blocks
 - Inherent impls parse method lists with receiver variants and typed parameters.
 - `impl Type` assumes a simple identifier; qualified paths (`impl module::Type`) and generic type arguments (`impl Type<T>`) are unsupported.
 
 ### Statements & Control Flow
-- Control-flow constructs implemented: `while`, `do { } while`, `for name in/of`, `loop`, `switch`, `break`, `continue`.
+- Control-flow constructs implemented: `while`, `do { } while`, `for name in/of`, `loop`, `switch`, `break`, `continue`, `if let`, `while let`.
 - Reserved keywords `foreach`, `repeat`, `until`, `yield`, `goto` remain unparsed despite being lexed.
-- `switch` accepts `case` patterns and an `else` block; the parser expects `else` but error messages mention `default`, leading to confusing diagnostics.
+- `switch` accepts `case` arms and an optional `else` block.
 - Assignments only accept identifiers or index expressions on the LHS; destructuring assignments are not allowed.
 
 ### Expressions & Calls
 - Method chaining (`obj.method().field`) and tuple indexing (`tuple.0`) are supported.
 - Struct literals differentiate from enum variants by disallowing `::` in field initialisers.
 - Generic type arguments on identifiers (`Type::<T>::Variant`) are parsed, though the semantic layer handles association.
-- There is no support for lambda/closure literals, spread operators, or inline `if` expressions without blocks.
+- Lambda/closure literals are supported. Spread operators and inline `if` expressions without blocks are not.
 
 ### Pattern Ergonomics
-- `match` patterns cover wildcard (`_`), identifier bindings, literal patterns, and enum variants with tuple payloads.
-- Tuple destructuring, struct patterns, nested `if guard` clauses, and OR-patterns (`A | B`) are not parsed.
-- `switch` patterns reuse full expressions rather than the restricted `match` pattern grammar, enabling constructs outside the documented subset.
+- `match` patterns cover wildcard (`_`), identifier bindings, literal patterns, enum variants with tuple payloads, and struct-style enum patterns.
+- `if let` and `while let` are fully parsed and lowered.
+- OR-patterns (`A | B`) and guard clauses remain unsupported in `match`.
 
-## Gaps vs. Alpha Plan
-1. Trait generics and impl generics remain unparsed despite being part of the planned surface.
-2. Pattern ergonomics are limited; tuple/struct patterns and guards need parser support to meet ergonomic goals.
-3. Control-flow keywords flagged in docs (`foreach`, `repeat`, `until`, `yield`, `goto`) lack parser stubs, so the lexer-only reservation should be called out as deferred.
-4. Import aliasing and module path ergonomics are missing from the parser despite being called out as desirable in the alpha plan.
-5. Error messages for `switch` defaults reference `default` while the grammar actually requires `else`, creating user-facing inconsistency.
+## Remaining Gaps
+1. Trait and impl generics are still narrower than the long-term planned surface.
+2. OR-patterns and `match` guards remain unsupported.
+3. Control-flow keywords flagged in docs (`foreach`, `repeat`, `until`, `yield`, `goto`) remain deferred.
 
 ## Suggested Follow-Up Tasks
-1. Extend trait and impl parsing to accept generic parameter lists and apply them to the AST.
+1. Extend trait and impl parsing to accept the remaining generic forms from the roadmap.
 2. Introduce parser branches for the reserved control-flow keywords that emit deliberate "deferred" diagnostics instead of generic errors.
-3. Expand pattern parsing with tuple/struct destructuring and OR-patterns to align with match ergonomics.
-4. Add import aliasing grammar (`import foo.bar as baz;`) and produce placeholders or diagnostics until name resolution lands.
-5. Adjust `switch` grammar or diagnostics so the keyword expectations (`else` vs. `default`) are consistent across docs, parser, and error messaging.
+3. Expand pattern parsing with OR-patterns and guards to align with planned match ergonomics.

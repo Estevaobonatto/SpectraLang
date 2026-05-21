@@ -229,8 +229,9 @@ import { println, print } from std.io;
 //    - Implementações (impl)
 //    - Traits (trait)
 
-pub fn main() {
+pub fn main() -> int {
     println("Hello, World!");
+    return 0;
 }
 ```
 
@@ -238,13 +239,17 @@ pub fn main() {
 **Regras obrigatórias:**
 - A declaração `module` deve ser **a primeira linha** do arquivo (antes de qualquer código, após comentários opcionais).
 - O nome do módulo usa **pontos** como separador de caminhos: `module fisica.vetor;` (por convenção espelha a hierarquia de pastas, mas não é obrigatório).
-- Cada arquivo é compilado de forma **independente**. A resolução de importações entre arquivos é limitada na versão alpha — o compilador reconhece a estrutura, mas não carrega arquivos automaticamente.
+- Importações participam da resolução semântica, e o CLI consegue compilar projetos multi-arquivo e conjuntos explícitos de arquivos.
+- `import std.io;` expõe símbolos da stdlib como `println` diretamente, e chamadas qualificadas como `std.io.println(...)` também são aceitas.
+- Alias de importação, named imports e re-exportações públicas fazem parte da superfície atual da linguagem.
 
 **EN-US:**  
 **Mandatory rules:**
 - The `module` declaration must be the **first line** of the file (before any code, after optional comments).
 - Module names use **dots** as path separators: `module physics.vector;` (by convention it mirrors the folder hierarchy, but this is not enforced).
-- Each file is compiled **independently**. Cross-file import resolution is limited in the alpha version — the compiler recognizes the structure but does not automatically load imported files.
+- Imports participate in semantic resolution, and the CLI can compile multi-file projects and explicit file sets.
+- `import std.io;` makes stdlib symbols such as `println` available directly, and qualified calls like `std.io.println(...)` are also accepted.
+- Alias imports, named imports, and public re-exports are part of the current language surface.
 
 ### Módulos e Caminhos / Modules and Paths
 
@@ -275,8 +280,9 @@ module hello;
 
 import std.io;
 
-pub fn main() {
-    std.io.println("Hello, World!");
+pub fn main() -> int {
+    println("Hello, World!");
+    return 0;
 }
 ```
 
@@ -291,8 +297,9 @@ module hello;
 
 import { println } from std.io;
 
-pub fn main() {
+pub fn main() -> int {
     println("Hello, World!");
+    return 0;
 }
 ```
 
@@ -315,7 +322,7 @@ module saudacao;
 import { println, print } from std.io;
 import std.convert;
 
-pub fn main() {
+pub fn main() -> int {
     let nome = "Maria";
     let idade = 25;
 
@@ -325,6 +332,7 @@ pub fn main() {
     // Chamada de função / Function call
     let saudacao = criar_saudacao(nome, idade);
     println(saudacao);
+    return 0;
 }
 
 fn criar_saudacao(nome: string, idade: int) -> string {
@@ -381,7 +389,7 @@ spectralang run saudacao.spectra
 projeto/                   # Raiz do projeto / Project root
 ├── Spectra.toml           # Manifesto do projeto / Project manifest
 ├── src/
-│   ├── main.spectra       # module main; pub fn main() { ... }
+│   ├── main.spectra       # module main; pub fn main() -> int { ... }
 │   ├── utils.spectra      # module utils;
 │   └── modelos/
 │       ├── usuario.spectra  # module modelos.usuario;

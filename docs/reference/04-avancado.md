@@ -193,7 +193,7 @@ let descricao = match x {
 match x {
     0 => println("zero"),
     _ => println("não-zero")
-}
+};
 ```
 
 ### Exaustividade / Exhaustiveness
@@ -603,10 +603,10 @@ module biblioteca.colecoes;
 ### Importações / Imports
 
 **PT-BR:**  
-Existem três formas de importar módulos:
+Existem quatro formas úteis de importação no estado atual da linguagem:
 
 **EN-US:**  
-There are three ways to import modules:
+There are four practical import forms in the language today:
 
 #### 1. Importação Qualificada / Qualified Import
 
@@ -643,19 +643,29 @@ pub import { println } from std.io;
 // Outros módulos podem importar println deste módulo / Other modules can import println from this module
 ```
 
+#### 4. Importação de Módulo para Uso Não Qualificado / Whole-Module Import for Unqualified Use
+
+```spectra
+import std.io;
+
+pub fn main() -> int {
+    println("Olá sem prefixo");
+    std.io.println("Olá com prefixo");
+    return 0;
+}
+```
+
 ### Restrições do Sistema de Módulos / Module System Restrictions
 
 **PT-BR:**  
 Na versão alpha, as seguintes limitações se aplicam:
-- Cada arquivo é compilado **independentemente**
-- Importações são **reconhecidas estruturalmente** mas arquivos externos não são carregados automaticamente
+- A compilação multi-arquivo depende do conjunto de arquivos/projeto passado ao CLI
 - Não há **detecção de módulos duplicados** dentro da mesma sessão de compilação
 - **Módulos stdlib** (`std.*`) são resolvidos internamente pelo compilador
 
 **EN-US:**  
 In the alpha version, the following limitations apply:
-- Each file is compiled **independently**
-- Imports are **structurally recognized** but external files are not loaded automatically
+- Multi-file compilation depends on the file set or project passed to the CLI
 - There is no **duplicate module detection** within the same compilation session
 - **Stdlib modules** (`std.*`) are resolved internally by the compiler
 
