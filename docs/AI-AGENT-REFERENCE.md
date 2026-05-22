@@ -1533,13 +1533,16 @@ The alpha tensor API uses opaque `int` handles managed by the runtime. Tensors c
 | `arange` | `(start: int, end: int, step: int) -> int` | 1D int range |
 | `zeros2`, `ones2` | `(rows: int, cols: int) -> int` | 2D int tensor |
 | `full2`, `full2_f` | `(rows: int, cols: int, value) -> int` | 2D tensor |
+| `uniform`, `uniform_f`, `normal_f`, `bernoulli`, `categorical` | random fills | Seeded tensor samples |
 | `len`, `rank`, `dim`, `rows`, `cols` | metadata queries | Shape metadata |
 | `get`, `get_f`, `get2`, `get2_f` | indexed reads | Scalar value |
 | `set`, `set_f`, `set2`, `set2_f` | indexed writes | `unit` |
 | `reshape`, `flatten` | shape transforms | New tensor handle |
 | `add`, `sub`, `mul`, `div` | elementwise ops | New tensor handle |
+| `neg`, `relu`, `exp_f`, `log_f`, `sqrt_f`, `sigmoid_f`, `tanh_f` | unary kernels | New tensor handle |
 | `sum`, `sum_f`, `mean_f`, `min`, `max` | reductions | Scalar value |
-| `matmul` | `(lhs: int, rhs: int) -> int` | 2D matrix multiplication |
+| `matmul`, `transpose`, `dot` | matrix/vector kernels | Handle or scalar |
+| `seed`, `stats_*`, `reset_stats` | RNG and runtime metrics | Determinism and observability |
 | `free`, `free_all` | release handles | `unit` / freed count |
 
 ```spectra
@@ -1550,11 +1553,12 @@ let c = tensor.add(a, b);
 let total = tensor.sum(c);       // 18
 let matrix = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
 let product = tensor.matmul(matrix, tensor.ones2(3, 2));
+let random = tensor.uniform(8, 0, 10);
 
 tensor.free_all();
 ```
 
-Current limitation: tensors are stdlib handles, not first-class static tensor types. Device placement, slicing views, GPU kernels, and autodiff are later phases.
+Current limitation: tensors are stdlib handles, not first-class static tensor types. Phase 4 includes portable CPU kernels, release benchmark evidence, seeded random fills, categorical sampling, buffer-pool metrics, and runtime kernel metrics; device placement, slicing views, GPU kernels, and autodiff are later phases.
 
 ### std.random — Random Numbers
 

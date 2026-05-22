@@ -6609,6 +6609,45 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "max") => Some(host_int("spectra.std.tensor.max")),
             ("tensor", "min") => Some(host_int("spectra.std.tensor.min")),
             ("tensor", "matmul") => Some(host_int("spectra.std.tensor.matmul")),
+            ("tensor", "transpose") => Some(host_int("spectra.std.tensor.transpose")),
+            ("tensor", "dot") => Some(host_int("spectra.std.tensor.dot")),
+            ("tensor", "neg") => Some(host_int("spectra.std.tensor.neg")),
+            ("tensor", "exp_f") => Some(host_int("spectra.std.tensor.exp_f")),
+            ("tensor", "log_f") => Some(host_int("spectra.std.tensor.log_f")),
+            ("tensor", "sqrt_f") => Some(host_int("spectra.std.tensor.sqrt_f")),
+            ("tensor", "relu") => Some(host_int("spectra.std.tensor.relu")),
+            ("tensor", "sigmoid_f") => Some(host_int("spectra.std.tensor.sigmoid_f")),
+            ("tensor", "tanh_f") => Some(host_int("spectra.std.tensor.tanh_f")),
+            ("tensor", "seed") => Some(host_void("spectra.std.tensor.seed")),
+            ("tensor", "uniform") => Some(host_int("spectra.std.tensor.uniform")),
+            ("tensor", "uniform_f") => Some(host_int("spectra.std.tensor.uniform_f")),
+            ("tensor", "normal_f") => Some(host_int("spectra.std.tensor.normal_f")),
+            ("tensor", "bernoulli") => Some(host_int("spectra.std.tensor.bernoulli")),
+            ("tensor", "categorical") => Some(host_int("spectra.std.tensor.categorical")),
+            ("tensor", "stats_allocations") => {
+                Some(host_int("spectra.std.tensor.stats_allocations"))
+            }
+            ("tensor", "stats_active") => Some(host_int("spectra.std.tensor.stats_active")),
+            ("tensor", "stats_peak_bytes") => Some(host_int("spectra.std.tensor.stats_peak_bytes")),
+            ("tensor", "stats_reused_buffers") => {
+                Some(host_int("spectra.std.tensor.stats_reused_buffers"))
+            }
+            ("tensor", "stats_pool_hits") => Some(host_int("spectra.std.tensor.stats_pool_hits")),
+            ("tensor", "stats_pool_misses") => {
+                Some(host_int("spectra.std.tensor.stats_pool_misses"))
+            }
+            ("tensor", "stats_active_bytes") => {
+                Some(host_int("spectra.std.tensor.stats_active_bytes"))
+            }
+            ("tensor", "stats_scratch_reuses") => {
+                Some(host_int("spectra.std.tensor.stats_scratch_reuses"))
+            }
+            ("tensor", "kernel_strategy") => Some(host_int("spectra.std.tensor.kernel_strategy")),
+            ("tensor", "stats_kernel_ops") => Some(host_int("spectra.std.tensor.stats_kernel_ops")),
+            ("tensor", "stats_kernel_elements") => {
+                Some(host_int("spectra.std.tensor.stats_kernel_elements"))
+            }
+            ("tensor", "reset_stats") => Some(host_void("spectra.std.tensor.reset_stats")),
             ("tensor", "free") => Some(host_void("spectra.std.tensor.free")),
             ("tensor", "free_all") => Some(host_int("spectra.std.tensor.free_all")),
             // ── std.collections map ──────────────────────────────────────

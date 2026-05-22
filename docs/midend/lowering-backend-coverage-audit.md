@@ -30,7 +30,7 @@ Status labels:
 | `Drop` flows | supported | Current destructor examples compile successfully. |
 | Closures | partial | Non-capturing closures are stored, passed, invoked, and returned in validated paths; captured environments are deferred. |
 | Const/static lowering | partial | Top-level `const` values lower as literals at use sites; `static` remains a surface/global item model. |
-| Tensor/ndarray primitives | deferred | Not part of the current lowering design yet. |
+| Tensor/ndarray primitives | partial | `std.tensor` alpha lowers as stdlib host calls; first-class tensor IR, views, and device lowering remain deferred. |
 
 ## IR Verification Coverage
 
@@ -52,7 +52,7 @@ Status labels:
 | Object emission | supported | CLI can emit native object files. |
 | Executable linking | supported | CLI supports `--emit-exe` on supported host setups. |
 | Primitive integer/float/bool/char handling | supported | Includes the recent bool/char fixes. |
-| Host-call bridge to stdlib | supported | Current std modules used in examples compile and run through the host-call surface. |
+| Host-call bridge to stdlib | supported | Current std modules, including `std.tensor` alpha ops, compile and run through the host-call surface. |
 | SIMD/vectorized scientific kernels | deferred | Covered by Phase 4 and later. |
 | GPU kernels and device lowering | deferred | Covered by Phase 7. |
 
@@ -62,11 +62,11 @@ Status labels:
 | --- | --- |
 | Exact-width numeric runtime semantics | post-`R-201` production hardening |
 | Shape/size const contexts | `R-202` follow-up under tensor/type-system work |
-| Tensor-first lowering model | `R-301` and `R-302` |
+| Tensor-first lowering model | alpha `std.tensor` host-call bridge complete in `R-301` through `R-303`; first-class tensor IR remains future work |
 | CPU numerical kernels | `R-401` through `R-403` |
 | Autodiff graph and gradient lowering | `R-501` through `R-503` |
 | GPU/device lowering | `R-701` through `R-703` |
 
 ## Operational Conclusion
 
-For the current general-purpose language surface, lowering and backend coverage are now in a healthy Phase 1 state. For the stated AI/ML product goal, the missing pieces are no longer hidden compiler bugs; they are explicit roadmap work in numerical runtime, tensor semantics, autodiff, and acceleration.
+For the current general-purpose language surface, lowering and backend coverage are now in a healthy Phase 1 state. For the stated AI/ML product goal, an alpha tensor path now exists through `std.tensor` host calls; the remaining production work is explicit roadmap work in first-class tensor IR, numerical kernels, autodiff, and acceleration.

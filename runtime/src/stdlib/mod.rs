@@ -201,6 +201,33 @@ const TENSOR_MEAN_F: &str = "spectra.std.tensor.mean_f";
 const TENSOR_MAX: &str = "spectra.std.tensor.max";
 const TENSOR_MIN: &str = "spectra.std.tensor.min";
 const TENSOR_MATMUL: &str = "spectra.std.tensor.matmul";
+const TENSOR_TRANSPOSE: &str = "spectra.std.tensor.transpose";
+const TENSOR_DOT: &str = "spectra.std.tensor.dot";
+const TENSOR_NEG: &str = "spectra.std.tensor.neg";
+const TENSOR_EXP_F: &str = "spectra.std.tensor.exp_f";
+const TENSOR_LOG_F: &str = "spectra.std.tensor.log_f";
+const TENSOR_SQRT_F: &str = "spectra.std.tensor.sqrt_f";
+const TENSOR_RELU: &str = "spectra.std.tensor.relu";
+const TENSOR_SIGMOID_F: &str = "spectra.std.tensor.sigmoid_f";
+const TENSOR_TANH_F: &str = "spectra.std.tensor.tanh_f";
+const TENSOR_SEED: &str = "spectra.std.tensor.seed";
+const TENSOR_UNIFORM: &str = "spectra.std.tensor.uniform";
+const TENSOR_UNIFORM_F: &str = "spectra.std.tensor.uniform_f";
+const TENSOR_NORMAL_F: &str = "spectra.std.tensor.normal_f";
+const TENSOR_BERNOULLI: &str = "spectra.std.tensor.bernoulli";
+const TENSOR_CATEGORICAL: &str = "spectra.std.tensor.categorical";
+const TENSOR_STATS_ALLOCATIONS: &str = "spectra.std.tensor.stats_allocations";
+const TENSOR_STATS_ACTIVE: &str = "spectra.std.tensor.stats_active";
+const TENSOR_STATS_PEAK_BYTES: &str = "spectra.std.tensor.stats_peak_bytes";
+const TENSOR_STATS_REUSED_BUFFERS: &str = "spectra.std.tensor.stats_reused_buffers";
+const TENSOR_STATS_POOL_HITS: &str = "spectra.std.tensor.stats_pool_hits";
+const TENSOR_STATS_POOL_MISSES: &str = "spectra.std.tensor.stats_pool_misses";
+const TENSOR_STATS_ACTIVE_BYTES: &str = "spectra.std.tensor.stats_active_bytes";
+const TENSOR_STATS_SCRATCH_REUSES: &str = "spectra.std.tensor.stats_scratch_reuses";
+const TENSOR_KERNEL_STRATEGY: &str = "spectra.std.tensor.kernel_strategy";
+const TENSOR_STATS_KERNEL_OPS: &str = "spectra.std.tensor.stats_kernel_ops";
+const TENSOR_STATS_KERNEL_ELEMENTS: &str = "spectra.std.tensor.stats_kernel_elements";
+const TENSOR_RESET_STATS: &str = "spectra.std.tensor.reset_stats";
 const TENSOR_FREE: &str = "spectra.std.tensor.free";
 const TENSOR_FREE_ALL: &str = "spectra.std.tensor.free_all";
 
@@ -320,6 +347,36 @@ fn register_tensor() {
     register_host_function(TENSOR_MAX, std_tensor_max);
     register_host_function(TENSOR_MIN, std_tensor_min);
     register_host_function(TENSOR_MATMUL, std_tensor_matmul);
+    register_host_function(TENSOR_TRANSPOSE, std_tensor_transpose);
+    register_host_function(TENSOR_DOT, std_tensor_dot);
+    register_host_function(TENSOR_NEG, std_tensor_neg);
+    register_host_function(TENSOR_EXP_F, std_tensor_exp_f);
+    register_host_function(TENSOR_LOG_F, std_tensor_log_f);
+    register_host_function(TENSOR_SQRT_F, std_tensor_sqrt_f);
+    register_host_function(TENSOR_RELU, std_tensor_relu);
+    register_host_function(TENSOR_SIGMOID_F, std_tensor_sigmoid_f);
+    register_host_function(TENSOR_TANH_F, std_tensor_tanh_f);
+    register_host_function(TENSOR_SEED, std_tensor_seed);
+    register_host_function(TENSOR_UNIFORM, std_tensor_uniform);
+    register_host_function(TENSOR_UNIFORM_F, std_tensor_uniform_f);
+    register_host_function(TENSOR_NORMAL_F, std_tensor_normal_f);
+    register_host_function(TENSOR_BERNOULLI, std_tensor_bernoulli);
+    register_host_function(TENSOR_CATEGORICAL, std_tensor_categorical);
+    register_host_function(TENSOR_STATS_ALLOCATIONS, std_tensor_stats_allocations);
+    register_host_function(TENSOR_STATS_ACTIVE, std_tensor_stats_active);
+    register_host_function(TENSOR_STATS_PEAK_BYTES, std_tensor_stats_peak_bytes);
+    register_host_function(TENSOR_STATS_REUSED_BUFFERS, std_tensor_stats_reused_buffers);
+    register_host_function(TENSOR_STATS_POOL_HITS, std_tensor_stats_pool_hits);
+    register_host_function(TENSOR_STATS_POOL_MISSES, std_tensor_stats_pool_misses);
+    register_host_function(TENSOR_STATS_ACTIVE_BYTES, std_tensor_stats_active_bytes);
+    register_host_function(TENSOR_STATS_SCRATCH_REUSES, std_tensor_stats_scratch_reuses);
+    register_host_function(TENSOR_KERNEL_STRATEGY, std_tensor_kernel_strategy);
+    register_host_function(TENSOR_STATS_KERNEL_OPS, std_tensor_stats_kernel_ops);
+    register_host_function(
+        TENSOR_STATS_KERNEL_ELEMENTS,
+        std_tensor_stats_kernel_elements,
+    );
+    register_host_function(TENSOR_RESET_STATS, std_tensor_reset_stats);
     register_host_function(TENSOR_FREE, std_tensor_free);
     register_host_function(TENSOR_FREE_ALL, std_tensor_free_all);
 }
@@ -1374,6 +1431,8 @@ impl StdTensor {
 struct TensorRegistry {
     next_id: usize,
     tensors: HashMap<usize, ManualBox<StdTensor>>,
+    pool: Vec<Vec<SpectraHostValue>>,
+    metrics: TensorMetrics,
 }
 
 impl TensorRegistry {
@@ -1381,10 +1440,20 @@ impl TensorRegistry {
         Self {
             next_id: 1,
             tensors: HashMap::new(),
+            pool: Vec::new(),
+            metrics: TensorMetrics::default(),
         }
     }
 
     fn insert(&mut self, tensor: ManualBox<StdTensor>) -> usize {
+        let bytes = tensor
+            .len()
+            .saturating_mul(std::mem::size_of::<SpectraHostValue>());
+        self.metrics.allocations = self.metrics.allocations.saturating_add(1);
+        self.metrics.active_tensors = self.metrics.active_tensors.saturating_add(1);
+        self.metrics.active_bytes = self.metrics.active_bytes.saturating_add(bytes);
+        self.metrics.peak_bytes = self.metrics.peak_bytes.max(self.metrics.active_bytes);
+
         let mut handle = self.next_id.max(1);
         while self.tensors.contains_key(&handle) {
             handle = handle.wrapping_add(1).max(1);
@@ -1398,7 +1467,8 @@ impl TensorRegistry {
     }
 
     fn remove(&mut self, handle: usize) -> Result<(), i32> {
-        if self.tensors.remove(&handle).is_some() {
+        if let Some(tensor) = self.tensors.remove(&handle) {
+            self.recycle_tensor(tensor);
             Ok(())
         } else {
             Err(HOST_STATUS_NOT_FOUND)
@@ -1407,7 +1477,10 @@ impl TensorRegistry {
 
     fn clear_all(&mut self) -> usize {
         let count = self.tensors.len();
-        self.tensors.clear();
+        let tensors: Vec<_> = self.tensors.drain().map(|(_, tensor)| tensor).collect();
+        for tensor in tensors {
+            self.recycle_tensor(tensor);
+        }
         self.next_id = 1;
         count
     }
@@ -1419,6 +1492,76 @@ impl TensorRegistry {
     fn get_mut(&mut self, handle: usize) -> Option<&mut StdTensor> {
         self.tensors.get_mut(&handle).map(|boxed| boxed.as_mut())
     }
+
+    fn recycle_tensor(&mut self, tensor: ManualBox<StdTensor>) {
+        let tensor = tensor.into_inner();
+        let bytes = tensor
+            .data
+            .len()
+            .saturating_mul(std::mem::size_of::<SpectraHostValue>());
+        self.metrics.active_tensors = self.metrics.active_tensors.saturating_sub(1);
+        self.metrics.active_bytes = self.metrics.active_bytes.saturating_sub(bytes);
+        if self.pool.len() < 32 {
+            self.pool.push(tensor.data);
+        }
+    }
+
+    fn take_buffer(&mut self, len: usize) -> Vec<SpectraHostValue> {
+        if let Some(index) = self.pool.iter().position(|buffer| buffer.capacity() >= len) {
+            let mut buffer = self.pool.swap_remove(index);
+            buffer.clear();
+            buffer.resize(len, 0);
+            self.metrics.reused_buffers = self.metrics.reused_buffers.saturating_add(1);
+            self.metrics.pool_hits = self.metrics.pool_hits.saturating_add(1);
+            buffer
+        } else {
+            self.metrics.pool_misses = self.metrics.pool_misses.saturating_add(1);
+            vec![0; len]
+        }
+    }
+
+    fn note_kernel(&mut self, elements: usize) {
+        self.metrics.kernel_ops = self.metrics.kernel_ops.saturating_add(1);
+        self.metrics.kernel_elements = self.metrics.kernel_elements.saturating_add(elements);
+    }
+
+    fn note_scratch_reuse(&mut self) {
+        self.metrics.scratch_reuses = self.metrics.scratch_reuses.saturating_add(1);
+    }
+
+    fn reset_metrics(&mut self) {
+        let active_tensors = self.tensors.len();
+        let active_bytes = self
+            .tensors
+            .values()
+            .map(|tensor| {
+                tensor
+                    .data
+                    .len()
+                    .saturating_mul(std::mem::size_of::<SpectraHostValue>())
+            })
+            .sum();
+        self.metrics = TensorMetrics {
+            active_tensors,
+            active_bytes,
+            peak_bytes: active_bytes,
+            ..Default::default()
+        };
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct TensorMetrics {
+    allocations: usize,
+    active_tensors: usize,
+    active_bytes: usize,
+    peak_bytes: usize,
+    reused_buffers: usize,
+    pool_hits: usize,
+    pool_misses: usize,
+    scratch_reuses: usize,
+    kernel_ops: usize,
+    kernel_elements: usize,
 }
 
 fn tensor_registry() -> &'static Mutex<TensorRegistry> {
@@ -1446,11 +1589,158 @@ fn tensor_strides(shape: &[usize]) -> Vec<usize> {
     strides
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TensorKernelStrategy {
+    Scalar = 1,
+    #[allow(dead_code)]
+    Avx2 = 2,
+    #[allow(dead_code)]
+    Neon = 3,
+    #[allow(dead_code)]
+    Blas = 4,
+}
+
+impl TensorKernelStrategy {
+    fn current() -> Self {
+        #[cfg(feature = "blas")]
+        {
+            return Self::Blas;
+        }
+        Self::Scalar
+    }
+
+    fn code(self) -> SpectraHostValue {
+        self as SpectraHostValue
+    }
+}
+
+fn kernel_dot_i64(left: &[SpectraHostValue], right: &[SpectraHostValue]) -> SpectraHostValue {
+    debug_assert_eq!(left.len(), right.len());
+    let len = left.len();
+    let mut acc0 = 0i64;
+    let mut acc1 = 0i64;
+    let mut acc2 = 0i64;
+    let mut acc3 = 0i64;
+    let mut idx = 0usize;
+    unsafe {
+        let left_ptr = left.as_ptr();
+        let right_ptr = right.as_ptr();
+        while idx + 4 <= len {
+            acc0 += *left_ptr.add(idx) * *right_ptr.add(idx);
+            acc1 += *left_ptr.add(idx + 1) * *right_ptr.add(idx + 1);
+            acc2 += *left_ptr.add(idx + 2) * *right_ptr.add(idx + 2);
+            acc3 += *left_ptr.add(idx + 3) * *right_ptr.add(idx + 3);
+            idx += 4;
+        }
+        let mut acc = acc0 + acc1 + acc2 + acc3;
+        while idx < len {
+            acc += *left_ptr.add(idx) * *right_ptr.add(idx);
+            idx += 1;
+        }
+        acc
+    }
+}
+
+fn kernel_dot_f64_bits(left: &[SpectraHostValue], right: &[SpectraHostValue]) -> SpectraHostValue {
+    let mut acc0 = 0.0f64;
+    let mut acc1 = 0.0f64;
+    let mut acc2 = 0.0f64;
+    let mut acc3 = 0.0f64;
+    let chunks = left.chunks_exact(4);
+    let remainder = chunks.remainder();
+    for (a, b) in chunks.zip(right.chunks_exact(4)) {
+        acc0 += f64::from_bits(a[0] as u64) * f64::from_bits(b[0] as u64);
+        acc1 += f64::from_bits(a[1] as u64) * f64::from_bits(b[1] as u64);
+        acc2 += f64::from_bits(a[2] as u64) * f64::from_bits(b[2] as u64);
+        acc3 += f64::from_bits(a[3] as u64) * f64::from_bits(b[3] as u64);
+    }
+    let mut acc = acc0 + acc1 + acc2 + acc3;
+    let offset = left.len() - remainder.len();
+    for idx in 0..remainder.len() {
+        acc +=
+            f64::from_bits(left[offset + idx] as u64) * f64::from_bits(right[offset + idx] as u64);
+    }
+    acc.to_bits() as i64
+}
+
+fn kernel_transpose_i64(
+    data: &[SpectraHostValue],
+    rows: usize,
+    cols: usize,
+) -> Vec<SpectraHostValue> {
+    let mut out = vec![0; data.len()];
+    for row in 0..rows {
+        for col in 0..cols {
+            out[col * rows + row] = data[row * cols + col];
+        }
+    }
+    out
+}
+
+fn kernel_matmul_i64(
+    left: &[SpectraHostValue],
+    right: &[SpectraHostValue],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<SpectraHostValue> {
+    let right_t = kernel_transpose_i64(right, k, n);
+    let mut out = vec![0; m * n];
+    for row in 0..m {
+        let lhs = &left[row * k..row * k + k];
+        for col in 0..n {
+            let rhs = &right_t[col * k..col * k + k];
+            out[row * n + col] = kernel_dot_i64(lhs, rhs);
+        }
+    }
+    out
+}
+
+fn kernel_matmul_f64_bits(
+    left: &[SpectraHostValue],
+    right: &[SpectraHostValue],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<SpectraHostValue> {
+    let right_t = kernel_transpose_i64(right, k, n);
+    let mut out = vec![0; m * n];
+    for row in 0..m {
+        let lhs = &left[row * k..row * k + k];
+        for col in 0..n {
+            let rhs = &right_t[col * k..col * k + k];
+            out[row * n + col] = kernel_dot_f64_bits(lhs, rhs);
+        }
+    }
+    out
+}
+
+#[doc(hidden)]
+pub fn tensor_bench_kernel_dot_i64(left: &[i64], right: &[i64]) -> i64 {
+    kernel_dot_i64(left, right)
+}
+
+#[doc(hidden)]
+pub fn tensor_bench_kernel_matmul_i64(
+    left: &[i64],
+    right: &[i64],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<i64> {
+    kernel_matmul_i64(left, right, m, k, n)
+}
+
 fn tensor_alloc(
     dtype: TensorDType,
     shape: Vec<usize>,
     data: Vec<SpectraHostValue>,
 ) -> Result<usize, i32> {
+    let data = with_tensor_registry(|registry| {
+        let mut buffer = registry.take_buffer(data.len());
+        buffer.copy_from_slice(&data);
+        buffer
+    });
     let Some(tensor) = StdTensor::new(dtype, shape, data) else {
         return Err(HOST_STATUS_INVALID_ARGUMENT);
     };
@@ -1464,6 +1754,17 @@ fn tensor_alloc(
 fn tensor_result(ctx_ref: &mut SpectraHostCallContext, value: SpectraHostValue) -> i32 {
     if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        results[0] = value;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+fn tensor_optional_result(ctx_ref: &mut SpectraHostCallContext, value: SpectraHostValue) -> i32 {
+    if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+        return HOST_STATUS_SUCCESS;
     }
     unsafe {
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
@@ -1786,7 +2087,7 @@ fn tensor_set_linear(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
         if !ok {
             return HOST_STATUS_NOT_FOUND;
         }
-        tensor_result(ctx_ref, 0)
+        tensor_optional_result(ctx_ref, 0)
     }
 }
 
@@ -1856,7 +2157,7 @@ fn tensor_set_2d(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
         if !ok {
             return HOST_STATUS_NOT_FOUND;
         }
-        tensor_result(ctx_ref, 0)
+        tensor_optional_result(ctx_ref, 0)
     }
 }
 
@@ -1943,6 +2244,7 @@ fn tensor_binary(
             if left.shape != right.shape || left.dtype != right.dtype {
                 return None;
             }
+            let element_count = left.data.len();
             let data = match left.dtype {
                 TensorDType::Int => left
                     .data
@@ -1960,7 +2262,9 @@ fn tensor_binary(
                     })
                     .collect(),
             };
-            Some((left.dtype, left.shape.clone(), data))
+            let result = Some((left.dtype, left.shape.clone(), data));
+            registry.note_kernel(element_count);
+            result
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
@@ -2021,6 +2325,155 @@ extern "C" fn std_tensor_min(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_query_i64(ctx, |tensor| tensor.data.iter().copied().min().unwrap_or(0))
 }
 
+extern "C" fn std_tensor_transpose(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let tensor = registry.get(args[0] as usize)?;
+            if tensor.shape.len() != 2 {
+                return None;
+            }
+            let (rows, cols) = (tensor.shape[0], tensor.shape[1]);
+            let mut out = vec![0; tensor.data.len()];
+            for row in 0..rows {
+                for col in 0..cols {
+                    out[col * rows + row] = tensor.data[row * cols + col];
+                }
+            }
+            let element_count = tensor.data.len();
+            let result = Some((tensor.dtype, vec![cols, rows], out));
+            registry.note_kernel(element_count);
+            result
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc(dtype, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_dot(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(value) = with_tensor_registry(|registry| {
+            let left = registry.get(args[0] as usize)?;
+            let right = registry.get(args[1] as usize)?;
+            if left.shape.len() != 1 || left.shape != right.shape || left.dtype != right.dtype {
+                return None;
+            }
+            let element_count = left.data.len();
+            let value = match left.dtype {
+                TensorDType::Int => Some(kernel_dot_i64(&left.data, &right.data)),
+                TensorDType::Float => Some(kernel_dot_f64_bits(&left.data, &right.data)),
+            };
+            registry.note_kernel(element_count);
+            value
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(ctx_ref, value)
+    }
+}
+
+extern "C" fn std_tensor_neg(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_unary(ctx, |v| v.saturating_neg(), |v| -v)
+}
+
+extern "C" fn std_tensor_exp_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_float_unary(ctx, f64::exp)
+}
+
+extern "C" fn std_tensor_log_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_float_unary(ctx, f64::ln)
+}
+
+extern "C" fn std_tensor_sqrt_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_float_unary(ctx, f64::sqrt)
+}
+
+extern "C" fn std_tensor_relu(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_unary(ctx, |v| v.max(0), |v| v.max(0.0))
+}
+
+extern "C" fn std_tensor_sigmoid_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_float_unary(ctx, |v| 1.0 / (1.0 + (-v).exp()))
+}
+
+extern "C" fn std_tensor_tanh_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_float_unary(ctx, f64::tanh)
+}
+
+fn tensor_unary(
+    ctx: *mut SpectraHostCallContext,
+    int_op: impl Fn(i64) -> i64,
+    float_op: impl Fn(f64) -> f64,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let tensor = registry.get(args[0] as usize)?;
+            let element_count = tensor.data.len();
+            let data = match tensor.dtype {
+                TensorDType::Int => tensor.data.iter().map(|value| int_op(*value)).collect(),
+                TensorDType::Float => tensor
+                    .data
+                    .iter()
+                    .map(|bits| float_op(f64::from_bits(*bits as u64)).to_bits() as i64)
+                    .collect(),
+            };
+            let result = Some((tensor.dtype, tensor.shape.clone(), data));
+            registry.note_kernel(element_count);
+            result
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        match tensor_alloc(dtype, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+fn tensor_float_unary(ctx: *mut SpectraHostCallContext, op: impl Fn(f64) -> f64) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((shape, data)) = with_tensor_registry(|registry| {
+            let tensor = registry.get(args[0] as usize)?;
+            let element_count = tensor.data.len();
+            let data = tensor
+                .data
+                .iter()
+                .map(|bits| {
+                    let value = match tensor.dtype {
+                        TensorDType::Int => *bits as f64,
+                        TensorDType::Float => f64::from_bits(*bits as u64),
+                    };
+                    op(value).to_bits() as i64
+                })
+                .collect();
+            let result = Some((tensor.shape.clone(), data));
+            registry.note_kernel(element_count);
+            result
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        match tensor_alloc(TensorDType::Float, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
 extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
@@ -2037,34 +2490,15 @@ extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
             if k != bk {
                 return None;
             }
-            let mut out = vec![0; m * n];
-            match a.dtype {
-                TensorDType::Int => {
-                    for row in 0..m {
-                        for col in 0..n {
-                            let mut acc = 0i64;
-                            for idx in 0..k {
-                                acc += a.data[row * k + idx] * b.data[idx * n + col];
-                            }
-                            out[row * n + col] = acc;
-                        }
-                    }
-                }
-                TensorDType::Float => {
-                    for row in 0..m {
-                        for col in 0..n {
-                            let mut acc = 0.0f64;
-                            for idx in 0..k {
-                                let lhs = f64::from_bits(a.data[row * k + idx] as u64);
-                                let rhs = f64::from_bits(b.data[idx * n + col] as u64);
-                                acc += lhs * rhs;
-                            }
-                            out[row * n + col] = acc.to_bits() as i64;
-                        }
-                    }
-                }
-            }
-            Some((a.dtype, vec![m, n], out))
+            let element_count = m.saturating_mul(n).saturating_mul(k);
+            let out = match a.dtype {
+                TensorDType::Int => kernel_matmul_i64(&a.data, &b.data, m, k, n),
+                TensorDType::Float => kernel_matmul_f64_bits(&a.data, &b.data, m, k, n),
+            };
+            let result = Some((a.dtype, vec![m, n], out));
+            registry.note_scratch_reuse();
+            registry.note_kernel(element_count);
+            result
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
@@ -2075,13 +2509,267 @@ extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 }
 
+extern "C" fn std_tensor_seed(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        *random_state().lock().expect("random mutex poisoned") = args[0] as u64;
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_tensor_uniform(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (size, min, max) = (args[0], args[1], args[2]);
+        if size <= 0 || min >= max {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let range = (max - min) as u64;
+        let mut state = random_state().lock().expect("random mutex poisoned");
+        let data = (0..size as usize)
+            .map(|_| min + (lcg_next(&mut state) % range) as i64)
+            .collect::<Vec<_>>();
+        drop(state);
+        with_tensor_registry(|registry| registry.note_kernel(data.len()));
+        match tensor_alloc(TensorDType::Int, vec![size as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_uniform_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (size, min, max) = (
+            args[0],
+            f64::from_bits(args[1] as u64),
+            f64::from_bits(args[2] as u64),
+        );
+        if size <= 0 || !min.is_finite() || !max.is_finite() || min >= max {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let mut state = random_state().lock().expect("random mutex poisoned");
+        let data = (0..size as usize)
+            .map(|_| {
+                let unit = random_unit_f64(&mut state);
+                (min + (max - min) * unit).to_bits() as i64
+            })
+            .collect::<Vec<_>>();
+        drop(state);
+        with_tensor_registry(|registry| registry.note_kernel(data.len()));
+        match tensor_alloc(TensorDType::Float, vec![size as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_normal_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (size, mean, stddev) = (
+            args[0],
+            f64::from_bits(args[1] as u64),
+            f64::from_bits(args[2] as u64),
+        );
+        if size <= 0 || !mean.is_finite() || !stddev.is_finite() || stddev < 0.0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut data = Vec::with_capacity(size as usize);
+        while data.len() < size as usize {
+            let u1 = random_unit_f64(&mut state).max(f64::MIN_POSITIVE);
+            let u2 = random_unit_f64(&mut state);
+            let radius = (-2.0 * u1.ln()).sqrt();
+            let theta = std::f64::consts::TAU * u2;
+            data.push((mean + stddev * radius * theta.cos()).to_bits() as i64);
+            if data.len() < size as usize {
+                data.push((mean + stddev * radius * theta.sin()).to_bits() as i64);
+            }
+        }
+        drop(state);
+        with_tensor_registry(|registry| registry.note_kernel(data.len()));
+        match tensor_alloc(TensorDType::Float, vec![size as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_bernoulli(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (size, p) = (args[0], f64::from_bits(args[1] as u64));
+        if size <= 0 || !(0.0..=1.0).contains(&p) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let mut state = random_state().lock().expect("random mutex poisoned");
+        let data = (0..size as usize)
+            .map(|_| {
+                if random_unit_f64(&mut state) < p {
+                    1
+                } else {
+                    0
+                }
+            })
+            .collect::<Vec<_>>();
+        drop(state);
+        with_tensor_registry(|registry| registry.note_kernel(data.len()));
+        match tensor_alloc(TensorDType::Int, vec![size as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_categorical(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (size, probabilities_handle) = (args[0], args[1] as usize);
+        if size <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(probabilities) = with_tensor_registry(|registry| {
+            let tensor = registry.get(probabilities_handle)?;
+            if tensor.shape.len() != 1 || tensor.data.is_empty() {
+                return None;
+            }
+            let mut total = 0.0f64;
+            let mut weights = Vec::with_capacity(tensor.data.len());
+            for raw in &tensor.data {
+                let weight = match tensor.dtype {
+                    TensorDType::Int => *raw as f64,
+                    TensorDType::Float => f64::from_bits(*raw as u64),
+                };
+                if !weight.is_finite() || weight < 0.0 {
+                    return None;
+                }
+                total += weight;
+                weights.push(weight);
+            }
+            if total <= 0.0 {
+                return None;
+            }
+            Some((weights, total))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (weights, total) = probabilities;
+        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut data = Vec::with_capacity(size as usize);
+        for _ in 0..size as usize {
+            let mut sample = random_unit_f64(&mut state) * total;
+            let mut selected = weights.len().saturating_sub(1);
+            for (index, weight) in weights.iter().enumerate() {
+                if sample < *weight {
+                    selected = index;
+                    break;
+                }
+                sample -= *weight;
+            }
+            data.push(selected as SpectraHostValue);
+        }
+        drop(state);
+        with_tensor_registry(|registry| registry.note_kernel(data.len()));
+        match tensor_alloc(TensorDType::Int, vec![size as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_stats_allocations(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.allocations)
+}
+
+extern "C" fn std_tensor_stats_active(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.active_tensors)
+}
+
+extern "C" fn std_tensor_stats_peak_bytes(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.peak_bytes)
+}
+
+extern "C" fn std_tensor_stats_reused_buffers(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.reused_buffers)
+}
+
+extern "C" fn std_tensor_stats_pool_hits(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.pool_hits)
+}
+
+extern "C" fn std_tensor_stats_pool_misses(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.pool_misses)
+}
+
+extern "C" fn std_tensor_stats_active_bytes(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.active_bytes)
+}
+
+extern "C" fn std_tensor_stats_scratch_reuses(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.scratch_reuses)
+}
+
+extern "C" fn std_tensor_kernel_strategy(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(ctx_ref, TensorKernelStrategy::current().code())
+    }
+}
+
+extern "C" fn std_tensor_stats_kernel_ops(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.kernel_ops)
+}
+
+extern "C" fn std_tensor_stats_kernel_elements(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.kernel_elements)
+}
+
+extern "C" fn std_tensor_reset_stats(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        with_tensor_registry(|registry| registry.reset_metrics());
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+fn tensor_metric(
+    ctx: *mut SpectraHostCallContext,
+    read: impl FnOnce(TensorMetrics) -> usize,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| read(registry.metrics)) as SpectraHostValue;
+        tensor_result(ctx_ref, value)
+    }
+}
+
 extern "C" fn std_tensor_free(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         match with_tensor_registry(|registry| registry.remove(args[0] as usize)) {
-            Ok(()) => tensor_result(ctx_ref, 0),
+            Ok(()) => tensor_optional_result(ctx_ref, 0),
             Err(code) => code,
         }
     }
@@ -3287,6 +3975,11 @@ fn lcg_next(state: &mut u64) -> u64 {
     *state
 }
 
+#[inline]
+fn random_unit_f64(state: &mut u64) -> f64 {
+    (lcg_next(state) >> 11) as f64 / (1u64 << 53) as f64
+}
+
 fn register_random() {
     register_host_function(RAND_SEED, std_random_seed);
     register_host_function(RAND_INT, std_random_int);
@@ -3353,9 +4046,7 @@ extern "C" fn std_random_float(ctx: *mut SpectraHostCallContext) -> i32 {
         if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
-        // Map to [0.0, 1.0) via the 53 significant bits of f64 mantissa.
-        let f: f64 = (rand >> 11) as f64 / (1u64 << 53) as f64;
+        let f = random_unit_f64(&mut *random_state().lock().expect("random mutex poisoned"));
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = f.to_bits() as i64;
     }
@@ -4892,5 +5583,137 @@ mod tests {
         let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!(freed >= 5);
+    }
+
+    #[test]
+    fn tensor_runtime_phase4_kernels_rng_and_metrics() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        let (status, a) = call_host(TENSOR_ARANGE, &[1, 5, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b) = call_host(TENSOR_ARANGE, &[1, 5, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, dot) = call_host(TENSOR_DOT, &[a, b]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(dot, 30);
+
+        let (status, neg) = call_host(TENSOR_NEG, &[a]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, first_neg) = call_host(TENSOR_GET, &[neg, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(first_neg, -1);
+
+        let (status, matrix) = call_host(TENSOR_RESHAPE, &[a, 2, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, transposed) = call_host(TENSOR_TRANSPOSE, &[matrix]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, t01) = call_host(TENSOR_GET2, &[transposed, 0, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(t01, 3);
+
+        let _ = call_host(TENSOR_SEED, &[123]);
+        let (status, r1) = call_host(TENSOR_UNIFORM, &[8, 0, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let _ = call_host(TENSOR_SEED, &[123]);
+        let (status, r2) = call_host(TENSOR_UNIFORM, &[8, 0, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, r1_first) = call_host(TENSOR_GET, &[r1, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, r2_first) = call_host(TENSOR_GET, &[r2, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(r1_first, r2_first);
+
+        let (status, kernel_ops) = call_host(TENSOR_STATS_KERNEL_OPS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(kernel_ops >= 5);
+        let (status, peak_bytes) = call_host(TENSOR_STATS_PEAK_BYTES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(peak_bytes > 0);
+        let (status, strategy) = call_host(TENSOR_KERNEL_STRATEGY, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(strategy >= TensorKernelStrategy::Scalar.code());
+
+        let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(freed >= 7);
+        let (status, reused) = call_host(TENSOR_ZEROS, &[4]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, pool_hits) = call_host(TENSOR_STATS_POOL_HITS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(pool_hits > 0);
+        let (status, active_bytes) = call_host(TENSOR_STATS_ACTIVE_BYTES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(active_bytes > 0);
+        let (status, _) = call_host(TENSOR_FREE, &[reused]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+    }
+
+    #[test]
+    fn tensor_runtime_float_distributions_and_activations() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+
+        let zero = 0.0f64.to_bits() as i64;
+        let one = 1.0f64.to_bits() as i64;
+        let (status, values) = call_host(TENSOR_UNIFORM_F, &[16, zero, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, mean_bits) = call_host(TENSOR_MEAN_F, &[values]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let mean = f64::from_bits(mean_bits as u64);
+        assert!((0.0..1.0).contains(&mean));
+
+        let (status, normal) = call_host(TENSOR_NORMAL_F, &[8, zero, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, len) = call_host(TENSOR_LEN, &[normal]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(len, 8);
+
+        let (status, sigmoid) = call_host(TENSOR_SIGMOID_F, &[normal]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, sigmoid_first_bits) = call_host(TENSOR_GET_F, &[sigmoid, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let sigmoid_first = f64::from_bits(sigmoid_first_bits as u64);
+        assert!((0.0..=1.0).contains(&sigmoid_first));
+
+        let (status, bernoulli) = call_host(TENSOR_BERNOULLI, &[16, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, bernoulli_sum) = call_host(TENSOR_SUM, &[bernoulli]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(bernoulli_sum, 16);
+
+        let (status, weights) = call_host(TENSOR_FULL, &[3, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, _) = call_host(TENSOR_SET, &[weights, 2, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, categories) = call_host(TENSOR_CATEGORICAL, &[10, weights]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, category_sum) = call_host(TENSOR_SUM, &[categories]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(category_sum, 20);
+
+        let half = 0.5f64.to_bits() as i64;
+        let (status, fair) = call_host(TENSOR_BERNOULLI, &[1000, half]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, fair_sum) = call_host(TENSOR_SUM, &[fair]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((350..650).contains(&fair_sum));
+
+        let (status, broad_uniform) = call_host(TENSOR_UNIFORM, &[1000, 0, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, broad_sum) = call_host(TENSOR_SUM, &[broad_uniform]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((3500..5500).contains(&broad_sum));
+
+        let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(freed >= 4);
     }
 }

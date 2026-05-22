@@ -1,0 +1,49 @@
+// Teste 69: Phase 4 distribuições float, Bernoulli e ativações de tensor
+module tensor_phase4_statistics;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+    tensor.seed(7);
+
+    let uniform = tensor.uniform_f(16, 0.0, 1.0);
+    if tensor.len(uniform) != 16 {
+        return tensor.len(uniform);
+    }
+
+    let normal = tensor.normal_f(8, 0.0, 1.0);
+    if tensor.len(normal) != 8 {
+        return tensor.len(normal);
+    }
+
+    let sigmoid = tensor.sigmoid_f(normal);
+    if tensor.len(sigmoid) != 8 {
+        return tensor.len(sigmoid);
+    }
+
+    let ones = tensor.bernoulli(12, 1.0);
+    if tensor.sum(ones) != 12 {
+        return tensor.sum(ones);
+    }
+
+    let weights = tensor.full(3, 0);
+    tensor.set(weights, 2, 1);
+    let categories = tensor.categorical(10, weights);
+    if tensor.sum(categories) != 20 {
+        return tensor.sum(categories);
+    }
+
+    let relu = tensor.relu(tensor.arange(-2, 3, 1));
+    if tensor.sum(relu) != 3 {
+        return tensor.sum(relu);
+    }
+
+    if tensor.stats_kernel_elements() < 16 {
+        return 33;
+    }
+
+    tensor.free_all();
+    return 0;
+}

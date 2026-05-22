@@ -837,6 +837,11 @@ import std.tensor as tensor;
 | `arange` | `(start: int, end: int, step: int) -> int` | 1D int range tensor |
 | `zeros2`, `ones2` | `(rows: int, cols: int) -> int` | 2D int tensors |
 | `full2`, `full2_f` | `(rows: int, cols: int, value) -> int` | 2D tensors filled with value |
+| `uniform` | `(size: int, min: int, max: int) -> int` | Seeded int tensor with values in `[min, max)` |
+| `uniform_f` | `(size: int, min: float, max: float) -> int` | Seeded float tensor with values in `[min, max)` |
+| `normal_f` | `(size: int, mean: float, stddev: float) -> int` | Seeded normal-distribution float tensor |
+| `bernoulli` | `(size: int, p: float) -> int` | Seeded int tensor with `0/1` samples |
+| `categorical` | `(size: int, weights: int) -> int` | Seeded category samples from a 1D weight tensor |
 
 ### Metadados e Acesso / Metadata and Access
 
@@ -858,8 +863,17 @@ import std.tensor as tensor;
 | `reshape(handle, rows, cols)` | Returns a new handle with validated 2D shape |
 | `flatten(handle)` | Returns a new 1D tensor handle |
 | `add`, `sub`, `mul`, `div` | Elementwise ops; shapes and dtypes must match |
+| `neg`, `relu` | Unary ops over int or float tensors |
+| `exp_f`, `log_f`, `sqrt_f`, `sigmoid_f`, `tanh_f` | Float-output unary kernels |
 | `sum`, `sum_f`, `mean_f`, `min`, `max` | Reductions |
 | `matmul(lhs, rhs)` | 2D matrix multiplication |
+| `transpose(handle)` | 2D transpose |
+| `dot(lhs, rhs)` | 1D dot product; returns `int` for int tensors and f64 ABI bits for float tensors |
+| `seed(value)` | Sets the deterministic tensor RNG seed |
+| `stats_allocations`, `stats_active`, `stats_active_bytes`, `stats_peak_bytes` | Tensor allocation metrics |
+| `stats_reused_buffers`, `stats_pool_hits`, `stats_pool_misses`, `stats_scratch_reuses` | Buffer-pool and scratch metrics |
+| `stats_kernel_ops`, `stats_kernel_elements`, `kernel_strategy` | Kernel work and dispatch metrics |
+| `reset_stats()` | Resets tensor metrics while preserving active tensor accounting |
 | `free(handle)`, `free_all()` | Release tensor handles |
 
 ### Exemplo / Example
@@ -891,7 +905,7 @@ pub fn main() -> int {
 }
 ```
 
-Limitação alpha: tensores ainda são handles de runtime, não tipos first-class com shape estático. Slicing zero-copy, device placement, GPU kernels e autodiff ficam para as próximas fases.
+Estado Phase 4: `std.tensor` inclui kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático. Slicing zero-copy, device placement, GPU kernels e autodiff ficam para as próximas fases.
 
 ---
 

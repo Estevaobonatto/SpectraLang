@@ -172,6 +172,35 @@ An item may be marked `complete` only when:
 - relevant tests or validation exist
 - stated acceptance criteria are satisfied or explicitly revised
 
+### Production Completion Rule
+
+Agents must implement roadmap items to the production meaning of the planning
+documents, not to a reduced "alpha" interpretation. If an item mentions
+vectorization, benchmark evidence, interop, memory safety, diagnostics, or
+production hardening, those requirements are part of completion unless the
+planning files are explicitly and narrowly revised first.
+
+Partial implementations are allowed only when they are reported and tracked as
+partial. In that case:
+
+- keep `roadmap/roadmap.toml` status as `in_progress`, not `complete`
+- keep the original production acceptance criteria visible
+- add "completed so far" and "remaining before completion" notes in the backlog
+- never rename partial work as complete by adding labels such as alpha, MVP, or
+  prototype unless the roadmap item itself explicitly defines that as the target
+- never claim benchmarks, performance wins, SIMD, BLAS, memory-safety, or
+  production readiness without checked-in evidence and validation commands
+
+Before reporting an implementation as complete, agents must compare the final
+diff against all acceptance criteria in:
+
+1. `roadmap/roadmap.toml`
+2. `docs/roadmap-backlog.md`
+3. `docs/production-ai-implementation-plan.md`
+
+If any criterion is not implemented and validated, the item remains
+`in_progress`.
+
 ---
 
 ## Acceptance Criteria Rules
@@ -416,4 +445,3 @@ For planning-only work:
 2. Reflect actionable execution changes in `docs/roadmap-backlog.md`.
 3. Reflect structured task changes in `roadmap/roadmap.toml`.
 4. Validate TOML parse and cross-file consistency.
-

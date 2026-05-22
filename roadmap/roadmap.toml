@@ -285,9 +285,9 @@ title = "Tensor Type Design"
 phase = "phase_3"
 owner = "numerics"
 priority = "P0"
-status = "not_started"
-risk = "high"
 dependencies = ["R-201", "R-202"]
+status = "in_progress"
+risk = "high"
 summary = "Define first-class tensor API, metadata, ownership, layout, and device model."
 acceptance = [
   "tensor ADR is approved",
@@ -300,7 +300,7 @@ title = "Tensor Runtime Representation"
 phase = "phase_3"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-301"]
 summary = "Implement runtime storage, shape, stride, and view semantics for tensors."
@@ -315,7 +315,7 @@ title = "Tensor Operations MVP"
 phase = "phase_3"
 owner = "numerics"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-302"]
 summary = "Implement core tensor creation, transform, elementwise, reduction, and matmul ops."
@@ -330,7 +330,7 @@ title = "Shape System"
 phase = "phase_3"
 owner = "semantic"
 priority = "P1"
-status = "not_started"
+status = "in_progress"
 risk = "medium"
 dependencies = ["R-303"]
 summary = "Add rank/axis/broadcast validation and reshape diagnostics."
@@ -345,12 +345,12 @@ title = "CPU Kernel Library"
 phase = "phase_4"
 owner = "numerics"
 priority = "P0"
-status = "not_started"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-303"]
-summary = "Implement optimized CPU kernels and define BLAS integration strategy."
+summary = "Implement optimized CPU tensor kernels, vectorization strategy, BLAS integration, and repeatable benchmarks."
 acceptance = [
-  "core kernels outperform naive scalar references",
+  "core kernels match or outperform naive scalar references in release benchmarks",
   "repeatable performance benchmarks exist"
 ]
 
@@ -360,10 +360,10 @@ title = "Tensor Allocator and Buffer Pool"
 phase = "phase_4"
 owner = "runtime"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-302", "R-401"]
-summary = "Reduce allocation overhead for tensor-heavy workloads."
+summary = "Reduce allocation overhead for tensor-heavy workloads with buffer reuse, alignment guarantees, and profiling hooks."
 acceptance = [
   "allocation churn is reduced on repeated workloads",
   "tensor allocation metrics are exposed"
@@ -375,10 +375,10 @@ title = "RNG and Statistical Primitives"
 phase = "phase_4"
 owner = "numerics"
 priority = "P2"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-401"]
-summary = "Provide reproducible random generation and statistical distributions."
+summary = "Provide reproducible random generation, statistical distributions, and tensor random fills."
 acceptance = [
   "RNG is reproducible by seed",
   "distribution sanity tests pass"

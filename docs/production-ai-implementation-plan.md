@@ -332,6 +332,8 @@ Make tensors a first-class, high-performance abstraction in the language ecosyst
 
 ## 3.1 Tensor Type Design
 
+Current state: in progress. `std.tensor` opaque runtime handles exist, but this item is not complete until first-class `Tensor<T>` syntax, static shape forms, and device-aware tensor type design are approved.
+
 ### Tasks
 
 - Design `Tensor` API:
@@ -355,8 +357,11 @@ Make tensors a first-class, high-performance abstraction in the language ecosyst
 
 - Tensor data model documented with memory and ownership semantics.
 - A prototype API compiles through the whole pipeline.
+- First-class tensor type/API design is approved.
 
 ## 3.2 Tensor Runtime Representation
+
+Current state: in progress. Contiguous CPU host tensors are managed by the runtime and reshape/flatten return validated handles, but this item is not complete until the planned storage backends and view semantics are implemented or explicitly narrowed.
 
 ### Tasks
 
@@ -375,6 +380,8 @@ Make tensors a first-class, high-performance abstraction in the language ecosyst
 - View semantics do not leak or alias unsafely.
 
 ## 3.3 Tensor Operations MVP
+
+Current state: in progress. `std.tensor` covers creation, metadata, elementwise arithmetic, unary kernels, reductions, reshape/flatten, transpose, dot, and 2D matmul over integer and float tensors, but this item is not complete until the full MVP op list and benchmark harness are implemented or formally narrowed.
 
 ### Tasks
 
@@ -414,6 +421,8 @@ Make tensors a first-class, high-performance abstraction in the language ecosyst
 
 ## 3.4 Shape System
 
+Current state: in progress. Runtime rank, dimension, reshape, and matmul compatibility checks exist, but this item is not complete until rank/axis/broadcast diagnostics are enforced consistently according to the final tensor model.
+
 ### Tasks
 
 - Decide whether shape checking is:
@@ -442,6 +451,8 @@ Build the numerical execution layer required for serious ML workloads.
 
 ## 4.1 CPU Kernel Library
 
+Current state: complete for the current production baseline. `std.tensor` has portable CPU kernels, deterministic runtime work metrics, a checked-in release benchmark gate, and an explicit SIMD/BLAS policy for the default Windows-compatible build.
+
 ### Tasks
 
 - Implement optimized CPU kernels for tensor primitives.
@@ -458,10 +469,13 @@ Build the numerical execution layer required for serious ML workloads.
 
 ### Acceptance Criteria
 
-- Core kernels outperform naive scalar loops significantly.
+- Core kernels match or outperform naive scalar loops in release benchmarks.
 - Benchmarks are repeatable in CI/perf runs.
+- SIMD/BLAS decisions are implemented or explicitly rejected with benchmark evidence.
 
 ## 4.2 Memory and Allocator Strategy for Numerical Workloads
+
+Current state: complete for the current production baseline. A runtime tensor buffer pool, scratch reuse tracking, allocation metrics, and benchmark evidence are implemented.
 
 ### Tasks
 
@@ -475,8 +489,11 @@ Build the numerical execution layer required for serious ML workloads.
 
 - Allocator metrics exist for tensor-heavy programs.
 - Repeated tensor ops do not show pathological allocation churn.
+- Alignment and scratch-buffer behavior are validated by tests or benchmarks.
 
 ## 4.3 Randomness and Statistical Primitives
+
+Current state: complete for the current production baseline. Seeded tensor random fills exist for integer uniform, float uniform, float normal, Bernoulli, and categorical sampling, with deterministic and statistical sanity validation.
 
 ### Tasks
 
@@ -1063,4 +1080,3 @@ Until then, the language should be described as:
 - experimental for AI
 - promising for compiler/runtime research
 - progressively moving toward numerical/ML production capability
-

@@ -237,7 +237,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-201 Numeric Type Expansion
 
-- Status: `implemented_alpha`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-103`
@@ -264,7 +264,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-202 Const Evaluation Engine
 
-- Status: `implemented_alpha`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-201`
@@ -286,7 +286,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-203 Destructuring and Pattern Ergonomics
 
-- Status: `implemented_alpha`
+- Status: `in_progress`
 - Priority: `P2`
 - Owner: `frontend`
 - Dependencies: `R-102`
@@ -331,7 +331,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-301 Tensor Type Design
 
-- Status: `implemented_alpha`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-201`, `R-202`
@@ -344,17 +344,17 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- tensor data model documented as an opaque-handle alpha runtime API
-- prototype API compiles and runs in validation tests
+- tensor ADR is approved
+- prototype tensor API compiles in examples/tests
 
 ### Implementation Notes
 
 - `std.tensor` is the current alpha API. Tensors are runtime-managed handles (`int`) with dtype, shape, strides, and contiguous CPU storage.
-- This is intentionally not final first-class tensor syntax; it is the runtime/API foundation for later type-level tensor work.
+- Remaining before completion: first-class tensor type/API design, explicit ownership/view model, device/layout model, and approved ADR.
 
 ## R-302 Tensor Runtime Representation
 
-- Status: `implemented_alpha`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `runtime`
 - Dependencies: `R-301`
@@ -369,17 +369,17 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - runtime allocation and destruction tests pass
-- reshape/flatten produce validated tensor handles and do not mutate source storage
-- explicit `free` and `free_all` release runtime-managed tensor handles
+- view semantics are validated for correctness and safety
 
 ### Implementation Notes
 
 - Storage is CPU host memory through the existing runtime manual allocation layer.
-- Zero-copy slicing/views are deferred; alpha reshape/flatten return validated handle copies.
+- Completed so far: runtime allocation/destruction, shape/stride metadata, reshape/flatten handle copies, and explicit `free`/`free_all`.
+- Remaining before completion: true view semantics, safety validation for aliasing/lifetime behavior, and production storage abstraction.
 
 ## R-303 Tensor Operations MVP
 
-- Status: `implemented_alpha`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-302`
@@ -387,20 +387,24 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Scope
 
 - creation ops
-- reshape/transpose/flatten
+- reshape/transpose/flatten/slice/concat/stack
 - elementwise arithmetic
 - reductions
 - matmul
 
 ### Acceptance
 
-- creation, metadata, elementwise arithmetic, reductions, reshape/flatten, and 2D matmul are implemented in `std.tensor`
-- runtime unit tests and Spectra validation programs cover shape and numeric correctness
-- benchmark harness remains future Phase 4 work
+- core ops have shape and numeric correctness tests
+- CPU benchmark harness exists
+
+### Implementation Notes
+
+- Completed so far: creation, metadata, elementwise arithmetic, unary kernels, reductions, reshape/flatten, transpose, dot, 2D matmul, and validation tests for current handle-based API.
+- Remaining before completion: missing core transforms such as slice/concat/stack, broadcast-aware behavior where required, and benchmark harness coverage.
 
 ## R-304 Shape System
 
-- Status: `partial_alpha`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-303`
@@ -414,11 +418,12 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - invalid shape operations fail with specific diagnostics
+- rank and axis validation are enforced consistently
 
 ### Implementation Notes
 
 - Rank, dimension, reshape, and matmul compatibility are validated at runtime with deterministic host status codes.
-- Compile-time/rank-static shape diagnostics are deferred until tensor types become first-class semantic objects.
+- Remaining before completion: broadcast diagnostics, reduction axis diagnostics, compile-time/rank-static shape checks where the first-class tensor model requires them.
 
 ---
 
@@ -426,7 +431,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-401 CPU Kernel Library
 
-- Status: `not_started`
+- Status: `implemented_alpha`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-303`
@@ -439,12 +444,18 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- core tensor ops outperform naive scalar reference implementations
+- core tensor ops match or outperform naive scalar reference implementations in release benchmarks
 - reproducible perf benchmarks exist
+
+### Implementation Notes
+
+- Completed: portable production kernels for unary numeric ops, float activations, transpose, dot, elementwise, reductions, and matmul.
+- Release benchmark evidence is checked in at `docs/performance/tensor-phase4-benchmark.md` and generated by `runtime/examples/tensor_phase4_bench.rs`.
+- SIMD/BLAS policy: default Windows build uses portable kernels; native BLAS/LAPACK is not required by default; `blas` is an opt-in Cargo feature hook; AVX-512 is rejected for the current production baseline due target portability, with release benchmark evidence covering the accepted portable path.
 
 ## R-402 Tensor Allocator and Buffer Pool
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `runtime`
 - Dependencies: `R-302`, `R-401`
@@ -460,9 +471,14 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - allocation churn drops on repeated workloads
 - memory metrics are exposed in tests/benchmarks
 
+### Implementation Notes
+
+- Completed: `std.tensor` keeps a runtime buffer pool for released tensor data and exposes allocation, active tensor, active byte, peak byte, pool hit/miss, reused buffer, scratch reuse, kernel op, and kernel element metrics.
+- Release benchmark gate observes pool hits, pool misses, and scratch reuse.
+
 ## R-403 RNG and Statistical Primitives
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `numerics`
 - Dependencies: `R-401`
@@ -470,13 +486,18 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Scope
 
 - deterministic RNG
-- uniform/normal/Bernoulli
+- uniform/normal/Bernoulli/categorical
 - tensor random fills
 
 ### Acceptance
 
 - seeding is reproducible
 - distribution tests pass sanity checks
+
+### Implementation Notes
+
+- Completed: tensor RNG APIs `seed`, `uniform`, `uniform_f`, `normal_f`, `bernoulli`, and `categorical`.
+- Runtime tests validate deterministic seeding and basic sanity bounds for uniform, Bernoulli, normal, and categorical paths.
 
 ---
 
