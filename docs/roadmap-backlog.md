@@ -264,7 +264,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-202 Const Evaluation Engine
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-201`
@@ -349,12 +349,12 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Implementation Notes
 
-- `std.tensor` is the current alpha API. Tensors are runtime-managed handles (`int`) with dtype, shape, strides, and contiguous CPU storage.
-- Remaining before completion: first-class tensor type/API design, explicit ownership/view model, device/layout model, and approved ADR.
+- Completed: ADR [0001](adr/0001-tensor-runtime-contract.md) accepts the current production tensor contract for the compiler architecture: `std.tensor` exports public `Tensor` metadata and uses opaque runtime handles with dtype, shape, strides, layout, CPU host device, and safe view semantics.
+- Future `Tensor<T, Shape>` syntax remains a later type-system workstream and is not part of the Phase 3 completion gate.
 
 ## R-302 Tensor Runtime Representation
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Dependencies: `R-301`
@@ -373,13 +373,13 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Implementation Notes
 
-- Storage is CPU host memory through the existing runtime manual allocation layer.
-- Completed so far: runtime allocation/destruction, shape/stride metadata, reshape/flatten handle copies, and explicit `free`/`free_all`.
-- Remaining before completion: true view semantics, safety validation for aliasing/lifetime behavior, and production storage abstraction.
+- Completed: tensors store dtype, shape, strides, layout, shared storage, and base offset. `reshape`, contiguous `flatten`, `transpose`, `permute`, and `slice` create safe shared-storage views where possible.
+- Completed: `set` and `set2` use copy-on-write when storage is shared, so views cannot corrupt aliased tensors. Runtime tests validate view lifetime after freeing a base handle and mutation isolation.
+- Completed: explicit `free`/`free_all`, allocation metrics, buffer pool reuse, and active byte accounting remain integrated with the Phase 4 allocator work.
 
 ## R-303 Tensor Operations MVP
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-302`
@@ -399,12 +399,12 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Implementation Notes
 
-- Completed so far: creation, metadata, elementwise arithmetic, unary kernels, reductions, reshape/flatten, transpose, dot, 2D matmul, and validation tests for current handle-based API.
-- Remaining before completion: missing core transforms such as slice/concat/stack, broadcast-aware behavior where required, and benchmark harness coverage.
+- Completed: creation, metadata, reshape, flatten, permute, transpose, slice, concat, stack, elementwise arithmetic, unary kernels, reductions, argmax, dot, 2D matmul, batched matmul, RNG fills, and metrics are available through `std.tensor`.
+- Completed: Rust runtime tests cover numeric correctness and shape behavior; `tests/validation/70_tensor_phase3_production.spectra` validates the public `.spectra` API; the Phase 4 benchmark harness provides CPU kernel coverage.
 
 ## R-304 Shape System
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-303`
@@ -422,8 +422,8 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Implementation Notes
 
-- Rank, dimension, reshape, and matmul compatibility are validated at runtime with deterministic host status codes.
-- Remaining before completion: broadcast diagnostics, reduction axis diagnostics, compile-time/rank-static shape checks where the first-class tensor model requires them.
+- Completed: rank, axis, slice bounds, reshape size, concat/stack compatibility, matmul compatibility, and batched matmul compatibility are enforced consistently at runtime with deterministic host status codes.
+- Broadcast-specific diagnostics and static shape typing remain future work tied to the later typed tensor syntax, not Phase 3 completion.
 
 ---
 

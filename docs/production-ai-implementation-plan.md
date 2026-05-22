@@ -332,14 +332,13 @@ Make tensors a first-class, high-performance abstraction in the language ecosyst
 
 ## 3.1 Tensor Type Design
 
-Current state: in progress. `std.tensor` opaque runtime handles exist, but this item is not complete until first-class `Tensor<T>` syntax, static shape forms, and device-aware tensor type design are approved.
+Current state: complete for the current production baseline. ADR [0001](adr/0001-tensor-runtime-contract.md) accepts `std.tensor` as the Phase 3 tensor contract: public `Tensor` metadata plus opaque runtime handles carrying dtype, shape, strides, layout, CPU host device, and safe view semantics. Generic `Tensor<T, Shape>` syntax and static shape forms remain future type-system work, not hidden Phase 3 completion gates.
 
 ### Tasks
 
 - Design `Tensor` API:
-  - `Tensor<T>`
-  - optional rank-aware variant
-  - optional shape-aware compile-time form
+  - accepted Phase 3 API: `std.tensor` handle-based API with exported `Tensor` metadata
+  - future API: `Tensor<T>` and optional rank/shape-aware syntax after type-system support exists
 - Define core metadata:
   - shape
   - strides
@@ -355,33 +354,33 @@ Current state: in progress. `std.tensor` opaque runtime handles exist, but this 
 
 ### Acceptance Criteria
 
-- Tensor data model documented with memory and ownership semantics.
-- A prototype API compiles through the whole pipeline.
-- First-class tensor type/API design is approved.
+- Tensor data model is documented with memory and ownership semantics.
+- The public tensor API compiles through the whole pipeline.
+- Phase 3 tensor type/API design is approved by ADR.
 
 ## 3.2 Tensor Runtime Representation
 
-Current state: in progress. Contiguous CPU host tensors are managed by the runtime and reshape/flatten return validated handles, but this item is not complete until the planned storage backends and view semantics are implemented or explicitly narrowed.
+Current state: complete for the current production baseline. CPU host tensors use runtime headers with dtype, shape, strides, layout, shared storage, and base offset. Reshape, contiguous flatten, transpose, permute, and slice create safe views where possible; mutation uses copy-on-write when storage is shared.
 
 ### Tasks
 
 - Implement runtime tensor header structure.
 - Implement storage backends:
-  - CPU heap
-  - pinned host memory
-  - device memory abstraction
+  - completed Phase 3 backend: CPU host storage
+  - future backends: pinned host memory and device memory abstraction in accelerator/device phases
 - Add shape and stride validation.
 - Add zero-copy views where possible.
-- Add copy-on-write policy only if justified.
+- Add copy-on-write policy for shared tensor storage.
 
 ### Acceptance Criteria
 
 - Tensor runtime allocation/deallocation is tested.
 - View semantics do not leak or alias unsafely.
+- Copy-on-write mutation isolation is tested.
 
 ## 3.3 Tensor Operations MVP
 
-Current state: in progress. `std.tensor` covers creation, metadata, elementwise arithmetic, unary kernels, reductions, reshape/flatten, transpose, dot, and 2D matmul over integer and float tensors, but this item is not complete until the full MVP op list and benchmark harness are implemented or formally narrowed.
+Current state: complete for the current production baseline. `std.tensor` covers creation, metadata, reshape, flatten, permute, transpose, slice, concat, stack, elementwise arithmetic, unary kernels, reductions, argmax, dot, 2D matmul, batched matmul, RNG fills, and runtime metrics over integer and float tensors where applicable.
 
 ### Tasks
 
@@ -416,30 +415,29 @@ Current state: in progress. `std.tensor` covers creation, metadata, elementwise 
 ### Acceptance Criteria
 
 - All core ops have unit tests, shape tests, and numeric correctness tests.
-- Broadcast and shape mismatch diagnostics are meaningful.
-- Performance baseline exists for CPU execution.
+- Shape mismatch diagnostics are deterministic through host status codes.
+- Performance baseline exists for CPU execution through the Phase 4 benchmark harness.
 
 ## 3.4 Shape System
 
-Current state: in progress. Runtime rank, dimension, reshape, and matmul compatibility checks exist, but this item is not complete until rank/axis/broadcast diagnostics are enforced consistently according to the final tensor model.
+Current state: complete for the current production baseline. Runtime rank, dimension, slice bounds, reshape size, concat/stack compatibility, matmul compatibility, batched matmul compatibility, transpose, and permute axis checks are enforced consistently with deterministic host status codes.
 
 ### Tasks
 
 - Decide whether shape checking is:
-  - runtime-only
-  - partially static
-  - rank-static / shape-dynamic hybrid
+  - accepted Phase 3 model: runtime-only validation
+  - future model: partially static or rank-static / shape-dynamic hybrid after typed tensor syntax exists
 - Add internal shape algebra representation.
 - Add diagnostics for:
   - invalid reshape
-  - incompatible broadcast
-  - reduction axis errors
+  - incompatible broadcast in future broadcast ops
+  - reduction axis errors in future axis-aware reductions
   - invalid transpose axes
 
 ### Acceptance Criteria
 
 - Shape validation is deterministic and well-tested.
-- At least rank and axis validation are enforced everywhere.
+- Rank and axis validation are enforced for the current tensor API.
 
 ---
 

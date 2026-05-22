@@ -92,7 +92,7 @@ Status labels:
 | Trait objects | supported | Current dyn-trait flows compile in the test suite. |
 | Higher-ranked generics | deferred | |
 | Production-grade scientific numeric lattice | partial | Numeric aliases are accepted and checked; exact-width storage/overflow semantics remain future work. |
-| Tensor handles | partial | `std.tensor` alpha APIs are typed as runtime handles plus host calls; first-class tensor types and static shape semantics remain future work. |
+| Tensor handles | supported baseline | `std.tensor` Phase 3 APIs are typed as runtime handles plus host calls with accepted ADR semantics; first-class static tensor types remain future work. |
 
 ## Known Partial or Deferred Areas
 

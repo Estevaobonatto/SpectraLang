@@ -1523,7 +1523,7 @@ list_free(lst);
 import std.tensor as tensor;
 ```
 
-The alpha tensor API uses opaque `int` handles managed by the runtime. Tensors currently store contiguous CPU data with dtype `int` or `float`, shape, and strides.
+The current production tensor API uses opaque `int` handles managed by the runtime. Tensors store CPU data with dtype `int` or `float`, shape, strides, layout, shared storage, and safe view offsets. Shared-storage mutation uses copy-on-write.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -1537,11 +1537,12 @@ The alpha tensor API uses opaque `int` handles managed by the runtime. Tensors c
 | `len`, `rank`, `dim`, `rows`, `cols` | metadata queries | Shape metadata |
 | `get`, `get_f`, `get2`, `get2_f` | indexed reads | Scalar value |
 | `set`, `set_f`, `set2`, `set2_f` | indexed writes | `unit` |
-| `reshape`, `flatten` | shape transforms | New tensor handle |
+| `reshape`, `flatten`, `permute`, `slice` | view-capable shape transforms | New tensor handle |
+| `concat`, `stack` | combine compatible tensors | New tensor handle |
 | `add`, `sub`, `mul`, `div` | elementwise ops | New tensor handle |
 | `neg`, `relu`, `exp_f`, `log_f`, `sqrt_f`, `sigmoid_f`, `tanh_f` | unary kernels | New tensor handle |
-| `sum`, `sum_f`, `mean_f`, `min`, `max` | reductions | Scalar value |
-| `matmul`, `transpose`, `dot` | matrix/vector kernels | Handle or scalar |
+| `sum`, `sum_f`, `mean_f`, `min`, `max`, `argmax` | reductions | Scalar value |
+| `matmul`, `matmul_batched`, `transpose`, `dot` | matrix/vector kernels | Handle or scalar |
 | `seed`, `stats_*`, `reset_stats` | RNG and runtime metrics | Determinism and observability |
 | `free`, `free_all` | release handles | `unit` / freed count |
 
@@ -1558,7 +1559,7 @@ let random = tensor.uniform(8, 0, 10);
 tensor.free_all();
 ```
 
-Current limitation: tensors are stdlib handles, not first-class static tensor types. Phase 4 includes portable CPU kernels, release benchmark evidence, seeded random fills, categorical sampling, buffer-pool metrics, and runtime kernel metrics; device placement, slicing views, GPU kernels, and autodiff are later phases.
+Current limitation: tensors are stdlib handles, not first-class static tensor types. Phase 3/4 includes safe views, copy-on-write shared mutation, portable CPU kernels, release benchmark evidence, seeded random fills, categorical sampling, buffer-pool metrics, and runtime kernel metrics; device placement, GPU kernels, autodiff, and `Tensor<T, Shape>` syntax are later phases.
 
 ### std.random — Random Numbers
 

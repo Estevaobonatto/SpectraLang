@@ -7,7 +7,7 @@ use crate::memory::ManualBox;
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::slice;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
@@ -191,6 +191,10 @@ const TENSOR_SET2: &str = "spectra.std.tensor.set2";
 const TENSOR_SET2_F: &str = "spectra.std.tensor.set2_f";
 const TENSOR_RESHAPE: &str = "spectra.std.tensor.reshape";
 const TENSOR_FLATTEN: &str = "spectra.std.tensor.flatten";
+const TENSOR_PERMUTE: &str = "spectra.std.tensor.permute";
+const TENSOR_SLICE: &str = "spectra.std.tensor.slice";
+const TENSOR_CONCAT: &str = "spectra.std.tensor.concat";
+const TENSOR_STACK: &str = "spectra.std.tensor.stack";
 const TENSOR_ADD: &str = "spectra.std.tensor.add";
 const TENSOR_SUB: &str = "spectra.std.tensor.sub";
 const TENSOR_MUL: &str = "spectra.std.tensor.mul";
@@ -200,7 +204,9 @@ const TENSOR_SUM_F: &str = "spectra.std.tensor.sum_f";
 const TENSOR_MEAN_F: &str = "spectra.std.tensor.mean_f";
 const TENSOR_MAX: &str = "spectra.std.tensor.max";
 const TENSOR_MIN: &str = "spectra.std.tensor.min";
+const TENSOR_ARGMAX: &str = "spectra.std.tensor.argmax";
 const TENSOR_MATMUL: &str = "spectra.std.tensor.matmul";
+const TENSOR_MATMUL_BATCHED: &str = "spectra.std.tensor.matmul_batched";
 const TENSOR_TRANSPOSE: &str = "spectra.std.tensor.transpose";
 const TENSOR_DOT: &str = "spectra.std.tensor.dot";
 const TENSOR_NEG: &str = "spectra.std.tensor.neg";
@@ -337,6 +343,10 @@ fn register_tensor() {
     register_host_function(TENSOR_SET2_F, std_tensor_set2_f);
     register_host_function(TENSOR_RESHAPE, std_tensor_reshape);
     register_host_function(TENSOR_FLATTEN, std_tensor_flatten);
+    register_host_function(TENSOR_PERMUTE, std_tensor_permute);
+    register_host_function(TENSOR_SLICE, std_tensor_slice);
+    register_host_function(TENSOR_CONCAT, std_tensor_concat);
+    register_host_function(TENSOR_STACK, std_tensor_stack);
     register_host_function(TENSOR_ADD, std_tensor_add);
     register_host_function(TENSOR_SUB, std_tensor_sub);
     register_host_function(TENSOR_MUL, std_tensor_mul);
@@ -346,7 +356,9 @@ fn register_tensor() {
     register_host_function(TENSOR_MEAN_F, std_tensor_mean_f);
     register_host_function(TENSOR_MAX, std_tensor_max);
     register_host_function(TENSOR_MIN, std_tensor_min);
+    register_host_function(TENSOR_ARGMAX, std_tensor_argmax);
     register_host_function(TENSOR_MATMUL, std_tensor_matmul);
+    register_host_function(TENSOR_MATMUL_BATCHED, std_tensor_matmul_batched);
     register_host_function(TENSOR_TRANSPOSE, std_tensor_transpose);
     register_host_function(TENSOR_DOT, std_tensor_dot);
     register_host_function(TENSOR_NEG, std_tensor_neg);
@@ -1377,43 +1389,85 @@ enum TensorDType {
     Float,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TensorLayout {
+    Contiguous,
+    View,
+}
+
 #[derive(Debug, Clone)]
 struct StdTensor {
     dtype: TensorDType,
     shape: Vec<usize>,
     strides: Vec<usize>,
-    data: Vec<SpectraHostValue>,
+    storage: Arc<Vec<SpectraHostValue>>,
+    offset: usize,
+    layout: TensorLayout,
 }
 
 impl StdTensor {
     fn new(dtype: TensorDType, shape: Vec<usize>, data: Vec<SpectraHostValue>) -> Option<Self> {
-        if shape.is_empty() || shape.iter().any(|&dim| dim == 0) {
-            return None;
-        }
         let expected_len = shape
             .iter()
             .try_fold(1usize, |acc, dim| acc.checked_mul(*dim))?;
         if expected_len != data.len() {
             return None;
         }
-        let strides = tensor_strides(&shape);
+        Self::from_storage(
+            dtype,
+            shape.clone(),
+            tensor_strides(&shape),
+            Arc::new(data),
+            0,
+            TensorLayout::Contiguous,
+        )
+    }
+
+    fn from_storage(
+        dtype: TensorDType,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        storage: Arc<Vec<SpectraHostValue>>,
+        offset: usize,
+        layout: TensorLayout,
+    ) -> Option<Self> {
+        if shape.is_empty() || shape.iter().any(|&dim| dim == 0) {
+            return None;
+        }
+        let expected_len = shape
+            .iter()
+            .try_fold(1usize, |acc, dim| acc.checked_mul(*dim))?;
+        if strides.len() != shape.len() {
+            return None;
+        }
+        if expected_len == 0 {
+            return None;
+        }
+        let max_offset = max_tensor_offset(&shape, &strides, offset)?;
+        if max_offset >= storage.len() {
+            return None;
+        }
         Some(Self {
             dtype,
             shape,
             strides,
-            data,
+            storage,
+            offset,
+            layout,
         })
     }
 
     fn len(&self) -> usize {
-        self.data.len()
+        self.shape
+            .iter()
+            .fold(1usize, |acc, dim| acc.saturating_mul(*dim))
     }
 
     fn offset(&self, indices: &[usize]) -> Option<usize> {
         if indices.len() != self.shape.len() {
             return None;
         }
-        let mut offset = 0usize;
+        let mut offset = self.offset;
         for ((idx, dim), stride) in indices
             .iter()
             .zip(self.shape.iter())
@@ -1425,6 +1479,63 @@ impl StdTensor {
             offset = offset.checked_add(idx.checked_mul(*stride)?)?;
         }
         Some(offset)
+    }
+
+    fn linear_offset(&self, index: usize) -> Option<usize> {
+        if index >= self.len() {
+            return None;
+        }
+        if self.layout == TensorLayout::Contiguous {
+            return self.offset.checked_add(index);
+        }
+
+        let mut remaining = index;
+        let mut offset = self.offset;
+        for axis in (0..self.shape.len()).rev() {
+            let dim = self.shape[axis];
+            let axis_index = remaining % dim;
+            remaining /= dim;
+            offset = offset.checked_add(axis_index.checked_mul(self.strides[axis])?)?;
+        }
+        Some(offset)
+    }
+
+    fn value_at_linear(&self, index: usize) -> Option<SpectraHostValue> {
+        let offset = self.linear_offset(index)?;
+        self.storage.get(offset).copied()
+    }
+
+    fn materialize(&self) -> Vec<SpectraHostValue> {
+        if self.layout == TensorLayout::Contiguous
+            && self.offset == 0
+            && self.storage.len() == self.len()
+        {
+            return self.storage.as_ref().clone();
+        }
+        (0..self.len())
+            .filter_map(|index| self.value_at_linear(index))
+            .collect()
+    }
+
+    fn set_linear(&mut self, index: usize, value: SpectraHostValue) -> bool {
+        let Some(offset) = self.linear_offset(index) else {
+            return false;
+        };
+        let storage = Arc::make_mut(&mut self.storage);
+        if offset >= storage.len() {
+            return false;
+        }
+        storage[offset] = value;
+        true
+    }
+
+    fn storage_bytes(&self) -> usize {
+        self.len()
+            .saturating_mul(std::mem::size_of::<SpectraHostValue>())
+    }
+
+    fn is_contiguous(&self) -> bool {
+        self.layout == TensorLayout::Contiguous && self.strides == tensor_strides(&self.shape)
     }
 }
 
@@ -1495,14 +1606,17 @@ impl TensorRegistry {
 
     fn recycle_tensor(&mut self, tensor: ManualBox<StdTensor>) {
         let tensor = tensor.into_inner();
-        let bytes = tensor
-            .data
-            .len()
-            .saturating_mul(std::mem::size_of::<SpectraHostValue>());
+        let bytes = tensor.storage_bytes();
         self.metrics.active_tensors = self.metrics.active_tensors.saturating_sub(1);
         self.metrics.active_bytes = self.metrics.active_bytes.saturating_sub(bytes);
-        if self.pool.len() < 32 {
-            self.pool.push(tensor.data);
+        if self.pool.len() < 32
+            && tensor.offset == 0
+            && tensor.is_contiguous()
+            && Arc::strong_count(&tensor.storage) == 1
+        {
+            if let Ok(data) = Arc::try_unwrap(tensor.storage) {
+                self.pool.push(data);
+            }
         }
     }
 
@@ -1534,12 +1648,7 @@ impl TensorRegistry {
         let active_bytes = self
             .tensors
             .values()
-            .map(|tensor| {
-                tensor
-                    .data
-                    .len()
-                    .saturating_mul(std::mem::size_of::<SpectraHostValue>())
-            })
+            .map(|tensor| tensor.storage_bytes())
             .sum();
         self.metrics = TensorMetrics {
             active_tensors,
@@ -1587,6 +1696,14 @@ fn tensor_strides(shape: &[usize]) -> Vec<usize> {
         }
     }
     strides
+}
+
+fn max_tensor_offset(shape: &[usize], strides: &[usize], base_offset: usize) -> Option<usize> {
+    let mut max_offset = base_offset;
+    for (dim, stride) in shape.iter().zip(strides.iter()) {
+        max_offset = max_offset.checked_add(dim.saturating_sub(1).checked_mul(*stride)?)?;
+    }
+    Some(max_offset)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1744,6 +1861,14 @@ fn tensor_alloc(
     let Some(tensor) = StdTensor::new(dtype, shape, data) else {
         return Err(HOST_STATUS_INVALID_ARGUMENT);
     };
+    let memory = initialize().memory();
+    let tensor = memory
+        .allocate_manual(tensor)
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    Ok(with_tensor_registry(|registry| registry.insert(tensor)))
+}
+
+fn tensor_insert(tensor: StdTensor) -> Result<usize, i32> {
     let memory = initialize().memory();
     let tensor = memory
         .allocate_manual(tensor)
@@ -2040,7 +2165,7 @@ fn tensor_get_linear(ctx: *mut SpectraHostCallContext, as_float: bool) -> i32 {
         let Some(value) = with_tensor_registry(|registry| {
             registry
                 .get(args[0] as usize)
-                .and_then(|tensor| tensor.data.get(index as usize).copied())
+                .and_then(|tensor| tensor.value_at_linear(index as usize))
         }) else {
             return HOST_STATUS_NOT_FOUND;
         };
@@ -2073,7 +2198,7 @@ fn tensor_set_linear(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
             let Some(tensor) = registry.get_mut(args[0] as usize) else {
                 return false;
             };
-            if (args[1] as usize) >= tensor.data.len() {
+            if (args[1] as usize) >= tensor.len() {
                 return false;
             }
             tensor.dtype = if is_float {
@@ -2081,8 +2206,7 @@ fn tensor_set_linear(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
             } else {
                 TensorDType::Int
             };
-            tensor.data[args[1] as usize] = args[2];
-            true
+            tensor.set_linear(args[1] as usize, args[2])
         });
         if !ok {
             return HOST_STATUS_NOT_FOUND;
@@ -2110,7 +2234,7 @@ fn tensor_get_2d(ctx: *mut SpectraHostCallContext, as_float: bool) -> i32 {
         let Some(value) = with_tensor_registry(|registry| {
             let tensor = registry.get(args[0] as usize)?;
             let offset = tensor.offset(&[args[1] as usize, args[2] as usize])?;
-            tensor.data.get(offset).copied()
+            tensor.storage.get(offset).copied()
         }) else {
             return HOST_STATUS_NOT_FOUND;
         };
@@ -2151,7 +2275,11 @@ fn tensor_set_2d(ctx: *mut SpectraHostCallContext, is_float: bool) -> i32 {
             } else {
                 TensorDType::Int
             };
-            tensor.data[offset] = args[3];
+            let storage = Arc::make_mut(&mut tensor.storage);
+            if offset >= storage.len() {
+                return false;
+            }
+            storage[offset] = args[3];
             true
         });
         if !ok {
@@ -2173,17 +2301,28 @@ extern "C" fn std_tensor_reshape(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some(new_len) = (rows as usize).checked_mul(cols as usize) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some((dtype, data)) = with_tensor_registry(|registry| {
-            registry
-                .get(handle)
-                .map(|tensor| (tensor.dtype, tensor.data.clone()))
+        let Some(tensor) = with_tensor_registry(|registry| {
+            registry.get(handle).and_then(|tensor| {
+                if tensor.len() != new_len {
+                    return None;
+                }
+                StdTensor::from_storage(
+                    tensor.dtype,
+                    vec![rows as usize, cols as usize],
+                    tensor_strides(&[rows as usize, cols as usize]),
+                    tensor.storage.clone(),
+                    tensor.offset,
+                    if tensor.is_contiguous() {
+                        TensorLayout::Contiguous
+                    } else {
+                        TensorLayout::View
+                    },
+                )
+            })
         }) else {
-            return HOST_STATUS_NOT_FOUND;
-        };
-        if data.len() != new_len {
             return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        match tensor_alloc(dtype, vec![rows as usize, cols as usize], data) {
+        };
+        match tensor_insert(tensor) {
             Ok(new_handle) => tensor_result(ctx_ref, new_handle as SpectraHostValue),
             Err(code) => code,
         }
@@ -2195,14 +2334,159 @@ extern "C" fn std_tensor_flatten(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some((dtype, data)) = with_tensor_registry(|registry| {
-            registry
-                .get(args[0] as usize)
-                .map(|tensor| (tensor.dtype, tensor.data.clone()))
+        let Some(tensor) = with_tensor_registry(|registry| {
+            registry.get(args[0] as usize).and_then(|tensor| {
+                if tensor.is_contiguous() {
+                    StdTensor::from_storage(
+                        tensor.dtype,
+                        vec![tensor.len()],
+                        vec![1],
+                        tensor.storage.clone(),
+                        tensor.offset,
+                        TensorLayout::Contiguous,
+                    )
+                } else {
+                    let data = tensor.materialize();
+                    StdTensor::new(tensor.dtype, vec![data.len()], data)
+                }
+            })
         }) else {
             return HOST_STATUS_NOT_FOUND;
         };
-        match tensor_alloc(dtype, vec![data.len()], data) {
+        match tensor_insert(tensor) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_permute(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 || args[2] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(tensor) = with_tensor_registry(|registry| {
+            let tensor = registry.get(args[0] as usize)?;
+            let (axis_a, axis_b) = (args[1] as usize, args[2] as usize);
+            if axis_a >= tensor.shape.len() || axis_b >= tensor.shape.len() {
+                return None;
+            }
+            let mut shape = tensor.shape.clone();
+            let mut strides = tensor.strides.clone();
+            shape.swap(axis_a, axis_b);
+            strides.swap(axis_a, axis_b);
+            StdTensor::from_storage(
+                tensor.dtype,
+                shape,
+                strides,
+                tensor.storage.clone(),
+                tensor.offset,
+                TensorLayout::View,
+            )
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_insert(tensor) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_slice(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (handle, start, end) = (args[0] as usize, args[1], args[2]);
+        if start < 0 || end < start {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(tensor) = with_tensor_registry(|registry| {
+            let tensor = registry.get(handle)?;
+            if tensor.shape.len() != 1 || end as usize > tensor.len() || start == end {
+                return None;
+            }
+            let base_offset = tensor.linear_offset(start as usize)?;
+            StdTensor::from_storage(
+                tensor.dtype,
+                vec![(end - start) as usize],
+                vec![tensor.strides[0]],
+                tensor.storage.clone(),
+                base_offset,
+                TensorLayout::View,
+            )
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_insert(tensor) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_concat(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let left = registry.get(args[0] as usize)?;
+            let right = registry.get(args[1] as usize)?;
+            if left.dtype != right.dtype || left.shape.len() != right.shape.len() {
+                return None;
+            }
+            let mut shape = left.shape.clone();
+            if left.shape.len() == 1 {
+                shape[0] = left.shape[0].checked_add(right.shape[0])?;
+            } else {
+                if left.shape[1..] != right.shape[1..] {
+                    return None;
+                }
+                shape[0] = left.shape[0].checked_add(right.shape[0])?;
+            }
+            let mut data = left.materialize();
+            data.extend(right.materialize());
+            let dtype = left.dtype;
+            registry.note_kernel(data.len());
+            Some((dtype, shape, data))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc(dtype, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_stack(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let left = registry.get(args[0] as usize)?;
+            let right = registry.get(args[1] as usize)?;
+            if left.dtype != right.dtype || left.shape != right.shape {
+                return None;
+            }
+            let mut shape = Vec::with_capacity(left.shape.len() + 1);
+            shape.push(2);
+            shape.extend(left.shape.iter().copied());
+            let mut data = left.materialize();
+            data.extend(right.materialize());
+            let dtype = left.dtype;
+            registry.note_kernel(data.len());
+            Some((dtype, shape, data))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc(dtype, shape, data) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
@@ -2244,18 +2528,18 @@ fn tensor_binary(
             if left.shape != right.shape || left.dtype != right.dtype {
                 return None;
             }
-            let element_count = left.data.len();
+            let element_count = left.len();
+            let left_data = left.materialize();
+            let right_data = right.materialize();
             let data = match left.dtype {
-                TensorDType::Int => left
-                    .data
+                TensorDType::Int => left_data
                     .iter()
-                    .zip(right.data.iter())
+                    .zip(right_data.iter())
                     .map(|(a, b)| int_op(*a, *b))
                     .collect(),
-                TensorDType::Float => left
-                    .data
+                TensorDType::Float => left_data
                     .iter()
-                    .zip(right.data.iter())
+                    .zip(right_data.iter())
                     .map(|(a, b)| {
                         float_op(f64::from_bits(*a as u64), f64::from_bits(*b as u64)).to_bits()
                             as i64
@@ -2277,9 +2561,9 @@ fn tensor_binary(
 
 extern "C" fn std_tensor_sum(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_query_i64(ctx, |tensor| match tensor.dtype {
-        TensorDType::Int => tensor.data.iter().sum(),
+        TensorDType::Int => tensor.materialize().iter().sum(),
         TensorDType::Float => tensor
-            .data
+            .materialize()
             .iter()
             .map(|bits| f64::from_bits(*bits as u64))
             .sum::<f64>() as i64,
@@ -2288,10 +2572,10 @@ extern "C" fn std_tensor_sum(ctx: *mut SpectraHostCallContext) -> i32 {
 
 extern "C" fn std_tensor_sum_f(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_query_i64(ctx, |tensor| {
+        let data = tensor.materialize();
         let sum = match tensor.dtype {
-            TensorDType::Int => tensor.data.iter().map(|v| *v as f64).sum::<f64>(),
-            TensorDType::Float => tensor
-                .data
+            TensorDType::Int => data.iter().map(|v| *v as f64).sum::<f64>(),
+            TensorDType::Float => data
                 .iter()
                 .map(|bits| f64::from_bits(*bits as u64))
                 .sum::<f64>(),
@@ -2302,27 +2586,63 @@ extern "C" fn std_tensor_sum_f(ctx: *mut SpectraHostCallContext) -> i32 {
 
 extern "C" fn std_tensor_mean_f(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_query_i64(ctx, |tensor| {
-        if tensor.data.is_empty() {
+        let data = tensor.materialize();
+        if data.is_empty() {
             return f64::NAN.to_bits() as i64;
         }
         let sum = match tensor.dtype {
-            TensorDType::Int => tensor.data.iter().map(|v| *v as f64).sum::<f64>(),
-            TensorDType::Float => tensor
-                .data
+            TensorDType::Int => data.iter().map(|v| *v as f64).sum::<f64>(),
+            TensorDType::Float => data
                 .iter()
                 .map(|bits| f64::from_bits(*bits as u64))
                 .sum::<f64>(),
         };
-        (sum / tensor.data.len() as f64).to_bits() as i64
+        (sum / data.len() as f64).to_bits() as i64
     })
 }
 
 extern "C" fn std_tensor_max(ctx: *mut SpectraHostCallContext) -> i32 {
-    tensor_query_i64(ctx, |tensor| tensor.data.iter().copied().max().unwrap_or(0))
+    tensor_query_i64(ctx, |tensor| {
+        tensor.materialize().iter().copied().max().unwrap_or(0)
+    })
 }
 
 extern "C" fn std_tensor_min(ctx: *mut SpectraHostCallContext) -> i32 {
-    tensor_query_i64(ctx, |tensor| tensor.data.iter().copied().min().unwrap_or(0))
+    tensor_query_i64(ctx, |tensor| {
+        tensor.materialize().iter().copied().min().unwrap_or(0)
+    })
+}
+
+extern "C" fn std_tensor_argmax(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_query_i64(ctx, |tensor| {
+        let data = tensor.materialize();
+        if data.is_empty() {
+            return -1;
+        }
+        let mut best_index = 0usize;
+        match tensor.dtype {
+            TensorDType::Int => {
+                let mut best = data[0];
+                for (index, value) in data.iter().copied().enumerate().skip(1) {
+                    if value > best {
+                        best = value;
+                        best_index = index;
+                    }
+                }
+            }
+            TensorDType::Float => {
+                let mut best = f64::from_bits(data[0] as u64);
+                for (index, raw) in data.iter().copied().enumerate().skip(1) {
+                    let value = f64::from_bits(raw as u64);
+                    if value > best {
+                        best = value;
+                        best_index = index;
+                    }
+                }
+            }
+        }
+        best_index as SpectraHostValue
+    })
 }
 
 extern "C" fn std_tensor_transpose(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -2330,26 +2650,26 @@ extern "C" fn std_tensor_transpose(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+        let Some(tensor) = with_tensor_registry(|registry| {
             let tensor = registry.get(args[0] as usize)?;
             if tensor.shape.len() != 2 {
                 return None;
             }
-            let (rows, cols) = (tensor.shape[0], tensor.shape[1]);
-            let mut out = vec![0; tensor.data.len()];
-            for row in 0..rows {
-                for col in 0..cols {
-                    out[col * rows + row] = tensor.data[row * cols + col];
-                }
-            }
-            let element_count = tensor.data.len();
-            let result = Some((tensor.dtype, vec![cols, rows], out));
+            let element_count = tensor.len();
+            let result = StdTensor::from_storage(
+                tensor.dtype,
+                vec![tensor.shape[1], tensor.shape[0]],
+                vec![tensor.strides[1], tensor.strides[0]],
+                tensor.storage.clone(),
+                tensor.offset,
+                TensorLayout::View,
+            );
             registry.note_kernel(element_count);
             result
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match tensor_alloc(dtype, shape, data) {
+        match tensor_insert(tensor) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
@@ -2367,10 +2687,12 @@ extern "C" fn std_tensor_dot(ctx: *mut SpectraHostCallContext) -> i32 {
             if left.shape.len() != 1 || left.shape != right.shape || left.dtype != right.dtype {
                 return None;
             }
-            let element_count = left.data.len();
+            let element_count = left.len();
+            let left_data = left.materialize();
+            let right_data = right.materialize();
             let value = match left.dtype {
-                TensorDType::Int => Some(kernel_dot_i64(&left.data, &right.data)),
-                TensorDType::Float => Some(kernel_dot_f64_bits(&left.data, &right.data)),
+                TensorDType::Int => Some(kernel_dot_i64(&left_data, &right_data)),
+                TensorDType::Float => Some(kernel_dot_f64_bits(&left_data, &right_data)),
             };
             registry.note_kernel(element_count);
             value
@@ -2420,11 +2742,11 @@ fn tensor_unary(
         };
         let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
             let tensor = registry.get(args[0] as usize)?;
-            let element_count = tensor.data.len();
+            let element_count = tensor.len();
+            let source = tensor.materialize();
             let data = match tensor.dtype {
-                TensorDType::Int => tensor.data.iter().map(|value| int_op(*value)).collect(),
-                TensorDType::Float => tensor
-                    .data
+                TensorDType::Int => source.iter().map(|value| int_op(*value)).collect(),
+                TensorDType::Float => source
                     .iter()
                     .map(|bits| float_op(f64::from_bits(*bits as u64)).to_bits() as i64)
                     .collect(),
@@ -2449,9 +2771,9 @@ fn tensor_float_unary(ctx: *mut SpectraHostCallContext, op: impl Fn(f64) -> f64)
         };
         let Some((shape, data)) = with_tensor_registry(|registry| {
             let tensor = registry.get(args[0] as usize)?;
-            let element_count = tensor.data.len();
-            let data = tensor
-                .data
+            let element_count = tensor.len();
+            let source = tensor.materialize();
+            let data = source
                 .iter()
                 .map(|bits| {
                     let value = match tensor.dtype {
@@ -2491,14 +2813,70 @@ extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
                 return None;
             }
             let element_count = m.saturating_mul(n).saturating_mul(k);
+            let a_data = a.materialize();
+            let b_data = b.materialize();
             let out = match a.dtype {
-                TensorDType::Int => kernel_matmul_i64(&a.data, &b.data, m, k, n),
-                TensorDType::Float => kernel_matmul_f64_bits(&a.data, &b.data, m, k, n),
+                TensorDType::Int => kernel_matmul_i64(&a_data, &b_data, m, k, n),
+                TensorDType::Float => kernel_matmul_f64_bits(&a_data, &b_data, m, k, n),
             };
             let result = Some((a.dtype, vec![m, n], out));
             registry.note_scratch_reuse();
             registry.note_kernel(element_count);
             result
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc(dtype, shape, data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_matmul_batched(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((dtype, shape, data)) = with_tensor_registry(|registry| {
+            let a = registry.get(args[0] as usize)?;
+            let b = registry.get(args[1] as usize)?;
+            if a.shape.len() != 3 || b.shape.len() != 3 || a.dtype != b.dtype {
+                return None;
+            }
+            let (batch, m, k) = (a.shape[0], a.shape[1], a.shape[2]);
+            let (bbatch, bk, n) = (b.shape[0], b.shape[1], b.shape[2]);
+            if batch != bbatch || k != bk {
+                return None;
+            }
+            let dtype = a.dtype;
+            let a_data = a.materialize();
+            let b_data = b.materialize();
+            let mut out = Vec::with_capacity(batch * m * n);
+            for batch_index in 0..batch {
+                let a_start = batch_index * m * k;
+                let b_start = batch_index * k * n;
+                let batch_out = match dtype {
+                    TensorDType::Int => kernel_matmul_i64(
+                        &a_data[a_start..a_start + m * k],
+                        &b_data[b_start..b_start + k * n],
+                        m,
+                        k,
+                        n,
+                    ),
+                    TensorDType::Float => kernel_matmul_f64_bits(
+                        &a_data[a_start..a_start + m * k],
+                        &b_data[b_start..b_start + k * n],
+                        m,
+                        k,
+                        n,
+                    ),
+                };
+                out.extend(batch_out);
+            }
+            registry.note_scratch_reuse();
+            registry.note_kernel(batch.saturating_mul(m).saturating_mul(n).saturating_mul(k));
+            Some((dtype, vec![batch, m, n], out))
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
@@ -2644,12 +3022,13 @@ extern "C" fn std_tensor_categorical(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let Some(probabilities) = with_tensor_registry(|registry| {
             let tensor = registry.get(probabilities_handle)?;
-            if tensor.shape.len() != 1 || tensor.data.is_empty() {
+            let source = tensor.materialize();
+            if tensor.shape.len() != 1 || source.is_empty() {
                 return None;
             }
             let mut total = 0.0f64;
-            let mut weights = Vec::with_capacity(tensor.data.len());
-            for raw in &tensor.data {
+            let mut weights = Vec::with_capacity(source.len());
+            for raw in &source {
                 let weight = match tensor.dtype {
                     TensorDType::Int => *raw as f64,
                     TensorDType::Float => f64::from_bits(*raw as u64),
@@ -5583,6 +5962,127 @@ mod tests {
         let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!(freed >= 5);
+    }
+
+    #[test]
+    fn tensor_runtime_phase3_views_transforms_and_shape_errors() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+
+        let (status, base) = call_host(TENSOR_ARANGE, &[1, 7, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, matrix) = call_host(TENSOR_RESHAPE, &[base, 2, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, transposed) = call_host(TENSOR_TRANSPOSE, &[matrix]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, t01) = call_host(TENSOR_GET2, &[transposed, 0, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(t01, 4);
+
+        let (status, permuted) = call_host(TENSOR_PERMUTE, &[matrix, 0, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, p10) = call_host(TENSOR_GET2, &[permuted, 1, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(p10, 2);
+
+        let (status, slice) = call_host(TENSOR_SLICE, &[base, 2, 5]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, _) = call_host(TENSOR_FREE, &[base]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, slice_sum) = call_host(TENSOR_SUM, &[slice]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(slice_sum, 12);
+
+        let (status, _) = call_host(TENSOR_SET, &[slice, 0, 99]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, slice_first) = call_host(TENSOR_GET, &[slice, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(slice_first, 99);
+        let (status, matrix_original_value) = call_host(TENSOR_GET2, &[matrix, 0, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(matrix_original_value, 3);
+
+        let (status, invalid_axis) = call_host(TENSOR_PERMUTE, &[matrix, 0, 4]);
+        assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
+        assert_eq!(invalid_axis, 0);
+        let (status, invalid_shape) = call_host(TENSOR_RESHAPE, &[matrix, 4, 4]);
+        assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
+        assert_eq!(invalid_shape, 0);
+
+        let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(freed >= 4);
+    }
+
+    #[test]
+    fn tensor_runtime_phase3_concat_stack_argmax_and_batched_matmul() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+
+        let (status, a) = call_host(TENSOR_ARANGE, &[1, 4, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b) = call_host(TENSOR_ARANGE, &[4, 7, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, joined) = call_host(TENSOR_CONCAT, &[a, b]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, joined_len) = call_host(TENSOR_LEN, &[joined]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(joined_len, 6);
+        let (status, max_index) = call_host(TENSOR_ARGMAX, &[joined]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(max_index, 5);
+
+        let (status, left) = call_host(TENSOR_RESHAPE, &[a, 1, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, right) = call_host(TENSOR_RESHAPE, &[b, 1, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, stacked) = call_host(TENSOR_STACK, &[left, right]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, rank) = call_host(TENSOR_RANK, &[stacked]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(rank, 3);
+        let (status, dim0) = call_host(TENSOR_DIM, &[stacked, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(dim0, 2);
+
+        let (status, lhs_flat) = call_host(TENSOR_ARANGE, &[1, 9, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, rhs_flat) = call_host(TENSOR_ONES, &[8]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, lhs_batch) = call_host(TENSOR_STACK, &[lhs_flat, lhs_flat]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, _rhs_batch) = call_host(TENSOR_STACK, &[rhs_flat, rhs_flat]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, lhs3) = call_host(TENSOR_RESHAPE, &[lhs_batch, 3, 5]);
+        assert_eq!(status, HOST_STATUS_INVALID_ARGUMENT);
+        assert_eq!(lhs3, 0);
+
+        let (status, lhs2) = call_host(TENSOR_RESHAPE, &[lhs_flat, 2, 4]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, rhs2) = call_host(TENSOR_RESHAPE, &[rhs_flat, 4, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, lhs_stacked) = call_host(TENSOR_STACK, &[lhs2, lhs2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, rhs_stacked) = call_host(TENSOR_STACK, &[rhs2, rhs2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, batched) = call_host(TENSOR_MATMUL_BATCHED, &[lhs_stacked, rhs_stacked]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, batched_rank) = call_host(TENSOR_RANK, &[batched]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(batched_rank, 3);
+        let (status, first_value) = call_host(TENSOR_GET, &[batched, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(first_value, 10);
+
+        let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(freed >= 10);
     }
 
     #[test]

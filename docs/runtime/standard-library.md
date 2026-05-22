@@ -43,8 +43,9 @@ terminates.
 ## tensor namespace
 
 Spectra exposes tensor operations through runtime-managed opaque handles. The alpha tensor runtime
-stores contiguous CPU tensors with dtype (`int` or `float`), shape, and strides. Float values use the
-same host-call convention as other float stdlib functions: f64 bits encoded in `SpectraHostValue`.
+stores CPU tensors with dtype (`int` or `float`), shape, strides, layout, shared storage, and a base
+offset for safe views. Float values use the same host-call convention as other float stdlib
+functions: f64 bits encoded in `SpectraHostValue`.
 
 | Host call | Description | Arguments | Results |
 |-----------|-------------|-----------|---------|
@@ -58,12 +59,15 @@ same host-call convention as other float stdlib functions: f64 bits encoded in `
 | `spectra.std.tensor.len` / `rank` / `dim` / `rows` / `cols` | Query tensor metadata. | `handle`, optional `axis` | integer metadata |
 | `spectra.std.tensor.get` / `get_f` / `get2` / `get2_f` | Read tensor values. | `handle`, index or row/col | scalar |
 | `spectra.std.tensor.set` / `set_f` / `set2` / `set2_f` | Mutate tensor values. | `handle`, index/row/col, value | `0` |
-| `spectra.std.tensor.reshape` | Return a new handle with validated 2D shape. | `handle`, `rows`, `cols` | handle |
-| `spectra.std.tensor.flatten` | Return a new 1D tensor handle. | `handle` | handle |
+| `spectra.std.tensor.reshape` | Return a validated 2D view handle when possible. | `handle`, `rows`, `cols` | handle |
+| `spectra.std.tensor.flatten` | Return a 1D view or materialized tensor handle. | `handle` | handle |
+| `spectra.std.tensor.permute` / `transpose` | Return axis-swapped view handles. | `handle`, axes or handle | handle |
+| `spectra.std.tensor.slice` | Return a 1D shared-storage slice view. | `handle`, `start`, `end` | handle |
+| `spectra.std.tensor.concat` / `stack` | Combine compatible tensors. | handles | handle |
 | `spectra.std.tensor.add` / `sub` / `mul` / `div` | Elementwise arithmetic with exact shape and dtype match. | `lhs`, `rhs` | handle |
 | `spectra.std.tensor.neg` / `relu` / `exp_f` / `log_f` / `sqrt_f` / `sigmoid_f` / `tanh_f` | Unary CPU kernels. | `handle` | handle |
-| `spectra.std.tensor.sum` / `sum_f` / `mean_f` / `min` / `max` | Reductions. | `handle` | scalar |
-| `spectra.std.tensor.matmul` / `transpose` / `dot` | Matrix/vector kernels with shape validation. | handles | handle or scalar |
+| `spectra.std.tensor.sum` / `sum_f` / `mean_f` / `min` / `max` / `argmax` | Reductions. | `handle` | scalar |
+| `spectra.std.tensor.matmul` / `matmul_batched` / `dot` | Matrix/vector kernels with shape validation. | handles | handle or scalar |
 | `spectra.std.tensor.seed` | Set deterministic tensor RNG seed. | `seed` | `0` |
 | `spectra.std.tensor.stats_*` / `kernel_strategy` / `reset_stats` | Allocation, buffer-pool, scratch, and kernel work metrics. | none | integer metric or `0` |
 | `spectra.std.tensor.free` / `free_all` | Release tensor handles. | `handle` or none | `0` or freed count |

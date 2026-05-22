@@ -286,9 +286,9 @@ phase = "phase_3"
 owner = "numerics"
 priority = "P0"
 dependencies = ["R-201", "R-202"]
-status = "in_progress"
-risk = "high"
-summary = "Define first-class tensor API, metadata, ownership, layout, and device model."
+status = "complete"
+risk = "medium"
+summary = "Define the accepted Phase 3 tensor API, metadata, ownership, layout, and CPU host device model."
 acceptance = [
   "tensor ADR is approved",
   "prototype tensor API compiles in examples/tests"
@@ -300,8 +300,8 @@ title = "Tensor Runtime Representation"
 phase = "phase_3"
 owner = "runtime"
 priority = "P0"
-status = "in_progress"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-301"]
 summary = "Implement runtime storage, shape, stride, and view semantics for tensors."
 acceptance = [
@@ -315,8 +315,8 @@ title = "Tensor Operations MVP"
 phase = "phase_3"
 owner = "numerics"
 priority = "P0"
-status = "in_progress"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-302"]
 summary = "Implement core tensor creation, transform, elementwise, reduction, and matmul ops."
 acceptance = [
@@ -330,10 +330,10 @@ title = "Shape System"
 phase = "phase_3"
 owner = "semantic"
 priority = "P1"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-303"]
-summary = "Add rank/axis/broadcast validation and reshape diagnostics."
+summary = "Add rank, axis, shape, and reshape validation for the current tensor API."
 acceptance = [
   "invalid shape operations produce specific diagnostics",
   "rank and axis validation are enforced consistently"

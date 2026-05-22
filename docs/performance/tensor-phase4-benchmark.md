@@ -1,6 +1,6 @@
 # Tensor Phase 4 Benchmark
 
-Updated: 2026-05-21
+Updated: 2026-05-22
 
 Roadmap items:
 
@@ -15,7 +15,7 @@ This file records the current reproducible benchmark harness for Phase 4 tensor 
 ## Command
 
 ```powershell
-cargo run -p spectra-runtime --example tensor_phase4_bench
+cargo run --release -p spectra-runtime --example tensor_phase4_bench
 ```
 
 ## Latest Local Result
@@ -24,18 +24,18 @@ cargo run -p spectra-runtime --example tensor_phase4_bench
 {
   "dot_len": 65536,
   "dot_iterations": 500,
-  "dot_naive_ns": 18909400,
-  "dot_kernel_ns": 18706600,
-  "dot_host_ns": 19241300,
+  "dot_naive_ns": 18802300,
+  "dot_kernel_ns": 16224100,
+  "dot_host_ns": 393606300,
   "dot_pass": true,
   "mat_size": 32,
   "mat_iterations": 120,
-  "matmul_naive_ns": 3016000,
-  "matmul_kernel_ns": 2068000,
-  "matmul_host_ns": 2519700,
+  "matmul_naive_ns": 5158400,
+  "matmul_kernel_ns": 2792600,
+  "matmul_host_ns": 4285800,
   "matmul_pass": true,
   "pool_hits": 1,
-  "pool_misses": 124,
+  "pool_misses": 123,
   "scratch_reuses": 120,
   "allocation_pass": true,
   "passed": true

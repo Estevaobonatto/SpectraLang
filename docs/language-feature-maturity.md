@@ -45,7 +45,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - tuple, struct, enum, and OR-patterns in the validated pattern surface
 - closures/lambdas in the currently validated surface
 - qualified stdlib calls such as `std.io.println(...)`
-- `std.tensor` alpha runtime API for tensor handles, shape metadata, elementwise ops, reductions, reshape/flatten, and 2D matmul
+- `std.tensor` production baseline runtime API for tensor handles, safe views, shape metadata, elementwise ops, reductions, transforms, 2D matmul, and batched matmul
 
 ### Beta
 
