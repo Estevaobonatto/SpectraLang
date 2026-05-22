@@ -505,7 +505,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-501 Reverse-Mode Autodiff Core
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Dependencies: `R-303`
@@ -522,9 +522,15 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - analytical gradient tests pass
 - scalar loss backward works end-to-end
 
+### Implementation Notes
+
+- Completed: ADR [0002](adr/0002-autodiff-runtime-contract.md) accepts eager reverse-mode autodiff through the current `std.tensor` handle runtime.
+- Completed: float tensors support `requires_grad`, scalar tensor `backward`, accumulated `grad`, and `zero_grad`.
+- Completed: Rust tests and `tests/validation/71_tensor_phase5_autodiff.spectra` cover end-to-end scalar loss backward.
+
 ## R-502 Gradient Rules
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Dependencies: `R-501`
@@ -538,9 +544,15 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - finite-difference checks pass on all supported ops
 
+### Implementation Notes
+
+- Completed: gradient rules exist for elementwise add/sub/mul/div, unary neg/relu/exp/log/sqrt/sigmoid/tanh, tensor reductions `sum_t`/`mean_t`, `matmul`, `transpose`, `dot_t`, and reshape/flatten view edges.
+- Completed: analytical and finite-difference tests cover the supported operation set.
+- Broadcast-aware gradient reduction remains future work because production broadcasted tensor operations are not yet part of `std.tensor`.
+
 ## R-503 Graph Lifetime and Inference Mode
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `runtime`
 - Dependencies: `R-501`
@@ -554,6 +566,12 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - repeated training iterations do not show graph retention leaks
+
+### Implementation Notes
+
+- Completed: graph creator nodes are released after `backward` by default and exposed through `stats_graph_nodes`.
+- Completed: `set_grad_enabled(false)` / `grad_enabled()` provide inference/no-grad mode and prevent graph construction overhead.
+- Completed: tests verify graph node count returns to zero and no gradient is created while grad mode is disabled.
 
 ---
 

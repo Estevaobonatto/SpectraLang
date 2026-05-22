@@ -874,11 +874,19 @@ Views share storage where possible. `set` and `set2` apply copy-on-write when st
 | `neg`, `relu` | Unary ops over int or float tensors |
 | `exp_f`, `log_f`, `sqrt_f`, `sigmoid_f`, `tanh_f` | Float-output unary kernels |
 | `sum`, `sum_f`, `mean_f`, `min`, `max`, `argmax` | Reductions |
+| `sum_t`, `mean_t` | Differentiable scalar tensor reductions for `backward` |
 | `matmul(lhs, rhs)` | 2D matrix multiplication |
 | `matmul_batched(lhs, rhs)` | 3D batched matrix multiplication: `[batch, m, k] x [batch, k, n]` |
 | `transpose(handle)` | 2D transpose |
 | `dot(lhs, rhs)` | 1D dot product; returns `int` for int tensors and f64 ABI bits for float tensors |
+| `dot_t(lhs, rhs)` | Differentiable 1D dot product returning a scalar tensor |
 | `seed(value)` | Sets the deterministic tensor RNG seed |
+| `requires_grad(handle, enabled)` | Enables/disables gradient tracking for a float tensor |
+| `backward(loss)` | Runs reverse-mode autodiff from a scalar tensor loss |
+| `grad(handle)` | Returns the accumulated gradient tensor |
+| `zero_grad(handle)` | Clears accumulated gradient |
+| `set_grad_enabled(enabled)`, `grad_enabled()` | Controls inference/no-grad mode |
+| `stats_graph_nodes()` | Counts live autograd graph nodes |
 | `stats_allocations`, `stats_active`, `stats_active_bytes`, `stats_peak_bytes` | Tensor allocation metrics |
 | `stats_reused_buffers`, `stats_pool_hits`, `stats_pool_misses`, `stats_scratch_reuses` | Buffer-pool and scratch metrics |
 | `stats_kernel_ops`, `stats_kernel_elements`, `kernel_strategy` | Kernel work and dispatch metrics |
@@ -915,6 +923,8 @@ pub fn main() -> int {
 ```
 
 Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático. Device placement, GPU kernels, autodiff e sintaxe `Tensor<T, Shape>` ficam para fases futuras.
+
+Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
 
 ---
 

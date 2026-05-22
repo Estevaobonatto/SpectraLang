@@ -67,8 +67,12 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.tensor.add` / `sub` / `mul` / `div` | Elementwise arithmetic with exact shape and dtype match. | `lhs`, `rhs` | handle |
 | `spectra.std.tensor.neg` / `relu` / `exp_f` / `log_f` / `sqrt_f` / `sigmoid_f` / `tanh_f` | Unary CPU kernels. | `handle` | handle |
 | `spectra.std.tensor.sum` / `sum_f` / `mean_f` / `min` / `max` / `argmax` | Reductions. | `handle` | scalar |
+| `spectra.std.tensor.sum_t` / `mean_t` / `dot_t` | Differentiable scalar tensor loss primitives. | handles | handle |
 | `spectra.std.tensor.matmul` / `matmul_batched` / `dot` | Matrix/vector kernels with shape validation. | handles | handle or scalar |
 | `spectra.std.tensor.seed` | Set deterministic tensor RNG seed. | `seed` | `0` |
+| `spectra.std.tensor.requires_grad` / `backward` / `grad` / `zero_grad` | Reverse-mode autodiff controls. | handles, bool flag | handle or `0` |
+| `spectra.std.tensor.set_grad_enabled` / `grad_enabled` | Inference/no-grad mode. | bool flag or none | `0` or bool |
+| `spectra.std.tensor.stats_graph_nodes` | Live autograd creator node count. | none | integer metric |
 | `spectra.std.tensor.stats_*` / `kernel_strategy` / `reset_stats` | Allocation, buffer-pool, scratch, and kernel work metrics. | none | integer metric or `0` |
 | `spectra.std.tensor.free` / `free_all` | Release tensor handles. | `handle` or none | `0` or freed count |
 
@@ -82,5 +86,9 @@ functions: f64 bits encoded in `SpectraHostValue`.
   `HOST_STATUS_NOT_FOUND`.
 - Tensor shape mismatches return `HOST_STATUS_INVALID_ARGUMENT`; invalid handles return
   `HOST_STATUS_NOT_FOUND`.
+- Autodiff is supported for float tensors. Scalar host-returning calls are not graph nodes; use
+  `sum_t`, `mean_t`, and `dot_t` when a differentiable scalar tensor loss is required.
+- `backward` releases graph creator nodes by default. Disable graph construction in inference
+  sections with `set_grad_enabled(false)` and restore it with `set_grad_enabled(true)`.
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

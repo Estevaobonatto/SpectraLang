@@ -93,6 +93,7 @@ Status labels:
 | Higher-ranked generics | deferred | |
 | Production-grade scientific numeric lattice | partial | Numeric aliases are accepted and checked; exact-width storage/overflow semantics remain future work. |
 | Tensor handles | supported baseline | `std.tensor` Phase 3 APIs are typed as runtime handles plus host calls with accepted ADR semantics; first-class static tensor types remain future work. |
+| Tensor autodiff | supported baseline | `std.tensor` Phase 5 APIs expose reverse-mode autodiff as typed host calls over float tensor handles; compiler-native autodiff syntax remains future work. |
 
 ## Known Partial or Deferred Areas
 

@@ -46,13 +46,14 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - closures/lambdas in the currently validated surface
 - qualified stdlib calls such as `std.io.println(...)`
 - `std.tensor` production baseline runtime API for tensor handles, safe views, shape metadata, elementwise ops, reductions, transforms, 2D matmul, and batched matmul
+- `std.tensor` production baseline reverse-mode autodiff for float tensor handles, scalar tensor losses, gradient accumulation, and inference/no-grad mode
 
 ### Beta
 
 - class syntax footprint
 - `static` item surface
 - closure/runtime representation as an optimization target
-- first-class tensor language design beyond the current stdlib handle API
+- first-class tensor language design beyond the current stdlib handle/autodiff API
 
 These are usable where covered, but still not treated as fully production-hardened language design.
 

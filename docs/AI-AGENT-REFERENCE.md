@@ -1542,7 +1542,10 @@ The current production tensor API uses opaque `int` handles managed by the runti
 | `add`, `sub`, `mul`, `div` | elementwise ops | New tensor handle |
 | `neg`, `relu`, `exp_f`, `log_f`, `sqrt_f`, `sigmoid_f`, `tanh_f` | unary kernels | New tensor handle |
 | `sum`, `sum_f`, `mean_f`, `min`, `max`, `argmax` | reductions | Scalar value |
+| `sum_t`, `mean_t`, `dot_t` | differentiable scalar tensor losses | Tensor handle |
 | `matmul`, `matmul_batched`, `transpose`, `dot` | matrix/vector kernels | Handle or scalar |
+| `requires_grad`, `backward`, `grad`, `zero_grad` | reverse-mode autodiff | Training support |
+| `set_grad_enabled`, `grad_enabled`, `stats_graph_nodes` | inference mode and graph lifecycle | Autograd control |
 | `seed`, `stats_*`, `reset_stats` | RNG and runtime metrics | Determinism and observability |
 | `free`, `free_all` | release handles | `unit` / freed count |
 
@@ -1560,6 +1563,8 @@ tensor.free_all();
 ```
 
 Current limitation: tensors are stdlib handles, not first-class static tensor types. Phase 3/4 includes safe views, copy-on-write shared mutation, portable CPU kernels, release benchmark evidence, seeded random fills, categorical sampling, buffer-pool metrics, and runtime kernel metrics; device placement, GPU kernels, autodiff, and `Tensor<T, Shape>` syntax are later phases.
+
+Phase 5 autodiff is available for float tensors through `std.tensor`. Use `requires_grad(x, true)`, produce a scalar tensor loss with `sum_t`, `mean_t`, or `dot_t`, call `backward(loss)`, then read gradients with `grad(x)`. Use `set_grad_enabled(false)` for inference/no-grad sections.
 
 ### std.random — Random Numbers
 

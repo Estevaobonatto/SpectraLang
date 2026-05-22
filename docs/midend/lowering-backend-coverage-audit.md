@@ -31,6 +31,7 @@ Status labels:
 | Closures | partial | Non-capturing closures are stored, passed, invoked, and returned in validated paths; captured environments are deferred. |
 | Const/static lowering | partial | Top-level `const` values lower as literals at use sites; `static` remains a surface/global item model. |
 | Tensor/ndarray primitives | supported baseline | `std.tensor` Phase 3/4 lowers as stdlib host calls with safe runtime views; first-class tensor IR and device lowering remain deferred. |
+| Tensor autodiff | supported baseline | `std.tensor` Phase 5 autodiff lowers as stdlib host calls; compiler-native autodiff IR remains deferred. |
 
 ## IR Verification Coverage
 
@@ -69,4 +70,4 @@ Status labels:
 
 ## Operational Conclusion
 
-For the current general-purpose language surface, lowering and backend coverage are now in a healthy Phase 1 state. For the stated AI/ML product goal, a production baseline tensor path now exists through `std.tensor` host calls; the remaining production work is explicit roadmap work in first-class tensor IR, autodiff, and acceleration.
+For the current general-purpose language surface, lowering and backend coverage are now in a healthy Phase 1 state. For the stated AI/ML product goal, a production baseline tensor and autodiff path now exists through `std.tensor` host calls; the remaining production work is explicit roadmap work in first-class tensor IR and acceleration.

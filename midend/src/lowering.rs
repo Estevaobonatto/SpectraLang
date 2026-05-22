@@ -6609,7 +6609,9 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "div") => Some(host_int("spectra.std.tensor.div")),
             ("tensor", "sum") => Some(host_int("spectra.std.tensor.sum")),
             ("tensor", "sum_f") => Some(host_float("spectra.std.tensor.sum_f")),
+            ("tensor", "sum_t") => Some(host_int("spectra.std.tensor.sum_t")),
             ("tensor", "mean_f") => Some(host_float("spectra.std.tensor.mean_f")),
+            ("tensor", "mean_t") => Some(host_int("spectra.std.tensor.mean_t")),
             ("tensor", "max") => Some(host_int("spectra.std.tensor.max")),
             ("tensor", "min") => Some(host_int("spectra.std.tensor.min")),
             ("tensor", "argmax") => Some(host_int("spectra.std.tensor.argmax")),
@@ -6617,6 +6619,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "matmul_batched") => Some(host_int("spectra.std.tensor.matmul_batched")),
             ("tensor", "transpose") => Some(host_int("spectra.std.tensor.transpose")),
             ("tensor", "dot") => Some(host_int("spectra.std.tensor.dot")),
+            ("tensor", "dot_t") => Some(host_int("spectra.std.tensor.dot_t")),
             ("tensor", "neg") => Some(host_int("spectra.std.tensor.neg")),
             ("tensor", "exp_f") => Some(host_int("spectra.std.tensor.exp_f")),
             ("tensor", "log_f") => Some(host_int("spectra.std.tensor.log_f")),
@@ -6653,7 +6656,22 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "stats_kernel_elements") => {
                 Some(host_int("spectra.std.tensor.stats_kernel_elements"))
             }
+            ("tensor", "stats_graph_nodes") => {
+                Some(host_int("spectra.std.tensor.stats_graph_nodes"))
+            }
             ("tensor", "reset_stats") => Some(host_void("spectra.std.tensor.reset_stats")),
+            ("tensor", "requires_grad") => Some(host_int("spectra.std.tensor.requires_grad")),
+            ("tensor", "backward") => Some(host_void("spectra.std.tensor.backward")),
+            ("tensor", "grad") => Some(host_int("spectra.std.tensor.grad")),
+            ("tensor", "zero_grad") => Some(host_void("spectra.std.tensor.zero_grad")),
+            ("tensor", "set_grad_enabled") => {
+                Some(host_void("spectra.std.tensor.set_grad_enabled"))
+            }
+            ("tensor", "grad_enabled") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.tensor.grad_enabled",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
             ("tensor", "free") => Some(host_void("spectra.std.tensor.free")),
             ("tensor", "free_all") => Some(host_int("spectra.std.tensor.free_all")),
             // ── std.collections map ──────────────────────────────────────

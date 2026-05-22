@@ -520,9 +520,12 @@ Make the platform suitable for neural network training.
 
 ## 5.1 Reverse-Mode Autodiff Core
 
+Current state: complete for the current production baseline. ADR [0002](adr/0002-autodiff-runtime-contract.md) accepts eager reverse-mode autodiff in `std.tensor` for float tensors, scalar tensor losses, gradient accumulation, and default graph release after `backward`.
+
 ### Tasks
 
 - Choose eager autodiff vs graph-building vs hybrid.
+  - accepted Phase 5 model: eager graph-building reverse mode in the tensor runtime
 - Implement computation graph node model.
 - Track:
   - value tensor
@@ -536,8 +539,11 @@ Make the platform suitable for neural network training.
 
 - Gradients are correct for scalar and tensor examples.
 - Reverse-mode tests pass against analytical gradients.
+- `tests/validation/71_tensor_phase5_autodiff.spectra` compiles and runs through the public API.
 
 ## 5.2 Gradient Rules
+
+Current state: complete for the current production baseline. Gradient rules are implemented for the supported differentiable `std.tensor` operation set. Broadcast-specific reduction is deferred until broadcasted tensor operations are added to the production tensor API.
 
 ### Tasks
 
@@ -546,25 +552,32 @@ Make the platform suitable for neural network training.
   - reductions
   - matmul
   - transpose
-  - broadcasted ops
+  - broadcasted ops when broadcasted tensor ops exist
   - activation functions
-  - loss functions
-- Add broadcast-aware gradient reduction.
+- Add tensor-returning scalar loss primitives:
+  - `sum_t`
+  - `mean_t`
+  - `dot_t`
+- Add broadcast-aware gradient reduction when broadcasted tensor ops exist.
 - Add gradient accumulation semantics.
 
 ### Acceptance Criteria
 
 - Finite-difference gradient checks pass for all supported ops.
-- Broadcast and reduction gradient rules are correct.
+- Reduction gradient rules are correct.
+- Broadcast gradient rules are tracked as future work with broadcasted tensor operations.
 
 ## 5.3 Graph Lifetime and Memory Control
+
+Current state: complete for the current production baseline. Graph nodes are released after `backward` by default, `stats_graph_nodes` exposes graph retention, and `set_grad_enabled(false)` disables autograd construction for inference/no-grad blocks.
 
 ### Tasks
 
 - Add graph retention policy.
 - Add `no_grad` / inference mode.
 - Add graph release after backward by default.
-- Add optional checkpointing for memory tradeoffs.
+- Add graph observability through `stats_graph_nodes`.
+- Keep checkpointing as future memory tradeoff work.
 
 ### Acceptance Criteria
 
