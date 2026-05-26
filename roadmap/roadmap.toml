@@ -539,14 +539,14 @@ title = "C and Rust FFI"
 phase = "phase_8"
 owner = "ecosystem"
 priority = "P1"
-status = "blocked"
-risk = "medium"
+status = "complete"
+risk = "low"
 dependencies = ["R-701"]
-summary = "Define a stable foreign-function boundary for native interop; Rust and C ABI validation exist, but local C sample compilation is blocked by missing C compiler."
+summary = "Define a stable foreign-function boundary for native interop with validated Rust and C samples."
 acceptance = [
   "Rust sample compiles and runs against Spectra interop exports",
   "C ABI header and sample exist",
-  "C sample compiles and runs against Spectra interop exports on an environment with cl, clang, or gcc"
+  "C sample compiles and runs against Spectra interop exports with LLVM clang"
 ]
 
 [[items]]

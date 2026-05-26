@@ -485,6 +485,7 @@ if (-not $cargoPath) {
 
 $interopChecks = @(
     [PSCustomObject]@{ Nome = "cargo_test_spectra_interop"; File = $cargoPath; Args = @("test", "-p", "spectra-interop") }
+    [PSCustomObject]@{ Nome = "cargo_build_spectra_interop_release"; File = $cargoPath; Args = @("build", "-p", "spectra-interop", "--release") }
     [PSCustomObject]@{ Nome = "rust_ffi_sample"; File = $cargoPath; Args = @("run", "-p", "spectra-interop", "--example", "rust_ffi_sample") }
     [PSCustomObject]@{ Nome = "python_phase8_demo"; File = "python"; Args = @("python\demo_phase8.py") }
 )
@@ -500,20 +501,58 @@ foreach ($check in $interopChecks) {
 }
 
 $cCompiler = $null
-foreach ($candidate in @("cl", "clang", "gcc")) {
+$cCompilerKind = $null
+foreach ($candidate in @("clang", "gcc", "cl")) {
     $resolved = Get-Command $candidate -ErrorAction SilentlyContinue
     if ($resolved) {
         $cCompiler = $resolved.Source
+        $cCompilerKind = $candidate
         break
     }
 }
+if (-not $cCompiler -and (Test-Path "C:\Program Files\LLVM\bin\clang.exe")) {
+    $cCompiler = "C:\Program Files\LLVM\bin\clang.exe"
+    $cCompilerKind = "clang"
+}
 
-Write-Host "  c_ffi_sample" -NoNewline
 if ($cCompiler) {
-    Write-Host " INFO:COMPILADOR DETECTADO" -ForegroundColor Cyan
-    $totalInfo++
-    $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = "c_ffi_sample"; Status = "INFO:COMPILADOR_DETECTADO"; Detalhe = $cCompiler }
+    $sampleExe = "target\release\c_ffi_sample.exe"
+    $interopLib = "target\release\spectra_interop.dll.lib"
+    if ($cCompilerKind -eq "cl") {
+        $compileArgs = @(
+            "/nologo",
+            "/I", "tools\spectra-interop\include",
+            "tools\spectra-interop\examples\c_ffi_sample.c",
+            $interopLib,
+            "/Fe:$sampleExe"
+        )
+    } else {
+        $compileArgs = @(
+            "-I", "tools\spectra-interop\include",
+            "tools\spectra-interop\examples\c_ffi_sample.c",
+            $interopLib,
+            "-o", $sampleExe
+        )
+    }
+
+    $compileResult = Invoke-HostCommand -name "c_ffi_sample_compile" -fileName $cCompiler -arguments $compileArgs -workingDir (Get-Location).Path
+    if ($compileResult.Status -eq "PASSOU") {
+        $totalPassed++
+    } else {
+        $totalFailed++
+    }
+    $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = "c_ffi_sample_compile"; Status = $compileResult.Status; Detalhe = $compileResult.Detail }
+
+    $sampleExeFullPath = Join-Path (Get-Location).Path $sampleExe
+    $runResult = Invoke-HostCommand -name "c_ffi_sample_run" -fileName $sampleExeFullPath -arguments @() -workingDir (Join-Path (Get-Location).Path "target\release")
+    if ($runResult.Status -eq "PASSOU") {
+        $totalPassed++
+    } else {
+        $totalFailed++
+    }
+    $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = "c_ffi_sample_run"; Status = $runResult.Status; Detalhe = $runResult.Detail }
 } else {
+    Write-Host "  c_ffi_sample" -NoNewline
     Write-Host " SKIP (compilador C ausente)" -ForegroundColor DarkYellow
     $totalSkipped++
     $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = "c_ffi_sample"; Status = "SKIP"; Detalhe = "cl/clang/gcc nao encontrados; sample C nao foi compilado localmente" }

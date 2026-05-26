@@ -779,7 +779,8 @@ Make SpectraLang usable inside existing AI ecosystems.
 - `tools/spectra-interop` provides the stable ABI crate with `cdylib` and `rlib` outputs.
 - `tools/spectra-interop/include/spectra_interop.h` defines the C ABI.
 - `tools/spectra-interop/examples/rust_ffi_sample.rs` validates the Rust helper path.
-- `tools/spectra-interop/examples/c_ffi_sample.c` is provided, but local compilation is blocked until a C compiler is available in the environment.
+- `tools/spectra-interop/examples/c_ffi_sample.c` compiles and runs against the generated release import library with LLVM `clang`.
+- `run_tests.ps1` builds the release interop library, compiles the C sample, and runs the resulting executable when a supported C compiler is available.
 
 ## 8.3 Model and Data Format Support
 

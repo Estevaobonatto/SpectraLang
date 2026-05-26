@@ -759,7 +759,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-802 C and Rust FFI
 
-- Status: `blocked`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-701`
@@ -774,7 +774,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - Rust sample compiles and runs against Spectra interop exports.
 - C ABI header and sample exist.
-- C sample compiles and runs against Spectra interop exports on an environment with `cl`, `clang`, or `gcc`.
+- C sample compiles and runs against Spectra interop exports with LLVM `clang`.
 
 ### Completed so far
 
@@ -783,10 +783,8 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - `tools/spectra-interop/examples/rust_ffi_sample.rs` compiles and runs locally.
 - `tools/spectra-interop/examples/c_ffi_sample.c` is checked in and uses the same ABI surface.
 - Rust unit tests validate the safe helper API and C ABI `.npy` round-trip in-process.
-
-### Remaining before completion
-
-- Compile and run `c_ffi_sample.c` against the generated interop library on a machine with a C compiler installed. The current Windows environment does not expose `cl`, `clang`, or `gcc`, so the item is blocked rather than marked complete.
+- LLVM `clang` was installed through `winget` and validated against `target/release/spectra_interop.dll.lib`.
+- `run_tests.ps1` now compiles and executes `c_ffi_sample.exe` when a supported C compiler is available.
 
 ## R-803 Model and Data Formats
 

@@ -2333,7 +2333,7 @@ cargo run -p spectra-interop --example rust_ffi_sample
 python python\demo_phase8.py
 ```
 
-The C sample is checked in at `tools/spectra-interop/examples/c_ffi_sample.c`, but compiling it requires a host C compiler such as MSVC `cl`, `clang`, or `gcc`.
+The C sample is checked in at `tools/spectra-interop/examples/c_ffi_sample.c` and is validated locally with LLVM `clang` against `target\release\spectra_interop.dll.lib`.
 
 For the full interop contract, see `docs/interop.md`.
 
