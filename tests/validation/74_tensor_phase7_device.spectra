@@ -1,0 +1,44 @@
+module tensor_phase7_device;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+
+    let x = tensor.ones(4);
+    if tensor.device(x) != 0 {
+        return 10;
+    }
+    if tensor.device_available(0) {
+        let cpu_available = 1;
+        if cpu_available != 1 {
+            return 11;
+        }
+    } else {
+        return 12;
+    }
+    if tensor.device_available(1) {
+        return 13;
+    }
+
+    let y = tensor.to_device(x, 0);
+    if tensor.device(y) != 0 {
+        return 14;
+    }
+    if tensor.sum(y) != 4 {
+        return 15;
+    }
+
+    tensor.sync(y);
+    let z = tensor.cpu(y);
+    if tensor.device(z) != 0 {
+        return 16;
+    }
+    if tensor.stats_device_transfers() < 2 {
+        return 17;
+    }
+
+    tensor.free_all();
+    return 0;
+}

@@ -671,6 +671,8 @@ Support serious training and inference throughput.
 
 ## 7.1 Device Abstraction
 
+Current state: complete for the current production baseline. ADR [0004](adr/0004-device-runtime-contract.md) accepts explicit CPU device placement over `std.tensor` handles: `device`, `device_available`, `to_device`, `cpu`, `sync`, and `stats_device_transfers`. CPU (`0`) is available in the default build; CUDA (`1`), ROCm (`2`), Metal (`3`), DirectML (`4`), and Vulkan (`5`) are reserved and fail fast until real backends exist.
+
 ### Tasks
 
 - Define `Device` model:
@@ -678,7 +680,7 @@ Support serious training and inference throughput.
   - CUDA
   - ROCm
   - Metal
-  - DirectML or Vulkan, depending on target audience
+- DirectML or Vulkan, depending on target audience
 - Add tensor placement APIs.
 - Add explicit and implicit transfer semantics.
 
@@ -688,6 +690,8 @@ Support serious training and inference throughput.
 - Host/device transfer APIs behave predictably.
 
 ## 7.2 GPU Kernel Execution
+
+Current state: blocked, not complete. `R-701` provides the placement contract required by this work, but the repository still lacks a production accelerator backend, GPU CI/hardware validation, accelerator kernels, and benchmark evidence. Implementations must not use CPU fallback or mock devices to satisfy this item.
 
 ### Tasks
 
@@ -709,6 +713,8 @@ Support serious training and inference throughput.
 - GPU benchmarks show meaningful speedup for target workloads.
 
 ## 7.3 Mixed Precision
+
+Current state: blocked by `R-702`, not complete. The language lists numeric aliases such as `f16` and `bf16`, but there is no validated accelerator execution path, autocast policy, loss scaling implementation, or mixed-precision training convergence test.
 
 ### Tasks
 

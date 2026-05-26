@@ -851,6 +851,11 @@ import std.tensor as tensor;
 | `rank` | `(handle: int) -> int` |
 | `dim` | `(handle: int, axis: int) -> int` |
 | `rows`, `cols` | `(handle: int) -> int` |
+| `device` | `(handle: int) -> int` |
+| `device_available` | `(device: int) -> bool` |
+| `to_device` | `(handle: int, device: int) -> int` |
+| `cpu` | `(handle: int) -> int` |
+| `sync` | `(handle: int) -> unit` |
 | `get`, `get_f` | `(handle: int, index: int) -> int/float` |
 | `set`, `set_f` | `(handle: int, index: int, value) -> unit` |
 | `get2`, `get2_f` | `(handle: int, row: int, col: int) -> int/float` |
@@ -890,6 +895,7 @@ Views share storage where possible. `set` and `set2` apply copy-on-write when st
 | `stats_allocations`, `stats_active`, `stats_active_bytes`, `stats_peak_bytes` | Tensor allocation metrics |
 | `stats_reused_buffers`, `stats_pool_hits`, `stats_pool_misses`, `stats_scratch_reuses` | Buffer-pool and scratch metrics |
 | `stats_kernel_ops`, `stats_kernel_elements`, `kernel_strategy` | Kernel work and dispatch metrics |
+| `stats_device_transfers` | Device transfer metric |
 | `reset_stats()` | Resets tensor metrics while preserving active tensor accounting |
 | `free(handle)`, `free_all()` | Release tensor handles |
 
@@ -912,9 +918,11 @@ pub fn main() -> int {
     let m = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
     let ones = tensor.ones2(3, 2);
     let product = tensor.matmul(m, ones);
+    let product_cpu = tensor.to_device(product, 0);
+    tensor.sync(product_cpu);
 
-    if tensor.get2(product, 1, 0) != 15 {
-        return tensor.get2(product, 1, 0);
+    if tensor.get2(product_cpu, 1, 0) != 15 {
+        return tensor.get2(product_cpu, 1, 0);
     }
 
     tensor.free_all();
@@ -922,7 +930,7 @@ pub fn main() -> int {
 }
 ```
 
-Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático. Device placement, GPU kernels, autodiff e sintaxe `Tensor<T, Shape>` ficam para fases futuras.
+Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7/R-701: device placement é explícito para handles CPU, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados até existir backend real. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático. GPU kernels e sintaxe `Tensor<T, Shape>` ficam para fases futuras.
 
 Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
 

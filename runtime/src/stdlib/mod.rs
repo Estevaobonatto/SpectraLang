@@ -225,6 +225,13 @@ const TENSOR_UNIFORM_F: &str = "spectra.std.tensor.uniform_f";
 const TENSOR_NORMAL_F: &str = "spectra.std.tensor.normal_f";
 const TENSOR_BERNOULLI: &str = "spectra.std.tensor.bernoulli";
 const TENSOR_CATEGORICAL: &str = "spectra.std.tensor.categorical";
+const TENSOR_DEVICE: &str = "spectra.std.tensor.device";
+const TENSOR_DEVICE_AVAILABLE: &str = "spectra.std.tensor.device_available";
+const TENSOR_TO_DEVICE: &str = "spectra.std.tensor.to_device";
+const TENSOR_CPU: &str = "spectra.std.tensor.cpu";
+const TENSOR_SYNC: &str = "spectra.std.tensor.sync";
+const TENSOR_PRECISION: &str = "spectra.std.tensor.precision";
+const TENSOR_TO_PRECISION: &str = "spectra.std.tensor.to_precision";
 const TENSOR_STATS_ALLOCATIONS: &str = "spectra.std.tensor.stats_allocations";
 const TENSOR_STATS_ACTIVE: &str = "spectra.std.tensor.stats_active";
 const TENSOR_STATS_PEAK_BYTES: &str = "spectra.std.tensor.stats_peak_bytes";
@@ -236,6 +243,7 @@ const TENSOR_STATS_SCRATCH_REUSES: &str = "spectra.std.tensor.stats_scratch_reus
 const TENSOR_KERNEL_STRATEGY: &str = "spectra.std.tensor.kernel_strategy";
 const TENSOR_STATS_KERNEL_OPS: &str = "spectra.std.tensor.stats_kernel_ops";
 const TENSOR_STATS_KERNEL_ELEMENTS: &str = "spectra.std.tensor.stats_kernel_elements";
+const TENSOR_STATS_DEVICE_TRANSFERS: &str = "spectra.std.tensor.stats_device_transfers";
 const TENSOR_STATS_GRAPH_NODES: &str = "spectra.std.tensor.stats_graph_nodes";
 const TENSOR_RESET_STATS: &str = "spectra.std.tensor.reset_stats";
 const TENSOR_REQUIRES_GRAD: &str = "spectra.std.tensor.requires_grad";
@@ -267,6 +275,7 @@ const ML_SGD_MOMENTUM_STEP: &str = "spectra.std.ml.sgd_momentum_step";
 const ML_ADAM_STEP: &str = "spectra.std.ml.adam_step";
 const ML_ADAMW_STEP: &str = "spectra.std.ml.adamw_step";
 const ML_EXP_LR: &str = "spectra.std.ml.exp_lr";
+const ML_UNSCALE_GRAD: &str = "spectra.std.ml.unscale_grad";
 const ML_DATASET_FROM_TENSORS: &str = "spectra.std.ml.dataset_from_tensors";
 const ML_DATASET_LEN: &str = "spectra.std.ml.dataset_len";
 const ML_DATALOADER_NEW: &str = "spectra.std.ml.dataloader_new";
@@ -415,6 +424,13 @@ fn register_tensor() {
     register_host_function(TENSOR_NORMAL_F, std_tensor_normal_f);
     register_host_function(TENSOR_BERNOULLI, std_tensor_bernoulli);
     register_host_function(TENSOR_CATEGORICAL, std_tensor_categorical);
+    register_host_function(TENSOR_DEVICE, std_tensor_device);
+    register_host_function(TENSOR_DEVICE_AVAILABLE, std_tensor_device_available);
+    register_host_function(TENSOR_TO_DEVICE, std_tensor_to_device);
+    register_host_function(TENSOR_CPU, std_tensor_cpu);
+    register_host_function(TENSOR_SYNC, std_tensor_sync);
+    register_host_function(TENSOR_PRECISION, std_tensor_precision);
+    register_host_function(TENSOR_TO_PRECISION, std_tensor_to_precision);
     register_host_function(TENSOR_STATS_ALLOCATIONS, std_tensor_stats_allocations);
     register_host_function(TENSOR_STATS_ACTIVE, std_tensor_stats_active);
     register_host_function(TENSOR_STATS_PEAK_BYTES, std_tensor_stats_peak_bytes);
@@ -428,6 +444,10 @@ fn register_tensor() {
     register_host_function(
         TENSOR_STATS_KERNEL_ELEMENTS,
         std_tensor_stats_kernel_elements,
+    );
+    register_host_function(
+        TENSOR_STATS_DEVICE_TRANSFERS,
+        std_tensor_stats_device_transfers,
     );
     register_host_function(TENSOR_STATS_GRAPH_NODES, std_tensor_stats_graph_nodes);
     register_host_function(TENSOR_RESET_STATS, std_tensor_reset_stats);
@@ -461,6 +481,7 @@ fn register_ml() {
     register_host_function(ML_ADAM_STEP, std_ml_adam_step);
     register_host_function(ML_ADAMW_STEP, std_ml_adamw_step);
     register_host_function(ML_EXP_LR, std_ml_exp_lr);
+    register_host_function(ML_UNSCALE_GRAD, std_ml_unscale_grad);
     register_host_function(ML_DATASET_FROM_TENSORS, std_ml_dataset_from_tensors);
     register_host_function(ML_DATASET_LEN, std_ml_dataset_len);
     register_host_function(ML_DATALOADER_NEW, std_ml_dataloader_new);
@@ -1475,6 +1496,103 @@ enum TensorLayout {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TensorDevice {
+    Cpu,
+    Cuda,
+    Rocm,
+    Metal,
+    DirectMl,
+    Vulkan,
+    Wgpu,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TensorPrecision {
+    F64,
+    F32,
+    F16,
+    Bf16,
+}
+
+impl TensorPrecision {
+    fn from_code(code: SpectraHostValue) -> Option<Self> {
+        match code {
+            0 => Some(Self::F64),
+            1 => Some(Self::F32),
+            2 => Some(Self::F16),
+            3 => Some(Self::Bf16),
+            _ => None,
+        }
+    }
+
+    fn code(self) -> SpectraHostValue {
+        match self {
+            Self::F64 => 0,
+            Self::F32 => 1,
+            Self::F16 => 2,
+            Self::Bf16 => 3,
+        }
+    }
+
+    fn quantize(self, value: f64) -> f64 {
+        match self {
+            Self::F64 => value,
+            Self::F32 => value as f32 as f64,
+            Self::F16 => half::f16::from_f64(value).to_f64(),
+            Self::Bf16 => half::bf16::from_f64(value).to_f64(),
+        }
+    }
+}
+
+impl TensorDevice {
+    fn from_code(code: SpectraHostValue) -> Option<Self> {
+        match code {
+            0 => Some(Self::Cpu),
+            1 => Some(Self::Cuda),
+            2 => Some(Self::Rocm),
+            3 => Some(Self::Metal),
+            4 => Some(Self::DirectMl),
+            5 => Some(Self::Vulkan),
+            6 => Some(Self::Wgpu),
+            _ => None,
+        }
+    }
+
+    fn code(self) -> SpectraHostValue {
+        match self {
+            Self::Cpu => 0,
+            Self::Cuda => 1,
+            Self::Rocm => 2,
+            Self::Metal => 3,
+            Self::DirectMl => 4,
+            Self::Vulkan => 5,
+            Self::Wgpu => 6,
+        }
+    }
+
+    fn is_available(self) -> bool {
+        match self {
+            Self::Cpu => true,
+            Self::Wgpu => {
+                #[cfg(feature = "gpu")]
+                {
+                    crate::gpu::is_available()
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn is_accelerator(self) -> bool {
+        !matches!(self, Self::Cpu)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AutogradOp {
     Add,
     Sub,
@@ -1568,6 +1686,8 @@ struct StdTensor {
     storage: Arc<Vec<SpectraHostValue>>,
     offset: usize,
     layout: TensorLayout,
+    device: TensorDevice,
+    precision: TensorPrecision,
     requires_grad: bool,
     grad: Option<Vec<f64>>,
     creator: Option<AutogradNode>,
@@ -1622,6 +1742,8 @@ impl StdTensor {
             storage,
             offset,
             layout,
+            device: TensorDevice::Cpu,
+            precision: TensorPrecision::F64,
             requires_grad: false,
             grad: None,
             creator: None,
@@ -1814,6 +1936,10 @@ impl TensorRegistry {
         self.metrics.scratch_reuses = self.metrics.scratch_reuses.saturating_add(1);
     }
 
+    fn note_device_transfer(&mut self) {
+        self.metrics.device_transfers = self.metrics.device_transfers.saturating_add(1);
+    }
+
     fn reset_metrics(&mut self) {
         let active_tensors = self.tensors.len();
         let active_bytes = self
@@ -1842,6 +1968,7 @@ struct TensorMetrics {
     scratch_reuses: usize,
     kernel_ops: usize,
     kernel_elements: usize,
+    device_transfers: usize,
 }
 
 fn tensor_registry() -> &'static Mutex<TensorRegistry> {
@@ -1898,6 +2025,62 @@ fn f64_values_to_host(values: &[f64]) -> Vec<SpectraHostValue> {
         .collect()
 }
 
+#[cfg(feature = "gpu")]
+fn tensor_values_as_f32(tensor: &StdTensor) -> Option<Vec<f32>> {
+    if tensor.dtype != TensorDType::Float {
+        return None;
+    }
+    Some(
+        tensor
+            .materialize()
+            .iter()
+            .map(|raw| f64::from_bits(*raw as u64) as f32)
+            .collect(),
+    )
+}
+
+#[cfg(feature = "gpu")]
+fn f32_values_to_host(values: &[f32]) -> Vec<SpectraHostValue> {
+    values
+        .iter()
+        .map(|value| (*value as f64).to_bits() as SpectraHostValue)
+        .collect()
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_binary_float(
+    left: &StdTensor,
+    right: &StdTensor,
+    op: crate::gpu::GpuBinaryOp,
+) -> Option<Vec<SpectraHostValue>> {
+    if left.device != TensorDevice::Wgpu
+        || right.device != TensorDevice::Wgpu
+        || left.dtype != TensorDType::Float
+        || right.dtype != TensorDType::Float
+    {
+        return None;
+    }
+    let left_data = tensor_values_as_f32(left)?;
+    let right_data = tensor_values_as_f32(right)?;
+    crate::gpu::binary(&left_data, &right_data, op)
+        .ok()
+        .map(|values| f32_values_to_host(&values))
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_unary_float(
+    tensor: &StdTensor,
+    op: crate::gpu::GpuUnaryOp,
+) -> Option<Vec<SpectraHostValue>> {
+    if tensor.device != TensorDevice::Wgpu || tensor.dtype != TensorDType::Float {
+        return None;
+    }
+    let data = tensor_values_as_f32(tensor)?;
+    crate::gpu::unary(&data, op)
+        .ok()
+        .map(|values| f32_values_to_host(&values))
+}
+
 fn tensor_requires_autograd(registry: &TensorRegistry, parents: &[usize]) -> bool {
     if !tensor_is_grad_enabled() {
         return false;
@@ -1927,6 +2110,8 @@ enum TensorKernelStrategy {
     Neon = 3,
     #[allow(dead_code)]
     Blas = 4,
+    #[allow(dead_code)]
+    Gpu = 5,
 }
 
 impl TensorKernelStrategy {
@@ -1934,6 +2119,12 @@ impl TensorKernelStrategy {
         #[cfg(feature = "blas")]
         {
             return Self::Blas;
+        }
+        #[cfg(feature = "gpu")]
+        {
+            if crate::gpu::is_available() {
+                return Self::Gpu;
+            }
         }
         Self::Scalar
     }
@@ -2103,6 +2294,30 @@ fn tensor_alloc_autograd(
     let Some(mut tensor) = StdTensor::new(dtype, shape, data) else {
         return Err(HOST_STATUS_INVALID_ARGUMENT);
     };
+    tensor.requires_grad = requires_grad && dtype == TensorDType::Float;
+    tensor.creator = if tensor.requires_grad { creator } else { None };
+    tensor_insert(tensor)
+}
+
+fn tensor_alloc_autograd_on_device(
+    dtype: TensorDType,
+    shape: Vec<usize>,
+    data: Vec<SpectraHostValue>,
+    requires_grad: bool,
+    creator: Option<AutogradNode>,
+    device: TensorDevice,
+    precision: TensorPrecision,
+) -> Result<usize, i32> {
+    let data = with_tensor_registry(|registry| {
+        let mut buffer = registry.take_buffer(data.len());
+        buffer.copy_from_slice(&data);
+        buffer
+    });
+    let Some(mut tensor) = StdTensor::new(dtype, shape, data) else {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    };
+    tensor.device = device;
+    tensor.precision = precision;
     tensor.requires_grad = requires_grad && dtype == TensorDType::Float;
     tensor.creator = if tensor.requires_grad { creator } else { None };
     tensor_insert(tensor)
@@ -2550,6 +2765,8 @@ extern "C" fn std_tensor_reshape(ctx: *mut SpectraHostCallContext) -> i32 {
                         TensorLayout::View
                     },
                 )?;
+                result.device = tensor.device;
+                result.precision = tensor.precision;
                 let requires_grad = tensor.dtype == TensorDType::Float
                     && tensor_requires_autograd(registry, &[handle]);
                 if requires_grad {
@@ -2599,6 +2816,8 @@ extern "C" fn std_tensor_flatten(ctx: *mut SpectraHostCallContext) -> i32 {
                     let data = tensor.materialize();
                     StdTensor::new(tensor.dtype, vec![data.len()], data)
                 }?;
+                result.device = tensor.device;
+                result.precision = tensor.precision;
                 let requires_grad = tensor.dtype == TensorDType::Float
                     && tensor_requires_autograd(registry, &[args[0] as usize]);
                 if requires_grad {
@@ -2646,14 +2865,17 @@ extern "C" fn std_tensor_permute(ctx: *mut SpectraHostCallContext) -> i32 {
             let mut strides = tensor.strides.clone();
             shape.swap(axis_a, axis_b);
             strides.swap(axis_a, axis_b);
-            StdTensor::from_storage(
+            let mut result = StdTensor::from_storage(
                 tensor.dtype,
                 shape,
                 strides,
                 tensor.storage.clone(),
                 tensor.offset,
                 TensorLayout::View,
-            )
+            )?;
+            result.device = tensor.device;
+            result.precision = tensor.precision;
+            Some(result)
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
@@ -2679,14 +2901,17 @@ extern "C" fn std_tensor_slice(ctx: *mut SpectraHostCallContext) -> i32 {
                 return None;
             }
             let base_offset = tensor.linear_offset(start as usize)?;
-            StdTensor::from_storage(
+            let mut result = StdTensor::from_storage(
                 tensor.dtype,
                 vec![(end - start) as usize],
                 vec![tensor.strides[0]],
                 tensor.storage.clone(),
                 base_offset,
                 TensorLayout::View,
-            )
+            )?;
+            result.device = tensor.device;
+            result.precision = tensor.precision;
+            Some(result)
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
@@ -2792,55 +3017,115 @@ fn tensor_binary(
         let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some((dtype, shape, data, requires_grad, creator)) = with_tensor_registry(|registry| {
-            let left = registry.get(args[0] as usize)?;
-            let right = registry.get(args[1] as usize)?;
-            if left.shape != right.shape || left.dtype != right.dtype {
-                return None;
-            }
-            let element_count = left.len();
-            let left_data = left.materialize();
-            let right_data = right.materialize();
-            let data = match left.dtype {
-                TensorDType::Int => left_data
-                    .iter()
-                    .zip(right_data.iter())
-                    .map(|(a, b)| int_op(*a, *b))
-                    .collect(),
-                TensorDType::Float => left_data
-                    .iter()
-                    .zip(right_data.iter())
-                    .map(|(a, b)| {
-                        float_op(f64::from_bits(*a as u64), f64::from_bits(*b as u64)).to_bits()
-                            as i64
-                    })
-                    .collect(),
-            };
-            let requires_grad = left.dtype == TensorDType::Float
-                && tensor_requires_autograd(registry, &[args[0] as usize, args[1] as usize]);
-            let creator = requires_grad.then(|| {
-                AutogradNode::binary(
-                    op,
-                    args[0] as usize,
-                    args[1] as usize,
+        let Some((dtype, shape, data, requires_grad, creator, device, precision)) =
+            with_tensor_registry(|registry| {
+                let left = registry.get(args[0] as usize)?;
+                let right = registry.get(args[1] as usize)?;
+                if left.shape != right.shape || left.dtype != right.dtype {
+                    return None;
+                }
+                if left.device != right.device {
+                    return None;
+                }
+                let element_count = left.len();
+                let left_data = left.materialize();
+                let right_data = right.materialize();
+                #[cfg(feature = "gpu")]
+                let gpu_data = if left.device == TensorDevice::Wgpu {
+                    let gpu_op = match op {
+                        AutogradOp::Add => Some(crate::gpu::GpuBinaryOp::Add),
+                        AutogradOp::Sub => Some(crate::gpu::GpuBinaryOp::Sub),
+                        AutogradOp::Mul => Some(crate::gpu::GpuBinaryOp::Mul),
+                        AutogradOp::Div => Some(crate::gpu::GpuBinaryOp::Div),
+                        _ => None,
+                    }?;
+                    Some(gpu_binary_float(left, right, gpu_op)?)
+                } else {
+                    None
+                };
+                let data = match left.dtype {
+                    TensorDType::Int => {
+                        if left.device.is_accelerator() {
+                            return None;
+                        }
+                        left_data
+                            .iter()
+                            .zip(right_data.iter())
+                            .map(|(a, b)| int_op(*a, *b))
+                            .collect()
+                    }
+                    TensorDType::Float => {
+                        #[cfg(feature = "gpu")]
+                        if let Some(data) = gpu_data {
+                            data
+                        } else {
+                            left_data
+                                .iter()
+                                .zip(right_data.iter())
+                                .map(|(a, b)| {
+                                    float_op(f64::from_bits(*a as u64), f64::from_bits(*b as u64))
+                                        .to_bits() as i64
+                                })
+                                .collect()
+                        }
+                        #[cfg(not(feature = "gpu"))]
+                        {
+                            if left.device.is_accelerator() {
+                                return None;
+                            }
+                            left_data
+                                .iter()
+                                .zip(right_data.iter())
+                                .map(|(a, b)| {
+                                    float_op(f64::from_bits(*a as u64), f64::from_bits(*b as u64))
+                                        .to_bits() as i64
+                                })
+                                .collect()
+                        }
+                    }
+                };
+                let requires_grad = left.dtype == TensorDType::Float
+                    && tensor_requires_autograd(registry, &[args[0] as usize, args[1] as usize]);
+                let creator = requires_grad.then(|| {
+                    AutogradNode::binary(
+                        op,
+                        args[0] as usize,
+                        args[1] as usize,
+                        left.shape.clone(),
+                        left_data
+                            .iter()
+                            .map(|raw| f64::from_bits(*raw as u64))
+                            .collect(),
+                        right_data
+                            .iter()
+                            .map(|raw| f64::from_bits(*raw as u64))
+                            .collect(),
+                    )
+                });
+                let result = Some((
+                    left.dtype,
                     left.shape.clone(),
-                    left_data
-                        .iter()
-                        .map(|raw| f64::from_bits(*raw as u64))
-                        .collect(),
-                    right_data
-                        .iter()
-                        .map(|raw| f64::from_bits(*raw as u64))
-                        .collect(),
-                )
-            });
-            let result = Some((left.dtype, left.shape.clone(), data, requires_grad, creator));
-            registry.note_kernel(element_count);
-            result
-        }) else {
+                    data,
+                    requires_grad,
+                    creator,
+                    left.device,
+                    left.precision,
+                ));
+                registry.note_kernel(element_count);
+                result
+            })
+        else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match tensor_alloc_autograd(dtype, shape, data, requires_grad, creator) {
+        match tensor_alloc_autograd_on_device(
+            dtype,
+            shape,
+            data,
+            requires_grad,
+            creator,
+            device,
+            precision,
+        ) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
@@ -2849,12 +3134,36 @@ fn tensor_binary(
 
 extern "C" fn std_tensor_sum(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_query_i64(ctx, |tensor| match tensor.dtype {
-        TensorDType::Int => tensor.materialize().iter().sum(),
-        TensorDType::Float => tensor
-            .materialize()
-            .iter()
-            .map(|bits| f64::from_bits(*bits as u64))
-            .sum::<f64>() as i64,
+        TensorDType::Int => {
+            if tensor.device.is_accelerator() {
+                0
+            } else {
+                tensor.materialize().iter().sum()
+            }
+        }
+        TensorDType::Float => {
+            #[cfg(feature = "gpu")]
+            if tensor.device == TensorDevice::Wgpu {
+                tensor_values_as_f32(tensor)
+                    .and_then(|data| crate::gpu::sum(&data).ok())
+                    .map(|value| value as i64)
+                    .unwrap_or(0)
+            } else {
+                tensor
+                    .materialize()
+                    .iter()
+                    .map(|bits| f64::from_bits(*bits as u64))
+                    .sum::<f64>() as i64
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                tensor
+                    .materialize()
+                    .iter()
+                    .map(|bits| f64::from_bits(*bits as u64))
+                    .sum::<f64>() as i64
+            }
+        }
     })
 }
 
@@ -2862,11 +3171,32 @@ extern "C" fn std_tensor_sum_f(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_query_i64(ctx, |tensor| {
         let data = tensor.materialize();
         let sum = match tensor.dtype {
-            TensorDType::Int => data.iter().map(|v| *v as f64).sum::<f64>(),
-            TensorDType::Float => data
-                .iter()
-                .map(|bits| f64::from_bits(*bits as u64))
-                .sum::<f64>(),
+            TensorDType::Int => {
+                if tensor.device.is_accelerator() {
+                    f64::NAN
+                } else {
+                    data.iter().map(|v| *v as f64).sum::<f64>()
+                }
+            }
+            TensorDType::Float => {
+                #[cfg(feature = "gpu")]
+                if tensor.device == TensorDevice::Wgpu {
+                    tensor_values_as_f32(tensor)
+                        .and_then(|data| crate::gpu::sum(&data).ok())
+                        .map(|value| value as f64)
+                        .unwrap_or(f64::NAN)
+                } else {
+                    data.iter()
+                        .map(|bits| f64::from_bits(*bits as u64))
+                        .sum::<f64>()
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    data.iter()
+                        .map(|bits| f64::from_bits(*bits as u64))
+                        .sum::<f64>()
+                }
+            }
         };
         sum.to_bits() as i64
     })
@@ -3010,6 +3340,8 @@ extern "C" fn std_tensor_transpose(ctx: *mut SpectraHostCallContext) -> i32 {
                 tensor.offset,
                 TensorLayout::View,
             )?;
+            result.device = tensor.device;
+            result.precision = tensor.precision;
             let requires_grad = tensor.dtype == TensorDType::Float
                 && tensor_requires_autograd(registry, &[args[0] as usize]);
             if requires_grad {
@@ -3158,44 +3490,89 @@ fn tensor_unary(
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some((dtype, shape, data, requires_grad, creator)) = with_tensor_registry(|registry| {
-            let tensor = registry.get(args[0] as usize)?;
-            let element_count = tensor.len();
-            let source = tensor.materialize();
-            let data: Vec<SpectraHostValue> = match tensor.dtype {
-                TensorDType::Int => source.iter().map(|value| int_op(*value)).collect(),
-                TensorDType::Float => source
-                    .iter()
-                    .map(|bits| float_op(f64::from_bits(*bits as u64)).to_bits() as i64)
-                    .collect(),
-            };
-            let requires_grad = tensor.dtype == TensorDType::Float
-                && tensor_requires_autograd(registry, &[args[0] as usize]);
-            let creator = requires_grad.then(|| {
-                AutogradNode::unary(
-                    op,
-                    args[0] as usize,
+        let Some((dtype, shape, data, requires_grad, creator, device, precision)) =
+            with_tensor_registry(|registry| {
+                let tensor = registry.get(args[0] as usize)?;
+                let element_count = tensor.len();
+                let source = tensor.materialize();
+                #[cfg(feature = "gpu")]
+                let gpu_data = if tensor.device == TensorDevice::Wgpu {
+                    let gpu_op = match op {
+                        AutogradOp::Neg => Some(crate::gpu::GpuUnaryOp::Neg),
+                        AutogradOp::Relu => Some(crate::gpu::GpuUnaryOp::Relu),
+                        _ => None,
+                    }?;
+                    Some(gpu_unary_float(tensor, gpu_op)?)
+                } else {
+                    None
+                };
+                let data: Vec<SpectraHostValue> = match tensor.dtype {
+                    TensorDType::Int => {
+                        if tensor.device.is_accelerator() {
+                            return None;
+                        }
+                        source.iter().map(|value| int_op(*value)).collect()
+                    }
+                    TensorDType::Float => {
+                        #[cfg(feature = "gpu")]
+                        if let Some(data) = gpu_data {
+                            data
+                        } else {
+                            source
+                                .iter()
+                                .map(|bits| float_op(f64::from_bits(*bits as u64)).to_bits() as i64)
+                                .collect()
+                        }
+                        #[cfg(not(feature = "gpu"))]
+                        {
+                            if tensor.device.is_accelerator() {
+                                return None;
+                            }
+                            source
+                                .iter()
+                                .map(|bits| float_op(f64::from_bits(*bits as u64)).to_bits() as i64)
+                                .collect()
+                        }
+                    }
+                };
+                let requires_grad = tensor.dtype == TensorDType::Float
+                    && tensor_requires_autograd(registry, &[args[0] as usize]);
+                let creator = requires_grad.then(|| {
+                    AutogradNode::unary(
+                        op,
+                        args[0] as usize,
+                        tensor.shape.clone(),
+                        source
+                            .iter()
+                            .map(|raw| f64::from_bits(*raw as u64))
+                            .collect(),
+                        data.iter().map(|raw| f64::from_bits(*raw as u64)).collect(),
+                    )
+                });
+                let result = Some((
+                    tensor.dtype,
                     tensor.shape.clone(),
-                    source
-                        .iter()
-                        .map(|raw| f64::from_bits(*raw as u64))
-                        .collect(),
-                    data.iter().map(|raw| f64::from_bits(*raw as u64)).collect(),
-                )
-            });
-            let result = Some((
-                tensor.dtype,
-                tensor.shape.clone(),
-                data,
-                requires_grad,
-                creator,
-            ));
-            registry.note_kernel(element_count);
-            result
-        }) else {
+                    data,
+                    requires_grad,
+                    creator,
+                    tensor.device,
+                    tensor.precision,
+                ));
+                registry.note_kernel(element_count);
+                result
+            })
+        else {
             return HOST_STATUS_NOT_FOUND;
         };
-        match tensor_alloc_autograd(dtype, shape, data, requires_grad, creator) {
+        match tensor_alloc_autograd_on_device(
+            dtype,
+            shape,
+            data,
+            requires_grad,
+            creator,
+            device,
+            precision,
+        ) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
@@ -3258,52 +3635,94 @@ extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some((dtype, shape, data, requires_grad, creator)) = with_tensor_registry(|registry| {
-            let a = registry.get(args[0] as usize)?;
-            let b = registry.get(args[1] as usize)?;
-            if a.shape.len() != 2 || b.shape.len() != 2 || a.dtype != b.dtype {
-                return None;
-            }
-            let (m, k) = (a.shape[0], a.shape[1]);
-            let (bk, n) = (b.shape[0], b.shape[1]);
-            if k != bk {
-                return None;
-            }
-            let element_count = m.saturating_mul(n).saturating_mul(k);
-            let a_data = a.materialize();
-            let b_data = b.materialize();
-            let out = match a.dtype {
-                TensorDType::Int => kernel_matmul_i64(&a_data, &b_data, m, k, n),
-                TensorDType::Float => kernel_matmul_f64_bits(&a_data, &b_data, m, k, n),
-            };
-            let requires_grad = a.dtype == TensorDType::Float
-                && tensor_requires_autograd(registry, &[args[0] as usize, args[1] as usize]);
-            let creator = requires_grad.then(|| AutogradNode {
-                op: AutogradOp::Matmul,
-                parents: vec![args[0] as usize, args[1] as usize],
-                input_shape: Vec::new(),
-                left_shape: a.shape.clone(),
-                right_shape: b.shape.clone(),
-                input: Vec::new(),
-                output: out.iter().map(|raw| f64::from_bits(*raw as u64)).collect(),
-                left: a_data
-                    .iter()
-                    .map(|raw| f64::from_bits(*raw as u64))
-                    .collect(),
-                right: b_data
-                    .iter()
-                    .map(|raw| f64::from_bits(*raw as u64))
-                    .collect(),
-                aux: Vec::new(),
-            });
-            let result = Some((a.dtype, vec![m, n], out, requires_grad, creator));
-            registry.note_scratch_reuse();
-            registry.note_kernel(element_count);
-            result
-        }) else {
+        let Some((dtype, shape, data, requires_grad, creator, device, precision)) =
+            with_tensor_registry(|registry| {
+                let a = registry.get(args[0] as usize)?;
+                let b = registry.get(args[1] as usize)?;
+                if a.shape.len() != 2 || b.shape.len() != 2 || a.dtype != b.dtype {
+                    return None;
+                }
+                if a.device != b.device {
+                    return None;
+                }
+                let (m, k) = (a.shape[0], a.shape[1]);
+                let (bk, n) = (b.shape[0], b.shape[1]);
+                if k != bk {
+                    return None;
+                }
+                let element_count = m.saturating_mul(n).saturating_mul(k);
+                let a_data = a.materialize();
+                let b_data = b.materialize();
+                let out = match a.dtype {
+                    TensorDType::Int => {
+                        if a.device.is_accelerator() {
+                            return None;
+                        }
+                        kernel_matmul_i64(&a_data, &b_data, m, k, n)
+                    }
+                    TensorDType::Float => {
+                        #[cfg(feature = "gpu")]
+                        if a.device == TensorDevice::Wgpu {
+                            let a_gpu = tensor_values_as_f32(a)?;
+                            let b_gpu = tensor_values_as_f32(b)?;
+                            f32_values_to_host(&crate::gpu::matmul(&a_gpu, &b_gpu, m, k, n).ok()?)
+                        } else {
+                            kernel_matmul_f64_bits(&a_data, &b_data, m, k, n)
+                        }
+                        #[cfg(not(feature = "gpu"))]
+                        {
+                            if a.device.is_accelerator() {
+                                return None;
+                            }
+                            kernel_matmul_f64_bits(&a_data, &b_data, m, k, n)
+                        }
+                    }
+                };
+                let requires_grad = a.dtype == TensorDType::Float
+                    && tensor_requires_autograd(registry, &[args[0] as usize, args[1] as usize]);
+                let creator = requires_grad.then(|| AutogradNode {
+                    op: AutogradOp::Matmul,
+                    parents: vec![args[0] as usize, args[1] as usize],
+                    input_shape: Vec::new(),
+                    left_shape: a.shape.clone(),
+                    right_shape: b.shape.clone(),
+                    input: Vec::new(),
+                    output: out.iter().map(|raw| f64::from_bits(*raw as u64)).collect(),
+                    left: a_data
+                        .iter()
+                        .map(|raw| f64::from_bits(*raw as u64))
+                        .collect(),
+                    right: b_data
+                        .iter()
+                        .map(|raw| f64::from_bits(*raw as u64))
+                        .collect(),
+                    aux: Vec::new(),
+                });
+                let result = Some((
+                    a.dtype,
+                    vec![m, n],
+                    out,
+                    requires_grad,
+                    creator,
+                    a.device,
+                    a.precision,
+                ));
+                registry.note_scratch_reuse();
+                registry.note_kernel(element_count);
+                result
+            })
+        else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match tensor_alloc_autograd(dtype, shape, data, requires_grad, creator) {
+        match tensor_alloc_autograd_on_device(
+            dtype,
+            shape,
+            data,
+            requires_grad,
+            creator,
+            device,
+            precision,
+        ) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
@@ -4068,13 +4487,15 @@ extern "C" fn std_ml_conv2d(ctx: *mut SpectraHostCallContext) -> i32 {
         if h < kh || w < kw {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let Some((out, requires_grad, creator)) = with_tensor_registry(|registry| {
+        let Some((out, requires_grad, creator, device)) = with_tensor_registry(|registry| {
             let input = registry.get(input_h)?;
             let kernel = registry.get(kernel_h)?;
             let bias = registry.get(bias_h)?;
             if input.dtype != TensorDType::Float
                 || kernel.dtype != TensorDType::Float
                 || bias.dtype != TensorDType::Float
+                || input.device != kernel.device
+                || input.device != bias.device
                 || input.len() != batch * in_ch * h * w
                 || kernel.len() != out_ch * in_ch * kh * kw
                 || bias.len() != out_ch
@@ -4084,28 +4505,72 @@ extern "C" fn std_ml_conv2d(ctx: *mut SpectraHostCallContext) -> i32 {
             let x = tensor_values_as_f64(input);
             let k = tensor_values_as_f64(kernel);
             let b = tensor_values_as_f64(bias);
+            let device = input.device;
             let (out_h, out_w) = (h - kh + 1, w - kw + 1);
-            let mut out = vec![0.0; batch * out_ch * out_h * out_w];
-            for n in 0..batch {
-                for oc in 0..out_ch {
-                    for oy in 0..out_h {
-                        for ox in 0..out_w {
-                            let mut acc = b[oc];
-                            for ic in 0..in_ch {
-                                for ky in 0..kh {
-                                    for kx in 0..kw {
-                                        let input_idx =
-                                            ((n * in_ch + ic) * h + oy + ky) * w + ox + kx;
-                                        let kernel_idx = ((oc * in_ch + ic) * kh + ky) * kw + kx;
-                                        acc += x[input_idx] * k[kernel_idx];
+            #[cfg(feature = "gpu")]
+            let out = if input.device == TensorDevice::Wgpu {
+                let x_gpu = tensor_values_as_f32(input)?;
+                let k_gpu = tensor_values_as_f32(kernel)?;
+                let b_gpu = tensor_values_as_f32(bias)?;
+                crate::gpu::conv2d(&x_gpu, &k_gpu, &b_gpu, dims)
+                    .ok()?
+                    .iter()
+                    .map(|value| *value as f64)
+                    .collect::<Vec<_>>()
+            } else {
+                let mut out = vec![0.0; batch * out_ch * out_h * out_w];
+                for n in 0..batch {
+                    for oc in 0..out_ch {
+                        for oy in 0..out_h {
+                            for ox in 0..out_w {
+                                let mut acc = b[oc];
+                                for ic in 0..in_ch {
+                                    for ky in 0..kh {
+                                        for kx in 0..kw {
+                                            let input_idx =
+                                                ((n * in_ch + ic) * h + oy + ky) * w + ox + kx;
+                                            let kernel_idx =
+                                                ((oc * in_ch + ic) * kh + ky) * kw + kx;
+                                            acc += x[input_idx] * k[kernel_idx];
+                                        }
                                     }
                                 }
+                                out[((n * out_ch + oc) * out_h + oy) * out_w + ox] = acc;
                             }
-                            out[((n * out_ch + oc) * out_h + oy) * out_w + ox] = acc;
                         }
                     }
                 }
-            }
+                out
+            };
+            #[cfg(not(feature = "gpu"))]
+            let out = {
+                if input.device.is_accelerator() {
+                    return None;
+                }
+                let mut out = vec![0.0; batch * out_ch * out_h * out_w];
+                for n in 0..batch {
+                    for oc in 0..out_ch {
+                        for oy in 0..out_h {
+                            for ox in 0..out_w {
+                                let mut acc = b[oc];
+                                for ic in 0..in_ch {
+                                    for ky in 0..kh {
+                                        for kx in 0..kw {
+                                            let input_idx =
+                                                ((n * in_ch + ic) * h + oy + ky) * w + ox + kx;
+                                            let kernel_idx =
+                                                ((oc * in_ch + ic) * kh + ky) * kw + kx;
+                                            acc += x[input_idx] * k[kernel_idx];
+                                        }
+                                    }
+                                }
+                                out[((n * out_ch + oc) * out_h + oy) * out_w + ox] = acc;
+                            }
+                        }
+                    }
+                }
+                out
+            };
             let requires_grad = tensor_requires_autograd(registry, &[input_h, kernel_h, bias_h]);
             let creator = requires_grad.then(|| AutogradNode {
                 op: AutogradOp::MlConv2d,
@@ -4120,16 +4585,18 @@ extern "C" fn std_ml_conv2d(ctx: *mut SpectraHostCallContext) -> i32 {
                 aux: vec![batch, in_ch, h, w, out_ch, kh, kw, out_h, out_w],
             });
             registry.note_kernel(batch * out_ch * out_h * out_w * in_ch * kh * kw);
-            Some((out, requires_grad, creator))
+            Some((out, requires_grad, creator, device))
         }) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match tensor_alloc_autograd(
+        match tensor_alloc_autograd_on_device(
             TensorDType::Float,
             vec![out.len()],
             f64_values_to_host(&out),
             requires_grad,
             creator,
+            device,
+            TensorPrecision::F32,
         ) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
@@ -4569,6 +5036,34 @@ extern "C" fn std_ml_exp_lr(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 }
 
+extern "C" fn std_ml_unscale_grad(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let scale = f64::from_bits(args[1] as u64);
+        if !scale.is_finite() || scale == 0.0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ok = with_tensor_registry(|registry| {
+            let Some(tensor) = registry.get_mut(args[0] as usize) else {
+                return false;
+            };
+            let Some(grad) = tensor.grad.as_mut() else {
+                return false;
+            };
+            for value in grad.iter_mut() {
+                *value /= scale;
+            }
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
 extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
@@ -4915,6 +5410,160 @@ extern "C" fn std_tensor_categorical(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 }
 
+extern "C" fn std_tensor_device(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(device) = with_tensor_registry(|registry| {
+            registry
+                .get(args[0] as usize)
+                .map(|tensor| tensor.device.code())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, device)
+    }
+}
+
+extern "C" fn std_tensor_device_available(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(device) = TensorDevice::from_code(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(ctx_ref, if device.is_available() { 1 } else { 0 })
+    }
+}
+
+extern "C" fn std_tensor_to_device(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(target_device) = TensorDevice::from_code(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if !target_device.is_available() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let Some(source) = with_tensor_registry(|registry| registry.get(args[0] as usize).cloned())
+        else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if target_device.is_accelerator() && source.dtype != TensorDType::Float {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+
+        let data = source.materialize();
+        let Some(mut moved) = StdTensor::new(source.dtype, source.shape.clone(), data) else {
+            return HOST_STATUS_INTERNAL_ERROR;
+        };
+        moved.device = target_device;
+        moved.precision = if target_device == TensorDevice::Wgpu {
+            TensorPrecision::F32
+        } else {
+            source.precision
+        };
+        moved.requires_grad = source.requires_grad;
+        moved.grad = source.grad.clone();
+        match tensor_insert(moved) {
+            Ok(handle) => {
+                with_tensor_registry(|registry| registry.note_device_transfer());
+                tensor_result(ctx_ref, handle as SpectraHostValue)
+            }
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_cpu(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let transfer_args = [args[0], TensorDevice::Cpu.code()];
+        let mut transfer_ctx = SpectraHostCallContext {
+            args: transfer_args.as_ptr(),
+            arg_len: transfer_args.len(),
+            results: ctx_ref.results,
+            result_len: ctx_ref.result_len,
+            invoke_fn: ctx_ref.invoke_fn,
+        };
+        std_tensor_to_device(&mut transfer_ctx)
+    }
+}
+
+extern "C" fn std_tensor_sync(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let exists = with_tensor_registry(|registry| registry.get(args[0] as usize).is_some());
+        if !exists {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_tensor_precision(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(precision) = with_tensor_registry(|registry| {
+            registry
+                .get(args[0] as usize)
+                .map(|tensor| tensor.precision.code())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, precision)
+    }
+}
+
+extern "C" fn std_tensor_to_precision(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(target_precision) = TensorPrecision::from_code(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(source) = with_tensor_registry(|registry| registry.get(args[0] as usize).cloned())
+        else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if source.dtype != TensorDType::Float {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let data = source
+            .materialize()
+            .iter()
+            .map(|raw| {
+                target_precision
+                    .quantize(f64::from_bits(*raw as u64))
+                    .to_bits() as SpectraHostValue
+            })
+            .collect::<Vec<_>>();
+        let Some(mut converted) = StdTensor::new(source.dtype, source.shape.clone(), data) else {
+            return HOST_STATUS_INTERNAL_ERROR;
+        };
+        converted.device = source.device;
+        converted.precision = target_precision;
+        converted.requires_grad = source.requires_grad;
+        converted.grad = source.grad.clone();
+        match tensor_insert(converted) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
 extern "C" fn std_tensor_stats_allocations(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_metric(ctx, |metrics| metrics.allocations)
 }
@@ -4962,6 +5611,10 @@ extern "C" fn std_tensor_stats_kernel_ops(ctx: *mut SpectraHostCallContext) -> i
 
 extern "C" fn std_tensor_stats_kernel_elements(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_metric(ctx, |metrics| metrics.kernel_elements)
+}
+
+extern "C" fn std_tensor_stats_device_transfers(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_metric(ctx, |metrics| metrics.device_transfers)
 }
 
 extern "C" fn std_tensor_stats_graph_nodes(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -8308,6 +8961,135 @@ mod tests {
         assert!(active_bytes > 0);
         let (status, _) = call_host(TENSOR_FREE, &[reused]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
+    }
+
+    #[test]
+    fn tensor_runtime_phase7_device_placement_and_transfer_contract() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        let (status, tensor) = call_host(TENSOR_ONES, &[4]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(TENSOR_DEVICE, &[tensor]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(TENSOR_DEVICE_AVAILABLE, &[0]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(TENSOR_DEVICE_AVAILABLE, &[1]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(TENSOR_TO_DEVICE, &[tensor, 99]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(TENSOR_TO_DEVICE, &[tensor, 1]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+
+        let (status, moved) = call_host(TENSOR_TO_DEVICE, &[tensor, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_DEVICE, &[moved]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(call_host(TENSOR_SUM, &[moved]), (HOST_STATUS_SUCCESS, 4));
+        assert_eq!(call_host(TENSOR_SYNC, &[moved]).0, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_CPU, &[moved]).0, HOST_STATUS_SUCCESS);
+        let (status, transfers) = call_host(TENSOR_STATS_DEVICE_TRANSFERS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(transfers >= 2);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn tensor_runtime_phase7_wgpu_backend_float_kernels() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        if call_host(TENSOR_DEVICE_AVAILABLE, &[6]) != (HOST_STATUS_SUCCESS, 1) {
+            return;
+        }
+
+        let one = 1.0f64.to_bits() as i64;
+        let two = 2.0f64.to_bits() as i64;
+        let (status, a) = call_host(TENSOR_FULL_F, &[4, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b) = call_host(TENSOR_FULL_F, &[4, two]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, a_gpu) = call_host(TENSOR_TO_DEVICE, &[a, 6]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b_gpu) = call_host(TENSOR_TO_DEVICE, &[b, 6]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_DEVICE, &[a_gpu]), (HOST_STATUS_SUCCESS, 6));
+
+        let (status, added) = call_host(TENSOR_ADD, &[a_gpu, b_gpu]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_DEVICE, &[added]), (HOST_STATUS_SUCCESS, 6));
+        let (status, added_sum_bits) = call_host(TENSOR_SUM_F, &[added]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((f64::from_bits(added_sum_bits as u64) - 12.0).abs() < 1e-5);
+
+        let (status, relu) = call_host(TENSOR_RELU, &[added]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, relu_first_bits) = call_host(TENSOR_GET_F, &[relu, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((f64::from_bits(relu_first_bits as u64) - 3.0).abs() < 1e-5);
+
+        let (status, left) = call_host(
+            TENSOR_TO_DEVICE,
+            &[call_host(TENSOR_FULL_F, &[4, one]).1, 6],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, right) = call_host(
+            TENSOR_TO_DEVICE,
+            &[call_host(TENSOR_FULL_F, &[4, two]).1, 6],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, left2) = call_host(TENSOR_RESHAPE, &[left, 2, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, right2) = call_host(TENSOR_RESHAPE, &[right, 2, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, product) = call_host(TENSOR_MATMUL, &[left2, right2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(TENSOR_DEVICE, &[product]),
+            (HOST_STATUS_SUCCESS, 6)
+        );
+        let (status, p00_bits) = call_host(TENSOR_GET_F, &[product, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((f64::from_bits(p00_bits as u64) - 4.0).abs() < 1e-5);
+
+        let (status, input) = call_host(
+            TENSOR_TO_DEVICE,
+            &[call_host(TENSOR_FULL_F, &[4, one]).1, 6],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, kernel) = call_host(
+            TENSOR_TO_DEVICE,
+            &[call_host(TENSOR_FULL_F, &[1, two]).1, 6],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, bias) = call_host(
+            TENSOR_TO_DEVICE,
+            &[call_host(TENSOR_FULL_F, &[1, one]).1, 6],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, conv) = call_host(ML_CONV2D, &[input, kernel, bias, 1, 1, 2, 2, 1, 1, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_DEVICE, &[conv]), (HOST_STATUS_SUCCESS, 6));
+        let (status, conv0_bits) = call_host(TENSOR_GET_F, &[conv, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((f64::from_bits(conv0_bits as u64) - 3.0).abs() < 1e-5);
     }
 
     #[test]

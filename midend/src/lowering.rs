@@ -6633,6 +6633,17 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "normal_f") => Some(host_int("spectra.std.tensor.normal_f")),
             ("tensor", "bernoulli") => Some(host_int("spectra.std.tensor.bernoulli")),
             ("tensor", "categorical") => Some(host_int("spectra.std.tensor.categorical")),
+            ("tensor", "device") => Some(host_int("spectra.std.tensor.device")),
+            ("tensor", "device_available") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.tensor.device_available",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("tensor", "to_device") => Some(host_int("spectra.std.tensor.to_device")),
+            ("tensor", "cpu") => Some(host_int("spectra.std.tensor.cpu")),
+            ("tensor", "sync") => Some(host_void("spectra.std.tensor.sync")),
+            ("tensor", "precision") => Some(host_int("spectra.std.tensor.precision")),
+            ("tensor", "to_precision") => Some(host_int("spectra.std.tensor.to_precision")),
             ("tensor", "stats_allocations") => {
                 Some(host_int("spectra.std.tensor.stats_allocations"))
             }
@@ -6655,6 +6666,9 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "stats_kernel_ops") => Some(host_int("spectra.std.tensor.stats_kernel_ops")),
             ("tensor", "stats_kernel_elements") => {
                 Some(host_int("spectra.std.tensor.stats_kernel_elements"))
+            }
+            ("tensor", "stats_device_transfers") => {
+                Some(host_int("spectra.std.tensor.stats_device_transfers"))
             }
             ("tensor", "stats_graph_nodes") => {
                 Some(host_int("spectra.std.tensor.stats_graph_nodes"))
@@ -6702,6 +6716,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "adam_step") => Some(host_void("spectra.std.ml.adam_step")),
             ("ml", "adamw_step") => Some(host_void("spectra.std.ml.adamw_step")),
             ("ml", "exp_lr") => Some(host_float("spectra.std.ml.exp_lr")),
+            ("ml", "unscale_grad") => Some(host_void("spectra.std.ml.unscale_grad")),
             ("ml", "dataset_from_tensors") => Some(host_int("spectra.std.ml.dataset_from_tensors")),
             ("ml", "dataset_len") => Some(host_int("spectra.std.ml.dataset_len")),
             ("ml", "dataloader_new") => Some(host_int("spectra.std.ml.dataloader_new")),

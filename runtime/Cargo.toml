@@ -9,5 +9,10 @@ crate-type = ["staticlib", "rlib"]
 [features]
 default = []
 blas = []
+gpu = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
 
 [dependencies]
+bytemuck = { version = "1.16", optional = true }
+half = "2.4"
+pollster = { version = "0.3", optional = true }
+wgpu = { version = "0.20", optional = true }

@@ -57,6 +57,8 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.tensor.zeros2` / `ones2` / `full2` / `full2_f` | Allocate 2D tensors. | `rows`, `cols`, optional `value` | handle |
 | `spectra.std.tensor.uniform` / `uniform_f` / `normal_f` / `bernoulli` / `categorical` | Seeded random tensor fills. | `size`, distribution parameters | handle |
 | `spectra.std.tensor.len` / `rank` / `dim` / `rows` / `cols` | Query tensor metadata. | `handle`, optional `axis` | integer metadata |
+| `spectra.std.tensor.device` / `device_available` | Query tensor placement and runtime device availability. | `handle` or device code | device code or bool |
+| `spectra.std.tensor.to_device` / `cpu` / `sync` | Transfer to supported devices and synchronize. CPU (`0`) is supported in the default build; accelerator codes fail fast until a real backend is added. | `handle`, optional device code | handle or `0` |
 | `spectra.std.tensor.get` / `get_f` / `get2` / `get2_f` | Read tensor values. | `handle`, index or row/col | scalar |
 | `spectra.std.tensor.set` / `set_f` / `set2` / `set2_f` | Mutate tensor values. | `handle`, index/row/col, value | `0` |
 | `spectra.std.tensor.reshape` | Return a validated 2D view handle when possible. | `handle`, `rows`, `cols` | handle |
@@ -73,7 +75,7 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.tensor.requires_grad` / `backward` / `grad` / `zero_grad` | Reverse-mode autodiff controls. | handles, bool flag | handle or `0` |
 | `spectra.std.tensor.set_grad_enabled` / `grad_enabled` | Inference/no-grad mode. | bool flag or none | `0` or bool |
 | `spectra.std.tensor.stats_graph_nodes` | Live autograd creator node count. | none | integer metric |
-| `spectra.std.tensor.stats_*` / `kernel_strategy` / `reset_stats` | Allocation, buffer-pool, scratch, and kernel work metrics. | none | integer metric or `0` |
+| `spectra.std.tensor.stats_*` / `kernel_strategy` / `reset_stats` | Allocation, buffer-pool, scratch, device-transfer, and kernel work metrics. | none | integer metric or `0` |
 | `spectra.std.tensor.free` / `free_all` | Release tensor handles. | `handle` or none | `0` or freed count |
 
 ## Usage Notes

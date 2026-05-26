@@ -1,0 +1,53 @@
+module mixed_precision_training;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let one = 1.0;
+    let two = 2.0;
+    let zero = 0.0;
+    let lr = 0.1;
+    let loss_scale = 8.0;
+
+    let features = tensor.reshape(tensor.full_f(4, one), 4, 1);
+    let target = tensor.full_f(4, two);
+    let scale_tensor = tensor.full_f(1, loss_scale);
+
+    let weight0 = tensor.requires_grad(tensor.full_f(1, zero), true);
+    let weight1 = tensor.to_precision(weight0, 2);
+    let weight = tensor.reshape(weight1, 1, 1);
+    let bias0 = tensor.requires_grad(tensor.full_f(1, zero), true);
+    let bias = tensor.to_precision(bias0, 2);
+
+    let step = 0;
+    while step < 40 {
+        let pred = ml.linear(features, weight, bias);
+        let loss = ml.mse_loss(pred, target);
+        let scaled_loss = tensor.mul(loss, scale_tensor);
+        tensor.backward(scaled_loss);
+        ml.unscale_grad(weight, loss_scale);
+        ml.unscale_grad(bias, loss_scale);
+        ml.sgd_step(weight, lr);
+        ml.sgd_step(bias, lr);
+        weight = tensor.to_precision(weight, 2);
+        bias = tensor.to_precision(bias, 2);
+        step = step + 1;
+    }
+
+    let final_pred = ml.linear(features, weight, bias);
+    let final_loss = ml.mse_loss(final_pred, target);
+    let loss_i = tensor.sum(final_loss);
+    if tensor.precision(weight) != 2 {
+        return 10;
+    }
+    if loss_i > 0 {
+        return loss_i;
+    }
+
+    tensor.free_all();
+    return 0;
+}

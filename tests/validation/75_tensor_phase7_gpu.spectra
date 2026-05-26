@@ -1,0 +1,56 @@
+module tensor_phase7_gpu;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+
+    if tensor.device_available(6) {
+        let gpu_available = 1;
+        if gpu_available != 1 {
+            return 1;
+        }
+    } else {
+        return 0;
+    }
+
+    let one = 1.0;
+    let two = 2.0;
+    let a = tensor.to_device(tensor.full_f(4, one), 6);
+    let b = tensor.to_device(tensor.full_f(4, two), 6);
+
+    let c = tensor.add(a, b);
+    if tensor.device(c) != 6 {
+        return 10;
+    }
+    if tensor.sum(c) != 12 {
+        return 11;
+    }
+
+    let left = tensor.reshape(tensor.to_device(tensor.full_f(4, one), 6), 2, 2);
+    let right = tensor.reshape(tensor.to_device(tensor.full_f(4, two), 6), 2, 2);
+    let product = tensor.matmul(left, right);
+    if tensor.device(product) != 6 {
+        return 12;
+    }
+    if tensor.sum(product) != 16 {
+        return 13;
+    }
+
+    let input = tensor.to_device(tensor.full_f(4, one), 6);
+    let kernel = tensor.to_device(tensor.full_f(1, two), 6);
+    let bias = tensor.to_device(tensor.full_f(1, one), 6);
+    let conv = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
+    if tensor.device(conv) != 6 {
+        return 14;
+    }
+    if tensor.sum(conv) != 12 {
+        return 15;
+    }
+
+    tensor.sync(conv);
+    tensor.free_all();
+    return 0;
+}

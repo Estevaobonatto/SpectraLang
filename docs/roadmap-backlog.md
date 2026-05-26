@@ -656,7 +656,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-701 Device Abstraction
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Dependencies: `R-302`
@@ -670,9 +670,17 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - tensors can be created and moved across supported devices
 
+### Completed
+
+- ADR [0004](adr/0004-device-runtime-contract.md) defines the production device contract.
+- CPU is the supported production device in the default build (`0`).
+- `std.tensor` exposes `device`, `device_available`, `to_device`, `cpu`, `sync`, and `stats_device_transfers`.
+- Unsupported accelerator codes fail fast instead of silently falling back.
+- Runtime and Spectra validation cover CPU placement, CPU transfer, synchronization, metrics, invalid device codes, and unavailable accelerators.
+
 ## R-702 GPU Backend MVP
 
-- Status: `not_started`
+- Status: `blocked`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-701`, `R-401`
@@ -687,9 +695,15 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - same program semantics on CPU and GPU
 - measurable speedup on benchmark workloads
 
+### Blocker
+
+- No checked-in production accelerator backend exists yet.
+- No CI or local validation surface currently proves CUDA, ROCm, Metal, DirectML, or Vulkan execution.
+- This item must not be marked `complete` until a real backend implements elementwise, reduction, matmul, and convolution kernels with CPU/GPU semantic parity and benchmark evidence.
+
 ## R-703 Mixed Precision
 
-- Status: `not_started`
+- Status: `blocked`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-702`
@@ -703,6 +717,11 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - mixed precision training example converges on supported hardware
+
+### Blocker
+
+- Depends on `R-702`.
+- No supported accelerator execution path exists yet for real `f16`/`bf16` mixed-precision training, autocast or loss scaling.
 
 ---
 

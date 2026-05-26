@@ -446,6 +446,13 @@ fn make_std_tensor() -> ModuleExports {
         ),
         ("bernoulli", vec![int.clone(), float.clone()], int.clone()),
         ("categorical", vec![int.clone(), int.clone()], int.clone()),
+        ("device", vec![int.clone()], int.clone()),
+        ("device_available", vec![int.clone()], bool_ty.clone()),
+        ("to_device", vec![int.clone(), int.clone()], int.clone()),
+        ("cpu", vec![int.clone()], int.clone()),
+        ("sync", vec![int.clone()], unit.clone()),
+        ("precision", vec![int.clone()], int.clone()),
+        ("to_precision", vec![int.clone(), int.clone()], int.clone()),
         ("stats_allocations", vec![], int.clone()),
         ("stats_active", vec![], int.clone()),
         ("stats_peak_bytes", vec![], int.clone()),
@@ -457,6 +464,7 @@ fn make_std_tensor() -> ModuleExports {
         ("kernel_strategy", vec![], int.clone()),
         ("stats_kernel_ops", vec![], int.clone()),
         ("stats_kernel_elements", vec![], int.clone()),
+        ("stats_device_transfers", vec![], int.clone()),
         ("stats_graph_nodes", vec![], int.clone()),
         ("reset_stats", vec![], unit.clone()),
         (
@@ -616,6 +624,11 @@ fn make_std_ml() -> ModuleExports {
             "exp_lr",
             vec![float.clone(), float.clone(), int.clone()],
             float.clone(),
+        ),
+        (
+            "unscale_grad",
+            vec![int.clone(), float.clone()],
+            unit.clone(),
         ),
         (
             "dataset_from_tensors",

@@ -1566,6 +1566,8 @@ Current limitation: tensors are stdlib handles, not first-class static tensor ty
 
 Phase 5 autodiff is available for float tensors through `std.tensor`. Use `requires_grad(x, true)`, produce a scalar tensor loss with `sum_t`, `mean_t`, or `dot_t`, call `backward(loss)`, then read gradients with `grad(x)`. Use `set_grad_enabled(false)` for inference/no-grad sections.
 
+Phase 7 `R-701` device placement is available for CPU tensor handles. Use `device(handle)` to inspect placement, `device_available(code)` before selecting a target, `to_device(handle, 0)` or `cpu(handle)` for CPU materialization, `sync(handle)` as the synchronization point, and `stats_device_transfers()` for transfer accounting. Device code `0` is CPU. Codes `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML, and `5` Vulkan are reserved and intentionally unavailable until a real accelerator backend is implemented and benchmarked.
+
 ### std.ml — ML Framework Handles
 
 ```spectra

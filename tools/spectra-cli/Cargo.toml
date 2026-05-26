@@ -3,6 +3,10 @@ name = "spectra-cli"
 version = "0.1.15"
 edition = "2021"
 
+[features]
+default = []
+gpu = ["spectra-runtime/gpu"]
+
 [[bin]]
 name = "spectralang"
 path = "src/main.rs"
