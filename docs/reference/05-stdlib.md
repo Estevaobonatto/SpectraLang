@@ -856,6 +856,8 @@ import std.tensor as tensor;
 | `to_device` | `(handle: int, device: int) -> int` |
 | `cpu` | `(handle: int) -> int` |
 | `sync` | `(handle: int) -> unit` |
+| `precision` | `(handle: int) -> int` |
+| `to_precision` | `(handle: int, precision: int) -> int` |
 | `get`, `get_f` | `(handle: int, index: int) -> int/float` |
 | `set`, `set_f` | `(handle: int, index: int, value) -> unit` |
 | `get2`, `get2_f` | `(handle: int, row: int, col: int) -> int/float` |
@@ -930,7 +932,7 @@ pub fn main() -> int {
 }
 ```
 
-Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7/R-701: device placement é explícito para handles CPU, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados até existir backend real. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático. GPU kernels e sintaxe `Tensor<T, Shape>` ficam para fases futuras.
+Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático.
 
 Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
 

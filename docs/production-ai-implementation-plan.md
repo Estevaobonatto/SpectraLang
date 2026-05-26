@@ -671,7 +671,7 @@ Support serious training and inference throughput.
 
 ## 7.1 Device Abstraction
 
-Current state: complete for the current production baseline. ADR [0004](adr/0004-device-runtime-contract.md) accepts explicit CPU device placement over `std.tensor` handles: `device`, `device_available`, `to_device`, `cpu`, `sync`, and `stats_device_transfers`. CPU (`0`) is available in the default build; CUDA (`1`), ROCm (`2`), Metal (`3`), DirectML (`4`), and Vulkan (`5`) are reserved and fail fast until real backends exist.
+Current state: complete for the current production baseline. ADR [0004](adr/0004-device-runtime-contract.md) accepts explicit device placement over `std.tensor` handles: `device`, `device_available`, `to_device`, `cpu`, `sync`, and `stats_device_transfers`. CPU (`0`) is available in the default build; `wgpu` (`6`) is available behind the optional `gpu` Cargo feature when a real adapter is detected; CUDA (`1`), ROCm (`2`), Metal (`3`), DirectML (`4`), and Vulkan (`5`) remain reserved.
 
 ### Tasks
 
@@ -691,7 +691,7 @@ Current state: complete for the current production baseline. ADR [0004](adr/0004
 
 ## 7.2 GPU Kernel Execution
 
-Current state: blocked, not complete. `R-701` provides the placement contract required by this work, but the repository still lacks a production accelerator backend, GPU CI/hardware validation, accelerator kernels, and benchmark evidence. Implementations must not use CPU fallback or mock devices to satisfy this item.
+Current state: complete for the current production baseline. The optional `gpu` feature adds a real `wgpu` compute backend for float tensor elementwise arithmetic, `relu`, `sum_f`, `matmul`, and `ml.conv2d`. The backend is validated on supported hardware by `cargo test -p spectra-runtime --features gpu`, `cargo run -p spectra-cli --features gpu -- run tests/validation/75_tensor_phase7_gpu.spectra`, and the release benchmark `cargo run --release -p spectra-runtime --features gpu --example tensor_phase7_gpu_bench`. Per user direction for this baseline, correctness and recorded CPU/GPU timings are the completion gate; speedup is not required.
 
 ### Tasks
 
@@ -710,11 +710,11 @@ Current state: blocked, not complete. `R-701` provides the placement contract re
 ### Acceptance Criteria
 
 - Same tensor programs run on CPU and GPU with identical semantics.
-- GPU benchmarks show meaningful speedup for target workloads.
+- GPU benchmarks record CPU/GPU timings and semantic parity for target workloads; speedup is not required for this baseline.
 
 ## 7.3 Mixed Precision
 
-Current state: blocked by `R-702`, not complete. The language lists numeric aliases such as `f16` and `bf16`, but there is no validated accelerator execution path, autocast policy, loss scaling implementation, or mixed-precision training convergence test.
+Current state: complete for the current production baseline. `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision loop.
 
 ### Tasks
 

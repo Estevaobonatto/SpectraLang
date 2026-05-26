@@ -494,6 +494,7 @@ fn make_std_tensor() -> ModuleExports {
                 "shape".to_string(),
                 "dtype".to_string(),
                 "device".to_string(),
+                "precision".to_string(),
                 "layout".to_string(),
             ],
             visibility: ExportVisibility::Public,

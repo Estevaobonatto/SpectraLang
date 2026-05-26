@@ -48,6 +48,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - `std.tensor` production baseline runtime API for tensor handles, safe views, shape metadata, elementwise ops, reductions, transforms, 2D matmul, and batched matmul
 - `std.tensor` production baseline reverse-mode autodiff for float tensor handles, scalar tensor losses, gradient accumulation, and inference/no-grad mode
 - `std.tensor` production baseline device placement contract for CPU handles (`device`, `device_available`, `to_device`, `cpu`, `sync`, `stats_device_transfers`)
+- optional `std.tensor` `wgpu` accelerator backend behind Cargo feature `gpu`
+- `std.tensor` mixed-precision quantization metadata/API for f32, f16, and bf16 float tensor handles
 - `std.ml` production baseline runtime API for modules, layers, losses, optimizers, LR scheduling, tensor-backed datasets, and dataloaders
 
 ### Beta
@@ -85,7 +87,8 @@ CLI contract:
 - `goto`
 - `yield`
 - raw strings and advanced literal modes
-- production tensor syntax, static shape types, GPU kernels, and mixed-precision accelerator execution
+- production tensor syntax and static shape types
+- native CUDA/ROCm/Metal/DirectML/Vulkan backends beyond the current optional `wgpu` baseline
 
 ## Synchronization Rules
 

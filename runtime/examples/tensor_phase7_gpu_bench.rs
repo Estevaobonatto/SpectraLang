@@ -18,12 +18,9 @@ fn main() {
     let cpu_add_ms = cpu_start.elapsed().as_secs_f64() * 1000.0;
 
     let gpu_start = Instant::now();
-    let gpu_add = spectra_runtime::gpu::binary(
-        &left,
-        &right,
-        spectra_runtime::gpu::GpuBinaryOp::Add,
-    )
-    .expect("gpu add");
+    let gpu_add =
+        spectra_runtime::gpu::binary(&left, &right, spectra_runtime::gpu::GpuBinaryOp::Add)
+            .expect("gpu add");
     let gpu_add_ms = gpu_start.elapsed().as_secs_f64() * 1000.0;
 
     let a = vec![1.0f32; m * k];

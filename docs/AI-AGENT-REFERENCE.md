@@ -1566,7 +1566,7 @@ Current limitation: tensors are stdlib handles, not first-class static tensor ty
 
 Phase 5 autodiff is available for float tensors through `std.tensor`. Use `requires_grad(x, true)`, produce a scalar tensor loss with `sum_t`, `mean_t`, or `dot_t`, call `backward(loss)`, then read gradients with `grad(x)`. Use `set_grad_enabled(false)` for inference/no-grad sections.
 
-Phase 7 `R-701` device placement is available for CPU tensor handles. Use `device(handle)` to inspect placement, `device_available(code)` before selecting a target, `to_device(handle, 0)` or `cpu(handle)` for CPU materialization, `sync(handle)` as the synchronization point, and `stats_device_transfers()` for transfer accounting. Device code `0` is CPU. Codes `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML, and `5` Vulkan are reserved and intentionally unavailable until a real accelerator backend is implemented and benchmarked.
+Phase 7 acceleration is available through CPU device `0` and optional `wgpu` device `6`. Use `device(handle)` to inspect placement, `device_available(code)` before selecting a target, `to_device(handle, 0)` / `cpu(handle)` for CPU materialization, `to_device(handle, 6)` for `wgpu` float tensors when the CLI/runtime is built with `--features gpu`, `sync(handle)` as the synchronization point, and `stats_device_transfers()` for transfer accounting. Codes `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML, and `5` Vulkan are reserved. Mixed precision uses `precision(handle)` and `to_precision(handle, code)` where `0` is f64, `1` is f32, `2` is f16, and `3` is bf16; loss-scaling flows use `std.ml.unscale_grad(parameter, scale)`.
 
 ### std.ml — ML Framework Handles
 

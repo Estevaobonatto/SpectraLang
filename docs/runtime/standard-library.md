@@ -58,7 +58,8 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.tensor.uniform` / `uniform_f` / `normal_f` / `bernoulli` / `categorical` | Seeded random tensor fills. | `size`, distribution parameters | handle |
 | `spectra.std.tensor.len` / `rank` / `dim` / `rows` / `cols` | Query tensor metadata. | `handle`, optional `axis` | integer metadata |
 | `spectra.std.tensor.device` / `device_available` | Query tensor placement and runtime device availability. | `handle` or device code | device code or bool |
-| `spectra.std.tensor.to_device` / `cpu` / `sync` | Transfer to supported devices and synchronize. CPU (`0`) is supported in the default build; accelerator codes fail fast until a real backend is added. | `handle`, optional device code | handle or `0` |
+| `spectra.std.tensor.to_device` / `cpu` / `sync` | Transfer to supported devices and synchronize. CPU (`0`) is supported in the default build; `wgpu` (`6`) is supported with `--features gpu` and a detected adapter. | `handle`, optional device code | handle or `0` |
+| `spectra.std.tensor.precision` / `to_precision` | Query or quantize float tensor precision. Codes: `0` f64, `1` f32, `2` f16, `3` bf16. | `handle`, optional precision code | precision code or handle |
 | `spectra.std.tensor.get` / `get_f` / `get2` / `get2_f` | Read tensor values. | `handle`, index or row/col | scalar |
 | `spectra.std.tensor.set` / `set_f` / `set2` / `set2_f` | Mutate tensor values. | `handle`, index/row/col, value | `0` |
 | `spectra.std.tensor.reshape` | Return a validated 2D view handle when possible. | `handle`, `rows`, `cols` | handle |
@@ -108,6 +109,7 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.mse_loss` / `bce_loss` / `cross_entropy_loss` / `nll_loss` | Scalar tensor losses for autodiff. | predictions/logits, targets | loss tensor handle |
 | `spectra.std.ml.sgd_step` / `sgd_momentum_step` / `adam_step` / `adamw_step` | In-place optimizer updates from accumulated gradients. | parameter, state tensors, hyperparameters | `0` |
 | `spectra.std.ml.exp_lr` | Exponential learning-rate schedule. | base, gamma, step | float bits |
+| `spectra.std.ml.unscale_grad` | Divide accumulated parameter gradient by a finite loss scale. | parameter, scale | `0` |
 | `spectra.std.ml.dataset_from_tensors` / `dataset_len` | Tensor-backed datasets. | features, labels, length | dataset handle or length |
 | `spectra.std.ml.dataloader_new` / `dataloader_batch_*` | Deterministic minibatch access. | dataset/loader, batch index | loader handle, count, or tensor handle |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces

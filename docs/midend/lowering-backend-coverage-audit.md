@@ -56,7 +56,7 @@ Status labels:
 | Primitive integer/float/bool/char handling | supported | Includes the recent bool/char fixes. |
 | Host-call bridge to stdlib | supported | Current std modules, including `std.tensor` Phase 3/4 ops, compile and run through the host-call surface. |
 | SIMD/vectorized scientific kernels | deferred | Covered by Phase 4 and later. |
-| GPU kernels and device lowering | deferred | Covered by Phase 7. |
+| GPU kernels and device lowering | supported baseline | Phase 7 lowers device and mixed-precision stdlib calls as host calls; optional `gpu` runtime feature executes `wgpu` float kernels. |
 
 ## Unsupported Paths Converted to Backlog
 
@@ -67,7 +67,7 @@ Status labels:
 | Tensor-first lowering model | `std.tensor` host-call bridge complete in `R-301` through `R-304`; first-class tensor IR remains future work |
 | CPU numerical kernels | `R-401` through `R-403` |
 | Autodiff graph and gradient lowering | `R-501` through `R-503` |
-| GPU/device lowering | `R-701` through `R-703` |
+| GPU/device lowering | `R-701` through `R-703` complete for current `std.tensor`/`wgpu` host-call baseline |
 
 ## Operational Conclusion
 
