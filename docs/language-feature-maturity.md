@@ -47,6 +47,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - qualified stdlib calls such as `std.io.println(...)`
 - `std.tensor` production baseline runtime API for tensor handles, safe views, shape metadata, elementwise ops, reductions, transforms, 2D matmul, and batched matmul
 - `std.tensor` production baseline reverse-mode autodiff for float tensor handles, scalar tensor losses, gradient accumulation, and inference/no-grad mode
+- `std.ml` production baseline runtime API for modules, layers, losses, optimizers, LR scheduling, tensor-backed datasets, and dataloaders
 
 ### Beta
 

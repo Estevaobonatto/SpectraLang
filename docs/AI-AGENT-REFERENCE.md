@@ -1566,6 +1566,24 @@ Current limitation: tensors are stdlib handles, not first-class static tensor ty
 
 Phase 5 autodiff is available for float tensors through `std.tensor`. Use `requires_grad(x, true)`, produce a scalar tensor loss with `sum_t`, `mean_t`, or `dot_t`, call `backward(loss)`, then read gradients with `grad(x)`. Use `set_grad_enabled(false)` for inference/no-grad sections.
 
+### std.ml — ML Framework Handles
+
+```spectra
+import std.ml as ml;
+```
+
+Phase 6 exposes a runtime-backed ML layer over `std.tensor`:
+
+| Function group | Functions |
+|----------------|-----------|
+| modules | `module_new`, `module_add_parameter`, `module_parameter_count`, `module_parameter`, `module_set_training`, `module_is_training` |
+| layers | `linear`, `conv2d`, `dropout`, `max_pool2d` |
+| losses | `mse_loss`, `bce_loss`, `cross_entropy_loss`, `nll_loss` |
+| optimizers | `sgd_step`, `sgd_momentum_step`, `adam_step`, `adamw_step`, `exp_lr` |
+| data | `dataset_from_tensors`, `dataset_len`, `dataloader_new`, `dataloader_batch_count`, `dataloader_batch_features`, `dataloader_batch_labels` |
+
+Runtime tests validate MLP and convolutional toy-model convergence. Spectra examples `72_ml_phase6_mlp_training.spectra` and `73_ml_phase6_cnn_training.spectra` verify public API integration.
+
 ### std.random — Random Numbers
 
 ```spectra

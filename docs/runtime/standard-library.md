@@ -90,5 +90,23 @@ functions: f64 bits encoded in `SpectraHostValue`.
   `sum_t`, `mean_t`, and `dot_t` when a differentiable scalar tensor loss is required.
 - `backward` releases graph creator nodes by default. Disable graph construction in inference
   sections with `set_grad_enabled(false)` and restore it with `set_grad_enabled(true)`.
+
+## `std.ml`
+
+`std.ml` is the Phase 6 high-level ML layer over `std.tensor` handles.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.ml.module_new` | Create a module handle. | none | module handle |
+| `spectra.std.ml.module_add_parameter` / `module_parameter_count` / `module_parameter` | Register and inspect tensor parameters. | module, tensor/index | `0`, count, or tensor handle |
+| `spectra.std.ml.module_set_training` / `module_is_training` | Toggle training/eval mode. | module, bool | `0` or bool |
+| `spectra.std.ml.linear` | Differentiable dense layer. | input, weight, bias | tensor handle |
+| `spectra.std.ml.conv2d` | Differentiable valid 2D convolution over flattened NCHW tensors. | input, kernel, bias, dimensions | tensor handle |
+| `spectra.std.ml.dropout` / `max_pool2d` | Inference/training utilities. | tensor and layer params | tensor handle |
+| `spectra.std.ml.mse_loss` / `bce_loss` / `cross_entropy_loss` / `nll_loss` | Scalar tensor losses for autodiff. | predictions/logits, targets | loss tensor handle |
+| `spectra.std.ml.sgd_step` / `sgd_momentum_step` / `adam_step` / `adamw_step` | In-place optimizer updates from accumulated gradients. | parameter, state tensors, hyperparameters | `0` |
+| `spectra.std.ml.exp_lr` | Exponential learning-rate schedule. | base, gamma, step | float bits |
+| `spectra.std.ml.dataset_from_tensors` / `dataset_len` | Tensor-backed datasets. | features, labels, length | dataset handle or length |
+| `spectra.std.ml.dataloader_new` / `dataloader_batch_*` | Deterministic minibatch access. | dataset/loader, batch index | loader handle, count, or tensor handle |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

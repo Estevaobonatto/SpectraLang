@@ -6674,6 +6674,46 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("tensor", "free") => Some(host_void("spectra.std.tensor.free")),
             ("tensor", "free_all") => Some(host_int("spectra.std.tensor.free_all")),
+            // ── std.ml ───────────────────────────────────────────────────
+            ("ml", "module_new") => Some(host_int("spectra.std.ml.module_new")),
+            ("ml", "module_add_parameter") => {
+                Some(host_void("spectra.std.ml.module_add_parameter"))
+            }
+            ("ml", "module_parameter_count") => {
+                Some(host_int("spectra.std.ml.module_parameter_count"))
+            }
+            ("ml", "module_parameter") => Some(host_int("spectra.std.ml.module_parameter")),
+            ("ml", "module_set_training") => Some(host_void("spectra.std.ml.module_set_training")),
+            ("ml", "module_is_training") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.module_is_training",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "linear") => Some(host_int("spectra.std.ml.linear")),
+            ("ml", "conv2d") => Some(host_int("spectra.std.ml.conv2d")),
+            ("ml", "dropout") => Some(host_int("spectra.std.ml.dropout")),
+            ("ml", "max_pool2d") => Some(host_int("spectra.std.ml.max_pool2d")),
+            ("ml", "mse_loss") => Some(host_int("spectra.std.ml.mse_loss")),
+            ("ml", "bce_loss") => Some(host_int("spectra.std.ml.bce_loss")),
+            ("ml", "cross_entropy_loss") => Some(host_int("spectra.std.ml.cross_entropy_loss")),
+            ("ml", "nll_loss") => Some(host_int("spectra.std.ml.nll_loss")),
+            ("ml", "sgd_step") => Some(host_void("spectra.std.ml.sgd_step")),
+            ("ml", "sgd_momentum_step") => Some(host_void("spectra.std.ml.sgd_momentum_step")),
+            ("ml", "adam_step") => Some(host_void("spectra.std.ml.adam_step")),
+            ("ml", "adamw_step") => Some(host_void("spectra.std.ml.adamw_step")),
+            ("ml", "exp_lr") => Some(host_float("spectra.std.ml.exp_lr")),
+            ("ml", "dataset_from_tensors") => Some(host_int("spectra.std.ml.dataset_from_tensors")),
+            ("ml", "dataset_len") => Some(host_int("spectra.std.ml.dataset_len")),
+            ("ml", "dataloader_new") => Some(host_int("spectra.std.ml.dataloader_new")),
+            ("ml", "dataloader_batch_count") => {
+                Some(host_int("spectra.std.ml.dataloader_batch_count"))
+            }
+            ("ml", "dataloader_batch_features") => {
+                Some(host_int("spectra.std.ml.dataloader_batch_features"))
+            }
+            ("ml", "dataloader_batch_labels") => {
+                Some(host_int("spectra.std.ml.dataloader_batch_labels"))
+            }
             // ── std.collections map ──────────────────────────────────────
             ("collections", "map_new") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.map_new",

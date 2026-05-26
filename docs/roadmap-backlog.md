@@ -579,7 +579,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-601 Module and Layer System
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Dependencies: `R-502`
@@ -594,9 +594,16 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - MLP and CNN examples train end-to-end
 
+### Implementation Notes
+
+- Completed: ADR [0003](adr/0003-ml-framework-runtime-contract.md) accepts `std.ml` as the Phase 6 runtime-backed ML framework layer.
+- Completed: module handles support parameter registration and training/eval mode.
+- Completed: differentiable `linear` and `conv2d` layers integrate with `std.tensor` autograd; dropout and max pooling are available for model code.
+- Completed: Rust tests verify MLP and CNN convergence; Spectra examples `72_ml_phase6_mlp_training.spectra` and `73_ml_phase6_cnn_training.spectra` compile and run.
+
 ## R-602 Losses and Optimizers
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Dependencies: `R-601`
@@ -611,9 +618,16 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - toy models converge on standard examples
 
+### Implementation Notes
+
+- Completed: losses `mse_loss`, `bce_loss`, `cross_entropy_loss`, and `nll_loss` produce scalar tensor losses for autodiff.
+- Completed: optimizers `sgd_step`, `sgd_momentum_step`, `adam_step`, and `adamw_step` update parameters in place from accumulated gradients.
+- Completed: `exp_lr` provides baseline exponential learning-rate scheduling.
+- Completed: runtime convergence tests validate the MLP and convolutional toy models.
+
 ## R-603 Dataset and Dataloader APIs
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-601`
@@ -629,6 +643,12 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - minibatch training loop works on real sample datasets
+
+### Implementation Notes
+
+- Completed: tensor-backed datasets and dataloaders support length checks, batch counts, reproducible shuffling, feature batches, and label batches.
+- Completed: Phase 6 runtime tests exercise minibatch access through `dataset_from_tensors` and `dataloader_*`.
+- Future work: CSV/image-folder/JSONL readers and parallel prefetch remain planned for richer data ingestion beyond the production baseline.
 
 ---
 

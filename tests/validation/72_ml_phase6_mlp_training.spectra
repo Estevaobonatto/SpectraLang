@@ -1,0 +1,63 @@
+// Teste 72: Phase 6 MLP end-to-end com std.ml
+module ml_phase6_mlp_training;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+fn train_step(x: int, target: int, w: int, b: int) -> int {
+    let pred = ml.linear(x, w, b);
+    let loss = ml.mse_loss(pred, target);
+    tensor.backward(loss);
+    ml.sgd_step(w, 0.1);
+    ml.sgd_step(b, 0.1);
+    return 0;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let model = ml.module_new();
+    let x = tensor.reshape(tensor.full_f(4, 1.0), 4, 1);
+    let target = tensor.full_f(4, 2.0);
+
+    let w0 = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let w = tensor.reshape(w0, 1, 1);
+    let b = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+
+    ml.module_add_parameter(model, w);
+    ml.module_add_parameter(model, b);
+    if ml.module_parameter_count(model) != 2 {
+        return ml.module_parameter_count(model);
+    }
+
+    let dataset = ml.dataset_from_tensors(x, target, 4);
+    let loader = ml.dataloader_new(dataset, 2, 11);
+    if ml.dataloader_batch_count(loader) != 2 {
+        return ml.dataloader_batch_count(loader);
+    }
+    let batch_x = ml.dataloader_batch_features(loader, 0);
+    if tensor.len(batch_x) != 2 {
+        return tensor.len(batch_x);
+    }
+
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+
+    let final_pred = ml.linear(x, w, b);
+    let final_loss = ml.mse_loss(final_pred, target);
+    tensor.get_f(final_loss, 0);
+
+    tensor.free_all();
+    return 0;
+}

@@ -247,6 +247,33 @@ const TENSOR_GRAD_ENABLED: &str = "spectra.std.tensor.grad_enabled";
 const TENSOR_FREE: &str = "spectra.std.tensor.free";
 const TENSOR_FREE_ALL: &str = "spectra.std.tensor.free_all";
 
+// ── std.ml ──────────────────────────────────────────────────────────────────
+const ML_MODULE_NEW: &str = "spectra.std.ml.module_new";
+const ML_MODULE_ADD_PARAMETER: &str = "spectra.std.ml.module_add_parameter";
+const ML_MODULE_PARAMETER_COUNT: &str = "spectra.std.ml.module_parameter_count";
+const ML_MODULE_PARAMETER: &str = "spectra.std.ml.module_parameter";
+const ML_MODULE_SET_TRAINING: &str = "spectra.std.ml.module_set_training";
+const ML_MODULE_IS_TRAINING: &str = "spectra.std.ml.module_is_training";
+const ML_LINEAR: &str = "spectra.std.ml.linear";
+const ML_CONV2D: &str = "spectra.std.ml.conv2d";
+const ML_DROPOUT: &str = "spectra.std.ml.dropout";
+const ML_MAX_POOL2D: &str = "spectra.std.ml.max_pool2d";
+const ML_MSE_LOSS: &str = "spectra.std.ml.mse_loss";
+const ML_BCE_LOSS: &str = "spectra.std.ml.bce_loss";
+const ML_CROSS_ENTROPY_LOSS: &str = "spectra.std.ml.cross_entropy_loss";
+const ML_NLL_LOSS: &str = "spectra.std.ml.nll_loss";
+const ML_SGD_STEP: &str = "spectra.std.ml.sgd_step";
+const ML_SGD_MOMENTUM_STEP: &str = "spectra.std.ml.sgd_momentum_step";
+const ML_ADAM_STEP: &str = "spectra.std.ml.adam_step";
+const ML_ADAMW_STEP: &str = "spectra.std.ml.adamw_step";
+const ML_EXP_LR: &str = "spectra.std.ml.exp_lr";
+const ML_DATASET_FROM_TENSORS: &str = "spectra.std.ml.dataset_from_tensors";
+const ML_DATASET_LEN: &str = "spectra.std.ml.dataset_len";
+const ML_DATALOADER_NEW: &str = "spectra.std.ml.dataloader_new";
+const ML_DATALOADER_BATCH_COUNT: &str = "spectra.std.ml.dataloader_batch_count";
+const ML_DATALOADER_BATCH_FEATURES: &str = "spectra.std.ml.dataloader_batch_features";
+const ML_DATALOADER_BATCH_LABELS: &str = "spectra.std.ml.dataloader_batch_labels";
+
 // ── std.io (novos) ───────────────────────────────────────────────────────────
 const IO_INPUT: &str = "spectra.std.io.input";
 
@@ -266,6 +293,7 @@ pub fn register() {
     register_char();
     register_time();
     register_tensor();
+    register_ml();
 }
 
 fn register_math() {
@@ -411,6 +439,37 @@ fn register_tensor() {
     register_host_function(TENSOR_GRAD_ENABLED, std_tensor_grad_enabled);
     register_host_function(TENSOR_FREE, std_tensor_free);
     register_host_function(TENSOR_FREE_ALL, std_tensor_free_all);
+}
+
+fn register_ml() {
+    register_host_function(ML_MODULE_NEW, std_ml_module_new);
+    register_host_function(ML_MODULE_ADD_PARAMETER, std_ml_module_add_parameter);
+    register_host_function(ML_MODULE_PARAMETER_COUNT, std_ml_module_parameter_count);
+    register_host_function(ML_MODULE_PARAMETER, std_ml_module_parameter);
+    register_host_function(ML_MODULE_SET_TRAINING, std_ml_module_set_training);
+    register_host_function(ML_MODULE_IS_TRAINING, std_ml_module_is_training);
+    register_host_function(ML_LINEAR, std_ml_linear);
+    register_host_function(ML_CONV2D, std_ml_conv2d);
+    register_host_function(ML_DROPOUT, std_ml_dropout);
+    register_host_function(ML_MAX_POOL2D, std_ml_max_pool2d);
+    register_host_function(ML_MSE_LOSS, std_ml_mse_loss);
+    register_host_function(ML_BCE_LOSS, std_ml_bce_loss);
+    register_host_function(ML_CROSS_ENTROPY_LOSS, std_ml_cross_entropy_loss);
+    register_host_function(ML_NLL_LOSS, std_ml_nll_loss);
+    register_host_function(ML_SGD_STEP, std_ml_sgd_step);
+    register_host_function(ML_SGD_MOMENTUM_STEP, std_ml_sgd_momentum_step);
+    register_host_function(ML_ADAM_STEP, std_ml_adam_step);
+    register_host_function(ML_ADAMW_STEP, std_ml_adamw_step);
+    register_host_function(ML_EXP_LR, std_ml_exp_lr);
+    register_host_function(ML_DATASET_FROM_TENSORS, std_ml_dataset_from_tensors);
+    register_host_function(ML_DATASET_LEN, std_ml_dataset_len);
+    register_host_function(ML_DATALOADER_NEW, std_ml_dataloader_new);
+    register_host_function(ML_DATALOADER_BATCH_COUNT, std_ml_dataloader_batch_count);
+    register_host_function(
+        ML_DATALOADER_BATCH_FEATURES,
+        std_ml_dataloader_batch_features,
+    );
+    register_host_function(ML_DATALOADER_BATCH_LABELS, std_ml_dataloader_batch_labels);
 }
 
 fn register_fs() {
@@ -1434,6 +1493,12 @@ enum AutogradOp {
     Transpose,
     DotTensor,
     View,
+    MlLinear,
+    MlConv2d,
+    MlMse,
+    MlBce,
+    MlCrossEntropy,
+    MlNll,
 }
 
 #[derive(Debug, Clone)]
@@ -1447,6 +1512,7 @@ struct AutogradNode {
     output: Vec<f64>,
     left: Vec<f64>,
     right: Vec<f64>,
+    aux: Vec<usize>,
 }
 
 impl AutogradNode {
@@ -1467,6 +1533,7 @@ impl AutogradNode {
             output,
             left: Vec::new(),
             right: Vec::new(),
+            aux: Vec::new(),
         }
     }
 
@@ -1488,6 +1555,7 @@ impl AutogradNode {
             output: Vec::new(),
             left,
             right,
+            aux: Vec::new(),
         }
     }
 }
@@ -2496,6 +2564,7 @@ extern "C" fn std_tensor_reshape(ctx: *mut SpectraHostCallContext) -> i32 {
                         output: Vec::new(),
                         left: Vec::new(),
                         right: Vec::new(),
+                        aux: Vec::new(),
                     });
                 }
                 Some(result)
@@ -2544,6 +2613,7 @@ extern "C" fn std_tensor_flatten(ctx: *mut SpectraHostCallContext) -> i32 {
                         output: Vec::new(),
                         left: Vec::new(),
                         right: Vec::new(),
+                        aux: Vec::new(),
                     });
                 }
                 Some(result)
@@ -2857,6 +2927,7 @@ fn tensor_reduction_tensor(
                 output: vec![value],
                 left: Vec::new(),
                 right: Vec::new(),
+                aux: Vec::new(),
             });
             registry.note_kernel(tensor.len());
             Some((value, requires_grad, creator))
@@ -2953,6 +3024,7 @@ extern "C" fn std_tensor_transpose(ctx: *mut SpectraHostCallContext) -> i32 {
                     output: Vec::new(),
                     left: Vec::new(),
                     right: Vec::new(),
+                    aux: Vec::new(),
                 });
             }
             registry.note_kernel(element_count);
@@ -3028,6 +3100,7 @@ extern "C" fn std_tensor_dot_t(ctx: *mut SpectraHostCallContext) -> i32 {
                 output: vec![value],
                 left: left_values,
                 right: right_values,
+                aux: Vec::new(),
             });
             registry.note_kernel(left.len());
             Some((value, requires_grad, creator))
@@ -3221,6 +3294,7 @@ extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
                     .iter()
                     .map(|raw| f64::from_bits(*raw as u64))
                     .collect(),
+                aux: Vec::new(),
             });
             let result = Some((a.dtype, vec![m, n], out, requires_grad, creator));
             registry.note_scratch_reuse();
@@ -3441,6 +3515,102 @@ fn autograd_parent_grads(node: &AutogradNode, grad: &[f64]) -> Option<Vec<(usize
                 (node.parents[1], matmul_f64(&left_t, grad, k, m, n)),
             ])
         }
+        AutogradOp::MlLinear => {
+            let (batch, in_features, out_features) = (node.aux[0], node.aux[1], node.aux[2]);
+            let weight_t = transpose_f64(&node.right, in_features, out_features);
+            let input_t = transpose_f64(&node.left, batch, in_features);
+            let grad_input = matmul_f64(grad, &weight_t, batch, out_features, in_features);
+            let grad_weight = matmul_f64(&input_t, grad, in_features, batch, out_features);
+            let mut grad_bias = vec![0.0; out_features];
+            for row in 0..batch {
+                for col in 0..out_features {
+                    grad_bias[col] += grad[row * out_features + col];
+                }
+            }
+            Some(vec![
+                (node.parents[0], grad_input),
+                (node.parents[1], grad_weight),
+                (node.parents[2], grad_bias),
+            ])
+        }
+        AutogradOp::MlMse => {
+            let n = node.left.len() as f64;
+            Some(vec![(
+                node.parents[0],
+                node.left
+                    .iter()
+                    .zip(node.right.iter())
+                    .map(|(p, t)| grad[0] * 2.0 * (p - t) / n)
+                    .collect(),
+            )])
+        }
+        AutogradOp::MlBce => {
+            let n = node.left.len() as f64;
+            Some(vec![(
+                node.parents[0],
+                node.left
+                    .iter()
+                    .zip(node.right.iter())
+                    .map(|(p, t)| {
+                        let p = p.clamp(1e-7, 1.0 - 1e-7);
+                        grad[0] * (p - t) / (p * (1.0 - p) * n)
+                    })
+                    .collect(),
+            )])
+        }
+        AutogradOp::MlCrossEntropy | AutogradOp::MlNll => {
+            let batch = node.aux[0];
+            Some(vec![(
+                node.parents[0],
+                node.output
+                    .iter()
+                    .map(|v| grad[0] * v / batch as f64)
+                    .collect(),
+            )])
+        }
+        AutogradOp::MlConv2d => {
+            let (batch, in_ch, h, w, out_ch, kh, kw, out_h, out_w) = (
+                node.aux[0],
+                node.aux[1],
+                node.aux[2],
+                node.aux[3],
+                node.aux[4],
+                node.aux[5],
+                node.aux[6],
+                node.aux[7],
+                node.aux[8],
+            );
+            let mut grad_input = vec![0.0; batch * in_ch * h * w];
+            let mut grad_kernel = vec![0.0; out_ch * in_ch * kh * kw];
+            let mut grad_bias = vec![0.0; out_ch];
+            for n in 0..batch {
+                for oc in 0..out_ch {
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
+                            let g = grad[((n * out_ch + oc) * out_h + oy) * out_w + ox];
+                            grad_bias[oc] += g;
+                            for ic in 0..in_ch {
+                                for ky in 0..kh {
+                                    for kx in 0..kw {
+                                        let iy = oy + ky;
+                                        let ix = ox + kx;
+                                        let input_idx = ((n * in_ch + ic) * h + iy) * w + ix;
+                                        let kernel_idx = ((oc * in_ch + ic) * kh + ky) * kw + kx;
+                                        grad_input[input_idx] += g * node.right[kernel_idx];
+                                        grad_kernel[kernel_idx] += g * node.left[input_idx];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Some(vec![
+                (node.parents[0], grad_input),
+                (node.parents[1], grad_kernel),
+                (node.parents[2], grad_bias),
+            ])
+        }
     }
 }
 
@@ -3575,6 +3745,991 @@ extern "C" fn std_tensor_grad_enabled(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         tensor_result(ctx_ref, tensor_is_grad_enabled() as SpectraHostValue)
     }
+}
+
+// ── std.ml runtime ──────────────────────────────────────────────────────────
+
+#[derive(Default)]
+struct MlModule {
+    parameters: Vec<usize>,
+    training: bool,
+}
+
+#[derive(Clone, Copy)]
+struct MlDataset {
+    features: usize,
+    labels: usize,
+    len: usize,
+}
+
+#[derive(Clone, Copy)]
+struct MlDataLoader {
+    dataset: usize,
+    batch_size: usize,
+    shuffle_seed: u64,
+}
+
+struct MlRegistry {
+    next_id: usize,
+    modules: HashMap<usize, MlModule>,
+    datasets: HashMap<usize, MlDataset>,
+    loaders: HashMap<usize, MlDataLoader>,
+}
+
+impl MlRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            modules: HashMap::new(),
+            datasets: HashMap::new(),
+            loaders: HashMap::new(),
+        }
+    }
+
+    fn next_handle(&mut self) -> usize {
+        let handle = self.next_id.max(1);
+        self.next_id = self.next_id.wrapping_add(1).max(1);
+        handle
+    }
+}
+
+fn ml_registry() -> &'static Mutex<MlRegistry> {
+    static REGISTRY: OnceLock<Mutex<MlRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(MlRegistry::new()))
+}
+
+fn with_ml_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut MlRegistry) -> R,
+{
+    let mut guard = ml_registry().lock().expect("ml registry mutex poisoned");
+    action(&mut guard)
+}
+
+unsafe fn ml_args<'a>(
+    ctx: *mut SpectraHostCallContext,
+    expected: usize,
+) -> Result<(&'a mut SpectraHostCallContext, &'a [SpectraHostValue]), i32> {
+    tensor_args(ctx, expected)
+}
+
+fn ml_tensor_float_data(handle: usize) -> Option<(Vec<usize>, Vec<f64>, bool)> {
+    with_tensor_registry(|registry| {
+        let tensor = registry.get(handle)?;
+        if tensor.dtype != TensorDType::Float {
+            return None;
+        }
+        Some((
+            tensor.shape.clone(),
+            tensor_values_as_f64(tensor),
+            tensor.requires_grad,
+        ))
+    })
+}
+
+fn ml_tensor_int_data(handle: usize) -> Option<Vec<i64>> {
+    with_tensor_registry(|registry| {
+        let tensor = registry.get(handle)?;
+        Some(tensor.materialize())
+    })
+}
+
+fn ml_store_float_tensor(handle: usize, values: Vec<f64>) -> bool {
+    with_tensor_registry(|registry| {
+        let Some(tensor) = registry.get_mut(handle) else {
+            return false;
+        };
+        if tensor.dtype != TensorDType::Float || tensor.len() != values.len() {
+            return false;
+        }
+        tensor.storage = Arc::new(f64_values_to_host(&values));
+        tensor.offset = 0;
+        tensor.layout = TensorLayout::Contiguous;
+        tensor.strides = tensor_strides(&tensor.shape);
+        true
+    })
+}
+
+fn ml_loss_tensor(
+    ctx_ref: &mut SpectraHostCallContext,
+    value: f64,
+    requires_grad: bool,
+    creator: Option<AutogradNode>,
+) -> i32 {
+    match tensor_alloc_autograd(
+        TensorDType::Float,
+        vec![1],
+        vec![value.to_bits() as SpectraHostValue],
+        requires_grad,
+        creator,
+    ) {
+        Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_ml_module_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = ml_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.modules.insert(
+                handle,
+                MlModule {
+                    parameters: Vec::new(),
+                    training: true,
+                },
+            );
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_module_add_parameter(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let ok = with_ml_registry(|registry| {
+            let Some(module) = registry.modules.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            module.parameters.push(args[1] as usize);
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_module_parameter_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(count) = with_ml_registry(|registry| {
+            registry
+                .modules
+                .get(&(args[0] as usize))
+                .map(|module| module.parameters.len())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, count as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_module_parameter(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(param) = with_ml_registry(|registry| {
+            registry
+                .modules
+                .get(&(args[0] as usize))
+                .and_then(|module| module.parameters.get(args[1] as usize).copied())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, param as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_module_set_training(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let ok = with_ml_registry(|registry| {
+            let Some(module) = registry.modules.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            module.training = args[1] != 0;
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_module_is_training(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(training) = with_ml_registry(|registry| {
+            registry
+                .modules
+                .get(&(args[0] as usize))
+                .map(|module| module.training)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, training as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_linear(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (input_h, weight_h, bias_h) = (args[0] as usize, args[1] as usize, args[2] as usize);
+        let Some((shape, out, requires_grad, creator)) = with_tensor_registry(|registry| {
+            let input = registry.get(input_h)?;
+            let weight = registry.get(weight_h)?;
+            let bias = registry.get(bias_h)?;
+            if input.dtype != TensorDType::Float
+                || weight.dtype != TensorDType::Float
+                || bias.dtype != TensorDType::Float
+                || input.shape.len() != 2
+                || weight.shape.len() != 2
+                || bias.shape.len() != 1
+            {
+                return None;
+            }
+            let (batch, in_features) = (input.shape[0], input.shape[1]);
+            let (w_in, out_features) = (weight.shape[0], weight.shape[1]);
+            if in_features != w_in || bias.shape[0] != out_features {
+                return None;
+            }
+            let x = tensor_values_as_f64(input);
+            let w = tensor_values_as_f64(weight);
+            let b = tensor_values_as_f64(bias);
+            let mut out = matmul_f64(&x, &w, batch, in_features, out_features);
+            for row in 0..batch {
+                for col in 0..out_features {
+                    out[row * out_features + col] += b[col];
+                }
+            }
+            let requires_grad = tensor_requires_autograd(registry, &[input_h, weight_h, bias_h]);
+            let creator = requires_grad.then(|| AutogradNode {
+                op: AutogradOp::MlLinear,
+                parents: vec![input_h, weight_h, bias_h],
+                input_shape: input.shape.clone(),
+                left_shape: input.shape.clone(),
+                right_shape: weight.shape.clone(),
+                input: b,
+                output: out.clone(),
+                left: x,
+                right: w,
+                aux: vec![batch, in_features, out_features],
+            });
+            registry.note_kernel(batch * in_features * out_features);
+            Some((vec![batch, out_features], out, requires_grad, creator))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc_autograd(
+            TensorDType::Float,
+            shape,
+            f64_values_to_host(&out),
+            requires_grad,
+            creator,
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_conv2d(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 10) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (input_h, kernel_h, bias_h) = (args[0] as usize, args[1] as usize, args[2] as usize);
+        let dims = [
+            args[3] as usize,
+            args[4] as usize,
+            args[5] as usize,
+            args[6] as usize,
+            args[7] as usize,
+            args[8] as usize,
+            args[9] as usize,
+        ];
+        if args[3..].iter().any(|v| *v <= 0) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let (batch, in_ch, h, w, out_ch, kh, kw) = (
+            dims[0], dims[1], dims[2], dims[3], dims[4], dims[5], dims[6],
+        );
+        if h < kh || w < kw {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some((out, requires_grad, creator)) = with_tensor_registry(|registry| {
+            let input = registry.get(input_h)?;
+            let kernel = registry.get(kernel_h)?;
+            let bias = registry.get(bias_h)?;
+            if input.dtype != TensorDType::Float
+                || kernel.dtype != TensorDType::Float
+                || bias.dtype != TensorDType::Float
+                || input.len() != batch * in_ch * h * w
+                || kernel.len() != out_ch * in_ch * kh * kw
+                || bias.len() != out_ch
+            {
+                return None;
+            }
+            let x = tensor_values_as_f64(input);
+            let k = tensor_values_as_f64(kernel);
+            let b = tensor_values_as_f64(bias);
+            let (out_h, out_w) = (h - kh + 1, w - kw + 1);
+            let mut out = vec![0.0; batch * out_ch * out_h * out_w];
+            for n in 0..batch {
+                for oc in 0..out_ch {
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
+                            let mut acc = b[oc];
+                            for ic in 0..in_ch {
+                                for ky in 0..kh {
+                                    for kx in 0..kw {
+                                        let input_idx =
+                                            ((n * in_ch + ic) * h + oy + ky) * w + ox + kx;
+                                        let kernel_idx = ((oc * in_ch + ic) * kh + ky) * kw + kx;
+                                        acc += x[input_idx] * k[kernel_idx];
+                                    }
+                                }
+                            }
+                            out[((n * out_ch + oc) * out_h + oy) * out_w + ox] = acc;
+                        }
+                    }
+                }
+            }
+            let requires_grad = tensor_requires_autograd(registry, &[input_h, kernel_h, bias_h]);
+            let creator = requires_grad.then(|| AutogradNode {
+                op: AutogradOp::MlConv2d,
+                parents: vec![input_h, kernel_h, bias_h],
+                input_shape: input.shape.clone(),
+                left_shape: input.shape.clone(),
+                right_shape: kernel.shape.clone(),
+                input: b,
+                output: out.clone(),
+                left: x,
+                right: k,
+                aux: vec![batch, in_ch, h, w, out_ch, kh, kw, out_h, out_w],
+            });
+            registry.note_kernel(batch * out_ch * out_h * out_w * in_ch * kh * kw);
+            Some((out, requires_grad, creator))
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_alloc_autograd(
+            TensorDType::Float,
+            vec![out.len()],
+            f64_values_to_host(&out),
+            requires_grad,
+            creator,
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dropout(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (shape, data, requires_grad) = match ml_tensor_float_data(args[0] as usize) {
+            Some(v) => v,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let p = f64::from_bits(args[1] as u64);
+        let training = args[2] != 0;
+        if !(0.0..1.0).contains(&p) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let out = if training {
+            data.into_iter()
+                .enumerate()
+                .map(|(idx, v)| if idx % 2 == 0 { v / (1.0 - p) } else { 0.0 })
+                .collect::<Vec<_>>()
+        } else {
+            data
+        };
+        match tensor_alloc_autograd(
+            TensorDType::Float,
+            shape,
+            f64_values_to_host(&out),
+            requires_grad,
+            None,
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_max_pool2d(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 7) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (input_h, batch, channels, h, w, pool_h, pool_w) = (
+            args[0] as usize,
+            args[1] as usize,
+            args[2] as usize,
+            args[3] as usize,
+            args[4] as usize,
+            args[5] as usize,
+            args[6] as usize,
+        );
+        if pool_h == 0 || pool_w == 0 || h % pool_h != 0 || w % pool_w != 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some((_shape, data, _requires_grad)) = ml_tensor_float_data(input_h) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if data.len() != batch * channels * h * w {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let (out_h, out_w) = (h / pool_h, w / pool_w);
+        let mut out = vec![0.0; batch * channels * out_h * out_w];
+        for n in 0..batch {
+            for c in 0..channels {
+                for oy in 0..out_h {
+                    for ox in 0..out_w {
+                        let mut best = f64::NEG_INFINITY;
+                        for py in 0..pool_h {
+                            for px in 0..pool_w {
+                                let iy = oy * pool_h + py;
+                                let ix = ox * pool_w + px;
+                                best = best.max(data[((n * channels + c) * h + iy) * w + ix]);
+                            }
+                        }
+                        out[((n * channels + c) * out_h + oy) * out_w + ox] = best;
+                    }
+                }
+            }
+        }
+        match tensor_alloc(
+            TensorDType::Float,
+            vec![out.len()],
+            f64_values_to_host(&out),
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+fn ml_two_tensor_loss(
+    ctx: *mut SpectraHostCallContext,
+    op: AutogradOp,
+    value_and_grad: impl Fn(&[f64], &[f64]) -> Option<(f64, Vec<f64>)>,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((_pred_shape, pred, pred_requires_grad)) = ml_tensor_float_data(args[0] as usize)
+        else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((_target_shape, target, _target_requires_grad)) =
+            ml_tensor_float_data(args[1] as usize)
+        else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if pred.len() != target.len() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some((value, grad_pred)) = value_and_grad(&pred, &target) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let requires_grad = pred_requires_grad && tensor_is_grad_enabled();
+        let creator = requires_grad.then(|| AutogradNode {
+            op,
+            parents: vec![args[0] as usize],
+            input_shape: vec![pred.len()],
+            left_shape: Vec::new(),
+            right_shape: Vec::new(),
+            input: Vec::new(),
+            output: grad_pred,
+            left: pred,
+            right: target,
+            aux: Vec::new(),
+        });
+        ml_loss_tensor(ctx_ref, value, requires_grad, creator)
+    }
+}
+
+extern "C" fn std_ml_mse_loss(ctx: *mut SpectraHostCallContext) -> i32 {
+    ml_two_tensor_loss(ctx, AutogradOp::MlMse, |pred, target| {
+        let n = pred.len() as f64;
+        let value = pred
+            .iter()
+            .zip(target.iter())
+            .map(|(p, t)| (p - t) * (p - t))
+            .sum::<f64>()
+            / n;
+        Some((value, Vec::new()))
+    })
+}
+
+extern "C" fn std_ml_bce_loss(ctx: *mut SpectraHostCallContext) -> i32 {
+    ml_two_tensor_loss(ctx, AutogradOp::MlBce, |pred, target| {
+        let n = pred.len() as f64;
+        let value = pred
+            .iter()
+            .zip(target.iter())
+            .map(|(p, t)| {
+                let p = p.clamp(1e-7, 1.0 - 1e-7);
+                -(t * p.ln() + (1.0 - t) * (1.0 - p).ln())
+            })
+            .sum::<f64>()
+            / n;
+        Some((value, Vec::new()))
+    })
+}
+
+fn ml_classification_loss(
+    ctx: *mut SpectraHostCallContext,
+    op: AutogradOp,
+    from_logits: bool,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((shape, scores, requires_grad)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(targets) = ml_tensor_int_data(args[1] as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if shape.len() != 2 || targets.len() != shape[0] {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let (batch, classes) = (shape[0], shape[1]);
+        let mut loss = 0.0;
+        let mut grad = vec![0.0; scores.len()];
+        for row in 0..batch {
+            let target = targets[row] as usize;
+            if target >= classes {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            if from_logits {
+                let row_scores = &scores[row * classes..row * classes + classes];
+                let max_score = row_scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let denom = row_scores
+                    .iter()
+                    .map(|v| (v - max_score).exp())
+                    .sum::<f64>();
+                for col in 0..classes {
+                    let prob = (row_scores[col] - max_score).exp() / denom;
+                    grad[row * classes + col] = prob;
+                }
+                loss -= (grad[row * classes + target]).ln();
+                grad[row * classes + target] -= 1.0;
+            } else {
+                loss -= scores[row * classes + target];
+                grad[row * classes + target] = -1.0;
+            }
+        }
+        loss /= batch as f64;
+        let creator = (requires_grad && tensor_is_grad_enabled()).then(|| AutogradNode {
+            op,
+            parents: vec![args[0] as usize],
+            input_shape: shape,
+            left_shape: Vec::new(),
+            right_shape: Vec::new(),
+            input: Vec::new(),
+            output: grad,
+            left: scores,
+            right: Vec::new(),
+            aux: vec![batch, classes],
+        });
+        ml_loss_tensor(
+            ctx_ref,
+            loss,
+            requires_grad && tensor_is_grad_enabled(),
+            creator,
+        )
+    }
+}
+
+extern "C" fn std_ml_cross_entropy_loss(ctx: *mut SpectraHostCallContext) -> i32 {
+    ml_classification_loss(ctx, AutogradOp::MlCrossEntropy, true)
+}
+
+extern "C" fn std_ml_nll_loss(ctx: *mut SpectraHostCallContext) -> i32 {
+    ml_classification_loss(ctx, AutogradOp::MlNll, false)
+}
+
+fn ml_optimizer_update(param_handle: usize, update: impl Fn(f64, f64, usize) -> f64) -> bool {
+    with_tensor_registry(|registry| {
+        let Some(param) = registry.get_mut(param_handle) else {
+            return false;
+        };
+        if param.dtype != TensorDType::Float {
+            return false;
+        }
+        let Some(grad) = param.grad.clone() else {
+            return false;
+        };
+        let mut values = tensor_values_as_f64(param);
+        if values.len() != grad.len() {
+            return false;
+        }
+        for (idx, value) in values.iter_mut().enumerate() {
+            *value = update(*value, grad[idx], idx);
+        }
+        param.storage = Arc::new(f64_values_to_host(&values));
+        param.offset = 0;
+        param.layout = TensorLayout::Contiguous;
+        param.strides = tensor_strides(&param.shape);
+        param.grad = None;
+        true
+    })
+}
+
+extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let lr = f64::from_bits(args[1] as u64);
+        if !lr.is_finite() || lr < 0.0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if !ml_optimizer_update(args[0] as usize, |value, grad, _| value - lr * grad) {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_sgd_momentum_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 4) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (param_h, velocity_h) = (args[0] as usize, args[1] as usize);
+        let (lr, momentum) = (
+            f64::from_bits(args[2] as u64),
+            f64::from_bits(args[3] as u64),
+        );
+        let Some((_shape, mut velocity, _)) = ml_tensor_float_data(velocity_h) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let ok = with_tensor_registry(|registry| {
+            let Some(param) = registry.get_mut(param_h) else {
+                return false;
+            };
+            let Some(grad) = param.grad.clone() else {
+                return false;
+            };
+            let mut values = tensor_values_as_f64(param);
+            if values.len() != grad.len() || velocity.len() != grad.len() {
+                return false;
+            }
+            for idx in 0..values.len() {
+                velocity[idx] = momentum * velocity[idx] + grad[idx];
+                values[idx] -= lr * velocity[idx];
+            }
+            param.storage = Arc::new(f64_values_to_host(&values));
+            param.offset = 0;
+            param.layout = TensorLayout::Contiguous;
+            param.strides = tensor_strides(&param.shape);
+            param.grad = None;
+            true
+        });
+        if !ok || !ml_store_float_tensor(velocity_h, velocity) {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_adam_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 8) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (param_h, m_h, v_h) = (args[0] as usize, args[1] as usize, args[2] as usize);
+        let lr = f64::from_bits(args[3] as u64);
+        let beta1 = f64::from_bits(args[4] as u64);
+        let beta2 = f64::from_bits(args[5] as u64);
+        let eps = f64::from_bits(args[6] as u64);
+        let step = args[7].max(1) as i32;
+        let Some((_m_shape, mut m, _)) = ml_tensor_float_data(m_h) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((_v_shape, mut v, _)) = ml_tensor_float_data(v_h) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let ok = with_tensor_registry(|registry| {
+            let Some(param) = registry.get_mut(param_h) else {
+                return false;
+            };
+            let Some(grad) = param.grad.clone() else {
+                return false;
+            };
+            let mut values = tensor_values_as_f64(param);
+            if values.len() != grad.len() || m.len() != grad.len() || v.len() != grad.len() {
+                return false;
+            }
+            for idx in 0..values.len() {
+                m[idx] = beta1 * m[idx] + (1.0 - beta1) * grad[idx];
+                v[idx] = beta2 * v[idx] + (1.0 - beta2) * grad[idx] * grad[idx];
+                let m_hat = m[idx] / (1.0 - beta1.powi(step));
+                let v_hat = v[idx] / (1.0 - beta2.powi(step));
+                values[idx] -= lr * m_hat / (v_hat.sqrt() + eps);
+            }
+            param.storage = Arc::new(f64_values_to_host(&values));
+            param.offset = 0;
+            param.layout = TensorLayout::Contiguous;
+            param.strides = tensor_strides(&param.shape);
+            param.grad = None;
+            true
+        });
+        if !ok || !ml_store_float_tensor(m_h, m) || !ml_store_float_tensor(v_h, v) {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_adamw_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 9) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (param_h, m_h, v_h) = (args[0] as usize, args[1] as usize, args[2] as usize);
+        let lr = f64::from_bits(args[3] as u64);
+        let beta1 = f64::from_bits(args[4] as u64);
+        let beta2 = f64::from_bits(args[5] as u64);
+        let eps = f64::from_bits(args[6] as u64);
+        let step = args[7].max(1) as i32;
+        let weight_decay = f64::from_bits(args[8] as u64);
+        let Some((_m_shape, mut m, _)) = ml_tensor_float_data(m_h) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((_v_shape, mut v, _)) = ml_tensor_float_data(v_h) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let ok = with_tensor_registry(|registry| {
+            let Some(param) = registry.get_mut(param_h) else {
+                return false;
+            };
+            let Some(grad) = param.grad.clone() else {
+                return false;
+            };
+            let mut values = tensor_values_as_f64(param);
+            if values.len() != grad.len() || m.len() != grad.len() || v.len() != grad.len() {
+                return false;
+            }
+            for idx in 0..values.len() {
+                m[idx] = beta1 * m[idx] + (1.0 - beta1) * grad[idx];
+                v[idx] = beta2 * v[idx] + (1.0 - beta2) * grad[idx] * grad[idx];
+                let m_hat = m[idx] / (1.0 - beta1.powi(step));
+                let v_hat = v[idx] / (1.0 - beta2.powi(step));
+                values[idx] =
+                    values[idx] * (1.0 - lr * weight_decay) - lr * m_hat / (v_hat.sqrt() + eps);
+            }
+            param.storage = Arc::new(f64_values_to_host(&values));
+            param.offset = 0;
+            param.layout = TensorLayout::Contiguous;
+            param.strides = tensor_strides(&param.shape);
+            param.grad = None;
+            true
+        });
+        if !ok || !ml_store_float_tensor(m_h, m) || !ml_store_float_tensor(v_h, v) {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_exp_lr(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let base = f64::from_bits(args[0] as u64);
+        let gamma = f64::from_bits(args[1] as u64);
+        let step = args[2] as i32;
+        tensor_result(
+            ctx_ref,
+            (base * gamma.powi(step)).to_bits() as SpectraHostValue,
+        )
+    }
+}
+
+extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[2] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let len = args[2] as usize;
+        let valid = with_tensor_registry(|registry| {
+            registry.get(args[0] as usize).is_some() && registry.get(args[1] as usize).is_some()
+        });
+        if !valid {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.datasets.insert(
+                handle,
+                MlDataset {
+                    features: args[0] as usize,
+                    labels: args[1] as usize,
+                    len,
+                },
+            );
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_dataset_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(len) = with_ml_registry(|registry| {
+            registry
+                .datasets
+                .get(&(args[0] as usize))
+                .map(|dataset| dataset.len)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, len as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_dataloader_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let dataset = args[0] as usize;
+        let exists = with_ml_registry(|registry| registry.datasets.contains_key(&dataset));
+        if !exists {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.loaders.insert(
+                handle,
+                MlDataLoader {
+                    dataset,
+                    batch_size: args[1] as usize,
+                    shuffle_seed: args[2] as u64,
+                },
+            );
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_dataloader_batch_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(count) = with_ml_registry(|registry| {
+            let loader = registry.loaders.get(&(args[0] as usize))?;
+            let dataset = registry.datasets.get(&loader.dataset)?;
+            Some((dataset.len + loader.batch_size - 1) / loader.batch_size)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, count as SpectraHostValue)
+    }
+}
+
+fn ml_batch_indices(len: usize, batch_size: usize, batch_index: usize, seed: u64) -> Vec<usize> {
+    let start = batch_index.saturating_mul(batch_size);
+    let end = (start + batch_size).min(len);
+    let mut indices = (start..end).collect::<Vec<_>>();
+    if seed != 0 {
+        indices.sort_by_key(|idx| {
+            ((*idx as u64)
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(seed))
+                >> 32
+        });
+    }
+    indices
+}
+
+fn std_ml_dataloader_batch(ctx: *mut SpectraHostCallContext, labels: bool) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some((tensor_handle, len, batch_size, seed)) = with_ml_registry(|registry| {
+            let loader = registry.loaders.get(&(args[0] as usize))?;
+            let dataset = registry.datasets.get(&loader.dataset)?;
+            Some((
+                if labels {
+                    dataset.labels
+                } else {
+                    dataset.features
+                },
+                dataset.len,
+                loader.batch_size,
+                loader.shuffle_seed,
+            ))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let indices = ml_batch_indices(len, batch_size, args[1] as usize, seed);
+        let Some((shape, data, _requires_grad)) = ml_tensor_float_data(tensor_handle) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if shape.is_empty() || shape[0] != len {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let row_width = data.len() / len;
+        let mut out = Vec::with_capacity(indices.len() * row_width);
+        for index in indices {
+            out.extend_from_slice(&data[index * row_width..index * row_width + row_width]);
+        }
+        match tensor_alloc(
+            TensorDType::Float,
+            vec![out.len()],
+            f64_values_to_host(&out),
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dataloader_batch_features(ctx: *mut SpectraHostCallContext) -> i32 {
+    std_ml_dataloader_batch(ctx, false)
+}
+
+extern "C" fn std_ml_dataloader_batch_labels(ctx: *mut SpectraHostCallContext) -> i32 {
+    std_ml_dataloader_batch(ctx, true)
 }
 
 extern "C" fn std_tensor_seed(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -6906,6 +8061,185 @@ mod tests {
         let (status, grad_v1_0_bits) = call_host(TENSOR_GET_F, &[grad_v1, 0]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!((f64::from_bits(grad_v1_0_bits as u64) - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ml_phase6_mlp_layers_losses_optimizers_and_dataloader() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_SET_GRAD_ENABLED, &[1]);
+
+        let one = 1.0f64.to_bits() as i64;
+        let two = 2.0f64.to_bits() as i64;
+        let zero = 0.0f64.to_bits() as i64;
+        let lr = 0.1f64.to_bits() as i64;
+
+        let (status, module) = call_host(ML_MODULE_NEW, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, features) = call_host(TENSOR_FULL_F, &[4, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, features2d) = call_host(TENSOR_RESHAPE, &[features, 4, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, target) = call_host(TENSOR_FULL_F, &[4, two]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, weight0) = call_host(
+            TENSOR_REQUIRES_GRAD,
+            &[call_host(TENSOR_FULL_F, &[1, zero]).1, 1],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, weight) = call_host(TENSOR_RESHAPE, &[weight0, 1, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, bias) = call_host(
+            TENSOR_REQUIRES_GRAD,
+            &[call_host(TENSOR_FULL_F, &[1, zero]).1, 1],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_MODULE_ADD_PARAMETER, &[module, weight]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ML_MODULE_ADD_PARAMETER, &[module, bias]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ML_MODULE_PARAMETER_COUNT, &[module]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ML_MODULE_PARAMETER, &[module, 0]),
+            (HOST_STATUS_SUCCESS, weight)
+        );
+
+        let (status, dataset) = call_host(ML_DATASET_FROM_TENSORS, &[features2d, target, 4]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[dataset]),
+            (HOST_STATUS_SUCCESS, 4)
+        );
+        let (status, loader) = call_host(ML_DATALOADER_NEW, &[dataset, 2, 123]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATALOADER_BATCH_COUNT, &[loader]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ML_DATALOADER_BATCH_FEATURES, &[loader, 0]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ML_DATALOADER_BATCH_LABELS, &[loader, 0]).0,
+            HOST_STATUS_SUCCESS
+        );
+
+        for _ in 0..40 {
+            let (status, pred) = call_host(ML_LINEAR, &[features2d, weight, bias]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            let (status, loss) = call_host(ML_MSE_LOSS, &[pred, target]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            assert_eq!(call_host(TENSOR_BACKWARD, &[loss]).0, HOST_STATUS_SUCCESS);
+            assert_eq!(call_host(ML_SGD_STEP, &[weight, lr]).0, HOST_STATUS_SUCCESS);
+            assert_eq!(call_host(ML_SGD_STEP, &[bias, lr]).0, HOST_STATUS_SUCCESS);
+        }
+        let (status, pred) = call_host(ML_LINEAR, &[features2d, weight, bias]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, loss) = call_host(ML_MSE_LOSS, &[pred, target]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, loss_bits) = call_host(TENSOR_GET_F, &[loss, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(f64::from_bits(loss_bits as u64) < 0.001);
+
+        let (status, probs) = call_host(TENSOR_FULL_F, &[4, 0.75f64.to_bits() as i64]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, labels) = call_host(TENSOR_FULL_F, &[4, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_BCE_LOSS, &[probs, labels]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ML_EXP_LR, &[lr, 0.5f64.to_bits() as i64, 1]).0,
+            HOST_STATUS_SUCCESS
+        );
+    }
+
+    #[test]
+    fn ml_phase6_cnn_conv2d_and_adamw_train_end_to_end() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_SET_GRAD_ENABLED, &[1]);
+
+        let one = 1.0f64.to_bits() as i64;
+        let zero = 0.0f64.to_bits() as i64;
+        let lr = 0.05f64.to_bits() as i64;
+
+        let (status, input) = call_host(TENSOR_FULL_F, &[4, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, target) = call_host(TENSOR_FULL_F, &[4, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, kernel) = call_host(
+            TENSOR_REQUIRES_GRAD,
+            &[call_host(TENSOR_FULL_F, &[1, zero]).1, 1],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, bias) = call_host(
+            TENSOR_REQUIRES_GRAD,
+            &[call_host(TENSOR_FULL_F, &[1, zero]).1, 1],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, m) = call_host(TENSOR_FULL_F, &[1, zero]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, v) = call_host(TENSOR_FULL_F, &[1, zero]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        for step in 1..=50 {
+            let (status, pred) = call_host(ML_CONV2D, &[input, kernel, bias, 1, 1, 2, 2, 1, 1, 1]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            let (status, loss) = call_host(ML_MSE_LOSS, &[pred, target]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            assert_eq!(call_host(TENSOR_BACKWARD, &[loss]).0, HOST_STATUS_SUCCESS);
+            assert_eq!(
+                call_host(
+                    ML_ADAMW_STEP,
+                    &[
+                        kernel,
+                        m,
+                        v,
+                        lr,
+                        0.9f64.to_bits() as i64,
+                        0.999f64.to_bits() as i64,
+                        1e-8f64.to_bits() as i64,
+                        step,
+                        0.0f64.to_bits() as i64,
+                    ],
+                )
+                .0,
+                HOST_STATUS_SUCCESS
+            );
+            assert_eq!(call_host(ML_SGD_STEP, &[bias, lr]).0, HOST_STATUS_SUCCESS);
+        }
+
+        let (status, pred) = call_host(ML_CONV2D, &[input, kernel, bias, 1, 1, 2, 2, 1, 1, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, loss) = call_host(ML_MSE_LOSS, &[pred, target]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, loss_bits) = call_host(TENSOR_GET_F, &[loss, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(f64::from_bits(loss_bits as u64) < 0.01);
+        assert_eq!(
+            call_host(ML_DROPOUT, &[pred, 0.5f64.to_bits() as i64, 0]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ML_MAX_POOL2D, &[input, 1, 1, 2, 2, 2, 2]).0,
+            HOST_STATUS_SUCCESS
+        );
     }
 
     #[test]

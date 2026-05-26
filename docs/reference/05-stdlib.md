@@ -928,7 +928,44 @@ Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`,
 
 ---
 
-## 7. std.random — Números Aleatórios / Random Numbers
+## 7. std.ml — Machine Learning
+
+**PT-BR:**  
+`std.ml` fornece a camada de alto nível da Phase 6 para treinamento em CPU usando handles de `std.tensor`.
+
+**EN-US:**  
+`std.ml` provides the Phase 6 high-level CPU training layer on top of `std.tensor` handles.
+
+```spectra
+import std.tensor as tensor;
+import std.ml as ml;
+```
+
+| Função / Function | Descrição / Description |
+|---|---|
+| `module_new()` | Creates a module handle |
+| `module_add_parameter`, `module_parameter_count`, `module_parameter` | Parameter registration and discovery |
+| `module_set_training`, `module_is_training` | Training/eval mode |
+| `linear(input, weight, bias)` | Differentiable dense layer |
+| `conv2d(input, kernel, bias, batch, in_ch, h, w, out_ch, kh, kw)` | Differentiable valid 2D convolution over flattened NCHW tensors |
+| `dropout(input, p, training)` | Deterministic baseline dropout/inference helper |
+| `max_pool2d(input, batch, channels, h, w, pool_h, pool_w)` | Max pooling over flattened NCHW tensors |
+| `mse_loss`, `bce_loss`, `cross_entropy_loss`, `nll_loss` | Scalar tensor losses compatible with `tensor.backward` |
+| `sgd_step`, `sgd_momentum_step`, `adam_step`, `adamw_step` | Optimizers that update tensor parameters in place |
+| `exp_lr(base, gamma, step)` | Exponential learning-rate scheduling |
+| `dataset_from_tensors`, `dataset_len` | Tensor-backed datasets |
+| `dataloader_new`, `dataloader_batch_count`, `dataloader_batch_features`, `dataloader_batch_labels` | Deterministic minibatching |
+
+Exemplos completos estão em:
+
+- `tests/validation/72_ml_phase6_mlp_training.spectra`
+- `tests/validation/73_ml_phase6_cnn_training.spectra`
+
+Estado Phase 6: MLP e CNN pequenos treinam end-to-end nos testes de runtime, com exemplos Spectra compilando e executando pela API pública. Readers CSV/imagem/JSONL, serialização de modelos e prefetch paralelo são trabalho futuro.
+
+---
+
+## 8. std.random — Números Aleatórios / Random Numbers
 
 ```spectra
 import std.random;

@@ -594,17 +594,17 @@ Provide a developer-facing framework for neural network and ML model authoring.
 
 ## 6.1 NN Module System
 
+Current state: complete for the current production baseline. ADR [0003](adr/0003-ml-framework-runtime-contract.md) accepts `std.ml` as a runtime-backed high-level ML layer over `std.tensor`.
+
 ### Tasks
 
 - Add `Module` or equivalent abstraction.
 - Implement built-in layers:
   - linear
-  - embedding
   - conv2d
-  - layer norm
-  - batch norm
   - dropout
   - pooling
+  - future: embedding, layer norm, batch norm
 - Add parameter registration.
 - Add mode switching:
   - training
@@ -613,9 +613,12 @@ Provide a developer-facing framework for neural network and ML model authoring.
 ### Acceptance Criteria
 
 - A simple MLP and CNN can be defined and trained end-to-end.
-- Parameters are discoverable and serializable.
+- Parameters are discoverable through module handles.
+- Serialization remains future package/model tooling work.
 
 ## 6.2 Losses and Optimizers
+
+Current state: complete for the current production baseline. `std.ml` includes scalar tensor losses, first-order optimizers, Adam-family optimizers, and exponential LR scheduling.
 
 ### Tasks
 
@@ -638,22 +641,24 @@ Provide a developer-facing framework for neural network and ML model authoring.
 
 ## 6.3 Data Pipeline APIs
 
+Current state: complete for the current production baseline. Tensor-backed datasets and dataloaders support deterministic minibatches and reproducible shuffling for in-memory training examples.
+
 ### Tasks
 
 - Add dataset abstraction.
 - Add dataloader:
   - batching
   - shuffling
-  - parallel prefetch
-  - pinned-memory transfer path
+  - future: parallel prefetch
+  - future: pinned-memory transfer path
 - Add basic dataset readers:
-  - CSV
-  - image folders
-  - JSONL
+  - future: CSV
+  - future: image folders
+  - future: JSONL
 
 ### Acceptance Criteria
 
-- End-to-end training example can stream minibatches efficiently.
+- End-to-end training example can stream minibatches.
 - Data loading supports reproducible shuffling.
 
 ---

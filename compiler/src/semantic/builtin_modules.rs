@@ -23,6 +23,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.char".to_string(), make_std_char());
     registry.register_module("std.time".to_string(), make_std_time());
     registry.register_module("std.tensor".to_string(), make_std_tensor());
+    registry.register_module("std.ml".to_string(), make_std_ml());
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
@@ -40,6 +41,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.char".to_string(), make_std_char());
     registry.register_module("spectra.std.time".to_string(), make_std_time());
     registry.register_module("spectra.std.tensor".to_string(), make_std_tensor());
+    registry.register_module("spectra.std.ml".to_string(), make_std_ml());
 }
 
 fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
@@ -486,6 +488,169 @@ fn make_std_tensor() -> ModuleExports {
                 "device".to_string(),
                 "layout".to_string(),
             ],
+            visibility: ExportVisibility::Public,
+            is_enum: false,
+            struct_fields: None,
+            enum_variants: None,
+            enum_struct_variants: None,
+        },
+    );
+
+    exports
+}
+
+fn make_std_ml() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "ml".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    let int = Type::Int;
+    let float = Type::Float;
+    let unit = Type::Unit;
+    let bool_ty = Type::Bool;
+
+    let functions = [
+        ("module_new", vec![], int.clone()),
+        (
+            "module_add_parameter",
+            vec![int.clone(), int.clone()],
+            unit.clone(),
+        ),
+        ("module_parameter_count", vec![int.clone()], int.clone()),
+        (
+            "module_parameter",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "module_set_training",
+            vec![int.clone(), bool_ty.clone()],
+            unit.clone(),
+        ),
+        ("module_is_training", vec![int.clone()], bool_ty.clone()),
+        (
+            "linear",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "conv2d",
+            vec![
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+            ],
+            int.clone(),
+        ),
+        (
+            "dropout",
+            vec![int.clone(), float.clone(), bool_ty.clone()],
+            int.clone(),
+        ),
+        (
+            "max_pool2d",
+            vec![
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                int.clone(),
+            ],
+            int.clone(),
+        ),
+        ("mse_loss", vec![int.clone(), int.clone()], int.clone()),
+        ("bce_loss", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "cross_entropy_loss",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("nll_loss", vec![int.clone(), int.clone()], int.clone()),
+        ("sgd_step", vec![int.clone(), float.clone()], unit.clone()),
+        (
+            "sgd_momentum_step",
+            vec![int.clone(), int.clone(), float.clone(), float.clone()],
+            unit.clone(),
+        ),
+        (
+            "adam_step",
+            vec![
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                float.clone(),
+                float.clone(),
+                float.clone(),
+                float.clone(),
+                int.clone(),
+            ],
+            unit.clone(),
+        ),
+        (
+            "adamw_step",
+            vec![
+                int.clone(),
+                int.clone(),
+                int.clone(),
+                float.clone(),
+                float.clone(),
+                float.clone(),
+                float.clone(),
+                int.clone(),
+                float.clone(),
+            ],
+            unit.clone(),
+        ),
+        (
+            "exp_lr",
+            vec![float.clone(), float.clone(), int.clone()],
+            float.clone(),
+        ),
+        (
+            "dataset_from_tensors",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("dataset_len", vec![int.clone()], int.clone()),
+        (
+            "dataloader_new",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("dataloader_batch_count", vec![int.clone()], int.clone()),
+        (
+            "dataloader_batch_features",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "dataloader_batch_labels",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+    ];
+
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+
+    exports.types.insert(
+        "Module".to_string(),
+        ExportedType {
+            members: vec!["parameters".to_string(), "training".to_string()],
             visibility: ExportVisibility::Public,
             is_enum: false,
             struct_fields: None,
