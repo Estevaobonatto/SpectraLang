@@ -3,6 +3,7 @@ mod config;
 mod discovery;
 mod formatter;
 mod linker;
+mod package;
 mod project;
 mod runtime_lib;
 
@@ -10,6 +11,7 @@ use compiler_integration::{
     forward_program_args, take_last_exec_exit, ModulePipelineSummary, SpectraCompiler,
 };
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
+use package::{PackageCommand, PackageInvocation};
 use project::ProjectPlan;
 use serde::{Deserialize, Serialize};
 use spectra_compiler::{
@@ -122,6 +124,7 @@ enum CliAction {
     },
     Repl(ReplOptions),
     NewProject(NewProjectOptions),
+    Package(PackageInvocation),
     Format(FormatOptions),
 }
 
@@ -131,6 +134,7 @@ enum HelpTopic {
     Build(BuildCommand),
     Repl,
     NewProject,
+    Package,
     Format,
     Lint,
 }
@@ -205,6 +209,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
                 HelpTopic::Build(command) => print_build_help(command),
                 HelpTopic::Repl => print_repl_help(),
                 HelpTopic::NewProject => print_new_help(),
+                HelpTopic::Package => print_package_help(),
                 HelpTopic::Format => print_format_help(),
                 HelpTopic::Lint => print_lint_help(),
             }
@@ -217,6 +222,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
         CliAction::Build { kind, invocation } => execute_build_command(kind, invocation),
         CliAction::Repl(options) => execute_repl(options),
         CliAction::NewProject(options) => execute_new_project(options),
+        CliAction::Package(invocation) => execute_package_command(invocation),
         CliAction::Format(options) => execute_format(options),
     }
 }
@@ -238,6 +244,7 @@ fn parse_cli() -> CliResult<CliAction> {
             if let Some(target) = args.next() {
                 return match target.as_str() {
                     "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
+                    "package" | "pkg" => Ok(CliAction::Help(HelpTopic::Package)),
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
                     "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
                     "lint" => Ok(CliAction::Help(HelpTopic::Lint)),
@@ -283,6 +290,18 @@ fn parse_cli() -> CliResult<CliAction> {
 
             let options = parse_new_project_invocation(&mut args)?;
             return Ok(CliAction::NewProject(options));
+        }
+        Some("package") | Some("pkg") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::Package));
+                }
+            }
+
+            let invocation = parse_package_invocation(&mut args)?;
+            return Ok(CliAction::Package(invocation));
         }
         Some("fmt") | Some("format") => {
             args.next();
@@ -774,6 +793,89 @@ where
     Ok(NewProjectOptions { path, force })
 }
 
+fn parse_package_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<PackageInvocation>
+where
+    I: Iterator<Item = String>,
+{
+    let subcommand = args
+        .next()
+        .ok_or_else(|| usage_error("No package subcommand supplied."))?;
+    let mut root = PathBuf::from(".");
+    let mut name: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut path: Option<PathBuf> = None;
+    let mut registry: Option<PathBuf> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--root" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing path after '--root'."))?;
+                root = PathBuf::from(value);
+            }
+            "--version" => {
+                version = Some(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing value after '--version'."))?,
+                );
+            }
+            "--path" => {
+                path =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        usage_error("Missing path after '--path'.")
+                    })?));
+            }
+            "--registry" => {
+                registry =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        usage_error("Missing path after '--registry'.")
+                    })?));
+            }
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!("Unknown package option: {}", flag)));
+            }
+            value => {
+                if name.is_some() {
+                    return Err(usage_error(
+                        "Multiple package names supplied. Provide exactly one name.",
+                    ));
+                }
+                name = Some(value.to_string());
+            }
+        }
+    }
+
+    let command = match subcommand.as_str() {
+        "lock" => PackageCommand::Lock,
+        "build" => PackageCommand::Build,
+        "check" => PackageCommand::Check,
+        "run" => PackageCommand::Run,
+        "test" => PackageCommand::Test,
+        "bench" => PackageCommand::Bench,
+        "doc" => PackageCommand::Doc,
+        "update" => PackageCommand::Update,
+        "add" => PackageCommand::Add {
+            name: name.ok_or_else(|| usage_error("package add requires a package name."))?,
+            version,
+            path,
+            registry,
+        },
+        "publish" => PackageCommand::Publish {
+            registry: registry
+                .ok_or_else(|| usage_error("package publish requires --registry <path>."))?,
+        },
+        other => {
+            return Err(usage_error(&format!(
+                "Unknown package subcommand '{}'.",
+                other
+            )));
+        }
+    };
+
+    Ok(PackageInvocation { root, command })
+}
+
 fn parse_format_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<FormatOptions>
 where
     I: Iterator<Item = String>,
@@ -998,9 +1100,16 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
                         cfg.project.version
                     );
                 }
-                let src_dirs = cfg.src_dirs(root);
-                let sources = discovery::discover_sources(&src_dirs);
-                (sources, Some(cfg.name().to_string()))
+                match package::resolve(root) {
+                    Ok(workspace) if workspace.packages.len() > 1 => {
+                        (workspace.source_entries(), workspace.root_package_name())
+                    }
+                    _ => {
+                        let src_dirs = cfg.src_dirs(root);
+                        let sources = discovery::discover_sources(&src_dirs);
+                        (sources, Some(cfg.name().to_string()))
+                    }
+                }
             }
             Ok(None) => (entries, None),
             Err(err) => {
@@ -1603,6 +1712,117 @@ fn execute_format(options: FormatOptions) -> CliResult<()> {
     run_formatter(options)
 }
 
+fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
+    match invocation.command {
+        PackageCommand::Lock | PackageCommand::Update => {
+            let workspace = package::resolve(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let path = package::write_lockfile(&workspace)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Locked {}", path.display());
+            Ok(())
+        }
+        PackageCommand::Build | PackageCommand::Check | PackageCommand::Run => {
+            let workspace = package::resolve(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let lock_path = package::write_lockfile(&workspace)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let entries = workspace.source_entries();
+            let kind = match invocation.command {
+                PackageCommand::Build => BuildCommand::Compile,
+                PackageCommand::Check => BuildCommand::Check,
+                PackageCommand::Run => BuildCommand::Run,
+                _ => unreachable!(),
+            };
+            println!("     Locked {}", lock_path.display());
+            execute_plan_with_options(
+                kind,
+                CompilationOptions::default(),
+                entries,
+                workspace.root_package_name(),
+                false,
+                false,
+                true,
+                false,
+            )
+        }
+        PackageCommand::Test => {
+            let workspace = package::resolve(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let mut entries = workspace.source_entries();
+            entries.extend(package::discover_test_entries(&workspace));
+            let lock_path = package::write_lockfile(&workspace)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Locked {}", lock_path.display());
+            execute_plan_with_options(
+                BuildCommand::Check,
+                CompilationOptions::default(),
+                entries,
+                workspace.root_package_name(),
+                false,
+                false,
+                true,
+                false,
+            )
+        }
+        PackageCommand::Bench => {
+            let workspace = package::resolve(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let lock_path = package::write_lockfile(&workspace)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Locked {}", lock_path.display());
+            execute_plan_with_options(
+                BuildCommand::Check,
+                CompilationOptions {
+                    collect_metrics: true,
+                    ..CompilationOptions::default()
+                },
+                workspace.source_entries(),
+                workspace.root_package_name(),
+                true,
+                true,
+                true,
+                false,
+            )
+        }
+        PackageCommand::Doc => {
+            let workspace = package::resolve(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let lock_path = package::write_lockfile(&workspace)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            let docs_path =
+                package::write_docs(&workspace).map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Locked {}", lock_path.display());
+            println!("     Written docs {}", docs_path.display());
+            Ok(())
+        }
+        PackageCommand::Add {
+            name,
+            version,
+            path,
+            registry,
+        } => {
+            let lock_path = package::add_dependency(
+                &invocation.root,
+                &name,
+                version.as_deref(),
+                path.as_deref(),
+                registry.as_deref(),
+            )
+            .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Added {}", name);
+            println!("     Locked {}", lock_path.display());
+            Ok(())
+        }
+        PackageCommand::Publish { registry } => {
+            let package_path = package::publish(&invocation.root, &registry)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Published {}", package_path.display());
+            Ok(())
+        }
+    }
+}
+
 fn execute_lint_json(entries: Vec<PathBuf>, mut options: CompilationOptions) -> CliResult<()> {
     if entries.is_empty() {
         return Err(CliError::usage(
@@ -1974,6 +2194,7 @@ fn print_global_help() {
     println!("    lint       Run lint checks across Spectra modules");
     println!("    repl       Start an interactive Spectra prompt");
     println!("    new        Scaffold a new Spectra project");
+    println!("    package    Resolve, lock, build, publish, and consume packages");
     println!("    fmt        Format Spectra source files");
     println!("    help       Print this help message");
     println!();
@@ -1990,6 +2211,8 @@ fn print_global_help() {
     println!("    spectralang lint src/");
     println!("    spectralang repl --run");
     println!("    spectralang new my-project");
+    println!("    spectralang package build --root .");
+    println!("    spectralang package add math --path ../math");
     println!("    spectralang --list-experimental");
     println!("    spectralang fmt src/");
     println!("    spectralang fmt --stdin < file.spectra");
@@ -2082,6 +2305,38 @@ fn print_new_help() {
     println!("Examples:");
     println!("    spectralang new hello-world");
     println!("    spectralang new --force .");
+}
+
+fn print_package_help() {
+    println!("SpectraLang CLI - 'package' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectralang package <SUBCOMMAND> [OPTIONS]");
+    println!();
+    println!("SUBCOMMANDS:");
+    println!("    lock       Resolve packages and write spectra.lock");
+    println!("    build      Resolve, lock, and compile a package workspace");
+    println!("    check      Resolve, lock, and type-check a package workspace");
+    println!("    run        Resolve, lock, compile, and run the workspace entry point");
+    println!("    test       Resolve, lock, and check package plus tests/ sources");
+    println!("    bench      Resolve, lock, and check with pipeline timings");
+    println!("    doc        Generate package documentation into target/spectra-docs");
+    println!("    add        Add a path or registry dependency and refresh spectra.lock");
+    println!("    update     Refresh spectra.lock from current manifests");
+    println!("    publish    Publish the root package into a local registry directory");
+    println!();
+    println!("OPTIONS:");
+    println!("    --root <path>          Package or workspace root (default: .)");
+    println!("    --path <path>          Local dependency path for 'add'");
+    println!("    --version <version>    Dependency version for 'add'");
+    println!("    --registry <path>      Local registry path for 'add' or 'publish'");
+    println!();
+    println!("Examples:");
+    println!("    spectralang package lock --root .");
+    println!("    spectralang package build --root examples/workspace");
+    println!("    spectralang package add math --path ../math --version 0.1.0");
+    println!("    spectralang package publish --root packages/math --registry .spectra-registry");
+    println!("    spectralang package add math --version 0.1.0 --registry .spectra-registry");
 }
 
 fn print_format_help() {

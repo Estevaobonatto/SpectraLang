@@ -569,13 +569,15 @@ title = "Package Manager MVP"
 phase = "phase_9"
 owner = "tooling"
 priority = "P0"
-status = "not_started"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-003"]
-summary = "Provide dependency resolution, lockfiles, and workspace builds."
+summary = "Provide local dependency resolution, deterministic lockfiles, package commands, and workspace builds."
 acceptance = [
   "multi-package workspace builds reproducibly",
-  "lockfile guarantees deterministic resolution"
+  "lockfile guarantees deterministic resolution",
+  "exact semver package versions are validated",
+  "package lock/build/check/run/test/bench/doc/add/update commands are implemented"
 ]
 
 [[items]]
@@ -584,13 +586,13 @@ title = "Registry MVP"
 phase = "phase_9"
 owner = "ecosystem"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-901"]
-summary = "Deliver publish/install package registry flow."
+summary = "Deliver publish/install flow for a local filesystem registry with checksum validation."
 acceptance = [
-  "package can be published and installed from registry",
-  "artifact integrity is validated"
+  "package can be published and installed from a local registry",
+  "artifact integrity is validated before install"
 ]
 
 [[items]]

@@ -1,0 +1,11 @@
+[project]
+name = "package_workspace_app"
+version = "0.1.0"
+entry = "src/main.spectra"
+src_dirs = ["src"]
+
+[workspace]
+members = ["packages/core"]
+
+[dependencies]
+core = { version = "0.1.0", path = "packages/core" }

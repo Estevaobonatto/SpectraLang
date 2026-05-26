@@ -835,6 +835,14 @@ Provide a real production ecosystem.
 - A multi-package workspace can be built reproducibly.
 - Lockfile guarantees deterministic resolution.
 
+### Current Implementation
+
+- `spectralang package lock/build/check/run/test/bench/doc/add/update` is implemented.
+- `spectra.lock` records deterministic package order, package versions, path sources, manifest hashes, and resolved dependency sources.
+- Exact semver versions are validated for manifests and dependencies.
+- Local path dependencies and workspace members are resolved through `tools/spectra-cli/src/package.rs`.
+- Normal project compilation includes package dependency sources when a manifest contains multi-package dependency metadata.
+
 ## 9.2 Registry
 
 ### Tasks
@@ -848,6 +856,13 @@ Provide a real production ecosystem.
 
 - A package can be published and consumed from a registry.
 - Dependency downloads are integrity-checked.
+
+### Current Implementation
+
+- The completed Phase 9 baseline is a local filesystem registry.
+- `spectralang package publish --registry <path>` copies a package payload into the registry and writes checksum metadata.
+- `spectralang package add <name> --registry <path> --version <version>` verifies the checksum before installing into `.spectra/packages`.
+- Network registries, authentication, provenance signatures, and semver range solving are future hardening work and are not claimed as part of this baseline.
 
 ---
 

@@ -336,6 +336,34 @@ $cliTests = @(
         Contains = ""
         UseStdin = $false
     }
+    [PSCustomObject]@{
+        Nome = "package_lock_workspace"
+        Args = @("package", "lock", "--root", "tests\projects\valid\package_workspace")
+        ExpectExit = 0
+        Contains = "Locked"
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
+        Nome = "package_build_workspace"
+        Args = @("package", "build", "--root", "tests\projects\valid\package_workspace")
+        ExpectExit = 0
+        Contains = "Finished"
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
+        Nome = "package_check_workspace"
+        Args = @("package", "check", "--root", "tests\projects\valid\package_workspace")
+        ExpectExit = 0
+        Contains = "Finished"
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
+        Nome = "package_doc_workspace"
+        Args = @("package", "doc", "--root", "tests\projects\valid\package_workspace")
+        ExpectExit = 0
+        Contains = "Written docs"
+        UseStdin = $false
+    }
 )
 
 Write-Host ""
@@ -418,7 +446,83 @@ if (Test-Path $newProjectRoot) {
 }
 
 # ---------------------------------------------------------------------------
-# Grupo 7: interop Python / Rust / C ABI
+# Grupo 7: package registry local - publish/add/build
+# ---------------------------------------------------------------------------
+$packageRegistryRoot = Join-Path $env:TEMP "spectra_pkg_registry_test_$PID"
+$packageConsumerRoot = Join-Path $env:TEMP "spectra_pkg_consumer_test_$PID"
+if (Test-Path $packageRegistryRoot) {
+    Remove-Item -LiteralPath $packageRegistryRoot -Recurse -Force
+}
+if (Test-Path $packageConsumerRoot) {
+    Remove-Item -LiteralPath $packageConsumerRoot -Recurse -Force
+}
+
+Write-Host ""
+Write-Host "--- Package registry (4 testes: devem passar) ---" -ForegroundColor Yellow
+
+$lockPath = "tests\projects\valid\package_workspace\spectra.lock"
+$lockBefore = if (Test-Path $lockPath) { Get-Content -LiteralPath $lockPath -Raw } else { "" }
+$lockAgain = Invoke-SpectraCommand -commandArgs @("package", "lock", "--root", "tests\projects\valid\package_workspace") -workingDir (Get-Location).Path
+$lockAfter = if (Test-Path $lockPath) { Get-Content -LiteralPath $lockPath -Raw } else { "" }
+Write-Host "  package_lock_deterministic" -NoNewline
+if (-not $lockAgain.TimedOut -and $lockAgain.ExitCode -eq 0 -and $lockBefore -eq $lockAfter) {
+    Write-Host " PASSOU" -ForegroundColor Green
+    $totalPassed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_lock_deterministic"; Status = "PASSOU"; Detalhe = "" }
+} else {
+    Write-Host " FALHOU" -ForegroundColor Red
+    $totalFailed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_lock_deterministic"; Status = "FALHOU"; Detalhe = "spectra.lock mudou entre resolucoes equivalentes" }
+}
+
+$publishSource = (Resolve-Path "tests\projects\valid\package_workspace\packages\core").Path
+$publishResult = Invoke-SpectraCommand -commandArgs @("package", "publish", "--root", $publishSource, "--registry", $packageRegistryRoot) -workingDir (Get-Location).Path
+Write-Host "  package_publish_core" -NoNewline
+if (-not $publishResult.TimedOut -and $publishResult.ExitCode -eq 0) {
+    Write-Host " PASSOU" -ForegroundColor Green
+    $totalPassed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_publish_core"; Status = "PASSOU"; Detalhe = "" }
+} else {
+    Write-Host " FALHOU" -ForegroundColor Red
+    $totalFailed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_publish_core"; Status = "FALHOU"; Detalhe = Get-FirstError $publishResult.Output }
+}
+
+$newConsumerResult = Invoke-SpectraCommand -commandArgs @("new", $packageConsumerRoot) -workingDir (Get-Location).Path
+$addResult = Invoke-SpectraCommand -commandArgs @("package", "add", "core", "--root", $packageConsumerRoot, "--version", "0.1.0", "--registry", $packageRegistryRoot) -workingDir (Get-Location).Path
+Write-Host "  package_add_registry_core" -NoNewline
+if (-not $newConsumerResult.TimedOut -and $newConsumerResult.ExitCode -eq 0 -and -not $addResult.TimedOut -and $addResult.ExitCode -eq 0) {
+    Write-Host " PASSOU" -ForegroundColor Green
+    $totalPassed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_add_registry_core"; Status = "PASSOU"; Detalhe = "" }
+} else {
+    Write-Host " FALHOU" -ForegroundColor Red
+    $totalFailed++
+    $detail = if ($newConsumerResult.ExitCode -ne 0) { Get-FirstError $newConsumerResult.Output } else { Get-FirstError $addResult.Output }
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_add_registry_core"; Status = "FALHOU"; Detalhe = $detail }
+}
+
+$buildConsumerResult = Invoke-SpectraCommand -commandArgs @("package", "build", "--root", $packageConsumerRoot) -workingDir (Get-Location).Path
+Write-Host "  package_build_registry_consumer" -NoNewline
+if (-not $buildConsumerResult.TimedOut -and $buildConsumerResult.ExitCode -eq 0) {
+    Write-Host " PASSOU" -ForegroundColor Green
+    $totalPassed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_build_registry_consumer"; Status = "PASSOU"; Detalhe = "" }
+} else {
+    Write-Host " FALHOU" -ForegroundColor Red
+    $totalFailed++
+    $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "package_build_registry_consumer"; Status = "FALHOU"; Detalhe = Get-FirstError $buildConsumerResult.Output }
+}
+
+if (Test-Path $packageRegistryRoot) {
+    Remove-Item -LiteralPath $packageRegistryRoot -Recurse -Force
+}
+if (Test-Path $packageConsumerRoot) {
+    Remove-Item -LiteralPath $packageConsumerRoot -Recurse -Force
+}
+
+# ---------------------------------------------------------------------------
+# Grupo 8: interop Python / Rust / C ABI
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- Interop (Rust/Python/C ABI) ---" -ForegroundColor Yellow

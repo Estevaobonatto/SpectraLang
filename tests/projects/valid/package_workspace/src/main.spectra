@@ -1,0 +1,11 @@
+module main;
+
+import core_math;
+
+pub fn main() -> int {
+    let result = core_double(21);
+    if result != 42 {
+        return result;
+    }
+    return 0;
+}

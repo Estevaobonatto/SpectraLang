@@ -3,7 +3,6 @@
 #![allow(dead_code)]
 
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::{fmt, fs, io};
 
@@ -13,7 +12,7 @@ pub struct ProjectConfig {
     #[serde(rename = "project")]
     pub project: ProjectSection,
     #[serde(default)]
-    pub dependencies: HashMap<String, String>,
+    pub dependencies: toml::value::Table,
 }
 
 impl ProjectConfig {

@@ -1,0 +1,7 @@
+[project]
+name = "core"
+version = "0.1.0"
+entry = "src/core_math.spectra"
+src_dirs = ["src"]
+
+[dependencies]

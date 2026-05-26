@@ -56,6 +56,13 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - Rust helper crate `spectra-interop`
   - stable C ABI header surface
   - NumPy `.npy` v1.0 little-endian f64 one-dimensional tensor exchange
+- Phase 9 package baseline:
+  - `spectralang package lock/build/check/run/test/bench/doc/add/update`
+  - deterministic `spectra.lock`
+  - multi-package workspace builds
+  - exact semver version validation
+  - local path dependencies
+  - local filesystem registry publish/install with checksum validation
 
 ### Beta
 
@@ -95,6 +102,7 @@ CLI contract:
 - production tensor syntax and static shape types
 - native CUDA/ROCm/Metal/DirectML/Vulkan backends beyond the current optional `wgpu` baseline
 - `.npz`, safetensors, checkpoints, and ONNX import/export beyond the current `.npy` baseline
+- network package registry protocol, authentication, provenance signatures, and semver range solving beyond exact local versions
 
 ## Synchronization Rules
 

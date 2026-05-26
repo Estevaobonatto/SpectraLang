@@ -816,7 +816,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-901 Package Manager MVP
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-003`
@@ -831,10 +831,22 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - multi-package workspace builds reproducibly
+- lockfile guarantees deterministic resolution
+- exact semver package versions are validated
+- package commands are available for `lock`, `build`, `check`, `run`, `test`, `bench`, `doc`, `add`, and `update`
+
+### Completed so far
+
+- `tools/spectra-cli/src/package.rs` implements manifest loading, workspace resolution, local path dependency resolution, deterministic `spectra.lock` generation, local registry publishing/install, and package documentation generation.
+- Package manifests and dependency versions validate exact semver `MAJOR.MINOR.PATCH` with optional prerelease suffixes.
+- `spectralang package lock/build/check/run/test/bench/doc/add/update` are wired into the CLI.
+- Normal `spectralang compile <project-dir>` includes dependency sources for multi-package manifests.
+- `tests/projects/valid/package_workspace` validates a reproducible multi-package workspace with a path dependency.
+- `run_tests.ps1` validates lock/build/check/doc package commands.
 
 ## R-902 Registry MVP
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-901`
@@ -847,7 +859,19 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- package can be published and consumed from a registry instance
+- package can be published and consumed from a local registry instance
+- artifact integrity is validated before install
+
+### Completed so far
+
+- `spectralang package publish --registry <path>` publishes the root package into a local filesystem registry.
+- Published packages include registry metadata with checksum.
+- `spectralang package add <name> --registry <path> --version <version>` validates checksum before installing into `.spectra/packages`.
+- `run_tests.ps1` validates publish, registry add, and building a registry consumer.
+
+### Future hardening
+
+- Network registry protocol, authentication, provenance signatures, semver range solving, and private registry policy remain future work beyond the completed local registry MVP.
 
 ---
 

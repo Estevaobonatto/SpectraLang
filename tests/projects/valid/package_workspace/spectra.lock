@@ -1,0 +1,20 @@
+version = 1
+root = "package_workspace_app"
+
+[[packages]]
+name = "core"
+version = "0.1.0"
+source = "path+packages/core"
+manifest_hash = "149c33177a163956"
+dependencies = []
+
+[[packages]]
+name = "package_workspace_app"
+version = "0.1.0"
+source = "path+"
+manifest_hash = "da4a2a6542231929"
+
+[[packages.dependencies]]
+name = "core"
+version = "0.1.0"
+source = "path+packages/core"

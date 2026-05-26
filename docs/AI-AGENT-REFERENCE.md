@@ -35,6 +35,7 @@
 25. [CLI Reference](#25-cli-reference)
 26. [Complete Working Examples](#26-complete-working-examples)
 27. [Interop Baseline](#27-interop-baseline)
+28. [Package Manager Baseline](#28-package-manager-baseline)
 
 ---
 
@@ -2336,6 +2337,44 @@ python python\demo_phase8.py
 The C sample is checked in at `tools/spectra-interop/examples/c_ffi_sample.c` and is validated locally with LLVM `clang` against `target\release\spectra_interop.dll.lib`.
 
 For the full interop contract, see `docs/interop.md`.
+
+---
+
+## 28. Package Manager Baseline
+
+SpectraLang supports a Phase 9 package manager and local registry baseline.
+
+Core commands:
+
+```powershell
+spectralang package lock --root .
+spectralang package build --root .
+spectralang package check --root .
+spectralang package run --root .
+spectralang package test --root .
+spectralang package bench --root .
+spectralang package doc --root .
+spectralang package add core --root . --path ../core --version 0.1.0
+spectralang package update --root .
+```
+
+Local registry commands:
+
+```powershell
+spectralang package publish --root packages/core --registry .spectra-registry
+spectralang package add core --root . --registry .spectra-registry --version 0.1.0
+```
+
+Manifest features:
+
+- `[project]` with `name`, `version`, `entry`, and `src_dirs`
+- `[workspace] members = [...]`
+- `[dependencies]` entries with local `path` and `version`
+- exact semver versions in `MAJOR.MINOR.PATCH` form
+
+The lockfile is `spectra.lock`. It records deterministic package order, package versions, path sources, manifest hashes, and resolved dependencies.
+
+For the full package manager contract, see `docs/package-manager.md`.
 
 ---
 
