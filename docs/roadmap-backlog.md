@@ -735,7 +735,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-801 Python Interop
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Dependencies: `R-303`, `R-602`
@@ -748,11 +748,18 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- Python demo can call compiled Spectra code and exchange tensor data
+- `python/demo_phase8.py` calls Spectra through the CLI/JIT boundary.
+- NumPy `.npy` tensor exchange round-trips f64 data.
+
+### Completed so far
+
+- `python/spectra_bridge.py` provides `run_spectra_main`, NumPy `.npy` read/write helpers, and a ctypes wrapper for the native interop ABI.
+- `python/demo_phase8.py` validates calling Spectra and exchanging tensor data with NumPy.
+- `docs/interop.md` documents the Python bridge contract and validation commands.
 
 ## R-802 C and Rust FFI
 
-- Status: `not_started`
+- Status: `blocked`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-701`
@@ -765,11 +772,25 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- FFI samples compile and run in C and Rust
+- Rust sample compiles and runs against Spectra interop exports.
+- C ABI header and sample exist.
+- C sample compiles and runs against Spectra interop exports on an environment with `cl`, `clang`, or `gcc`.
+
+### Completed so far
+
+- `tools/spectra-interop` defines a `cdylib`/`rlib` interop crate.
+- `tools/spectra-interop/include/spectra_interop.h` defines the stable C ABI surface.
+- `tools/spectra-interop/examples/rust_ffi_sample.rs` compiles and runs locally.
+- `tools/spectra-interop/examples/c_ffi_sample.c` is checked in and uses the same ABI surface.
+- Rust unit tests validate the safe helper API and C ABI `.npy` round-trip in-process.
+
+### Remaining before completion
+
+- Compile and run `c_ffi_sample.c` against the generated interop library on a machine with a C compiler installed. The current Windows environment does not expose `cl`, `clang`, or `gcc`, so the item is blocked rather than marked complete.
 
 ## R-803 Model and Data Formats
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-801`
@@ -783,7 +804,13 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- at least one model/data interchange format round-trips correctly
+- NumPy `.npy` v1.0 little-endian f64 arrays round-trip correctly.
+
+### Completed so far
+
+- `spectra-interop` implements `.npy` v1.0 read/write for one-dimensional little-endian f64 arrays.
+- Rust helper tests, C ABI tests, Rust sample, and Python demo cover round-trip behavior.
+- Broader formats such as `.npz`, safetensors, checkpoints, and ONNX remain future work and are not claimed as complete in this item.
 
 ---
 

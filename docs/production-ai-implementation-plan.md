@@ -751,8 +751,14 @@ Make SpectraLang usable inside existing AI ecosystems.
 
 ### Acceptance Criteria
 
-- A Spectra function can be called from Python.
-- Tensor data can be exchanged without unnecessary copies when layouts permit.
+- A Spectra program can be called from Python through the CLI/JIT boundary.
+- Tensor data can be exchanged with NumPy through the `.npy` baseline format.
+
+### Current Implementation
+
+- `python/spectra_bridge.py` provides the Python bridge.
+- `python/demo_phase8.py` validates Python calling Spectra and exchanging tensor data with NumPy.
+- The current baseline prioritizes deterministic interoperability over zero-copy embedding. Zero-copy Python extension work remains future scope unless added as a new roadmap item.
 
 ## 8.2 C / C++ / Rust FFI
 
@@ -767,6 +773,13 @@ Make SpectraLang usable inside existing AI ecosystems.
 
 - Foreign code can call compiled Spectra modules via stable ABI.
 - FFI examples exist in C and Rust.
+
+### Current Implementation
+
+- `tools/spectra-interop` provides the stable ABI crate with `cdylib` and `rlib` outputs.
+- `tools/spectra-interop/include/spectra_interop.h` defines the C ABI.
+- `tools/spectra-interop/examples/rust_ffi_sample.rs` validates the Rust helper path.
+- `tools/spectra-interop/examples/c_ffi_sample.c` is provided, but local compilation is blocked until a C compiler is available in the environment.
 
 ## 8.3 Model and Data Format Support
 
@@ -783,6 +796,12 @@ Make SpectraLang usable inside existing AI ecosystems.
 ### Acceptance Criteria
 
 - At least one external model/data format can round-trip successfully.
+
+### Current Implementation
+
+- NumPy `.npy` v1.0 little-endian f64 arrays are the completed baseline interchange format.
+- Round-trip validation exists through Rust unit tests, C ABI in-process tests, Rust sample, and Python/NumPy demo.
+- `.npz`, safetensors, checkpoints, and ONNX are not yet implemented and should be tracked as later roadmap work before being claimed as production features.
 
 ---
 

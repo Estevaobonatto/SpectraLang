@@ -524,13 +524,13 @@ title = "Python Interop"
 phase = "phase_8"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-303", "R-602"]
-summary = "Allow Python to call Spectra and exchange tensor data."
+summary = "Allow Python to call Spectra through the CLI/JIT boundary and exchange tensor data through NumPy."
 acceptance = [
-  "Python demo calls Spectra code successfully",
-  "tensor exchange works with at least NumPy"
+  "python/demo_phase8.py calls Spectra code successfully",
+  "NumPy .npy tensor exchange round-trips f64 data"
 ]
 
 [[items]]
@@ -539,12 +539,14 @@ title = "C and Rust FFI"
 phase = "phase_8"
 owner = "ecosystem"
 priority = "P1"
-status = "not_started"
+status = "blocked"
 risk = "medium"
 dependencies = ["R-701"]
-summary = "Define a stable foreign-function boundary for native interop."
+summary = "Define a stable foreign-function boundary for native interop; Rust and C ABI validation exist, but local C sample compilation is blocked by missing C compiler."
 acceptance = [
-  "C and Rust samples compile and run against Spectra exports"
+  "Rust sample compiles and runs against Spectra interop exports",
+  "C ABI header and sample exist",
+  "C sample compiles and runs against Spectra interop exports on an environment with cl, clang, or gcc"
 ]
 
 [[items]]
@@ -553,12 +555,12 @@ title = "Model and Data Formats"
 phase = "phase_8"
 owner = "ecosystem"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-801"]
-summary = "Support mainstream tensor/model interchange formats."
+summary = "Support NumPy .npy as the baseline tensor interchange format."
 acceptance = [
-  "at least one model/data interchange format round-trips correctly"
+  "NumPy .npy v1.0 little-endian f64 arrays round-trip through Rust, C ABI, and Python validation"
 ]
 
 [[items]]

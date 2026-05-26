@@ -34,6 +34,7 @@
 24. [Multi-Module Projects](#24-multi-module-projects)
 25. [CLI Reference](#25-cli-reference)
 26. [Complete Working Examples](#26-complete-working-examples)
+27. [Interop Baseline](#27-interop-baseline)
 
 ---
 
@@ -2307,6 +2308,34 @@ pub fn main() -> int {
     return 0;
 }
 ```
+
+---
+
+## 27. Interop Baseline
+
+SpectraLang currently exposes a Phase 8 interoperability baseline for AI/ML workflows through:
+
+- `python/spectra_bridge.py` for Python-to-Spectra CLI/JIT calls and NumPy `.npy` tensor exchange.
+- `tools/spectra-interop` for Rust helper APIs and stable C ABI exports.
+- `tools/spectra-interop/include/spectra_interop.h` for C callers.
+
+Supported data format:
+
+- NumPy `.npy` v1.0
+- little-endian `f64` (`<f8`)
+- one-dimensional C-order arrays
+
+Validation commands:
+
+```powershell
+cargo test -p spectra-interop
+cargo run -p spectra-interop --example rust_ffi_sample
+python python\demo_phase8.py
+```
+
+The C sample is checked in at `tools/spectra-interop/examples/c_ffi_sample.c`, but compiling it requires a host C compiler such as MSVC `cl`, `clang`, or `gcc`.
+
+For the full interop contract, see `docs/interop.md`.
 
 ---
 

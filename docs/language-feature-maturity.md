@@ -51,6 +51,11 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - optional `std.tensor` `wgpu` accelerator backend behind Cargo feature `gpu`
 - `std.tensor` mixed-precision quantization metadata/API for f32, f16, and bf16 float tensor handles
 - `std.ml` production baseline runtime API for modules, layers, losses, optimizers, LR scheduling, tensor-backed datasets, and dataloaders
+- Phase 8 interop baseline:
+  - Python bridge through `python/spectra_bridge.py`
+  - Rust helper crate `spectra-interop`
+  - stable C ABI header surface
+  - NumPy `.npy` v1.0 little-endian f64 one-dimensional tensor exchange
 
 ### Beta
 
@@ -89,6 +94,7 @@ CLI contract:
 - raw strings and advanced literal modes
 - production tensor syntax and static shape types
 - native CUDA/ROCm/Metal/DirectML/Vulkan backends beyond the current optional `wgpu` baseline
+- `.npz`, safetensors, checkpoints, and ONNX import/export beyond the current `.npy` baseline
 
 ## Synchronization Rules
 

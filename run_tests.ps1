@@ -6,12 +6,14 @@
 #   tests/errors/       - devem FALHAR na compilacao (erros esperados)
 #   tests/semantic/     - compilados e reportados sem expectativa forcada
 #   tests/cli/          - fixtures para validar comandos do CLI
+#   tools/spectra-interop/ - interop Rust/Python/C ABI
 #
 # Requer que o binario ja esteja compilado:
 #   cargo build -p spectra-cli
 
 $binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
 $timeoutSeconds = 10
+$hostCommandTimeoutSeconds = 120
 $experimentalFlags = @(
     "--enable-experimental", "switch",
     "--enable-experimental", "unless",
@@ -37,6 +39,7 @@ Write-Host ""
 $totalPassed  = 0
 $totalFailed  = 0
 $totalInfo    = 0
+$totalSkipped = 0
 $results      = @()
 
 # ---------------------------------------------------------------------------
@@ -415,6 +418,108 @@ if (Test-Path $newProjectRoot) {
 }
 
 # ---------------------------------------------------------------------------
+# Grupo 7: interop Python / Rust / C ABI
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Interop (Rust/Python/C ABI) ---" -ForegroundColor Yellow
+
+function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$arguments, [string]$workingDir) {
+    Write-Host "  $name" -NoNewline
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $fileName
+    $psi.WorkingDirectory = $workingDir
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $quotedArgs = $arguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + ($_ -replace '"', '\"') + '"'
+        } else {
+            $_
+        }
+    }
+    $psi.Arguments = ($quotedArgs -join ' ')
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    $timedOut = $false
+
+    try {
+        [void]$proc.Start()
+        if (-not $proc.WaitForExit($hostCommandTimeoutSeconds * 1000)) {
+            $timedOut = $true
+            $proc.Kill()
+            $proc.WaitForExit()
+        }
+    } catch {
+        Write-Host " FALHOU" -ForegroundColor Red
+        return [PSCustomObject]@{ Status = "FALHOU"; Detail = $_.Exception.Message }
+    }
+
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $combined = "$stdout`n$stderr"
+
+    if ($timedOut) {
+        Write-Host " TIMEOUT" -ForegroundColor Red
+        return [PSCustomObject]@{ Status = "TIMEOUT"; Detail = "comando excedeu ${hostCommandTimeoutSeconds}s" }
+    }
+    if ($proc.ExitCode -eq 0) {
+        Write-Host " PASSOU" -ForegroundColor Green
+        return [PSCustomObject]@{ Status = "PASSOU"; Detail = "" }
+    }
+    $err = Get-FirstError $combined
+    if (-not $err) {
+        $err = "exit code inesperado: $($proc.ExitCode)"
+    }
+    Write-Host " FALHOU" -ForegroundColor Red
+    Write-Host "     $err" -ForegroundColor DarkRed
+    return [PSCustomObject]@{ Status = "FALHOU"; Detail = $err }
+}
+
+$cargoPath = (Get-Command cargo -ErrorAction SilentlyContinue).Source
+if (-not $cargoPath) {
+    $cargoPath = "C:\Users\estev\.cargo\bin\cargo.exe"
+}
+
+$interopChecks = @(
+    [PSCustomObject]@{ Nome = "cargo_test_spectra_interop"; File = $cargoPath; Args = @("test", "-p", "spectra-interop") }
+    [PSCustomObject]@{ Nome = "rust_ffi_sample"; File = $cargoPath; Args = @("run", "-p", "spectra-interop", "--example", "rust_ffi_sample") }
+    [PSCustomObject]@{ Nome = "python_phase8_demo"; File = "python"; Args = @("python\demo_phase8.py") }
+)
+
+foreach ($check in $interopChecks) {
+    $r = Invoke-HostCommand -name $check.Nome -fileName $check.File -arguments $check.Args -workingDir (Get-Location).Path
+    if ($r.Status -eq "PASSOU") {
+        $totalPassed++
+    } else {
+        $totalFailed++
+    }
+    $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = $check.Nome; Status = $r.Status; Detalhe = $r.Detail }
+}
+
+$cCompiler = $null
+foreach ($candidate in @("cl", "clang", "gcc")) {
+    $resolved = Get-Command $candidate -ErrorAction SilentlyContinue
+    if ($resolved) {
+        $cCompiler = $resolved.Source
+        break
+    }
+}
+
+Write-Host "  c_ffi_sample" -NoNewline
+if ($cCompiler) {
+    Write-Host " INFO:COMPILADOR DETECTADO" -ForegroundColor Cyan
+    $totalInfo++
+    $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = "c_ffi_sample"; Status = "INFO:COMPILADOR_DETECTADO"; Detalhe = $cCompiler }
+} else {
+    Write-Host " SKIP (compilador C ausente)" -ForegroundColor DarkYellow
+    $totalSkipped++
+    $results += [PSCustomObject]@{ Diretorio = "interop"; Teste = "c_ffi_sample"; Status = "SKIP"; Detalhe = "cl/clang/gcc nao encontrados; sample C nao foi compilado localmente" }
+}
+
+# ---------------------------------------------------------------------------
 # Resumo
 # ---------------------------------------------------------------------------
 $totalDecisive = $totalPassed + $totalFailed
@@ -427,6 +532,7 @@ Write-Host "Testes com resultado esperado: $totalDecisive" -ForegroundColor Whit
 Write-Host "  Passou : $totalPassed" -ForegroundColor Green
 Write-Host "  Falhou : $totalFailed" -ForegroundColor $(if ($totalFailed -eq 0) { "Green" } else { "Red" })
 Write-Host "Testes informativos (semantic): $totalInfo" -ForegroundColor Cyan
+Write-Host "Testes ignorados por ambiente: $totalSkipped" -ForegroundColor DarkYellow
 
 if ($totalDecisive -gt 0) {
     $pct = [math]::Round(($totalPassed / $totalDecisive) * 100, 1)

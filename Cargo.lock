@@ -1461,6 +1461,10 @@ name = "spectra-compiler"
 version = "0.1.0"
 
 [[package]]
+name = "spectra-interop"
+version = "0.1.0"
+
+[[package]]
 name = "spectra-lsp"
 version = "0.1.0"
 dependencies = [
