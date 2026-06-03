@@ -601,12 +601,13 @@ title = "LSP Completion"
 phase = "phase_10"
 owner = "tooling"
 priority = "P1"
-status = "not_started"
-risk = "medium"
+status = "complete"
+risk = "low"
 dependencies = ["R-105", "R-901"]
-summary = "Make the language server usable for real-world workspace development."
+summary = "Make the language server usable for real-world workspace development with rename support and integration tests."
 acceptance = [
-  "hover, go-to-def, references, rename, completion, and semantic tokens work in non-trivial projects"
+  "hover, go-to-def, references, rename, completion, and semantic tokens work in non-trivial projects",
+  "LSP rename has automated coverage for definitions, uses, and identifier boundaries"
 ]
 
 [[items]]
@@ -615,12 +616,13 @@ title = "Debugger and Stack Traces"
 phase = "phase_10"
 owner = "backend"
 priority = "P2"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-103"]
-summary = "Add source-aware runtime diagnostics and debug strategy."
+summary = "Add source-aware runtime diagnostics and debug strategy; CLI non-zero runtime exits now emit source-level main traces."
 acceptance = [
-  "runtime failures produce actionable source-level traces"
+  "runtime failures produce actionable source-level traces",
+  "AOT artifacts are debuggable in at least one mainstream debugger"
 ]
 
 [[items]]
@@ -629,12 +631,13 @@ title = "Profiling and Benchmark Tooling"
 phase = "phase_10"
 owner = "tooling"
 priority = "P2"
-status = "not_started"
-risk = "medium"
+status = "complete"
+risk = "low"
 dependencies = ["R-401"]
-summary = "Expose benchmark and profiling tools for compiler and runtime performance."
+summary = "Expose benchmark and profiling tools for compiler and runtime performance through bench command and JSON reports."
 acceptance = [
-  "benchmark suite exists and perf regressions are reportable"
+  "benchmark suite exists and perf regressions are reportable",
+  "spectralang bench emits machine-readable timing reports"
 ]
 
 [[items]]

@@ -879,7 +879,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-1001 LSP Completion
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `tooling`
 - Dependencies: `R-105`, `R-901`
@@ -896,10 +896,18 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - editor workflow supports daily coding in a non-trivial Spectra workspace
+- rename is covered by automated tests for definitions, uses, and identifier boundaries
+
+### Completed so far
+
+- `tools/spectra-lsp` advertises hover, go-to-definition, references, rename, completion, diagnostics, document/workspace symbols, formatting, inlay hints, quick fixes, and semantic tokens.
+- `prepareRename` and `rename` are implemented.
+- Rename uses semantic definition links when available and a bounded lexical block fallback when local symbols do not expose a definition span.
+- `cargo test -p spectra-lsp` validates rename behavior.
 
 ## R-1002 Debugger and Stack Traces
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P2`
 - Owner: `backend`
 - Dependencies: `R-103`
@@ -913,10 +921,21 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - runtime failures produce actionable source-level traces
+- AOT artifacts are debuggable in at least one mainstream debugger
+
+### Completed so far
+
+- `spectralang run` now emits `error[runtime]` with source location of `fn main` when a program exits with a non-zero status.
+- `tests/cli/runtime_nonzero.spectra` and `run_tests.ps1` validate the runtime diagnostic path.
+
+### Remaining before completion
+
+- Implement full source frame stacks for runtime traps beyond non-zero program exit.
+- Define and validate the AOT debug information strategy for at least one mainstream debugger.
 
 ## R-1003 Profiling and Benchmark Tooling
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `tooling`
 - Dependencies: `R-401`
@@ -930,6 +949,14 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Acceptance
 
 - benchmark suite exists and perf deltas are reportable
+- `spectralang bench` emits machine-readable timing reports
+
+### Completed so far
+
+- `spectralang bench <paths>` compiles with pipeline timing metrics enabled.
+- `--bench-json <path>` writes module-level and aggregate timing data as JSON.
+- `spectralang package bench` uses the benchmark mode for package workspaces.
+- `run_tests.ps1` validates `bench --bench-json`.
 
 ---
 

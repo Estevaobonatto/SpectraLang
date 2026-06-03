@@ -19,8 +19,10 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 const COMMAND_RUN_DIAGNOSTICS: &str = "spectra.diagnostics.run";
 const COMMAND_LINT_WORKSPACE: &str = "spectra.lintWorkspace";
 const KEYWORDS: &[&str] = &[
-    "fn", "let", "return", "if", "else", "match", "while", "for", "loop", "break", "continue",
-    "struct", "enum", "impl", "trait", "import", "pub", "internal", "true", "false", "self",
+    "module", "fn", "let", "return", "if", "elif", "elseif", "else", "match", "switch", "case",
+    "while", "do", "for", "in", "of", "loop", "break", "continue", "struct", "enum", "impl",
+    "trait", "import", "pub", "internal", "const", "static", "type", "as", "dyn", "true", "false",
+    "self",
 ];
 
 #[derive(Debug, Clone)]
@@ -104,6 +106,7 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(true)),
                 document_highlight_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
@@ -445,6 +448,113 @@ impl LanguageServer for Backend {
         }
 
         Ok(Some(locations))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let Some(document) = self
+            .state
+            .documents
+            .read()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+
+        let line = params.position.line as usize + 1;
+        let column = params.position.character as usize + 1;
+        let Some(symbol) = document.analysis.symbol_at(line, column) else {
+            return Ok(None);
+        };
+        let current_name = identifier_at_position(&document.text, params.position)
+            .unwrap_or_else(|| text_for_span(&document.text, symbol.span));
+        if !is_valid_rename_identifier(&current_name) {
+            return Ok(None);
+        }
+
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: span_to_range(symbol.span),
+            placeholder: current_name,
+        }))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        if !is_valid_rename_identifier(&params.new_name) {
+            return Ok(None);
+        }
+
+        let text_position = params.text_document_position;
+        let current_uri = text_position.text_document.uri;
+        let Some(document) = self.state.documents.read().await.get(&current_uri).cloned() else {
+            return Ok(None);
+        };
+
+        let line = text_position.position.line as usize + 1;
+        let column = text_position.position.character as usize + 1;
+        let Some(symbol) = document.analysis.symbol_at(line, column) else {
+            return Ok(None);
+        };
+        let current_name = identifier_at_position(&document.text, text_position.position)
+            .unwrap_or_else(|| text_for_span(&document.text, symbol.span));
+        if !is_valid_rename_identifier(&current_name) {
+            return Ok(None);
+        }
+
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        let local_edits =
+            rename_edits_for_document(&document, &symbol, &current_name, &params.new_name);
+        if !local_edits.is_empty() {
+            changes.insert(current_uri.clone(), local_edits);
+        }
+
+        if !symbol.info.is_local {
+            if let Some(reference_key) = reference_key_for_resolved_symbol(&document, &symbol) {
+                self.ensure_workspace_cache().await;
+                let cache = self.state.workspace_cache.read().await;
+                for (uri, entry) in cache.iter() {
+                    if uri == &current_uri {
+                        continue;
+                    }
+                    let mut edits = Vec::new();
+                    let mut seen = HashSet::new();
+                    for reference in &entry.references {
+                        if reference.key != reference_key {
+                            continue;
+                        }
+                        let key = format!(
+                            "{}:{}:{}:{}",
+                            reference.location.range.start.line,
+                            reference.location.range.start.character,
+                            reference.location.range.end.line,
+                            reference.location.range.end.character
+                        );
+                        if seen.insert(key) {
+                            edits.push(TextEdit {
+                                range: reference.location.range,
+                                new_text: params.new_name.clone(),
+                            });
+                        }
+                    }
+                    if !edits.is_empty() {
+                        changes.insert(uri.clone(), edits);
+                    }
+                }
+            }
+        }
+
+        if changes.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
     }
 
     async fn document_symbol(
@@ -2271,6 +2381,199 @@ fn reference_entries_for_analysis(uri: &Url, analysis: &DocumentAnalysis) -> Vec
     references
 }
 
+fn rename_edits_for_document(
+    document: &DocumentState,
+    symbol: &spectra_compiler::ResolvedSymbol,
+    current_name: &str,
+    new_name: &str,
+) -> Vec<TextEdit> {
+    let mut edits = Vec::new();
+    let mut seen = HashSet::new();
+    if let Some(definition_span) = symbol.info.def_span {
+        for (span, info) in &document.analysis.symbols {
+            if info.def_span != Some(definition_span) {
+                continue;
+            }
+            if text_for_span(&document.text, *span) != current_name {
+                continue;
+            }
+            push_unique_rename_edit(&mut edits, &mut seen, span_to_range(*span), new_name);
+        }
+
+        if let Some(definition_range) =
+            find_name_range_in_span(&document.text, definition_span, current_name)
+        {
+            push_unique_rename_edit(&mut edits, &mut seen, definition_range, new_name);
+        }
+    }
+
+    if edits.is_empty() {
+        for range in lexical_rename_ranges(&document.text, symbol.span, current_name) {
+            push_unique_rename_edit(&mut edits, &mut seen, range, new_name);
+        }
+    }
+
+    edits.sort_by_key(|edit| {
+        (
+            edit.range.start.line,
+            edit.range.start.character,
+            edit.range.end.line,
+            edit.range.end.character,
+        )
+    });
+    edits
+}
+
+fn lexical_rename_ranges(text: &str, cursor_span: Span, current_name: &str) -> Vec<Range> {
+    let (scope_start, scope_end) =
+        enclosing_brace_scope(text, cursor_span.start).unwrap_or((0usize, text.len()));
+    identifier_occurrence_ranges(text, scope_start, scope_end, current_name)
+}
+
+fn enclosing_brace_scope(text: &str, cursor_offset: usize) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut open = None;
+    let mut index = cursor_offset.min(bytes.len());
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            b'}' => depth += 1,
+            b'{' if depth == 0 => {
+                open = Some(index + 1);
+                break;
+            }
+            b'{' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    let open = open?;
+    let mut depth = 0usize;
+    for (index, byte) in bytes.iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' if depth == 0 => return Some((open, index)),
+            b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Some((open, bytes.len()))
+}
+
+fn identifier_occurrence_ranges(
+    text: &str,
+    scope_start: usize,
+    scope_end: usize,
+    name: &str,
+) -> Vec<Range> {
+    if name.is_empty() || scope_start > scope_end || scope_end > text.len() {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let slice = &text[scope_start..scope_end];
+    let mut search_from = 0usize;
+    while let Some(relative) = slice[search_from..].find(name) {
+        let relative_start = search_from + relative;
+        let relative_end = relative_start + name.len();
+        let before = slice[..relative_start].chars().next_back();
+        let after = slice[relative_end..].chars().next();
+        if !before.map(is_identifier_char).unwrap_or(false)
+            && !after.map(is_identifier_char).unwrap_or(false)
+        {
+            let absolute_start = scope_start + relative_start;
+            let absolute_end = scope_start + relative_end;
+            ranges.push(span_to_range(span_from_offsets(
+                text,
+                absolute_start,
+                absolute_end,
+            )));
+        }
+        search_from = relative_end;
+    }
+    ranges
+}
+
+fn identifier_at_position(text: &str, position: Position) -> Option<String> {
+    let offset = position_to_offset(text, position).min(text.len());
+    let bytes = text.as_bytes();
+    let mut start = offset;
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = offset;
+    while end < bytes.len() && is_identifier_byte(bytes[end]) {
+        end += 1;
+    }
+    (start < end).then(|| text[start..end].to_string())
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphanumeric()
+}
+
+fn push_unique_rename_edit(
+    edits: &mut Vec<TextEdit>,
+    seen: &mut HashSet<String>,
+    range: Range,
+    new_name: &str,
+) {
+    let key = format!(
+        "{}:{}:{}:{}",
+        range.start.line, range.start.character, range.end.line, range.end.character
+    );
+    if seen.insert(key) {
+        edits.push(TextEdit {
+            range,
+            new_text: new_name.to_string(),
+        });
+    }
+}
+
+fn text_for_span(text: &str, span: Span) -> String {
+    if span.start <= span.end && span.end <= text.len() {
+        text[span.start..span.end].to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn is_valid_rename_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        && !KEYWORDS.contains(&value)
+}
+
+fn find_name_range_in_span(text: &str, span: Span, name: &str) -> Option<Range> {
+    if name.is_empty() || span.end > text.len() || span.start > span.end {
+        return None;
+    }
+    let slice = &text[span.start..span.end];
+    let mut search_from = 0usize;
+    while let Some(relative) = slice[search_from..].find(name) {
+        let relative_start = search_from + relative;
+        let relative_end = relative_start + name.len();
+        let before = slice[..relative_start].chars().next_back();
+        let after = slice[relative_end..].chars().next();
+        if !before.map(is_identifier_char).unwrap_or(false)
+            && !after.map(is_identifier_char).unwrap_or(false)
+        {
+            let absolute_start = span.start + relative_start;
+            let absolute_end = span.start + relative_end;
+            return Some(span_to_range(span_from_offsets(
+                text,
+                absolute_start,
+                absolute_end,
+            )));
+        }
+        search_from = relative_end;
+    }
+    None
+}
+
 fn workspace_symbol_entries_for_module(
     text: &str,
     module: &spectra_compiler::ast::Module,
@@ -3181,6 +3484,86 @@ fn range_to_span(text: &str, range: Range) -> Span {
     let start = position_to_offset(text, range.start);
     let end = position_to_offset(text, range.end);
     span_from_offsets(text, start, end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn analyzed_document(source: &str) -> DocumentState {
+        DocumentState {
+            text: source.to_string(),
+            analysis: analyze_document(
+                source,
+                "rename_test.spectra",
+                &CompilationOptions::default(),
+                None,
+            ),
+        }
+    }
+
+    fn apply_text_edits(source: &str, edits: &[TextEdit]) -> String {
+        let mut ranges = edits
+            .iter()
+            .map(|edit| {
+                (
+                    position_to_offset(source, edit.range.start),
+                    position_to_offset(source, edit.range.end),
+                    edit.new_text.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        ranges.sort_by(|left, right| right.0.cmp(&left.0));
+
+        let mut result = source.to_string();
+        for (start, end, replacement) in ranges {
+            result.replace_range(start..end, &replacement);
+        }
+        result
+    }
+
+    #[test]
+    fn rename_identifier_validation_rejects_keywords_and_invalid_names() {
+        assert!(is_valid_rename_identifier("renamed_value"));
+        assert!(is_valid_rename_identifier("_hidden1"));
+        assert!(!is_valid_rename_identifier("1bad"));
+        assert!(!is_valid_rename_identifier("two words"));
+        assert!(!is_valid_rename_identifier("fn"));
+        assert!(!is_valid_rename_identifier("module"));
+    }
+
+    #[test]
+    fn rename_edits_cover_local_definition_and_uses() {
+        let source = "module rename_test;\n\npub fn main() -> int {\n    let value = 1;\n    let next = value + value;\n    return next;\n}\n";
+        let document = analyzed_document(source);
+        let symbol = document
+            .analysis
+            .symbol_at(5, 17)
+            .expect("symbol at value use");
+        let edits = rename_edits_for_document(&document, &symbol, "value", "renamed");
+        let result = apply_text_edits(source, &edits);
+
+        assert_eq!(edits.len(), 3);
+        assert!(result.contains("let renamed = 1;"));
+        assert!(result.contains("let next = renamed + renamed;"));
+        assert!(!result.contains("value"));
+    }
+
+    #[test]
+    fn rename_edits_do_not_touch_identifier_substrings() {
+        let source = "module rename_test;\n\npub fn main() -> int {\n    let value = 1;\n    let value_extra = 2;\n    return value + value_extra;\n}\n";
+        let document = analyzed_document(source);
+        let symbol = document
+            .analysis
+            .symbol_at(6, 12)
+            .expect("symbol at value use");
+        let edits = rename_edits_for_document(&document, &symbol, "value", "renamed");
+        let result = apply_text_edits(source, &edits);
+
+        assert!(result.contains("let renamed = 1;"));
+        assert!(result.contains("let value_extra = 2;"));
+        assert!(result.contains("return renamed + value_extra;"));
+    }
 }
 
 #[tokio::main]

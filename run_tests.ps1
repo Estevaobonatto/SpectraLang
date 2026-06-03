@@ -364,6 +364,20 @@ $cliTests = @(
         Contains = "Written docs"
         UseStdin = $false
     }
+    [PSCustomObject]@{
+        Nome = "bench_json_valid_file"
+        Args = @("bench", "--bench-json", "target\bench_cli_test.json", "tests\validation\01_basic_syntax.spectra")
+        ExpectExit = 0
+        Contains = "Written bench report"
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
+        Nome = "runtime_nonzero_trace"
+        Args = @("run", "tests\cli\runtime_nonzero.spectra")
+        ExpectExit = 7
+        Contains = "error[runtime]"
+        UseStdin = $false
+    }
 )
 
 Write-Host ""
@@ -589,6 +603,7 @@ if (-not $cargoPath) {
 
 $interopChecks = @(
     [PSCustomObject]@{ Nome = "cargo_test_spectra_interop"; File = $cargoPath; Args = @("test", "-p", "spectra-interop") }
+    [PSCustomObject]@{ Nome = "cargo_test_spectra_lsp"; File = $cargoPath; Args = @("test", "-p", "spectra-lsp") }
     [PSCustomObject]@{ Nome = "cargo_build_spectra_interop_release"; File = $cargoPath; Args = @("build", "-p", "spectra-interop", "--release") }
     [PSCustomObject]@{ Nome = "rust_ffi_sample"; File = $cargoPath; Args = @("run", "-p", "spectra-interop", "--example", "rust_ffi_sample") }
     [PSCustomObject]@{ Nome = "python_phase8_demo"; File = "python"; Args = @("python\demo_phase8.py") }

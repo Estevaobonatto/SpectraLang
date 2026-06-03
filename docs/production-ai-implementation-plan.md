@@ -896,6 +896,12 @@ Make the language productive enough for daily engineering.
 - VS Code workflow is good enough for real project editing.
 - LSP integration test suite exists.
 
+### Current Implementation
+
+- `tools/spectra-lsp` supports hover, go-to-definition, references, rename, completion, diagnostics, document/workspace symbols, formatting, inlay hints, quick fixes, and semantic tokens.
+- `prepareRename` and `rename` are implemented with semantic linking where available and bounded lexical fallback for local identifiers.
+- `cargo test -p spectra-lsp` covers rename edits for definitions, uses, and identifier boundaries.
+
 ## 10.2 Debugger and Runtime Introspection
 
 ### Tasks
@@ -912,6 +918,11 @@ Make the language productive enough for daily engineering.
 - Runtime crashes are diagnosable with source locations.
 - AOT artifacts are debuggable in at least one mainstream debugger.
 
+### Current Implementation
+
+- `spectralang run` emits an `error[runtime]` diagnostic with the source location of `fn main` when a program exits with a non-zero status.
+- Full runtime trap stacks and AOT debugger integration are still incomplete. This workstream remains in progress until source frame stacks and one mainstream debugger path are validated.
+
 ## 10.3 Profiler and Benchmark Tooling
 
 ### Tasks
@@ -925,6 +936,12 @@ Make the language productive enough for daily engineering.
 
 - Benchmark results are repeatable.
 - Performance regressions are detectable automatically.
+
+### Current Implementation
+
+- `spectralang bench <paths>` runs compilation with pipeline timing metrics.
+- `--bench-json <path>` writes machine-readable module and aggregate timings that can be diffed by CI or scripts.
+- `spectralang package bench` runs the same benchmark mode for package workspaces.
 
 ---
 

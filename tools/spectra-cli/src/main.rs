@@ -93,6 +93,8 @@ struct CliInvocation {
     emit_object: Option<PathBuf>,
     /// When `Some(path)`, compile to a native executable at `path`.
     emit_exe: Option<PathBuf>,
+    /// When `Some(path)`, write a machine-readable benchmark report.
+    bench_json: Option<PathBuf>,
     /// Arguments forwarded to the Spectra program when running via JIT (`run` command).
     /// These are accessible through `std.env.env_arg` / `std.env.env_args_count`.
     program_args: Vec<String>,
@@ -145,6 +147,7 @@ enum BuildCommand {
     Check,
     Run,
     Lint,
+    Bench,
 }
 
 impl BuildCommand {
@@ -154,6 +157,7 @@ impl BuildCommand {
             BuildCommand::Check => "check",
             BuildCommand::Run => "run",
             BuildCommand::Lint => "lint",
+            BuildCommand::Bench => "bench",
         }
     }
 
@@ -163,6 +167,7 @@ impl BuildCommand {
             BuildCommand::Check => "Type-check modules and report diagnostics without executing.",
             BuildCommand::Run => "Compile modules and execute the entry point via JIT.",
             BuildCommand::Lint => "Run lint checks and report warnings or denied rules.",
+            BuildCommand::Bench => "Compile modules with timing metrics and optional JSON report.",
         }
     }
 
@@ -172,6 +177,7 @@ impl BuildCommand {
             BuildCommand::Check => "    Finished (no errors detected)",
             BuildCommand::Run => "",
             BuildCommand::Lint => "    Finished (no lint findings)",
+            BuildCommand::Bench => "    Finished bench",
         }
     }
 
@@ -179,6 +185,7 @@ impl BuildCommand {
         match self {
             BuildCommand::Check => "Checking",
             BuildCommand::Lint => "Linting",
+            BuildCommand::Bench => "Benchmarking",
             BuildCommand::Compile | BuildCommand::Run => "Compiling",
         }
     }
@@ -248,6 +255,7 @@ fn parse_cli() -> CliResult<CliAction> {
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
                     "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
                     "lint" => Ok(CliAction::Help(HelpTopic::Lint)),
+                    "bench" => Ok(CliAction::Help(HelpTopic::Build(BuildCommand::Bench))),
                     other => {
                         if let Some(kind) = parse_build_command_name(other) {
                             Ok(CliAction::Help(HelpTopic::Build(kind)))
@@ -366,6 +374,7 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
         "check" => Some(BuildCommand::Check),
         "run" => Some(BuildCommand::Run),
         "lint" => Some(BuildCommand::Lint),
+        "bench" => Some(BuildCommand::Bench),
         _ => None,
     }
 }
@@ -388,6 +397,7 @@ where
     let mut json_output = false;
     let mut emit_object: Option<PathBuf> = None;
     let mut emit_exe: Option<PathBuf> = None;
+    let mut bench_json: Option<PathBuf> = None;
     let mut program_args: Vec<String> = Vec::new();
 
     while let Some(arg) = args.next() {
@@ -481,12 +491,18 @@ where
                 lint_deny_cli.push(rule);
             }
             "--json" => {
-                if command == BuildCommand::Run {
+                if matches!(command, BuildCommand::Run | BuildCommand::Bench) {
                     return Err(usage_error(
-                        "'--json' is only supported with the 'compile', 'check', or 'lint' commands.",
+                        "'--json' is only supported with the 'compile', 'check', or 'lint' commands. Use '--bench-json <path>' for bench reports.",
                     ));
                 }
                 json_output = true;
+            }
+            "--bench-json" => {
+                let path = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing output path after '--bench-json'."))?;
+                bench_json = Some(PathBuf::from(path));
             }
             "--emit-object" | "-o" => {
                 let path = args
@@ -513,8 +529,12 @@ where
 
     match command {
         BuildCommand::Run => options.run_jit = true,
-        BuildCommand::Check | BuildCommand::Lint => options.run_jit = false,
+        BuildCommand::Check | BuildCommand::Lint | BuildCommand::Bench => options.run_jit = false,
         BuildCommand::Compile => {}
+    }
+    if command == BuildCommand::Bench {
+        options.collect_metrics = true;
+        show_pipeline_summary = true;
     }
 
     configure_lint_options(
@@ -533,6 +553,7 @@ where
         json_output,
         emit_object,
         emit_exe,
+        bench_json,
         program_args,
     })
 }
@@ -981,6 +1002,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         json_output,
         emit_object,
         emit_exe,
+        bench_json,
         program_args,
     } = invocation;
 
@@ -989,8 +1011,8 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             BuildCommand::Compile | BuildCommand::Check | BuildCommand::Lint => {
                 execute_lint_json(entries, options)
             }
-            BuildCommand::Run => Err(usage_error(
-                "'--json' is only supported with the 'compile', 'check', or 'lint' commands.",
+            BuildCommand::Run | BuildCommand::Bench => Err(usage_error(
+                "'--json' is only supported with the 'compile', 'check', or 'lint' commands. Use '--bench-json <path>' for bench reports.",
             )),
         };
     }
@@ -1132,6 +1154,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         show_pipeline_summary,
         true,
         verbose,
+        bench_json,
     )
 }
 
@@ -1141,11 +1164,12 @@ fn compile_plan(
     plan: &ProjectPlan,
     show_pipeline_summary: bool,
     verbose: bool,
-) -> bool {
+) -> (bool, Vec<ModulePipelineSummary>) {
     // When running via JIT without verbose/timings, suppress build progress output
     // so only the Spectra program's own stdout/stderr reaches the terminal.
     let quiet = kind == BuildCommand::Run && !verbose;
     let mut has_failures = false;
+    let mut summaries = Vec::new();
 
     for module in plan.modules() {
         if !quiet {
@@ -1182,10 +1206,11 @@ fn compile_plan(
 
                 match compiler.compile(effective_source, &filename) {
                     Ok(()) => {
-                        if show_pipeline_summary {
-                            if let Some(summary) = compiler.take_last_summary() {
+                        if let Some(summary) = compiler.take_last_summary() {
+                            if show_pipeline_summary {
                                 print_pipeline_summary(&summary);
                             }
+                            summaries.push(summary);
                         }
                     }
                     Err(error) => {
@@ -1212,7 +1237,7 @@ fn compile_plan(
         }
     }
 
-    has_failures
+    (has_failures, summaries)
 }
 
 /// Returns `true` when the source already contains an explicit `module <name>;`
@@ -1288,6 +1313,119 @@ fn print_pipeline_summary(summary: &ModulePipelineSummary) {
     }
 }
 
+fn write_bench_report(path: &Path, summaries: &[ModulePipelineSummary]) -> CliResult<()> {
+    let report = BenchReport {
+        version: 1,
+        modules: summaries.iter().map(BenchModuleReport::from).collect(),
+        totals: BenchTotals {
+            modules: summaries.len(),
+            frontend_ms: summaries
+                .iter()
+                .filter_map(|summary| summary.frontend_metrics.as_ref())
+                .map(|metrics| duration_ms(metrics.total))
+                .sum(),
+            lowering_ms: summaries
+                .iter()
+                .map(|summary| duration_ms(summary.lowering_duration))
+                .sum(),
+            codegen_ms: summaries
+                .iter()
+                .map(|summary| duration_ms(summary.codegen_duration))
+                .sum(),
+            passes_ms: summaries
+                .iter()
+                .flat_map(|summary| summary.passes.iter())
+                .map(|pass| duration_ms(pass.duration))
+                .sum(),
+        },
+    };
+    let text = serde_json::to_string_pretty(&report)
+        .map_err(|error| CliError::io(format!("Failed to serialize bench report: {}", error)))?;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|error| {
+                CliError::io(format!(
+                    "Failed to create bench report directory '{}': {}",
+                    parent.display(),
+                    error
+                ))
+            })?;
+        }
+    }
+    fs::write(path, text).map_err(|error| {
+        CliError::io(format!(
+            "Failed to write bench report '{}': {}",
+            path.display(),
+            error
+        ))
+    })
+}
+
+#[derive(Serialize)]
+struct BenchReport {
+    version: u8,
+    modules: Vec<BenchModuleReport>,
+    totals: BenchTotals,
+}
+
+#[derive(Serialize)]
+struct BenchModuleReport {
+    file: String,
+    frontend_ms: Option<f64>,
+    lexing_ms: Option<f64>,
+    parsing_ms: Option<f64>,
+    semantic_ms: Option<f64>,
+    backend_ms: Option<f64>,
+    lowering_ms: f64,
+    codegen_ms: f64,
+    passes: Vec<BenchPassReport>,
+}
+
+impl From<&ModulePipelineSummary> for BenchModuleReport {
+    fn from(summary: &ModulePipelineSummary) -> Self {
+        let metrics = summary.frontend_metrics.as_ref();
+        Self {
+            file: summary.filename.clone(),
+            frontend_ms: metrics.map(|metrics| duration_ms(metrics.total)),
+            lexing_ms: metrics.map(|metrics| duration_ms(metrics.lexing)),
+            parsing_ms: metrics.map(|metrics| duration_ms(metrics.parsing)),
+            semantic_ms: metrics.map(|metrics| duration_ms(metrics.semantic)),
+            backend_ms: metrics.map(|metrics| duration_ms(metrics.backend)),
+            lowering_ms: duration_ms(summary.lowering_duration),
+            codegen_ms: duration_ms(summary.codegen_duration),
+            passes: summary
+                .passes
+                .iter()
+                .map(|pass| BenchPassReport {
+                    name: pass.name.to_string(),
+                    duration_ms: duration_ms(pass.duration),
+                    modified: pass.modified,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct BenchPassReport {
+    name: String,
+    duration_ms: f64,
+    modified: bool,
+}
+
+#[derive(Serialize)]
+struct BenchTotals {
+    modules: usize,
+    frontend_ms: f64,
+    lowering_ms: f64,
+    codegen_ms: f64,
+    passes_ms: f64,
+}
+
+fn duration_ms(duration: std::time::Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
+
 fn execute_plan_with_options(
     kind: BuildCommand,
     options: CompilationOptions,
@@ -1297,6 +1435,7 @@ fn execute_plan_with_options(
     show_aggregate_summary: bool,
     print_success: bool,
     verbose: bool,
+    bench_json: Option<PathBuf>,
 ) -> CliResult<()> {
     let plan = ProjectPlan::build(entries).map_err(|error| CliError::io(error.to_string()))?;
 
@@ -1341,7 +1480,8 @@ fn execute_plan_with_options(
         compiler.set_quiet_execution(true);
     }
 
-    let has_failures = compile_plan(kind, &mut compiler, &plan, show_pipeline_summary, verbose);
+    let (has_failures, summaries) =
+        compile_plan(kind, &mut compiler, &plan, show_pipeline_summary, verbose);
 
     if show_aggregate_summary {
         compiler.print_aggregate_summary();
@@ -1358,6 +1498,20 @@ fn execute_plan_with_options(
         match take_last_exec_exit() {
             Some(code) => {
                 if code != 0 {
+                    if let Some((path, line, column)) = find_main_location(&plan) {
+                        eprintln!(
+                            "error[runtime]: program exited with status {}\n  --> {}:{}:{}\n   |\n   = help: inspect the main entry point and rerun with '--timings' for pipeline context",
+                            code,
+                            path.display(),
+                            line,
+                            column
+                        );
+                    } else {
+                        eprintln!(
+                            "error[runtime]: program exited with status {}\n   = help: rerun with '--timings' for pipeline context",
+                            code
+                        );
+                    }
                     std::process::exit(code);
                 }
             }
@@ -1377,7 +1531,27 @@ fn execute_plan_with_options(
         }
     }
 
+    if kind == BuildCommand::Bench {
+        if let Some(path) = bench_json {
+            write_bench_report(&path, &summaries)?;
+            println!("     Written bench report {}", path.display());
+        }
+    }
+
     Ok(())
+}
+
+fn find_main_location(plan: &ProjectPlan) -> Option<(PathBuf, usize, usize)> {
+    for module in plan.modules() {
+        let source = fs::read_to_string(&module.path).ok()?;
+        for (line_index, line) in source.lines().enumerate() {
+            let Some(column_index) = line.find("fn main") else {
+                continue;
+            };
+            return Some((module.path.clone(), line_index + 1, column_index + 1));
+        }
+    }
+    None
 }
 
 fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions) {
@@ -1505,9 +1679,10 @@ impl ReplSession {
         let mut options = self.base_options.clone();
         match command {
             BuildCommand::Run => options.run_jit = true,
-            BuildCommand::Check | BuildCommand::Lint | BuildCommand::Compile => {
-                options.run_jit = false
-            }
+            BuildCommand::Check
+            | BuildCommand::Lint
+            | BuildCommand::Compile
+            | BuildCommand::Bench => options.run_jit = false,
         }
 
         execute_plan_with_options(
@@ -1519,6 +1694,7 @@ impl ReplSession {
             false,
             print_success,
             self.verbose,
+            None,
         )
     }
 
@@ -1744,6 +1920,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 false,
                 true,
                 false,
+                None,
             )
         }
         PackageCommand::Test => {
@@ -1763,6 +1940,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 false,
                 true,
                 false,
+                None,
             )
         }
         PackageCommand::Bench => {
@@ -1772,7 +1950,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Locked {}", lock_path.display());
             execute_plan_with_options(
-                BuildCommand::Check,
+                BuildCommand::Bench,
                 CompilationOptions {
                     collect_metrics: true,
                     ..CompilationOptions::default()
@@ -1783,6 +1961,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 true,
                 true,
                 false,
+                None,
             )
         }
         PackageCommand::Doc => {
@@ -2192,6 +2371,7 @@ fn print_global_help() {
     println!("    check      Type-check modules and report diagnostics");
     println!("    run        Compile modules and execute the entry point via JIT");
     println!("    lint       Run lint checks across Spectra modules");
+    println!("    bench      Compile with benchmark timings and optional JSON report");
     println!("    repl       Start an interactive Spectra prompt");
     println!("    new        Scaffold a new Spectra project");
     println!("    package    Resolve, lock, build, publish, and consume packages");
@@ -2209,6 +2389,7 @@ fn print_global_help() {
     println!("    spectralang check examples/");
     println!("    spectralang run -O3 app.spectra");
     println!("    spectralang lint src/");
+    println!("    spectralang bench --bench-json target/bench.json src/");
     println!("    spectralang repl --run");
     println!("    spectralang new my-project");
     println!("    spectralang package build --root .");
@@ -2256,6 +2437,10 @@ fn print_build_help(command: BuildCommand) {
         BuildCommand::Lint => {
             println!("    spectralang lint src/");
             println!("    spectralang lint --deny shadowing examples/");
+        }
+        BuildCommand::Bench => {
+            println!("    spectralang bench src/");
+            println!("    spectralang bench --bench-json target/bench.json tests/validation/");
         }
     }
     println!();
@@ -2426,6 +2611,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    --allow <rule>         Allow (suppress) a lint rule (may be repeated)");
     println!("    --deny <rule>          Deny a lint rule and escalate matches to errors");
     println!("    --json                 Emit diagnostics as JSON");
+    println!("    --bench-json <path>    Write benchmark timings as JSON (bench only)");
     println!(
         "                           Available rules: {}",
         lint_rule_list()

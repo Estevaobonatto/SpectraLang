@@ -63,6 +63,10 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - exact semver version validation
   - local path dependencies
   - local filesystem registry publish/install with checksum validation
+- Phase 10 tooling baseline:
+  - LSP hover, go-to-definition, references, rename, completion, diagnostics, formatting, inlay hints, quick fixes, and semantic tokens
+  - `spectralang bench` with JSON timing reports
+  - source-aware `error[runtime]` diagnostics for non-zero program exits
 
 ### Beta
 
@@ -70,6 +74,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - `static` item surface
 - closure/runtime representation as an optimization target
 - first-class tensor language design beyond the current stdlib handle/autodiff API
+- full runtime trap stack traces and AOT debugger integration
 
 These are usable where covered, but still not treated as fully production-hardened language design.
 

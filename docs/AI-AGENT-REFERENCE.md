@@ -36,6 +36,7 @@
 26. [Complete Working Examples](#26-complete-working-examples)
 27. [Interop Baseline](#27-interop-baseline)
 28. [Package Manager Baseline](#28-package-manager-baseline)
+29. [Tooling Baseline](#29-tooling-baseline)
 
 ---
 
@@ -2375,6 +2376,46 @@ Manifest features:
 The lockfile is `spectra.lock`. It records deterministic package order, package versions, path sources, manifest hashes, and resolved dependencies.
 
 For the full package manager contract, see `docs/package-manager.md`.
+
+---
+
+## 29. Tooling Baseline
+
+SpectraLang currently includes a Phase 10 tooling baseline.
+
+LSP capabilities in `tools/spectra-lsp`:
+
+- diagnostics
+- hover
+- go to definition
+- references
+- rename
+- document/workspace symbols
+- formatting
+- completion
+- signature help
+- inlay hints
+- semantic tokens
+- selected quick fixes
+
+Benchmark command:
+
+```powershell
+spectralang bench --bench-json target/bench.json tests/validation/01_basic_syntax.spectra
+```
+
+Package benchmark command:
+
+```powershell
+spectralang package bench --root .
+```
+
+Runtime diagnostic baseline:
+
+- `spectralang run` emits `error[runtime]` with the source location of `fn main` when the program exits with a non-zero status.
+- Full runtime trap stacks and AOT debugger integration are not complete yet.
+
+For the full tooling contract, see `docs/tooling.md`.
 
 ---
 
