@@ -270,13 +270,13 @@ title = "Closure Completion"
 phase = "phase_2"
 owner = "midend"
 priority = "P1"
-status = "not_started"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-102", "R-103"]
-summary = "Finish closure capture and invocation support."
+summary = "Finish closure values with runtime closure handles, deterministic by-value captures, and invocation support."
 acceptance = [
   "closures can be passed, returned, stored, and invoked",
-  "capture semantics are documented and tested"
+  "by-value capture semantics are documented and tested"
 ]
 
 [[items]]

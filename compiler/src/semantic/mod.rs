@@ -3754,6 +3754,407 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn collect_lambda_capture_names(
+        &self,
+        params: &[crate::ast::LambdaParam],
+        body: &Expression,
+    ) -> HashSet<String> {
+        let mut locals: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut captures = HashSet::new();
+        self.collect_capture_names_expr(body, &mut locals, &mut captures);
+        captures
+    }
+
+    fn collect_capture_names_expr(
+        &self,
+        expr: &Expression,
+        locals: &mut HashSet<String>,
+        captures: &mut HashSet<String>,
+    ) {
+        match &expr.kind {
+            ExpressionKind::Identifier(name) => {
+                if !locals.contains(name) && self.lookup_symbol(name).is_some() {
+                    captures.insert(name.clone());
+                }
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.collect_capture_names_expr(left, locals, captures);
+                self.collect_capture_names_expr(right, locals, captures);
+            }
+            ExpressionKind::Unary { operand, .. } | ExpressionKind::Try(operand) => {
+                self.collect_capture_names_expr(operand, locals, captures);
+            }
+            ExpressionKind::Call { callee, arguments } => {
+                self.collect_capture_names_expr(callee, locals, captures);
+                for arg in arguments {
+                    self.collect_capture_names_expr(arg, locals, captures);
+                }
+            }
+            ExpressionKind::MethodCall {
+                object, arguments, ..
+            } => {
+                self.collect_capture_names_expr(object, locals, captures);
+                for arg in arguments {
+                    self.collect_capture_names_expr(arg, locals, captures);
+                }
+            }
+            ExpressionKind::Lambda { params, body } => {
+                let mut nested_locals = locals.clone();
+                for param in params {
+                    nested_locals.insert(param.name.clone());
+                }
+                self.collect_capture_names_expr(body, &mut nested_locals, captures);
+            }
+            ExpressionKind::Block(block) => {
+                let mut block_locals = locals.clone();
+                for stmt in &block.statements {
+                    self.collect_capture_names_stmt(stmt, &mut block_locals, captures);
+                }
+            }
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
+                self.collect_capture_names_expr(condition, locals, captures);
+                self.collect_capture_names_block(then_block, locals, captures);
+                for (elif_condition, elif_block) in elif_blocks {
+                    self.collect_capture_names_expr(elif_condition, locals, captures);
+                    self.collect_capture_names_block(elif_block, locals, captures);
+                }
+                if let Some(block) = else_block {
+                    self.collect_capture_names_block(block, locals, captures);
+                }
+            }
+            ExpressionKind::Unless {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.collect_capture_names_expr(condition, locals, captures);
+                self.collect_capture_names_block(then_block, locals, captures);
+                if let Some(block) = else_block {
+                    self.collect_capture_names_block(block, locals, captures);
+                }
+            }
+            ExpressionKind::Grouping(inner) => {
+                self.collect_capture_names_expr(inner, locals, captures);
+            }
+            ExpressionKind::FieldAccess { object, .. } => {
+                self.collect_capture_names_expr(object, locals, captures);
+            }
+            ExpressionKind::TupleAccess { tuple, .. } => {
+                self.collect_capture_names_expr(tuple, locals, captures);
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.collect_capture_names_expr(array, locals, captures);
+                self.collect_capture_names_expr(index, locals, captures);
+            }
+            ExpressionKind::ArrayLiteral { elements }
+            | ExpressionKind::TupleLiteral { elements } => {
+                for element in elements {
+                    self.collect_capture_names_expr(element, locals, captures);
+                }
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    self.collect_capture_names_expr(value, locals, captures);
+                }
+            }
+            ExpressionKind::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(values) = data {
+                    for value in values {
+                        self.collect_capture_names_expr(value, locals, captures);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, value) in fields {
+                        self.collect_capture_names_expr(value, locals, captures);
+                    }
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.collect_capture_names_expr(scrutinee, locals, captures);
+                for arm in arms {
+                    let mut arm_locals = locals.clone();
+                    Self::collect_pattern_names_for_closure(&arm.pattern, &mut arm_locals);
+                    if let Some(guard) = &arm.guard {
+                        self.collect_capture_names_expr(guard, &mut arm_locals, captures);
+                    }
+                    self.collect_capture_names_expr(&arm.body, &mut arm_locals, captures);
+                }
+            }
+            ExpressionKind::Cast { expr, .. } => {
+                self.collect_capture_names_expr(expr, locals, captures);
+            }
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let FStringPart::Interpolated(expr) = part {
+                        self.collect_capture_names_expr(expr, locals, captures);
+                    }
+                }
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                self.collect_capture_names_expr(start, locals, captures);
+                self.collect_capture_names_expr(end, locals, captures);
+            }
+            ExpressionKind::NumberLiteral(_)
+            | ExpressionKind::StringLiteral(_)
+            | ExpressionKind::BoolLiteral(_)
+            | ExpressionKind::CharLiteral(_) => {}
+        }
+    }
+
+    fn collect_capture_names_block(
+        &self,
+        block: &Block,
+        locals: &HashSet<String>,
+        captures: &mut HashSet<String>,
+    ) {
+        let mut block_locals = locals.clone();
+        for stmt in &block.statements {
+            self.collect_capture_names_stmt(stmt, &mut block_locals, captures);
+        }
+    }
+
+    fn collect_capture_names_stmt(
+        &self,
+        stmt: &Statement,
+        locals: &mut HashSet<String>,
+        captures: &mut HashSet<String>,
+    ) {
+        match &stmt.kind {
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &let_stmt.value {
+                    self.collect_capture_names_expr(value, locals, captures);
+                }
+                Self::collect_pattern_names_for_closure(&let_stmt.pattern, locals);
+            }
+            StatementKind::Assignment(assign) => {
+                self.collect_capture_names_lvalue(&assign.target, locals, captures);
+                self.collect_capture_names_expr(&assign.value, locals, captures);
+            }
+            StatementKind::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    self.collect_capture_names_expr(value, locals, captures);
+                }
+            }
+            StatementKind::Expression(expr) => {
+                self.collect_capture_names_expr(expr, locals, captures);
+            }
+            StatementKind::While(loop_stmt) => {
+                self.collect_capture_names_expr(&loop_stmt.condition, locals, captures);
+                self.collect_capture_names_block(&loop_stmt.body, locals, captures);
+            }
+            StatementKind::DoWhile(loop_stmt) => {
+                self.collect_capture_names_block(&loop_stmt.body, locals, captures);
+                self.collect_capture_names_expr(&loop_stmt.condition, locals, captures);
+            }
+            StatementKind::For(for_loop) => {
+                self.collect_capture_names_expr(&for_loop.iterable, locals, captures);
+                let mut loop_locals = locals.clone();
+                loop_locals.insert(for_loop.iterator.clone());
+                self.collect_capture_names_block(&for_loop.body, &loop_locals, captures);
+            }
+            StatementKind::IfLet(stmt) => {
+                self.collect_capture_names_expr(&stmt.value, locals, captures);
+                let mut then_locals = locals.clone();
+                Self::collect_pattern_names_for_closure(&stmt.pattern, &mut then_locals);
+                self.collect_capture_names_block(&stmt.then_block, &then_locals, captures);
+                if let Some(block) = &stmt.else_block {
+                    self.collect_capture_names_block(block, locals, captures);
+                }
+            }
+            StatementKind::WhileLet(stmt) => {
+                self.collect_capture_names_expr(&stmt.value, locals, captures);
+                let mut body_locals = locals.clone();
+                Self::collect_pattern_names_for_closure(&stmt.pattern, &mut body_locals);
+                self.collect_capture_names_block(&stmt.body, &body_locals, captures);
+            }
+            StatementKind::Loop(loop_stmt) => {
+                self.collect_capture_names_block(&loop_stmt.body, locals, captures);
+            }
+            StatementKind::Switch(switch_stmt) => {
+                self.collect_capture_names_expr(&switch_stmt.value, locals, captures);
+                for case in &switch_stmt.cases {
+                    self.collect_capture_names_expr(&case.pattern, locals, captures);
+                    self.collect_capture_names_block(&case.body, locals, captures);
+                }
+                if let Some(block) = &switch_stmt.default {
+                    self.collect_capture_names_block(block, locals, captures);
+                }
+            }
+            StatementKind::Break | StatementKind::Continue => {}
+        }
+    }
+
+    fn collect_capture_names_lvalue(
+        &self,
+        target: &crate::ast::LValue,
+        locals: &mut HashSet<String>,
+        captures: &mut HashSet<String>,
+    ) {
+        match target {
+            crate::ast::LValue::Identifier(name) => {
+                if !locals.contains(name) && self.lookup_symbol(name).is_some() {
+                    captures.insert(name.clone());
+                }
+            }
+            crate::ast::LValue::IndexAccess { array, index } => {
+                self.collect_capture_names_expr(array, locals, captures);
+                self.collect_capture_names_expr(index, locals, captures);
+            }
+            crate::ast::LValue::FieldAccess { object, .. } => {
+                self.collect_capture_names_expr(object, locals, captures);
+            }
+        }
+    }
+
+    fn collect_assigned_names_in_expression(expr: &Expression, assigned: &mut Vec<String>) {
+        match &expr.kind {
+            ExpressionKind::Block(block) => {
+                for stmt in &block.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            ExpressionKind::If {
+                then_block,
+                elif_blocks,
+                else_block,
+                ..
+            } => {
+                for stmt in &then_block.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+                for (_, block) in elif_blocks {
+                    for stmt in &block.statements {
+                        Self::collect_assigned_names_in_statement(stmt, assigned);
+                    }
+                }
+                if let Some(block) = else_block {
+                    for stmt in &block.statements {
+                        Self::collect_assigned_names_in_statement(stmt, assigned);
+                    }
+                }
+            }
+            ExpressionKind::Lambda { .. } => {}
+            _ => {}
+        }
+    }
+
+    fn collect_assigned_names_in_statement(stmt: &Statement, assigned: &mut Vec<String>) {
+        match &stmt.kind {
+            StatementKind::Assignment(assign) => {
+                if let crate::ast::LValue::Identifier(name) = &assign.target {
+                    assigned.push(name.clone());
+                }
+                Self::collect_assigned_names_in_expression(&assign.value, assigned);
+            }
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &let_stmt.value {
+                    Self::collect_assigned_names_in_expression(value, assigned);
+                }
+            }
+            StatementKind::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    Self::collect_assigned_names_in_expression(value, assigned);
+                }
+            }
+            StatementKind::Expression(expr) => {
+                Self::collect_assigned_names_in_expression(expr, assigned);
+            }
+            StatementKind::While(loop_stmt) => {
+                for stmt in &loop_stmt.body.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            StatementKind::DoWhile(loop_stmt) => {
+                for stmt in &loop_stmt.body.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            StatementKind::For(for_loop) => {
+                for stmt in &for_loop.body.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            StatementKind::IfLet(stmt) => {
+                for stmt in &stmt.then_block.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+                if let Some(block) = &stmt.else_block {
+                    for stmt in &block.statements {
+                        Self::collect_assigned_names_in_statement(stmt, assigned);
+                    }
+                }
+            }
+            StatementKind::WhileLet(stmt) => {
+                for stmt in &stmt.body.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            StatementKind::Loop(loop_stmt) => {
+                for stmt in &loop_stmt.body.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            StatementKind::Switch(switch_stmt) => {
+                for case in &switch_stmt.cases {
+                    for stmt in &case.body.statements {
+                        Self::collect_assigned_names_in_statement(stmt, assigned);
+                    }
+                }
+                if let Some(block) = &switch_stmt.default {
+                    for stmt in &block.statements {
+                        Self::collect_assigned_names_in_statement(stmt, assigned);
+                    }
+                }
+            }
+            StatementKind::Break | StatementKind::Continue => {}
+        }
+    }
+
+    fn collect_pattern_names_for_closure(pattern: &Pattern, names: &mut HashSet<String>) {
+        match pattern {
+            Pattern::Identifier(name) => {
+                names.insert(name.clone());
+            }
+            Pattern::Tuple(items) => {
+                for item in items {
+                    Self::collect_pattern_names_for_closure(item, names);
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for (_, pattern) in fields {
+                    Self::collect_pattern_names_for_closure(pattern, names);
+                }
+            }
+            Pattern::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(items) = data {
+                    for item in items {
+                        Self::collect_pattern_names_for_closure(item, names);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, item) in fields {
+                        Self::collect_pattern_names_for_closure(item, names);
+                    }
+                }
+            }
+            Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    Self::collect_pattern_names_for_closure(pattern, names);
+                }
+            }
+            Pattern::Wildcard | Pattern::Literal(_) => {}
+        }
+    }
+
     fn analyze_expression(&mut self, expr: &Expression) {
         match &expr.kind {
             ExpressionKind::Identifier(name) => {
@@ -5296,6 +5697,20 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::Lambda { params, body } => {
+                let captured = self.collect_lambda_capture_names(params, body);
+                let mut mutated = Vec::new();
+                Self::collect_assigned_names_in_expression(body, &mut mutated);
+                for name in mutated {
+                    if captured.contains(&name) {
+                        self.error(
+                            format!(
+                                "Cannot assign to captured variable '{}' inside closure; captures are by value",
+                                name
+                            ),
+                            body.span,
+                        );
+                    }
+                }
                 self.push_scope();
                 for p in params {
                     let ty = self.type_annotation_to_type(&p.ty);

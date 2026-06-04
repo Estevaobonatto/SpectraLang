@@ -376,7 +376,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-204 Closure Completion
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-102`, `R-103`
@@ -389,13 +389,16 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ### Acceptance
 
-- non-capturing closures work outside parser/check-only scenarios
-- storing, passing, indirect invocation, and returning non-capturing closures are covered
+- closures work outside parser/check-only scenarios
+- storing, passing, indirect invocation, returning, and by-value captures are covered
+- direct mutation of captured variables is rejected with a semantic diagnostic
 
 ### Implementation Notes
 
-- Closure captures are not production-ready yet because the IR still represents closures as function values without an environment object.
-- Capturing closures must remain documented as deferred until an explicit environment/capture ABI is implemented.
+- Function values lower to runtime closure handles. Slot 0 stores the code pointer; later slots store captured values.
+- Captures are by value in deterministic first-use order.
+- `tests/validation/79_closure_captures.spectra` covers local capture, captured closure return, captured closure passing, nested capture, and stdlib HOF callbacks.
+- `tests/errors/closure_capture_mutation.spectra` covers the by-value mutation restriction.
 
 ---
 

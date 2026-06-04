@@ -14,7 +14,7 @@ use spectra_compiler::ast::{
 };
 use spectra_compiler::error::MidendError;
 use spectra_compiler::span::Span;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Stack-based scope system for variable shadowing support
 
@@ -141,6 +141,18 @@ struct ArrayInfo {
     ptr: Value,
     element_type: IRType,
     size: usize,
+}
+
+#[derive(Clone)]
+struct ClosureCapture {
+    name: String,
+    ty: IRType,
+}
+
+#[derive(Clone)]
+struct ClosureInfo {
+    signature_params: Vec<IRType>,
+    signature_return: IRType,
 }
 
 /// Scoped storage for array metadata (pointer, element type, size)
@@ -320,9 +332,8 @@ pub struct ASTLowering {
     lambda_counter: usize,
     /// Lambdas collected during lowering that will be emitted as top-level IR functions.
     pending_lambdas: Vec<IRFunction>,
-    /// Maps variable names that hold closures to their generated function names.
-    /// e.g. "double" → "__lambda_0"
-    closure_var_map: HashMap<String, String>,
+    /// Maps variable names that hold closures to their generated function and captured values.
+    closure_var_map: HashMap<String, ClosureInfo>,
     /// Return type annotation of the function currently being lowered.
     /// Used to resolve Generic enum type args when they can't be fully inferred from
     /// the construction expression (e.g., Result::Ok(x) in a fn -> Result<int, string>).
@@ -2856,25 +2867,30 @@ impl ASTLowering {
     fn lower_lambda(
         &mut self,
         name: String,
+        captures: &[ClosureCapture],
         params: &[spectra_compiler::ast::LambdaParam],
         body: &Expression,
     ) -> IRFunction {
         use crate::ir::Parameter;
 
-        // Build parameter list from the lambda signature
-        let ir_params: Vec<Parameter> = params
-            .iter()
-            .enumerate()
-            .map(|(idx, p)| Parameter {
-                id: idx,
+        // Slot 0 is the hidden closure environment handle. User-visible
+        // parameters start at slot 1 and keep the public `fn(...) -> ...` type.
+        let mut ir_params: Vec<Parameter> = vec![Parameter {
+            id: 0,
+            name: "__closure_env".to_string(),
+            ty: IRType::Int,
+        }];
+        ir_params.extend(params.iter().enumerate().map(|(idx, p)| {
+            Parameter {
+                id: idx + 1,
                 name: p.name.clone(),
                 ty: p
                     .ty
                     .as_ref()
                     .map(|t| self.lower_type_annotation(t))
                     .unwrap_or(IRType::Int),
-            })
-            .collect();
+            }
+        }));
 
         // Infer the return type from the body expression
         let return_type = self.infer_expr_ir_type(body);
@@ -2903,9 +2919,30 @@ impl ASTLowering {
         let entry_block = lambda_func.add_block("entry");
         self.builder.set_current_block(entry_block);
 
-        // Map parameters into value/type maps
-        for (idx, param) in ir_params.iter().enumerate() {
-            let value = Value { id: idx };
+        let env_value = Value { id: 0 };
+        self.value_map
+            .insert("__closure_env".to_string(), env_value);
+        self.variable_types
+            .insert("__closure_env".to_string(), IRType::Int);
+
+        for (slot, capture) in captures.iter().enumerate() {
+            let index = self
+                .builder
+                .build_const_int(&mut lambda_func, (slot + 1) as i64);
+            let ptr =
+                self.builder
+                    .build_getelementptr(&mut lambda_func, env_value, index, IRType::Int);
+            let value = self
+                .builder
+                .build_load_typed(&mut lambda_func, ptr, capture.ty.clone());
+            self.value_map.insert(capture.name.clone(), value);
+            self.variable_types
+                .insert(capture.name.clone(), capture.ty.clone());
+        }
+
+        // Map explicit parameters into value/type maps
+        for param in ir_params.iter().skip(1) {
+            let value = Value { id: param.id };
             self.value_map.insert(param.name.clone(), value);
             if param.ty != IRType::Void {
                 self.variable_types
@@ -2954,6 +2991,412 @@ impl ASTLowering {
         }
 
         lambda_func
+    }
+
+    fn build_closure_object(
+        &mut self,
+        ir_func: &mut IRFunction,
+        lambda_name: String,
+        captures: &[ClosureCapture],
+    ) -> Value {
+        let slots = captures.len() + 1;
+        let closure_ty = IRType::Array {
+            element_type: Box::new(IRType::Int),
+            size: slots,
+        };
+        let closure_handle = self.builder.build_alloca(ir_func, closure_ty);
+
+        let code_ptr = self.builder.build_func_addr(ir_func, lambda_name);
+        let zero = self.builder.build_const_int(ir_func, 0);
+        let code_slot =
+            self.builder
+                .build_getelementptr(ir_func, closure_handle, zero, IRType::Int);
+        self.builder.build_store(ir_func, code_slot, code_ptr);
+
+        for (idx, capture) in captures.iter().enumerate() {
+            let capture_value = self.lower_identifier_value(&capture.name, ir_func);
+            let slot_index = self.builder.build_const_int(ir_func, (idx + 1) as i64);
+            let slot =
+                self.builder
+                    .build_getelementptr(ir_func, closure_handle, slot_index, IRType::Int);
+            self.builder.build_store(ir_func, slot, capture_value);
+        }
+
+        closure_handle
+    }
+
+    fn lower_closure_handle_call(
+        &mut self,
+        closure_handle: Value,
+        mut arg_values: Vec<Value>,
+        public_params: Vec<IRType>,
+        public_return: IRType,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let zero = self.builder.build_const_int(ir_func, 0);
+        let code_slot =
+            self.builder
+                .build_getelementptr(ir_func, closure_handle, zero, IRType::Int);
+        let code_ptr = self.builder.build_load(ir_func, code_slot);
+
+        let mut call_args = Vec::with_capacity(arg_values.len() + 1);
+        call_args.push(closure_handle);
+        call_args.append(&mut arg_values);
+
+        let mut signature_params = Vec::with_capacity(public_params.len() + 1);
+        signature_params.push(IRType::Int);
+        signature_params.extend(public_params);
+
+        self.builder
+            .build_call_indirect(
+                ir_func,
+                code_ptr,
+                call_args,
+                signature_params,
+                public_return.clone(),
+            )
+            .unwrap_or_else(|| {
+                if public_return == IRType::Void {
+                    self.builder.build_const_int(ir_func, 0)
+                } else {
+                    ir_func.next_value()
+                }
+            })
+    }
+
+    fn lower_identifier_value(&mut self, name: &str, ir_func: &mut IRFunction) -> Value {
+        if let Some(value) = self.const_values.get(name).cloned() {
+            self.emit_const_value(&value, ir_func)
+        } else if let Some(info) = self.array_map.get(name) {
+            info.ptr
+        } else if let Some((struct_ptr, _)) = self.struct_var_map.get(name) {
+            struct_ptr
+        } else if let Some(&alloca_ptr) = self.alloca_map.get(name) {
+            self.builder.build_load(ir_func, alloca_ptr)
+        } else if let Some(value) = self.value_map.get(name) {
+            value
+        } else {
+            ir_func.next_value()
+        }
+    }
+
+    fn collect_lambda_captures(
+        &self,
+        params: &[spectra_compiler::ast::LambdaParam],
+        body: &Expression,
+    ) -> Vec<ClosureCapture> {
+        let mut locals: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut captures = Vec::new();
+        let mut seen = HashSet::new();
+        self.collect_lambda_captures_expr(body, &mut locals, &mut captures, &mut seen);
+        captures
+    }
+
+    fn collect_lambda_captures_expr(
+        &self,
+        expr: &Expression,
+        locals: &mut HashSet<String>,
+        captures: &mut Vec<ClosureCapture>,
+        seen: &mut HashSet<String>,
+    ) {
+        match &expr.kind {
+            ExpressionKind::Identifier(name) => {
+                if !locals.contains(name) && seen.insert(name.clone()) {
+                    if let Some(ty) = self.variable_types.get(name) {
+                        captures.push(ClosureCapture {
+                            name: name.clone(),
+                            ty,
+                        });
+                    }
+                }
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.collect_lambda_captures_expr(left, locals, captures, seen);
+                self.collect_lambda_captures_expr(right, locals, captures, seen);
+            }
+            ExpressionKind::Unary { operand, .. } | ExpressionKind::Try(operand) => {
+                self.collect_lambda_captures_expr(operand, locals, captures, seen);
+            }
+            ExpressionKind::Call { callee, arguments } => {
+                self.collect_lambda_captures_expr(callee, locals, captures, seen);
+                for arg in arguments {
+                    self.collect_lambda_captures_expr(arg, locals, captures, seen);
+                }
+            }
+            ExpressionKind::MethodCall {
+                object, arguments, ..
+            } => {
+                self.collect_lambda_captures_expr(object, locals, captures, seen);
+                for arg in arguments {
+                    self.collect_lambda_captures_expr(arg, locals, captures, seen);
+                }
+            }
+            ExpressionKind::Lambda {
+                params: nested_params,
+                body,
+            } => {
+                let mut nested_locals = locals.clone();
+                for param in nested_params {
+                    nested_locals.insert(param.name.clone());
+                }
+                self.collect_lambda_captures_expr(body, &mut nested_locals, captures, seen);
+            }
+            ExpressionKind::Block(block) => {
+                let mut block_locals = locals.clone();
+                for stmt in &block.statements {
+                    self.collect_lambda_captures_stmt(stmt, &mut block_locals, captures, seen);
+                }
+            }
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
+                self.collect_lambda_captures_expr(condition, locals, captures, seen);
+                self.collect_lambda_captures_block(then_block, locals, captures, seen);
+                for (elif_condition, elif_block) in elif_blocks {
+                    self.collect_lambda_captures_expr(elif_condition, locals, captures, seen);
+                    self.collect_lambda_captures_block(elif_block, locals, captures, seen);
+                }
+                if let Some(block) = else_block {
+                    self.collect_lambda_captures_block(block, locals, captures, seen);
+                }
+            }
+            ExpressionKind::Unless {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.collect_lambda_captures_expr(condition, locals, captures, seen);
+                self.collect_lambda_captures_block(then_block, locals, captures, seen);
+                if let Some(block) = else_block {
+                    self.collect_lambda_captures_block(block, locals, captures, seen);
+                }
+            }
+            ExpressionKind::Grouping(inner) => {
+                self.collect_lambda_captures_expr(inner, locals, captures, seen);
+            }
+            ExpressionKind::FieldAccess { object, .. } => {
+                self.collect_lambda_captures_expr(object, locals, captures, seen);
+            }
+            ExpressionKind::TupleAccess { tuple, .. } => {
+                self.collect_lambda_captures_expr(tuple, locals, captures, seen);
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.collect_lambda_captures_expr(array, locals, captures, seen);
+                self.collect_lambda_captures_expr(index, locals, captures, seen);
+            }
+            ExpressionKind::ArrayLiteral { elements }
+            | ExpressionKind::TupleLiteral { elements } => {
+                for element in elements {
+                    self.collect_lambda_captures_expr(element, locals, captures, seen);
+                }
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    self.collect_lambda_captures_expr(value, locals, captures, seen);
+                }
+            }
+            ExpressionKind::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(values) = data {
+                    for value in values {
+                        self.collect_lambda_captures_expr(value, locals, captures, seen);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, value) in fields {
+                        self.collect_lambda_captures_expr(value, locals, captures, seen);
+                    }
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.collect_lambda_captures_expr(scrutinee, locals, captures, seen);
+                for arm in arms {
+                    let mut arm_locals = locals.clone();
+                    Self::collect_pattern_names(&arm.pattern, &mut arm_locals);
+                    if let Some(guard) = &arm.guard {
+                        self.collect_lambda_captures_expr(guard, &mut arm_locals, captures, seen);
+                    }
+                    self.collect_lambda_captures_expr(&arm.body, &mut arm_locals, captures, seen);
+                }
+            }
+            ExpressionKind::Cast { expr, .. } => {
+                self.collect_lambda_captures_expr(expr, locals, captures, seen);
+            }
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let FStringPart::Interpolated(expr) = part {
+                        self.collect_lambda_captures_expr(expr, locals, captures, seen);
+                    }
+                }
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                self.collect_lambda_captures_expr(start, locals, captures, seen);
+                self.collect_lambda_captures_expr(end, locals, captures, seen);
+            }
+            ExpressionKind::NumberLiteral(_)
+            | ExpressionKind::StringLiteral(_)
+            | ExpressionKind::BoolLiteral(_)
+            | ExpressionKind::CharLiteral(_) => {}
+        }
+    }
+
+    fn collect_lambda_captures_block(
+        &self,
+        block: &Block,
+        locals: &HashSet<String>,
+        captures: &mut Vec<ClosureCapture>,
+        seen: &mut HashSet<String>,
+    ) {
+        let mut block_locals = locals.clone();
+        for stmt in &block.statements {
+            self.collect_lambda_captures_stmt(stmt, &mut block_locals, captures, seen);
+        }
+    }
+
+    fn collect_lambda_captures_stmt(
+        &self,
+        stmt: &Statement,
+        locals: &mut HashSet<String>,
+        captures: &mut Vec<ClosureCapture>,
+        seen: &mut HashSet<String>,
+    ) {
+        match &stmt.kind {
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &let_stmt.value {
+                    self.collect_lambda_captures_expr(value, locals, captures, seen);
+                }
+                Self::collect_pattern_names(&let_stmt.pattern, locals);
+            }
+            StatementKind::Assignment(assign) => {
+                self.collect_lvalue_captures(&assign.target, locals, captures, seen);
+                self.collect_lambda_captures_expr(&assign.value, locals, captures, seen);
+            }
+            StatementKind::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    self.collect_lambda_captures_expr(value, locals, captures, seen);
+                }
+            }
+            StatementKind::Expression(expr) => {
+                self.collect_lambda_captures_expr(expr, locals, captures, seen);
+            }
+            StatementKind::While(loop_stmt) => {
+                self.collect_lambda_captures_expr(&loop_stmt.condition, locals, captures, seen);
+                self.collect_lambda_captures_block(&loop_stmt.body, locals, captures, seen);
+            }
+            StatementKind::DoWhile(loop_stmt) => {
+                self.collect_lambda_captures_block(&loop_stmt.body, locals, captures, seen);
+                self.collect_lambda_captures_expr(&loop_stmt.condition, locals, captures, seen);
+            }
+            StatementKind::For(for_loop) => {
+                self.collect_lambda_captures_expr(&for_loop.iterable, locals, captures, seen);
+                let mut loop_locals = locals.clone();
+                loop_locals.insert(for_loop.iterator.clone());
+                self.collect_lambda_captures_block(&for_loop.body, &loop_locals, captures, seen);
+            }
+            StatementKind::IfLet(stmt) => {
+                self.collect_lambda_captures_expr(&stmt.value, locals, captures, seen);
+                let mut then_locals = locals.clone();
+                Self::collect_pattern_names(&stmt.pattern, &mut then_locals);
+                self.collect_lambda_captures_block(&stmt.then_block, &then_locals, captures, seen);
+                if let Some(block) = &stmt.else_block {
+                    self.collect_lambda_captures_block(block, locals, captures, seen);
+                }
+            }
+            StatementKind::WhileLet(stmt) => {
+                self.collect_lambda_captures_expr(&stmt.value, locals, captures, seen);
+                let mut body_locals = locals.clone();
+                Self::collect_pattern_names(&stmt.pattern, &mut body_locals);
+                self.collect_lambda_captures_block(&stmt.body, &body_locals, captures, seen);
+            }
+            StatementKind::Loop(loop_stmt) => {
+                self.collect_lambda_captures_block(&loop_stmt.body, locals, captures, seen);
+            }
+            StatementKind::Switch(switch_stmt) => {
+                self.collect_lambda_captures_expr(&switch_stmt.value, locals, captures, seen);
+                for case in &switch_stmt.cases {
+                    self.collect_lambda_captures_expr(&case.pattern, locals, captures, seen);
+                    self.collect_lambda_captures_block(&case.body, locals, captures, seen);
+                }
+                if let Some(block) = &switch_stmt.default {
+                    self.collect_lambda_captures_block(block, locals, captures, seen);
+                }
+            }
+            StatementKind::Break | StatementKind::Continue => {}
+        }
+    }
+
+    fn collect_lvalue_captures(
+        &self,
+        target: &spectra_compiler::ast::LValue,
+        locals: &mut HashSet<String>,
+        captures: &mut Vec<ClosureCapture>,
+        seen: &mut HashSet<String>,
+    ) {
+        match target {
+            spectra_compiler::ast::LValue::Identifier(name) => {
+                if !locals.contains(name) && seen.insert(name.clone()) {
+                    if let Some(ty) = self.variable_types.get(name) {
+                        captures.push(ClosureCapture {
+                            name: name.clone(),
+                            ty,
+                        });
+                    }
+                }
+            }
+            spectra_compiler::ast::LValue::IndexAccess { array, index } => {
+                self.collect_lambda_captures_expr(array, locals, captures, seen);
+                self.collect_lambda_captures_expr(index, locals, captures, seen);
+            }
+            spectra_compiler::ast::LValue::FieldAccess { object, .. } => {
+                self.collect_lambda_captures_expr(object, locals, captures, seen);
+            }
+        }
+    }
+
+    fn collect_pattern_names(
+        pattern: &spectra_compiler::ast::Pattern,
+        names: &mut HashSet<String>,
+    ) {
+        match pattern {
+            spectra_compiler::ast::Pattern::Identifier(name) => {
+                names.insert(name.clone());
+            }
+            spectra_compiler::ast::Pattern::Tuple(items) => {
+                for item in items {
+                    Self::collect_pattern_names(item, names);
+                }
+            }
+            spectra_compiler::ast::Pattern::Struct { fields, .. } => {
+                for (_, pattern) in fields {
+                    Self::collect_pattern_names(pattern, names);
+                }
+            }
+            spectra_compiler::ast::Pattern::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(items) = data {
+                    for item in items {
+                        Self::collect_pattern_names(item, names);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, item) in fields {
+                        Self::collect_pattern_names(item, names);
+                    }
+                }
+            }
+            spectra_compiler::ast::Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    Self::collect_pattern_names(pattern, names);
+                }
+            }
+            spectra_compiler::ast::Pattern::Wildcard
+            | spectra_compiler::ast::Pattern::Literal(_) => {}
+        }
     }
 
     fn collect_default_trait_methods(
@@ -3246,20 +3689,26 @@ impl ASTLowering {
                 if let Some(ref value_expr) = let_stmt.value {
                     // Track the lambda function name BEFORE lowering so closure_var_map
                     // is populated even if the lambda itself modifies lambda_counter.
-                    let lambda_func_name_hint =
-                        if let ExpressionKind::Lambda { .. } = &value_expr.kind {
-                            Some(format!("__lambda_{}", self.lambda_counter))
-                        } else {
-                            None
-                        };
+                    let is_lambda_binding =
+                        matches!(&value_expr.kind, ExpressionKind::Lambda { .. });
 
                     let value = self.lower_expression(value_expr, ir_func);
 
                     // Register in closure_var_map when the value bound is a lambda
-                    if let (Some(name), Some(lambda_name)) =
-                        (binding_name.as_ref(), lambda_func_name_hint)
-                    {
-                        self.closure_var_map.insert(name.clone(), lambda_name);
+                    if let Some(name) = binding_name.as_ref().filter(|_| is_lambda_binding) {
+                        if let Some(IRType::Function {
+                            params,
+                            return_type,
+                        }) = inferred_type.clone()
+                        {
+                            self.closure_var_map.insert(
+                                name.clone(),
+                                ClosureInfo {
+                                    signature_params: params,
+                                    signature_return: *return_type,
+                                },
+                            );
+                        }
                     }
 
                     if binding_name.is_none() {
@@ -4275,13 +4724,19 @@ impl ASTLowering {
                 };
 
                 // --- Closure variable call: direct name lookup ---
-                // If the identifier is a known closure variable, call the lambda function directly.
+                // Function values are closure handles: slot 0 stores the code pointer
+                // and the handle itself is passed as hidden environment argument.
                 if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if let Some(lambda_name) = self.closure_var_map.get(name).cloned() {
-                        return self
-                            .builder
-                            .build_call(ir_func, lambda_name, arg_values, true)
-                            .unwrap_or_else(|| ir_func.next_value());
+                    if let Some(info) = self.closure_var_map.get(name).cloned() {
+                        if let Some(handle) = self.value_map.get(name) {
+                            return self.lower_closure_handle_call(
+                                handle,
+                                arg_values,
+                                info.signature_params,
+                                info.signature_return,
+                                ir_func,
+                            );
+                        }
                     }
 
                     // --- Function pointer parameter (fn(T) -> R) ---
@@ -4293,23 +4748,13 @@ impl ASTLowering {
                         } = var_type.clone()
                         {
                             if let Some(fn_ptr) = self.value_map.get(name) {
-                                let returns_value = *sig_return != IRType::Void;
-                                return self
-                                    .builder
-                                    .build_call_indirect(
-                                        ir_func,
-                                        fn_ptr,
-                                        arg_values,
-                                        sig_params,
-                                        *sig_return,
-                                    )
-                                    .unwrap_or_else(|| {
-                                        if returns_value {
-                                            ir_func.next_value()
-                                        } else {
-                                            ir_func.next_value()
-                                        }
-                                    });
+                                return self.lower_closure_handle_call(
+                                    fn_ptr,
+                                    arg_values,
+                                    sig_params,
+                                    *sig_return,
+                                    ir_func,
+                                );
                             }
                         }
                     }
@@ -5386,12 +5831,11 @@ impl ASTLowering {
                 let lambda_name = format!("__lambda_{}", self.lambda_counter);
                 self.lambda_counter += 1;
 
-                let lambda_func = self.lower_lambda(lambda_name.clone(), params, body);
+                let captures = self.collect_lambda_captures(params, body);
+                let lambda_func = self.lower_lambda(lambda_name.clone(), &captures, params, body);
                 self.pending_lambdas.push(lambda_func);
 
-                // Return the function's address as an opaque i64 — allows passing
-                // closures as arguments to higher-order functions.
-                self.builder.build_func_addr(ir_func, lambda_name)
+                self.build_closure_object(ir_func, lambda_name, &captures)
             }
             ExpressionKind::Block(block) => {
                 let stmts = &block.statements;
@@ -7105,6 +7549,26 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("collections", "list_sort") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_sort",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("collections", "list_map") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_map",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_filter") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_filter",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_reduce") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_reduce",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "list_sort_by") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_sort_by",
                 return_type: IRType::Void,
                 returns_value: false,
             }),

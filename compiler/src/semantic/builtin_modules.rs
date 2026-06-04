@@ -277,25 +277,36 @@ fn make_std_collections() -> ModuleExports {
     exports
         .functions
         .insert("list_sort".to_string(), pub_fn(vec![Type::Int], Type::Unit));
-    // list_map(handle: int, fn_ptr: int) -> int  (returns new list handle)
+    let fn_int_to_int = Type::Fn {
+        params: vec![Type::Int],
+        return_type: Box::new(Type::Int),
+    };
+    let fn_int_int_to_int = Type::Fn {
+        params: vec![Type::Int, Type::Int],
+        return_type: Box::new(Type::Int),
+    };
+    // list_map(handle: int, f: fn(int)->int) -> int  (returns new list handle)
     exports.functions.insert(
         "list_map".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![Type::Int, fn_int_to_int.clone()], Type::Int),
     );
-    // list_filter(handle: int, fn_ptr: int) -> int  (returns new list handle)
+    // list_filter(handle: int, pred: fn(int)->int) -> int  (returns new list handle)
     exports.functions.insert(
         "list_filter".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![Type::Int, fn_int_to_int], Type::Int),
     );
-    // list_reduce(handle: int, initial: int, fn_ptr: int) -> int
+    // list_reduce(handle: int, initial: int, f: fn(int,int)->int) -> int
     exports.functions.insert(
         "list_reduce".to_string(),
-        pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Int),
+        pub_fn(
+            vec![Type::Int, Type::Int, fn_int_int_to_int.clone()],
+            Type::Int,
+        ),
     );
-    // list_sort_by(handle: int, fn_ptr: int) -> unit  (comparator: fn(int,int)->int)
+    // list_sort_by(handle: int, cmp: fn(int,int)->int) -> unit
     exports.functions.insert(
         "list_sort_by".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Unit),
+        pub_fn(vec![Type::Int, fn_int_int_to_int], Type::Unit),
     );
 
     // type aliases

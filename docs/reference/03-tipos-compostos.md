@@ -930,7 +930,7 @@ pub fn main() {
 // Closures como variáveis tipadas / Closures as typed variables
 let transformador: fn(int) -> int = |x: int| x + 10;
 
-// Funções que retornam closures não capturantes / Functions that return non-capturing closures
+// Funções que retornam closures / Functions that return closures
 fn escolher(incrementar: bool) -> fn(int) -> int {
     if incrementar {
         return |x: int| x + 1;
@@ -944,7 +944,17 @@ pub fn main() {
 }
 ```
 
-Limitação alpha: closures que capturam variáveis externas ainda não têm ABI de ambiente/captura no IR. Use closures não capturantes ou passe os valores explicitamente como argumentos.
+Closures capturam variáveis externas por valor no momento em que a closure é criada.
+Closures capture external variables by value when the closure is created.
+
+```spectra
+fn make_adder(delta: int) -> fn(int) -> int {
+    return |x: int| x + delta;
+}
+```
+
+Mutar diretamente uma variável capturada dentro da closure não é permitido nesta versão; passe um valor novo explicitamente ou retorne o novo estado.
+Directly mutating a captured variable inside the closure is not allowed in this version; pass a new value explicitly or return the new state.
 
 ### Closures em Expressões / Closures in Expressions
 

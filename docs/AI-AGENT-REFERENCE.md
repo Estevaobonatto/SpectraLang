@@ -1175,6 +1175,18 @@ let evens = list_filter(lst, |x| x % 2 == 0);
 let total = list_reduce(lst, 0, |acc, x| acc + x);
 ```
 
+### Captures
+
+Closures capture external variables by value when the closure is created:
+
+```spectra
+fn make_adder(delta: int) -> fn(int) -> int {
+    return |x: int| x + delta;
+}
+```
+
+Captured variables cannot be assigned directly inside the closure body. Return a new value instead of relying on mutable/reference captures.
+
 ---
 
 ## 18. F-Strings

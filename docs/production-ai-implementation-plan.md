@@ -378,8 +378,6 @@ match test.
 - Finish lowering of closure values and invocation.
 - Define capture model:
   - by value
-  - by reference
-  - mutable capture semantics
 - Add closure environment representation.
 - Add diagnostics for invalid captures.
 - Benchmark closure overhead.
@@ -389,6 +387,14 @@ match test.
 - Closures work in compile, check, and run modes.
 - Captures are deterministic and documented.
 - Function values can be passed, returned, stored, and invoked safely.
+
+### Current Implementation
+
+- Function values lower to runtime closure handles with layout `[code_ptr, capture_0, ...]`.
+- Captures are by value in deterministic first-use order.
+- Closure functions receive the environment handle as a hidden first parameter.
+- Direct assignment to a captured variable inside a closure is rejected; mutable/reference captures remain a future language extension.
+- `tests/validation/79_closure_captures.spectra` and `tests/errors/closure_capture_mutation.spectra` validate the production contract.
 
 ---
 

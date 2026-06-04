@@ -28,7 +28,7 @@ Status labels:
 | Enum construction and destructuring | supported | Includes nested generic enum inference cases in the test suite. |
 | Trait objects / vtables | supported | Current suite passes for dyn-trait examples. |
 | `Drop` flows | supported | Current destructor examples compile successfully. |
-| Closures | partial | Non-capturing closures are stored, passed, invoked, and returned in validated paths; captured environments are deferred. |
+| Closures | supported | Function values lower to closure handles with by-value captures; storing, passing, returning, invoking, nested capture, and stdlib HOF callback paths are validated. |
 | Const/static lowering | partial | Top-level `const` values lower as literals at use sites; `static` remains a surface/global item model. |
 | Tensor/ndarray primitives | supported baseline | `std.tensor` Phase 3/4 lowers as stdlib host calls with safe runtime views; first-class tensor IR and device lowering remain deferred. |
 | Tensor autodiff | supported baseline | `std.tensor` Phase 5 autodiff lowers as stdlib host calls; compiler-native autodiff IR remains deferred. |

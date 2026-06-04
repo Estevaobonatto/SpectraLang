@@ -43,7 +43,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `match`
   - `return`, `break`, `continue`
 - tuple, struct, enum, and OR-patterns in the validated pattern surface
-- closures/lambdas in the currently validated surface
+- closures/lambdas with by-value captures in the currently validated surface
 - qualified stdlib calls such as `std.io.println(...)`
 - `std.tensor` production baseline runtime API for tensor handles, safe views, shape metadata, elementwise ops, reductions, transforms, 2D matmul, and batched matmul
 - `std.tensor` production baseline reverse-mode autodiff for float tensor handles, scalar tensor losses, gradient accumulation, and inference/no-grad mode
@@ -85,7 +85,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 
 - class syntax footprint
 - `static` item surface
-- closure/runtime representation as an optimization target
+- mutable/reference closure captures beyond the current by-value capture contract
 - first-class tensor language design beyond the current stdlib handle/autodiff API
 - native DWARF/PDB source stepping beyond the current AOT debug-map workflow
 - HTTP/gRPC serving, async I/O integration, and distributed model residency policy

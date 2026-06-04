@@ -556,10 +556,11 @@ pub extern "C" fn spectra_rt_debug_invariants_check() -> bool {
     host_ok && allocation_ok
 }
 
-/// Invokes a JIT-compiled Spectra function (closure or regular) by its native pointer.
+/// Invokes a JIT-compiled Spectra closure by its runtime closure handle.
 ///
 /// # Parameters
-/// - `fn_ptr`: raw i64 holding the native JIT function pointer
+/// - `fn_ptr`: raw i64 holding the closure object pointer. Slot 0 stores the
+///   native code pointer; the closure handle itself is passed as hidden env.
 /// - `args`: pointer to an array of `n_args` i64 argument values (may be null when
 ///   `n_args == 0`)
 /// - `n_args`: number of arguments — currently 0, 1, or 2 are supported
@@ -571,8 +572,8 @@ pub extern "C" fn spectra_rt_debug_invariants_check() -> bool {
 /// or `HOST_STATUS_INTERNAL_ERROR` if `n_args` is outside the supported range.
 ///
 /// # Safety
-/// `fn_ptr` must be a valid JIT-compiled function pointer whose calling convention
-/// matches the expected signature for the given `n_args`.
+/// `fn_ptr` must be a valid closure handle whose code pointer calling convention
+/// matches `fn(env, args...) -> i64` for the given `n_args`.
 #[no_mangle]
 pub unsafe extern "C" fn spectra_rt_invoke_closure(
     fn_ptr: i64,
@@ -583,20 +584,28 @@ pub unsafe extern "C" fn spectra_rt_invoke_closure(
     if fn_ptr == 0 {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
+    let closure_slots = fn_ptr as *const i64;
+    if closure_slots.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let code_ptr = *closure_slots;
+    if code_ptr == 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
     let returned: i64 = match n_args {
         0 => {
-            let f: unsafe extern "C" fn() -> i64 = mem::transmute(fn_ptr as usize);
-            f()
+            let f: unsafe extern "C" fn(i64) -> i64 = mem::transmute(code_ptr as usize);
+            f(fn_ptr)
         }
         1 => {
-            let f: unsafe extern "C" fn(i64) -> i64 = mem::transmute(fn_ptr as usize);
-            f(if args.is_null() { 0 } else { *args })
+            let f: unsafe extern "C" fn(i64, i64) -> i64 = mem::transmute(code_ptr as usize);
+            f(fn_ptr, if args.is_null() { 0 } else { *args })
         }
         2 => {
-            let f: unsafe extern "C" fn(i64, i64) -> i64 = mem::transmute(fn_ptr as usize);
+            let f: unsafe extern "C" fn(i64, i64, i64) -> i64 = mem::transmute(code_ptr as usize);
             let a0 = if args.is_null() { 0 } else { *args };
             let a1 = if args.is_null() { 0 } else { *args.add(1) };
-            f(a0, a1)
+            f(fn_ptr, a0, a1)
         }
         _ => return HOST_STATUS_INTERNAL_ERROR,
     };

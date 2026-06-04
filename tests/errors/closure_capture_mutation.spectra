@@ -1,0 +1,11 @@
+// Erro esperado: closures capturam por valor; mutar captura diretamente e invalido.
+module closure_capture_mutation;
+
+pub fn main() -> int {
+    let value = 1;
+    let bump: fn(int) -> int = |x: int| {
+        value = value + x;
+        return value;
+    };
+    return bump(2);
+}

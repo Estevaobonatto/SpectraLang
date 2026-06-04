@@ -1,0 +1,71 @@
+// Teste 79: closures capturantes com armazenamento, passagem, retorno e stdlib HOF.
+module closure_captures;
+
+import std.collections;
+
+fn apply(value: int, f: fn(int) -> int) -> int {
+    return f(value);
+}
+
+fn make_adder(delta: int) -> fn(int) -> int {
+    return |x: int| x + delta;
+}
+
+fn make_nested(base: int) -> fn(int) -> int {
+    let local = base + 2;
+    return |x: int| {
+        let inner = |y: int| y + local;
+        inner(x)
+    };
+}
+
+pub fn main() -> int {
+    let base = 5;
+    let add_base: fn(int) -> int = |x: int| x + base;
+    let local_result = add_base(7);
+    if local_result != 12 {
+        return local_result;
+    }
+
+    let offset = 3;
+    let passed_result = apply(10, |x: int| x + offset);
+    if passed_result != 13 {
+        return passed_result;
+    }
+
+    let add_ten = make_adder(10);
+    let returned_result = add_ten(8);
+    if returned_result != 18 {
+        return returned_result;
+    }
+
+    let nested = make_nested(4);
+    let nested_result = nested(6);
+    if nested_result != 12 {
+        return nested_result;
+    }
+
+    let values = list_new();
+    list_push(values, 1);
+    list_push(values, 2);
+    list_push(values, 3);
+
+    let scale = 4;
+    let mapped = list_map(values, |x: int| x * scale);
+    let mapped_sum = list_reduce(mapped, 0, |acc: int, x: int| acc + x);
+    if mapped_sum != 24 {
+        return mapped_sum;
+    }
+
+    let threshold = 8;
+    let filtered = list_filter(mapped, |x: int| x / threshold);
+    let filtered_sum = list_reduce(filtered, 0, |acc: int, x: int| acc + x);
+    if filtered_sum != 20 {
+        return filtered_sum;
+    }
+
+    list_free(values);
+    list_free(mapped);
+    list_free(filtered);
+    return 0;
+}
