@@ -4,10 +4,11 @@ use crate::ffi::{
 };
 use crate::initialize;
 use crate::memory::ManualBox;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
 use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
@@ -283,6 +284,35 @@ const ML_DATALOADER_BATCH_COUNT: &str = "spectra.std.ml.dataloader_batch_count";
 const ML_DATALOADER_BATCH_FEATURES: &str = "spectra.std.ml.dataloader_batch_features";
 const ML_DATALOADER_BATCH_LABELS: &str = "spectra.std.ml.dataloader_batch_labels";
 
+const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
+const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
+const CONCURRENT_TASK_IS_DONE: &str = "spectra.std.concurrent.task_is_done";
+const CONCURRENT_CHANNEL_NEW: &str = "spectra.std.concurrent.channel_new";
+const CONCURRENT_CHANNEL_SEND: &str = "spectra.std.concurrent.channel_send";
+const CONCURRENT_CHANNEL_RECV: &str = "spectra.std.concurrent.channel_recv";
+const CONCURRENT_CHANNEL_LEN: &str = "spectra.std.concurrent.channel_len";
+const CONCURRENT_CHANNEL_CLOSE: &str = "spectra.std.concurrent.channel_close";
+const CONCURRENT_COUNTER_NEW: &str = "spectra.std.concurrent.counter_new";
+const CONCURRENT_COUNTER_ADD: &str = "spectra.std.concurrent.counter_add";
+const CONCURRENT_COUNTER_GET: &str = "spectra.std.concurrent.counter_get";
+const CONCURRENT_PIPELINE_SUM: &str = "spectra.std.concurrent.pipeline_sum";
+const CONCURRENT_STATS_TASKS_SPAWNED: &str = "spectra.std.concurrent.stats_tasks_spawned";
+const CONCURRENT_STATS_CHANNELS: &str = "spectra.std.concurrent.stats_channels";
+const CONCURRENT_RESET: &str = "spectra.std.concurrent.reset";
+
+const SERVE_SERVER_NEW: &str = "spectra.std.serve.server_new";
+const SERVE_SERVER_WARMUP: &str = "spectra.std.serve.server_warmup";
+const SERVE_SERVER_IS_WARM: &str = "spectra.std.serve.server_is_warm";
+const SERVE_SERVER_ENQUEUE: &str = "spectra.std.serve.server_enqueue";
+const SERVE_SERVER_CANCEL: &str = "spectra.std.serve.server_cancel";
+const SERVE_SERVER_PROCESS_BATCH: &str = "spectra.std.serve.server_process_batch";
+const SERVE_SERVER_RESULT: &str = "spectra.std.serve.server_result";
+const SERVE_SERVER_PENDING: &str = "spectra.std.serve.server_pending";
+const SERVE_SERVER_SET_TIMEOUT: &str = "spectra.std.serve.server_set_timeout";
+const SERVE_SERVER_RESIDENT_MODEL: &str = "spectra.std.serve.server_resident_model";
+const SERVE_SERVER_BENCHMARK: &str = "spectra.std.serve.server_benchmark";
+const SERVE_RESET: &str = "spectra.std.serve.reset";
+
 // ── std.io (novos) ───────────────────────────────────────────────────────────
 const IO_INPUT: &str = "spectra.std.io.input";
 
@@ -303,6 +333,8 @@ pub fn register() {
     register_time();
     register_tensor();
     register_ml();
+    register_concurrent();
+    register_serve();
 }
 
 fn register_math() {
@@ -491,6 +523,42 @@ fn register_ml() {
         std_ml_dataloader_batch_features,
     );
     register_host_function(ML_DATALOADER_BATCH_LABELS, std_ml_dataloader_batch_labels);
+}
+
+fn register_concurrent() {
+    register_host_function(CONCURRENT_TASK_SPAWN, std_concurrent_task_spawn);
+    register_host_function(CONCURRENT_TASK_JOIN, std_concurrent_task_join);
+    register_host_function(CONCURRENT_TASK_IS_DONE, std_concurrent_task_is_done);
+    register_host_function(CONCURRENT_CHANNEL_NEW, std_concurrent_channel_new);
+    register_host_function(CONCURRENT_CHANNEL_SEND, std_concurrent_channel_send);
+    register_host_function(CONCURRENT_CHANNEL_RECV, std_concurrent_channel_recv);
+    register_host_function(CONCURRENT_CHANNEL_LEN, std_concurrent_channel_len);
+    register_host_function(CONCURRENT_CHANNEL_CLOSE, std_concurrent_channel_close);
+    register_host_function(CONCURRENT_COUNTER_NEW, std_concurrent_counter_new);
+    register_host_function(CONCURRENT_COUNTER_ADD, std_concurrent_counter_add);
+    register_host_function(CONCURRENT_COUNTER_GET, std_concurrent_counter_get);
+    register_host_function(CONCURRENT_PIPELINE_SUM, std_concurrent_pipeline_sum);
+    register_host_function(
+        CONCURRENT_STATS_TASKS_SPAWNED,
+        std_concurrent_stats_tasks_spawned,
+    );
+    register_host_function(CONCURRENT_STATS_CHANNELS, std_concurrent_stats_channels);
+    register_host_function(CONCURRENT_RESET, std_concurrent_reset);
+}
+
+fn register_serve() {
+    register_host_function(SERVE_SERVER_NEW, std_serve_server_new);
+    register_host_function(SERVE_SERVER_WARMUP, std_serve_server_warmup);
+    register_host_function(SERVE_SERVER_IS_WARM, std_serve_server_is_warm);
+    register_host_function(SERVE_SERVER_ENQUEUE, std_serve_server_enqueue);
+    register_host_function(SERVE_SERVER_CANCEL, std_serve_server_cancel);
+    register_host_function(SERVE_SERVER_PROCESS_BATCH, std_serve_server_process_batch);
+    register_host_function(SERVE_SERVER_RESULT, std_serve_server_result);
+    register_host_function(SERVE_SERVER_PENDING, std_serve_server_pending);
+    register_host_function(SERVE_SERVER_SET_TIMEOUT, std_serve_server_set_timeout);
+    register_host_function(SERVE_SERVER_RESIDENT_MODEL, std_serve_server_resident_model);
+    register_host_function(SERVE_SERVER_BENCHMARK, std_serve_server_benchmark);
+    register_host_function(SERVE_RESET, std_serve_reset);
 }
 
 fn register_fs() {
@@ -8250,6 +8318,766 @@ extern "C" fn std_map_free(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+fn host_call_args<'a>(
+    ctx: *mut SpectraHostCallContext,
+    expected_args: usize,
+) -> Result<(&'a [SpectraHostValue], &'a mut [SpectraHostValue]), i32> {
+    if ctx.is_null() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != expected_args {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+        if expected_args > 0 && ctx_ref.args.is_null() {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        let args = if expected_args == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len)
+        };
+        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+        Ok((args, results))
+    }
+}
+
+fn host_call_void_args<'a>(
+    ctx: *mut SpectraHostCallContext,
+    expected_args: usize,
+) -> Result<&'a [SpectraHostValue], i32> {
+    if ctx.is_null() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != expected_args {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+        if expected_args > 0 && ctx_ref.args.is_null() {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+
+        if expected_args == 0 {
+            Ok(&[])
+        } else {
+            Ok(slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len))
+        }
+    }
+}
+
+struct ConcurrentTask {
+    handle: Option<JoinHandle<SpectraHostValue>>,
+    result: Option<SpectraHostValue>,
+}
+
+struct ConcurrentChannel {
+    queue: VecDeque<SpectraHostValue>,
+    closed: bool,
+}
+
+struct ConcurrentRegistry {
+    next_task: SpectraHostValue,
+    next_channel: SpectraHostValue,
+    next_counter: SpectraHostValue,
+    tasks_spawned: SpectraHostValue,
+    tasks: HashMap<SpectraHostValue, ConcurrentTask>,
+    channels: HashMap<SpectraHostValue, ConcurrentChannel>,
+    counters: HashMap<SpectraHostValue, SpectraHostValue>,
+}
+
+impl ConcurrentRegistry {
+    fn new() -> Self {
+        Self {
+            next_task: 1,
+            next_channel: 1,
+            next_counter: 1,
+            tasks_spawned: 0,
+            tasks: HashMap::new(),
+            channels: HashMap::new(),
+            counters: HashMap::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Self::new();
+    }
+}
+
+fn concurrent_registry() -> &'static Mutex<ConcurrentRegistry> {
+    static REGISTRY: OnceLock<Mutex<ConcurrentRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(ConcurrentRegistry::new()))
+}
+
+fn lock_concurrent_registry() -> Result<std::sync::MutexGuard<'static, ConcurrentRegistry>, i32> {
+    concurrent_registry()
+        .lock()
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
+}
+
+extern "C" fn std_concurrent_task_spawn(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let value = args[0];
+    let handle = thread::spawn(move || value);
+
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let task_id = registry.next_task;
+    registry.next_task += 1;
+    registry.tasks_spawned += 1;
+    registry.tasks.insert(
+        task_id,
+        ConcurrentTask {
+            handle: Some(handle),
+            result: None,
+        },
+    );
+    results[0] = task_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_task_join(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let task_id = args[0];
+    let handle = {
+        let mut registry = match lock_concurrent_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(task) = registry.tasks.get_mut(&task_id) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if let Some(result) = task.result {
+            results[0] = result;
+            return HOST_STATUS_SUCCESS;
+        }
+        task.handle.take()
+    };
+
+    let Some(handle) = handle else {
+        return HOST_STATUS_INTERNAL_ERROR;
+    };
+    let result = match handle.join() {
+        Ok(value) => value,
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get_mut(&task_id) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    task.result = Some(result);
+    results[0] = result;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let done = task.result.is_some()
+        || task
+            .handle
+            .as_ref()
+            .map(|handle| handle.is_finished())
+            .unwrap_or(true);
+    results[0] = i64::from(done);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_channel_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let channel_id = registry.next_channel;
+    registry.next_channel += 1;
+    registry.channels.insert(
+        channel_id,
+        ConcurrentChannel {
+            queue: VecDeque::new(),
+            closed: false,
+        },
+    );
+    results[0] = channel_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_channel_send(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.channels.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    if channel.closed {
+        results[0] = 0;
+        return HOST_STATUS_SUCCESS;
+    }
+    channel.queue.push_back(args[1]);
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_channel_recv(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.channels.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = channel.queue.pop_front().unwrap_or(-1);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_channel_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.channels.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = channel.queue.len() as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_channel_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    let args = match host_call_void_args(ctx, 1) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.channels.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    channel.closed = true;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_counter_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let counter_id = registry.next_counter;
+    registry.next_counter += 1;
+    registry.counters.insert(counter_id, args[0]);
+    results[0] = counter_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_counter_add(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(value) = registry.counters.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    *value += args[1];
+    results[0] = *value;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_counter_get(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(value) = registry.counters.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = *value;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_pipeline_sum(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let start = args[0];
+    let count = args[1].max(0);
+    let workers = args[2].max(1).min(count.max(1));
+    if count == 0 {
+        results[0] = 0;
+        return HOST_STATUS_SUCCESS;
+    }
+
+    let chunk_size = (count + workers - 1) / workers;
+    let mut handles = Vec::new();
+    for worker in 0..workers {
+        let chunk_start = start + worker * chunk_size;
+        let chunk_end = (chunk_start + chunk_size).min(start + count);
+        if chunk_start >= chunk_end {
+            continue;
+        }
+        handles.push(thread::spawn(move || {
+            let mut sum = 0;
+            for value in chunk_start..chunk_end {
+                sum += value;
+            }
+            sum
+        }));
+    }
+
+    let mut total = 0;
+    for handle in handles {
+        match handle.join() {
+            Ok(partial) => total += partial,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        }
+    }
+    results[0] = total;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_stats_tasks_spawned(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    results[0] = registry.tasks_spawned;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_stats_channels(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    results[0] = registry.channels.len() as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_concurrent_reset(ctx: *mut SpectraHostCallContext) -> i32 {
+    let _ = match host_call_void_args(ctx, 0) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.clear();
+    HOST_STATUS_SUCCESS
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ServeRequestState {
+    Pending,
+    Complete(SpectraHostValue),
+    Cancelled,
+}
+
+struct ServeServer {
+    model: SpectraHostValue,
+    warm: bool,
+    timeout: SpectraHostValue,
+    queue: VecDeque<SpectraHostValue>,
+    requests: HashMap<SpectraHostValue, (SpectraHostValue, ServeRequestState)>,
+}
+
+struct ServeRegistry {
+    next_server: SpectraHostValue,
+    next_request: SpectraHostValue,
+    servers: HashMap<SpectraHostValue, ServeServer>,
+}
+
+impl ServeRegistry {
+    fn new() -> Self {
+        Self {
+            next_server: 1,
+            next_request: 1,
+            servers: HashMap::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Self::new();
+    }
+}
+
+fn serve_registry() -> &'static Mutex<ServeRegistry> {
+    static REGISTRY: OnceLock<Mutex<ServeRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(ServeRegistry::new()))
+}
+
+fn lock_serve_registry() -> Result<std::sync::MutexGuard<'static, ServeRegistry>, i32> {
+    serve_registry()
+        .lock()
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
+}
+
+extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let server_id = registry.next_server;
+    registry.next_server += 1;
+    registry.servers.insert(
+        server_id,
+        ServeServer {
+            model: args[0],
+            warm: false,
+            timeout: 1,
+            queue: VecDeque::new(),
+            requests: HashMap::new(),
+        },
+    );
+    results[0] = server_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_warmup(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.warm = true;
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_is_warm(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = i64::from(server.warm);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let request_id = registry.next_request;
+    registry.next_request += 1;
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server
+        .requests
+        .insert(request_id, (args[1], ServeRequestState::Pending));
+    server.queue.push_back(request_id);
+    results[0] = request_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let Some((_, state)) = server.requests.get_mut(&args[1]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    if *state == ServeRequestState::Pending {
+        *state = ServeRequestState::Cancelled;
+        server.queue.retain(|request| *request != args[1]);
+        results[0] = 1;
+    } else {
+        results[0] = 0;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let max_batch = args[1].max(0) as usize;
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    if !server.warm || max_batch == 0 {
+        results[0] = 0;
+        return HOST_STATUS_SUCCESS;
+    }
+
+    let mut processed = 0;
+    for _ in 0..max_batch {
+        let Some(request_id) = server.queue.pop_front() else {
+            break;
+        };
+        let Some((input, state)) = server.requests.get_mut(&request_id) else {
+            continue;
+        };
+        if *state != ServeRequestState::Pending {
+            continue;
+        }
+        if server.timeout == 0 {
+            *state = ServeRequestState::Cancelled;
+            continue;
+        }
+        *state = ServeRequestState::Complete(*input * server.model);
+        processed += 1;
+    }
+    results[0] = processed;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_result(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let Some((_, state)) = server.requests.get(&args[1]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = match *state {
+        ServeRequestState::Pending | ServeRequestState::Cancelled => -1,
+        ServeRequestState::Complete(value) => value,
+    };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_pending(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = server.queue.len() as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_set_timeout(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.timeout = args[1].max(0);
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_resident_model(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = server.model;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let server_id = args[0];
+    let requests = args[1].max(0);
+    let batch = args[2].max(1);
+
+    {
+        let mut registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get_mut(&server_id) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        server.warm = true;
+    }
+
+    for input in 1..=requests {
+        let mut registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let request_id = registry.next_request;
+        registry.next_request += 1;
+        let Some(server) = registry.servers.get_mut(&server_id) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        server
+            .requests
+            .insert(request_id, (input, ServeRequestState::Pending));
+        server.queue.push_back(request_id);
+    }
+
+    let mut processed_total = 0;
+    loop {
+        let mut registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get_mut(&server_id) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if server.queue.is_empty() {
+            break;
+        }
+        let mut processed = 0;
+        for _ in 0..batch {
+            let Some(request_id) = server.queue.pop_front() else {
+                break;
+            };
+            let Some((input, state)) = server.requests.get_mut(&request_id) else {
+                continue;
+            };
+            if *state != ServeRequestState::Pending {
+                continue;
+            }
+            if server.timeout == 0 {
+                *state = ServeRequestState::Cancelled;
+                continue;
+            }
+            *state = ServeRequestState::Complete(*input * server.model);
+            processed += 1;
+        }
+        processed_total += processed;
+    }
+    results[0] = processed_total;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_reset(ctx: *mut SpectraHostCallContext) -> i32 {
+    let _ = match host_call_void_args(ctx, 0) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.clear();
+    HOST_STATUS_SUCCESS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -9154,5 +9982,137 @@ mod tests {
         let (status, freed) = call_host(TENSOR_FREE_ALL, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!(freed >= 4);
+    }
+
+    #[test]
+    fn concurrent_host_calls_cover_tasks_channels_counters_and_pipeline() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let (status, task) = call_host(CONCURRENT_TASK_SPAWN, &[42]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(CONCURRENT_TASK_JOIN, &[task]),
+            (HOST_STATUS_SUCCESS, 42)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_TASK_IS_DONE, &[task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, channel) = call_host(CONCURRENT_CHANNEL_NEW, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_SEND, &[channel, 7]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_SEND, &[channel, 9]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_LEN, &[channel]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_RECV, &[channel]),
+            (HOST_STATUS_SUCCESS, 7)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_RECV, &[channel]),
+            (HOST_STATUS_SUCCESS, 9)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_RECV, &[channel]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_CHANNEL_CLOSE, &[channel]).0,
+            HOST_STATUS_SUCCESS
+        );
+
+        let (status, counter) = call_host(CONCURRENT_COUNTER_NEW, &[5]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(CONCURRENT_COUNTER_ADD, &[counter, 4]),
+            (HOST_STATUS_SUCCESS, 9)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_COUNTER_GET, &[counter]),
+            (HOST_STATUS_SUCCESS, 9)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_PIPELINE_SUM, &[1, 100, 4]),
+            (HOST_STATUS_SUCCESS, 5050)
+        );
+        assert_eq!(
+            call_host(CONCURRENT_STATS_CHANNELS, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+    }
+
+    #[test]
+    fn serve_host_calls_cover_warmup_batching_cancellation_and_benchmark() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(SERVE_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let (status, server) = call_host(SERVE_SERVER_NEW, &[3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_RESIDENT_MODEL, &[server]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_IS_WARM, &[server]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+
+        let (status, first) = call_host(SERVE_SERVER_ENQUEUE, &[server, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_PROCESS_BATCH, &[server, 1]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_WARMUP, &[server]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_PROCESS_BATCH, &[server, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, first]),
+            (HOST_STATUS_SUCCESS, 30)
+        );
+
+        let (status, second) = call_host(SERVE_SERVER_ENQUEUE, &[server, 20]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_CANCEL, &[server, second]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_PENDING, &[server]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, second]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+
+        assert_eq!(
+            call_host(SERVE_SERVER_BENCHMARK, &[server, 8, 3]),
+            (HOST_STATUS_SUCCESS, 8)
+        );
     }
 }

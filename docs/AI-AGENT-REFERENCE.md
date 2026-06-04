@@ -2419,6 +2419,33 @@ For the full tooling contract, see `docs/tooling.md`.
 
 ---
 
+## Phase 11 Runtime Baseline
+
+Concurrency and serving are implemented as stdlib modules, not new syntax.
+
+Available modules:
+
+- `std.concurrent`: task handles, deterministic `task_join`, FIFO channels,
+  counters, stats/reset, and `pipeline_sum(start, count, workers)`.
+- `std.serve`: local in-process server handles, warmup, queueing, batching,
+  cancellation, timeout state, model residency lookup, result lookup, and
+  deterministic `server_benchmark`.
+
+Validation files:
+
+- `tests/validation/77_concurrency_pipeline.spectra`
+- `tests/validation/78_serving_foundations.spectra`
+
+User-facing reference:
+
+- `docs/concurrency-serving.md`
+
+Current limit: Phase 11 does not provide HTTP/gRPC, sockets, async I/O, or
+distributed model serving. Treat those as future hardening, not completed
+Phase 11 scope.
+
+---
+
 ## Appendix A: Reserved Keywords
 
 | Keyword | Status | Purpose |

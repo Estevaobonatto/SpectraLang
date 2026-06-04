@@ -953,6 +953,14 @@ Enable real ML training/inference system architecture.
 
 ## 11.1 Concurrency Model
 
+Current state: complete for the current production baseline. The implemented
+model is stdlib-only and exposed through `std.concurrent`; no new concurrency
+syntax was added. The runtime provides task handles, deterministic `join`,
+non-blocking FIFO channels, counters, reset/stats functions, and a parallel
+chunked `pipeline_sum` primitive. The midend recognizes aliased
+`std.concurrent` calls as host calls, so examples compile and execute through
+the normal CLI pipeline.
+
 ### Tasks
 
 - Implement task/runtime model:
@@ -969,12 +977,21 @@ Enable real ML training/inference system architecture.
 
 ## 11.2 Inference Serving Foundations
 
+Current state: complete for the current in-process serving baseline. The
+implemented API is exposed through `std.serve` and covers local server handles,
+warmup, request queueing, batching, cancellation, timeout state, resident model
+lookup, result lookup, and deterministic toy benchmarking. This does not claim
+HTTP/gRPC or async network transport readiness; those remain future hardening
+items outside the completed Phase 11 baseline.
+
 ### Tasks
 
-- Add networking/runtime support needed for model serving.
+- Add local runtime support needed for model serving.
 - Add batching and request queue abstractions.
 - Add model warmup and memory residency controls.
 - Add cancellation and timeouts.
+- Track HTTP/gRPC or async network transport as future hardening outside this
+  completed baseline.
 
 ### Acceptance Criteria
 

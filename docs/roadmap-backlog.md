@@ -964,7 +964,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-1101 Concurrency Model
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `runtime`
 - Dependencies: `R-402`
@@ -973,14 +973,26 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - threads/tasks/channels
 - synchronization primitives
+- stdlib-only API through `std.concurrent`
+- deterministic handle registry for task, channel, and counter resources
+- parallel chunk execution for pipeline sums
 
 ### Acceptance
 
 - parallel data pipeline sample works and is tested
+- runtime unit tests cover task spawn/join, FIFO channels, counters, stats, reset, and parallel pipeline execution
+- `tests/validation/77_concurrency_pipeline.spectra` passes in the integrated test runner
+
+### Completed
+
+- Added virtual module signatures for `std.concurrent`.
+- Added runtime host functions for task handles, non-blocking FIFO channels, counters, stats, reset, and deterministic parallel pipeline sum.
+- Added midend host-call descriptors so aliased module calls lower to runtime host calls instead of struct method calls.
+- Validated through Rust unit tests and `run_tests.ps1`.
 
 ## R-1102 Inference Serving Foundations
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `ml`
 - Dependencies: `R-1101`, `R-702`
@@ -991,10 +1003,24 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - warmup
 - timeout/cancellation
 - model residency controls
+- local in-process serving queue through `std.serve`
+- deterministic toy benchmark through `server_benchmark(server, requests, batch)`
 
 ### Acceptance
 
 - toy inference server benchmark exists
+- runtime unit tests cover warmup, batching, cancellation, pending queue state, request result lookup, and model residency
+- `tests/validation/78_serving_foundations.spectra` passes in the integrated test runner
+
+### Completed
+
+- Added virtual module signatures for `std.serve`.
+- Added runtime host functions for server handles, warmup, queueing, batching, cancellation, timeout state, resident model lookup, and deterministic benchmark processing.
+- Validated through Rust unit tests and `run_tests.ps1`.
+
+### Remaining Future Hardening
+
+- Network transport, real HTTP/gRPC serving, async I/O, and external model residency policies are not part of this completed baseline and should be tracked as separate future work if required.
 
 ---
 

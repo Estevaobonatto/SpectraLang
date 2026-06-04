@@ -646,12 +646,13 @@ title = "Concurrency Model"
 phase = "phase_11"
 owner = "runtime"
 priority = "P1"
-status = "not_started"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-402"]
-summary = "Implement the concurrency primitives needed for real pipelines."
+summary = "Implement the std.concurrent primitives needed for real deterministic pipelines."
 acceptance = [
-  "parallel data pipeline sample works and is tested"
+  "parallel data pipeline sample works and is tested",
+  "runtime unit tests cover tasks, FIFO channels, counters, and parallel pipeline execution"
 ]
 
 [[items]]
@@ -660,12 +661,13 @@ title = "Inference Serving Foundations"
 phase = "phase_11"
 owner = "ml"
 priority = "P2"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-1101", "R-702"]
-summary = "Provide the runtime features needed for inference serving."
+summary = "Provide local in-process runtime features needed for inference serving."
 acceptance = [
-  "toy inference server benchmark exists"
+  "toy inference server benchmark exists",
+  "runtime unit tests cover warmup, batching, cancellation, pending queue state, and model residency"
 ]
 
 [[items]]

@@ -1,0 +1,43 @@
+// Teste 78: Phase 11 std.serve warmup, batching, cancelamento e benchmark local
+module serving_foundations;
+
+import std.serve as serve;
+
+pub fn main() -> int {
+    serve.reset();
+
+    let server = serve.server_new(3);
+    if serve.server_resident_model(server) != 3 {
+        return 1;
+    }
+    let first = serve.server_enqueue(server, 10);
+    if serve.server_pending(server) != 1 {
+        return 3;
+    }
+    if serve.server_process_batch(server, 1) != 0 {
+        return 4;
+    }
+    serve.server_warmup(server);
+    if serve.server_process_batch(server, 1) != 1 {
+        return 7;
+    }
+    if serve.server_result(server, first) != 30 {
+        return 8;
+    }
+
+    let second = serve.server_enqueue(server, 20);
+    serve.server_cancel(server, second);
+    if serve.server_pending(server) != 0 {
+        return 10;
+    }
+    if serve.server_result(server, second) != -1 {
+        return 11;
+    }
+
+    serve.server_set_timeout(server, 1);
+    if serve.server_benchmark(server, 8, 3) != 8 {
+        return 13;
+    }
+
+    return 0;
+}

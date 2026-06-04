@@ -4064,6 +4064,10 @@ impl ASTLowering {
 
     fn host_function_descriptor(&self, callee: &Expression) -> Option<HostFunctionDescriptor> {
         let path = self.resolve_call_path(callee)?;
+        self.host_function_descriptor_for_path(&path)
+    }
+
+    fn host_function_descriptor_for_path(&self, path: &[String]) -> Option<HostFunctionDescriptor> {
         // Direct path lookup (e.g. std.io.print).
         if let Some(desc) = lookup_std_host_function(&path) {
             return Some(desc);
@@ -6729,6 +6733,69 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "dataloader_batch_labels") => {
                 Some(host_int("spectra.std.ml.dataloader_batch_labels"))
             }
+            // ── std.concurrent ───────────────────────────────────────────
+            ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
+            ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),
+            ("concurrent", "task_is_done") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.concurrent.task_is_done",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("concurrent", "channel_new") => Some(host_int("spectra.std.concurrent.channel_new")),
+            ("concurrent", "channel_send") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.concurrent.channel_send",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("concurrent", "channel_recv") => Some(host_int("spectra.std.concurrent.channel_recv")),
+            ("concurrent", "channel_len") => Some(host_int("spectra.std.concurrent.channel_len")),
+            ("concurrent", "channel_close") => {
+                Some(host_void("spectra.std.concurrent.channel_close"))
+            }
+            ("concurrent", "counter_new") => Some(host_int("spectra.std.concurrent.counter_new")),
+            ("concurrent", "counter_add") => Some(host_int("spectra.std.concurrent.counter_add")),
+            ("concurrent", "counter_get") => Some(host_int("spectra.std.concurrent.counter_get")),
+            ("concurrent", "pipeline_sum") => Some(host_int("spectra.std.concurrent.pipeline_sum")),
+            ("concurrent", "stats_tasks_spawned") => {
+                Some(host_int("spectra.std.concurrent.stats_tasks_spawned"))
+            }
+            ("concurrent", "stats_channels") => {
+                Some(host_int("spectra.std.concurrent.stats_channels"))
+            }
+            ("concurrent", "reset") => Some(host_void("spectra.std.concurrent.reset")),
+            // ── std.serve ────────────────────────────────────────────────
+            ("serve", "server_new") => Some(host_int("spectra.std.serve.server_new")),
+            ("serve", "server_warmup") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_warmup",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_is_warm") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_is_warm",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_enqueue") => Some(host_int("spectra.std.serve.server_enqueue")),
+            ("serve", "server_cancel") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_cancel",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_process_batch") => {
+                Some(host_int("spectra.std.serve.server_process_batch"))
+            }
+            ("serve", "server_result") => Some(host_int("spectra.std.serve.server_result")),
+            ("serve", "server_pending") => Some(host_int("spectra.std.serve.server_pending")),
+            ("serve", "server_set_timeout") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_set_timeout",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_resident_model") => {
+                Some(host_int("spectra.std.serve.server_resident_model"))
+            }
+            ("serve", "server_benchmark") => Some(host_int("spectra.std.serve.server_benchmark")),
+            ("serve", "reset") => Some(host_void("spectra.std.serve.reset")),
             // ── std.collections map ──────────────────────────────────────
             ("collections", "map_new") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.map_new",

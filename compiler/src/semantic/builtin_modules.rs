@@ -24,6 +24,8 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.time".to_string(), make_std_time());
     registry.register_module("std.tensor".to_string(), make_std_tensor());
     registry.register_module("std.ml".to_string(), make_std_ml());
+    registry.register_module("std.concurrent".to_string(), make_std_concurrent());
+    registry.register_module("std.serve".to_string(), make_std_serve());
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
@@ -42,6 +44,8 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.time".to_string(), make_std_time());
     registry.register_module("spectra.std.tensor".to_string(), make_std_tensor());
     registry.register_module("spectra.std.ml".to_string(), make_std_ml());
+    registry.register_module("spectra.std.concurrent".to_string(), make_std_concurrent());
+    registry.register_module("spectra.std.serve".to_string(), make_std_serve());
 }
 
 fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
@@ -672,6 +676,106 @@ fn make_std_ml() -> ModuleExports {
             enum_struct_variants: None,
         },
     );
+
+    exports
+}
+
+fn make_std_concurrent() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "concurrent".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    let int = Type::Int;
+    let bool_ty = Type::Bool;
+    let unit = Type::Unit;
+
+    let functions = [
+        ("task_spawn", vec![int.clone()], int.clone()),
+        ("task_join", vec![int.clone()], int.clone()),
+        ("task_is_done", vec![int.clone()], bool_ty.clone()),
+        ("channel_new", vec![], int.clone()),
+        (
+            "channel_send",
+            vec![int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        ("channel_recv", vec![int.clone()], int.clone()),
+        ("channel_len", vec![int.clone()], int.clone()),
+        ("channel_close", vec![int.clone()], unit.clone()),
+        ("counter_new", vec![int.clone()], int.clone()),
+        ("counter_add", vec![int.clone(), int.clone()], int.clone()),
+        ("counter_get", vec![int.clone()], int.clone()),
+        (
+            "pipeline_sum",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("stats_tasks_spawned", vec![], int.clone()),
+        ("stats_channels", vec![], int.clone()),
+        ("reset", vec![], unit.clone()),
+    ];
+
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+
+    exports
+}
+
+fn make_std_serve() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "serve".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    let int = Type::Int;
+    let bool_ty = Type::Bool;
+
+    let functions = [
+        ("server_new", vec![int.clone()], int.clone()),
+        ("server_warmup", vec![int.clone()], bool_ty.clone()),
+        ("server_is_warm", vec![int.clone()], bool_ty.clone()),
+        (
+            "server_enqueue",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "server_cancel",
+            vec![int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        (
+            "server_process_batch",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("server_result", vec![int.clone(), int.clone()], int.clone()),
+        ("server_pending", vec![int.clone()], int.clone()),
+        (
+            "server_set_timeout",
+            vec![int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        ("server_resident_model", vec![int.clone()], int.clone()),
+        (
+            "server_benchmark",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("reset", vec![], Type::Unit),
+    ];
+
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
 
     exports
 }

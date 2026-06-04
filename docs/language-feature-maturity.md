@@ -67,6 +67,9 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - LSP hover, go-to-definition, references, rename, completion, diagnostics, formatting, inlay hints, quick fixes, and semantic tokens
   - `spectralang bench` with JSON timing reports
   - source-aware `error[runtime]` diagnostics for non-zero program exits
+- Phase 11 concurrency and serving baseline:
+  - `std.concurrent` task handles, deterministic join, non-blocking FIFO channels, counters, stats/reset, and parallel pipeline sum
+  - `std.serve` local in-process server handles, warmup, request batching, cancellation, timeout state, resident model lookup, result lookup, and deterministic toy benchmark
 
 ### Beta
 
@@ -75,6 +78,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - closure/runtime representation as an optimization target
 - first-class tensor language design beyond the current stdlib handle/autodiff API
 - full runtime trap stack traces and AOT debugger integration
+- HTTP/gRPC serving, async I/O integration, and distributed model residency policy
 
 These are usable where covered, but still not treated as fully production-hardened language design.
 
