@@ -1,0 +1,40 @@
+[package]
+name = "spectralang-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+spectra-compiler = { path = "../compiler" }
+spectra-midend = { path = "../midend" }
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "semantic"
+path = "fuzz_targets/semantic.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pipeline"
+path = "fuzz_targets/pipeline.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "lowering"
+path = "fuzz_targets/lowering.rs"
+test = false
+doc = false

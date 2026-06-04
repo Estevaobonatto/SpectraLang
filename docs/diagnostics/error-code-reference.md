@@ -1,7 +1,7 @@
 # Error Code Reference
 
-Updated: 2026-05-21  
-Roadmap item: `R-105`
+Updated: 2026-06-04
+Roadmap item: `R-105` (`complete`)
 
 This file defines the stable diagnostic-code ranges currently implemented in Phase 1 and the high-frequency diagnostics tooling can depend on.
 
@@ -90,3 +90,25 @@ Tooling expectations:
 - `phase` remains available even when `code` is absent
 - `hint` is optional but should be consumed when present
 - `related` can contain additional context-only messages without a span
+
+## Machine-Readable SARIF Diagnostics
+
+Current CLI contract:
+
+- `spectralang compile --sarif <path>`
+- `spectralang check --sarif <path>`
+- `spectralang lint --sarif <path>`
+
+SARIF output uses version `2.1.0` and writes one `SpectraLang` run. Each
+diagnostic becomes a SARIF result:
+
+- `ruleId` is the stable diagnostic code when present, otherwise the phase
+- `level` is `error` or `warning`
+- `message.text` is the compiler diagnostic message
+- `locations[0].physicalLocation.artifactLocation.uri` is the source path
+- `locations[0].physicalLocation.region` contains line/column data
+- `properties.hint` is emitted when a fix/action hint exists
+- `relatedLocations` carries additional context when present
+
+`--json` and `--sarif` are mutually exclusive. Both formats return exit code
+`65` when compilation/lint diagnostics contain errors.

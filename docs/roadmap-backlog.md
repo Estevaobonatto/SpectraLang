@@ -177,7 +177,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-104 Compiler Test Pyramid
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-101`, `R-102`, `R-103`
@@ -195,9 +195,26 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - fuzz targets exist
 - regression policy documented
 
+### Completed Implementation
+
+- Added compiler AST and diagnostic snapshot tests in `compiler/tests/`.
+- Added midend IR snapshot tests in `midend/tests/`.
+- Added cargo-fuzz targets for parser, semantic analysis, full no-op pipeline,
+  and lowering under `fuzz/fuzz_targets/`.
+- Added the regression placement and snapshot/fuzz policy in
+  `docs/testing-regression-policy.md`.
+- Added `scripts/validate_test_pyramid.py` and wired it into `run_tests.ps1`.
+
+### Validation
+
+- `cargo test -p spectra-compiler --test snapshot_tests`
+- `cargo test -p spectra-midend --test ir_snapshot_tests`
+- `python scripts\validate_test_pyramid.py`
+- `.\run_tests.ps1`
+
 ## R-105 Diagnostics Standardization
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `frontend`
 - Dependencies: `R-102`
@@ -213,6 +230,26 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - stable error code table committed
 - JSON diagnostics usable by tooling
 - at least 20 top diagnostics include actionable hints
+
+### Completed Implementation
+
+- `docs/diagnostics/error-code-reference.md` documents stable diagnostic
+  families, at least 20 high-frequency diagnostics, JSON diagnostics, and SARIF
+  diagnostics.
+- `spectralang compile/check/lint --json` emits machine-readable diagnostics.
+- `spectralang compile/check/lint --sarif` emits SARIF 2.1.0 diagnostics.
+- `--json` and `--sarif` are mutually exclusive and preserve diagnostic exit
+  code behavior.
+- `scripts/validate_diagnostics_standardization.py` validates the reference and
+  generated JSON/SARIF reports.
+- `run_tests.ps1` runs R-105 validation as a gated check.
+
+### Validation
+
+- `cargo test -p spectra-cli`
+- `python scripts\validate_diagnostics_standardization.py`
+- `python scripts\validate_diagnostics_standardization.py --json-report target\r105-diagnostics\diagnostics.json --sarif-report target\r105-diagnostics\diagnostics.sarif`
+- `.\run_tests.ps1`
 
 ## R-106 Experimental Feature Policy
 

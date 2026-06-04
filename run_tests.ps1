@@ -280,6 +280,13 @@ $cliTests = @(
         UseStdin = $false
     }
     [PSCustomObject]@{
+        Nome = "check_sarif_invalid_file"
+        Args = @("check", "--sarif", "tests\errors\type_mismatch.spectra")
+        ExpectExit = 65
+        Contains = '"version": "2.1.0"'
+        UseStdin = $false
+    }
+    [PSCustomObject]@{
         Nome = "lint_clean"
         Args = @("lint", "tests\cli\lint_clean.spectra")
         ExpectExit = 0
@@ -678,6 +685,35 @@ if ($cCompiler) {
 }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.5: R-105 diagnostics standardization
+# ---------------------------------------------------------------------------
+$diagnosticsTemp = Join-Path (Get-Location).Path "target\r105-diagnostics"
+if (Test-Path $diagnosticsTemp) {
+    Remove-Item -LiteralPath $diagnosticsTemp -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $diagnosticsTemp | Out-Null
+
+$jsonReport = Join-Path $diagnosticsTemp "diagnostics.json"
+$sarifReport = Join-Path $diagnosticsTemp "diagnostics.sarif"
+
+$jsonDiag = Invoke-SpectraCommand -commandArgs @("check", "--json", "tests\errors\type_mismatch.spectra") -workingDir (Get-Location).Path -includeExperimental $true
+$sarifDiag = Invoke-SpectraCommand -commandArgs @("check", "--sarif", "tests\errors\type_mismatch.spectra") -workingDir (Get-Location).Path -includeExperimental $true
+Set-Content -LiteralPath $jsonReport -Value $jsonDiag.Output -Encoding UTF8
+Set-Content -LiteralPath $sarifReport -Value $sarifDiag.Output -Encoding UTF8
+
+Write-Host ""
+Write-Host "--- R-105 diagnostics standardization ---" -ForegroundColor Yellow
+$diagValidate = Invoke-HostCommand -name "validate_diagnostics_standardization" -fileName "python" -arguments @("scripts\validate_diagnostics_standardization.py", "--json-report", $jsonReport, "--sarif-report", $sarifReport) -workingDir (Get-Location).Path
+if (-not $jsonDiag.TimedOut -and -not $sarifDiag.TimedOut -and $diagValidate.Status -eq "PASSOU") {
+    $totalPassed++
+    $results += [PSCustomObject]@{ Diretorio = "phase1-diagnostics"; Teste = "validate_diagnostics_standardization"; Status = "PASSOU"; Detalhe = "" }
+} else {
+    $totalFailed++
+    $detail = if ($diagValidate.Status -ne "PASSOU") { $diagValidate.Detail } else { "JSON/SARIF diagnostics timed out" }
+    $results += [PSCustomObject]@{ Diretorio = "phase1-diagnostics"; Teste = "validate_diagnostics_standardization"; Status = "FALHOU"; Detalhe = $detail }
+}
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""
@@ -719,6 +755,19 @@ foreach ($check in $phase12Checks) {
     }
     $results += [PSCustomObject]@{ Diretorio = "phase12"; Teste = $check.Nome; Status = $r.Status; Detalhe = $r.Detail }
 }
+
+# ---------------------------------------------------------------------------
+# Grupo 9.5: R-104 compiler test pyramid structure
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-104 compiler test pyramid ---" -ForegroundColor Yellow
+$testPyramid = Invoke-HostCommand -name "validate_test_pyramid" -fileName "python" -arguments @("scripts\validate_test_pyramid.py") -workingDir (Get-Location).Path
+if ($testPyramid.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase1-tests"; Teste = "validate_test_pyramid"; Status = $testPyramid.Status; Detalhe = $testPyramid.Detail }
 
 # ---------------------------------------------------------------------------
 # Grupo 10: Phase 13 AI reference examples

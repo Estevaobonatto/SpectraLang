@@ -14,6 +14,7 @@ use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use package::{PackageCommand, PackageInvocation};
 use project::ProjectPlan;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use spectra_compiler::{
     error::CompilerError, lint::LintDiagnostic, span::Span, CompilationOptions, LintOptions,
     LintRule,
@@ -89,6 +90,7 @@ struct CliInvocation {
     show_pipeline_summary: bool,
     verbose: bool,
     json_output: bool,
+    sarif_output: bool,
     /// When `Some(path)`, emit a native object file at `path` instead of / in addition to JIT.
     emit_object: Option<PathBuf>,
     /// When `Some(path)`, compile to a native executable at `path`.
@@ -395,6 +397,7 @@ where
     let mut show_pipeline_summary = false;
     let mut verbose = false;
     let mut json_output = false;
+    let mut sarif_output = false;
     let mut emit_object: Option<PathBuf> = None;
     let mut emit_exe: Option<PathBuf> = None;
     let mut bench_json: Option<PathBuf> = None;
@@ -496,7 +499,25 @@ where
                         "'--json' is only supported with the 'compile', 'check', or 'lint' commands. Use '--bench-json <path>' for bench reports.",
                     ));
                 }
+                if sarif_output {
+                    return Err(usage_error(
+                        "'--json' and '--sarif' cannot be used together.",
+                    ));
+                }
                 json_output = true;
+            }
+            "--sarif" => {
+                if matches!(command, BuildCommand::Run | BuildCommand::Bench) {
+                    return Err(usage_error(
+                        "'--sarif' is only supported with the 'compile', 'check', or 'lint' commands. Use '--bench-json <path>' for bench reports.",
+                    ));
+                }
+                if json_output {
+                    return Err(usage_error(
+                        "'--json' and '--sarif' cannot be used together.",
+                    ));
+                }
+                sarif_output = true;
             }
             "--bench-json" => {
                 let path = args
@@ -551,6 +572,7 @@ where
         show_pipeline_summary,
         verbose,
         json_output,
+        sarif_output,
         emit_object,
         emit_exe,
         bench_json,
@@ -1000,19 +1022,20 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         show_pipeline_summary,
         verbose,
         json_output,
+        sarif_output,
         emit_object,
         emit_exe,
         bench_json,
         program_args,
     } = invocation;
 
-    if json_output {
+    if json_output || sarif_output {
         return match kind {
             BuildCommand::Compile | BuildCommand::Check | BuildCommand::Lint => {
-                execute_lint_json(entries, options)
+                execute_structured_diagnostics(entries, options, sarif_output)
             }
             BuildCommand::Run | BuildCommand::Bench => Err(usage_error(
-                "'--json' is only supported with the 'compile', 'check', or 'lint' commands. Use '--bench-json <path>' for bench reports.",
+                "'--json' and '--sarif' are only supported with the 'compile', 'check', or 'lint' commands. Use '--bench-json <path>' for bench reports.",
             )),
         };
     }
@@ -2002,7 +2025,11 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
     }
 }
 
-fn execute_lint_json(entries: Vec<PathBuf>, mut options: CompilationOptions) -> CliResult<()> {
+fn execute_structured_diagnostics(
+    entries: Vec<PathBuf>,
+    mut options: CompilationOptions,
+    sarif_output: bool,
+) -> CliResult<()> {
     if entries.is_empty() {
         return Err(CliError::usage(
             "No Spectra source files were provided for linting.",
@@ -2010,7 +2037,7 @@ fn execute_lint_json(entries: Vec<PathBuf>, mut options: CompilationOptions) -> 
     }
 
     options.run_jit = false;
-    run_json_diagnostics(entries, options)
+    run_structured_diagnostics(entries, options, sarif_output)
 }
 
 fn execute_repl_json(mut options: CompilationOptions, preload: Vec<PathBuf>) -> CliResult<()> {
@@ -2022,10 +2049,14 @@ fn execute_repl_json(mut options: CompilationOptions, preload: Vec<PathBuf>) -> 
 
     configure_lint_options(&mut options, &preload, true, &[], &[])?;
     options.run_jit = false;
-    run_json_diagnostics(preload, options)
+    run_structured_diagnostics(preload, options, false)
 }
 
-fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> CliResult<()> {
+fn run_structured_diagnostics(
+    entries: Vec<PathBuf>,
+    options: CompilationOptions,
+    sarif_output: bool,
+) -> CliResult<()> {
     let plan = match ProjectPlan::build(entries.clone()) {
         Ok(plan) => plan,
         Err(error) => {
@@ -2043,7 +2074,7 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
                 }],
             };
 
-            emit_json_report(&report, true)?;
+            emit_diagnostic_report(&report, true, sarif_output)?;
             return Ok(());
         }
     };
@@ -2054,7 +2085,7 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
             success: true,
             files: Vec::new(),
         };
-        emit_json_report(&report, false)?;
+        emit_diagnostic_report(&report, false, sarif_output)?;
         return Ok(());
     }
 
@@ -2108,7 +2139,19 @@ fn run_json_diagnostics(entries: Vec<PathBuf>, options: CompilationOptions) -> C
         files,
     };
 
-    emit_json_report(&report, has_errors)
+    emit_diagnostic_report(&report, has_errors, sarif_output)
+}
+
+fn emit_diagnostic_report(
+    report: &JsonDiagnosticReport,
+    has_errors: bool,
+    sarif_output: bool,
+) -> CliResult<()> {
+    if sarif_output {
+        emit_sarif_report(report, has_errors)
+    } else {
+        emit_json_report(report, has_errors)
+    }
 }
 
 fn emit_json_report(report: &JsonDiagnosticReport, has_errors: bool) -> CliResult<()> {
@@ -2116,6 +2159,118 @@ fn emit_json_report(report: &JsonDiagnosticReport, has_errors: bool) -> CliResul
     serde_json::to_writer(&mut stdout, report).map_err(|error| {
         CliError::io(format!(
             "Failed to serialize diagnostics to JSON: {}",
+            error
+        ))
+    })?;
+    stdout
+        .write_all(b"\n")
+        .map_err(|error| CliError::io(format!("Failed to write diagnostics: {}", error)))?;
+    stdout
+        .flush()
+        .map_err(|error| CliError::io(format!("Failed to flush diagnostics: {}", error)))?;
+
+    if has_errors {
+        process::exit(ExitCode::CompilationFailed.as_i32());
+    }
+
+    Ok(())
+}
+
+fn emit_sarif_report(report: &JsonDiagnosticReport, has_errors: bool) -> CliResult<()> {
+    let mut rules: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut results = Vec::new();
+
+    for file in &report.files {
+        for diagnostic in &file.diagnostics {
+            let rule_id = diagnostic
+                .code
+                .clone()
+                .or_else(|| diagnostic.phase.clone())
+                .unwrap_or_else(|| "diagnostic".to_string());
+            rules.entry(rule_id.clone()).or_insert_with(|| {
+                json!({
+                    "id": rule_id,
+                    "name": diagnostic.phase.clone().unwrap_or_else(|| "diagnostic".to_string()),
+                    "shortDescription": { "text": diagnostic.message },
+                    "help": { "text": diagnostic.hint.clone().unwrap_or_else(|| diagnostic.message.clone()) }
+                })
+            });
+
+            let mut result = json!({
+                "ruleId": rule_id,
+                "level": diagnostic.severity.sarif_level(),
+                "message": { "text": diagnostic.message },
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": { "uri": file.path },
+                            "region": {
+                                "startLine": diagnostic.range.start.line,
+                                "startColumn": diagnostic.range.start.column,
+                                "endLine": diagnostic.range.end.line,
+                                "endColumn": diagnostic.range.end.column
+                            }
+                        }
+                    }
+                ]
+            });
+
+            if let Some(hint) = &diagnostic.hint {
+                result["properties"] = json!({ "hint": hint });
+            }
+
+            if !diagnostic.related.is_empty() {
+                result["relatedLocations"] = json!(diagnostic
+                    .related
+                    .iter()
+                    .enumerate()
+                    .map(|(index, related)| {
+                        let mut item = json!({
+                            "id": index + 1,
+                            "message": { "text": related.message }
+                        });
+                        if let Some(range) = &related.range {
+                            item["physicalLocation"] = json!({
+                                "artifactLocation": { "uri": file.path },
+                                "region": {
+                                    "startLine": range.start.line,
+                                    "startColumn": range.start.column,
+                                    "endLine": range.end.line,
+                                    "endColumn": range.end.column
+                                }
+                            });
+                        }
+                        item
+                    })
+                    .collect::<Vec<_>>());
+            }
+
+            results.push(result);
+        }
+    }
+
+    let report = json!({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "SpectraLang",
+                        "semanticVersion": env!("CARGO_PKG_VERSION"),
+                        "informationUri": "https://github.com/spectralang/spectralang",
+                        "rules": rules.into_values().collect::<Vec<_>>()
+                    }
+                },
+                "results": results
+            }
+        ]
+    });
+
+    let mut stdout = io::stdout();
+    serde_json::to_writer_pretty(&mut stdout, &report).map_err(|error| {
+        CliError::io(format!(
+            "Failed to serialize diagnostics to SARIF: {}",
             error
         ))
     })?;
@@ -2279,6 +2434,15 @@ struct JsonDiagnostic {
 enum JsonSeverity {
     Error,
     Warning,
+}
+
+impl JsonSeverity {
+    fn sarif_level(&self) -> &'static str {
+        match self {
+            JsonSeverity::Error => "error",
+            JsonSeverity::Warning => "warning",
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -2611,6 +2775,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    --allow <rule>         Allow (suppress) a lint rule (may be repeated)");
     println!("    --deny <rule>          Deny a lint rule and escalate matches to errors");
     println!("    --json                 Emit diagnostics as JSON");
+    println!("    --sarif                Emit diagnostics as SARIF 2.1.0");
     println!("    --bench-json <path>    Write benchmark timings as JSON (bench only)");
     println!(
         "                           Available rules: {}",
@@ -2678,6 +2843,23 @@ mod tests {
             .expect("check --json should parse");
 
         assert!(invocation.json_output);
+        assert!(!invocation.sarif_output);
+    }
+
+    #[test]
+    fn sarif_is_allowed_for_check() {
+        let mut args = vec![
+            "--sarif".to_string(),
+            "../../tests/validation/60_pattern_control_surface.spectra".to_string(),
+        ]
+        .into_iter()
+        .peekable();
+
+        let invocation = parse_compilation_invocation(&mut args, BuildCommand::Check, false)
+            .expect("check --sarif should parse");
+
+        assert!(invocation.sarif_output);
+        assert!(!invocation.json_output);
     }
 
     #[test]
@@ -2692,6 +2874,24 @@ mod tests {
         let error = parse_compilation_invocation(&mut args, BuildCommand::Run, false).unwrap_err();
 
         assert!(error.message.contains("--json"));
+        assert_eq!(error.code.as_i32(), ExitCode::Usage.as_i32());
+    }
+
+    #[test]
+    fn json_and_sarif_are_mutually_exclusive() {
+        let mut args = vec![
+            "--json".to_string(),
+            "--sarif".to_string(),
+            "../../tests/validation/60_pattern_control_surface.spectra".to_string(),
+        ]
+        .into_iter()
+        .peekable();
+
+        let error = parse_compilation_invocation(&mut args, BuildCommand::Check, false)
+            .expect_err("json and sarif together should fail");
+
+        assert!(error.message.contains("--json"));
+        assert!(error.message.contains("--sarif"));
         assert_eq!(error.code.as_i32(), ExitCode::Usage.as_i32());
     }
 }

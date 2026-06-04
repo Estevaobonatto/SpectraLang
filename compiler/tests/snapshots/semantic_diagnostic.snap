@@ -1,0 +1,2 @@
+semantic|E001|Undefined variable or function 'missing_symbol'|-
+semantic|-|Cannot determine return type: the expression has an unknown or uninferrable type|Add an explicit type annotation to help the compiler resolve the type.

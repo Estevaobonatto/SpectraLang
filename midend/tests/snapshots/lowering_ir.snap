@@ -1,0 +1,8 @@
+module lowering_snapshot {
+
+  fn add(int lhs, int rhs) -> int {
+    entry:
+      %v2 = add %v0, %v1
+      ret %v2
+  }
+}

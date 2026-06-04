@@ -30,3 +30,4 @@ test_boolr.spectra
 
 # Installer build output
 installer/Output/
+fuzz/target/

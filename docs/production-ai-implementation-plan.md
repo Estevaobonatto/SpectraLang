@@ -151,6 +151,13 @@ Raise compiler reliability from experimental to production-grade infrastructure.
 
 ## 1.2 Compiler Test Pyramid
 
+Current state: complete for the current roadmap/backlog production baseline.
+Stage-local tests already cover compiler, midend, backend, and CLI crates; this
+phase adds canonical AST, diagnostic, and IR snapshots plus cargo-fuzz targets
+for parser, semantic analysis, the no-op compilation pipeline, and lowering.
+Continuous fuzz execution in external CI remains a future hardening extension,
+not an implicit completion claim for the current local baseline.
+
 ### Tasks
 
 - Add unit tests for:
@@ -175,11 +182,33 @@ Raise compiler reliability from experimental to production-grade infrastructure.
 ### Acceptance Criteria
 
 - Every compiler crate has stage-specific unit tests.
-- A fuzz target exists and runs in CI on a limited budget.
+- Fuzz targets exist for parser, semantic analysis, pipeline, and lowering.
 - Every bug fixed after this point must add a regression test.
-- CI is green on all supported operating systems.
+- The regression policy is documented and validated by the main test runner.
+
+### Current Implementation
+
+- `compiler/tests/snapshot_tests.rs`
+- `compiler/tests/snapshots/parser_ast.snap`
+- `compiler/tests/snapshots/semantic_diagnostic.snap`
+- `midend/tests/ir_snapshot_tests.rs`
+- `midend/tests/snapshots/lowering_ir.snap`
+- `fuzz/fuzz_targets/parser.rs`
+- `fuzz/fuzz_targets/semantic.rs`
+- `fuzz/fuzz_targets/pipeline.rs`
+- `fuzz/fuzz_targets/lowering.rs`
+- `docs/testing-regression-policy.md`
+- `scripts/validate_test_pyramid.py`
+- `run_tests.ps1` includes the R-104 structural gate.
 
 ## 1.3 Diagnostics Quality
+
+Current state: complete for the current Phase 1 diagnostics baseline. Stable
+code families and high-frequency diagnostic codes are documented, JSON
+diagnostics are emitted for compile/check/lint, SARIF 2.1.0 diagnostics are
+emitted for compile/check/lint, and the main test runner validates generated
+JSON/SARIF reports. Midend/backend diagnostics still fall back to phase-level
+codes when no stable subcode exists.
 
 ### Tasks
 
@@ -205,9 +234,22 @@ Raise compiler reliability from experimental to production-grade infrastructure.
 
 ### Acceptance Criteria
 
-- Every user-facing diagnostic has a stable code.
+- Stable diagnostic-code families and high-frequency codes are documented.
 - JSON diagnostics are consumable by editor tooling.
+- SARIF diagnostics are consumable by external analysis tooling.
 - At least 20 common diagnostics have actionable fix hints.
+
+### Current Implementation
+
+- `docs/diagnostics/error-code-reference.md`
+- `spectralang compile --json <path>`
+- `spectralang check --json <path>`
+- `spectralang lint --json <path>`
+- `spectralang compile --sarif <path>`
+- `spectralang check --sarif <path>`
+- `spectralang lint --sarif <path>`
+- `scripts/validate_diagnostics_standardization.py`
+- `run_tests.ps1` includes the R-105 generated-report validation gate.
 
 ## 1.4 Language Surface Stabilization
 
