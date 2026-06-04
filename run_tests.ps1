@@ -382,7 +382,7 @@ $cliTests = @(
         Nome = "runtime_nonzero_trace"
         Args = @("run", "tests\cli\runtime_nonzero.spectra")
         ExpectExit = 7
-        Contains = "error[runtime]"
+        Contains = "0: main()"
         UseStdin = $false
     }
 )
@@ -712,6 +712,45 @@ if (-not $jsonDiag.TimedOut -and -not $sarifDiag.TimedOut -and $diagValidate.Sta
     $detail = if ($diagValidate.Status -ne "PASSOU") { $diagValidate.Detail } else { "JSON/SARIF diagnostics timed out" }
     $results += [PSCustomObject]@{ Diretorio = "phase1-diagnostics"; Teste = "validate_diagnostics_standardization"; Status = "FALHOU"; Detalhe = $detail }
 }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.6: R-106 feature maturity policy
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-106 feature maturity policy ---" -ForegroundColor Yellow
+$featureMaturity = Invoke-HostCommand -name "validate_feature_maturity" -fileName "python" -arguments @("scripts\validate_feature_maturity.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($featureMaturity.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase1-features"; Teste = "validate_feature_maturity"; Status = $featureMaturity.Status; Detalhe = $featureMaturity.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.7: R-203 pattern ergonomics
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-203 pattern ergonomics ---" -ForegroundColor Yellow
+$patternErgonomics = Invoke-HostCommand -name "validate_pattern_ergonomics" -fileName "python" -arguments @("scripts\validate_pattern_ergonomics.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($patternErgonomics.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase2-patterns"; Teste = "validate_pattern_ergonomics"; Status = $patternErgonomics.Status; Detalhe = $patternErgonomics.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.8: R-1002 debugger and stack traces
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1002 debugger and stack traces ---" -ForegroundColor Yellow
+$debuggerStackTraces = Invoke-HostCommand -name "validate_debugger_stack_traces" -fileName "python" -arguments @("scripts\validate_debugger_stack_traces.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($debuggerStackTraces.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase10-debugger"; Teste = "validate_debugger_stack_traces"; Status = $debuggerStackTraces.Status; Detalhe = $debuggerStackTraces.Detail }
 
 # ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke

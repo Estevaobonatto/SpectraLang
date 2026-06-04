@@ -2413,7 +2413,9 @@ spectralang package bench --root .
 Runtime diagnostic baseline:
 
 - `spectralang run` emits `error[runtime]` with the source location of `fn main` when the program exits with a non-zero status.
-- Full runtime trap stacks and AOT debugger integration are not complete yet.
+- The diagnostic includes stack frame `0: main()` for the current runtime entrypoint failure path.
+- `spectralang compile --emit-object` and `--emit-exe` write a sibling `.spectra-debug.json` map for native debugger workflows with `gdb`/`lldb` symbols.
+- Native DWARF/PDB source stepping is not claimed by the current baseline.
 
 For the full tooling contract, see `docs/tooling.md`.
 

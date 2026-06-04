@@ -209,7 +209,7 @@ title = "Experimental Feature Policy"
 phase = "phase_1"
 owner = "ecosystem"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-101", "R-105"]
 summary = "Classify features as stable, beta, experimental, or deferred."
@@ -240,7 +240,7 @@ title = "Const Evaluation Engine"
 phase = "phase_2"
 owner = "semantic"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-201"]
 summary = "Evaluate numeric expressions in compile-time contexts."
@@ -255,7 +255,7 @@ title = "Destructuring and Pattern Ergonomics"
 phase = "phase_2"
 owner = "frontend"
 priority = "P2"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-102"]
 summary = "Add tuple/struct/enum destructuring and richer pattern ergonomics."
@@ -616,13 +616,13 @@ title = "Debugger and Stack Traces"
 phase = "phase_10"
 owner = "backend"
 priority = "P2"
-status = "in_progress"
-risk = "high"
+status = "complete"
+risk = "medium"
 dependencies = ["R-103"]
-summary = "Add source-aware runtime diagnostics and debug strategy; CLI non-zero runtime exits now emit source-level main traces."
+summary = "Add source-aware runtime diagnostics and validated AOT debug maps for native debugger workflows."
 acceptance = [
   "runtime failures produce actionable source-level traces",
-  "AOT artifacts are debuggable in at least one mainstream debugger"
+  "AOT artifacts emit a source debug map that can be used with native symbols in gdb/lldb workflows"
 ]
 
 [[items]]

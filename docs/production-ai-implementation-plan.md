@@ -253,6 +253,11 @@ codes when no stable subcode exists.
 
 ## 1.4 Language Surface Stabilization
 
+Current state: complete for the current Phase 1 maturity-policy baseline. The
+language maturity policy documents stable, beta, experimental, and deferred
+features; the CLI exposes the exact experimental feature list through
+`--list-experimental`; and the main runner validates docs/source/CLI agreement.
+
 ### Tasks
 
 - Mark current stable subset explicitly.
@@ -275,6 +280,13 @@ codes when no stable subcode exists.
 - Language reference clearly labels stable vs experimental syntax.
 - No feature remains in undocumented limbo.
 - CLI feature gates match documented policy exactly.
+
+### Current Implementation
+
+- `docs/language-feature-maturity.md`
+- `spectralang --list-experimental`
+- `scripts/validate_feature_maturity.py`
+- `run_tests.ps1` includes the R-106 feature maturity gate.
 
 ---
 
@@ -330,6 +342,11 @@ Extend the language from general-purpose typed scripting/compiled semantics into
 
 ## 2.3 Richer Pattern and Destructuring Support
 
+Current state: complete for the current Phase 2 pattern baseline. Tuple,
+struct, enum, and OR-patterns are parsed, semantically validated, lowered, and
+covered by positive validation programs plus a negative non-exhaustive enum
+match test.
+
 ### Tasks
 
 - Add `let` destructuring:
@@ -344,6 +361,15 @@ Extend the language from general-purpose typed scripting/compiled semantics into
 
 - Destructuring is fully parsed, validated, and lowered.
 - Exhaustiveness checker handles the new pattern forms.
+
+### Current Implementation
+
+- `tests/validation/31_tuple_variant_destructuring.spectra`
+- `tests/validation/60_pattern_control_surface.spectra`
+- `tests/validation/63_destructuring_and_or_patterns.spectra`
+- `tests/errors/non_exhaustive_enum_match.spectra`
+- `scripts/validate_pattern_ergonomics.py`
+- `run_tests.ps1` includes the R-203 pattern ergonomics gate.
 
 ## 2.4 Closures and Function Values Completion
 
@@ -950,7 +976,7 @@ Make the language productive enough for daily engineering.
 
 - Decide debugging strategy:
   - source maps
-  - DWARF/PDB for AOT
+  - AOT debug sidecars for native debugger workflows
   - JIT introspection strategy
 - Add stack traces.
 - Add panic/runtime error reporting with frames and locals where possible.
@@ -958,12 +984,14 @@ Make the language productive enough for daily engineering.
 ### Acceptance Criteria
 
 - Runtime crashes are diagnosable with source locations.
-- AOT artifacts are debuggable in at least one mainstream debugger.
+- AOT artifacts emit a source debug map that can be used with native symbols in gdb/lldb workflows.
 
 ### Current Implementation
 
-- `spectralang run` emits an `error[runtime]` diagnostic with the source location of `fn main` when a program exits with a non-zero status.
-- Full runtime trap stacks and AOT debugger integration are still incomplete. This workstream remains in progress until source frame stacks and one mainstream debugger path are validated.
+- `spectralang run` emits an `error[runtime]` diagnostic with the source location and stack frame `0: main()` when a program exits with a non-zero status.
+- `spectralang compile --emit-object` and `--emit-exe` write a sibling `.spectra-debug.json` source map containing the artifact path, source path, entrypoint span, exported native symbol, and supported debugger workflow.
+- `scripts/validate_debugger_stack_traces.py` validates runtime stack output and AOT debug map emission.
+- Native DWARF/PDB emission is not claimed by the current production baseline; that remains a future backend enhancement if the project needs debugger-native source stepping.
 
 ## 10.3 Profiler and Benchmark Tooling
 

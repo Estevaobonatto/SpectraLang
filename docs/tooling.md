@@ -44,10 +44,36 @@ cargo test -p spectra-lsp
 error[runtime]: program exited with status 7
   --> path/to/file.spectra:3:5
    |
-   = help: inspect the main entry point and rerun with '--timings' for pipeline context
+   = stack:
+     0: main() at path/to/file.spectra:3:5
+   = help: inspect frame 0 and rerun with '--timings' for pipeline context
 ```
 
-This is the current source-aware runtime baseline. Full trap stacks and AOT debugger integration remain future work.
+## AOT Debug Maps
+
+`spectralang compile --emit-object` and `spectralang compile --emit-exe` emit a sibling JSON debug map:
+
+```powershell
+spectralang compile --emit-object target/app.obj app.spectra
+# writes target/app.obj.spectra-debug.json
+```
+
+The debug map contains:
+
+- schema version
+- native artifact path
+- Spectra source path
+- `main` source span when present
+- exported native symbol for debugger breakpoints
+- supported debugger workflow tags such as `gdb` and `lldb`
+
+This is the current production AOT debug strategy. Use the native debugger to break on the exported symbol (`main` for object files, `spectra_user_main` for executable objects) and use the sidecar to resolve the Spectra source span. Native DWARF/PDB source stepping is not claimed by this baseline.
+
+Validation:
+
+```powershell
+python scripts\validate_debugger_stack_traces.py --binary target\debug\spectralang.exe
+```
 
 ## Benchmarking
 

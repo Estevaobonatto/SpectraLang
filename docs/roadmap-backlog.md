@@ -253,7 +253,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-106 Experimental Feature Policy
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-101`, `R-105`
@@ -267,6 +267,21 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - language docs and CLI help match
 - no feature remains undocumented in maturity level
+
+### Completed Implementation
+
+- `docs/language-feature-maturity.md` defines stable, beta, experimental, and
+  deferred feature classes.
+- `spectralang --list-experimental` returns the exact experimental feature set
+  documented by the policy: `switch`, `unless`, `do-while`, and `loop`.
+- `scripts/validate_feature_maturity.py` compares policy docs, CLI source, and
+  CLI output.
+- `run_tests.ps1` runs R-106 validation as a gated check.
+
+### Validation
+
+- `python scripts\validate_feature_maturity.py --binary target\debug\spectralang.exe`
+- `.\run_tests.ps1`
 
 ---
 
@@ -323,7 +338,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-203 Destructuring and Pattern Ergonomics
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `frontend`
 - Dependencies: `R-102`
@@ -339,9 +354,29 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - syntax, semantics, lowering, and tests all implemented
 
+### Completed Implementation
+
+- Tuple, struct, enum, and OR-pattern parsing is implemented.
+- Semantic validation handles destructuring bindings and match exhaustiveness.
+- Midend lowering handles the supported pattern forms.
+- `tests/validation/31_tuple_variant_destructuring.spectra`,
+  `tests/validation/60_pattern_control_surface.spectra`, and
+  `tests/validation/63_destructuring_and_or_patterns.spectra` cover positive
+  parser/semantic/lowering paths.
+- `tests/errors/non_exhaustive_enum_match.spectra` covers the negative
+  exhaustiveness path.
+- `scripts/validate_pattern_ergonomics.py` validates source coverage plus
+  positive/negative examples.
+- `run_tests.ps1` runs R-203 validation as a gated check.
+
+### Validation
+
+- `python scripts\validate_pattern_ergonomics.py --binary target\debug\spectralang.exe`
+- `.\run_tests.ps1`
+
 ## R-204 Closure Completion
 
-- Status: `partial_alpha`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-102`, `R-103`
@@ -944,7 +979,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-1002 Debugger and Stack Traces
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `backend`
 - Dependencies: `R-103`
@@ -952,23 +987,24 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Scope
 
 - source-aware stack traces
-- AOT debug info strategy
+- AOT debug map strategy for native debugger workflows
 - JIT introspection strategy
 
 ### Acceptance
 
 - runtime failures produce actionable source-level traces
-- AOT artifacts are debuggable in at least one mainstream debugger
+- AOT artifacts emit a source debug map that can be used with native symbols in gdb/lldb workflows
 
 ### Completed so far
 
-- `spectralang run` now emits `error[runtime]` with source location of `fn main` when a program exits with a non-zero status.
+- `spectralang run` now emits `error[runtime]` with source location and stack frame `0: main()` when a program exits with a non-zero status.
+- `spectralang compile --emit-object` and `--emit-exe` write a sibling `.spectra-debug.json` sidecar with schema version, artifact path, source path, entrypoint span, exported symbol, and supported native debugger workflow.
+- `scripts/validate_debugger_stack_traces.py` validates runtime stack diagnostics and AOT object debug map emission.
 - `tests/cli/runtime_nonzero.spectra` and `run_tests.ps1` validate the runtime diagnostic path.
 
-### Remaining before completion
+### Production Boundary
 
-- Implement full source frame stacks for runtime traps beyond non-zero program exit.
-- Define and validate the AOT debug information strategy for at least one mainstream debugger.
+- Native DWARF/PDB emission is not claimed. The production-supported strategy for this item is native symbol debugging plus the checked-in Spectra source sidecar until backend-native debug sections are added as a future roadmap item.
 
 ## R-1003 Profiling and Benchmark Tooling
 

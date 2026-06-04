@@ -1,6 +1,6 @@
 # Language Feature Maturity Policy
 
-Updated: 2026-05-21  
+Updated: 2026-06-04
 Roadmap item: `R-106`
 
 This file is the source of truth for language maturity labels. Documentation, examples, and CLI behavior must match this policy exactly.
@@ -87,7 +87,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - `static` item surface
 - closure/runtime representation as an optimization target
 - first-class tensor language design beyond the current stdlib handle/autodiff API
-- full runtime trap stack traces and AOT debugger integration
+- native DWARF/PDB source stepping beyond the current AOT debug-map workflow
 - HTTP/gRPC serving, async I/O integration, and distributed model residency policy
 
 These are usable where covered, but still not treated as fully production-hardened language design.

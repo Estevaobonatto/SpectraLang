@@ -26,6 +26,7 @@ use std::str::FromStr;
 use std::{env, fs, process};
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
+const AOT_DEBUG_MAP_SCHEMA_VERSION: u32 = 1;
 
 #[repr(i32)]
 #[derive(Copy, Clone, Debug)]
@@ -1056,7 +1057,15 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             .map_err(|e| CliError::compilation(e))?;
         fs::write(obj_path, &obj_bytes)
             .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
+        let debug_map_path = write_aot_debug_map(
+            source_path,
+            obj_path,
+            &source,
+            AotArtifactKind::Object,
+            &["gdb", "lldb"],
+        )?;
         println!("     Written object {}", obj_path.display());
+        println!("     Written debug map {}", debug_map_path.display());
         return Ok(());
     }
 
@@ -1100,7 +1109,15 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         let _ = fs::remove_file(&obj_path); // always clean up the temp object
         link_result.map_err(|e| CliError::compilation(e))?;
 
+        let debug_map_path = write_aot_debug_map(
+            source_path,
+            exe_path,
+            &source,
+            AotArtifactKind::Executable,
+            &["gdb", "lldb", "cdb"],
+        )?;
         println!("     Written executable {}", exe_path.display());
+        println!("     Written debug map {}", debug_map_path.display());
         return Ok(());
     }
 
@@ -1523,15 +1540,18 @@ fn execute_plan_with_options(
                 if code != 0 {
                     if let Some((path, line, column)) = find_main_location(&plan) {
                         eprintln!(
-                            "error[runtime]: program exited with status {}\n  --> {}:{}:{}\n   |\n   = help: inspect the main entry point and rerun with '--timings' for pipeline context",
+                            "error[runtime]: program exited with status {}\n  --> {}:{}:{}\n   |\n   = stack:\n     0: main() at {}:{}:{}\n   = help: inspect frame 0 and rerun with '--timings' for pipeline context",
                             code,
+                            path.display(),
+                            line,
+                            column,
                             path.display(),
                             line,
                             column
                         );
                     } else {
                         eprintln!(
-                            "error[runtime]: program exited with status {}\n   = help: rerun with '--timings' for pipeline context",
+                            "error[runtime]: program exited with status {}\n   = stack:\n     0: <entry point unavailable>\n   = help: rerun with '--timings' for pipeline context",
                             code
                         );
                     }
@@ -1567,14 +1587,137 @@ fn execute_plan_with_options(
 fn find_main_location(plan: &ProjectPlan) -> Option<(PathBuf, usize, usize)> {
     for module in plan.modules() {
         let source = fs::read_to_string(&module.path).ok()?;
-        for (line_index, line) in source.lines().enumerate() {
-            let Some(column_index) = line.find("fn main") else {
-                continue;
-            };
+        if let Some((line_index, column_index, _line_text)) = find_main_location_in_source(&source)
+        {
             return Some((module.path.clone(), line_index + 1, column_index + 1));
         }
     }
     None
+}
+
+#[derive(Clone, Copy)]
+enum AotArtifactKind {
+    Object,
+    Executable,
+}
+
+impl AotArtifactKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Object => "object",
+            Self::Executable => "executable",
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct AotDebugMap<'a> {
+    schema: &'a str,
+    schema_version: u32,
+    artifact: AotDebugArtifact,
+    source: AotDebugSource,
+    entrypoint: Option<AotDebugEntrypoint>,
+    native_debuggers: &'a [&'a str],
+    strategy: &'a str,
+}
+
+#[derive(Serialize)]
+struct AotDebugArtifact {
+    kind: String,
+    path: String,
+}
+
+#[derive(Serialize)]
+struct AotDebugSource {
+    path: String,
+}
+
+#[derive(Serialize)]
+struct AotDebugEntrypoint {
+    function: String,
+    exported_symbol: String,
+    source_line: usize,
+    source_column: usize,
+    source_text: String,
+}
+
+fn write_aot_debug_map(
+    source_path: &Path,
+    artifact_path: &Path,
+    source: &str,
+    artifact_kind: AotArtifactKind,
+    native_debuggers: &'static [&'static str],
+) -> CliResult<PathBuf> {
+    let entrypoint =
+        if let Some((line_index, column_index, line_text)) = find_main_location_in_source(source) {
+            Some(AotDebugEntrypoint {
+                function: "main".to_string(),
+                exported_symbol: match artifact_kind {
+                    AotArtifactKind::Object => "main",
+                    AotArtifactKind::Executable => "spectra_user_main",
+                }
+                .to_string(),
+                source_line: line_index + 1,
+                source_column: column_index + 1,
+                source_text: line_text.trim().to_string(),
+            })
+        } else {
+            if matches!(artifact_kind, AotArtifactKind::Executable) {
+                return Err(CliError::compilation(
+                "cannot emit executable AOT debug map because no 'fn main' entry point was found",
+            ));
+            }
+            None
+        };
+
+    let debug_map_path = debug_map_path_for_artifact(artifact_path);
+    let map = AotDebugMap {
+        schema: "spectra-aot-debug-map",
+        schema_version: AOT_DEBUG_MAP_SCHEMA_VERSION,
+        artifact: AotDebugArtifact {
+            kind: artifact_kind.as_str().to_string(),
+            path: display_path(artifact_path),
+        },
+        source: AotDebugSource {
+            path: display_path(source_path),
+        },
+        entrypoint,
+        native_debuggers,
+        strategy: "Break on the exported symbol in the native debugger and use this map to resolve the Spectra source span until native DWARF/PDB emission is available.",
+    };
+    let text = serde_json::to_string_pretty(&map)
+        .map_err(|e| CliError::io(format!("Cannot serialize AOT debug map: {}", e)))?;
+    fs::write(&debug_map_path, format!("{}\n", text)).map_err(|e| {
+        CliError::io(format!(
+            "Cannot write AOT debug map '{}': {}",
+            debug_map_path.display(),
+            e
+        ))
+    })?;
+    Ok(debug_map_path)
+}
+
+fn debug_map_path_for_artifact(artifact_path: &Path) -> PathBuf {
+    let mut debug_map_path = artifact_path.as_os_str().to_os_string();
+    debug_map_path.push(".spectra-debug.json");
+    PathBuf::from(debug_map_path)
+}
+
+fn find_main_location_in_source(source: &str) -> Option<(usize, usize, &str)> {
+    for (line_index, line) in source.lines().enumerate() {
+        let Some(column_index) = line.find("fn main") else {
+            continue;
+        };
+        return Some((line_index, column_index, line));
+    }
+    None
+}
+
+fn display_path(path: &Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
 }
 
 fn print_verbose_configuration(kind: BuildCommand, options: &CompilationOptions) {

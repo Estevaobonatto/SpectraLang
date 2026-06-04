@@ -1,0 +1,17 @@
+// Negative R-203: enum match without wildcard or all variants must fail.
+module non_exhaustive_enum_match;
+
+enum Mode {
+    Fast,
+    Slow,
+}
+
+fn score(mode: Mode) -> int {
+    return match mode {
+        Mode::Fast => 1
+    };
+}
+
+pub fn main() -> int {
+    return score(Mode::Fast);
+}
