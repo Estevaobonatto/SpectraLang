@@ -676,13 +676,14 @@ title = "Build and Release Security"
 phase = "phase_12"
 owner = "ecosystem"
 priority = "P2"
-status = "not_started"
-risk = "medium"
+status = "complete"
+risk = "low"
 dependencies = ["R-901"]
-summary = "Add signing, checksums, SBOM, and dependency security scanning."
+summary = "Add signed release evidence, checksums, SBOM, provenance, and dependency security scanning."
 acceptance = [
   "release artifacts are signed and traceable",
-  "dependency scanning is present in CI"
+  "dependency scanning is present in CI",
+  "release evidence generation and verification are validated by the test runner"
 ]
 
 [[items]]
@@ -691,12 +692,13 @@ title = "Stress and Soak Testing"
 phase = "phase_12"
 owner = "tooling"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-104", "R-402", "R-503"]
-summary = "Run long-run stress and soak suites across compiler, runtime, and numerics."
+summary = "Run defined stress and soak suites across compiler, runtime, package, and numerics paths."
 acceptance = [
-  "defined stress suites complete without crashes or unbounded leaks"
+  "defined stress suites complete without crashes or unbounded leaks",
+  "stress report is emitted as machine-readable JSON"
 ]
 
 [[items]]

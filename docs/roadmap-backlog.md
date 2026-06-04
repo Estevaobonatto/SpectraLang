@@ -1028,7 +1028,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-1201 Build and Release Security
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `ecosystem`
 - Dependencies: `R-901`
@@ -1039,14 +1039,30 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - signatures
 - SBOM
 - dependency scanning
+- release provenance
+- automated evidence verification
 
 ### Acceptance
 
 - release artifacts are signed and traceable
+- dependency scanning is present in CI
+- release evidence generation and verification are validated by `run_tests.ps1`
+
+### Completed
+
+- Added `scripts/release_security.py` to generate and verify release manifests,
+  SHA-256 checksums, HMAC signatures, provenance, and CycloneDX-compatible SBOM.
+- Updated `.github/workflows/release.yml` to require
+  `SPECTRA_RELEASE_SIGNING_KEY`, generate evidence, verify it, and publish the
+  evidence with release assets.
+- Updated `.github/workflows/ci.yml` with `cargo audit` and high-severity
+  `npm audit` dependency scanning.
+- Added local validation coverage through `run_tests.ps1`.
+- Added runtime host interop invariant checks and host invoke status coverage.
 
 ## R-1202 Stress and Soak Testing
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `tooling`
 - Dependencies: `R-104`, `R-402`, `R-503`
@@ -1057,10 +1073,31 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - tensor stress
 - runtime soak tests
 - JIT stress
+- package workflow stress
+- machine-readable stress reports
 
 ### Acceptance
 
 - no crashes or unbounded leaks under defined stress runs
+- stress report is emitted as JSON
+- Phase 12 stress smoke is integrated into `run_tests.ps1`
+
+### Completed
+
+- Added `scripts/stress_soak.py` with compile, runtime/JIT, tensor/autodiff,
+  concurrency/serving, and package workflow suites.
+- Added timeout enforcement and optional RSS limit checks when process memory is
+  observable.
+- Added JSON stress report output.
+- Added runtime invariant checks for host registry and manual allocation state.
+- Validated the smoke profile through `run_tests.ps1`.
+
+### Remaining Future Hardening
+
+- Longer soak windows should run as scheduled/nightly jobs once CI budget and
+  retention policy are defined.
+- Public-key signing or Sigstore/cosign can replace or augment the current
+  HMAC release evidence signature in a later security-hardening item.
 
 ---
 

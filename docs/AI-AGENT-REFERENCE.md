@@ -2446,6 +2446,41 @@ Phase 11 scope.
 
 ---
 
+## Phase 12 Security And Operations Baseline
+
+Release security:
+
+- `scripts/release_security.py create` generates `release-manifest.json`,
+  `SHA256SUMS`, `release-provenance.json`, `release-sbom.cdx.json`, and
+  `release-manifest.json.sig`.
+- Production release signing requires `SPECTRA_RELEASE_SIGNING_KEY`.
+- Local validation may use `--allow-dev-key`; release workflows must not.
+- `.github/workflows/release.yml` verifies evidence before publishing assets.
+
+Dependency scanning:
+
+- CI runs `cargo audit`.
+- CI runs `npm audit --audit-level=high` for the VS Code extension.
+
+Stress/soak:
+
+- `scripts/stress_soak.py` runs compile, runtime/JIT, tensor/autodiff,
+  concurrency/serving, and package workflow stress suites.
+- Reports are JSON and include timeout plus RSS data when available.
+
+Runtime hardening:
+
+- `spectra_rt_debug_invariants_check()` validates host registry and manual
+  allocation state.
+- `spectra_rt_host_invoke(...)` validates buffers and returns internal error on
+  contained host panic paths.
+
+User-facing reference:
+
+- `docs/security-operations.md`
+
+---
+
 ## Appendix A: Reserved Keywords
 
 | Keyword | Status | Purpose |

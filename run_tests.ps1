@@ -678,6 +678,49 @@ if ($cCompiler) {
 }
 
 # ---------------------------------------------------------------------------
+# Grupo 9: Phase 12 security evidence and stress/soak smoke
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Phase 12 (security/stress) ---" -ForegroundColor Yellow
+
+$phase12Temp = Join-Path (Get-Location).Path "target\phase12-validation"
+$phase12ArtifactDir = Join-Path $phase12Temp "artifacts"
+$phase12EvidenceDir = Join-Path $phase12Temp "evidence"
+if (Test-Path $phase12Temp) {
+    Remove-Item -LiteralPath $phase12Temp -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $phase12ArtifactDir | Out-Null
+"spectralang phase12 validation artifact" | Out-File -FilePath (Join-Path $phase12ArtifactDir "spectralang-phase12.txt") -Encoding UTF8
+
+$phase12Checks = @(
+    [PSCustomObject]@{
+        Nome = "release_security_create"
+        File = "python"
+        Args = @("scripts\release_security.py", "create", "--artifact", $phase12ArtifactDir, "--out", $phase12EvidenceDir, "--version", "0.0.0-phase12-test", "--allow-dev-key")
+    }
+    [PSCustomObject]@{
+        Nome = "release_security_verify"
+        File = "python"
+        Args = @("scripts\release_security.py", "verify", "--evidence", $phase12EvidenceDir, "--allow-dev-key")
+    }
+    [PSCustomObject]@{
+        Nome = "stress_soak_smoke"
+        File = "python"
+        Args = @("scripts\stress_soak.py", "--iterations", "1", "--timeout-seconds", "20", "--memory-limit-mb", "1024", "--json-out", "target\stress-soak-smoke.json")
+    }
+)
+
+foreach ($check in $phase12Checks) {
+    $r = Invoke-HostCommand -name $check.Nome -fileName $check.File -arguments $check.Args -workingDir (Get-Location).Path
+    if ($r.Status -eq "PASSOU") {
+        $totalPassed++
+    } else {
+        $totalFailed++
+    }
+    $results += [PSCustomObject]@{ Diretorio = "phase12"; Teste = $check.Nome; Status = $r.Status; Detalhe = $r.Detail }
+}
+
+# ---------------------------------------------------------------------------
 # Resumo
 # ---------------------------------------------------------------------------
 $totalDecisive = $totalPassed + $totalFailed

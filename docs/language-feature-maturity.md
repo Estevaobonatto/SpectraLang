@@ -70,6 +70,11 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - Phase 11 concurrency and serving baseline:
   - `std.concurrent` task handles, deterministic join, non-blocking FIFO channels, counters, stats/reset, and parallel pipeline sum
   - `std.serve` local in-process server handles, warmup, request batching, cancellation, timeout state, resident model lookup, result lookup, and deterministic toy benchmark
+- Phase 12 security and operations baseline:
+  - release manifests, SHA-256 checksums, signed release evidence, provenance, and CycloneDX-compatible SBOM
+  - CI dependency scanning with `cargo audit` and high-severity `npm audit`
+  - defined stress/soak runner with timeout, optional RSS limit, and JSON report
+  - runtime debug invariant checks for host registry/manual allocation state
 
 ### Beta
 

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Mutex, OnceLock};
 use std::{mem, ptr, slice, str};
 
@@ -132,6 +133,33 @@ impl AllocationTable {
         });
         self.next_frame = 1;
     }
+
+    fn check_invariants(&self) -> bool {
+        if self.frames.first().map(|frame| frame.id) != Some(0) {
+            return false;
+        }
+
+        let mut frame_ids = std::collections::HashSet::new();
+        let mut frame_allocations = std::collections::HashSet::new();
+        for frame in &self.frames {
+            if !frame_ids.insert(frame.id) {
+                return false;
+            }
+            for ptr in &frame.allocations {
+                if !frame_allocations.insert(*ptr) {
+                    return false;
+                }
+                match self.allocations.get(ptr) {
+                    Some(allocation) if allocation.frame_id == frame.id => {}
+                    _ => return false,
+                }
+            }
+        }
+
+        self.allocations.iter().all(|(ptr, allocation)| {
+            frame_allocations.contains(ptr) && frame_ids.contains(&allocation.frame_id)
+        })
+    }
 }
 
 fn allocation_table() -> &'static Mutex<AllocationTable> {
@@ -225,6 +253,12 @@ impl HostRegistry {
 
     fn clear(&mut self) {
         self.functions.clear();
+    }
+
+    fn check_invariants(&self) -> bool {
+        self.functions
+            .iter()
+            .all(|(name, ptr)| !name.is_empty() && *ptr != 0)
     }
 }
 
@@ -499,7 +533,27 @@ pub extern "C" fn spectra_rt_host_invoke(
         invoke_fn: Some(spectra_rt_invoke_closure),
     };
 
-    func(&mut ctx as *mut _)
+    match catch_unwind(AssertUnwindSafe(|| func(&mut ctx as *mut _))) {
+        Ok(status) => status,
+        Err(_) => HOST_STATUS_INTERNAL_ERROR,
+    }
+}
+
+/// Checks runtime debug invariants for host registry and manual allocation state.
+///
+/// This function is cheap enough to use in stress/soak validation and returns
+/// false instead of panicking so automation can report a normal failure.
+#[no_mangle]
+pub extern "C" fn spectra_rt_debug_invariants_check() -> bool {
+    let host_ok = host_registry()
+        .lock()
+        .map(|registry| registry.check_invariants())
+        .unwrap_or(false);
+    let allocation_ok = allocation_table()
+        .lock()
+        .map(|table| table.check_invariants())
+        .unwrap_or(false);
+    host_ok && allocation_ok
 }
 
 /// Invokes a JIT-compiled Spectra function (closure or regular) by its native pointer.
@@ -721,6 +775,25 @@ mod tests {
         value + 1
     }
 
+    extern "C" fn host_context_add(ctx: *mut SpectraHostCallContext) -> i32 {
+        if ctx.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        unsafe {
+            let ctx_ref = &mut *ctx;
+            if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            if ctx_ref.result_len != 1 || ctx_ref.results.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let args = std::slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+            let results = std::slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = args[0] + args[1];
+            HOST_STATUS_SUCCESS
+        }
+    }
+
     #[test]
     fn host_register_lookup_and_clear() {
         let _lock = test_guard();
@@ -759,6 +832,70 @@ mod tests {
         assert!(spectra_rt_host_lookup(name.as_ptr(), name.len()).is_null());
 
         assert!(!spectra_rt_host_unregister(name.as_ptr(), name.len()));
+
+        spectra_rt_host_clear();
+    }
+
+    #[test]
+    fn debug_invariants_cover_host_registry_and_manual_allocations() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+        spectra_rt_manual_clear();
+        assert!(spectra_rt_debug_invariants_check());
+
+        let frame = spectra_rt_manual_frame_enter();
+        let ptr = spectra_rt_manual_alloc(64);
+        assert!(!ptr.is_null());
+        assert!(spectra_rt_debug_invariants_check());
+        spectra_rt_manual_frame_exit(frame);
+        assert!(spectra_rt_debug_invariants_check());
+
+        let name = b"spectra.test.context_add";
+        assert!(spectra_rt_host_register(
+            name.as_ptr(),
+            name.len(),
+            host_context_add as *const ()
+        ));
+        assert!(spectra_rt_debug_invariants_check());
+
+        spectra_rt_host_clear();
+        spectra_rt_manual_clear();
+    }
+
+    #[test]
+    fn host_invoke_returns_status_and_writes_results() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let name = b"spectra.test.context_add";
+        assert!(spectra_rt_host_register(
+            name.as_ptr(),
+            name.len(),
+            host_context_add as *const ()
+        ));
+        let args = [20, 22];
+        let mut results = [0];
+        let status = spectra_rt_host_invoke(
+            name.as_ptr(),
+            name.len(),
+            args.as_ptr(),
+            args.len(),
+            results.as_mut_ptr(),
+            results.len(),
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(results[0], 42);
+
+        let missing = b"spectra.test.missing";
+        let status = spectra_rt_host_invoke(
+            missing.as_ptr(),
+            missing.len(),
+            args.as_ptr(),
+            args.len(),
+            results.as_mut_ptr(),
+            results.len(),
+        );
+        assert_eq!(status, HOST_STATUS_NOT_FOUND);
 
         spectra_rt_host_clear();
     }

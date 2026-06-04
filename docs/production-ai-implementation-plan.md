@@ -1007,6 +1007,13 @@ Meet the baseline expectations of production infrastructure.
 
 ## 12.1 Supply Chain and Build Security
 
+Current state: complete for the current production baseline. Release assets now
+have generated SHA-256 checksums, signed manifest evidence, provenance metadata,
+and a CycloneDX-compatible SBOM derived from Cargo and npm lockfiles. CI includes
+Rust and npm dependency scanning. Production release signing requires the
+`SPECTRA_RELEASE_SIGNING_KEY` secret; local validation may use the documented
+development key path only for tests.
+
 ### Tasks
 
 - Add reproducible builds where possible.
@@ -1020,6 +1027,15 @@ Meet the baseline expectations of production infrastructure.
 - CI includes dependency security scanning.
 
 ## 12.2 Reliability and Crash Safety
+
+Current state: complete for the current defined stress/soak baseline. The
+versioned stress runner covers representative parser/compile, runtime/JIT,
+tensor/autodiff, concurrency/serving, and package workflows with timeouts,
+optional RSS limits, and JSON reports. Long nightly soak windows remain an
+operations policy decision rather than a missing fast-regression requirement.
+Runtime invariant checks cover host registry and manual allocation state, and
+host invocation validates buffers and reports internal error on contained host
+panic paths.
 
 ### Tasks
 

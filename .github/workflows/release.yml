@@ -488,6 +488,21 @@ jobs:
       - name: List release assets
         run: find release-assets/ -type f | sort
 
+      - name: Generate release security evidence
+        env:
+          SPECTRA_RELEASE_SIGNING_KEY: ${{ secrets.SPECTRA_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "${SPECTRA_RELEASE_SIGNING_KEY}" ]; then
+            echo "SPECTRA_RELEASE_SIGNING_KEY secret is required for production release signing." >&2
+            exit 1
+          fi
+          python scripts/release_security.py create \
+            --artifact release-assets \
+            --out release-evidence \
+            --version "${{ needs.determine-version.outputs.version }}"
+          python scripts/release_security.py verify --evidence release-evidence
+          cp release-evidence/* release-assets/
+
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
