@@ -1232,6 +1232,444 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - at least 3 AI examples run end-to-end in automated environments
 
+---
+
+# Next Horizon: Complete AI/ML Development Platform
+
+The baseline roadmap through Phase 13 is complete. The following phases define
+the next tracked development cycle toward a broader AI/ML platform.
+
+---
+
+# Phase 14: AI Language Core
+
+## R-1401 First-Class Tensor Language Constructs
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `semantic`
+- Dependencies: `R-204`, `R-303`, `R-403`, `R-503`
+
+### Scope
+
+- tensor literals
+- tensor type annotations
+- dtype/device/layout annotations
+- compiler-visible tensor operation semantics
+- compatibility layer for existing `std.tensor` handle API
+
+### Acceptance
+
+- tensor literals and annotations parse, type-check, lower, and run without relying on ad-hoc host-call syntax
+- compiler diagnostics report dtype, rank, layout, and device mismatches with stable error codes
+- existing `std.tensor` handle API remains compatible through a documented migration layer
+
+## R-1402 Shape and DType Type System
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `semantic`
+- Dependencies: `R-1401`, `R-202`
+
+### Scope
+
+- rank constraints
+- static and dynamic dimensions
+- dtype/layout/device constraints
+- gradual fallback for runtime-dynamic shapes
+
+### Acceptance
+
+- rank, static dimension, dynamic dimension, dtype, and layout constraints are represented in the semantic type model
+- shape errors are caught at check time for static cases and at runtime for dynamic cases
+- at least one neural-network example uses static shape validation end-to-end
+
+## R-1403 Differentiable Language Blocks
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `midend`
+- Dependencies: `R-503`, `R-1402`
+
+### Scope
+
+- differentiable function/block syntax
+- unsupported-op diagnostics
+- lowering into autodiff/runtime or tensor graph representation
+
+### Acceptance
+
+- users can mark differentiable functions or blocks with documented syntax
+- unsupported operations inside differentiable regions produce actionable diagnostics
+- gradient tests cover scalar, tensor, control-flow, and nested-function cases
+
+---
+
+# Phase 15: Production Numerical Performance
+
+## R-1501 Numerical Performance Benchmark Suite
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-401`, `R-1003`
+
+### Scope
+
+- release-mode benchmark harness
+- tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, data loading
+- baseline storage and regression thresholds
+
+### Acceptance
+
+- benchmarks cover tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, and data loading
+- release-mode benchmark output is machine-readable and compared against checked-in baselines
+- CI can fail on configured correctness or performance regressions
+
+## R-1502 Memory Planner and Tensor Lifetime Analysis
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `midend`
+- Dependencies: `R-402`, `R-1401`
+
+### Scope
+
+- tensor lifetime metadata
+- temporary buffer reuse
+- memory-pressure diagnostics
+- peak/reuse/allocation-site reporting
+
+### Acceptance
+
+- tensor temporaries have visible lifetime metadata in IR or runtime plans
+- common training loops reuse buffers without unbounded allocation growth
+- memory reports include peak bytes, reuse rate, allocation sites, and tensor lifetimes
+
+## R-1503 Numerical Correctness and Determinism Certification
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `numerics`
+- Dependencies: `R-403`, `R-1501`
+
+### Scope
+
+- deterministic RNG mode
+- deterministic kernel validation
+- float tolerance policy
+- cross-platform validation artifacts
+
+### Acceptance
+
+- RNG, reductions, matmul, convolution, and optimizer kernels have deterministic test modes
+- float tolerance policy is documented and enforced in tests
+- Windows, Linux, and macOS results are compared through portable validation artifacts
+
+---
+
+# Phase 16: Accelerator and Graph Compilation
+
+## R-1601 Tensor Graph IR
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `midend`
+- Dependencies: `R-1401`, `R-1502`
+
+### Scope
+
+- graph-level tensor IR
+- operator, shape, dtype, device, dependency metadata
+- graph validation and stable dumps
+
+### Acceptance
+
+- tensor programs can lower to a graph IR with operators, shapes, dtypes, devices, and dependencies
+- graph validation catches unsupported cycles, shape mismatches, and device-placement conflicts
+- graph dumps are stable enough for snapshot tests
+
+## R-1602 Graph Optimization and Fusion
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `midend`
+- Dependencies: `R-1601`, `R-1501`
+
+### Scope
+
+- elementwise fusion
+- constant/layout propagation
+- memory-aware scheduling
+- optimized vs unoptimized comparison
+
+### Acceptance
+
+- elementwise chains and reduction-adjacent operations fuse in validated cases
+- optimization preserves numerical correctness within documented tolerances
+- optimized and unoptimized graph execution can be compared in tests
+
+## R-1603 Production GPU Backend
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-702`, `R-1601`, `R-1503`
+
+### Scope
+
+- production accelerator execution for core ops
+- CPU fallback
+- device capability detection
+- accelerator diagnostics
+
+### Acceptance
+
+- GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels
+- CPU fallback remains available and produces equivalent results within tolerance
+- device capability detection and error reporting are documented and tested
+
+---
+
+# Phase 17: Data and Experiment Platform
+
+## R-1701 Dataset and DataFrame Runtime
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-602`, `R-802`, `R-1101`
+
+### Scope
+
+- dataframe APIs
+- CSV, JSONL, NPY, directory-backed datasets
+- batching, shuffling, transforms, train/test split, deterministic seeding
+
+### Acceptance
+
+- CSV, JSONL, NPY, and directory-backed datasets can be loaded through stable APIs
+- batching, shuffling, map/filter transforms, train/test split, and deterministic seeding are tested
+- tabular preprocessing example trains end-to-end without Python glue
+
+## R-1702 Experiment Tracking and Reproducibility
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-901`, `R-1701`
+
+### Scope
+
+- run manifests
+- configs, metrics, artifacts, seeds, lockfiles, model outputs
+- run comparison
+- exact reproduction command
+
+### Acceptance
+
+- training runs emit a structured experiment manifest
+- metrics and artifacts can be compared across runs
+- a documented command reproduces a reference training result from lockfile and manifest
+
+## R-1703 Distributed Training Foundations
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `runtime`
+- Dependencies: `R-1101`, `R-1603`, `R-1702`
+
+### Scope
+
+- single-machine multi-worker training simulation
+- checkpoint coordination
+- resume after interruption
+- documented topology and non-goals
+
+### Acceptance
+
+- single-machine multi-worker training simulation is covered by tests
+- checkpoint save/resume works across worker interruption
+- distributed behavior is documented with explicit non-goals and supported topology
+
+---
+
+# Phase 18: Model Ecosystem and LLM Workloads
+
+## R-1801 ONNX Import and Export
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Dependencies: `R-803`, `R-1601`
+
+### Scope
+
+- ONNX export subset
+- ONNX import subset
+- shape/dtype/operator validation
+- external runtime validation
+
+### Acceptance
+
+- Spectra models can export a supported ONNX subset with shapes and dtypes
+- supported ONNX models can import into Spectra graph/runtime representation
+- round-trip tests cover linear, convolutional, activation, normalization, and simple transformer blocks
+
+## R-1802 Transformer and LLM Runtime Primitives
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Dependencies: `R-1603`, `R-1801`
+
+### Scope
+
+- attention
+- layer norm
+- embedding lookup
+- positional encoding
+- GELU/SwiGLU
+- KV cache
+- logits sampling
+
+### Acceptance
+
+- attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested
+- toy transformer example uses real runtime primitives rather than placeholder math
+- CPU fallback and accelerator path produce equivalent outputs within tolerance
+
+## R-1803 Tokenization, Embeddings, and RAG Toolkit
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-1701`, `R-1802`
+
+### Scope
+
+- BPE or WordPiece-style tokenization
+- embedding utilities
+- vector index APIs
+- chunking, retrieval, prompt assembly, RAG evaluation
+
+### Acceptance
+
+- BPE or WordPiece-style tokenization is implemented with deterministic encoding/decoding
+- vector index APIs support insert, query, persist, and load
+- RAG example runs retrieval, prompt assembly, model call boundary, and evaluation metrics end-to-end
+
+---
+
+# Phase 19: AI Operations and Evaluation
+
+## R-1901 Model Evaluation and Metrics Suite
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-1702`, `R-1802`
+
+### Scope
+
+- classification metrics
+- regression metrics
+- ranking/generation metrics
+- serving latency and throughput metrics
+
+### Acceptance
+
+- metrics include accuracy, precision, recall, F1, ROC-AUC baseline, MSE, MAE, perplexity, latency, and throughput
+- evaluation reports are machine-readable and human-readable
+- reference examples include evaluation gates before model export or serving
+
+## R-1902 AI Safety and Guardrail Runtime
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `runtime`
+- Dependencies: `R-1102`, `R-1803`, `R-1901`
+
+### Scope
+
+- input/output policy hooks
+- output validation
+- rate limiting
+- audit logs
+- safe fallback behavior
+
+### Acceptance
+
+- serving APIs can attach input and output policy hooks
+- guardrail failures produce structured diagnostics and audit events
+- safety examples cover blocked input, blocked output, and degraded fallback behavior
+
+## R-1903 Model Monitoring and Drift Detection
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `runtime`
+- Dependencies: `R-1102`, `R-1702`, `R-1901`
+
+### Scope
+
+- inference metrics
+- input distribution summaries
+- drift checks
+- observability JSON export
+
+### Acceptance
+
+- serving runtime emits request, latency, error, and model-version metrics
+- drift checks compare live distribution summaries against reference baselines
+- monitoring artifacts are exportable as JSON for external observability systems
+
+---
+
+# Phase 20: Production Certification
+
+## R-2001 AI Conformance Suite
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-1402`, `R-1503`, `R-1801`, `R-1901`
+
+### Scope
+
+- compiler conformance
+- runtime/tensor/autodiff/graph conformance
+- interop/package/serving conformance
+- docs-example conformance
+- versioned certification reports
+
+### Acceptance
+
+- conformance tests cover compiler, runtime, tensors, autodiff, graph, interop, package, serving, and docs examples
+- the suite emits a versioned certification report
+- release candidates cannot be certified while conformance tests fail
+
+## R-2002 Production Release Channels
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Dependencies: `R-1201`, `R-2001`
+
+### Scope
+
+- nightly channel
+- beta channel
+- stable channel
+- compatibility and deprecation policy
+- CLI/package channel metadata
+
+### Acceptance
+
+- release channel policy is documented
+- CLI and package metadata report channel and compatibility level
+- deprecation warnings and migration guidance are tested
+
 ### Completed Implementation
 
 - `examples/ai/linear_regression_train_export.spectra`

@@ -28,7 +28,7 @@ The goal is not just to add syntax, but to deliver a usable production stack:
 
 ## Current Baseline
 
-At the time of writing, the repository already has:
+At the time of the original plan, the repository already had:
 
 - working lexer, parser, AST, semantic analysis, lowering, backend, runtime plumbing, CLI
 - multi-file module resolution
@@ -37,16 +37,17 @@ At the time of writing, the repository already has:
 - formatter and lint support
 - regression suite passing in the current expected scope
 
-What is missing for production AI use:
+The first production AI roadmap baseline is now tracked as complete in
+`roadmap/roadmap.toml` through Phase 13. That baseline includes:
 
-- first-class tensor and ndarray system
-- high-performance numerical kernel layer
-- autodiff
-- training/inference framework
-- accelerator backends
-- Python/C/ONNX interoperability
-- strong package/dependency system
-- production diagnostics, profiling, debugging, CI, release engineering
+- compiler productionization and regression infrastructure
+- scientific type-system extensions
+- tensor runtime, kernels, allocator, RNG, and metrics baseline
+- autodiff runtime baseline
+- ML module/layer/loss/optimizer/dataloader baseline
+- optional accelerator baseline
+- interop/package/tooling/security/serving/documentation baseline
+- closure values with deterministic by-value captures
 
 ---
 
@@ -1277,20 +1278,158 @@ wired into the repository validation runner.
 
 ---
 
-# Definition of "Production-Ready for AI"
+# Current Production AI Baseline
 
-SpectraLang should only be considered production-ready for AI workloads when all of the following are true:
+The first production AI roadmap baseline is tracked as complete through Phase 13.
+That means SpectraLang now has a validated compiler/runtime/tooling/package/docs
+foundation for AI-oriented development in the scope covered by the roadmap.
 
-- compiler and runtime are stable across supported platforms
-- tensor and autodiff stacks are complete and benchmarked
-- at least one accelerator backend is production-usable
-- package management and dependency resolution are deterministic
-- interop with Python and standard data/model formats exists
-- CI, release engineering, fuzzing, and stress testing are in place
-- end-to-end training and inference examples are supported and documented
+The next development cycle should not reopen completed baseline work. Instead,
+it should extend the platform toward a fuller AI/ML ecosystem with compiler-
+visible tensors, graph compilation, production accelerator execution, richer
+data/model workflows, LLM/RAG primitives, monitoring, and conformance gates.
 
-Until then, the language should be described as:
+---
 
-- experimental for AI
-- promising for compiler/runtime research
-- progressively moving toward numerical/ML production capability
+# Next Horizon: Complete AI/ML Development Platform
+
+## Delivery Order
+
+1. Phase 14: AI language core
+2. Phase 15: production numerical performance
+3. Phase 16: accelerator and graph compilation
+4. Phase 17: data and experiment platform
+5. Phase 18: model ecosystem and LLM workloads
+6. Phase 19: AI operations and evaluation
+7. Phase 20: production certification
+
+## Phase 14: AI Language Core
+
+### Goal
+
+Promote AI/ML concepts from stdlib-host-call patterns into first-class language
+and compiler constructs.
+
+### Workstreams
+
+- `R-1401 First-Class Tensor Language Constructs`: tensor literals, dtype/device/layout annotations, compiler-visible tensor operation semantics, and compatibility with the current `std.tensor` handle API.
+- `R-1402 Shape and DType Type System`: static/dynamic dimensions, rank constraints, dtype/layout/device constraints, and check-time diagnostics for static cases.
+- `R-1403 Differentiable Language Blocks`: syntax and semantic rules for differentiable functions/blocks, plus diagnostics for unsupported operations.
+
+### Acceptance Direction
+
+- Tensor programs should be expressible without ad-hoc host-call style for common cases.
+- Static tensor mistakes should fail during `check` where possible.
+- Differentiable regions should be explicit, diagnosable, and testable.
+
+## Phase 15: Production Numerical Performance
+
+### Goal
+
+Provide measurable production-grade numerical performance, memory behavior, and
+regression tracking.
+
+### Workstreams
+
+- `R-1501 Numerical Performance Benchmark Suite`: release-mode benchmarks for core tensor, autodiff, optimizer, and data-loading paths.
+- `R-1502 Memory Planner and Tensor Lifetime Analysis`: tensor lifetime metadata, temporary reuse, peak memory reports, and allocation-site visibility.
+- `R-1503 Numerical Correctness and Determinism Certification`: deterministic RNG/numerics modes, float tolerance policy, and cross-platform correctness artifacts.
+
+### Acceptance Direction
+
+- Performance must be measured with checked-in baselines.
+- Memory behavior must be bounded and visible.
+- Numerical correctness must be reproducible across supported platforms.
+
+## Phase 16: Accelerator and Graph Compilation
+
+### Goal
+
+Compile tensor/model programs to optimized graph and device execution targets.
+
+### Workstreams
+
+- `R-1601 Tensor Graph IR`: graph-level tensor IR with ops, shapes, dtypes, devices, dependencies, validation, and stable dumps.
+- `R-1602 Graph Optimization and Fusion`: elementwise fusion, constant/layout propagation, memory-aware scheduling, and optimized/unoptimized comparisons.
+- `R-1603 Production GPU Backend`: production accelerator coverage for transfer, matmul, reductions, elementwise ops, convolution, and backward kernels with CPU fallback.
+
+### Acceptance Direction
+
+- Tensor programs should lower to a validated graph representation.
+- Graph optimization should be observable and correctness-preserving.
+- GPU support should be equivalent to CPU fallback within documented tolerance.
+
+## Phase 17: Data and Experiment Platform
+
+### Goal
+
+Support realistic datasets, feature pipelines, experiment tracking, and
+reproducible training workflows.
+
+### Workstreams
+
+- `R-1701 Dataset and DataFrame Runtime`: CSV, JSONL, NPY, directory datasets, transforms, batching, shuffling, splits, and deterministic seeds.
+- `R-1702 Experiment Tracking and Reproducibility`: run manifests, configs, metrics, artifacts, package lockfiles, model outputs, and exact reproduction commands.
+- `R-1703 Distributed Training Foundations`: single-machine multi-worker training simulation, checkpoint coordination, resume, and topology documentation.
+
+### Acceptance Direction
+
+- Realistic data pipelines should run without Python glue for supported formats.
+- Training results should be reproducible from manifests and lockfiles.
+- Distributed behavior should be explicitly scoped and testable.
+
+## Phase 18: Model Ecosystem and LLM Workloads
+
+### Goal
+
+Support model import/export, transformer workloads, tokenization, embeddings,
+and RAG-oriented development.
+
+### Workstreams
+
+- `R-1801 ONNX Import and Export`: supported ONNX subset export/import, shape/dtype validation, and external runtime validation.
+- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling.
+- `R-1803 Tokenization, Embeddings, and RAG Toolkit`: deterministic tokenization, vector indexes, retrieval, chunking, prompt assembly, and RAG evaluation.
+
+### Acceptance Direction
+
+- Spectra models should interoperate with mainstream model tooling through ONNX.
+- Transformer examples should use real runtime primitives.
+- RAG examples should be runnable and evaluable end-to-end.
+
+## Phase 19: AI Operations and Evaluation
+
+### Goal
+
+Provide model evaluation, monitoring, safety, drift detection, and deployment
+operations.
+
+### Workstreams
+
+- `R-1901 Model Evaluation and Metrics Suite`: classification, regression, ranking, generation, and serving metrics.
+- `R-1902 AI Safety and Guardrail Runtime`: policy hooks, output validation, rate limiting, fallback behavior, and audit events.
+- `R-1903 Model Monitoring and Drift Detection`: inference metrics, distribution summaries, drift checks, and JSON observability artifacts.
+
+### Acceptance Direction
+
+- Models should have evaluation gates before export or serving.
+- Serving should support policy enforcement and auditability.
+- Runtime monitoring should produce machine-readable operational evidence.
+
+## Phase 20: Production Certification
+
+### Goal
+
+Establish compatibility, benchmark, conformance, and release gates for production
+AI users.
+
+### Workstreams
+
+- `R-2001 AI Conformance Suite`: compiler, runtime, tensor, autodiff, graph, interop, package, serving, and docs-example conformance.
+- `R-2002 Production Release Channels`: nightly/beta/stable channels, compatibility policy, deprecation warnings, and migration guidance.
+
+### Acceptance Direction
+
+- Release candidates should require a versioned conformance report.
+- Stable releases should communicate compatibility and deprecation status clearly.
+- Certification should fail when required conformance tests fail.

@@ -1,6 +1,6 @@
 version = 1
 title = "SpectraLang Production AI Roadmap"
-updated_at = "2026-05-21"
+updated_at = "2026-06-04"
 status_scale = ["not_started", "in_progress", "blocked", "complete"]
 priority_scale = ["P0", "P1", "P2", "P3"]
 
@@ -78,6 +78,41 @@ goal = "Meet baseline production delivery and operational standards."
 id = "phase_13"
 name = "Documentation and Adoption"
 goal = "Make the platform learnable and adoptable by real teams."
+
+[[phases]]
+id = "phase_14"
+name = "AI Language Core"
+goal = "Promote AI/ML concepts from stdlib-host-call patterns into first-class language and compiler constructs."
+
+[[phases]]
+id = "phase_15"
+name = "Production Numerical Performance"
+goal = "Provide measurable production-grade numerical performance, memory behavior, and regression tracking."
+
+[[phases]]
+id = "phase_16"
+name = "Accelerator and Graph Compilation"
+goal = "Compile tensor/model programs to optimized device and graph execution targets."
+
+[[phases]]
+id = "phase_17"
+name = "Data and Experiment Platform"
+goal = "Support realistic datasets, feature pipelines, experiment tracking, and reproducible training workflows."
+
+[[phases]]
+id = "phase_18"
+name = "Model Ecosystem and LLM Workloads"
+goal = "Support model import/export, transformer workloads, tokenization, embeddings, and RAG-oriented development."
+
+[[phases]]
+id = "phase_19"
+name = "AI Operations and Evaluation"
+goal = "Provide model evaluation, monitoring, safety, drift detection, and deployment operations."
+
+[[phases]]
+id = "phase_20"
+name = "Production Certification"
+goal = "Establish compatibility, benchmark, conformance, and release gates for production AI users."
 
 [[items]]
 id = "R-001"
@@ -727,4 +762,324 @@ dependencies = ["R-602", "R-603"]
 summary = "Provide end-to-end AI examples for adoption and validation."
 acceptance = [
   "at least 3 AI examples run end-to-end in automated environments"
+]
+
+[[items]]
+id = "R-1401"
+title = "First-Class Tensor Language Constructs"
+phase = "phase_14"
+owner = "semantic"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-204", "R-303", "R-403", "R-503"]
+summary = "Add first-class tensor literals, dtype/device/layout annotations, and compiler-visible tensor operation semantics."
+acceptance = [
+  "tensor literals and annotations parse, type-check, lower, and run without relying on ad-hoc host-call syntax",
+  "compiler diagnostics report dtype, rank, layout, and device mismatches with stable error codes",
+  "existing std.tensor handle API remains compatible through a documented migration layer"
+]
+
+[[items]]
+id = "R-1402"
+title = "Shape and DType Type System"
+phase = "phase_14"
+owner = "semantic"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1401", "R-202"]
+summary = "Introduce compile-time shape/dtype constraints for tensor programs with gradual fallback for dynamic shapes."
+acceptance = [
+  "rank, static dimension, dynamic dimension, dtype, and layout constraints are represented in the semantic type model",
+  "shape errors are caught at check time for static cases and at runtime for dynamic cases",
+  "at least one neural-network example uses static shape validation end-to-end"
+]
+
+[[items]]
+id = "R-1403"
+title = "Differentiable Language Blocks"
+phase = "phase_14"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-503", "R-1402"]
+summary = "Expose differentiable regions and gradient contracts as language-level constructs."
+acceptance = [
+  "users can mark differentiable functions or blocks with documented syntax",
+  "unsupported operations inside differentiable regions produce actionable diagnostics",
+  "gradient tests cover scalar, tensor, control-flow, and nested-function cases"
+]
+
+[[items]]
+id = "R-1501"
+title = "Numerical Performance Benchmark Suite"
+phase = "phase_15"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-401", "R-1003"]
+summary = "Create a reproducible AI/numerics benchmark suite with tracked baselines and regression thresholds."
+acceptance = [
+  "benchmarks cover tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, and data loading",
+  "release-mode benchmark output is machine-readable and compared against checked-in baselines",
+  "CI can fail on configured correctness or performance regressions"
+]
+
+[[items]]
+id = "R-1502"
+title = "Memory Planner and Tensor Lifetime Analysis"
+phase = "phase_15"
+owner = "midend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-402", "R-1401"]
+summary = "Add compiler/runtime tensor lifetime planning, buffer reuse, and memory-pressure diagnostics."
+acceptance = [
+  "tensor temporaries have visible lifetime metadata in IR or runtime plans",
+  "common training loops reuse buffers without unbounded allocation growth",
+  "memory reports include peak bytes, reuse rate, allocation sites, and tensor lifetimes"
+]
+
+[[items]]
+id = "R-1503"
+title = "Numerical Correctness and Determinism Certification"
+phase = "phase_15"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-403", "R-1501"]
+summary = "Define numerical tolerances, deterministic RNG behavior, and cross-platform correctness gates."
+acceptance = [
+  "RNG, reductions, matmul, convolution, and optimizer kernels have deterministic test modes",
+  "float tolerance policy is documented and enforced in tests",
+  "Windows, Linux, and macOS results are compared through portable validation artifacts"
+]
+
+[[items]]
+id = "R-1601"
+title = "Tensor Graph IR"
+phase = "phase_16"
+owner = "midend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1401", "R-1502"]
+summary = "Introduce a graph-level tensor IR for optimization, fusion, export, and accelerator lowering."
+acceptance = [
+  "tensor programs can lower to a graph IR with operators, shapes, dtypes, devices, and dependencies",
+  "graph validation catches unsupported cycles, shape mismatches, and device-placement conflicts",
+  "graph dumps are stable enough for snapshot tests"
+]
+
+[[items]]
+id = "R-1602"
+title = "Graph Optimization and Fusion"
+phase = "phase_16"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1601", "R-1501"]
+summary = "Optimize tensor graphs using fusion, constant folding, layout propagation, and memory-aware scheduling."
+acceptance = [
+  "elementwise chains and reduction-adjacent operations fuse in validated cases",
+  "optimization preserves numerical correctness within documented tolerances",
+  "optimized and unoptimized graph execution can be compared in tests"
+]
+
+[[items]]
+id = "R-1603"
+title = "Production GPU Backend"
+phase = "phase_16"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-702", "R-1601", "R-1503"]
+summary = "Move beyond the baseline optional GPU path toward production accelerator execution for core training/inference ops."
+acceptance = [
+  "GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels",
+  "CPU fallback remains available and produces equivalent results within tolerance",
+  "device capability detection and error reporting are documented and tested"
+]
+
+[[items]]
+id = "R-1701"
+title = "Dataset and DataFrame Runtime"
+phase = "phase_17"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-602", "R-802", "R-1101"]
+summary = "Add dataframes, dataset streaming, batching, shuffling, preprocessing, and tabular feature handling."
+acceptance = [
+  "CSV, JSONL, NPY, and directory-backed datasets can be loaded through stable APIs",
+  "batching, shuffling, map/filter transforms, train/test split, and deterministic seeding are tested",
+  "tabular preprocessing example trains end-to-end without Python glue"
+]
+
+[[items]]
+id = "R-1702"
+title = "Experiment Tracking and Reproducibility"
+phase = "phase_17"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-901", "R-1701"]
+summary = "Record runs, configs, metrics, artifacts, seeds, package lockfiles, and model outputs reproducibly."
+acceptance = [
+  "training runs emit a structured experiment manifest",
+  "metrics and artifacts can be compared across runs",
+  "a documented command reproduces a reference training result from lockfile and manifest"
+]
+
+[[items]]
+id = "R-1703"
+title = "Distributed Training Foundations"
+phase = "phase_17"
+owner = "runtime"
+priority = "P2"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1101", "R-1603", "R-1702"]
+summary = "Provide initial multi-worker training primitives, checkpoint coordination, and deterministic failure handling."
+acceptance = [
+  "single-machine multi-worker training simulation is covered by tests",
+  "checkpoint save/resume works across worker interruption",
+  "distributed behavior is documented with explicit non-goals and supported topology"
+]
+
+[[items]]
+id = "R-1801"
+title = "ONNX Import and Export"
+phase = "phase_18"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-803", "R-1601"]
+summary = "Support ONNX model export/import for interoperating with mainstream ML tooling."
+acceptance = [
+  "Spectra models can export a supported ONNX subset with shapes and dtypes",
+  "supported ONNX models can import into Spectra graph/runtime representation",
+  "round-trip tests cover linear, convolutional, activation, normalization, and simple transformer blocks"
+]
+
+[[items]]
+id = "R-1802"
+title = "Transformer and LLM Runtime Primitives"
+phase = "phase_18"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1603", "R-1801"]
+summary = "Add the core primitives needed for transformer inference/training and LLM-oriented workloads."
+acceptance = [
+  "attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested",
+  "toy transformer example uses real runtime primitives rather than placeholder math",
+  "CPU fallback and accelerator path produce equivalent outputs within tolerance"
+]
+
+[[items]]
+id = "R-1803"
+title = "Tokenization, Embeddings, and RAG Toolkit"
+phase = "phase_18"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1701", "R-1802"]
+summary = "Provide tokenizer, embedding, vector search, chunking, retrieval, and evaluation utilities for RAG workloads."
+acceptance = [
+  "BPE or WordPiece-style tokenization is implemented with deterministic encoding/decoding",
+  "vector index APIs support insert, query, persist, and load",
+  "RAG example runs retrieval, prompt assembly, model call boundary, and evaluation metrics end-to-end"
+]
+
+[[items]]
+id = "R-1901"
+title = "Model Evaluation and Metrics Suite"
+phase = "phase_19"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1702", "R-1802"]
+summary = "Add evaluation metrics for classification, regression, ranking, generation, and serving behavior."
+acceptance = [
+  "metrics include accuracy, precision, recall, F1, ROC-AUC baseline, MSE, MAE, perplexity, latency, and throughput",
+  "evaluation reports are machine-readable and human-readable",
+  "reference examples include evaluation gates before model export or serving"
+]
+
+[[items]]
+id = "R-1902"
+title = "AI Safety and Guardrail Runtime"
+phase = "phase_19"
+owner = "runtime"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1102", "R-1803", "R-1901"]
+summary = "Provide runtime hooks for policy checks, output validation, rate limiting, audit logs, and safe model serving."
+acceptance = [
+  "serving APIs can attach input and output policy hooks",
+  "guardrail failures produce structured diagnostics and audit events",
+  "safety examples cover blocked input, blocked output, and degraded fallback behavior"
+]
+
+[[items]]
+id = "R-1903"
+title = "Model Monitoring and Drift Detection"
+phase = "phase_19"
+owner = "runtime"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1102", "R-1702", "R-1901"]
+summary = "Track inference metrics, input distributions, prediction drift, and operational health."
+acceptance = [
+  "serving runtime emits request, latency, error, and model-version metrics",
+  "drift checks compare live distribution summaries against reference baselines",
+  "monitoring artifacts are exportable as JSON for external observability systems"
+]
+
+[[items]]
+id = "R-2001"
+title = "AI Conformance Suite"
+phase = "phase_20"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1402", "R-1503", "R-1801", "R-1901"]
+summary = "Create a conformance suite that certifies language, tensor, autodiff, interop, serving, and tooling behavior."
+acceptance = [
+  "conformance tests cover compiler, runtime, tensors, autodiff, graph, interop, package, serving, and docs examples",
+  "the suite emits a versioned certification report",
+  "release candidates cannot be certified while conformance tests fail"
+]
+
+[[items]]
+id = "R-2002"
+title = "Production Release Channels"
+phase = "phase_20"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1201", "R-2001"]
+summary = "Define nightly, beta, and stable release channels with compatibility and deprecation guarantees."
+acceptance = [
+  "release channel policy is documented",
+  "CLI and package metadata report channel and compatibility level",
+  "deprecation warnings and migration guidance are tested"
 ]
