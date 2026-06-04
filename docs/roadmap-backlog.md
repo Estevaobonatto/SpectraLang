@@ -1105,7 +1105,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-1301 Spectra Book
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-106`, `R-303`, `R-602`
@@ -1122,9 +1122,23 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 - user can train a toy model using docs alone
 
+### Completed Implementation
+
+- `docs/book/` now contains the adoption book covering language basics, numerics,
+  tensors, autodiff, model authoring, deployment/export, stdlib/runtime/packages,
+  and benchmark/comparison workflow.
+- `scripts/validate_ai_book.py` verifies that required chapters exist and that
+  every AI reference example is discoverable from the book.
+- `run_tests.ps1` runs the Phase 13 book validation.
+
+### Validation
+
+- `python scripts\validate_ai_book.py`
+- `.\run_tests.ps1`
+
 ## R-1302 AI Reference Examples
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-602`, `R-603`
@@ -1136,10 +1150,28 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - MLP
 - CNN
 - toy transformer inference
+- data preprocessing pipeline
 
 ### Acceptance
 
 - at least 3 AI examples run end-to-end in automated environments
+
+### Completed Implementation
+
+- `examples/ai/linear_regression_train_export.spectra`
+- `examples/ai/logistic_regression_train_export.spectra`
+- `examples/ai/mlp_training_serving.spectra`
+- `examples/ai/cnn_image_classifier.spectra`
+- `examples/ai/toy_transformer_inference.spectra`
+- `examples/ai/data_preprocessing_pipeline.spectra`
+- `scripts/ai_examples_benchmark.py` emits a JSON timing report for all Phase 13
+  AI examples.
+- `run_tests.ps1` executes all six examples as gated Phase 13 checks.
+
+### Validation
+
+- `python scripts\ai_examples_benchmark.py --out target\ai-examples\benchmark.json --timeout-seconds 20`
+- `.\run_tests.ps1`
 
 ---
 

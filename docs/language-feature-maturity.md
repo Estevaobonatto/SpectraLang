@@ -75,6 +75,11 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - CI dependency scanning with `cargo audit` and high-severity `npm audit`
   - defined stress/soak runner with timeout, optional RSS limit, and JSON report
   - runtime debug invariant checks for host registry/manual allocation state
+- Phase 13 documentation and adoption baseline:
+  - `docs/book/` production adoption book for language basics, numerics, tensors, autodiff, model authoring, deployment/export, stdlib/runtime/packages, and benchmark/comparison workflow
+  - six end-to-end AI reference examples under `examples/ai/`
+  - automated book/example discoverability validation through `scripts/validate_ai_book.py`
+  - AI example execution integrated into `run_tests.ps1`
 
 ### Beta
 

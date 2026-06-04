@@ -1,0 +1,36 @@
+// AI reference example: logistic-style binary classifier training + text export.
+module ai_logistic_regression_train_export;
+
+import std.tensor as tensor;
+import std.ml as ml;
+import std.fs as fs;
+
+fn train_step(probs: int, labels: int) -> int {
+    let loss = ml.bce_loss(probs, labels);
+    tensor.backward(loss);
+    ml.sgd_step(probs, 0.05);
+    return 0;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let probs = tensor.requires_grad(tensor.full_f(4, 0.75), true);
+    let labels = tensor.full_f(4, 1.0);
+
+    train_step(probs, labels);
+    train_step(probs, labels);
+    train_step(probs, labels);
+    train_step(probs, labels);
+
+    let loss = ml.bce_loss(probs, labels);
+    if tensor.len(loss) != 1 {
+        return 1;
+    }
+
+    fs.fs_write("target/ai-examples/logistic_regression_model.txt", "spectralang logistic regression model\nclasses=2\nfeatures=4\n");
+
+    tensor.free_all();
+    return 0;
+}

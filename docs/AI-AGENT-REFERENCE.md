@@ -2481,6 +2481,45 @@ User-facing reference:
 
 ---
 
+## Phase 13 Documentation And Adoption Baseline
+
+The production adoption path is checked in and validated.
+
+Book:
+
+- `docs/book/README.md`
+- `docs/book/01-language-basics.md`
+- `docs/book/02-numerics.md`
+- `docs/book/03-tensors.md`
+- `docs/book/04-autodiff.md`
+- `docs/book/05-model-authoring.md`
+- `docs/book/06-deployment-export.md`
+- `docs/book/07-stdlib-runtime-packages.md`
+- `docs/book/08-benchmarks-and-comparisons.md`
+
+AI reference examples:
+
+- `examples/ai/linear_regression_train_export.spectra`
+- `examples/ai/logistic_regression_train_export.spectra`
+- `examples/ai/mlp_training_serving.spectra`
+- `examples/ai/cnn_image_classifier.spectra`
+- `examples/ai/toy_transformer_inference.spectra`
+- `examples/ai/data_preprocessing_pipeline.spectra`
+
+Validation:
+
+- `scripts/validate_ai_book.py` checks required book chapters and example
+  discoverability.
+- `scripts/ai_examples_benchmark.py` emits JSON timing evidence for all AI
+  examples.
+- `run_tests.ps1` runs the Phase 13 book validation and all AI examples.
+
+Current limit: Phase 13 examples use deterministic toy datasets and text export
+artifacts. Large real datasets, network serving examples, notebooks backed by
+external kernels, and production checkpoint formats remain future adoption work.
+
+---
+
 ## Appendix A: Reserved Keywords
 
 | Keyword | Status | Purpose |

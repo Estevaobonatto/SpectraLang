@@ -721,6 +721,51 @@ foreach ($check in $phase12Checks) {
 }
 
 # ---------------------------------------------------------------------------
+# Grupo 10: Phase 13 AI reference examples
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Phase 13 book validation ---" -ForegroundColor Yellow
+$phase13Book = Invoke-HostCommand -name "validate_ai_book" -fileName "python" -arguments @("scripts\validate_ai_book.py") -workingDir (Get-Location).Path
+if ($phase13Book.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase13-docs"; Teste = "validate_ai_book"; Status = $phase13Book.Status; Detalhe = $phase13Book.Detail }
+
+$aiExamplesDir = "examples\ai"
+if (Test-Path $aiExamplesDir) {
+    Write-Host ""
+    $files = Get-ChildItem -Path $aiExamplesDir -Filter "*.spectra" | Sort-Object Name
+    Write-Host "--- Phase 13 AI examples ($($files.Count) exemplos: devem executar) ---" -ForegroundColor Yellow
+    New-Item -ItemType Directory -Force -Path "target\ai-examples" | Out-Null
+
+    foreach ($file in $files) {
+        Write-Host "  $($file.Name)" -NoNewline
+        $r = Invoke-SpectraCommand -commandArgs @("run", $file.FullName) -workingDir (Get-Location).Path -includeExperimental $true
+
+        if ($r.TimedOut) {
+            Write-Host " TIMEOUT" -ForegroundColor Red
+            $totalFailed++
+            $results += [PSCustomObject]@{ Diretorio = "phase13-ai"; Teste = $file.Name; Status = "TIMEOUT"; Detalhe = "execucao excedeu ${timeoutSeconds}s" }
+        } elseif ($r.ExitCode -eq 0) {
+            Write-Host " PASSOU" -ForegroundColor Green
+            $totalPassed++
+            $results += [PSCustomObject]@{ Diretorio = "phase13-ai"; Teste = $file.Name; Status = "PASSOU"; Detalhe = "" }
+        } else {
+            $err = Get-FirstError $r.Output
+            if (-not $err) {
+                $err = "exit code inesperado: $($r.ExitCode)"
+            }
+            Write-Host " FALHOU" -ForegroundColor Red
+            Write-Host "     $err" -ForegroundColor DarkRed
+            $totalFailed++
+            $results += [PSCustomObject]@{ Diretorio = "phase13-ai"; Teste = $file.Name; Status = "FALHOU"; Detalhe = $err }
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Resumo
 # ---------------------------------------------------------------------------
 $totalDecisive = $totalPassed + $totalFailed

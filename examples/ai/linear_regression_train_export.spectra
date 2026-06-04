@@ -1,0 +1,45 @@
+// AI reference example: linear regression training + text export.
+module ai_linear_regression_train_export;
+
+import std.tensor as tensor;
+import std.ml as ml;
+import std.fs as fs;
+
+fn train_step(x: int, target: int, weight: int, bias: int) -> int {
+    let prediction = ml.linear(x, weight, bias);
+    let loss = ml.mse_loss(prediction, target);
+    tensor.backward(loss);
+    ml.sgd_step(weight, 0.1);
+    ml.sgd_step(bias, 0.1);
+    return 0;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let features = tensor.reshape(tensor.full_f(4, 1.0), 4, 1);
+    let labels = tensor.full_f(4, 2.0);
+    let weight0 = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let weight = tensor.reshape(weight0, 1, 1);
+    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+    train_step(features, labels, weight, bias);
+
+    let prediction = ml.linear(features, weight, bias);
+    if tensor.len(prediction) != 4 {
+        return 1;
+    }
+
+    fs.fs_write("target/ai-examples/linear_regression_model.txt", "spectralang linear regression model\nfeatures=4\noutputs=1\n");
+
+    tensor.free_all();
+    return 0;
+}

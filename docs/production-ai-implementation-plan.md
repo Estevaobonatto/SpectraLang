@@ -1062,6 +1062,11 @@ Make the language understandable and adoptable by real teams.
 
 ## 13.1 Documentation Set
 
+Current state: complete for the current production adoption baseline. The
+checked-in Spectra book under `docs/book/` covers the language, numerics,
+tensors, autodiff, model authoring, deployment/export, and the stdlib/runtime
+surfaces needed to train and export toy AI models from docs alone.
+
 ### Tasks
 
 - Write the Spectra book:
@@ -1079,7 +1084,21 @@ Make the language understandable and adoptable by real teams.
 
 - A new user can build, train, and export a toy model following the docs alone.
 
+### Current Implementation
+
+- `docs/book/README.md` defines the reading path and verified AI examples.
+- `docs/book/01-language-basics.md` through
+  `docs/book/08-benchmarks-and-comparisons.md` provide the production adoption
+  tutorial set.
+- `scripts/validate_ai_book.py` verifies chapter coverage and example
+  discoverability.
+- `run_tests.ps1` executes the Phase 13 book validation.
+
 ## 13.2 AI-Focused Examples and Reference Apps
+
+Current state: complete for the current production adoption baseline. Six
+AI-focused `.spectra` programs run end-to-end through the normal CLI and are
+wired into the repository validation runner.
 
 ### Tasks
 
@@ -1095,6 +1114,18 @@ Make the language understandable and adoptable by real teams.
 ### Acceptance Criteria
 
 - At least 3 end-to-end ML examples run successfully in CI or gated integration environments.
+
+### Current Implementation
+
+- `examples/ai/linear_regression_train_export.spectra`
+- `examples/ai/logistic_regression_train_export.spectra`
+- `examples/ai/mlp_training_serving.spectra`
+- `examples/ai/cnn_image_classifier.spectra`
+- `examples/ai/toy_transformer_inference.spectra`
+- `examples/ai/data_preprocessing_pipeline.spectra`
+- `scripts/ai_examples_benchmark.py` emits machine-readable JSON timing evidence
+  for all AI examples.
+- `run_tests.ps1` executes all six AI examples as gated Phase 13 checks.
 
 ---
 
