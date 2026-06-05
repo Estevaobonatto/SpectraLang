@@ -503,6 +503,9 @@ impl<'a> LintRunner<'a> {
             ExpressionKind::Block(block) => {
                 self.visit_block(block, true);
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                self.visit_block(block, true);
+            }
             ExpressionKind::Cast { expr, .. } => {
                 self.visit_expression(expr);
             }

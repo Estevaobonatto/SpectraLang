@@ -1245,7 +1245,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1401 First-Class Tensor Language Constructs
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-204`, `R-303`, `R-403`, `R-503`
@@ -1264,9 +1264,22 @@ the next tracked development cycle toward a broader AI/ML platform.
 - compiler diagnostics report dtype, rank, layout, and device mismatches with stable error codes
 - existing `std.tensor` handle API remains compatible through a documented migration layer
 
+### Completed so far
+
+- `Tensor<dtype, rankN>` annotations are represented in the semantic type model and lower to handle-compatible IR.
+- Explicitly typed rank1/rank2 float tensor literals compile and run through runtime tensor allocation.
+- Rank and dtype mismatches on explicitly typed tensor bindings fail during semantic analysis.
+- Existing `std.tensor` handle calls remain accepted through the handle compatibility layer.
+
+### Remaining before completion
+
+- Add device and layout annotations to the public tensor type syntax and diagnostics.
+- Add stable diagnostic codes for tensor dtype/rank/layout/device errors.
+- Document the migration layer from raw handle-style calls to first-class tensor syntax.
+
 ## R-1402 Shape and DType Type System
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-1401`, `R-202`
@@ -1284,9 +1297,21 @@ the next tracked development cycle toward a broader AI/ML platform.
 - shape errors are caught at check time for static cases and at runtime for dynamic cases
 - at least one neural-network example uses static shape validation end-to-end
 
+### Completed so far
+
+- Static rank metadata and dtype metadata are represented for `Tensor<float, rankN>`.
+- Rectangular rank2 tensor literal shape mismatches are rejected during semantic analysis.
+- Tensor-returning `std.tensor` operations now expose compiler-visible Tensor return types for core autodiff paths.
+
+### Remaining before completion
+
+- Add static dimension values, dynamic dimension variables, layout, and device constraints to the semantic type model.
+- Extend compile-time shape checks beyond literal rectangularity into operations such as `matmul`, `reshape`, and neural-network layers.
+- Add an end-to-end neural-network example that relies on static shape validation.
+
 ## R-1403 Differentiable Language Blocks
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-503`, `R-1402`
@@ -1302,6 +1327,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 - users can mark differentiable functions or blocks with documented syntax
 - unsupported operations inside differentiable regions produce actionable diagnostics
 - gradient tests cover scalar, tensor, control-flow, and nested-function cases
+
+### Completed so far
+
+- `diff { ... }` parses as a language-level differentiable block expression.
+- The block result is lowered to `std.tensor.backward(loss)` and the loss value remains usable by the surrounding expression.
+- Non-tensor differentiable block results produce an actionable semantic diagnostic.
+
+### Remaining before completion
+
+- Add diagnostics for unsupported operations inside otherwise tensor-returning differentiable regions.
+- Add gradient tests for scalar, tensor, control-flow, and nested-function cases.
+- Decide and implement differentiable function annotation syntax if block syntax alone is not sufficient for production authoring.
 
 ---
 

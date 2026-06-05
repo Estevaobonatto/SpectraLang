@@ -401,6 +401,10 @@ fn fmt_type(ty: &Type) -> String {
                 .join(", ");
             format!("fn({}) -> {}", params, fmt_type(return_type))
         }
+        Type::Tensor { dtype, rank } => match rank {
+            Some(rank) => format!("Tensor<{}, rank{}>", fmt_type(dtype), rank),
+            None => format!("Tensor<{}, dynamic>", fmt_type(dtype)),
+        },
         Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }

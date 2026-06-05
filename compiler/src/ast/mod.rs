@@ -33,6 +33,11 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
+    /// Tensor handle with compiler-visible dtype/rank metadata.
+    Tensor {
+        dtype: Box<Type>,
+        rank: Option<usize>,
+    },
     /// Dynamic trait object: dyn TraitName
     DynTrait {
         trait_name: String,
@@ -307,6 +312,8 @@ pub enum ExpressionKind {
     FString(Vec<FStringPart>),
     /// Block expression: { stmt; stmt; expr }
     Block(Block),
+    /// Differentiable block expression: `diff { ... }`.
+    DifferentiableBlock(Block),
 
     // Operations
     Binary {

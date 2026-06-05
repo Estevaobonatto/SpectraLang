@@ -442,6 +442,15 @@ impl Parser {
                 let start_span = span;
                 self.advance();
 
+                if name == "diff" && self.check_symbol('{') {
+                    let block = self.parse_block()?;
+                    let block_span = block.span;
+                    return Ok(Expression {
+                        span: crate::span::span_union(start_span, block_span),
+                        kind: ExpressionKind::DifferentiableBlock(block),
+                    });
+                }
+
                 // Parse optional type arguments: Name<Type1, Type2>
                 let type_args = if self.is_likely_type_args_lookahead() {
                     self.parse_type_arguments()?

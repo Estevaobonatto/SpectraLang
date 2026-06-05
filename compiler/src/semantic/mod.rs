@@ -326,6 +326,10 @@ pub fn type_name(ty: &Type) -> String {
             let ps = params.iter().map(type_name).collect::<Vec<_>>().join(", ");
             format!("fn({}) -> {}", ps, type_name(return_type))
         }
+        Type::Tensor { dtype, rank } => match rank {
+            Some(rank) => format!("Tensor<{}, rank{}>", type_name(dtype), rank),
+            None => format!("Tensor<{}, dynamic>", type_name(dtype)),
+        },
         Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }
@@ -1064,6 +1068,18 @@ impl SemanticAnalyzer {
                         return_type: Box::new(return_type),
                     }
                 }
+                TypeAnnotationKind::Generic { name, type_args }
+                    if name == "Tensor" && (type_args.len() == 1 || type_args.len() == 2) =>
+                {
+                    let dtype = self.type_annotation_to_type(&Some(type_args[0].clone()));
+                    let rank = type_args
+                        .get(1)
+                        .and_then(Self::parse_tensor_rank_annotation);
+                    Type::Tensor {
+                        dtype: Box::new(dtype),
+                        rank,
+                    }
+                }
                 TypeAnnotationKind::DynTrait { trait_name } => Type::DynTrait {
                     trait_name: trait_name.clone(),
                 },
@@ -1518,6 +1534,24 @@ impl SemanticAnalyzer {
             // Dynamic trait objects match structurally by trait name.
             (Type::DynTrait { trait_name: a }, Type::DynTrait { trait_name: b }) => a == b,
 
+            // Tensor handles carry compiler-visible dtype/rank metadata but
+            // remain runtime handles, so they are compatible with int at FFI
+            // and current std.tensor boundaries.
+            (Type::Tensor { .. }, Type::Int) | (Type::Int, Type::Tensor { .. }) => true,
+            (
+                Type::Tensor {
+                    dtype: dtype_a,
+                    rank: rank_a,
+                },
+                Type::Tensor {
+                    dtype: dtype_b,
+                    rank: rank_b,
+                },
+            ) => {
+                self.types_match(dtype_a, dtype_b)
+                    && (rank_a.is_none() || rank_b.is_none() || rank_a == rank_b)
+            }
+
             // Unknown aceita qualquer coisa (inferência incompleta)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
 
@@ -1555,6 +1589,59 @@ impl SemanticAnalyzer {
 
     fn types_compatible(&self, a: &Type, b: &Type) -> bool {
         self.types_match(a, b) && self.types_match(b, a)
+    }
+
+    fn tensor_literal_matches(&mut self, value: &Expression, expected: &Type) -> bool {
+        let Type::Tensor { dtype, rank } = expected else {
+            return false;
+        };
+        let ExpressionKind::ArrayLiteral { elements } = &value.kind else {
+            return false;
+        };
+
+        match rank {
+            Some(1) => elements.iter().all(|element| {
+                let actual = self.infer_expression_type(element);
+                self.types_match(&actual, dtype)
+            }),
+            Some(2) => {
+                let Some((first, rest)) = elements.split_first() else {
+                    return true;
+                };
+                let ExpressionKind::ArrayLiteral {
+                    elements: first_row,
+                } = &first.kind
+                else {
+                    return false;
+                };
+                let width = first_row.len();
+                first_row.iter().all(|element| {
+                    let actual = self.infer_expression_type(element);
+                    self.types_match(&actual, dtype)
+                }) && rest.iter().all(|row| {
+                    let ExpressionKind::ArrayLiteral { elements: row } = &row.kind else {
+                        return false;
+                    };
+                    row.len() == width
+                        && row.iter().all(|element| {
+                            let actual = self.infer_expression_type(element);
+                            self.types_match(&actual, dtype)
+                        })
+                })
+            }
+            None => true,
+            _ => false,
+        }
+    }
+
+    fn parse_tensor_rank_annotation(ann: &crate::ast::TypeAnnotation) -> Option<usize> {
+        use crate::ast::TypeAnnotationKind;
+        match &ann.kind {
+            TypeAnnotationKind::Simple { segments } if segments.len() == 1 => {
+                segments[0].strip_prefix("rank")?.parse::<usize>().ok()
+            }
+            _ => None,
+        }
     }
 
     fn branch_type_mismatch(&self, types: &[Type]) -> Option<(Type, Type)> {
@@ -3080,11 +3167,32 @@ impl SemanticAnalyzer {
                     self.analyze_expression(value);
                 }
 
-                // Infer type from value expression or annotation
+                // Infer type from value expression or annotation.
                 let inferred_type = if let Some(ref value) = let_stmt.value {
                     self.infer_expression_type(value)
                 } else {
                     self.type_annotation_to_type_checked(&let_stmt.ty)
+                };
+                let binding_type = if let Some(ann) = &let_stmt.ty {
+                    let declared_type = self.type_annotation_to_type_checked(&Some(ann.clone()));
+                    if let Some(ref value) = let_stmt.value {
+                        if !self.types_match(&inferred_type, &declared_type)
+                            && !self.tensor_literal_matches(value, &declared_type)
+                        {
+                            self.error_with_hint(
+                                format!(
+                                    "Let binding has type {}, but {} was declared",
+                                    type_name(&inferred_type),
+                                    type_name(&declared_type)
+                                ),
+                                value.span,
+                                "Change the annotation or convert the initializer explicitly.",
+                            );
+                        }
+                    }
+                    declared_type
+                } else {
+                    inferred_type.clone()
                 };
 
                 if let Some(ann) = &let_stmt.ty {
@@ -3097,11 +3205,7 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                self.validate_pattern_against_type(
-                    &let_stmt.pattern,
-                    &inferred_type,
-                    let_stmt.span,
-                );
+                self.validate_pattern_against_type(&let_stmt.pattern, &binding_type, let_stmt.span);
 
                 for name in self.collect_pattern_binding_names(&let_stmt.pattern) {
                     if self.lookup_symbol_in_current_scope(&name).is_some() {
@@ -3114,14 +3218,14 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                self.register_typed_pattern_bindings(&let_stmt.pattern, &inferred_type);
+                self.register_typed_pattern_bindings(&let_stmt.pattern, &binding_type);
                 if let Pattern::Identifier(_) = &let_stmt.pattern {
                     self.record_symbol_resolution(
                         let_stmt.span,
                         SymbolInfo {
                             is_local: self.symbols.len() > 1,
                             def_span: Some(let_stmt.span),
-                            ty: inferred_type,
+                            ty: binding_type,
                         },
                     );
                 }
@@ -3735,6 +3839,13 @@ impl SemanticAnalyzer {
                 }
                 result
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                let result = self.infer_block_type(block);
+                match result {
+                    Type::Tensor { .. } | Type::Unknown => result,
+                    _ => Type::Unknown,
+                }
+            }
         }
     }
 
@@ -3806,6 +3917,12 @@ impl SemanticAnalyzer {
                 self.collect_capture_names_expr(body, &mut nested_locals, captures);
             }
             ExpressionKind::Block(block) => {
+                let mut block_locals = locals.clone();
+                for stmt in &block.statements {
+                    self.collect_capture_names_stmt(stmt, &mut block_locals, captures);
+                }
+            }
+            ExpressionKind::DifferentiableBlock(block) => {
                 let mut block_locals = locals.clone();
                 for stmt in &block.statements {
                     self.collect_capture_names_stmt(stmt, &mut block_locals, captures);
@@ -5782,6 +5899,25 @@ impl SemanticAnalyzer {
                 }
                 self.pop_scope();
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                self.push_scope();
+                for stmt in &block.statements {
+                    self.analyze_statement(stmt);
+                }
+                self.pop_scope();
+
+                let result_type = self.infer_block_type(block);
+                if !matches!(result_type, Type::Tensor { .. } | Type::Unknown) {
+                    self.error_with_hint(
+                        format!(
+                            "Differentiable block must produce a Tensor loss, found {}",
+                            type_name(&result_type)
+                        ),
+                        expr.span,
+                        "Return the tensor loss as the final expression of the `diff { ... }` block.",
+                    );
+                }
+            }
         }
 
         self.record_expression_type(expr);
@@ -7273,6 +7409,9 @@ impl SemanticAnalyzer {
                     self.infer_generic_types_in_expression(&mut arm.body);
                 }
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                self.infer_generic_types_in_block(block);
+            }
             ExpressionKind::ArrayLiteral { elements } => {
                 for elem in elements {
                     self.infer_generic_types_in_expression(elem);
@@ -7484,6 +7623,27 @@ impl SemanticAnalyzer {
             Type::Fn { .. } => TypeAnnotationKind::Simple {
                 segments: vec!["fn".to_string()],
             },
+            Type::Tensor { dtype, rank } => {
+                let dtype_ann = self.type_to_annotation(dtype);
+                let mut type_args = vec![dtype_ann];
+                if let Some(rank) = rank {
+                    type_args.push(TypeAnnotation {
+                        kind: TypeAnnotationKind::Simple {
+                            segments: vec![format!("rank{}", rank)],
+                        },
+                        span: Span {
+                            start: 0,
+                            end: 0,
+                            start_location: crate::span::Location { line: 0, column: 0 },
+                            end_location: crate::span::Location { line: 0, column: 0 },
+                        },
+                    });
+                }
+                TypeAnnotationKind::Generic {
+                    name: "Tensor".to_string(),
+                    type_args,
+                }
+            }
             Type::DynTrait { trait_name } => TypeAnnotationKind::DynTrait {
                 trait_name: trait_name.clone(),
             },

@@ -1316,6 +1316,23 @@ and compiler constructs.
 - `R-1402 Shape and DType Type System`: static/dynamic dimensions, rank constraints, dtype/layout/device constraints, and check-time diagnostics for static cases.
 - `R-1403 Differentiable Language Blocks`: syntax and semantic rules for differentiable functions/blocks, plus diagnostics for unsupported operations.
 
+### Current Implementation State
+
+Status: in progress.
+
+Completed so far:
+
+- `Tensor<dtype, rankN>` is represented in compiler semantic types and midend IR while preserving the runtime handle ABI.
+- Explicit `Tensor<float, rank1>` and `Tensor<float, rank2>` literals lower to runtime tensor allocation.
+- Rank/dtype mismatches and rectangular rank2 literal shape mismatches fail during semantic analysis.
+- `diff { ... }` is available as a language-level differentiable block expression and lowers to the existing `std.tensor.backward` autograd runtime.
+
+Remaining before Phase 14 completion:
+
+- Public tensor type syntax still needs device/layout annotations and stable diagnostic codes for all tensor mismatch categories.
+- Static/dynamic dimension constraints still need a complete semantic representation beyond rank and rectangular literal validation.
+- Differentiable regions still need unsupported-operation diagnostics and broader gradient tests covering control flow and nested functions.
+
 ### Acceptance Direction
 
 - Tensor programs should be expressible without ad-hoc host-call style for common cases.

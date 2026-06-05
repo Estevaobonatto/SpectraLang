@@ -1195,6 +1195,7 @@ impl CodeGenerator {
             IRType::Struct { .. } => Ok(types::I64), // Structs são representados como ponteiros
             IRType::Enum { .. } => Ok(types::I64), // Enums são representados como ponteiros ou ints
             IRType::Function { .. } => Ok(types::I64),
+            IRType::Tensor { .. } => Ok(types::I64),
             IRType::DynTrait { .. } => Ok(types::I64), // fat pointer represented as i64 address
         }
     }
@@ -1243,6 +1244,7 @@ impl CodeGenerator {
                 max_variant_size
             }
             IRType::Function { .. } => 8,
+            IRType::Tensor { .. } => 8,
             IRType::DynTrait { .. } => 16, // fat pointer: data_ptr (8) + vtable_ptr (8)
         }
     }

@@ -1,0 +1,63 @@
+// Teste 80: Phase 14 tensor language core surface.
+// Cobre Tensor<dtype, rankN>, aliases first-class e diff boundary.
+module phase14_tensor_language_core;
+
+import std.tensor as tensor;
+
+fn vector_total(values: Tensor<float, rank1>) -> int {
+    return tensor.sum_f(values) as int;
+}
+
+fn matrix_total(values: Tensor<float, rank2>) -> int {
+    return tensor.sum_f(values) as int;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let v: Tensor<float, rank1> = tensor.vector_f(4, 2.0);
+    if tensor.rank(v) != 1 {
+        return tensor.rank(v);
+    }
+    if vector_total(v) != 8 {
+        return vector_total(v);
+    }
+
+    let literal_v: Tensor<float, rank1> = [1.0, 2.0, 3.0];
+    if tensor.rank(literal_v) != 1 {
+        return tensor.rank(literal_v);
+    }
+    if vector_total(literal_v) != 6 {
+        return vector_total(literal_v);
+    }
+
+    let m: Tensor<float, rank2> = tensor.matrix_f(2, 3, 1.5);
+    if tensor.rank(m) != 2 {
+        return tensor.rank(m);
+    }
+    if matrix_total(m) != 9 {
+        return matrix_total(m);
+    }
+
+    let literal_m: Tensor<float, rank2> = [[1.0, 2.0], [3.0, 4.0]];
+    if tensor.rank(literal_m) != 2 {
+        return tensor.rank(literal_m);
+    }
+    if matrix_total(literal_m) != 10 {
+        return matrix_total(literal_m);
+    }
+
+    let trainable: Tensor<float, rank1> = tensor.requires_grad(tensor.vector_f(3, 3.0), true);
+    let loss: Tensor<float, rank0> = diff {
+        tensor.sum_t(tensor.mul(trainable, trainable))
+    };
+
+    let grad: Tensor<float, rank1> = tensor.grad(trainable);
+    if tensor.sum_f(grad) as int != 18 {
+        return tensor.sum_f(grad) as int;
+    }
+
+    tensor.free_all();
+    return 0;
+}

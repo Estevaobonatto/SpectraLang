@@ -307,6 +307,11 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
+    /// Runtime tensor handle carrying compiler-visible dtype/rank metadata.
+    Tensor {
+        dtype: Box<Type>,
+        rank: Option<usize>,
+    },
     /// Fat pointer for dyn Trait objects: (data_ptr: i64, vtable_ptr: i64).
     DynTrait {
         trait_name: String,

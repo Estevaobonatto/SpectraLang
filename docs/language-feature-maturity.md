@@ -47,6 +47,10 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - qualified stdlib calls such as `std.io.println(...)`
 - `std.tensor` production baseline runtime API for tensor handles, safe views, shape metadata, elementwise ops, reductions, transforms, 2D matmul, and batched matmul
 - `std.tensor` production baseline reverse-mode autodiff for float tensor handles, scalar tensor losses, gradient accumulation, and inference/no-grad mode
+- Phase 14 partial tensor language core:
+  - `Tensor<dtype, rankN>` annotations for compiler-visible dtype/rank metadata
+  - explicitly typed rank1/rank2 float tensor literals
+  - `diff { ... }` differentiable block syntax lowering to `std.tensor.backward`
 - `std.tensor` production baseline device placement contract for CPU handles (`device`, `device_available`, `to_device`, `cpu`, `sync`, `stats_device_transfers`)
 - optional `std.tensor` `wgpu` accelerator backend behind Cargo feature `gpu`
 - `std.tensor` mixed-precision quantization metadata/API for f32, f16, and bf16 float tensor handles

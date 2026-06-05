@@ -171,6 +171,10 @@ const TENSOR_ZEROS: &str = "spectra.std.tensor.zeros";
 const TENSOR_ONES: &str = "spectra.std.tensor.ones";
 const TENSOR_FULL: &str = "spectra.std.tensor.full";
 const TENSOR_FULL_F: &str = "spectra.std.tensor.full_f";
+const TENSOR_LITERAL: &str = "spectra.std.tensor.literal";
+const TENSOR_LITERAL_F: &str = "spectra.std.tensor.literal_f";
+const TENSOR_LITERAL2: &str = "spectra.std.tensor.literal2";
+const TENSOR_LITERAL2_F: &str = "spectra.std.tensor.literal2_f";
 const TENSOR_ARANGE: &str = "spectra.std.tensor.arange";
 const TENSOR_ZEROS2: &str = "spectra.std.tensor.zeros2";
 const TENSOR_ONES2: &str = "spectra.std.tensor.ones2";
@@ -401,6 +405,10 @@ fn register_tensor() {
     register_host_function(TENSOR_ONES, std_tensor_ones);
     register_host_function(TENSOR_FULL, std_tensor_full);
     register_host_function(TENSOR_FULL_F, std_tensor_full_f);
+    register_host_function(TENSOR_LITERAL, std_tensor_literal);
+    register_host_function(TENSOR_LITERAL_F, std_tensor_literal_f);
+    register_host_function(TENSOR_LITERAL2, std_tensor_literal2);
+    register_host_function(TENSOR_LITERAL2_F, std_tensor_literal2_f);
     register_host_function(TENSOR_ARANGE, std_tensor_arange);
     register_host_function(TENSOR_ZEROS2, std_tensor_zeros2);
     register_host_function(TENSOR_ONES2, std_tensor_ones2);
@@ -2512,6 +2520,73 @@ extern "C" fn std_tensor_full_f(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let data = vec![args[1]; args[0] as usize];
         match tensor_alloc(TensorDType::Float, vec![args[0] as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_literal(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_literal_1d(ctx, TensorDType::Int)
+}
+
+extern "C" fn std_tensor_literal_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_literal_1d(ctx, TensorDType::Float)
+}
+
+extern "C" fn std_tensor_literal2(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_literal_2d(ctx, TensorDType::Int)
+}
+
+extern "C" fn std_tensor_literal2_f(ctx: *mut SpectraHostCallContext) -> i32 {
+    tensor_literal_2d(ctx, TensorDType::Float)
+}
+
+fn tensor_literal_1d(ctx: *mut SpectraHostCallContext, dtype: TensorDType) -> i32 {
+    unsafe {
+        if ctx.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len == 0 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let len = args[0];
+        if len < 0 || args.len() != (len as usize).saturating_add(1) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let data = args[1..].to_vec();
+        match tensor_alloc(dtype, vec![len as usize], data) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+fn tensor_literal_2d(ctx: *mut SpectraHostCallContext, dtype: TensorDType) -> i32 {
+    unsafe {
+        if ctx.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let rows = args[0];
+        let cols = args[1];
+        if rows < 0 || cols < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(len) = (rows as usize).checked_mul(cols as usize) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args.len() != len.saturating_add(2) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let data = args[2..].to_vec();
+        match tensor_alloc(dtype, vec![rows as usize, cols as usize], data) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }

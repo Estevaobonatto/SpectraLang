@@ -158,6 +158,10 @@ pub fn type_to_string(ty: &Type) -> String {
                 .join(", "),
             type_to_string(return_type)
         ),
+        Type::Tensor { dtype, rank } => match rank {
+            Some(rank) => format!("Tensor<{}, rank{}>", type_to_string(dtype), rank),
+            None => format!("Tensor<{}, dynamic>", type_to_string(dtype)),
+        },
         Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }

@@ -2106,6 +2106,9 @@ fn find_call_site_in_expression(
         spectra_compiler::ast::ExpressionKind::Block(block) => {
             find_call_site_in_block(block, line, column, best);
         }
+        spectra_compiler::ast::ExpressionKind::DifferentiableBlock(block) => {
+            find_call_site_in_block(block, line, column, best);
+        }
         spectra_compiler::ast::ExpressionKind::Cast { expr, .. } => {
             find_call_site_in_expression(expr, line, column, best);
         }

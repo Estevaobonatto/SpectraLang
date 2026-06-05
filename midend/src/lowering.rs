@@ -2411,6 +2411,19 @@ impl ASTLowering {
                     _ => None,
                 })
                 .unwrap_or(IRType::Void),
+            ExpressionKind::DifferentiableBlock(block) => block
+                .statements
+                .last()
+                .and_then(|stmt| match &stmt.kind {
+                    spectra_compiler::ast::StatementKind::Expression(expr) => {
+                        Some(self.infer_expr_ir_type(expr))
+                    }
+                    spectra_compiler::ast::StatementKind::Return(ret) => {
+                        ret.value.as_ref().map(|v| self.infer_expr_ir_type(v))
+                    }
+                    _ => None,
+                })
+                .unwrap_or(IRType::Void),
             ExpressionKind::Cast { target_type, .. } => self.lower_type_annotation(target_type),
         }
     }
@@ -3147,6 +3160,12 @@ impl ASTLowering {
                     self.collect_lambda_captures_stmt(stmt, &mut block_locals, captures, seen);
                 }
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                let mut block_locals = locals.clone();
+                for stmt in &block.statements {
+                    self.collect_lambda_captures_stmt(stmt, &mut block_locals, captures, seen);
+                }
+            }
             ExpressionKind::If {
                 condition,
                 then_block,
@@ -3665,6 +3684,74 @@ impl ASTLowering {
         }
     }
 
+    fn lower_tensor_literal(
+        &mut self,
+        expr: &Expression,
+        dtype: &IRType,
+        rank: Option<usize>,
+        ir_func: &mut IRFunction,
+    ) -> Option<Value> {
+        let ExpressionKind::ArrayLiteral { elements } = &expr.kind else {
+            return None;
+        };
+
+        match rank {
+            Some(1) => {
+                let mut args = Vec::with_capacity(elements.len() + 1);
+                args.push(self.builder.build_const_int(ir_func, elements.len() as i64));
+                for element in elements {
+                    args.push(self.lower_expression(element, ir_func));
+                }
+                let host = match dtype {
+                    IRType::Float => "spectra.std.tensor.literal_f",
+                    IRType::Int => "spectra.std.tensor.literal",
+                    _ => return None,
+                };
+                self.builder
+                    .build_host_call(ir_func, host.to_string(), args, true)
+            }
+            Some(2) => {
+                let mut rows = Vec::with_capacity(elements.len());
+                let mut cols: Option<usize> = None;
+                for row in elements {
+                    let ExpressionKind::ArrayLiteral {
+                        elements: row_elements,
+                    } = &row.kind
+                    else {
+                        return None;
+                    };
+                    if let Some(expected_cols) = cols {
+                        if row_elements.len() != expected_cols {
+                            return None;
+                        }
+                    } else {
+                        cols = Some(row_elements.len());
+                    }
+                    rows.push(row_elements);
+                }
+
+                let cols = cols.unwrap_or(0);
+                let flat_len = elements.len().saturating_mul(cols);
+                let mut args = Vec::with_capacity(flat_len + 2);
+                args.push(self.builder.build_const_int(ir_func, elements.len() as i64));
+                args.push(self.builder.build_const_int(ir_func, cols as i64));
+                for row in rows {
+                    for element in row {
+                        args.push(self.lower_expression(element, ir_func));
+                    }
+                }
+                let host = match dtype {
+                    IRType::Float => "spectra.std.tensor.literal2_f",
+                    IRType::Int => "spectra.std.tensor.literal2",
+                    _ => return None,
+                };
+                self.builder
+                    .build_host_call(ir_func, host.to_string(), args, true)
+            }
+            _ => None,
+        }
+    }
+
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
         match &stmt.kind {
             StatementKind::Let(let_stmt) => {
@@ -3692,7 +3779,23 @@ impl ASTLowering {
                     let is_lambda_binding =
                         matches!(&value_expr.kind, ExpressionKind::Lambda { .. });
 
-                    let value = self.lower_expression(value_expr, ir_func);
+                    let annotated_tensor_type = let_stmt.ty.as_ref().and_then(|type_ann| {
+                        let ty = self.lower_type_annotation(type_ann);
+                        matches!(ty, IRType::Tensor { .. }).then_some(ty)
+                    });
+                    let value = if let Some(IRType::Tensor { dtype, rank }) =
+                        annotated_tensor_type.as_ref()
+                    {
+                        if let Some(value) =
+                            self.lower_tensor_literal(value_expr, dtype, *rank, ir_func)
+                        {
+                            value
+                        } else {
+                            self.lower_expression(value_expr, ir_func)
+                        }
+                    } else {
+                        self.lower_expression(value_expr, ir_func)
+                    };
 
                     // Register in closure_var_map when the value bound is a lambda
                     if let Some(name) = binding_name.as_ref().filter(|_| is_lambda_binding) {
@@ -5858,6 +5961,34 @@ impl ASTLowering {
                     }
                 }
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                let stmts = &block.statements;
+                let loss = if stmts.is_empty() {
+                    self.builder.build_const_int(ir_func, 0)
+                } else {
+                    for stmt in &stmts[..stmts.len() - 1] {
+                        self.lower_statement(stmt, ir_func);
+                    }
+
+                    let last = &stmts[stmts.len() - 1];
+                    match &last.kind {
+                        spectra_compiler::ast::StatementKind::Expression(expr) => {
+                            self.lower_expression(expr, ir_func)
+                        }
+                        _ => {
+                            self.lower_statement(last, ir_func);
+                            self.builder.build_const_int(ir_func, 0)
+                        }
+                    }
+                };
+                self.builder.build_host_call(
+                    ir_func,
+                    "spectra.std.tensor.backward".to_string(),
+                    vec![loss],
+                    false,
+                );
+                loss
+            }
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
@@ -6473,6 +6604,15 @@ impl ASTLowering {
                 }
             }
             TypeAnnotationKind::Generic { name, type_args } => {
+                if name == "Tensor" && (type_args.len() == 1 || type_args.len() == 2) {
+                    let dtype = self.lower_type_annotation_with_map(&type_args[0], substitutions);
+                    let rank = type_args.get(1).and_then(tensor_rank_annotation);
+                    return IRType::Tensor {
+                        dtype: Box::new(dtype),
+                        rank,
+                    };
+                }
+
                 // Resolve to the monomorphized enum type.
                 // First, try the already-specialized version (e.g., "Option_int").
                 let type_names: Vec<String> = type_args
@@ -6609,6 +6749,10 @@ impl ASTLowering {
                     return_type: ir_return,
                 }
             }
+            ASTType::Tensor { dtype, rank } => IRType::Tensor {
+                dtype: Box::new(self.lower_type(dtype)),
+                rank: *rank,
+            },
             ASTType::DynTrait { trait_name } => IRType::DynTrait {
                 trait_name: trait_name.clone(),
             },
@@ -7018,6 +7162,22 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Int,
                 returns_value: true,
             }),
+            ("tensor", "vector_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.tensor.full_f",
+                return_type: IRType::Tensor {
+                    dtype: Box::new(IRType::Float),
+                    rank: Some(1),
+                },
+                returns_value: true,
+            }),
+            ("tensor", "matrix_f") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.tensor.full2_f",
+                return_type: IRType::Tensor {
+                    dtype: Box::new(IRType::Float),
+                    rank: Some(2),
+                },
+                returns_value: true,
+            }),
             ("tensor", "zeros") => Some(host_int("spectra.std.tensor.zeros")),
             ("tensor", "ones") => Some(host_int("spectra.std.tensor.ones")),
             ("tensor", "full") => Some(host_int("spectra.std.tensor.full")),
@@ -7053,11 +7213,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "stack") => Some(host_int("spectra.std.tensor.stack")),
             ("tensor", "add") => Some(host_int("spectra.std.tensor.add")),
             ("tensor", "sub") => Some(host_int("spectra.std.tensor.sub")),
-            ("tensor", "mul") => Some(host_int("spectra.std.tensor.mul")),
+            ("tensor", "mul") => Some(host_tensor_dynamic("spectra.std.tensor.mul")),
             ("tensor", "div") => Some(host_int("spectra.std.tensor.div")),
             ("tensor", "sum") => Some(host_int("spectra.std.tensor.sum")),
             ("tensor", "sum_f") => Some(host_float("spectra.std.tensor.sum_f")),
-            ("tensor", "sum_t") => Some(host_int("spectra.std.tensor.sum_t")),
+            ("tensor", "sum_t") => Some(host_tensor_rank0("spectra.std.tensor.sum_t")),
             ("tensor", "mean_f") => Some(host_float("spectra.std.tensor.mean_f")),
             ("tensor", "mean_t") => Some(host_int("spectra.std.tensor.mean_t")),
             ("tensor", "max") => Some(host_int("spectra.std.tensor.max")),
@@ -7122,9 +7282,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 Some(host_int("spectra.std.tensor.stats_graph_nodes"))
             }
             ("tensor", "reset_stats") => Some(host_void("spectra.std.tensor.reset_stats")),
-            ("tensor", "requires_grad") => Some(host_int("spectra.std.tensor.requires_grad")),
+            ("tensor", "requires_grad") => {
+                Some(host_tensor_dynamic("spectra.std.tensor.requires_grad"))
+            }
+            ("tensor", "diff") => Some(host_void("spectra.std.tensor.backward")),
             ("tensor", "backward") => Some(host_void("spectra.std.tensor.backward")),
-            ("tensor", "grad") => Some(host_int("spectra.std.tensor.grad")),
+            ("tensor", "grad") => Some(host_tensor_dynamic("spectra.std.tensor.grad")),
             ("tensor", "zero_grad") => Some(host_void("spectra.std.tensor.zero_grad")),
             ("tensor", "set_grad_enabled") => {
                 Some(host_void("spectra.std.tensor.set_grad_enabled"))
@@ -7693,6 +7856,37 @@ fn host_void(runtime_name: &'static str) -> HostFunctionDescriptor {
         runtime_name,
         return_type: IRType::Void,
         returns_value: false,
+    }
+}
+
+fn host_tensor_rank0(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Tensor {
+            dtype: Box::new(IRType::Float),
+            rank: Some(0),
+        },
+        returns_value: true,
+    }
+}
+
+fn host_tensor_dynamic(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Tensor {
+            dtype: Box::new(IRType::Float),
+            rank: None,
+        },
+        returns_value: true,
+    }
+}
+
+fn tensor_rank_annotation(type_ann: &TypeAnnotation) -> Option<usize> {
+    match &type_ann.kind {
+        TypeAnnotationKind::Simple { segments } if segments.len() == 1 => {
+            segments[0].strip_prefix("rank")?.parse::<usize>().ok()
+        }
+        _ => None,
     }
 }
 

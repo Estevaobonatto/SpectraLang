@@ -334,14 +334,44 @@ fn make_std_tensor() -> ModuleExports {
 
     let int = Type::Int;
     let float = Type::Float;
+    let tensor_float_rank1 = Type::Tensor {
+        dtype: Box::new(Type::Float),
+        rank: Some(1),
+    };
+    let tensor_float_rank2 = Type::Tensor {
+        dtype: Box::new(Type::Float),
+        rank: Some(2),
+    };
+    let tensor_float_rank0 = Type::Tensor {
+        dtype: Box::new(Type::Float),
+        rank: Some(0),
+    };
+    let tensor_float_dynamic = Type::Tensor {
+        dtype: Box::new(Type::Float),
+        rank: None,
+    };
     let unit = Type::Unit;
     let bool_ty = Type::Bool;
 
     let functions = [
+        (
+            "vector_f",
+            vec![int.clone(), float.clone()],
+            tensor_float_rank1.clone(),
+        ),
+        (
+            "matrix_f",
+            vec![int.clone(), int.clone(), float.clone()],
+            tensor_float_rank2.clone(),
+        ),
         ("zeros", vec![int.clone()], int.clone()),
         ("ones", vec![int.clone()], int.clone()),
         ("full", vec![int.clone(), int.clone()], int.clone()),
-        ("full_f", vec![int.clone(), float.clone()], int.clone()),
+        (
+            "full_f",
+            vec![int.clone(), float.clone()],
+            tensor_float_rank1.clone(),
+        ),
         (
             "arange",
             vec![int.clone(), int.clone(), int.clone()],
@@ -357,7 +387,7 @@ fn make_std_tensor() -> ModuleExports {
         (
             "full2_f",
             vec![int.clone(), int.clone(), float.clone()],
-            int.clone(),
+            tensor_float_rank2.clone(),
         ),
         ("len", vec![int.clone()], int.clone()),
         ("rank", vec![int.clone()], int.clone()),
@@ -415,34 +445,58 @@ fn make_std_tensor() -> ModuleExports {
         ),
         ("concat", vec![int.clone(), int.clone()], int.clone()),
         ("stack", vec![int.clone(), int.clone()], int.clone()),
-        ("add", vec![int.clone(), int.clone()], int.clone()),
-        ("sub", vec![int.clone(), int.clone()], int.clone()),
-        ("mul", vec![int.clone(), int.clone()], int.clone()),
-        ("div", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "add",
+            vec![int.clone(), int.clone()],
+            tensor_float_dynamic.clone(),
+        ),
+        (
+            "sub",
+            vec![int.clone(), int.clone()],
+            tensor_float_dynamic.clone(),
+        ),
+        (
+            "mul",
+            vec![int.clone(), int.clone()],
+            tensor_float_dynamic.clone(),
+        ),
+        (
+            "div",
+            vec![int.clone(), int.clone()],
+            tensor_float_dynamic.clone(),
+        ),
         ("sum", vec![int.clone()], int.clone()),
         ("sum_f", vec![int.clone()], float.clone()),
-        ("sum_t", vec![int.clone()], int.clone()),
+        ("sum_t", vec![int.clone()], tensor_float_rank0.clone()),
         ("mean_f", vec![int.clone()], float.clone()),
-        ("mean_t", vec![int.clone()], int.clone()),
+        ("mean_t", vec![int.clone()], tensor_float_rank0.clone()),
         ("max", vec![int.clone()], int.clone()),
         ("min", vec![int.clone()], int.clone()),
         ("argmax", vec![int.clone()], int.clone()),
-        ("matmul", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "matmul",
+            vec![int.clone(), int.clone()],
+            tensor_float_rank2.clone(),
+        ),
         (
             "matmul_batched",
             vec![int.clone(), int.clone()],
             int.clone(),
         ),
-        ("transpose", vec![int.clone()], int.clone()),
+        ("transpose", vec![int.clone()], tensor_float_rank2.clone()),
         ("dot", vec![int.clone(), int.clone()], int.clone()),
-        ("dot_t", vec![int.clone(), int.clone()], int.clone()),
-        ("neg", vec![int.clone()], int.clone()),
-        ("exp_f", vec![int.clone()], int.clone()),
-        ("log_f", vec![int.clone()], int.clone()),
-        ("sqrt_f", vec![int.clone()], int.clone()),
-        ("relu", vec![int.clone()], int.clone()),
-        ("sigmoid_f", vec![int.clone()], int.clone()),
-        ("tanh_f", vec![int.clone()], int.clone()),
+        (
+            "dot_t",
+            vec![int.clone(), int.clone()],
+            tensor_float_rank0.clone(),
+        ),
+        ("neg", vec![int.clone()], tensor_float_dynamic.clone()),
+        ("exp_f", vec![int.clone()], tensor_float_dynamic.clone()),
+        ("log_f", vec![int.clone()], tensor_float_dynamic.clone()),
+        ("sqrt_f", vec![int.clone()], tensor_float_dynamic.clone()),
+        ("relu", vec![int.clone()], tensor_float_dynamic.clone()),
+        ("sigmoid_f", vec![int.clone()], tensor_float_dynamic.clone()),
+        ("tanh_f", vec![int.clone()], tensor_float_dynamic.clone()),
         ("seed", vec![int.clone()], unit.clone()),
         (
             "uniform",
@@ -452,14 +506,18 @@ fn make_std_tensor() -> ModuleExports {
         (
             "uniform_f",
             vec![int.clone(), float.clone(), float.clone()],
-            int.clone(),
+            tensor_float_rank1.clone(),
         ),
         (
             "normal_f",
             vec![int.clone(), float.clone(), float.clone()],
-            int.clone(),
+            tensor_float_rank1.clone(),
         ),
-        ("bernoulli", vec![int.clone(), float.clone()], int.clone()),
+        (
+            "bernoulli",
+            vec![int.clone(), float.clone()],
+            tensor_float_rank1.clone(),
+        ),
         ("categorical", vec![int.clone(), int.clone()], int.clone()),
         ("device", vec![int.clone()], int.clone()),
         ("device_available", vec![int.clone()], bool_ty.clone()),
@@ -485,10 +543,11 @@ fn make_std_tensor() -> ModuleExports {
         (
             "requires_grad",
             vec![int.clone(), bool_ty.clone()],
-            int.clone(),
+            tensor_float_dynamic.clone(),
         ),
-        ("backward", vec![int.clone()], unit.clone()),
-        ("grad", vec![int.clone()], int.clone()),
+        ("diff", vec![tensor_float_rank0.clone()], unit.clone()),
+        ("backward", vec![tensor_float_rank0.clone()], unit.clone()),
+        ("grad", vec![int.clone()], tensor_float_dynamic.clone()),
         ("zero_grad", vec![int.clone()], unit.clone()),
         ("set_grad_enabled", vec![bool_ty.clone()], unit.clone()),
         ("grad_enabled", vec![], bool_ty.clone()),

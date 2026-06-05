@@ -2172,6 +2172,11 @@ mod cst {
                     collect_doc_comments_from_statement(stmt, lines, line_offsets);
                 }
             }
+            ExpressionKind::DifferentiableBlock(block) => {
+                for stmt in &block.statements {
+                    collect_doc_comments_from_statement(stmt, lines, line_offsets);
+                }
+            }
         }
     }
 
@@ -2379,6 +2384,9 @@ mod cst {
                 collect_match_spans_expression(inner, spans);
             }
             ExpressionKind::Block(block) => {
+                collect_match_spans_block(block, spans);
+            }
+            ExpressionKind::DifferentiableBlock(block) => {
                 collect_match_spans_block(block, spans);
             }
         }

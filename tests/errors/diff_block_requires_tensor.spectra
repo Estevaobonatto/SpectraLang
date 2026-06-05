@@ -1,0 +1,9 @@
+// Negative: diff blocks must produce a tensor loss.
+module diff_block_requires_tensor;
+
+pub fn main() -> int {
+    let loss = diff {
+        42
+    };
+    return loss;
+}

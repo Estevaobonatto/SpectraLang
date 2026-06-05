@@ -817,10 +817,10 @@ pub fn main() {
 ## 6. std.tensor — Tensores / Tensors
 
 **PT-BR:**  
-`std.tensor` fornece o núcleo de produção atual de tensores para IA/ML por meio de handles opacos (`int`). Cada tensor tem dtype (`int` ou `float`), shape, strides, layout, armazenamento CPU compartilhado e offset base para views seguras.
+`std.tensor` fornece o núcleo de produção atual de tensores para IA/ML. A ABI continua usando handles opacos (`int`), mas a linguagem já reconhece anotações parciais `Tensor<dtype, rankN>` para código novo. Cada tensor tem dtype (`int` ou `float`), shape, strides, layout, armazenamento CPU compartilhado e offset base para views seguras.
 
 **EN-US:**  
-`std.tensor` provides the current production tensor core for AI/ML through opaque handles (`int`). Each tensor has dtype (`int` or `float`), shape, strides, layout, shared CPU storage, and a base offset for safe views.
+`std.tensor` provides the current production tensor core for AI/ML. The ABI still uses opaque handles (`int`), but the language now recognizes partial `Tensor<dtype, rankN>` annotations for new code. Each tensor has dtype (`int` or `float`), shape, strides, layout, shared CPU storage, and a base offset for safe views.
 
 ```spectra
 import std.tensor as tensor;
@@ -828,15 +828,30 @@ import std.tensor as tensor;
 
 ### Criação / Creation
 
+Código novo pode usar `Tensor<float, rank1>`, `Tensor<float, rank2>` e literais tensoriais quando a anotação é explícita:
+
+New code can use `Tensor<float, rank1>`, `Tensor<float, rank2>`, and tensor literals when the annotation is explicit:
+
+```spectra
+let v: Tensor<float, rank1> = [1.0, 2.0, 3.0];
+let m: Tensor<float, rank2> = [[1.0, 2.0], [3.0, 4.0]];
+```
+
+Rank e dtype incompatíveis falham em `check`/`compile`. Literais rank2 precisam ser retangulares.
+
+Rank and dtype mismatches fail during `check`/`compile`. Rank2 literals must be rectangular.
+
 | Função / Function | Assinatura / Signature | Descrição / Description |
 |---|---|---|
+| `vector_f` | `(size: int, value: float) -> Tensor<float, rank1>` | 1D float tensor filled with `value` |
+| `matrix_f` | `(rows: int, cols: int, value: float) -> Tensor<float, rank2>` | 2D float tensor filled with `value` |
 | `zeros` | `(size: int) -> int` | 1D int tensor filled with `0` |
 | `ones` | `(size: int) -> int` | 1D int tensor filled with `1` |
 | `full` | `(size: int, value: int) -> int` | 1D int tensor filled with `value` |
-| `full_f` | `(size: int, value: float) -> int` | 1D float tensor filled with `value` |
+| `full_f` | `(size: int, value: float) -> Tensor<float, rank1>` | 1D float tensor filled with `value` |
 | `arange` | `(start: int, end: int, step: int) -> int` | 1D int range tensor |
 | `zeros2`, `ones2` | `(rows: int, cols: int) -> int` | 2D int tensors |
-| `full2`, `full2_f` | `(rows: int, cols: int, value) -> int` | 2D tensors filled with value |
+| `full2`, `full2_f` | `(rows: int, cols: int, value) -> int` / `Tensor<float, rank2>` | 2D tensors filled with value |
 | `uniform` | `(size: int, min: int, max: int) -> int` | Seeded int tensor with values in `[min, max)` |
 | `uniform_f` | `(size: int, min: float, max: float) -> int` | Seeded float tensor with values in `[min, max)` |
 | `normal_f` | `(size: int, mean: float, stddev: float) -> int` | Seeded normal-distribution float tensor |
@@ -901,6 +916,25 @@ Views share storage where possible. `set` and `set2` apply copy-on-write when st
 | `reset_stats()` | Resets tensor metrics while preserving active tensor accounting |
 | `free(handle)`, `free_all()` | Release tensor handles |
 
+### Blocos diferenciáveis / Differentiable Blocks
+
+`diff { ... }` marca uma região diferenciável. O bloco deve produzir um tensor escalar de loss, normalmente criado por `sum_t`, `mean_t` ou `dot_t`. O compilador baixa o bloco para `backward(loss)` e retorna o próprio `loss` para uso posterior.
+
+`diff { ... }` marks a differentiable region. The block must produce a scalar tensor loss, usually created by `sum_t`, `mean_t`, or `dot_t`. The compiler lowers the block to `backward(loss)` and returns the same `loss` for later use.
+
+```spectra
+let initial: Tensor<float, rank1> = [3.0, 3.0, 3.0];
+let weights: Tensor<float, rank1> = tensor.requires_grad(initial, true);
+let loss: Tensor<float, rank0> = diff {
+    tensor.sum_t(tensor.mul(weights, weights))
+};
+let grad: Tensor<float, rank1> = tensor.grad(weights);
+```
+
+Limitação atual: `diff { ... }` diagnostica blocos cujo resultado não é Tensor, mas diagnósticos por operação não suportada dentro de uma região diferenciável ainda fazem parte da Phase 14 em andamento.
+
+Current limitation: `diff { ... }` diagnoses blocks whose result is not a Tensor, but unsupported-operation diagnostics inside a differentiable region are still part of the in-progress Phase 14 work.
+
 ### Exemplo / Example
 
 ```spectra
@@ -932,7 +966,7 @@ pub fn main() -> int {
 }
 ```
 
-Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Limitação atual: tensores ainda são handles de runtime, não tipos first-class com shape estático.
+Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14 em andamento: `Tensor<dtype, rankN>`, literais rank1/rank2 e `diff { ... }` existem, mas device/layout/dimensões estáticas completas ainda não estão concluídos.
 
 Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
 

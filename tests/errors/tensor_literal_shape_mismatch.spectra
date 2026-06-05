@@ -1,0 +1,9 @@
+// Negative: Tensor rank2 literals require rectangular rows.
+module tensor_literal_shape_mismatch;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let values: Tensor<float, rank2> = [[1.0, 2.0], [3.0]];
+    return tensor.rank(values);
+}

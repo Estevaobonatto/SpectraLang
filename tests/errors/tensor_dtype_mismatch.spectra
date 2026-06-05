@@ -1,0 +1,9 @@
+// Erro esperado: Tensor<float, rank1> nao pode inicializar Tensor<int, rank1>.
+module tensor_dtype_mismatch;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let values: Tensor<int, rank1> = tensor.vector_f(4, 1.0);
+    return tensor.len(values);
+}
