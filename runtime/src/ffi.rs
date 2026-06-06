@@ -705,14 +705,8 @@ mod tests {
     use super::*;
     use crate::{initialize, MemoryStats};
     use std::mem;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    fn test_guard() -> MutexGuard<'static, ()> {
-        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-        GUARD
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("test guard poisoned")
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        crate::runtime_test_guard()
     }
 
     fn manual_stats() -> MemoryStats {

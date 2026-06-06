@@ -230,6 +230,10 @@ const TENSOR_UNIFORM_F: &str = "spectra.std.tensor.uniform_f";
 const TENSOR_NORMAL_F: &str = "spectra.std.tensor.normal_f";
 const TENSOR_BERNOULLI: &str = "spectra.std.tensor.bernoulli";
 const TENSOR_CATEGORICAL: &str = "spectra.std.tensor.categorical";
+const TENSOR_SET_DETERMINISTIC_MODE: &str = "spectra.std.tensor.set_deterministic_mode";
+const TENSOR_DETERMINISTIC_MODE: &str = "spectra.std.tensor.deterministic_mode";
+const TENSOR_TOLERANCE_ABS: &str = "spectra.std.tensor.tolerance_abs";
+const TENSOR_TOLERANCE_REL: &str = "spectra.std.tensor.tolerance_rel";
 const TENSOR_DEVICE: &str = "spectra.std.tensor.device";
 const TENSOR_DEVICE_AVAILABLE: &str = "spectra.std.tensor.device_available";
 const TENSOR_TO_DEVICE: &str = "spectra.std.tensor.to_device";
@@ -469,6 +473,13 @@ fn register_tensor() {
     register_host_function(TENSOR_NORMAL_F, std_tensor_normal_f);
     register_host_function(TENSOR_BERNOULLI, std_tensor_bernoulli);
     register_host_function(TENSOR_CATEGORICAL, std_tensor_categorical);
+    register_host_function(
+        TENSOR_SET_DETERMINISTIC_MODE,
+        std_tensor_set_deterministic_mode,
+    );
+    register_host_function(TENSOR_DETERMINISTIC_MODE, std_tensor_deterministic_mode);
+    register_host_function(TENSOR_TOLERANCE_ABS, std_tensor_tolerance_abs);
+    register_host_function(TENSOR_TOLERANCE_REL, std_tensor_tolerance_rel);
     register_host_function(TENSOR_DEVICE, std_tensor_device);
     register_host_function(TENSOR_DEVICE_AVAILABLE, std_tensor_device_available);
     register_host_function(TENSOR_TO_DEVICE, std_tensor_to_device);
@@ -1581,6 +1592,9 @@ impl ListRegistry {
 
 // ── std.tensor runtime ──────────────────────────────────────────────────────
 
+pub const NUMERICAL_TOLERANCE_ABS: f64 = 1.0e-9;
+pub const NUMERICAL_TOLERANCE_REL: f64 = 1.0e-9;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TensorDType {
     Int,
@@ -2236,6 +2250,11 @@ fn tensor_registry() -> &'static Mutex<TensorRegistry> {
 fn tensor_grad_enabled() -> &'static Mutex<bool> {
     static ENABLED: OnceLock<Mutex<bool>> = OnceLock::new();
     ENABLED.get_or_init(|| Mutex::new(true))
+}
+
+fn tensor_deterministic_mode() -> &'static Mutex<bool> {
+    static ENABLED: OnceLock<Mutex<bool>> = OnceLock::new();
+    ENABLED.get_or_init(|| Mutex::new(false))
 }
 
 fn with_tensor_registry<F, R>(action: F) -> R
@@ -5667,6 +5686,58 @@ extern "C" fn std_tensor_normal_f(ctx: *mut SpectraHostCallContext) -> i32 {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
+    }
+}
+
+extern "C" fn std_tensor_set_deterministic_mode(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let enabled = args[0] != 0;
+        *tensor_deterministic_mode()
+            .lock()
+            .expect("tensor deterministic mode mutex poisoned") = enabled;
+        if enabled {
+            *random_state().lock().expect("random mutex poisoned") = 0x5350_4543_5452_4131;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_tensor_deterministic_mode(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let enabled = *tensor_deterministic_mode()
+            .lock()
+            .expect("tensor deterministic mode mutex poisoned");
+        tensor_result(ctx_ref, enabled as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_tensor_tolerance_abs(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(
+            ctx_ref,
+            NUMERICAL_TOLERANCE_ABS.to_bits() as SpectraHostValue,
+        )
+    }
+}
+
+extern "C" fn std_tensor_tolerance_rel(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(
+            ctx_ref,
+            NUMERICAL_TOLERANCE_REL.to_bits() as SpectraHostValue,
+        )
     }
 }
 
@@ -9416,11 +9487,7 @@ mod tests {
     use super::*;
 
     fn test_guard() -> std::sync::MutexGuard<'static, ()> {
-        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-        GUARD
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("stdlib test guard poisoned")
+        crate::runtime_test_guard()
     }
 
     fn call_host(name: &str, args: &[SpectraHostValue]) -> (i32, SpectraHostValue) {
@@ -10125,6 +10192,39 @@ mod tests {
     }
 
     #[test]
+    fn tensor_runtime_phase15_deterministic_mode_and_tolerances() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        assert_eq!(
+            call_host(TENSOR_SET_DETERMINISTIC_MODE, &[1]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(TENSOR_DETERMINISTIC_MODE, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, abs_bits) = call_host(TENSOR_TOLERANCE_ABS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(f64::from_bits(abs_bits as u64), NUMERICAL_TOLERANCE_ABS);
+        let (status, rel_bits) = call_host(TENSOR_TOLERANCE_REL, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(f64::from_bits(rel_bits as u64), NUMERICAL_TOLERANCE_REL);
+
+        assert_eq!(
+            call_host(TENSOR_SET_DETERMINISTIC_MODE, &[0]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(TENSOR_DETERMINISTIC_MODE, &[]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+    }
+
+    #[test]
     fn tensor_runtime_phase15_memory_report_tracks_lifetimes_sites_and_reuse() {
         let _lock = test_guard();
         clear_host_functions();
@@ -10132,6 +10232,7 @@ mod tests {
         crate::ffi::spectra_rt_manual_clear();
         let _ = call_host(TENSOR_FREE_ALL, &[]);
         let _ = call_host(TENSOR_RESET_STATS, &[]);
+        let _ = call_host(TENSOR_SET_GRAD_ENABLED, &[0]);
 
         let one = 1.0f64.to_bits() as i64;
         let (status, a) = call_host(TENSOR_FULL_F, &[16, one]);
@@ -10155,7 +10256,14 @@ mod tests {
         assert!(sites > 0);
         let (status, reuse_rate) = call_host(TENSOR_STATS_REUSE_RATE_PER_MILLE, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert!(reuse_rate > 0);
+        let (status, pool_hits) = call_host(TENSOR_STATS_POOL_HITS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, pool_misses) = call_host(TENSOR_STATS_POOL_MISSES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(
+            reuse_rate > 0,
+            "expected buffer reuse in inference-only memory planner test; pool_hits={pool_hits}, pool_misses={pool_misses}, reuse_rate={reuse_rate}"
+        );
 
         let (status, report_ptr) = call_host(TENSOR_MEMORY_REPORT, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);

@@ -766,6 +766,19 @@ if ($r1501Bench.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase15-performance"; Teste = "validate_r1501_bench"; Status = $r1501Bench.Status; Detalhe = $r1501Bench.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.10: R-1503 numerical correctness certification
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1503 numerical correctness certification ---" -ForegroundColor Yellow
+$r1503Correctness = Invoke-HostCommand -name "validate_r1503_correctness" -fileName "python" -arguments @("scripts\validate_r1503_correctness.py") -workingDir (Get-Location).Path
+if ($r1503Correctness.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase15-correctness"; Teste = "validate_r1503_correctness"; Status = $r1503Correctness.Status; Detalhe = $r1503Correctness.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -1,0 +1,37 @@
+{
+  "schema": "spectra.r1503.baseline.v1",
+  "updated": "2026-06-06",
+  "abs_tolerance": 1e-9,
+  "rel_tolerance": 1e-9,
+  "portable_artifact_schema": "spectra.r1503.correctness.v1",
+  "required_categories": [
+    "rng",
+    "reductions",
+    "matmul",
+    "convolution",
+    "optimizer"
+  ],
+  "checks": {
+    "rng_uniform_seeded_fingerprint": {
+      "category": "rng",
+      "expected": null,
+      "mode": "self_consistency"
+    },
+    "reduction_sum_f": {
+      "category": "reductions",
+      "expected": 64.0
+    },
+    "matmul_2x2_sum": {
+      "category": "matmul",
+      "expected": 54.0
+    },
+    "conv2d_unit_kernel_sum": {
+      "category": "convolution",
+      "expected": 4.0
+    },
+    "optimizer_sgd_linear_loss": {
+      "category": "optimizer",
+      "expected": 1.44
+    }
+  }
+}

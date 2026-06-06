@@ -103,6 +103,15 @@ pub fn uptime() -> Duration {
 }
 
 #[cfg(test)]
+pub(crate) fn runtime_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static GUARD: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+    GUARD
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .expect("runtime test guard poisoned")
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::thread;

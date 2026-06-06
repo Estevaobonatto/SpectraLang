@@ -939,6 +939,7 @@ mod tests {
 
     #[test]
     fn manual_allocation_tracks_statistics() {
+        let _lock = crate::runtime_test_guard();
         let config = MemoryConfig {
             manual_soft_limit_bytes: 64,
             ..MemoryConfig::default()
@@ -964,6 +965,7 @@ mod tests {
 
     #[test]
     fn manual_allocation_respects_soft_limit() {
+        let _lock = crate::runtime_test_guard();
         let config = MemoryConfig {
             manual_soft_limit_bytes: 32,
             ..MemoryConfig::default()
@@ -980,6 +982,7 @@ mod tests {
 
     #[test]
     fn unreachable_traced_objects_are_collected() {
+        let _lock = crate::runtime_test_guard();
         let memory = HybridMemory::default();
         let node = memory.allocate_traced(Node::default());
         assert!(node.is_alive());
@@ -989,6 +992,7 @@ mod tests {
 
     #[test]
     fn rooted_objects_survive_collection() {
+        let _lock = crate::runtime_test_guard();
         let memory = HybridMemory::default();
         let node = memory.allocate_traced(Node::default());
         let root = node.into_root();
@@ -1003,6 +1007,7 @@ mod tests {
 
     #[test]
     fn traced_children_keep_each_other_alive() {
+        let _lock = crate::runtime_test_guard();
         let memory = HybridMemory::default();
         let parent = memory.allocate_traced(Node::default());
         let child = memory.allocate_traced(Node {

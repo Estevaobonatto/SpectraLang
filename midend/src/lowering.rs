@@ -7259,6 +7259,14 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "normal_f") => Some(host_int("spectra.std.tensor.normal_f")),
             ("tensor", "bernoulli") => Some(host_int("spectra.std.tensor.bernoulli")),
             ("tensor", "categorical") => Some(host_int("spectra.std.tensor.categorical")),
+            ("tensor", "set_deterministic_mode") => {
+                Some(host_int("spectra.std.tensor.set_deterministic_mode"))
+            }
+            ("tensor", "deterministic_mode") => {
+                Some(host_int("spectra.std.tensor.deterministic_mode"))
+            }
+            ("tensor", "tolerance_abs") => Some(host_float("spectra.std.tensor.tolerance_abs")),
+            ("tensor", "tolerance_rel") => Some(host_float("spectra.std.tensor.tolerance_rel")),
             ("tensor", "device") => Some(host_int("spectra.std.tensor.device")),
             ("tensor", "device_available") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.tensor.device_available",

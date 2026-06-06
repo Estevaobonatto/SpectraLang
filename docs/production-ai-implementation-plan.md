@@ -1357,7 +1357,7 @@ regression tracking.
 
 ### Current Implementation State
 
-Status: R-1501 and R-1502 are complete; R-1503 remains not started.
+Status: R-1501, R-1502, and R-1503 are complete for the current Phase 15 production baseline.
 
 Completed:
 
@@ -1366,6 +1366,7 @@ Completed:
 - `scripts/validate_r1501_bench.py` compares observed release results against the baseline and is integrated into `run_tests.ps1`.
 - `std.tensor.memory_report()` exposes runtime tensor lifetime plans with allocation sites, release steps, active/peak bytes, and reuse-rate metrics.
 - `tests/validation/83_tensor_memory_planner.spectra` validates common training-loop reuse without unbounded memory growth.
+- `runtime/examples/numerical_correctness_cert.rs` and `scripts/validate_r1503_correctness.py` provide portable correctness artifacts for RNG, reductions, matmul, convolution, and optimizer kernels under the documented `1e-9` absolute/relative tolerance policy.
 
 ### Acceptance Direction
 

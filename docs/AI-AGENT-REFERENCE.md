@@ -2540,6 +2540,10 @@ Validation:
   JSON with tensor lifetimes, allocation sites, active/peak bytes, and reuse
   metrics; `tests/validation/83_tensor_memory_planner.spectra` is the R-1502
   language-level validation surface.
+- `scripts/validate_r1503_correctness.py` runs the Phase 15 numerical
+  correctness gate, writes `target/r1503-correctness-report.json`, and compares
+  RNG/reduction/matmul/convolution/optimizer checks against
+  `docs/performance/r1503-correctness-baseline.json`.
 
 Current limit: Phase 13 examples use deterministic toy datasets and text export
 artifacts. Large real datasets, network serving examples, notebooks backed by

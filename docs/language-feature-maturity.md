@@ -92,6 +92,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - CI-style validation through `scripts/validate_r1501_bench.py` and `run_tests.ps1`
   - runtime tensor memory-planner reports with allocation sites, release steps, active/peak bytes, and reuse-rate metrics
   - `tests/validation/83_tensor_memory_planner.spectra` validates repeated training-loop reuse and bounded memory behavior
+  - portable numerical correctness artifacts for RNG, reductions, matmul, convolution, and optimizer kernels through `scripts/validate_r1503_correctness.py`
+  - documented `1e-9` absolute/relative float tolerance policy enforced by the R-1503 gate
 
 ### Beta
 

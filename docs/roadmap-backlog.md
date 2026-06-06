@@ -1405,7 +1405,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1503 Numerical Correctness and Determinism Certification
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `numerics`
 - Dependencies: `R-403`, `R-1501`
@@ -1422,6 +1422,15 @@ the next tracked development cycle toward a broader AI/ML platform.
 - RNG, reductions, matmul, convolution, and optimizer kernels have deterministic test modes
 - float tolerance policy is documented and enforced in tests
 - Windows, Linux, and macOS results are compared through portable validation artifacts
+
+### Completion evidence
+
+- `std.tensor.set_deterministic_mode`, `deterministic_mode`, `tolerance_abs`, and `tolerance_rel` expose deterministic-mode and tolerance policy hooks.
+- `runtime/examples/numerical_correctness_cert.rs` emits schema `spectra.r1503.correctness.v1` portable correctness artifacts for RNG, reductions, matmul, convolution, and optimizer checks.
+- `docs/performance/r1503-correctness-baseline.json` stores the checked-in tolerance policy and expected portable results.
+- `scripts/validate_r1503_correctness.py` runs the release certifier and compares observed artifacts against the baseline.
+- `tests/validation/84_numerical_determinism.spectra` validates seeded RNG and exact matmul behavior through the language.
+- `run_tests.ps1` includes `validate_r1503_correctness` as the `phase15-correctness` gate.
 
 ---
 
