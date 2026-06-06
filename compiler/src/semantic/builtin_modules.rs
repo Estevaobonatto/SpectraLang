@@ -551,6 +551,11 @@ fn make_std_tensor() -> ModuleExports {
         ("stats_kernel_elements", vec![], int.clone()),
         ("stats_device_transfers", vec![], int.clone()),
         ("stats_graph_nodes", vec![], int.clone()),
+        ("stats_lifetime_records", vec![], int.clone()),
+        ("stats_released_lifetimes", vec![], int.clone()),
+        ("stats_allocation_sites", vec![], int.clone()),
+        ("stats_reuse_rate_per_mille", vec![], int.clone()),
+        ("memory_report", vec![], Type::String),
         ("reset_stats", vec![], unit.clone()),
         (
             "requires_grad",

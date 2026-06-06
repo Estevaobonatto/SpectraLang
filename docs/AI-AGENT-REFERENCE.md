@@ -2536,6 +2536,10 @@ Validation:
 - `scripts/validate_r1501_bench.py` runs the Phase 15 release numerical
   benchmark gate, writes `target/r1501-benchmark-report.json`, and compares
   runtime results against `docs/performance/r1501-benchmark-baseline.json`.
+- `std.tensor.memory_report()` returns schema `spectra.tensor.memory_report.v1`
+  JSON with tensor lifetimes, allocation sites, active/peak bytes, and reuse
+  metrics; `tests/validation/83_tensor_memory_planner.spectra` is the R-1502
+  language-level validation surface.
 
 Current limit: Phase 13 examples use deterministic toy datasets and text export
 artifacts. Large real datasets, network serving examples, notebooks backed by

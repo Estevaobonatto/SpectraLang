@@ -4,7 +4,7 @@ use crate::ffi::{
 };
 use crate::initialize;
 use crate::memory::ManualBox;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, Write};
 use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -250,6 +250,11 @@ const TENSOR_STATS_KERNEL_OPS: &str = "spectra.std.tensor.stats_kernel_ops";
 const TENSOR_STATS_KERNEL_ELEMENTS: &str = "spectra.std.tensor.stats_kernel_elements";
 const TENSOR_STATS_DEVICE_TRANSFERS: &str = "spectra.std.tensor.stats_device_transfers";
 const TENSOR_STATS_GRAPH_NODES: &str = "spectra.std.tensor.stats_graph_nodes";
+const TENSOR_STATS_LIFETIME_RECORDS: &str = "spectra.std.tensor.stats_lifetime_records";
+const TENSOR_STATS_RELEASED_LIFETIMES: &str = "spectra.std.tensor.stats_released_lifetimes";
+const TENSOR_STATS_ALLOCATION_SITES: &str = "spectra.std.tensor.stats_allocation_sites";
+const TENSOR_STATS_REUSE_RATE_PER_MILLE: &str = "spectra.std.tensor.stats_reuse_rate_per_mille";
+const TENSOR_MEMORY_REPORT: &str = "spectra.std.tensor.memory_report";
 const TENSOR_RESET_STATS: &str = "spectra.std.tensor.reset_stats";
 const TENSOR_REQUIRES_GRAD: &str = "spectra.std.tensor.requires_grad";
 const TENSOR_BACKWARD: &str = "spectra.std.tensor.backward";
@@ -490,6 +495,23 @@ fn register_tensor() {
         std_tensor_stats_device_transfers,
     );
     register_host_function(TENSOR_STATS_GRAPH_NODES, std_tensor_stats_graph_nodes);
+    register_host_function(
+        TENSOR_STATS_LIFETIME_RECORDS,
+        std_tensor_stats_lifetime_records,
+    );
+    register_host_function(
+        TENSOR_STATS_RELEASED_LIFETIMES,
+        std_tensor_stats_released_lifetimes,
+    );
+    register_host_function(
+        TENSOR_STATS_ALLOCATION_SITES,
+        std_tensor_stats_allocation_sites,
+    );
+    register_host_function(
+        TENSOR_STATS_REUSE_RATE_PER_MILLE,
+        std_tensor_stats_reuse_rate_per_mille,
+    );
+    register_host_function(TENSOR_MEMORY_REPORT, std_tensor_memory_report);
     register_host_function(TENSOR_RESET_STATS, std_tensor_reset_stats);
     register_host_function(TENSOR_REQUIRES_GRAD, std_tensor_requires_grad);
     register_host_function(TENSOR_BACKWARD, std_tensor_backward);
@@ -1565,6 +1587,15 @@ enum TensorDType {
     Float,
 }
 
+impl TensorDType {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Int => "int",
+            Self::Float => "float",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TensorLayout {
     Contiguous,
@@ -1913,6 +1944,20 @@ struct TensorRegistry {
     tensors: HashMap<usize, ManualBox<StdTensor>>,
     pool: Vec<Vec<SpectraHostValue>>,
     metrics: TensorMetrics,
+    memory_step: usize,
+    lifetimes: Vec<TensorLifetimeRecord>,
+    active_lifetimes: HashMap<usize, usize>,
+}
+
+#[derive(Debug, Clone)]
+struct TensorLifetimeRecord {
+    handle: usize,
+    dtype: TensorDType,
+    shape: Vec<usize>,
+    bytes: usize,
+    allocation_step: usize,
+    release_step: Option<usize>,
+    allocation_site: String,
 }
 
 impl TensorRegistry {
@@ -1922,10 +1967,17 @@ impl TensorRegistry {
             tensors: HashMap::new(),
             pool: Vec::new(),
             metrics: TensorMetrics::default(),
+            memory_step: 0,
+            lifetimes: Vec::new(),
+            active_lifetimes: HashMap::new(),
         }
     }
 
-    fn insert(&mut self, tensor: ManualBox<StdTensor>) -> usize {
+    fn insert(
+        &mut self,
+        tensor: ManualBox<StdTensor>,
+        allocation_site: impl Into<String>,
+    ) -> usize {
         let bytes = tensor
             .len()
             .saturating_mul(std::mem::size_of::<SpectraHostValue>());
@@ -1942,12 +1994,26 @@ impl TensorRegistry {
         if self.next_id == 0 {
             self.next_id = 1;
         }
+        self.memory_step = self.memory_step.saturating_add(1);
+        let record = TensorLifetimeRecord {
+            handle,
+            dtype: tensor.dtype,
+            shape: tensor.shape.clone(),
+            bytes,
+            allocation_step: self.memory_step,
+            release_step: None,
+            allocation_site: allocation_site.into(),
+        };
+        let record_index = self.lifetimes.len();
+        self.lifetimes.push(record);
+        self.active_lifetimes.insert(handle, record_index);
         self.tensors.insert(handle, tensor);
         handle
     }
 
     fn remove(&mut self, handle: usize) -> Result<(), i32> {
         if let Some(tensor) = self.tensors.remove(&handle) {
+            self.mark_released(handle);
             self.recycle_tensor(tensor);
             Ok(())
         } else {
@@ -1958,6 +2024,10 @@ impl TensorRegistry {
     fn clear_all(&mut self) -> usize {
         let count = self.tensors.len();
         let tensors: Vec<_> = self.tensors.drain().map(|(_, tensor)| tensor).collect();
+        let handles = self.active_lifetimes.keys().copied().collect::<Vec<_>>();
+        for handle in handles {
+            self.mark_released(handle);
+        }
         for tensor in tensors {
             self.recycle_tensor(tensor);
         }
@@ -1971,6 +2041,15 @@ impl TensorRegistry {
 
     fn get_mut(&mut self, handle: usize) -> Option<&mut StdTensor> {
         self.tensors.get_mut(&handle).map(|boxed| boxed.as_mut())
+    }
+
+    fn mark_released(&mut self, handle: usize) {
+        self.memory_step = self.memory_step.saturating_add(1);
+        if let Some(index) = self.active_lifetimes.remove(&handle) {
+            if let Some(record) = self.lifetimes.get_mut(index) {
+                record.release_step = Some(self.memory_step);
+            }
+        }
     }
 
     fn recycle_tensor(&mut self, tensor: ManualBox<StdTensor>) {
@@ -2029,6 +2108,108 @@ impl TensorRegistry {
             peak_bytes: active_bytes,
             ..Default::default()
         };
+        self.memory_step = 0;
+        self.lifetimes.clear();
+        self.active_lifetimes.clear();
+        let snapshots = self
+            .tensors
+            .iter()
+            .map(|(handle, tensor)| {
+                (
+                    *handle,
+                    tensor.dtype,
+                    tensor.shape.clone(),
+                    tensor.storage_bytes(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (handle, dtype, shape, bytes) in snapshots {
+            self.memory_step = self.memory_step.saturating_add(1);
+            let index = self.lifetimes.len();
+            self.lifetimes.push(TensorLifetimeRecord {
+                handle,
+                dtype,
+                shape,
+                bytes,
+                allocation_step: self.memory_step,
+                release_step: None,
+                allocation_site: "reset_stats.active_snapshot".to_string(),
+            });
+            self.active_lifetimes.insert(handle, index);
+        }
+    }
+
+    fn allocation_site_count(&self) -> usize {
+        self.lifetimes
+            .iter()
+            .map(|record| record.allocation_site.as_str())
+            .collect::<HashSet<_>>()
+            .len()
+    }
+
+    fn released_lifetime_count(&self) -> usize {
+        self.lifetimes
+            .iter()
+            .filter(|record| record.release_step.is_some())
+            .count()
+    }
+
+    fn reuse_rate_per_mille(&self) -> usize {
+        let total = self
+            .metrics
+            .pool_hits
+            .saturating_add(self.metrics.pool_misses);
+        if total == 0 {
+            return 0;
+        }
+        self.metrics.pool_hits.saturating_mul(1000) / total
+    }
+
+    fn memory_report_json(&self) -> String {
+        let mut out = String::new();
+        out.push_str("{\"schema\":\"spectra.tensor.memory_report.v1\"");
+        out.push_str(&format!(
+            ",\"allocations\":{},\"active_tensors\":{},\"active_bytes\":{},\"peak_bytes\":{},\"reused_buffers\":{},\"pool_hits\":{},\"pool_misses\":{},\"reuse_rate_per_mille\":{},\"scratch_reuses\":{},\"allocation_sites\":{},\"lifetime_records\":{},\"released_lifetimes\":{}",
+            self.metrics.allocations,
+            self.metrics.active_tensors,
+            self.metrics.active_bytes,
+            self.metrics.peak_bytes,
+            self.metrics.reused_buffers,
+            self.metrics.pool_hits,
+            self.metrics.pool_misses,
+            self.reuse_rate_per_mille(),
+            self.metrics.scratch_reuses,
+            self.allocation_site_count(),
+            self.lifetimes.len(),
+            self.released_lifetime_count()
+        ));
+        out.push_str(",\"tensors\":[");
+        for (index, record) in self.lifetimes.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"handle\":{},\"dtype\":\"{}\",\"shape\":[{}],\"bytes\":{},\"allocation_step\":{},\"release_step\":{},\"active\":{},\"allocation_site\":\"{}\"}}",
+                record.handle,
+                record.dtype.name(),
+                record
+                    .shape
+                    .iter()
+                    .map(|dim| dim.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                record.bytes,
+                record.allocation_step,
+                record
+                    .release_step
+                    .map(|step| step.to_string())
+                    .unwrap_or_else(|| "null".to_string()),
+                record.release_step.is_none(),
+                json_escape(&record.allocation_site)
+            ));
+        }
+        out.push_str("]}");
+        out
     }
 }
 
@@ -2099,6 +2280,15 @@ fn f64_values_to_host(values: &[f64]) -> Vec<SpectraHostValue> {
         .iter()
         .map(|value| value.to_bits() as SpectraHostValue)
         .collect()
+}
+
+fn json_escape(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 #[cfg(feature = "gpu")]
@@ -2327,6 +2517,7 @@ pub fn tensor_bench_kernel_matmul_i64(
     kernel_matmul_i64(left, right, m, k, n)
 }
 
+#[track_caller]
 fn tensor_alloc(
     dtype: TensorDType,
     shape: Vec<usize>,
@@ -2344,17 +2535,25 @@ fn tensor_alloc(
     let tensor = memory
         .allocate_manual(tensor)
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
-    Ok(with_tensor_registry(|registry| registry.insert(tensor)))
+    let site = tensor_allocation_site(std::panic::Location::caller());
+    Ok(with_tensor_registry(|registry| {
+        registry.insert(tensor, site)
+    }))
 }
 
+#[track_caller]
 fn tensor_insert(tensor: StdTensor) -> Result<usize, i32> {
     let memory = initialize().memory();
     let tensor = memory
         .allocate_manual(tensor)
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
-    Ok(with_tensor_registry(|registry| registry.insert(tensor)))
+    let site = tensor_allocation_site(std::panic::Location::caller());
+    Ok(with_tensor_registry(|registry| {
+        registry.insert(tensor, site)
+    }))
 }
 
+#[track_caller]
 fn tensor_alloc_autograd(
     dtype: TensorDType,
     shape: Vec<usize>,
@@ -2375,6 +2574,7 @@ fn tensor_alloc_autograd(
     tensor_insert(tensor)
 }
 
+#[track_caller]
 fn tensor_alloc_autograd_on_device(
     dtype: TensorDType,
     shape: Vec<usize>,
@@ -2397,6 +2597,10 @@ fn tensor_alloc_autograd_on_device(
     tensor.requires_grad = requires_grad && dtype == TensorDType::Float;
     tensor.creator = if tensor.requires_grad { creator } else { None };
     tensor_insert(tensor)
+}
+
+fn tensor_allocation_site(location: &'static std::panic::Location<'static>) -> String {
+    format!("{}:{}", location.file(), location.line())
 }
 
 fn tensor_result(ctx_ref: &mut SpectraHostCallContext, value: SpectraHostValue) -> i32 {
@@ -5773,6 +5977,60 @@ extern "C" fn std_tensor_stats_graph_nodes(ctx: *mut SpectraHostCallContext) -> 
                 .count()
         });
         tensor_result(ctx_ref, count as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_tensor_stats_lifetime_records(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| registry.lifetimes.len());
+        tensor_result(ctx_ref, value as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_tensor_stats_released_lifetimes(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| registry.released_lifetime_count());
+        tensor_result(ctx_ref, value as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_tensor_stats_allocation_sites(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| registry.allocation_site_count());
+        tensor_result(ctx_ref, value as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_tensor_stats_reuse_rate_per_mille(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| registry.reuse_rate_per_mille());
+        tensor_result(ctx_ref, value as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_tensor_memory_report(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let report = with_tensor_registry(|registry| registry.memory_report_json());
+        let ptr = alloc_spectra_string(&report);
+        if ptr == 0 {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        tensor_result(ctx_ref, ptr)
     }
 }
 
@@ -9864,6 +10122,50 @@ mod tests {
         assert!(active_bytes > 0);
         let (status, _) = call_host(TENSOR_FREE, &[reused]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
+    }
+
+    #[test]
+    fn tensor_runtime_phase15_memory_report_tracks_lifetimes_sites_and_reuse() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        let one = 1.0f64.to_bits() as i64;
+        let (status, a) = call_host(TENSOR_FULL_F, &[16, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, b) = call_host(TENSOR_RELU, &[a]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_FREE, &[b]).0, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_FREE, &[a]).0, HOST_STATUS_SUCCESS);
+        let (status, reused) = call_host(TENSOR_FULL_F, &[16, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_FREE, &[reused]).0, HOST_STATUS_SUCCESS);
+
+        let (status, lifetimes) = call_host(TENSOR_STATS_LIFETIME_RECORDS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(lifetimes >= 3);
+        let (status, released) = call_host(TENSOR_STATS_RELEASED_LIFETIMES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(released >= 3);
+        let (status, sites) = call_host(TENSOR_STATS_ALLOCATION_SITES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(sites > 0);
+        let (status, reuse_rate) = call_host(TENSOR_STATS_REUSE_RATE_PER_MILLE, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(reuse_rate > 0);
+
+        let (status, report_ptr) = call_host(TENSOR_MEMORY_REPORT, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let report =
+            unsafe { read_spectra_string(report_ptr) }.expect("valid memory report string");
+        assert!(report.contains("\"schema\":\"spectra.tensor.memory_report.v1\""));
+        assert!(report.contains("\"allocation_site\""));
+        assert!(report.contains("\"release_step\""));
+        assert!(report.contains("\"reuse_rate_per_mille\""));
+        assert!(report.contains("\"tensors\""));
     }
 
     #[test]

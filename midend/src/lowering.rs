@@ -7299,6 +7299,19 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "stats_graph_nodes") => {
                 Some(host_int("spectra.std.tensor.stats_graph_nodes"))
             }
+            ("tensor", "stats_lifetime_records") => {
+                Some(host_int("spectra.std.tensor.stats_lifetime_records"))
+            }
+            ("tensor", "stats_released_lifetimes") => {
+                Some(host_int("spectra.std.tensor.stats_released_lifetimes"))
+            }
+            ("tensor", "stats_allocation_sites") => {
+                Some(host_int("spectra.std.tensor.stats_allocation_sites"))
+            }
+            ("tensor", "stats_reuse_rate_per_mille") => {
+                Some(host_int("spectra.std.tensor.stats_reuse_rate_per_mille"))
+            }
+            ("tensor", "memory_report") => Some(host_string("spectra.std.tensor.memory_report")),
             ("tensor", "reset_stats") => Some(host_void("spectra.std.tensor.reset_stats")),
             ("tensor", "requires_grad") => {
                 Some(host_tensor_dynamic("spectra.std.tensor.requires_grad"))
@@ -7865,6 +7878,14 @@ fn host_float(runtime_name: &'static str) -> HostFunctionDescriptor {
     HostFunctionDescriptor {
         runtime_name,
         return_type: IRType::Float,
+        returns_value: true,
+    }
+}
+
+fn host_string(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::String,
         returns_value: true,
     }
 }

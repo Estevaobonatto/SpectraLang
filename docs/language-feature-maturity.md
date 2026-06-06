@@ -90,6 +90,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - release-mode benchmark suite for tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, and data loading
   - checked-in performance thresholds in `docs/performance/r1501-benchmark-baseline.json`
   - CI-style validation through `scripts/validate_r1501_bench.py` and `run_tests.ps1`
+  - runtime tensor memory-planner reports with allocation sites, release steps, active/peak bytes, and reuse-rate metrics
+  - `tests/validation/83_tensor_memory_planner.spectra` validates repeated training-loop reuse and bounded memory behavior
 
 ### Beta
 

@@ -1376,7 +1376,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1502 Memory Planner and Tensor Lifetime Analysis
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `midend`
 - Dependencies: `R-402`, `R-1401`
@@ -1393,6 +1393,15 @@ the next tracked development cycle toward a broader AI/ML platform.
 - tensor temporaries have visible lifetime metadata in IR or runtime plans
 - common training loops reuse buffers without unbounded allocation growth
 - memory reports include peak bytes, reuse rate, allocation sites, and tensor lifetimes
+
+### Completion evidence
+
+- `runtime/src/stdlib/mod.rs` tracks tensor allocation/release lifetimes in the runtime tensor registry, including dtype, shape, bytes, allocation step, release step, active status, and allocation site.
+- `std.tensor.memory_report()` returns schema `spectra.tensor.memory_report.v1` JSON with peak bytes, active bytes, reuse rate, allocation-site count, and tensor lifetime records.
+- `std.tensor.stats_lifetime_records`, `stats_released_lifetimes`, `stats_allocation_sites`, and `stats_reuse_rate_per_mille` expose machine-checkable memory-planner metrics.
+- `docs/performance/r1502-memory-planner.md` documents the JSON schema, public metrics, validation commands, and current runtime-backed scope.
+- `tests/validation/83_tensor_memory_planner.spectra` validates buffer reuse and bounded memory behavior through a repeated training loop.
+- `tensor_runtime_phase15_memory_report_tracks_lifetimes_sites_and_reuse` validates the report contents in runtime unit tests.
 
 ## R-1503 Numerical Correctness and Determinism Certification
 

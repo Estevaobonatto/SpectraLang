@@ -1,0 +1,80 @@
+// Teste 83: Phase 15 R-1502 tensor memory planner and lifetime visibility.
+module tensor_memory_planner;
+
+import std.tensor as tensor;
+import std.ml as ml;
+import std.string;
+
+fn train_step(x: int, target: int, w: int, b: int) -> int {
+    let pred = ml.linear(x, w, b);
+    let loss = ml.mse_loss(pred, target);
+    tensor.backward(loss);
+    ml.sgd_step(w, 0.01);
+    ml.sgd_step(b, 0.01);
+    tensor.free(pred);
+    tensor.free(loss);
+    return 0;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+
+    let warmup = tensor.full_f(32, 1.0);
+    let transformed = tensor.relu(warmup);
+    tensor.free(transformed);
+    tensor.free(warmup);
+    let reused = tensor.full_f(32, 2.0);
+    if tensor.stats_pool_hits() <= 0 {
+        return 1;
+    }
+    tensor.free(reused);
+
+    if tensor.stats_lifetime_records() < 3 {
+        return 2;
+    }
+    if tensor.stats_released_lifetimes() < 2 {
+        return 3;
+    }
+    if tensor.stats_allocation_sites() <= 0 {
+        return 4;
+    }
+    if tensor.stats_reuse_rate_per_mille() <= 0 {
+        return 5;
+    }
+
+    let x = tensor.reshape(tensor.full_f(32, 1.0), 32, 1);
+    let target = tensor.full_f(32, 2.0);
+    let w0 = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let w = tensor.reshape(w0, 1, 1);
+    let b = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+
+    tensor.reset_stats();
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+    train_step(x, target, w, b);
+
+    if tensor.stats_active_bytes() <= 0 {
+        return 6;
+    }
+    if tensor.stats_peak_bytes() > 200000 {
+        return 7;
+    }
+    if tensor.stats_released_lifetimes() < 6 {
+        return 8;
+    }
+    if tensor.stats_reuse_rate_per_mille() <= 0 {
+        return 9;
+    }
+
+    let report = tensor.memory_report();
+    if std.string.len(report) < 200 {
+        return 10;
+    }
+
+    tensor.free_all();
+    return 0;
+}
