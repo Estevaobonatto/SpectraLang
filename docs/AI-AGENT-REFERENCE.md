@@ -1538,7 +1538,7 @@ list_free(lst);
 import std.tensor as tensor;
 ```
 
-The current production tensor ABI uses opaque `int` handles managed by the runtime. New code can use partial first-class annotations such as `Tensor<float, rank1>` and `Tensor<float, rank2>`; the compiler keeps dtype/rank metadata while lowering to the existing handle ABI. Tensors store CPU data with dtype `int` or `float`, shape, strides, layout, shared storage, and safe view offsets. Shared-storage mutation uses copy-on-write.
+The current production tensor ABI uses opaque `int` handles managed by the runtime. New code can use first-class annotations such as `Tensor<float, rank1, dim3, row_major, cpu>` and `Tensor<float, rank2, dim2, dim2, row_major, cpu>`; the compiler keeps dtype/rank/dimension/layout/device metadata while lowering to the existing handle ABI. Tensors store CPU data with dtype `int` or `float`, shape, strides, layout, shared storage, and safe view offsets. Shared-storage mutation uses copy-on-write.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -1567,8 +1567,9 @@ The current production tensor ABI uses opaque `int` handles managed by the runti
 | `free`, `free_all` | release handles | `unit` / freed count |
 
 ```spectra
-let typed: Tensor<float, rank1> = [1.0, 2.0, 3.0];
-let matrix_typed: Tensor<float, rank2> = [[1.0, 2.0], [3.0, 4.0]];
+let typed: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
+let any_len: Tensor<float, rank1, dynamic_dim, row_major, cpu> = typed;
+let matrix_typed: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]];
 
 let a = tensor.arange(1, 5, 1);
 let b = tensor.full(4, 2);
@@ -1582,9 +1583,9 @@ let random = tensor.uniform(8, 0, 10);
 tensor.free_all();
 ```
 
-Current limitation: tensors are still handle-backed and Phase 14 is in progress. `Tensor<dtype, rankN>` and rank1/rank2 literals are available, but device/layout annotations, static dimension values, and full static shape checking are not complete yet.
+Current baseline: tensors are still handle-backed, but Phase 14 is complete for the current production surface. `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>` and rank1/rank2 literals are available with stable mismatch diagnostics. Operation-aware static shape checks cover declared compatibility, elementwise tensor operations, `tensor.matmul`, `tensor.reshape`, and `ml.linear`.
 
-Phase 5 autodiff is available for float tensors through `std.tensor`. Use `requires_grad(x, true)`, produce a scalar tensor loss with `sum_t`, `mean_t`, or `dot_t`, then either call `backward(loss)` or use the language-level block `diff { loss_expression }`. Read gradients with `grad(x)`. Use `set_grad_enabled(false)` for inference/no-grad sections.
+Phase 5 autodiff is available for float tensors through `std.tensor`. Use `requires_grad(x, true)`, produce a scalar tensor loss with `sum_t`, `mean_t`, `dot_t`, or `std.ml` loss functions, then either call `backward(loss)` or use the language-level block `diff { loss_expression }`. Read gradients with `grad(x)`. Use `set_grad_enabled(false)` for inference/no-grad sections. Unsupported qualified stdlib operations inside `diff { ... }` fail with `E1406`.
 
 Phase 7 acceleration is available through CPU device `0` and optional `wgpu` device `6`. Use `device(handle)` to inspect placement, `device_available(code)` before selecting a target, `to_device(handle, 0)` / `cpu(handle)` for CPU materialization, `to_device(handle, 6)` for `wgpu` float tensors when the CLI/runtime is built with `--features gpu`, `sync(handle)` as the synchronization point, and `stats_device_transfers()` for transfer accounting. Codes `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML, and `5` Vulkan are reserved. Mixed precision uses `precision(handle)` and `to_precision(handle, code)` where `0` is f64, `1` is f32, `2` is f16, and `3` is bf16; loss-scaling flows use `std.ml.unscale_grad(parameter, scale)`.
 

@@ -1,0 +1,28 @@
+// Teste 81: static shape validation for a tiny neural-network linear layer.
+module static_shape_mlp_validation;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let input: Tensor<float, rank2, dim2, dim3, row_major, cpu> = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    let weight: Tensor<float, rank2, dim3, dim2, row_major, cpu> = [[0.5, 0.25], [0.5, 0.25], [0.5, 0.25]];
+    let bias: Tensor<float, rank1, dim2, row_major, cpu> = [0.0, 0.0];
+
+    let prediction = ml.linear(input, weight, bias);
+    if tensor.rank(prediction) != 2 {
+        return tensor.rank(prediction);
+    }
+    if tensor.rows(prediction) != 2 {
+        return tensor.rows(prediction);
+    }
+    if tensor.cols(prediction) != 2 {
+        return tensor.cols(prediction);
+    }
+
+    tensor.free_all();
+    return 0;
+}

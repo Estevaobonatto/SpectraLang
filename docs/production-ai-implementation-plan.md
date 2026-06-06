@@ -1318,20 +1318,23 @@ and compiler constructs.
 
 ### Current Implementation State
 
-Status: in progress.
+Status: R-1401, R-1402, and R-1403 are complete for the current Phase 14 production baseline.
 
-Completed so far:
+Completed:
 
-- `Tensor<dtype, rankN>` is represented in compiler semantic types and midend IR while preserving the runtime handle ABI.
+- `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>` is represented in compiler semantic types and midend IR while preserving the runtime handle ABI.
 - Explicit `Tensor<float, rank1>` and `Tensor<float, rank2>` literals lower to runtime tensor allocation.
-- Rank/dtype mismatches and rectangular rank2 literal shape mismatches fail during semantic analysis.
-- `diff { ... }` is available as a language-level differentiable block expression and lowers to the existing `std.tensor.backward` autograd runtime.
+- Rank, dtype, static shape, layout, and device mismatches fail during semantic analysis with stable JSON diagnostic codes `E1401` through `E1405`.
+- Static shape checks cover declared tensor compatibility, elementwise tensor operations, `tensor.matmul`, `tensor.reshape`, and `ml.linear`.
+- `diff { ... }` is available as the language-level differentiable block expression and lowers to the existing `std.tensor.backward` autograd runtime.
+- Unsupported qualified stdlib operations inside `diff { ... }` fail with stable diagnostic `E1406`.
+- Gradient validation covers tensor math, helper calls, control flow, and `std.ml` layer/loss integration.
 
-Remaining before Phase 14 completion:
+Future extensions outside the Phase 14 completion gate:
 
-- Public tensor type syntax still needs device/layout annotations and stable diagnostic codes for all tensor mismatch categories.
-- Static/dynamic dimension constraints still need a complete semantic representation beyond rank and rectangular literal validation.
-- Differentiable regions still need unsupported-operation diagnostics and broader gradient tests covering control flow and nested functions.
+- dedicated differentiable function annotations beyond block syntax
+- richer interprocedural differentiability proofs for user-defined functions
+- symbolic/static scalar shape values beyond `dimN` and `dynamic_dim`
 
 ### Acceptance Direction
 

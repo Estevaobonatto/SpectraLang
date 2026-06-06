@@ -203,6 +203,14 @@ struct EnumInfo {
     variants: HashMap<String, EnumVariantInfo>,
 }
 
+#[derive(Debug, Default)]
+struct TensorMetadata {
+    rank: Option<usize>,
+    dims: Option<Vec<Option<usize>>>,
+    layout: Option<String>,
+    device: Option<String>,
+}
+
 pub struct SemanticAnalyzer {
     errors: Vec<SemanticError>,
     // Symbol table: maps variable/function names to their type info
@@ -326,12 +334,45 @@ pub fn type_name(ty: &Type) -> String {
             let ps = params.iter().map(type_name).collect::<Vec<_>>().join(", ");
             format!("fn({}) -> {}", ps, type_name(return_type))
         }
-        Type::Tensor { dtype, rank } => match rank {
-            Some(rank) => format!("Tensor<{}, rank{}>", type_name(dtype), rank),
-            None => format!("Tensor<{}, dynamic>", type_name(dtype)),
-        },
+        Type::Tensor {
+            dtype,
+            rank,
+            dims,
+            layout,
+            device,
+        } => format_tensor_type_name(type_name(dtype), *rank, dims, layout, device),
         Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
+}
+
+fn format_tensor_type_name(
+    dtype: String,
+    rank: Option<usize>,
+    dims: &Option<Vec<Option<usize>>>,
+    layout: &Option<String>,
+    device: &Option<String>,
+) -> String {
+    let mut parts = vec![dtype];
+    if let Some(rank) = rank {
+        parts.push(format!("rank{}", rank));
+    } else {
+        parts.push("dynamic".to_string());
+    }
+    if let Some(dims) = dims {
+        for dim in dims {
+            match dim {
+                Some(size) => parts.push(format!("dim{}", size)),
+                None => parts.push("dyn".to_string()),
+            }
+        }
+    }
+    if let Some(layout) = layout {
+        parts.push(layout.clone());
+    }
+    if let Some(device) = device {
+        parts.push(device.clone());
+    }
+    format!("Tensor<{}>", parts.join(", "))
 }
 
 fn namespace_path(expr: &Expression) -> Option<String> {
@@ -1069,15 +1110,16 @@ impl SemanticAnalyzer {
                     }
                 }
                 TypeAnnotationKind::Generic { name, type_args }
-                    if name == "Tensor" && (type_args.len() == 1 || type_args.len() == 2) =>
+                    if name == "Tensor" && !type_args.is_empty() =>
                 {
                     let dtype = self.type_annotation_to_type(&Some(type_args[0].clone()));
-                    let rank = type_args
-                        .get(1)
-                        .and_then(Self::parse_tensor_rank_annotation);
+                    let meta = Self::parse_tensor_metadata(&type_args[1..]);
                     Type::Tensor {
                         dtype: Box::new(dtype),
-                        rank,
+                        rank: meta.rank,
+                        dims: meta.dims,
+                        layout: meta.layout,
+                        device: meta.device,
                     }
                 }
                 TypeAnnotationKind::DynTrait { trait_name } => Type::DynTrait {
@@ -1542,14 +1584,23 @@ impl SemanticAnalyzer {
                 Type::Tensor {
                     dtype: dtype_a,
                     rank: rank_a,
+                    dims: dims_a,
+                    layout: layout_a,
+                    device: device_a,
                 },
                 Type::Tensor {
                     dtype: dtype_b,
                     rank: rank_b,
+                    dims: dims_b,
+                    layout: layout_b,
+                    device: device_b,
                 },
             ) => {
                 self.types_match(dtype_a, dtype_b)
                     && (rank_a.is_none() || rank_b.is_none() || rank_a == rank_b)
+                    && Self::tensor_dims_match(dims_a, dims_b)
+                    && (layout_a.is_none() || layout_b.is_none() || layout_a == layout_b)
+                    && (device_a.is_none() || device_b.is_none() || device_a == device_b)
             }
 
             // Unknown aceita qualquer coisa (inferência incompleta)
@@ -1591,8 +1642,110 @@ impl SemanticAnalyzer {
         self.types_match(a, b) && self.types_match(b, a)
     }
 
+    fn tensor_dims_match(a: &Option<Vec<Option<usize>>>, b: &Option<Vec<Option<usize>>>) -> bool {
+        let (Some(a), Some(b)) = (a, b) else {
+            return true;
+        };
+        a.len() == b.len()
+            && a.iter()
+                .zip(b.iter())
+                .all(|(left, right)| left.is_none() || right.is_none() || left == right)
+    }
+
+    fn tensor_mismatch_diagnostic(
+        actual: &Type,
+        expected: &Type,
+    ) -> Option<(&'static str, String, &'static str)> {
+        let (
+            Type::Tensor {
+                dtype: actual_dtype,
+                rank: actual_rank,
+                dims: actual_dims,
+                layout: actual_layout,
+                device: actual_device,
+            },
+            Type::Tensor {
+                dtype: expected_dtype,
+                rank: expected_rank,
+                dims: expected_dims,
+                layout: expected_layout,
+                device: expected_device,
+            },
+        ) = (actual, expected)
+        else {
+            return None;
+        };
+
+        if actual_dtype != expected_dtype {
+            return Some((
+                "E1402",
+                format!(
+                    "Tensor dtype mismatch: expected {}, found {}",
+                    type_name(expected),
+                    type_name(actual)
+                ),
+                "Use a tensor constructor or literal with the declared dtype.",
+            ));
+        }
+
+        if actual_rank.is_some() && expected_rank.is_some() && actual_rank != expected_rank {
+            return Some((
+                "E1401",
+                format!(
+                    "Tensor rank mismatch: expected {}, found {}",
+                    type_name(expected),
+                    type_name(actual)
+                ),
+                "Change the declared rank or produce a tensor with the expected rank.",
+            ));
+        }
+
+        if !Self::tensor_dims_match(actual_dims, expected_dims) {
+            return Some((
+                "E1403",
+                format!(
+                    "Tensor shape mismatch: expected {}, found {}",
+                    type_name(expected),
+                    type_name(actual)
+                ),
+                "Change the tensor dimensions or use dynamic dimensions with `dynamic_dim`.",
+            ));
+        }
+
+        if actual_layout.is_some() && expected_layout.is_some() && actual_layout != expected_layout
+        {
+            return Some((
+                "E1404",
+                format!(
+                    "Tensor layout mismatch: expected {}, found {}",
+                    type_name(expected),
+                    type_name(actual)
+                ),
+                "Convert the tensor layout or change the declared layout annotation.",
+            ));
+        }
+
+        if actual_device.is_some() && expected_device.is_some() && actual_device != expected_device
+        {
+            return Some((
+                "E1405",
+                format!(
+                    "Tensor device mismatch: expected {}, found {}",
+                    type_name(expected),
+                    type_name(actual)
+                ),
+                "Move the tensor to the declared device or change the device annotation.",
+            ));
+        }
+
+        None
+    }
+
     fn tensor_literal_matches(&mut self, value: &Expression, expected: &Type) -> bool {
-        let Type::Tensor { dtype, rank } = expected else {
+        let Type::Tensor {
+            dtype, rank, dims, ..
+        } = expected
+        else {
             return false;
         };
         let ExpressionKind::ArrayLiteral { elements } = &value.kind else {
@@ -1600,10 +1753,19 @@ impl SemanticAnalyzer {
         };
 
         match rank {
-            Some(1) => elements.iter().all(|element| {
-                let actual = self.infer_expression_type(element);
-                self.types_match(&actual, dtype)
-            }),
+            Some(1) => {
+                if let Some(Some(expected_len)) =
+                    dims.as_ref().and_then(|dims| dims.first()).copied()
+                {
+                    if elements.len() != expected_len {
+                        return false;
+                    }
+                }
+                elements.iter().all(|element| {
+                    let actual = self.infer_expression_type(element);
+                    self.types_match(&actual, dtype)
+                })
+            }
             Some(2) => {
                 let Some((first, rest)) = elements.split_first() else {
                     return true;
@@ -1615,6 +1777,18 @@ impl SemanticAnalyzer {
                     return false;
                 };
                 let width = first_row.len();
+                if let Some(dims) = dims {
+                    if let Some(Some(expected_rows)) = dims.first().copied() {
+                        if elements.len() != expected_rows {
+                            return false;
+                        }
+                    }
+                    if let Some(Some(expected_cols)) = dims.get(1).copied() {
+                        if width != expected_cols {
+                            return false;
+                        }
+                    }
+                }
                 first_row.iter().all(|element| {
                     let actual = self.infer_expression_type(element);
                     self.types_match(&actual, dtype)
@@ -1634,11 +1808,535 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn parse_tensor_rank_annotation(ann: &crate::ast::TypeAnnotation) -> Option<usize> {
+    fn validate_static_tensor_call(
+        &mut self,
+        callee: &Expression,
+        arguments: &[Expression],
+        span: Span,
+    ) {
+        let Some(name) = Self::tensor_call_name(callee) else {
+            return;
+        };
+        self.validate_static_tensor_operation(&name, arguments, span);
+    }
+
+    fn validate_static_tensor_method_call(
+        &mut self,
+        object: &Expression,
+        method_name: &str,
+        arguments: &[Expression],
+        span: Span,
+    ) {
+        let Some(path) = namespace_path(object) else {
+            return;
+        };
+        if matches!(
+            path.as_str(),
+            "tensor" | "std.tensor" | "spectra.std.tensor"
+        ) {
+            self.validate_static_tensor_operation(method_name, arguments, span);
+        }
+    }
+
+    fn validate_static_ml_method_call(
+        &mut self,
+        object: &Expression,
+        method_name: &str,
+        arguments: &[Expression],
+        span: Span,
+    ) {
+        let Some(path) = namespace_path(object) else {
+            return;
+        };
+        if !matches!(path.as_str(), "ml" | "std.ml" | "spectra.std.ml") {
+            return;
+        }
+        if method_name != "linear" || arguments.len() != 3 {
+            return;
+        }
+
+        let input = self.infer_expression_type(&arguments[0]);
+        let weight = self.infer_expression_type(&arguments[1]);
+        let bias = self.infer_expression_type(&arguments[2]);
+        let (Some(input_dims), Some(weight_dims), Some(bias_dims)) = (
+            Self::tensor_dims(&input),
+            Self::tensor_dims(&weight),
+            Self::tensor_dims(&bias),
+        ) else {
+            return;
+        };
+        if input_dims.len() != 2 || weight_dims.len() != 2 || bias_dims.len() != 1 {
+            return;
+        }
+
+        let in_features = input_dims[1];
+        let weight_in = weight_dims[0];
+        let out_features = weight_dims[1];
+        let bias_out = bias_dims[0];
+
+        let inner_mismatch =
+            in_features.is_some() && weight_in.is_some() && in_features != weight_in;
+        let bias_mismatch =
+            out_features.is_some() && bias_out.is_some() && out_features != bias_out;
+        if inner_mismatch || bias_mismatch {
+            self.error_coded_with_hint(
+                "E1403",
+                format!(
+                    "Tensor shape mismatch in ml.linear: input is {}, weight is {}, bias is {}",
+                    type_name(&input),
+                    type_name(&weight),
+                    type_name(&bias)
+                ),
+                span,
+                "For ml.linear, input shape must be [batch, in], weight [in, out], and bias [out].",
+            );
+        }
+    }
+
+    fn validate_static_tensor_operation(
+        &mut self,
+        name: &str,
+        arguments: &[Expression],
+        span: Span,
+    ) {
+        match name {
+            "add" | "sub" | "mul" | "div" => {
+                if arguments.len() != 2 {
+                    return;
+                }
+                let left = self.infer_expression_type(&arguments[0]);
+                let right = self.infer_expression_type(&arguments[1]);
+                let (Some(left_dims), Some(right_dims)) =
+                    (Self::tensor_dims(&left), Self::tensor_dims(&right))
+                else {
+                    return;
+                };
+                if !Self::tensor_dim_slices_match(left_dims, right_dims) {
+                    self.error_coded_with_hint(
+                        "E1403",
+                        format!(
+                            "Tensor shape mismatch in tensor.{}: left is {}, right is {}",
+                            name,
+                            type_name(&left),
+                            type_name(&right)
+                        ),
+                        span,
+                        "Use tensors with matching static dimensions or mark unknown dimensions as `dynamic_dim`.",
+                    );
+                }
+            }
+            "matmul" => {
+                if arguments.len() != 2 {
+                    return;
+                }
+                let left = self.infer_expression_type(&arguments[0]);
+                let right = self.infer_expression_type(&arguments[1]);
+                let (Some(left_dims), Some(right_dims)) =
+                    (Self::tensor_dims(&left), Self::tensor_dims(&right))
+                else {
+                    return;
+                };
+                if left_dims.len() != 2 || right_dims.len() != 2 {
+                    return;
+                }
+                let inner_left = left_dims[1];
+                let inner_right = right_dims[0];
+                if inner_left.is_some() && inner_right.is_some() && inner_left != inner_right {
+                    self.error_coded_with_hint(
+                        "E1403",
+                        format!(
+                            "Tensor shape mismatch in tensor.matmul: left is {}, right is {}",
+                            type_name(&left),
+                            type_name(&right)
+                        ),
+                        span,
+                        "For matmul, left columns must match right rows.",
+                    );
+                }
+            }
+            "reshape" => {
+                if arguments.len() != 3 {
+                    return;
+                }
+                let source = self.infer_expression_type(&arguments[0]);
+                let Some(source_dims) = Self::tensor_dims(&source) else {
+                    return;
+                };
+                let Some(source_len) = Self::known_element_count(source_dims) else {
+                    return;
+                };
+                let Some(rows) = Self::const_int_expression(&arguments[1]) else {
+                    return;
+                };
+                let Some(cols) = Self::const_int_expression(&arguments[2]) else {
+                    return;
+                };
+                if rows <= 0 || cols <= 0 {
+                    return;
+                }
+                let target_len = (rows as usize).saturating_mul(cols as usize);
+                if source_len != target_len {
+                    self.error_coded_with_hint(
+                        "E1403",
+                        format!(
+                            "Tensor shape mismatch in tensor.reshape: source {} has {} element(s), target shape has {}",
+                            type_name(&source),
+                            source_len,
+                            target_len
+                        ),
+                        span,
+                        "Choose reshape dimensions whose product equals the source tensor element count.",
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn tensor_call_name(callee: &Expression) -> Option<String> {
+        let path = namespace_path(callee)?;
+        let parts = path.split('.').collect::<Vec<_>>();
+        match parts.as_slice() {
+            ["tensor", name] => Some((*name).to_string()),
+            ["std", "tensor", name] => Some((*name).to_string()),
+            ["spectra", "std", "tensor", name] => Some((*name).to_string()),
+            _ => None,
+        }
+    }
+
+    fn tensor_dims(ty: &Type) -> Option<&[Option<usize>]> {
+        match ty {
+            Type::Tensor {
+                dims: Some(dims), ..
+            } => Some(dims.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn tensor_dim_slices_match(left: &[Option<usize>], right: &[Option<usize>]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right.iter())
+                .all(|(a, b)| a.is_none() || b.is_none() || a == b)
+    }
+
+    fn known_element_count(dims: &[Option<usize>]) -> Option<usize> {
+        dims.iter()
+            .try_fold(1usize, |acc, dim| Some(acc.saturating_mul((*dim)?)))
+    }
+
+    fn const_int_expression(expr: &Expression) -> Option<i64> {
+        match &expr.kind {
+            ExpressionKind::NumberLiteral(raw) if !raw.contains('.') => raw.parse::<i64>().ok(),
+            ExpressionKind::Grouping(inner) => Self::const_int_expression(inner),
+            _ => None,
+        }
+    }
+
+    fn validate_differentiable_block_operations(&mut self, block: &Block) {
+        for stmt in &block.statements {
+            self.validate_differentiable_statement(stmt);
+        }
+    }
+
+    fn validate_differentiable_statement(&mut self, stmt: &Statement) {
+        match &stmt.kind {
+            StatementKind::Let(let_stmt) => {
+                if let Some(value) = &let_stmt.value {
+                    self.validate_differentiable_expression(value);
+                }
+            }
+            StatementKind::Expression(expr) => self.validate_differentiable_expression(expr),
+            StatementKind::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    self.validate_differentiable_expression(value);
+                }
+            }
+            StatementKind::Assignment(assign) => {
+                self.validate_differentiable_lvalue(&assign.target);
+                self.validate_differentiable_expression(&assign.value);
+            }
+            StatementKind::While(while_stmt) => {
+                self.validate_differentiable_expression(&while_stmt.condition);
+                self.validate_differentiable_block_operations(&while_stmt.body);
+            }
+            StatementKind::For(for_stmt) => {
+                self.validate_differentiable_expression(&for_stmt.iterable);
+                self.validate_differentiable_block_operations(&for_stmt.body);
+            }
+            StatementKind::Loop(loop_stmt) => {
+                self.validate_differentiable_block_operations(&loop_stmt.body);
+            }
+            StatementKind::DoWhile(do_while) => {
+                self.validate_differentiable_block_operations(&do_while.body);
+                self.validate_differentiable_expression(&do_while.condition);
+            }
+            StatementKind::Switch(switch_stmt) => {
+                self.validate_differentiable_expression(&switch_stmt.value);
+                for case in &switch_stmt.cases {
+                    self.validate_differentiable_expression(&case.pattern);
+                    self.validate_differentiable_block_operations(&case.body);
+                }
+                if let Some(block) = &switch_stmt.default {
+                    self.validate_differentiable_block_operations(block);
+                }
+            }
+            StatementKind::IfLet(if_let) => {
+                self.validate_differentiable_expression(&if_let.value);
+                self.validate_differentiable_block_operations(&if_let.then_block);
+                if let Some(block) = &if_let.else_block {
+                    self.validate_differentiable_block_operations(block);
+                }
+            }
+            StatementKind::WhileLet(while_let) => {
+                self.validate_differentiable_expression(&while_let.value);
+                self.validate_differentiable_block_operations(&while_let.body);
+            }
+            StatementKind::Break | StatementKind::Continue => {}
+        }
+    }
+
+    fn validate_differentiable_lvalue(&mut self, target: &crate::ast::LValue) {
+        match target {
+            crate::ast::LValue::Identifier(_) => {}
+            crate::ast::LValue::IndexAccess { array, index } => {
+                self.validate_differentiable_expression(array);
+                self.validate_differentiable_expression(index);
+            }
+            crate::ast::LValue::FieldAccess { object, .. } => {
+                self.validate_differentiable_expression(object);
+            }
+        }
+    }
+
+    fn validate_differentiable_expression(&mut self, expr: &Expression) {
+        match &expr.kind {
+            ExpressionKind::Call { callee, arguments } => {
+                if let Some(path) = namespace_path(callee) {
+                    self.validate_differentiable_path(&path, expr.span);
+                }
+                self.validate_differentiable_expression(callee);
+                for arg in arguments {
+                    self.validate_differentiable_expression(arg);
+                }
+            }
+            ExpressionKind::MethodCall {
+                object,
+                method_name,
+                arguments,
+                ..
+            } => {
+                if let Some(path) = namespace_path(object) {
+                    let qualified = format!("{}.{}", path, method_name);
+                    self.validate_differentiable_path(&qualified, expr.span);
+                }
+                self.validate_differentiable_expression(object);
+                for arg in arguments {
+                    self.validate_differentiable_expression(arg);
+                }
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.validate_differentiable_expression(left);
+                self.validate_differentiable_expression(right);
+            }
+            ExpressionKind::Unary { operand, .. }
+            | ExpressionKind::Try(operand)
+            | ExpressionKind::Grouping(operand) => {
+                self.validate_differentiable_expression(operand);
+            }
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
+                self.validate_differentiable_expression(condition);
+                self.validate_differentiable_block_operations(then_block);
+                for (condition, block) in elif_blocks {
+                    self.validate_differentiable_expression(condition);
+                    self.validate_differentiable_block_operations(block);
+                }
+                if let Some(block) = else_block {
+                    self.validate_differentiable_block_operations(block);
+                }
+            }
+            ExpressionKind::Unless {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.validate_differentiable_expression(condition);
+                self.validate_differentiable_block_operations(then_block);
+                if let Some(block) = else_block {
+                    self.validate_differentiable_block_operations(block);
+                }
+            }
+            ExpressionKind::Block(block) | ExpressionKind::DifferentiableBlock(block) => {
+                self.validate_differentiable_block_operations(block);
+            }
+            ExpressionKind::ArrayLiteral { elements }
+            | ExpressionKind::TupleLiteral { elements } => {
+                for element in elements {
+                    self.validate_differentiable_expression(element);
+                }
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.validate_differentiable_expression(array);
+                self.validate_differentiable_expression(index);
+            }
+            ExpressionKind::FieldAccess { object, .. }
+            | ExpressionKind::TupleAccess { tuple: object, .. } => {
+                self.validate_differentiable_expression(object);
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    self.validate_differentiable_expression(value);
+                }
+            }
+            ExpressionKind::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(values) = data {
+                    for value in values {
+                        self.validate_differentiable_expression(value);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, value) in fields {
+                        self.validate_differentiable_expression(value);
+                    }
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.validate_differentiable_expression(scrutinee);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.validate_differentiable_expression(guard);
+                    }
+                    self.validate_differentiable_expression(&arm.body);
+                }
+            }
+            ExpressionKind::Lambda { body, .. } => self.validate_differentiable_expression(body),
+            ExpressionKind::Cast { expr, .. } => self.validate_differentiable_expression(expr),
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let FStringPart::Interpolated(expr) = part {
+                        self.validate_differentiable_expression(expr);
+                    }
+                }
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                self.validate_differentiable_expression(start);
+                self.validate_differentiable_expression(end);
+            }
+            ExpressionKind::Identifier(_)
+            | ExpressionKind::NumberLiteral(_)
+            | ExpressionKind::StringLiteral(_)
+            | ExpressionKind::BoolLiteral(_)
+            | ExpressionKind::CharLiteral(_) => {}
+        }
+    }
+
+    fn validate_differentiable_path(&mut self, path: &str, span: Span) {
+        let normalized = path
+            .strip_prefix("spectra.")
+            .unwrap_or(path)
+            .strip_prefix("std.")
+            .unwrap_or(path);
+        let parts = normalized.split('.').collect::<Vec<_>>();
+        let supported = matches!(
+            parts.as_slice(),
+            [
+                "tensor",
+                "add"
+                    | "sub"
+                    | "mul"
+                    | "div"
+                    | "sum_t"
+                    | "mean_t"
+                    | "dot_t"
+                    | "matmul"
+                    | "transpose"
+                    | "neg"
+                    | "relu"
+                    | "exp_f"
+                    | "log_f"
+                    | "sqrt_f"
+                    | "sigmoid_f"
+                    | "tanh_f"
+            ] | [
+                "ml",
+                "linear" | "mse_loss" | "bce_loss" | "cross_entropy_loss" | "nll_loss"
+            ]
+        );
+        let is_std = matches!(parts.first(), Some(&"tensor" | &"ml" | &"io" | &"math"));
+        if is_std && !supported {
+            self.error_coded_with_hint(
+                "E1406",
+                format!(
+                    "Operation '{}' is not supported inside a differentiable block",
+                    path
+                ),
+                span,
+                "Move metadata, I/O, lifecycle, or unsupported stdlib calls outside `diff { ... }`; keep differentiable tensor/ML math such as tensor.mul, tensor.sum_t, tensor.matmul, ml.linear, and loss functions inside.",
+            );
+        }
+    }
+
+    fn parse_tensor_metadata(type_args: &[crate::ast::TypeAnnotation]) -> TensorMetadata {
+        let mut meta = TensorMetadata::default();
+        let mut dims = Vec::new();
+
+        for ann in type_args {
+            let Some(name) = Self::single_segment_annotation(ann) else {
+                continue;
+            };
+
+            if let Some(rank) = name
+                .strip_prefix("rank")
+                .and_then(|raw| raw.parse::<usize>().ok())
+            {
+                meta.rank = Some(rank);
+                continue;
+            }
+
+            if let Some(dim) = name
+                .strip_prefix("dim")
+                .and_then(|raw| raw.parse::<usize>().ok())
+            {
+                dims.push(Some(dim));
+                continue;
+            }
+
+            match name.as_str() {
+                "dyn" | "dynamic_dim" | "dim_dynamic" => dims.push(None),
+                "dynamic" => meta.rank = None,
+                "row_major" | "col_major" | "contiguous" | "strided" => {
+                    meta.layout = Some(name);
+                }
+                "cpu" | "wgpu" | "cuda" | "rocm" | "metal" | "directml" | "vulkan" => {
+                    meta.device = Some(name);
+                }
+                _ => {}
+            }
+        }
+
+        if !dims.is_empty() {
+            if meta.rank.is_none() {
+                meta.rank = Some(dims.len());
+            }
+            meta.dims = Some(dims);
+        }
+
+        meta
+    }
+
+    fn single_segment_annotation(ann: &crate::ast::TypeAnnotation) -> Option<String> {
         use crate::ast::TypeAnnotationKind;
         match &ann.kind {
             TypeAnnotationKind::Simple { segments } if segments.len() == 1 => {
-                segments[0].strip_prefix("rank")?.parse::<usize>().ok()
+                Some(segments[0].clone())
             }
             _ => None,
         }
@@ -3179,15 +3877,21 @@ impl SemanticAnalyzer {
                         if !self.types_match(&inferred_type, &declared_type)
                             && !self.tensor_literal_matches(value, &declared_type)
                         {
-                            self.error_with_hint(
-                                format!(
-                                    "Let binding has type {}, but {} was declared",
-                                    type_name(&inferred_type),
-                                    type_name(&declared_type)
-                                ),
-                                value.span,
-                                "Change the annotation or convert the initializer explicitly.",
-                            );
+                            if let Some((code, message, hint)) =
+                                Self::tensor_mismatch_diagnostic(&inferred_type, &declared_type)
+                            {
+                                self.error_coded_with_hint(code, message, value.span, hint);
+                            } else {
+                                self.error_with_hint(
+                                    format!(
+                                        "Let binding has type {}, but {} was declared",
+                                        type_name(&inferred_type),
+                                        type_name(&declared_type)
+                                    ),
+                                    value.span,
+                                    "Change the annotation or convert the initializer explicitly.",
+                                );
+                            }
                         }
                     }
                     declared_type
@@ -4633,6 +5337,8 @@ impl SemanticAnalyzer {
                 for arg in arguments {
                     self.analyze_expression(arg);
                 }
+
+                self.validate_static_tensor_call(callee, arguments, expr.span);
             }
             ExpressionKind::If {
                 condition,
@@ -5570,6 +6276,9 @@ impl SemanticAnalyzer {
                     self.analyze_expression(arg);
                 }
 
+                self.validate_static_tensor_method_call(object, method_name, arguments, expr.span);
+                self.validate_static_ml_method_call(object, method_name, arguments, expr.span);
+
                 if let Some(path) = namespace_path(object) {
                     let qualified_name = format!("{}.{}", path, method_name);
                     let qualified_sig =
@@ -5905,6 +6614,7 @@ impl SemanticAnalyzer {
                     self.analyze_statement(stmt);
                 }
                 self.pop_scope();
+                self.validate_differentiable_block_operations(block);
 
                 let result_type = self.infer_block_type(block);
                 if !matches!(result_type, Type::Tensor { .. } | Type::Unknown) {
@@ -7623,21 +8333,31 @@ impl SemanticAnalyzer {
             Type::Fn { .. } => TypeAnnotationKind::Simple {
                 segments: vec!["fn".to_string()],
             },
-            Type::Tensor { dtype, rank } => {
+            Type::Tensor {
+                dtype,
+                rank,
+                dims,
+                layout,
+                device,
+            } => {
                 let dtype_ann = self.type_to_annotation(dtype);
                 let mut type_args = vec![dtype_ann];
                 if let Some(rank) = rank {
-                    type_args.push(TypeAnnotation {
-                        kind: TypeAnnotationKind::Simple {
-                            segments: vec![format!("rank{}", rank)],
-                        },
-                        span: Span {
-                            start: 0,
-                            end: 0,
-                            start_location: crate::span::Location { line: 0, column: 0 },
-                            end_location: crate::span::Location { line: 0, column: 0 },
-                        },
-                    });
+                    type_args.push(Self::simple_type_annotation(&format!("rank{}", rank)));
+                }
+                if let Some(dims) = dims {
+                    for dim in dims {
+                        type_args.push(Self::simple_type_annotation(&match dim {
+                            Some(size) => format!("dim{}", size),
+                            None => "dyn".to_string(),
+                        }));
+                    }
+                }
+                if let Some(layout) = layout {
+                    type_args.push(Self::simple_type_annotation(layout));
+                }
+                if let Some(device) = device {
+                    type_args.push(Self::simple_type_annotation(device));
                 }
                 TypeAnnotationKind::Generic {
                     name: "Tensor".to_string(),
@@ -7657,6 +8377,15 @@ impl SemanticAnalyzer {
                 start_location: crate::span::Location { line: 0, column: 0 },
                 end_location: crate::span::Location { line: 0, column: 0 },
             },
+        }
+    }
+
+    fn simple_type_annotation(name: &str) -> crate::ast::TypeAnnotation {
+        crate::ast::TypeAnnotation {
+            kind: crate::ast::TypeAnnotationKind::Simple {
+                segments: vec![name.to_string()],
+            },
+            span: Span::dummy(),
         }
     }
 }

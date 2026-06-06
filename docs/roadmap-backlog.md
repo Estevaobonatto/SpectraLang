@@ -406,7 +406,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-301 Tensor Type Design
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-201`, `R-202`
@@ -1245,7 +1245,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1401 First-Class Tensor Language Constructs
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-204`, `R-303`, `R-403`, `R-503`
@@ -1268,18 +1268,19 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 - `Tensor<dtype, rankN>` annotations are represented in the semantic type model and lower to handle-compatible IR.
 - Explicitly typed rank1/rank2 float tensor literals compile and run through runtime tensor allocation.
-- Rank and dtype mismatches on explicitly typed tensor bindings fail during semantic analysis.
+- Rank, dtype, static shape, layout, and device mismatches on explicitly typed tensor bindings fail during semantic analysis with stable JSON diagnostic codes `E1401` through `E1405`.
+- Device/layout annotations use the same `Tensor<...>` surface, for example `Tensor<float, rank2, dim2, dim3, row_major, cpu>`.
 - Existing `std.tensor` handle calls remain accepted through the handle compatibility layer.
 
-### Remaining before completion
+### Completion evidence
 
-- Add device and layout annotations to the public tensor type syntax and diagnostics.
-- Add stable diagnostic codes for tensor dtype/rank/layout/device errors.
-- Document the migration layer from raw handle-style calls to first-class tensor syntax.
+- `tests/validation/80_phase14_tensor_language_core.spectra` covers first-class Tensor annotations, literals, dynamic dimensions, layout/device annotations, and `diff { ... }`.
+- `tests/errors/tensor_rank_mismatch.spectra`, `tensor_dtype_mismatch.spectra`, `tensor_shape_mismatch.spectra`, `tensor_layout_mismatch.spectra`, and `tensor_device_mismatch.spectra` cover stable Tensor diagnostics.
+- `.\run_tests.ps1` is the acceptance gate for the integrated language/CLI suite.
 
 ## R-1402 Shape and DType Type System
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-1401`, `R-202`
@@ -1299,19 +1300,20 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Completed so far
 
-- Static rank metadata and dtype metadata are represented for `Tensor<float, rankN>`.
+- Static rank metadata, dtype metadata, static/dynamic dimension metadata, layout metadata, and device metadata are represented for `Tensor<float, ...>`.
 - Rectangular rank2 tensor literal shape mismatches are rejected during semantic analysis.
 - Tensor-returning `std.tensor` operations now expose compiler-visible Tensor return types for core autodiff paths.
+- Static shape checks cover declared tensor compatibility, elementwise tensor operations, `tensor.matmul`, `tensor.reshape`, and `ml.linear`.
+- `tests/validation/81_static_shape_mlp_validation.spectra` validates a neural-network linear layer with static shapes end-to-end.
 
-### Remaining before completion
+### Completion evidence
 
-- Add static dimension values, dynamic dimension variables, layout, and device constraints to the semantic type model.
-- Extend compile-time shape checks beyond literal rectangularity into operations such as `matmul`, `reshape`, and neural-network layers.
-- Add an end-to-end neural-network example that relies on static shape validation.
+- `tests/errors/tensor_operation_shape_mismatch.spectra`, `tensor_matmul_shape_mismatch.spectra`, `tensor_reshape_shape_mismatch.spectra`, and `ml_linear_shape_mismatch.spectra` cover static operation-level shape diagnostics.
+- `.\run_tests.ps1` is the integrated acceptance gate.
 
 ## R-1403 Differentiable Language Blocks
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-503`, `R-1402`
@@ -1333,12 +1335,14 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `diff { ... }` parses as a language-level differentiable block expression.
 - The block result is lowered to `std.tensor.backward(loss)` and the loss value remains usable by the surrounding expression.
 - Non-tensor differentiable block results produce an actionable semantic diagnostic.
+- Unsupported qualified stdlib operations inside `diff { ... }` produce stable diagnostic `E1406`.
+- Gradient coverage includes tensor math, helper functions, control flow, and `std.ml` loss/layer integration.
 
-### Remaining before completion
+### Completion evidence
 
-- Add diagnostics for unsupported operations inside otherwise tensor-returning differentiable regions.
-- Add gradient tests for scalar, tensor, control-flow, and nested-function cases.
-- Decide and implement differentiable function annotation syntax if block syntax alone is not sufficient for production authoring.
+- `tests/validation/82_diff_block_gradient_coverage.spectra` covers differentiable tensor math, control flow, helper calls, and ML loss/layer execution.
+- `tests/errors/diff_block_unsupported_operation.spectra` verifies `E1406` for non-differentiable stdlib calls inside a differentiable region.
+- Block syntax is the documented Phase 14 production surface; separate differentiable function annotations remain a future extension, not a Phase 14 completion gate.
 
 ---
 

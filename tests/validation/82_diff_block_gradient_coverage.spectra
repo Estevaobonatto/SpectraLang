@@ -1,0 +1,58 @@
+// Teste 82: differentiable blocks with tensor math, control flow, helper calls, and ML layers.
+module diff_block_gradient_coverage;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+fn square_loss(values: Tensor<float, rank1, dim3, row_major, cpu>) -> Tensor<float, rank0> {
+    return tensor.sum_t(tensor.mul(values, values));
+}
+
+fn choose_loss(values: Tensor<float, rank1, dim3, row_major, cpu>, use_square: bool) -> Tensor<float, rank0> {
+    if use_square {
+        return square_loss(values);
+    }
+
+    return tensor.dot_t(values, values);
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let base: Tensor<float, rank1, dim3, row_major, cpu> = [3.0, 3.0, 3.0];
+    let trainable: Tensor<float, rank1, dim3, row_major, cpu> = tensor.requires_grad(base, true);
+    let loss: Tensor<float, rank0> = diff {
+        choose_loss(trainable, true)
+    };
+    if tensor.len(loss) != 1 {
+        return tensor.len(loss);
+    }
+
+    let grad: Tensor<float, rank1> = tensor.grad(trainable);
+    if tensor.sum_f(grad) as int != 18 {
+        return tensor.sum_f(grad) as int;
+    }
+
+    let input: Tensor<float, rank2, dim1, dim3, row_major, cpu> = [[1.0, 2.0, 3.0]];
+    let weight_base: Tensor<float, rank2, dim3, dim1, row_major, cpu> = [[1.0], [1.0], [1.0]];
+    let bias_base: Tensor<float, rank1, dim1, row_major, cpu> = [0.0];
+    let weight: Tensor<float, rank2, dim3, dim1, row_major, cpu> = tensor.requires_grad(weight_base, true);
+    let bias: Tensor<float, rank1, dim1, row_major, cpu> = tensor.requires_grad(bias_base, true);
+    let target: Tensor<float, rank2, dim1, dim1, row_major, cpu> = [[6.0]];
+
+    let ml_loss: Tensor<float, rank0> = diff {
+        ml.mse_loss(ml.linear(input, weight, bias), target)
+    };
+    if tensor.len(ml_loss) != 1 {
+        return tensor.len(ml_loss);
+    }
+
+    let weight_grad: Tensor<float, rank2> = tensor.grad(weight);
+    if tensor.rank(weight_grad) != 2 {
+        return tensor.rank(weight_grad);
+    }
+
+    tensor.free_all();
+    return 0;
+}

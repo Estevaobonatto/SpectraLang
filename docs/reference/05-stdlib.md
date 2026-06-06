@@ -828,18 +828,19 @@ import std.tensor as tensor;
 
 ### Criação / Creation
 
-Código novo pode usar `Tensor<float, rank1>`, `Tensor<float, rank2>` e literais tensoriais quando a anotação é explícita:
+Código novo pode usar `Tensor<float, rank1>`, `Tensor<float, rank2>` e metadados opcionais de dimensão/layout/device quando a anotação é explícita:
 
-New code can use `Tensor<float, rank1>`, `Tensor<float, rank2>`, and tensor literals when the annotation is explicit:
+New code can use `Tensor<float, rank1>`, `Tensor<float, rank2>`, and optional dimension/layout/device metadata when the annotation is explicit:
 
 ```spectra
-let v: Tensor<float, rank1> = [1.0, 2.0, 3.0];
-let m: Tensor<float, rank2> = [[1.0, 2.0], [3.0, 4.0]];
+let v: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
+let any_len: Tensor<float, rank1, dynamic_dim, row_major, cpu> = v;
+let m: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]];
 ```
 
-Rank e dtype incompatíveis falham em `check`/`compile`. Literais rank2 precisam ser retangulares.
+Rank, dtype, dimensão estática, layout e device incompatíveis falham em `check`/`compile` com códigos JSON estáveis `E1401` a `E1405`. Literais rank2 precisam ser retangulares.
 
-Rank and dtype mismatches fail during `check`/`compile`. Rank2 literals must be rectangular.
+Rank, dtype, static dimension, layout, and device mismatches fail during `check`/`compile` with stable JSON codes `E1401` through `E1405`. Rank2 literals must be rectangular.
 
 | Função / Function | Assinatura / Signature | Descrição / Description |
 |---|---|---|
@@ -931,9 +932,9 @@ let loss: Tensor<float, rank0> = diff {
 let grad: Tensor<float, rank1> = tensor.grad(weights);
 ```
 
-Limitação atual: `diff { ... }` diagnostica blocos cujo resultado não é Tensor, mas diagnósticos por operação não suportada dentro de uma região diferenciável ainda fazem parte da Phase 14 em andamento.
+Operações qualificadas de stdlib que não participam do grafo diferenciável, como metadados (`tensor.rank`) ou lifecycle (`tensor.free_all`), falham dentro de `diff { ... }` com o código estável `E1406`. Mova I/O, metadados e liberação de recursos para fora do bloco.
 
-Current limitation: `diff { ... }` diagnoses blocks whose result is not a Tensor, but unsupported-operation diagnostics inside a differentiable region are still part of the in-progress Phase 14 work.
+Qualified stdlib operations that do not participate in the differentiable graph, such as metadata (`tensor.rank`) or lifecycle (`tensor.free_all`), fail inside `diff { ... }` with stable code `E1406`. Move I/O, metadata, and resource release outside the block.
 
 ### Exemplo / Example
 
@@ -966,7 +967,7 @@ pub fn main() -> int {
 }
 ```
 
-Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14 em andamento: `Tensor<dtype, rankN>`, literais rank1/rank2 e `diff { ... }` existem, mas device/layout/dimensões estáticas completas ainda não estão concluídos.
+Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14: `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>`, literais rank1/rank2, validação estática de shape em operações principais e `diff { ... }` com diagnóstico `E1406` estão completos para o baseline atual.
 
 Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
 

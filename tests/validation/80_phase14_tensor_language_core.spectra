@@ -24,7 +24,7 @@ pub fn main() -> int {
         return vector_total(v);
     }
 
-    let literal_v: Tensor<float, rank1> = [1.0, 2.0, 3.0];
+    let literal_v: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
     if tensor.rank(literal_v) != 1 {
         return tensor.rank(literal_v);
     }
@@ -40,12 +40,27 @@ pub fn main() -> int {
         return matrix_total(m);
     }
 
-    let literal_m: Tensor<float, rank2> = [[1.0, 2.0], [3.0, 4.0]];
+    let literal_m: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]];
     if tensor.rank(literal_m) != 2 {
         return tensor.rank(literal_m);
     }
     if matrix_total(literal_m) != 10 {
         return matrix_total(literal_m);
+    }
+
+    let mat_left: Tensor<float, rank2, dim2, dim3, row_major, cpu> = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    let mat_right: Tensor<float, rank2, dim3, dim2, row_major, cpu> = [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]];
+    let mat_product: Tensor<float, rank2> = tensor.matmul(mat_left, mat_right);
+    if tensor.rows(mat_product) != 2 {
+        return tensor.rows(mat_product);
+    }
+    if tensor.cols(mat_product) != 2 {
+        return tensor.cols(mat_product);
+    }
+
+    let dynamic_v: Tensor<float, rank1, dynamic_dim, row_major, cpu> = literal_v;
+    if vector_total(dynamic_v) != 6 {
+        return vector_total(dynamic_v);
     }
 
     let trainable: Tensor<float, rank1> = tensor.requires_grad(tensor.vector_f(3, 3.0), true);

@@ -158,10 +158,35 @@ pub fn type_to_string(ty: &Type) -> String {
                 .join(", "),
             type_to_string(return_type)
         ),
-        Type::Tensor { dtype, rank } => match rank {
-            Some(rank) => format!("Tensor<{}, rank{}>", type_to_string(dtype), rank),
-            None => format!("Tensor<{}, dynamic>", type_to_string(dtype)),
-        },
+        Type::Tensor {
+            dtype,
+            rank,
+            dims,
+            layout,
+            device,
+        } => {
+            let mut parts = vec![type_to_string(dtype)];
+            if let Some(rank) = rank {
+                parts.push(format!("rank{}", rank));
+            } else {
+                parts.push("dynamic".to_string());
+            }
+            if let Some(dims) = dims {
+                for dim in dims {
+                    parts.push(match dim {
+                        Some(size) => format!("dim{}", size),
+                        None => "dyn".to_string(),
+                    });
+                }
+            }
+            if let Some(layout) = layout {
+                parts.push(layout.clone());
+            }
+            if let Some(device) = device {
+                parts.push(device.clone());
+            }
+            format!("Tensor<{}>", parts.join(", "))
+        }
         Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }

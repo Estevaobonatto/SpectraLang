@@ -1,0 +1,8 @@
+// Negative: tensor layout annotations must match when both sides declare them.
+module tensor_layout_mismatch;
+
+pub fn main() -> int {
+    let source: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
+    let target: Tensor<float, rank1, dim3, col_major, cpu> = source;
+    return 0;
+}

@@ -337,18 +337,30 @@ fn make_std_tensor() -> ModuleExports {
     let tensor_float_rank1 = Type::Tensor {
         dtype: Box::new(Type::Float),
         rank: Some(1),
+        dims: None,
+        layout: None,
+        device: None,
     };
     let tensor_float_rank2 = Type::Tensor {
         dtype: Box::new(Type::Float),
         rank: Some(2),
+        dims: None,
+        layout: None,
+        device: None,
     };
     let tensor_float_rank0 = Type::Tensor {
         dtype: Box::new(Type::Float),
         rank: Some(0),
+        dims: None,
+        layout: None,
+        device: None,
     };
     let tensor_float_dynamic = Type::Tensor {
         dtype: Box::new(Type::Float),
         rank: None,
+        dims: None,
+        layout: None,
+        device: None,
     };
     let unit = Type::Unit;
     let bool_ty = Type::Bool;
@@ -593,6 +605,20 @@ fn make_std_ml() -> ModuleExports {
     let float = Type::Float;
     let unit = Type::Unit;
     let bool_ty = Type::Bool;
+    let tensor_float_rank0 = Type::Tensor {
+        dtype: Box::new(Type::Float),
+        rank: Some(0),
+        dims: None,
+        layout: None,
+        device: None,
+    };
+    let tensor_float_rank2 = Type::Tensor {
+        dtype: Box::new(Type::Float),
+        rank: Some(2),
+        dims: None,
+        layout: None,
+        device: None,
+    };
 
     let functions = [
         ("module_new", vec![], int.clone()),
@@ -616,7 +642,7 @@ fn make_std_ml() -> ModuleExports {
         (
             "linear",
             vec![int.clone(), int.clone(), int.clone()],
-            int.clone(),
+            tensor_float_rank2.clone(),
         ),
         (
             "conv2d",
@@ -652,14 +678,26 @@ fn make_std_ml() -> ModuleExports {
             ],
             int.clone(),
         ),
-        ("mse_loss", vec![int.clone(), int.clone()], int.clone()),
-        ("bce_loss", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "mse_loss",
+            vec![int.clone(), int.clone()],
+            tensor_float_rank0.clone(),
+        ),
+        (
+            "bce_loss",
+            vec![int.clone(), int.clone()],
+            tensor_float_rank0.clone(),
+        ),
         (
             "cross_entropy_loss",
             vec![int.clone(), int.clone()],
-            int.clone(),
+            tensor_float_rank0.clone(),
         ),
-        ("nll_loss", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "nll_loss",
+            vec![int.clone(), int.clone()],
+            tensor_float_rank0.clone(),
+        ),
         ("sgd_step", vec![int.clone(), float.clone()], unit.clone()),
         (
             "sgd_momentum_step",

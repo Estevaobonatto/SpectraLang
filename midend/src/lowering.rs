@@ -3783,7 +3783,7 @@ impl ASTLowering {
                         let ty = self.lower_type_annotation(type_ann);
                         matches!(ty, IRType::Tensor { .. }).then_some(ty)
                     });
-                    let value = if let Some(IRType::Tensor { dtype, rank }) =
+                    let value = if let Some(IRType::Tensor { dtype, rank, .. }) =
                         annotated_tensor_type.as_ref()
                     {
                         if let Some(value) =
@@ -6604,12 +6604,15 @@ impl ASTLowering {
                 }
             }
             TypeAnnotationKind::Generic { name, type_args } => {
-                if name == "Tensor" && (type_args.len() == 1 || type_args.len() == 2) {
+                if name == "Tensor" && !type_args.is_empty() {
                     let dtype = self.lower_type_annotation_with_map(&type_args[0], substitutions);
-                    let rank = type_args.get(1).and_then(tensor_rank_annotation);
+                    let meta = tensor_metadata(&type_args[1..]);
                     return IRType::Tensor {
                         dtype: Box::new(dtype),
-                        rank,
+                        rank: meta.rank,
+                        dims: meta.dims,
+                        layout: meta.layout,
+                        device: meta.device,
                     };
                 }
 
@@ -6749,9 +6752,18 @@ impl ASTLowering {
                     return_type: ir_return,
                 }
             }
-            ASTType::Tensor { dtype, rank } => IRType::Tensor {
+            ASTType::Tensor {
+                dtype,
+                rank,
+                dims,
+                layout,
+                device,
+            } => IRType::Tensor {
                 dtype: Box::new(self.lower_type(dtype)),
                 rank: *rank,
+                dims: dims.clone(),
+                layout: layout.clone(),
+                device: device.clone(),
             },
             ASTType::DynTrait { trait_name } => IRType::DynTrait {
                 trait_name: trait_name.clone(),
@@ -7167,6 +7179,9 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Tensor {
                     dtype: Box::new(IRType::Float),
                     rank: Some(1),
+                    dims: None,
+                    layout: None,
+                    device: None,
                 },
                 returns_value: true,
             }),
@@ -7175,6 +7190,9 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Tensor {
                     dtype: Box::new(IRType::Float),
                     rank: Some(2),
+                    dims: None,
+                    layout: None,
+                    device: None,
                 },
                 returns_value: true,
             }),
@@ -7865,6 +7883,9 @@ fn host_tensor_rank0(runtime_name: &'static str) -> HostFunctionDescriptor {
         return_type: IRType::Tensor {
             dtype: Box::new(IRType::Float),
             rank: Some(0),
+            dims: None,
+            layout: None,
+            device: None,
         },
         returns_value: true,
     }
@@ -7876,18 +7897,68 @@ fn host_tensor_dynamic(runtime_name: &'static str) -> HostFunctionDescriptor {
         return_type: IRType::Tensor {
             dtype: Box::new(IRType::Float),
             rank: None,
+            dims: None,
+            layout: None,
+            device: None,
         },
         returns_value: true,
     }
 }
 
-fn tensor_rank_annotation(type_ann: &TypeAnnotation) -> Option<usize> {
-    match &type_ann.kind {
-        TypeAnnotationKind::Simple { segments } if segments.len() == 1 => {
-            segments[0].strip_prefix("rank")?.parse::<usize>().ok()
+#[derive(Debug, Default)]
+struct LoweredTensorMetadata {
+    rank: Option<usize>,
+    dims: Option<Vec<Option<usize>>>,
+    layout: Option<String>,
+    device: Option<String>,
+}
+
+fn tensor_metadata(type_args: &[TypeAnnotation]) -> LoweredTensorMetadata {
+    let mut meta = LoweredTensorMetadata::default();
+    let mut dims = Vec::new();
+
+    for ann in type_args {
+        let TypeAnnotationKind::Simple { segments } = &ann.kind else {
+            continue;
+        };
+        if segments.len() != 1 {
+            continue;
         }
-        _ => None,
+        let name = segments[0].clone();
+
+        if let Some(rank) = name
+            .strip_prefix("rank")
+            .and_then(|raw| raw.parse::<usize>().ok())
+        {
+            meta.rank = Some(rank);
+            continue;
+        }
+        if let Some(dim) = name
+            .strip_prefix("dim")
+            .and_then(|raw| raw.parse::<usize>().ok())
+        {
+            dims.push(Some(dim));
+            continue;
+        }
+        match name.as_str() {
+            "dyn" | "dynamic_dim" | "dim_dynamic" => dims.push(None),
+            "dynamic" => meta.rank = None,
+            "row_major" | "col_major" | "contiguous" | "strided" => meta.layout = Some(name),
+            "cpu" | "wgpu" | "cuda" | "rocm" | "metal" | "directml" | "vulkan" => {
+                meta.device = Some(name)
+            }
+            _ => {}
+        }
     }
+
+    if !dims.is_empty() {
+        if meta.rank.is_none() {
+            meta.rank = Some(dims.len());
+        }
+        meta.dims = Some(dims);
+    }
+
+    meta
 }
 
 impl Default for ASTLowering {

@@ -33,10 +33,13 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
-    /// Tensor handle with compiler-visible dtype/rank metadata.
+    /// Tensor handle with compiler-visible dtype, rank, shape, layout, and device metadata.
     Tensor {
         dtype: Box<Type>,
         rank: Option<usize>,
+        dims: Option<Vec<Option<usize>>>,
+        layout: Option<String>,
+        device: Option<String>,
     },
     /// Dynamic trait object: dyn TraitName
     DynTrait {

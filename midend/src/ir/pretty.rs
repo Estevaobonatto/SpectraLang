@@ -401,10 +401,35 @@ fn fmt_type(ty: &Type) -> String {
                 .join(", ");
             format!("fn({}) -> {}", params, fmt_type(return_type))
         }
-        Type::Tensor { dtype, rank } => match rank {
-            Some(rank) => format!("Tensor<{}, rank{}>", fmt_type(dtype), rank),
-            None => format!("Tensor<{}, dynamic>", fmt_type(dtype)),
-        },
+        Type::Tensor {
+            dtype,
+            rank,
+            dims,
+            layout,
+            device,
+        } => {
+            let mut parts = vec![fmt_type(dtype)];
+            if let Some(rank) = rank {
+                parts.push(format!("rank{}", rank));
+            } else {
+                parts.push("dynamic".to_string());
+            }
+            if let Some(dims) = dims {
+                for dim in dims {
+                    parts.push(match dim {
+                        Some(size) => format!("dim{}", size),
+                        None => "dyn".to_string(),
+                    });
+                }
+            }
+            if let Some(layout) = layout {
+                parts.push(layout.clone());
+            }
+            if let Some(device) = device {
+                parts.push(device.clone());
+            }
+            format!("Tensor<{}>", parts.join(", "))
+        }
         Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
     }
 }
