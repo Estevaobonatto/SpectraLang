@@ -86,6 +86,10 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - six end-to-end AI reference examples under `examples/ai/`
   - automated book/example discoverability validation through `scripts/validate_ai_book.py`
   - AI example execution integrated into `run_tests.ps1`
+- Phase 15 numerical performance benchmark baseline:
+  - release-mode benchmark suite for tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, and data loading
+  - checked-in performance thresholds in `docs/performance/r1501-benchmark-baseline.json`
+  - CI-style validation through `scripts/validate_r1501_bench.py` and `run_tests.ps1`
 
 ### Beta
 

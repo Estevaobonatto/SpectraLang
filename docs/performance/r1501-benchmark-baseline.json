@@ -1,0 +1,40 @@
+{
+  "schema": "spectra.r1501.baseline.v1",
+  "updated": "2026-06-06",
+  "profile": "release",
+  "threshold_policy": "Thresholds are generous enough for shared CI machines, but still fail severe runtime, correctness, or accidental debug-mode regressions.",
+  "benchmarks": {
+    "tensor_creation_full_f": {
+      "category": "tensor_creation",
+      "max_ns_per_iter": 5000000
+    },
+    "tensor_unary_relu": {
+      "category": "unary_ops",
+      "max_ns_per_iter": 10000000
+    },
+    "tensor_reduction_sum_f": {
+      "category": "reductions",
+      "max_ns_per_iter": 5000000
+    },
+    "tensor_matmul_32x32": {
+      "category": "matmul",
+      "max_ns_per_iter": 20000000
+    },
+    "ml_conv2d_8x8_k3": {
+      "category": "convolution",
+      "max_ns_per_iter": 20000000
+    },
+    "autodiff_square_sum_backward": {
+      "category": "autodiff",
+      "max_ns_per_iter": 25000000
+    },
+    "ml_optimizer_sgd_linear": {
+      "category": "optimizer_steps",
+      "max_ns_per_iter": 25000000
+    },
+    "ml_dataloader_batches": {
+      "category": "data_loading",
+      "max_ns_per_iter": 10000000
+    }
+  }
+}

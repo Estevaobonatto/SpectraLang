@@ -1350,7 +1350,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1501 Numerical Performance Benchmark Suite
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-401`, `R-1003`
@@ -1366,6 +1366,13 @@ the next tracked development cycle toward a broader AI/ML platform.
 - benchmarks cover tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, and data loading
 - release-mode benchmark output is machine-readable and compared against checked-in baselines
 - CI can fail on configured correctness or performance regressions
+
+### Completion evidence
+
+- `runtime/examples/numerical_performance_bench.rs` runs the release-mode runtime benchmark suite and emits schema `spectra.r1501.benchmark.v1` JSON.
+- `docs/performance/r1501-benchmark-baseline.json` stores checked-in thresholds for every required benchmark category.
+- `scripts/validate_r1501_bench.py` runs the release benchmark, writes `target/r1501-benchmark-report.json`, checks correctness, verifies category coverage, and fails when `ns_per_iter` exceeds configured thresholds.
+- `run_tests.ps1` includes `validate_r1501_bench` as the `phase15-performance` gate.
 
 ## R-1502 Memory Planner and Tensor Lifetime Analysis
 

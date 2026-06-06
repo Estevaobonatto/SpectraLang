@@ -753,6 +753,19 @@ if ($debuggerStackTraces.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase10-debugger"; Teste = "validate_debugger_stack_traces"; Status = $debuggerStackTraces.Status; Detalhe = $debuggerStackTraces.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.9: R-1501 numerical performance benchmark gate
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1501 numerical performance benchmarks ---" -ForegroundColor Yellow
+$r1501Bench = Invoke-HostCommand -name "validate_r1501_bench" -fileName "python" -arguments @("scripts\validate_r1501_bench.py") -workingDir (Get-Location).Path
+if ($r1501Bench.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase15-performance"; Teste = "validate_r1501_bench"; Status = $r1501Bench.Status; Detalhe = $r1501Bench.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

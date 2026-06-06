@@ -1355,6 +1355,16 @@ regression tracking.
 - `R-1502 Memory Planner and Tensor Lifetime Analysis`: tensor lifetime metadata, temporary reuse, peak memory reports, and allocation-site visibility.
 - `R-1503 Numerical Correctness and Determinism Certification`: deterministic RNG/numerics modes, float tolerance policy, and cross-platform correctness artifacts.
 
+### Current Implementation State
+
+Status: R-1501 is complete; R-1502 and R-1503 remain not started.
+
+Completed:
+
+- `runtime/examples/numerical_performance_bench.rs` provides release-mode JSON benchmarks for tensor creation, unary ops, reductions, matmul, convolution, autodiff, optimizer steps, and data loading.
+- `docs/performance/r1501-benchmark-baseline.json` stores checked-in regression thresholds.
+- `scripts/validate_r1501_bench.py` compares observed release results against the baseline and is integrated into `run_tests.ps1`.
+
 ### Acceptance Direction
 
 - Performance must be measured with checked-in baselines.

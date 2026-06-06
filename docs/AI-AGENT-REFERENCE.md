@@ -2533,6 +2533,9 @@ Validation:
 - `scripts/ai_examples_benchmark.py` emits JSON timing evidence for all AI
   examples.
 - `run_tests.ps1` runs the Phase 13 book validation and all AI examples.
+- `scripts/validate_r1501_bench.py` runs the Phase 15 release numerical
+  benchmark gate, writes `target/r1501-benchmark-report.json`, and compares
+  runtime results against `docs/performance/r1501-benchmark-baseline.json`.
 
 Current limit: Phase 13 examples use deterministic toy datasets and text export
 artifacts. Large real datasets, network serving examples, notebooks backed by
