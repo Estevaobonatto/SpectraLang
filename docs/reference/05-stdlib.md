@@ -1013,6 +1013,10 @@ import std.ml as ml;
 | `dataset_train_split`, `dataset_test_split` | Deterministic train/test dataset splits |
 | `dataloader_new`, `dataloader_batch_count`, `dataloader_batch_features`, `dataloader_batch_labels` | Deterministic minibatching |
 | `dataframe_from_csv`, `dataframe_rows`, `dataframe_cols`, `dataframe_column` | Numeric dataframe handles and column extraction |
+| `experiment_start`, `experiment_finish` | Tracked experiment lifecycle |
+| `experiment_set_config`, `experiment_log_metric`, `experiment_log_artifact` | Experiment config, metrics, and artifacts |
+| `experiment_set_lockfile`, `experiment_set_model_output` | Reproducibility lockfile and model output records |
+| `experiment_manifest_path`, `experiment_repro_command`, `experiment_compare_manifests` | Manifest path, reproduction command, and manifest comparison |
 
 Exemplos completos estão em:
 

@@ -1555,7 +1555,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1702 Experiment Tracking and Reproducibility
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-901`, `R-1701`
@@ -1569,9 +1569,20 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Acceptance
 
-- training runs emit a structured experiment manifest
-- metrics and artifacts can be compared across runs
-- a documented command reproduces a reference training result from lockfile and manifest
+- Training runs emit a structured experiment manifest.
+- Metrics and artifacts can be compared across runs.
+- A documented command reproduces a reference training result from lockfile and manifest.
+
+### Completed Evidence
+
+- `std.ml` exposes `experiment_start`, config/metric/artifact logging, lockfile/model output attachment, `experiment_finish`, manifest path, reproduction command, and manifest comparison APIs.
+- The runtime writes schema `spectra.ml.experiment.v1` with seed, configs, metrics, artifacts, lockfile, model output, manifest path, and reproduction command.
+- Artifact, lockfile, and model output records include size and FNV-1a 64-bit content hash.
+- `ml.experiment_compare_manifests` compares configs, metrics, artifacts, lockfile, model output, and seed while ignoring run directory differences.
+- `tests/validation/93_ml_phase17_experiment_tracking.spectra` validates the public language API.
+- `examples/ai/experiment_tracking_reproducibility.spectra` emits a tracked AI training-run manifest.
+- `scripts/validate_r1702_experiment_tracking.py` parses the example manifest and validates schema, metrics, artifacts, lockfile, model output, seed, and reproduction command.
+- `run_tests.ps1` includes the `phase17-experiments` gate.
 
 ## R-1703 Distributed Training Foundations
 

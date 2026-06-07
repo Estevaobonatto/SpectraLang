@@ -105,6 +105,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `std.ml` loads CSV, JSONL, NPY, and directory-backed numeric datasets into tensor-backed dataset handles
   - dataset transforms, label filtering, train/test split, seeded dataloaders, and numeric dataframe column extraction are available through stable APIs
   - `scripts/validate_r1701_data_runtime.py` and `tests/validation/92_ml_phase17_data_runtime.spectra` validate file-backed tabular training without Python glue
+  - `std.ml` emits experiment manifests with configs, metrics, artifacts, seeds, lockfiles, model outputs, reproduction commands, and manifest comparison
+  - `scripts/validate_r1702_experiment_tracking.py` and `tests/validation/93_ml_phase17_experiment_tracking.spectra` validate reproducible experiment tracking
 
 ### Beta
 

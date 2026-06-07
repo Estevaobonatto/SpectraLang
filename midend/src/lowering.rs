@@ -7402,6 +7402,32 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "dataframe_rows") => Some(host_int("spectra.std.ml.dataframe_rows")),
             ("ml", "dataframe_cols") => Some(host_int("spectra.std.ml.dataframe_cols")),
             ("ml", "dataframe_column") => Some(host_int("spectra.std.ml.dataframe_column")),
+            ("ml", "experiment_start") => Some(host_int("spectra.std.ml.experiment_start")),
+            ("ml", "experiment_set_config") => {
+                Some(host_void("spectra.std.ml.experiment_set_config"))
+            }
+            ("ml", "experiment_log_metric") => {
+                Some(host_void("spectra.std.ml.experiment_log_metric"))
+            }
+            ("ml", "experiment_log_artifact") => {
+                Some(host_void("spectra.std.ml.experiment_log_artifact"))
+            }
+            ("ml", "experiment_set_lockfile") => {
+                Some(host_void("spectra.std.ml.experiment_set_lockfile"))
+            }
+            ("ml", "experiment_set_model_output") => {
+                Some(host_void("spectra.std.ml.experiment_set_model_output"))
+            }
+            ("ml", "experiment_finish") => Some(host_void("spectra.std.ml.experiment_finish")),
+            ("ml", "experiment_manifest_path") => {
+                Some(host_string("spectra.std.ml.experiment_manifest_path"))
+            }
+            ("ml", "experiment_repro_command") => {
+                Some(host_string("spectra.std.ml.experiment_repro_command"))
+            }
+            ("ml", "experiment_compare_manifests") => {
+                Some(host_int("spectra.std.ml.experiment_compare_manifests"))
+            }
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

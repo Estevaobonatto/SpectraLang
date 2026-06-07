@@ -118,5 +118,9 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.dataset_map_features` / `dataset_filter_label_min` / `dataset_train_split` / `dataset_test_split` | Dataset transforms and deterministic train/test splitting. | dataset handle, transform/split parameters | dataset handle |
 | `spectra.std.ml.dataloader_new` / `dataloader_batch_*` | Deterministic minibatch access. | dataset/loader, batch index | loader handle, count, or tensor handle |
 | `spectra.std.ml.dataframe_from_csv` / `dataframe_rows` / `dataframe_cols` / `dataframe_column` | Numeric dataframe handles and column extraction. | path/frame/column | frame metadata or tensor handle |
+| `spectra.std.ml.experiment_start` / `experiment_finish` | Create and finish tracked experiment runs. | name, output directory, seed or experiment handle | experiment handle or `0` |
+| `spectra.std.ml.experiment_set_config` / `experiment_log_metric` / `experiment_log_artifact` | Record configs, metrics, and hashed artifacts. | experiment handle plus record data | `0` |
+| `spectra.std.ml.experiment_set_lockfile` / `experiment_set_model_output` | Attach reproducibility lockfile and model output artifacts. | experiment handle, path | `0` |
+| `spectra.std.ml.experiment_manifest_path` / `experiment_repro_command` / `experiment_compare_manifests` | Query manifest path, reproduction command, and compare equivalent run evidence. | experiment handle or manifest paths | string or integer comparison result |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

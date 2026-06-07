@@ -311,6 +311,16 @@ const ML_DATAFRAME_FROM_CSV: &str = "spectra.std.ml.dataframe_from_csv";
 const ML_DATAFRAME_ROWS: &str = "spectra.std.ml.dataframe_rows";
 const ML_DATAFRAME_COLS: &str = "spectra.std.ml.dataframe_cols";
 const ML_DATAFRAME_COLUMN: &str = "spectra.std.ml.dataframe_column";
+const ML_EXPERIMENT_START: &str = "spectra.std.ml.experiment_start";
+const ML_EXPERIMENT_SET_CONFIG: &str = "spectra.std.ml.experiment_set_config";
+const ML_EXPERIMENT_LOG_METRIC: &str = "spectra.std.ml.experiment_log_metric";
+const ML_EXPERIMENT_LOG_ARTIFACT: &str = "spectra.std.ml.experiment_log_artifact";
+const ML_EXPERIMENT_SET_LOCKFILE: &str = "spectra.std.ml.experiment_set_lockfile";
+const ML_EXPERIMENT_SET_MODEL_OUTPUT: &str = "spectra.std.ml.experiment_set_model_output";
+const ML_EXPERIMENT_FINISH: &str = "spectra.std.ml.experiment_finish";
+const ML_EXPERIMENT_MANIFEST_PATH: &str = "spectra.std.ml.experiment_manifest_path";
+const ML_EXPERIMENT_REPRO_COMMAND: &str = "spectra.std.ml.experiment_repro_command";
+const ML_EXPERIMENT_COMPARE_MANIFESTS: &str = "spectra.std.ml.experiment_compare_manifests";
 
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
@@ -594,6 +604,22 @@ fn register_ml() {
     register_host_function(ML_DATAFRAME_ROWS, std_ml_dataframe_rows);
     register_host_function(ML_DATAFRAME_COLS, std_ml_dataframe_cols);
     register_host_function(ML_DATAFRAME_COLUMN, std_ml_dataframe_column);
+    register_host_function(ML_EXPERIMENT_START, std_ml_experiment_start);
+    register_host_function(ML_EXPERIMENT_SET_CONFIG, std_ml_experiment_set_config);
+    register_host_function(ML_EXPERIMENT_LOG_METRIC, std_ml_experiment_log_metric);
+    register_host_function(ML_EXPERIMENT_LOG_ARTIFACT, std_ml_experiment_log_artifact);
+    register_host_function(ML_EXPERIMENT_SET_LOCKFILE, std_ml_experiment_set_lockfile);
+    register_host_function(
+        ML_EXPERIMENT_SET_MODEL_OUTPUT,
+        std_ml_experiment_set_model_output,
+    );
+    register_host_function(ML_EXPERIMENT_FINISH, std_ml_experiment_finish);
+    register_host_function(ML_EXPERIMENT_MANIFEST_PATH, std_ml_experiment_manifest_path);
+    register_host_function(ML_EXPERIMENT_REPRO_COMMAND, std_ml_experiment_repro_command);
+    register_host_function(
+        ML_EXPERIMENT_COMPARE_MANIFESTS,
+        std_ml_experiment_compare_manifests,
+    );
 }
 
 fn register_concurrent() {
@@ -4706,12 +4732,42 @@ struct MlDataFrame {
     data: Vec<f64>,
 }
 
+#[derive(Clone)]
+struct MlMetricRecord {
+    name: String,
+    value: f64,
+    step: i64,
+}
+
+#[derive(Clone)]
+struct MlArtifactRecord {
+    path: String,
+    size: u64,
+    fnv64: String,
+}
+
+#[derive(Clone)]
+struct MlExperiment {
+    name: String,
+    out_dir: String,
+    seed: i64,
+    configs: Vec<(String, String)>,
+    metrics: Vec<MlMetricRecord>,
+    artifacts: Vec<MlArtifactRecord>,
+    lockfile: Option<MlArtifactRecord>,
+    model_output: Option<MlArtifactRecord>,
+    manifest_path: String,
+    reproduction_command: String,
+    finished: bool,
+}
+
 struct MlRegistry {
     next_id: usize,
     modules: HashMap<usize, MlModule>,
     datasets: HashMap<usize, MlDataset>,
     loaders: HashMap<usize, MlDataLoader>,
     dataframes: HashMap<usize, MlDataFrame>,
+    experiments: HashMap<usize, MlExperiment>,
 }
 
 impl MlRegistry {
@@ -4722,6 +4778,7 @@ impl MlRegistry {
             datasets: HashMap::new(),
             loaders: HashMap::new(),
             dataframes: HashMap::new(),
+            experiments: HashMap::new(),
         }
     }
 
@@ -5786,6 +5843,181 @@ fn ml_dataset_subset(dataset: MlDataset, start: usize, len: usize) -> Result<usi
     )
 }
 
+fn ml_fnv64_file(path: &str) -> Result<(u64, String), i32> {
+    let bytes = std::fs::read(path).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in &bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    Ok((bytes.len() as u64, format!("{hash:016x}")))
+}
+
+fn ml_artifact_record(path: String) -> Result<MlArtifactRecord, i32> {
+    if path.trim().is_empty() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let (size, fnv64) = ml_fnv64_file(&path)?;
+    Ok(MlArtifactRecord { path, size, fnv64 })
+}
+
+fn ml_json_string(value: &str) -> String {
+    format!("\"{}\"", json_escape(value))
+}
+
+fn ml_artifact_json(record: &MlArtifactRecord) -> String {
+    format!(
+        "{{\"path\":{},\"size\":{},\"fnv64\":{}}}",
+        ml_json_string(&record.path),
+        record.size,
+        ml_json_string(&record.fnv64)
+    )
+}
+
+fn ml_experiment_manifest_json(experiment: &MlExperiment) -> String {
+    let mut configs = experiment.configs.clone();
+    configs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let configs_json = configs
+        .iter()
+        .map(|(key, value)| {
+            format!(
+                "{{\"key\":{},\"value\":{}}}",
+                ml_json_string(key),
+                ml_json_string(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let metrics_json = experiment
+        .metrics
+        .iter()
+        .map(|metric| {
+            format!(
+                "{{\"name\":{},\"step\":{},\"value\":{}}}",
+                ml_json_string(&metric.name),
+                metric.step,
+                metric.value
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let artifacts_json = experiment
+        .artifacts
+        .iter()
+        .map(ml_artifact_json)
+        .collect::<Vec<_>>()
+        .join(",");
+    let lockfile_json = experiment
+        .lockfile
+        .as_ref()
+        .map(ml_artifact_json)
+        .unwrap_or_else(|| "null".to_string());
+    let model_output_json = experiment
+        .model_output
+        .as_ref()
+        .map(ml_artifact_json)
+        .unwrap_or_else(|| "null".to_string());
+    format!(
+        "{{\"schema\":\"spectra.ml.experiment.v1\",\"name\":{},\"seed\":{},\"configs\":[{}],\"metrics\":[{}],\"artifacts\":[{}],\"lockfile\":{},\"model_output\":{},\"manifest_path\":{},\"reproduction_command\":{}}}",
+        ml_json_string(&experiment.name),
+        experiment.seed,
+        configs_json,
+        metrics_json,
+        artifacts_json,
+        lockfile_json,
+        model_output_json,
+        ml_json_string(&experiment.manifest_path),
+        ml_json_string(&experiment.reproduction_command)
+    )
+}
+
+fn ml_manifest_section(source: &str, key: &str) -> Option<String> {
+    let start = source.find(key)? + key.len();
+    let bytes = source.as_bytes();
+    let mut index = start;
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    if index >= bytes.len() || bytes[index] != b':' {
+        return None;
+    }
+    index += 1;
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    let open = *bytes.get(index)?;
+    let close = match open {
+        b'[' => b']',
+        b'{' => b'}',
+        b'"' => b'"',
+        b'n' => return Some("null".to_string()),
+        b'-' | b'0'..=b'9' => {
+            let mut end = index + 1;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_digit()
+                    || matches!(bytes[end], b'.' | b'e' | b'E' | b'+' | b'-'))
+            {
+                end += 1;
+            }
+            return Some(source[index..end].to_string());
+        }
+        _ => return None,
+    };
+    if open == b'"' {
+        let mut end = index + 1;
+        while end < bytes.len() {
+            if bytes[end] == b'"' && bytes[end - 1] != b'\\' {
+                return Some(source[index..=end].to_string());
+            }
+            end += 1;
+        }
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for end in index..bytes.len() {
+        let byte = bytes[end];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if byte == b'"' {
+            in_string = true;
+        } else if byte == open {
+            depth += 1;
+        } else if byte == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(source[index..=end].to_string());
+            }
+        }
+    }
+    None
+}
+
+fn ml_compare_manifest_payloads(left: &str, right: &str) -> bool {
+    for key in [
+        "\"configs\"",
+        "\"metrics\"",
+        "\"artifacts\"",
+        "\"lockfile\"",
+        "\"model_output\"",
+        "\"seed\"",
+    ] {
+        if ml_manifest_section(left, key) != ml_manifest_section(right, key) {
+            return false;
+        }
+    }
+    true
+}
+
 extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
@@ -6251,6 +6483,280 @@ extern "C" fn std_ml_dataframe_column(ctx: *mut SpectraHostCallContext) -> i32 {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }
+    }
+}
+
+extern "C" fn std_ml_experiment_start(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(name) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(out_dir) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let manifest_path = std::path::Path::new(&out_dir)
+            .join("experiment-manifest.json")
+            .to_string_lossy()
+            .to_string();
+        let reproduction_command = format!(
+            "spectralang run <training.spectra> --package-lock spectra.lock --experiment-manifest {}",
+            manifest_path
+        );
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.experiments.insert(
+                handle,
+                MlExperiment {
+                    name,
+                    out_dir,
+                    seed: args[2],
+                    configs: Vec::new(),
+                    metrics: Vec::new(),
+                    artifacts: Vec::new(),
+                    lockfile: None,
+                    model_output: None,
+                    manifest_path,
+                    reproduction_command,
+                    finished: false,
+                },
+            );
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_experiment_set_config(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(key) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(value) = ml_read_path_arg(args[2]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let ok = with_ml_registry(|registry| {
+            let Some(experiment) = registry.experiments.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            if let Some((_, existing)) = experiment
+                .configs
+                .iter_mut()
+                .find(|(existing_key, _)| existing_key == &key)
+            {
+                *existing = value;
+            } else {
+                experiment.configs.push((key, value));
+            }
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_experiment_log_metric(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 4) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(name) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = f64::from_bits(args[2] as u64);
+        if !value.is_finite() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ok = with_ml_registry(|registry| {
+            let Some(experiment) = registry.experiments.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            experiment.metrics.push(MlMetricRecord {
+                name,
+                value,
+                step: args[3],
+            });
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_experiment_log_artifact(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let artifact = match ml_artifact_record(path) {
+            Ok(record) => record,
+            Err(code) => return code,
+        };
+        let ok = with_ml_registry(|registry| {
+            let Some(experiment) = registry.experiments.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            experiment.artifacts.push(artifact);
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_experiment_set_lockfile(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let lockfile = match ml_artifact_record(path) {
+            Ok(record) => record,
+            Err(code) => return code,
+        };
+        let ok = with_ml_registry(|registry| {
+            let Some(experiment) = registry.experiments.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            experiment.lockfile = Some(lockfile);
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_experiment_set_model_output(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let output = match ml_artifact_record(path) {
+            Ok(record) => record,
+            Err(code) => return code,
+        };
+        let ok = with_ml_registry(|registry| {
+            let Some(experiment) = registry.experiments.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            experiment.model_output = Some(output);
+            true
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_experiment_finish(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((out_dir, manifest_path, payload)) = with_ml_registry(|registry| {
+            let experiment = registry.experiments.get_mut(&(args[0] as usize))?;
+            experiment.finished = true;
+            Some((
+                experiment.out_dir.clone(),
+                experiment.manifest_path.clone(),
+                ml_experiment_manifest_json(experiment),
+            ))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if std::fs::create_dir_all(&out_dir).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        if std::fs::write(&manifest_path, payload.as_bytes()).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        tensor_optional_result(ctx_ref, 0)
+    }
+}
+
+extern "C" fn std_ml_experiment_manifest_path(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = with_ml_registry(|registry| {
+            registry
+                .experiments
+                .get(&(args[0] as usize))
+                .map(|experiment| experiment.manifest_path.clone())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, alloc_spectra_string(&path))
+    }
+}
+
+extern "C" fn std_ml_experiment_repro_command(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(command) = with_ml_registry(|registry| {
+            registry
+                .experiments
+                .get(&(args[0] as usize))
+                .map(|experiment| experiment.reproduction_command.clone())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, alloc_spectra_string(&command))
+    }
+}
+
+extern "C" fn std_ml_experiment_compare_manifests(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(left_path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(right_path) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let left = match std::fs::read_to_string(&left_path) {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_NOT_FOUND,
+        };
+        let right = match std::fs::read_to_string(&right_path) {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_NOT_FOUND,
+        };
+        tensor_result(
+            ctx_ref,
+            if ml_compare_manifest_payloads(&left, &right) {
+                1
+            } else {
+                0
+            },
+        )
     }
 }
 
@@ -11114,6 +11620,152 @@ mod tests {
         let (status, column_sum_bits) = call_host(TENSOR_SUM_F, &[column]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!((f64::from_bits(column_sum_bits as u64) - 14.0).abs() < 1e-9);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn ml_phase17_experiment_tracking_manifests_compare_and_repro_command() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        let dir = std::env::temp_dir().join(format!(
+            "spectra_r1702_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let run_a = dir.join("run_a");
+        let run_b = dir.join("run_b");
+        let run_c = dir.join("run_c");
+        std::fs::create_dir_all(&dir).expect("create temp experiment dir");
+        let lockfile = dir.join("spectra.lock");
+        let model = dir.join("model.txt");
+        let artifact = dir.join("metrics.txt");
+        std::fs::write(&lockfile, "package root 1.0.0\n").expect("write lockfile");
+        std::fs::write(&model, "weights=2\n").expect("write model");
+        std::fs::write(&artifact, "loss=0.25\n").expect("write artifact");
+
+        let run_a_path = test_string(run_a.to_string_lossy().as_ref());
+        let run_b_path = test_string(run_b.to_string_lossy().as_ref());
+        let run_c_path = test_string(run_c.to_string_lossy().as_ref());
+        let name = test_string("tabular-run");
+        let (status, exp_a) = call_host(ML_EXPERIMENT_START, &[name, run_a_path, 123]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, exp_b) = call_host(ML_EXPERIMENT_START, &[name, run_b_path, 123]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, exp_c) = call_host(ML_EXPERIMENT_START, &[name, run_c_path, 123]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        for exp in [exp_a, exp_b, exp_c] {
+            assert_eq!(
+                call_host(
+                    ML_EXPERIMENT_SET_CONFIG,
+                    &[exp, test_string("lr"), test_string("0.01")]
+                )
+                .0,
+                HOST_STATUS_SUCCESS
+            );
+            assert_eq!(
+                call_host(
+                    ML_EXPERIMENT_SET_LOCKFILE,
+                    &[exp, test_string(lockfile.to_string_lossy().as_ref())]
+                )
+                .0,
+                HOST_STATUS_SUCCESS
+            );
+            assert_eq!(
+                call_host(
+                    ML_EXPERIMENT_SET_MODEL_OUTPUT,
+                    &[exp, test_string(model.to_string_lossy().as_ref())]
+                )
+                .0,
+                HOST_STATUS_SUCCESS
+            );
+            assert_eq!(
+                call_host(
+                    ML_EXPERIMENT_LOG_ARTIFACT,
+                    &[exp, test_string(artifact.to_string_lossy().as_ref())]
+                )
+                .0,
+                HOST_STATUS_SUCCESS
+            );
+        }
+
+        assert_eq!(
+            call_host(
+                ML_EXPERIMENT_LOG_METRIC,
+                &[exp_a, test_string("loss"), 0.25f64.to_bits() as i64, 1]
+            )
+            .0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(
+                ML_EXPERIMENT_LOG_METRIC,
+                &[exp_b, test_string("loss"), 0.25f64.to_bits() as i64, 1]
+            )
+            .0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(
+                ML_EXPERIMENT_LOG_METRIC,
+                &[exp_c, test_string("loss"), 0.5f64.to_bits() as i64, 1]
+            )
+            .0,
+            HOST_STATUS_SUCCESS
+        );
+
+        for exp in [exp_a, exp_b, exp_c] {
+            assert_eq!(
+                call_host(ML_EXPERIMENT_FINISH, &[exp]).0,
+                HOST_STATUS_SUCCESS
+            );
+        }
+
+        let (status, manifest_a_ptr) = call_host(ML_EXPERIMENT_MANIFEST_PATH, &[exp_a]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let manifest_a =
+            unsafe { read_spectra_string(manifest_a_ptr) }.expect("manifest path string");
+        let manifest_text = std::fs::read_to_string(&manifest_a).expect("manifest exists");
+        assert!(manifest_text.contains("\"schema\":\"spectra.ml.experiment.v1\""));
+        assert!(manifest_text.contains("\"metrics\""));
+        assert!(manifest_text.contains("\"lockfile\""));
+        assert!(manifest_text.contains("\"model_output\""));
+
+        let (status, command_ptr) = call_host(ML_EXPERIMENT_REPRO_COMMAND, &[exp_a]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let command = unsafe { read_spectra_string(command_ptr) }.expect("repro command string");
+        assert!(command.contains("spectralang run"));
+        assert!(command.contains("experiment-manifest.json"));
+
+        let manifest_b = run_b.join("experiment-manifest.json");
+        let manifest_c = run_c.join("experiment-manifest.json");
+        assert_eq!(
+            call_host(
+                ML_EXPERIMENT_COMPARE_MANIFESTS,
+                &[
+                    test_string(&manifest_a),
+                    test_string(manifest_b.to_string_lossy().as_ref())
+                ],
+            ),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(
+                ML_EXPERIMENT_COMPARE_MANIFESTS,
+                &[
+                    test_string(&manifest_a),
+                    test_string(manifest_c.to_string_lossy().as_ref())
+                ],
+            ),
+            (HOST_STATUS_SUCCESS, 0)
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

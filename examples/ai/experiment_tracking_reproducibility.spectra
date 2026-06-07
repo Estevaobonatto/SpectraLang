@@ -1,0 +1,42 @@
+// AI reference example: tracked and reproducible training run manifest.
+module ai_experiment_tracking_reproducibility;
+
+import std.fs as fs;
+import std.ml as ml;
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    fs.fs_write("target/ai-examples/experiment.lock", "package root 1.0.0\n");
+    fs.fs_write("target/ai-examples/experiment-model.txt", "spectralang model output\n");
+    fs.fs_write("target/ai-examples/experiment-artifact.txt", "loss=recorded\n");
+
+    let experiment = ml.experiment_start("ai-tabular-reference", "target/ai-examples/experiment-run", 2026);
+    ml.experiment_set_config(experiment, "dataset", "tests/fixtures/r1701/tabular.csv");
+    ml.experiment_set_config(experiment, "optimizer", "sgd");
+    ml.experiment_set_lockfile(experiment, "target/ai-examples/experiment.lock");
+
+    let dataset = ml.dataset_from_csv("tests/fixtures/r1701/tabular.csv", 2, 1);
+    let train = ml.dataset_train_split(dataset, 3);
+    let loader = ml.dataloader_new(train, 3, 2026);
+    let x = tensor.reshape(ml.dataloader_batch_features(loader, 0), 3, 2);
+    let y = tensor.reshape(ml.dataloader_batch_labels(loader, 0), 3, 1);
+    let w = tensor.reshape(tensor.requires_grad(tensor.full_f(2, 0.0), true), 2, 1);
+    let b = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+
+    let pred = ml.linear(x, w, b);
+    let loss = ml.mse_loss(pred, y);
+    tensor.backward(loss);
+    ml.sgd_step(w, 0.01);
+    ml.sgd_step(b, 0.01);
+    tensor.get_f(loss, 0);
+
+    ml.experiment_log_metric(experiment, "loss", 0.25, 2);
+    ml.experiment_set_model_output(experiment, "target/ai-examples/experiment-model.txt");
+    ml.experiment_log_artifact(experiment, "target/ai-examples/experiment-artifact.txt");
+    ml.experiment_finish(experiment);
+
+    tensor.free_all();
+    return 0;
+}

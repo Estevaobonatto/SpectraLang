@@ -1434,7 +1434,7 @@ reproducible training workflows.
 
 ### Current Implementation State
 
-Status: R-1701 is complete for the current production data-runtime baseline; R-1702 and R-1703 remain not started.
+Status: R-1701 and R-1702 are complete for the current production data/experiment baseline; R-1703 remains not started.
 
 Completed:
 
@@ -1442,6 +1442,9 @@ Completed:
 - `std.ml.dataset_map_features`, `dataset_filter_label_min`, `dataset_train_split`, and `dataset_test_split` provide materialized preprocessing and split operations.
 - `std.ml.dataframe_from_csv`, `dataframe_rows`, `dataframe_cols`, and `dataframe_column` provide numeric dataframe inspection and column extraction.
 - `scripts/validate_r1701_data_runtime.py`, `tests/validation/92_ml_phase17_data_runtime.spectra`, and `examples/ai/tabular_dataset_training.spectra` validate file-backed tabular training without Python glue.
+- `std.ml.experiment_start` through `experiment_finish` record structured experiment manifests with configs, metrics, artifacts, seeds, lockfiles, model outputs, and reproduction commands.
+- `std.ml.experiment_compare_manifests` compares run evidence for metrics/artifacts/configs/lockfile/model output/seed.
+- `scripts/validate_r1702_experiment_tracking.py`, `tests/validation/93_ml_phase17_experiment_tracking.spectra`, and `examples/ai/experiment_tracking_reproducibility.spectra` validate reproducible experiment tracking.
 
 ## Phase 18: Model Ecosystem and LLM Workloads
 

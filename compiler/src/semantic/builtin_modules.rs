@@ -821,6 +821,44 @@ fn make_std_ml() -> ModuleExports {
             vec![int.clone(), int.clone()],
             int.clone(),
         ),
+        (
+            "experiment_start",
+            vec![Type::String, Type::String, int.clone()],
+            int.clone(),
+        ),
+        (
+            "experiment_set_config",
+            vec![int.clone(), Type::String, Type::String],
+            unit.clone(),
+        ),
+        (
+            "experiment_log_metric",
+            vec![int.clone(), Type::String, float.clone(), int.clone()],
+            unit.clone(),
+        ),
+        (
+            "experiment_log_artifact",
+            vec![int.clone(), Type::String],
+            unit.clone(),
+        ),
+        (
+            "experiment_set_lockfile",
+            vec![int.clone(), Type::String],
+            unit.clone(),
+        ),
+        (
+            "experiment_set_model_output",
+            vec![int.clone(), Type::String],
+            unit.clone(),
+        ),
+        ("experiment_finish", vec![int.clone()], unit.clone()),
+        ("experiment_manifest_path", vec![int.clone()], Type::String),
+        ("experiment_repro_command", vec![int.clone()], Type::String),
+        (
+            "experiment_compare_manifests",
+            vec![Type::String, Type::String],
+            int.clone(),
+        ),
     ];
 
     for (name, params, return_type) in functions {
