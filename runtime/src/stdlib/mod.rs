@@ -2071,13 +2071,20 @@ impl TensorRegistry {
         let bytes = tensor.storage_bytes();
         self.metrics.active_tensors = self.metrics.active_tensors.saturating_sub(1);
         self.metrics.active_bytes = self.metrics.active_bytes.saturating_sub(bytes);
-        if self.pool.len() < 32
-            && tensor.offset == 0
-            && tensor.is_contiguous()
-            && Arc::strong_count(&tensor.storage) == 1
-        {
+        if tensor.offset == 0 && tensor.is_contiguous() && Arc::strong_count(&tensor.storage) == 1 {
             if let Ok(data) = Arc::try_unwrap(tensor.storage) {
-                self.pool.push(data);
+                let capacity = data.capacity();
+                if self.pool.len() < 32 {
+                    self.pool.push(data);
+                } else if let Some((replace_index, _)) = self
+                    .pool
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, buffer)| buffer.capacity() < capacity)
+                    .min_by_key(|(_, buffer)| buffer.capacity())
+                {
+                    self.pool[replace_index] = data;
+                }
             }
         }
     }

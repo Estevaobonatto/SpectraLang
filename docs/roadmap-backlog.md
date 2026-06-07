@@ -1438,7 +1438,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1601 Tensor Graph IR
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `midend`
 - Dependencies: `R-1401`, `R-1502`
@@ -1454,6 +1454,14 @@ the next tracked development cycle toward a broader AI/ML platform.
 - tensor programs can lower to a graph IR with operators, shapes, dtypes, devices, and dependencies
 - graph validation catches unsupported cycles, shape mismatches, and device-placement conflicts
 - graph dumps are stable enough for snapshot tests
+
+### Completion evidence
+
+- `spectra_midend::TensorGraph::from_ir_module` extracts tensor-producing SSA host calls into graph nodes with operator, shape, dtype, layout, device, dependency, and source metadata.
+- `TensorGraph::validate()` catches cycles, invalid dependencies, matmul shape mismatches, elementwise/loss shape mismatches, and same-device violations.
+- `TensorGraph::stable_dump()` produces deterministic graph dumps; `midend/tests/snapshots/tensor_graph.snap` locks the snapshot format.
+- `midend/tests/tensor_graph_tests.rs` covers a real lowered tensor program plus negative shape, device, and cycle cases.
+- `run_tests.ps1` includes the `phase16-graph` gate through `cargo test -p spectra-midend --test tensor_graph_tests`.
 
 ## R-1602 Graph Optimization and Fusion
 

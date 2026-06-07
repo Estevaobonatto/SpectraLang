@@ -1,0 +1,7 @@
+tensor_graph module tensor_graph_snapshot
+fn main {
+  n0 %3 = create.arange(-) -> dtype=int shape=[4] layout=contiguous device=cpu @b0:i3
+  n1 %6 = reshape(n0) -> dtype=int shape=[2,2] layout=contiguous device=cpu @b0:i6
+  n2 %7 = matmul(n1,n1) -> dtype=int shape=[2,2] layout=contiguous device=cpu @b0:i7
+  n3 %8 = elementwise.relu(n2) -> dtype=int shape=[2,2] layout=contiguous device=cpu @b0:i8
+}

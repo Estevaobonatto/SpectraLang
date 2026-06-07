@@ -1386,6 +1386,18 @@ Compile tensor/model programs to optimized graph and device execution targets.
 - `R-1602 Graph Optimization and Fusion`: elementwise fusion, constant/layout propagation, memory-aware scheduling, and optimized/unoptimized comparisons.
 - `R-1603 Production GPU Backend`: production accelerator coverage for transfer, matmul, reductions, elementwise ops, convolution, and backward kernels with CPU fallback.
 
+### Current Implementation State
+
+Status: R-1601 is complete for the current graph-IR baseline; R-1602 and R-1603 remain not started.
+
+Completed:
+
+- `spectra_midend::TensorGraph` extracts graph-level tensor nodes from lowered SSA host calls without changing the backend ABI.
+- Graph nodes carry operator, shape, dtype, layout, device, dependency, and source-location metadata.
+- `TensorGraph::validate()` catches cycles, invalid dependencies, shape mismatches, and device-placement conflicts.
+- `TensorGraph::stable_dump()` is covered by `midend/tests/snapshots/tensor_graph.snap`.
+- `run_tests.ps1` includes the R-1601 graph validation gate.
+
 ### Acceptance Direction
 
 - Tensor programs should lower to a validated graph representation.

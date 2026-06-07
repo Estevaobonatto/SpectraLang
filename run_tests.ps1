@@ -779,6 +779,19 @@ if ($r1503Correctness.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase15-correctness"; Teste = "validate_r1503_correctness"; Status = $r1503Correctness.Status; Detalhe = $r1503Correctness.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.11: R-1601 tensor graph IR
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1601 tensor graph IR ---" -ForegroundColor Yellow
+$r1601TensorGraph = Invoke-HostCommand -name "tensor_graph_tests" -fileName "cargo" -arguments @("test", "-p", "spectra-midend", "--test", "tensor_graph_tests") -workingDir (Get-Location).Path
+if ($r1601TensorGraph.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase16-graph"; Teste = "tensor_graph_tests"; Status = $r1601TensorGraph.Status; Detalhe = $r1601TensorGraph.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""
