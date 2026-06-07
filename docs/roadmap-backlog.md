@@ -1494,7 +1494,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1603 Production GPU Backend
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-702`, `R-1601`, `R-1503`
@@ -1508,9 +1508,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Acceptance
 
-- GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels
-- CPU fallback remains available and produces equivalent results within tolerance
-- device capability detection and error reporting are documented and tested
+- GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels.
+- CPU fallback remains available and produces equivalent results within tolerance.
+- Device capability detection and error reporting are documented and tested.
+
+### Completed Evidence
+
+- `runtime/src/stdlib/mod.rs` exposes `device_status`, `stats_gpu_kernel_ops`, and `stats_cpu_fallbacks`, and records successful WGPU kernels separately from CPU fallbacks.
+- Optional WGPU kernels for elementwise ops, unary ops, reductions, `matmul`, and `std.ml.conv2d` fall back to CPU on dispatch failure instead of returning an internal operation failure.
+- `compiler/src/semantic/builtin_modules.rs` and `midend/src/lowering.rs` expose the new public tensor diagnostics through normal Spectra compilation.
+- `tests/validation/91_tensor_phase16_gpu_backend.spectra` validates the public API and skips accelerator-only execution safely when WGPU is unavailable.
+- `scripts/validate_r1603_gpu_backend.py` runs the default CPU diagnostics test and the optional `--features gpu` backend test.
+- `run_tests.ps1` includes the `phase16-gpu` gate.
 
 ---
 

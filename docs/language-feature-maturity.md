@@ -98,6 +98,9 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `spectra_midend::TensorGraph` extracts lowered tensor host calls into validated graph nodes with operator, metadata, dependencies, and stable dumps
   - `cargo test -p spectra-midend --test tensor_graph_tests` and `run_tests.ps1` cover snapshot, cycle, shape mismatch, and device mismatch behavior
   - `TensorGraph::optimize` supports deterministic elementwise and reduction-adjacent fusion with optimized/unoptimized graph comparison and stable snapshots
+  - `std.tensor` exposes production GPU capability diagnostics through `device_status`, `stats_gpu_kernel_ops`, `stats_cpu_fallbacks`, `stats_device_transfers`, and `kernel_strategy`
+  - optional WGPU execution covers float transfer, elementwise ops, reductions, `matmul`, `std.ml.conv2d`, and autodiff-required forward kernels while preserving CPU fallback
+  - `scripts/validate_r1603_gpu_backend.py` and `tests/validation/91_tensor_phase16_gpu_backend.spectra` validate the R-1603 backend contract
 
 ### Beta
 

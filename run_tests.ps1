@@ -805,6 +805,19 @@ if ($r1602GraphOptimization.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase16-optimization"; Teste = "tensor_graph_optimization_tests"; Status = $r1602GraphOptimization.Status; Detalhe = $r1602GraphOptimization.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.13: R-1603 production GPU backend
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1603 production GPU backend ---" -ForegroundColor Yellow
+$r1603GpuBackend = Invoke-HostCommand -name "validate_r1603_gpu_backend" -fileName "python" -arguments @("scripts\validate_r1603_gpu_backend.py") -workingDir (Get-Location).Path
+if ($r1603GpuBackend.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase16-gpu"; Teste = "validate_r1603_gpu_backend"; Status = $r1603GpuBackend.Status; Detalhe = $r1603GpuBackend.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

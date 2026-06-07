@@ -7273,6 +7273,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Bool,
                 returns_value: true,
             }),
+            ("tensor", "device_status") => Some(host_int("spectra.std.tensor.device_status")),
             ("tensor", "to_device") => Some(host_int("spectra.std.tensor.to_device")),
             ("tensor", "cpu") => Some(host_int("spectra.std.tensor.cpu")),
             ("tensor", "sync") => Some(host_void("spectra.std.tensor.sync")),
@@ -7303,6 +7304,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }
             ("tensor", "stats_device_transfers") => {
                 Some(host_int("spectra.std.tensor.stats_device_transfers"))
+            }
+            ("tensor", "stats_gpu_kernel_ops") => {
+                Some(host_int("spectra.std.tensor.stats_gpu_kernel_ops"))
+            }
+            ("tensor", "stats_cpu_fallbacks") => {
+                Some(host_int("spectra.std.tensor.stats_cpu_fallbacks"))
             }
             ("tensor", "stats_graph_nodes") => {
                 Some(host_int("spectra.std.tensor.stats_graph_nodes"))

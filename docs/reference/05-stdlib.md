@@ -872,6 +872,7 @@ Rank, dtype, static dimension, layout, and device mismatches fail during `check`
 | `rows`, `cols` | `(handle: int) -> int` |
 | `device` | `(handle: int) -> int` |
 | `device_available` | `(device: int) -> bool` |
+| `device_status` | `(device: int) -> int` |
 | `to_device` | `(handle: int, device: int) -> int` |
 | `cpu` | `(handle: int) -> int` |
 | `sync` | `(handle: int) -> unit` |
@@ -917,6 +918,8 @@ Views share storage where possible. `set` and `set2` apply copy-on-write when st
 | `stats_reused_buffers`, `stats_pool_hits`, `stats_pool_misses`, `stats_scratch_reuses` | Buffer-pool and scratch metrics |
 | `stats_kernel_ops`, `stats_kernel_elements`, `kernel_strategy` | Kernel work and dispatch metrics |
 | `stats_device_transfers` | Device transfer metric |
+| `stats_gpu_kernel_ops` | Successful GPU kernel dispatch count |
+| `stats_cpu_fallbacks` | GPU kernel failures recovered through CPU fallback |
 | `stats_lifetime_records`, `stats_released_lifetimes` | Tensor lifetime planning counters |
 | `stats_allocation_sites`, `stats_reuse_rate_per_mille` | Allocation-site visibility and buffer reuse rate |
 | `memory_report()` | JSON memory report with schema `spectra.tensor.memory_report.v1` |
@@ -973,7 +976,7 @@ pub fn main() -> int {
 }
 ```
 
-Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `to_device`, `cpu`, `sync` e `stats_device_transfers`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14: `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>`, literais rank1/rank2, validação estática de shape em operações principais e `diff { ... }` com diagnóstico `E1406` estão completos para o baseline atual. Estado Phase 15/R-1501: `scripts/validate_r1501_bench.py` executa benchmarks release de criação de tensor, unary ops, reductions, matmul, convolução, autodiff, otimizadores e data loading contra thresholds versionados. Estado Phase 15/R-1502: `std.tensor.memory_report()` e métricas `stats_lifetime_records`/`stats_reuse_rate_per_mille` expõem lifetimes, allocation sites, reuse e pressão de memória. Estado Phase 15/R-1503: `scripts/validate_r1503_correctness.py` gera artefatos portáteis de correção numérica para RNG, reductions, matmul, convolução e otimizadores com tolerância `1e-9` absoluta/relativa.
+Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7/16: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `device_status`, `to_device`, `cpu`, `sync`, `stats_device_transfers`, `stats_gpu_kernel_ops` e `stats_cpu_fallbacks`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. `device_status` retorna `0` disponível, `1` backend existente mas indisponível no build/host, e `2` device reservado não implementado. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14: `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>`, literais rank1/rank2, validação estática de shape em operações principais e `diff { ... }` com diagnóstico `E1406` estão completos para o baseline atual. Estado Phase 15/R-1501: `scripts/validate_r1501_bench.py` executa benchmarks release de criação de tensor, unary ops, reductions, matmul, convolução, autodiff, otimizadores e data loading contra thresholds versionados. Estado Phase 15/R-1502: `std.tensor.memory_report()` e métricas `stats_lifetime_records`/`stats_reuse_rate_per_mille` expõem lifetimes, allocation sites, reuse e pressão de memória. Estado Phase 15/R-1503: `scripts/validate_r1503_correctness.py` gera artefatos portáteis de correção numérica para RNG, reductions, matmul, convolução e otimizadores com tolerância `1e-9` absoluta/relativa. Estado Phase 16/R-1603: `scripts/validate_r1603_gpu_backend.py` valida CPU fallback, WGPU opcional, diagnósticos de capability e kernels de elementwise/reductions/matmul/conv2d/autodiff.
 
 Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
 

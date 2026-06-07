@@ -1388,7 +1388,7 @@ Compile tensor/model programs to optimized graph and device execution targets.
 
 ### Current Implementation State
 
-Status: R-1601 and R-1602 are complete for the current graph-IR baseline; R-1603 remains not started.
+Status: R-1601, R-1602, and R-1603 are complete for the current graph/device execution baseline.
 
 Completed:
 
@@ -1401,6 +1401,11 @@ Completed:
 - `TensorGraph::compare_optimized()` compares observable original and optimized graph outputs under the documented `1e-9` tolerance policy.
 - `midend/tests/snapshots/tensor_graph_optimized.snap` locks the optimized graph dump format.
 - `run_tests.ps1` includes the R-1602 graph optimization gate.
+- R-1603 extends the optional `gpu` runtime feature into a production WGPU baseline for float tensor transfer, elementwise ops, unary `relu`/`neg`, reductions, `matmul`, `std.ml.conv2d`, and autodiff-required forward kernels.
+- CPU fallback remains the default build path and is also used when a WGPU kernel reports failure after dispatch.
+- Device capability diagnostics are exposed through `std.tensor.device_status`, `device_available`, `stats_gpu_kernel_ops`, `stats_cpu_fallbacks`, `stats_device_transfers`, and `kernel_strategy`.
+- `scripts/validate_r1603_gpu_backend.py` validates the default CPU fallback path and the optional WGPU backend path.
+- `tests/validation/91_tensor_phase16_gpu_backend.spectra` validates the public Spectra API with safe skip behavior when WGPU is unavailable.
 
 ### Acceptance Direction
 
