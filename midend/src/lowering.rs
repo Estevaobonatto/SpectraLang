@@ -7375,7 +7375,19 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "exp_lr") => Some(host_float("spectra.std.ml.exp_lr")),
             ("ml", "unscale_grad") => Some(host_void("spectra.std.ml.unscale_grad")),
             ("ml", "dataset_from_tensors") => Some(host_int("spectra.std.ml.dataset_from_tensors")),
+            ("ml", "dataset_from_csv") => Some(host_int("spectra.std.ml.dataset_from_csv")),
+            ("ml", "dataset_from_jsonl") => Some(host_int("spectra.std.ml.dataset_from_jsonl")),
+            ("ml", "dataset_from_npy") => Some(host_int("spectra.std.ml.dataset_from_npy")),
+            ("ml", "dataset_from_directory") => {
+                Some(host_int("spectra.std.ml.dataset_from_directory"))
+            }
             ("ml", "dataset_len") => Some(host_int("spectra.std.ml.dataset_len")),
+            ("ml", "dataset_map_features") => Some(host_int("spectra.std.ml.dataset_map_features")),
+            ("ml", "dataset_filter_label_min") => {
+                Some(host_int("spectra.std.ml.dataset_filter_label_min"))
+            }
+            ("ml", "dataset_train_split") => Some(host_int("spectra.std.ml.dataset_train_split")),
+            ("ml", "dataset_test_split") => Some(host_int("spectra.std.ml.dataset_test_split")),
             ("ml", "dataloader_new") => Some(host_int("spectra.std.ml.dataloader_new")),
             ("ml", "dataloader_batch_count") => {
                 Some(host_int("spectra.std.ml.dataloader_batch_count"))
@@ -7386,6 +7398,10 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "dataloader_batch_labels") => {
                 Some(host_int("spectra.std.ml.dataloader_batch_labels"))
             }
+            ("ml", "dataframe_from_csv") => Some(host_int("spectra.std.ml.dataframe_from_csv")),
+            ("ml", "dataframe_rows") => Some(host_int("spectra.std.ml.dataframe_rows")),
+            ("ml", "dataframe_cols") => Some(host_int("spectra.std.ml.dataframe_cols")),
+            ("ml", "dataframe_column") => Some(host_int("spectra.std.ml.dataframe_column")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

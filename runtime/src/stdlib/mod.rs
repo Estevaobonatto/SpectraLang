@@ -294,11 +294,23 @@ const ML_ADAMW_STEP: &str = "spectra.std.ml.adamw_step";
 const ML_EXP_LR: &str = "spectra.std.ml.exp_lr";
 const ML_UNSCALE_GRAD: &str = "spectra.std.ml.unscale_grad";
 const ML_DATASET_FROM_TENSORS: &str = "spectra.std.ml.dataset_from_tensors";
+const ML_DATASET_FROM_CSV: &str = "spectra.std.ml.dataset_from_csv";
+const ML_DATASET_FROM_JSONL: &str = "spectra.std.ml.dataset_from_jsonl";
+const ML_DATASET_FROM_NPY: &str = "spectra.std.ml.dataset_from_npy";
+const ML_DATASET_FROM_DIRECTORY: &str = "spectra.std.ml.dataset_from_directory";
 const ML_DATASET_LEN: &str = "spectra.std.ml.dataset_len";
+const ML_DATASET_MAP_FEATURES: &str = "spectra.std.ml.dataset_map_features";
+const ML_DATASET_FILTER_LABEL_MIN: &str = "spectra.std.ml.dataset_filter_label_min";
+const ML_DATASET_TRAIN_SPLIT: &str = "spectra.std.ml.dataset_train_split";
+const ML_DATASET_TEST_SPLIT: &str = "spectra.std.ml.dataset_test_split";
 const ML_DATALOADER_NEW: &str = "spectra.std.ml.dataloader_new";
 const ML_DATALOADER_BATCH_COUNT: &str = "spectra.std.ml.dataloader_batch_count";
 const ML_DATALOADER_BATCH_FEATURES: &str = "spectra.std.ml.dataloader_batch_features";
 const ML_DATALOADER_BATCH_LABELS: &str = "spectra.std.ml.dataloader_batch_labels";
+const ML_DATAFRAME_FROM_CSV: &str = "spectra.std.ml.dataframe_from_csv";
+const ML_DATAFRAME_ROWS: &str = "spectra.std.ml.dataframe_rows";
+const ML_DATAFRAME_COLS: &str = "spectra.std.ml.dataframe_cols";
+const ML_DATAFRAME_COLUMN: &str = "spectra.std.ml.dataframe_column";
 
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
@@ -562,7 +574,15 @@ fn register_ml() {
     register_host_function(ML_EXP_LR, std_ml_exp_lr);
     register_host_function(ML_UNSCALE_GRAD, std_ml_unscale_grad);
     register_host_function(ML_DATASET_FROM_TENSORS, std_ml_dataset_from_tensors);
+    register_host_function(ML_DATASET_FROM_CSV, std_ml_dataset_from_csv);
+    register_host_function(ML_DATASET_FROM_JSONL, std_ml_dataset_from_jsonl);
+    register_host_function(ML_DATASET_FROM_NPY, std_ml_dataset_from_npy);
+    register_host_function(ML_DATASET_FROM_DIRECTORY, std_ml_dataset_from_directory);
     register_host_function(ML_DATASET_LEN, std_ml_dataset_len);
+    register_host_function(ML_DATASET_MAP_FEATURES, std_ml_dataset_map_features);
+    register_host_function(ML_DATASET_FILTER_LABEL_MIN, std_ml_dataset_filter_label_min);
+    register_host_function(ML_DATASET_TRAIN_SPLIT, std_ml_dataset_train_split);
+    register_host_function(ML_DATASET_TEST_SPLIT, std_ml_dataset_test_split);
     register_host_function(ML_DATALOADER_NEW, std_ml_dataloader_new);
     register_host_function(ML_DATALOADER_BATCH_COUNT, std_ml_dataloader_batch_count);
     register_host_function(
@@ -570,6 +590,10 @@ fn register_ml() {
         std_ml_dataloader_batch_features,
     );
     register_host_function(ML_DATALOADER_BATCH_LABELS, std_ml_dataloader_batch_labels);
+    register_host_function(ML_DATAFRAME_FROM_CSV, std_ml_dataframe_from_csv);
+    register_host_function(ML_DATAFRAME_ROWS, std_ml_dataframe_rows);
+    register_host_function(ML_DATAFRAME_COLS, std_ml_dataframe_cols);
+    register_host_function(ML_DATAFRAME_COLUMN, std_ml_dataframe_column);
 }
 
 fn register_concurrent() {
@@ -4675,11 +4699,19 @@ struct MlDataLoader {
     shuffle_seed: u64,
 }
 
+#[derive(Clone)]
+struct MlDataFrame {
+    rows: usize,
+    cols: usize,
+    data: Vec<f64>,
+}
+
 struct MlRegistry {
     next_id: usize,
     modules: HashMap<usize, MlModule>,
     datasets: HashMap<usize, MlDataset>,
     loaders: HashMap<usize, MlDataLoader>,
+    dataframes: HashMap<usize, MlDataFrame>,
 }
 
 impl MlRegistry {
@@ -4689,6 +4721,7 @@ impl MlRegistry {
             modules: HashMap::new(),
             datasets: HashMap::new(),
             loaders: HashMap::new(),
+            dataframes: HashMap::new(),
         }
     }
 
@@ -5537,6 +5570,222 @@ extern "C" fn std_ml_unscale_grad(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 }
 
+fn ml_read_path_arg(arg: SpectraHostValue) -> Option<String> {
+    let path = unsafe { read_spectra_string(arg)? };
+    if path.trim().is_empty() {
+        return None;
+    }
+    Some(path)
+}
+
+fn ml_parse_csv_numeric(path: &str, has_header: bool) -> Result<(usize, usize, Vec<f64>), i32> {
+    let content = std::fs::read_to_string(path).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+    let mut rows = 0usize;
+    let mut cols = None;
+    let mut values = Vec::new();
+    for (line_index, raw_line) in content.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if has_header && line_index == 0 {
+            continue;
+        }
+        let parsed = line
+            .split(',')
+            .map(|part| part.trim().parse::<f64>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| HOST_STATUS_INVALID_ARGUMENT)?;
+        if parsed.is_empty() {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+        match cols {
+            Some(expected) if expected != parsed.len() => return Err(HOST_STATUS_INVALID_ARGUMENT),
+            None => cols = Some(parsed.len()),
+            _ => {}
+        }
+        rows = rows.saturating_add(1);
+        values.extend(parsed);
+    }
+    let cols = cols.ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    if rows == 0 {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    Ok((rows, cols, values))
+}
+
+fn ml_dataset_from_flat_parts(
+    features: Vec<f64>,
+    labels: Vec<f64>,
+    len: usize,
+) -> Result<usize, i32> {
+    if len == 0 || features.is_empty() || labels.is_empty() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    if features.len() % len != 0 || labels.len() % len != 0 {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let features_handle = tensor_alloc(
+        TensorDType::Float,
+        vec![len, features.len() / len],
+        f64_values_to_host(&features),
+    )?;
+    let labels_handle = tensor_alloc(
+        TensorDType::Float,
+        vec![len, labels.len() / len],
+        f64_values_to_host(&labels),
+    )?;
+    let handle = with_ml_registry(|registry| {
+        let handle = registry.next_handle();
+        registry.datasets.insert(
+            handle,
+            MlDataset {
+                features: features_handle,
+                labels: labels_handle,
+                len,
+            },
+        );
+        handle
+    });
+    Ok(handle)
+}
+
+fn ml_dataset_from_csv_path(path: &str, label_col: usize, has_header: bool) -> Result<usize, i32> {
+    let (rows, cols, values) = ml_parse_csv_numeric(path, has_header)?;
+    if cols < 2 || label_col >= cols {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let mut features = Vec::with_capacity(rows * (cols - 1));
+    let mut labels = Vec::with_capacity(rows);
+    for row in 0..rows {
+        for col in 0..cols {
+            let value = values[row * cols + col];
+            if col == label_col {
+                labels.push(value);
+            } else {
+                features.push(value);
+            }
+        }
+    }
+    ml_dataset_from_flat_parts(features, labels, rows)
+}
+
+fn ml_parse_json_number_after(key: &str, input: &str) -> Option<f64> {
+    let start = input.find(key)? + key.len();
+    let rest = input[start..].trim_start();
+    let rest = rest.strip_prefix(':')?.trim_start();
+    let end = rest
+        .find(|ch: char| !(ch.is_ascii_digit() || matches!(ch, '-' | '+' | '.' | 'e' | 'E')))
+        .unwrap_or(rest.len());
+    rest[..end].parse::<f64>().ok()
+}
+
+fn ml_parse_json_features(input: &str) -> Option<Vec<f64>> {
+    let key_pos = input.find("\"features\"")?;
+    let after_key = &input[key_pos..];
+    let open = after_key.find('[')? + key_pos;
+    let close = input[open..].find(']')? + open;
+    input[open + 1..close]
+        .split(',')
+        .map(|part| part.trim().parse::<f64>().ok())
+        .collect::<Option<Vec<_>>>()
+}
+
+fn ml_dataset_from_jsonl_path(path: &str) -> Result<usize, i32> {
+    let content = std::fs::read_to_string(path).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+    let mut features = Vec::new();
+    let mut labels = Vec::new();
+    let mut row_width = None;
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let row = ml_parse_json_features(line).ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+        let label =
+            ml_parse_json_number_after("\"label\"", line).ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+        if row.is_empty() {
+            return Err(HOST_STATUS_INVALID_ARGUMENT);
+        }
+        match row_width {
+            Some(expected) if expected != row.len() => return Err(HOST_STATUS_INVALID_ARGUMENT),
+            None => row_width = Some(row.len()),
+            _ => {}
+        }
+        features.extend(row);
+        labels.push(label);
+    }
+    ml_dataset_from_flat_parts(features, labels.clone(), labels.len())
+}
+
+fn ml_parse_npy_f64_1d(path: &str) -> Result<Vec<f64>, i32> {
+    let bytes = std::fs::read(path).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+    if bytes.len() < 16 || &bytes[0..6] != b"\x93NUMPY" || bytes[6] != 1 || bytes[7] != 0 {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let header_len = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+    let header_start = 10usize;
+    let data_start = header_start
+        .checked_add(header_len)
+        .ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    if data_start > bytes.len() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let header = std::str::from_utf8(&bytes[header_start..data_start])
+        .map_err(|_| HOST_STATUS_INVALID_ARGUMENT)?;
+    if !header.contains("'descr': '<f8'") && !header.contains("\"descr\": \"<f8\"") {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    if header.contains("True") {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let open = header.find('(').ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    let close = header[open..]
+        .find(')')
+        .map(|idx| open + idx)
+        .ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    let shape_text = header[open + 1..close].trim().trim_end_matches(',');
+    let len = shape_text
+        .parse::<usize>()
+        .map_err(|_| HOST_STATUS_INVALID_ARGUMENT)?;
+    let expected_bytes = len
+        .checked_mul(8)
+        .and_then(|n| data_start.checked_add(n))
+        .ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    if expected_bytes != bytes.len() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let mut values = Vec::with_capacity(len);
+    for chunk in bytes[data_start..].chunks_exact(8) {
+        values.push(f64::from_le_bytes([
+            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
+        ]));
+    }
+    Ok(values)
+}
+
+fn ml_dataset_subset(dataset: MlDataset, start: usize, len: usize) -> Result<usize, i32> {
+    let (feature_shape, feature_data, _) =
+        ml_tensor_float_data(dataset.features).ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    let (label_shape, label_data, _) =
+        ml_tensor_float_data(dataset.labels).ok_or(HOST_STATUS_INVALID_ARGUMENT)?;
+    if feature_shape.is_empty() || label_shape.is_empty() || feature_shape[0] != dataset.len {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    if start.checked_add(len).unwrap_or(usize::MAX) > dataset.len {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let feature_width = feature_data.len() / dataset.len;
+    let label_width = label_data.len() / dataset.len;
+    let f_start = start * feature_width;
+    let l_start = start * label_width;
+    ml_dataset_from_flat_parts(
+        feature_data[f_start..f_start + len * feature_width].to_vec(),
+        label_data[l_start..l_start + len * label_width].to_vec(),
+        len,
+    )
+}
+
 extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
@@ -5568,6 +5817,98 @@ extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i
     }
 }
 
+extern "C" fn std_ml_dataset_from_csv(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match ml_dataset_from_csv_path(&path, args[1] as usize, args[2] != 0) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dataset_from_jsonl(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match ml_dataset_from_jsonl_path(&path) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dataset_from_npy(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[2] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(features_path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(labels_path) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let features = match ml_parse_npy_f64_1d(&features_path) {
+            Ok(values) => values,
+            Err(code) => return code,
+        };
+        let labels = match ml_parse_npy_f64_1d(&labels_path) {
+            Ok(values) => values,
+            Err(code) => return code,
+        };
+        match ml_dataset_from_flat_parts(features, labels, args[2] as usize) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dataset_from_directory(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let features_path = std::path::Path::new(&path).join("features.csv");
+        let labels_path = std::path::Path::new(&path).join("labels.csv");
+        let (rows, _feature_cols, features) =
+            match ml_parse_csv_numeric(features_path.to_string_lossy().as_ref(), true) {
+                Ok(parts) => parts,
+                Err(code) => return code,
+            };
+        let (label_rows, _label_cols, labels) =
+            match ml_parse_csv_numeric(labels_path.to_string_lossy().as_ref(), true) {
+                Ok(parts) => parts,
+                Err(code) => return code,
+            };
+        if label_rows != rows {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        match ml_dataset_from_flat_parts(features, labels, rows) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
 extern "C" fn std_ml_dataset_len(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
@@ -5583,6 +5924,129 @@ extern "C" fn std_ml_dataset_len(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         tensor_result(ctx_ref, len as SpectraHostValue)
     }
+}
+
+extern "C" fn std_ml_dataset_map_features(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let dataset =
+            with_ml_registry(|registry| registry.datasets.get(&(args[0] as usize)).copied());
+        let Some(dataset) = dataset else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let (feature_shape, feature_data, _) = match ml_tensor_float_data(dataset.features) {
+            Some(parts) => parts,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let (_label_shape, label_data, _) = match ml_tensor_float_data(dataset.labels) {
+            Some(parts) => parts,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        if feature_shape.is_empty() || feature_shape[0] != dataset.len {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let scale = f64::from_bits(args[1] as u64);
+        let bias = f64::from_bits(args[2] as u64);
+        if !scale.is_finite() || !bias.is_finite() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let mapped = feature_data
+            .into_iter()
+            .map(|value| value * scale + bias)
+            .collect::<Vec<_>>();
+        match ml_dataset_from_flat_parts(mapped, label_data, dataset.len) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dataset_filter_label_min(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let dataset =
+            with_ml_registry(|registry| registry.datasets.get(&(args[0] as usize)).copied());
+        let Some(dataset) = dataset else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let (feature_shape, feature_data, _) = match ml_tensor_float_data(dataset.features) {
+            Some(parts) => parts,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let (_label_shape, label_data, _) = match ml_tensor_float_data(dataset.labels) {
+            Some(parts) => parts,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        if feature_shape.is_empty() || dataset.len == 0 || feature_data.len() % dataset.len != 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let min_label = f64::from_bits(args[1] as u64);
+        if !min_label.is_finite() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let feature_width = feature_data.len() / dataset.len;
+        let label_width = label_data.len() / dataset.len;
+        let mut out_features = Vec::new();
+        let mut out_labels = Vec::new();
+        let mut out_len = 0usize;
+        for row in 0..dataset.len {
+            let label = label_data[row * label_width];
+            if label >= min_label {
+                out_features.extend_from_slice(
+                    &feature_data[row * feature_width..row * feature_width + feature_width],
+                );
+                out_labels.extend_from_slice(
+                    &label_data[row * label_width..row * label_width + label_width],
+                );
+                out_len = out_len.saturating_add(1);
+            }
+        }
+        match ml_dataset_from_flat_parts(out_features, out_labels, out_len) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+fn std_ml_dataset_split(ctx: *mut SpectraHostCallContext, train: bool) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let dataset =
+            with_ml_registry(|registry| registry.datasets.get(&(args[0] as usize)).copied());
+        let Some(dataset) = dataset else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let train_len = args[1] as usize;
+        if train_len == 0 || train_len >= dataset.len {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let (start, len) = if train {
+            (0, train_len)
+        } else {
+            (train_len, dataset.len - train_len)
+        };
+        match ml_dataset_subset(dataset, start, len) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_dataset_train_split(ctx: *mut SpectraHostCallContext) -> i32 {
+    std_ml_dataset_split(ctx, true)
+}
+
+extern "C" fn std_ml_dataset_test_split(ctx: *mut SpectraHostCallContext) -> i32 {
+    std_ml_dataset_split(ctx, false)
 }
 
 extern "C" fn std_ml_dataloader_new(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -5698,6 +6162,96 @@ extern "C" fn std_ml_dataloader_batch_features(ctx: *mut SpectraHostCallContext)
 
 extern "C" fn std_ml_dataloader_batch_labels(ctx: *mut SpectraHostCallContext) -> i32 {
     std_ml_dataloader_batch(ctx, true)
+}
+
+extern "C" fn std_ml_dataframe_from_csv(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (rows, cols, data) = match ml_parse_csv_numeric(&path, args[1] != 0) {
+            Ok(parts) => parts,
+            Err(code) => return code,
+        };
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry
+                .dataframes
+                .insert(handle, MlDataFrame { rows, cols, data });
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_dataframe_rows(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(rows) = with_ml_registry(|registry| {
+            registry
+                .dataframes
+                .get(&(args[0] as usize))
+                .map(|frame| frame.rows)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, rows as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_dataframe_cols(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(cols) = with_ml_registry(|registry| {
+            registry
+                .dataframes
+                .get(&(args[0] as usize))
+                .map(|frame| frame.cols)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, cols as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_dataframe_column(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(values) = with_ml_registry(|registry| {
+            let frame = registry.dataframes.get(&(args[0] as usize))?;
+            let col = args[1] as usize;
+            if col >= frame.cols {
+                return None;
+            }
+            Some(
+                (0..frame.rows)
+                    .map(|row| frame.data[row * frame.cols + col])
+                    .collect::<Vec<_>>(),
+            )
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        match tensor_alloc(
+            TensorDType::Float,
+            vec![values.len()],
+            f64_values_to_host(&values),
+        ) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
 }
 
 extern "C" fn std_tensor_seed(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -9635,6 +10189,31 @@ mod tests {
         (status, results[0])
     }
 
+    fn test_string(value: &str) -> SpectraHostValue {
+        unsafe { alloc_spectra_string(value) }
+    }
+
+    fn write_test_npy(path: &std::path::Path, values: &[f64]) {
+        let mut header = format!(
+            "{{'descr': '<f8', 'fortran_order': False, 'shape': ({},), }}",
+            values.len()
+        );
+        let preamble_len = 10usize;
+        let padding = (16 - ((preamble_len + header.len() + 1) % 16)) % 16;
+        header.push_str(&" ".repeat(padding));
+        header.push('\n');
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"\x93NUMPY");
+        bytes.push(1);
+        bytes.push(0);
+        bytes.extend_from_slice(&(header.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(header.as_bytes());
+        for value in values {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        std::fs::write(path, bytes).expect("write test npy");
+    }
+
     #[test]
     fn math_abs_host_function_produces_positive_value() {
         let _lock = test_guard();
@@ -10403,6 +10982,140 @@ mod tests {
         assert!(report.contains("\"release_step\""));
         assert!(report.contains("\"reuse_rate_per_mille\""));
         assert!(report.contains("\"tensors\""));
+    }
+
+    #[test]
+    fn ml_phase17_dataset_dataframe_file_loaders_transforms_and_splits() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+
+        let dir = std::env::temp_dir().join(format!(
+            "spectra_r1701_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp data dir");
+        let csv = dir.join("tabular.csv");
+        std::fs::write(
+            &csv,
+            "f0,f1,label\n1.0,2.0,0.0\n2.0,3.0,1.0\n3.0,4.0,1.0\n4.0,5.0,0.0\n",
+        )
+        .expect("write csv");
+        let jsonl = dir.join("rows.jsonl");
+        std::fs::write(
+            &jsonl,
+            "{\"features\":[1.0,2.0],\"label\":0.0}\n{\"features\":[2.0,3.0],\"label\":1.0}\n",
+        )
+        .expect("write jsonl");
+        let features_npy = dir.join("features.npy");
+        let labels_npy = dir.join("labels.npy");
+        write_test_npy(&features_npy, &[1.0, 2.0, 2.0, 3.0]);
+        write_test_npy(&labels_npy, &[0.0, 1.0]);
+        let directory_dataset = dir.join("directory_dataset");
+        std::fs::create_dir_all(&directory_dataset).expect("create directory dataset");
+        std::fs::write(
+            directory_dataset.join("features.csv"),
+            "x0,x1\n1.0,2.0\n2.0,3.0\n3.0,4.0\n",
+        )
+        .expect("write directory features");
+        std::fs::write(directory_dataset.join("labels.csv"), "y\n0.0\n1.0\n1.0\n")
+            .expect("write directory labels");
+
+        let csv_path = test_string(csv.to_string_lossy().as_ref());
+        let (status, dataset) = call_host(ML_DATASET_FROM_CSV, &[csv_path, 2, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[dataset]),
+            (HOST_STATUS_SUCCESS, 4)
+        );
+
+        let (status, mapped) = call_host(
+            ML_DATASET_MAP_FEATURES,
+            &[dataset, 2.0f64.to_bits() as i64, 1.0f64.to_bits() as i64],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, filtered) = call_host(
+            ML_DATASET_FILTER_LABEL_MIN,
+            &[mapped, 1.0f64.to_bits() as i64],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[filtered]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        let (status, train) = call_host(ML_DATASET_TRAIN_SPLIT, &[dataset, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, test) = call_host(ML_DATASET_TEST_SPLIT, &[dataset, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[train]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        assert_eq!(call_host(ML_DATASET_LEN, &[test]), (HOST_STATUS_SUCCESS, 1));
+
+        let (status, loader) = call_host(ML_DATALOADER_NEW, &[filtered, 1, 123]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATALOADER_BATCH_COUNT, &[loader]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        let (status, batch_x) = call_host(ML_DATALOADER_BATCH_FEATURES, &[loader, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, first_feature_bits) = call_host(TENSOR_GET_F, &[batch_x, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(f64::from_bits(first_feature_bits as u64).is_finite());
+
+        let jsonl_path = test_string(jsonl.to_string_lossy().as_ref());
+        let (status, jsonl_dataset) = call_host(ML_DATASET_FROM_JSONL, &[jsonl_path]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[jsonl_dataset]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+
+        let features_npy_path = test_string(features_npy.to_string_lossy().as_ref());
+        let labels_npy_path = test_string(labels_npy.to_string_lossy().as_ref());
+        let (status, npy_dataset) = call_host(
+            ML_DATASET_FROM_NPY,
+            &[features_npy_path, labels_npy_path, 2],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[npy_dataset]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+
+        let directory_path = test_string(directory_dataset.to_string_lossy().as_ref());
+        let (status, dir_dataset) = call_host(ML_DATASET_FROM_DIRECTORY, &[directory_path]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATASET_LEN, &[dir_dataset]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+
+        let (status, frame) = call_host(ML_DATAFRAME_FROM_CSV, &[csv_path, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DATAFRAME_ROWS, &[frame]),
+            (HOST_STATUS_SUCCESS, 4)
+        );
+        assert_eq!(
+            call_host(ML_DATAFRAME_COLS, &[frame]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        let (status, column) = call_host(ML_DATAFRAME_COLUMN, &[frame, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, column_sum_bits) = call_host(TENSOR_SUM_F, &[column]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((f64::from_bits(column_sum_bits as u64) - 14.0).abs() < 1e-9);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

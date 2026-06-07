@@ -114,6 +114,9 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.exp_lr` | Exponential learning-rate schedule. | base, gamma, step | float bits |
 | `spectra.std.ml.unscale_grad` | Divide accumulated parameter gradient by a finite loss scale. | parameter, scale | `0` |
 | `spectra.std.ml.dataset_from_tensors` / `dataset_len` | Tensor-backed datasets. | features, labels, length | dataset handle or length |
+| `spectra.std.ml.dataset_from_csv` / `dataset_from_jsonl` / `dataset_from_npy` / `dataset_from_directory` | File-backed numerical datasets. CSV uses a label column; JSONL expects `features` and `label`; NPY uses one-dimensional little-endian f64 arrays; directory datasets use `features.csv` and `labels.csv`. | paths and format parameters | dataset handle |
+| `spectra.std.ml.dataset_map_features` / `dataset_filter_label_min` / `dataset_train_split` / `dataset_test_split` | Dataset transforms and deterministic train/test splitting. | dataset handle, transform/split parameters | dataset handle |
 | `spectra.std.ml.dataloader_new` / `dataloader_batch_*` | Deterministic minibatch access. | dataset/loader, batch index | loader handle, count, or tensor handle |
+| `spectra.std.ml.dataframe_from_csv` / `dataframe_rows` / `dataframe_cols` / `dataframe_column` | Numeric dataframe handles and column extraction. | path/frame/column | frame metadata or tensor handle |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

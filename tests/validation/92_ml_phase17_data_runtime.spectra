@@ -1,0 +1,93 @@
+module ml_phase17_data_runtime;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+fn train_step(x: int, target: int, w: int, b: int) -> int {
+    let pred = ml.linear(x, w, b);
+    let loss = ml.mse_loss(pred, target);
+    tensor.backward(loss);
+    ml.sgd_step(w, 0.01);
+    ml.sgd_step(b, 0.01);
+    tensor.zero_grad(w);
+    tensor.zero_grad(b);
+    return 0;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let dataset = ml.dataset_from_csv("tests/fixtures/r1701/tabular.csv", 2, 1);
+    if ml.dataset_len(dataset) != 4 {
+        return 1;
+    }
+
+    let mapped = ml.dataset_map_features(dataset, 1.0, 0.0);
+    let filtered = ml.dataset_filter_label_min(mapped, 1.0);
+    if ml.dataset_len(filtered) != 2 {
+        return 2;
+    }
+
+    let train = ml.dataset_train_split(dataset, 3);
+    let test = ml.dataset_test_split(dataset, 3);
+    if ml.dataset_len(train) != 3 {
+        return 3;
+    }
+    if ml.dataset_len(test) != 1 {
+        return 4;
+    }
+
+    let loader = ml.dataloader_new(filtered, 1, 99);
+    if ml.dataloader_batch_count(loader) != 2 {
+        return 5;
+    }
+    let batch_x = ml.dataloader_batch_features(loader, 0);
+    let batch_y = ml.dataloader_batch_labels(loader, 0);
+    if tensor.len(batch_x) != 2 {
+        return 6;
+    }
+    if tensor.len(batch_y) != 1 {
+        return 7;
+    }
+
+    let jsonl_dataset = ml.dataset_from_jsonl("tests/fixtures/r1701/rows.jsonl");
+    if ml.dataset_len(jsonl_dataset) != 3 {
+        return 8;
+    }
+
+    let dir_dataset = ml.dataset_from_directory("tests/fixtures/r1701/directory_dataset");
+    if ml.dataset_len(dir_dataset) != 3 {
+        return 9;
+    }
+
+    let frame = ml.dataframe_from_csv("tests/fixtures/r1701/tabular.csv", 1);
+    if ml.dataframe_rows(frame) != 4 {
+        return 10;
+    }
+    if ml.dataframe_cols(frame) != 3 {
+        return 11;
+    }
+    let f1 = ml.dataframe_column(frame, 1);
+    if tensor.sum(f1) != 14 {
+        return 12;
+    }
+
+    let train_loader = ml.dataloader_new(train, 3, 7);
+    let x = tensor.reshape(ml.dataloader_batch_features(train_loader, 0), 3, 2);
+    let y = tensor.reshape(ml.dataloader_batch_labels(train_loader, 0), 3, 1);
+    let w0 = tensor.requires_grad(tensor.full_f(2, 0.0), true);
+    let w = tensor.reshape(w0, 2, 1);
+    let b = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+
+    train_step(x, y, w, b);
+    train_step(x, y, w, b);
+    train_step(x, y, w, b);
+
+    let pred = ml.linear(x, w, b);
+    let loss = ml.mse_loss(pred, y);
+    tensor.get_f(loss, 0);
+
+    tensor.free_all();
+    return 0;
+}

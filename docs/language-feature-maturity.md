@@ -101,6 +101,10 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `std.tensor` exposes production GPU capability diagnostics through `device_status`, `stats_gpu_kernel_ops`, `stats_cpu_fallbacks`, `stats_device_transfers`, and `kernel_strategy`
   - optional WGPU execution covers float transfer, elementwise ops, reductions, `matmul`, `std.ml.conv2d`, and autodiff-required forward kernels while preserving CPU fallback
   - `scripts/validate_r1603_gpu_backend.py` and `tests/validation/91_tensor_phase16_gpu_backend.spectra` validate the R-1603 backend contract
+- Phase 17 data runtime baseline:
+  - `std.ml` loads CSV, JSONL, NPY, and directory-backed numeric datasets into tensor-backed dataset handles
+  - dataset transforms, label filtering, train/test split, seeded dataloaders, and numeric dataframe column extraction are available through stable APIs
+  - `scripts/validate_r1701_data_runtime.py` and `tests/validation/92_ml_phase17_data_runtime.spectra` validate file-backed tabular training without Python glue
 
 ### Beta
 

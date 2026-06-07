@@ -760,7 +760,39 @@ fn make_std_ml() -> ModuleExports {
             vec![int.clone(), int.clone(), int.clone()],
             int.clone(),
         ),
+        (
+            "dataset_from_csv",
+            vec![Type::String, int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("dataset_from_jsonl", vec![Type::String], int.clone()),
+        (
+            "dataset_from_npy",
+            vec![Type::String, Type::String, int.clone()],
+            int.clone(),
+        ),
+        ("dataset_from_directory", vec![Type::String], int.clone()),
         ("dataset_len", vec![int.clone()], int.clone()),
+        (
+            "dataset_map_features",
+            vec![int.clone(), float.clone(), float.clone()],
+            int.clone(),
+        ),
+        (
+            "dataset_filter_label_min",
+            vec![int.clone(), float.clone()],
+            int.clone(),
+        ),
+        (
+            "dataset_train_split",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "dataset_test_split",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
         (
             "dataloader_new",
             vec![int.clone(), int.clone(), int.clone()],
@@ -774,6 +806,18 @@ fn make_std_ml() -> ModuleExports {
         ),
         (
             "dataloader_batch_labels",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "dataframe_from_csv",
+            vec![Type::String, int.clone()],
+            int.clone(),
+        ),
+        ("dataframe_rows", vec![int.clone()], int.clone()),
+        ("dataframe_cols", vec![int.clone()], int.clone()),
+        (
+            "dataframe_column",
             vec![int.clone(), int.clone()],
             int.clone(),
         ),

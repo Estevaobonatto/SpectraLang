@@ -1008,7 +1008,11 @@ import std.ml as ml;
 | `sgd_step`, `sgd_momentum_step`, `adam_step`, `adamw_step` | Optimizers that update tensor parameters in place |
 | `exp_lr(base, gamma, step)` | Exponential learning-rate scheduling |
 | `dataset_from_tensors`, `dataset_len` | Tensor-backed datasets |
+| `dataset_from_csv`, `dataset_from_jsonl`, `dataset_from_npy`, `dataset_from_directory` | File-backed numerical datasets |
+| `dataset_map_features`, `dataset_filter_label_min` | Materialized dataset transforms |
+| `dataset_train_split`, `dataset_test_split` | Deterministic train/test dataset splits |
 | `dataloader_new`, `dataloader_batch_count`, `dataloader_batch_features`, `dataloader_batch_labels` | Deterministic minibatching |
+| `dataframe_from_csv`, `dataframe_rows`, `dataframe_cols`, `dataframe_column` | Numeric dataframe handles and column extraction |
 
 Exemplos completos estão em:
 

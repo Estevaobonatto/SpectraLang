@@ -1432,6 +1432,17 @@ reproducible training workflows.
 - Training results should be reproducible from manifests and lockfiles.
 - Distributed behavior should be explicitly scoped and testable.
 
+### Current Implementation State
+
+Status: R-1701 is complete for the current production data-runtime baseline; R-1702 and R-1703 remain not started.
+
+Completed:
+
+- `std.ml.dataset_from_csv`, `dataset_from_jsonl`, `dataset_from_npy`, and `dataset_from_directory` load supported numerical datasets into tensor-backed dataset handles.
+- `std.ml.dataset_map_features`, `dataset_filter_label_min`, `dataset_train_split`, and `dataset_test_split` provide materialized preprocessing and split operations.
+- `std.ml.dataframe_from_csv`, `dataframe_rows`, `dataframe_cols`, and `dataframe_column` provide numeric dataframe inspection and column extraction.
+- `scripts/validate_r1701_data_runtime.py`, `tests/validation/92_ml_phase17_data_runtime.spectra`, and `examples/ai/tabular_dataset_training.spectra` validate file-backed tabular training without Python glue.
+
 ## Phase 18: Model Ecosystem and LLM Workloads
 
 ### Goal

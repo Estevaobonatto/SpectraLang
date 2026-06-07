@@ -1527,7 +1527,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1701 Dataset and DataFrame Runtime
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `runtime`
 - Dependencies: `R-602`, `R-802`, `R-1101`
@@ -1540,9 +1540,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Acceptance
 
-- CSV, JSONL, NPY, and directory-backed datasets can be loaded through stable APIs
-- batching, shuffling, map/filter transforms, train/test split, and deterministic seeding are tested
-- tabular preprocessing example trains end-to-end without Python glue
+- CSV, JSONL, NPY, and directory-backed datasets can be loaded through stable APIs.
+- Batching, shuffling, map/filter transforms, train/test split, and deterministic seeding are tested.
+- Tabular preprocessing example trains end-to-end without Python glue.
+
+### Completed Evidence
+
+- `std.ml` exposes `dataset_from_csv`, `dataset_from_jsonl`, `dataset_from_npy`, `dataset_from_directory`, dataset transforms, train/test splits, and numeric dataframe APIs.
+- Runtime datasets materialize into existing `std.tensor` handles, so dataloaders and training APIs work without a separate data execution path.
+- `runtime/src/stdlib.rs` includes a focused R-1701 test that creates CSV, JSONL, NPY, and directory-backed fixtures and validates transforms, splits, dataframe column extraction, and deterministic dataloader batches.
+- `tests/validation/92_ml_phase17_data_runtime.spectra` validates the public language surface and runs tabular training from file-backed data.
+- `examples/ai/tabular_dataset_training.spectra` provides an AI example that trains from checked-in tabular fixtures.
+- `scripts/validate_r1701_data_runtime.py` and `run_tests.ps1` include the `phase17-data` gate.
 
 ## R-1702 Experiment Tracking and Reproducibility
 
