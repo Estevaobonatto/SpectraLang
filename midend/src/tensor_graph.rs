@@ -34,20 +34,39 @@ pub struct TensorGraphSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TensorGraphOp {
     Parameter,
-    Create { name: String },
+    Create {
+        name: String,
+    },
     Reshape,
     Transpose,
     Matmul,
     BatchedMatmul,
-    Elementwise { name: String },
-    Reduction { name: String },
-    DeviceTransfer { target: TensorDevice },
+    Elementwise {
+        name: String,
+    },
+    FusedElementwise {
+        ops: Vec<String>,
+    },
+    Reduction {
+        name: String,
+    },
+    FusedReduction {
+        elementwise_ops: Vec<String>,
+        reduction: String,
+    },
+    DeviceTransfer {
+        target: TensorDevice,
+    },
     Linear,
     Conv2d,
     Dropout,
     MaxPool2d,
-    Loss { name: String },
-    UnknownHost { host: String },
+    Loss {
+        name: String,
+    },
+    UnknownHost {
+        host: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +119,33 @@ pub enum TensorGraphErrorKind {
     DeviceMismatch,
     UnsupportedOperator,
     InvalidDependency,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TensorGraphOptimizationResult {
+    pub graph: TensorGraph,
+    pub report: TensorGraphOptimizationReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TensorGraphOptimizationReport {
+    pub original_nodes: usize,
+    pub optimized_nodes: usize,
+    pub fused_groups: usize,
+    pub fused_elementwise_ops: usize,
+    pub fused_reductions: usize,
+    pub reusable_edges: usize,
+    pub tolerance_abs: String,
+    pub tolerance_rel: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TensorGraphComparison {
+    pub equivalent: bool,
+    pub checked_outputs: usize,
+    pub tolerance_abs: String,
+    pub tolerance_rel: String,
+    pub diagnostics: Vec<String>,
 }
 
 impl TensorGraph {
@@ -162,6 +208,77 @@ impl TensorGraph {
         }
         out
     }
+
+    pub fn optimize(&self) -> Result<TensorGraphOptimizationResult, Vec<TensorGraphError>> {
+        self.validate()?;
+        let mut report = TensorGraphOptimizationReport {
+            original_nodes: self
+                .functions
+                .iter()
+                .map(|function| function.nodes.len())
+                .sum(),
+            optimized_nodes: 0,
+            fused_groups: 0,
+            fused_elementwise_ops: 0,
+            fused_reductions: 0,
+            reusable_edges: 0,
+            tolerance_abs: "1e-9".to_string(),
+            tolerance_rel: "1e-9".to_string(),
+        };
+        let functions = self
+            .functions
+            .iter()
+            .map(|function| function.optimize_into(&mut report))
+            .collect::<Vec<_>>();
+        report.optimized_nodes = functions.iter().map(|function| function.nodes.len()).sum();
+        Ok(TensorGraphOptimizationResult {
+            graph: TensorGraph {
+                module: self.module.clone(),
+                functions,
+            },
+            report,
+        })
+    }
+
+    pub fn compare_optimized(&self, optimized: &TensorGraph) -> TensorGraphComparison {
+        let mut diagnostics = Vec::new();
+        let mut checked_outputs = 0;
+        if self.module != optimized.module {
+            diagnostics.push(format!(
+                "module mismatch: '{}' != '{}'",
+                self.module, optimized.module
+            ));
+        }
+        for original_function in &self.functions {
+            let Some(optimized_function) = optimized
+                .functions
+                .iter()
+                .find(|function| function.name == original_function.name)
+            else {
+                diagnostics.push(format!(
+                    "optimized graph is missing function '{}'",
+                    original_function.name
+                ));
+                continue;
+            };
+            let original_outputs = original_function.observable_outputs();
+            let optimized_outputs = optimized_function.observable_outputs();
+            checked_outputs += original_outputs.len();
+            if original_outputs != optimized_outputs {
+                diagnostics.push(format!(
+                    "function '{}' observable outputs differ: {:?} != {:?}",
+                    original_function.name, original_outputs, optimized_outputs
+                ));
+            }
+        }
+        TensorGraphComparison {
+            equivalent: diagnostics.is_empty(),
+            checked_outputs,
+            tolerance_abs: "1e-9".to_string(),
+            tolerance_rel: "1e-9".to_string(),
+            diagnostics,
+        }
+    }
 }
 
 impl TensorGraphFunction {
@@ -213,6 +330,299 @@ impl TensorGraphFunction {
         } else {
             Err(errors)
         }
+    }
+
+    fn optimize_into(&self, report: &mut TensorGraphOptimizationReport) -> Self {
+        let consumer_counts = self.consumer_counts();
+        let mut old_to_new = HashMap::new();
+        let mut skipped = HashSet::new();
+        let mut nodes = Vec::new();
+
+        for node in &self.nodes {
+            if skipped.contains(&node.id) {
+                continue;
+            }
+            if matches!(node.op, TensorGraphOp::Elementwise { .. })
+                && self.elementwise_chain_feeds_reduction(node.id, &consumer_counts)
+            {
+                continue;
+            }
+            if let Some(fused) =
+                self.try_fuse_reduction(node, &consumer_counts, &mut skipped, report)
+            {
+                let new_id = nodes.len();
+                for old_id in fused.old_node_ids {
+                    old_to_new.insert(old_id, new_id);
+                }
+                nodes.push(fused.node.with_id(new_id));
+                continue;
+            }
+            if let Some(fused) =
+                self.try_fuse_elementwise_chain(node, &consumer_counts, &mut skipped, report)
+            {
+                let new_id = nodes.len();
+                for old_id in fused.old_node_ids {
+                    old_to_new.insert(old_id, new_id);
+                }
+                nodes.push(fused.node.with_id(new_id));
+                continue;
+            }
+            let new_id = nodes.len();
+            old_to_new.insert(node.id, new_id);
+            nodes.push(node.clone().with_id(new_id));
+        }
+
+        for node in &mut nodes {
+            node.inputs = node
+                .inputs
+                .iter()
+                .filter_map(|input| old_to_new.get(input).copied())
+                .collect();
+            node.inputs.sort_unstable();
+            node.inputs.dedup();
+        }
+
+        report.reusable_edges += nodes
+            .iter()
+            .filter(|node| {
+                matches!(
+                    node.op,
+                    TensorGraphOp::FusedElementwise { .. } | TensorGraphOp::FusedReduction { .. }
+                )
+            })
+            .map(|node| node.inputs.len())
+            .sum::<usize>();
+
+        Self {
+            name: self.name.clone(),
+            nodes,
+        }
+    }
+
+    fn consumer_counts(&self) -> HashMap<usize, usize> {
+        let mut counts = HashMap::new();
+        for node in &self.nodes {
+            for input in &node.inputs {
+                *counts.entry(*input).or_insert(0) += 1;
+            }
+        }
+        counts
+    }
+
+    fn try_fuse_reduction(
+        &self,
+        node: &TensorGraphNode,
+        consumer_counts: &HashMap<usize, usize>,
+        skipped: &mut HashSet<usize>,
+        report: &mut TensorGraphOptimizationReport,
+    ) -> Option<FusedTensorNode> {
+        let TensorGraphOp::Reduction { name } = &node.op else {
+            return None;
+        };
+        let chain = self.collect_elementwise_chain(*node.inputs.first()?, consumer_counts);
+        if chain.len() < 2 {
+            return None;
+        }
+        let first = chain.first()?;
+        let base_inputs = first.inputs.clone();
+        let elementwise_ops = chain
+            .iter()
+            .map(|chain_node| match &chain_node.op {
+                TensorGraphOp::Elementwise { name } => name.clone(),
+                _ => unreachable!("chain only contains elementwise nodes"),
+            })
+            .collect::<Vec<_>>();
+        let old_node_ids = chain
+            .iter()
+            .map(|chain_node| chain_node.id)
+            .chain(std::iter::once(node.id))
+            .collect::<Vec<_>>();
+        for old_id in &old_node_ids {
+            skipped.insert(*old_id);
+        }
+        report.fused_groups += 1;
+        report.fused_elementwise_ops += elementwise_ops.len();
+        report.fused_reductions += 1;
+        Some(FusedTensorNode {
+            old_node_ids,
+            node: TensorGraphNode {
+                id: node.id,
+                value: node.value,
+                op: TensorGraphOp::FusedReduction {
+                    elementwise_ops,
+                    reduction: name.clone(),
+                },
+                inputs: base_inputs,
+                output: node.output.clone(),
+                source: node.source.clone(),
+            },
+        })
+    }
+
+    fn try_fuse_elementwise_chain(
+        &self,
+        node: &TensorGraphNode,
+        consumer_counts: &HashMap<usize, usize>,
+        skipped: &mut HashSet<usize>,
+        report: &mut TensorGraphOptimizationReport,
+    ) -> Option<FusedTensorNode> {
+        if !matches!(node.op, TensorGraphOp::Elementwise { .. }) {
+            return None;
+        }
+        let chain = self.collect_forward_elementwise_chain(node.id, consumer_counts);
+        if chain.len() < 2 {
+            return None;
+        }
+        if chain
+            .last()
+            .and_then(|last| self.single_consumer(last.id, consumer_counts))
+            .is_some_and(|consumer| matches!(consumer.op, TensorGraphOp::Reduction { .. }))
+        {
+            return None;
+        }
+        let first = chain.first()?;
+        let last = chain.last()?;
+        let ops = chain
+            .iter()
+            .map(|chain_node| match &chain_node.op {
+                TensorGraphOp::Elementwise { name } => name.clone(),
+                _ => unreachable!("chain only contains elementwise nodes"),
+            })
+            .collect::<Vec<_>>();
+        let old_node_ids = chain
+            .iter()
+            .map(|chain_node| chain_node.id)
+            .collect::<Vec<_>>();
+        for old_id in &old_node_ids {
+            skipped.insert(*old_id);
+        }
+        report.fused_groups += 1;
+        report.fused_elementwise_ops += ops.len();
+        Some(FusedTensorNode {
+            old_node_ids,
+            node: TensorGraphNode {
+                id: first.id,
+                value: last.value,
+                op: TensorGraphOp::FusedElementwise { ops },
+                inputs: first.inputs.clone(),
+                output: last.output.clone(),
+                source: last.source.clone(),
+            },
+        })
+    }
+
+    fn collect_forward_elementwise_chain(
+        &self,
+        start_id: usize,
+        consumer_counts: &HashMap<usize, usize>,
+    ) -> Vec<&TensorGraphNode> {
+        let by_id = self
+            .nodes
+            .iter()
+            .map(|node| (node.id, node))
+            .collect::<HashMap<_, _>>();
+        let mut chain = Vec::new();
+        let mut current_id = start_id;
+        while let Some(current) = by_id.get(&current_id).copied() {
+            if !matches!(current.op, TensorGraphOp::Elementwise { .. }) {
+                break;
+            }
+            chain.push(current);
+            if consumer_counts.get(&current_id).copied().unwrap_or(0) != 1 {
+                break;
+            }
+            let Some(next) = self.nodes.iter().find(|candidate| {
+                candidate.inputs.len() == 1
+                    && candidate.inputs[0] == current_id
+                    && matches!(candidate.op, TensorGraphOp::Elementwise { .. })
+            }) else {
+                break;
+            };
+            current_id = next.id;
+        }
+        chain
+    }
+
+    fn elementwise_chain_feeds_reduction(
+        &self,
+        start_id: usize,
+        consumer_counts: &HashMap<usize, usize>,
+    ) -> bool {
+        let mut current_id = start_id;
+        loop {
+            let Some(current) = self.nodes.iter().find(|node| node.id == current_id) else {
+                return false;
+            };
+            if !matches!(current.op, TensorGraphOp::Elementwise { .. }) {
+                return false;
+            }
+            let Some(consumer) = self.single_consumer(current_id, consumer_counts) else {
+                return false;
+            };
+            if matches!(consumer.op, TensorGraphOp::Reduction { .. }) {
+                return true;
+            }
+            if !matches!(consumer.op, TensorGraphOp::Elementwise { .. }) {
+                return false;
+            }
+            current_id = consumer.id;
+        }
+    }
+
+    fn single_consumer(
+        &self,
+        node_id: usize,
+        consumer_counts: &HashMap<usize, usize>,
+    ) -> Option<&TensorGraphNode> {
+        if consumer_counts.get(&node_id).copied().unwrap_or(0) != 1 {
+            return None;
+        }
+        self.nodes.iter().find(|candidate| {
+            candidate.inputs.len() == 1 && candidate.inputs.first().copied() == Some(node_id)
+        })
+    }
+
+    fn collect_elementwise_chain(
+        &self,
+        start_id: usize,
+        consumer_counts: &HashMap<usize, usize>,
+    ) -> Vec<&TensorGraphNode> {
+        let by_id = self
+            .nodes
+            .iter()
+            .map(|node| (node.id, node))
+            .collect::<HashMap<_, _>>();
+        let mut reversed = Vec::new();
+        let mut current_id = start_id;
+        while let Some(current) = by_id.get(&current_id).copied() {
+            if !matches!(current.op, TensorGraphOp::Elementwise { .. }) {
+                break;
+            }
+            if consumer_counts.get(&current_id).copied().unwrap_or(0) != 1 {
+                break;
+            }
+            reversed.push(current);
+            let Some(previous) = current.inputs.first().and_then(|id| by_id.get(id)).copied()
+            else {
+                break;
+            };
+            current_id = previous.id;
+        }
+        reversed.reverse();
+        reversed
+    }
+
+    fn observable_outputs(&self) -> BTreeMap<usize, TensorMetadata> {
+        let consumed = self
+            .nodes
+            .iter()
+            .flat_map(|node| node.inputs.iter().copied())
+            .collect::<HashSet<_>>();
+        self.nodes
+            .iter()
+            .filter(|node| !consumed.contains(&node.id))
+            .filter_map(|node| node.value.map(|value| (value, node.output.clone())))
+            .collect()
     }
 
     fn validate_into(&self, errors: &mut Vec<TensorGraphError>) {
@@ -317,6 +727,18 @@ impl TensorGraphFunction {
             }
             _ => {}
         }
+    }
+}
+
+struct FusedTensorNode {
+    old_node_ids: Vec<usize>,
+    node: TensorGraphNode,
+}
+
+impl TensorGraphNode {
+    fn with_id(mut self, id: usize) -> Self {
+        self.id = id;
+        self
     }
 }
 
@@ -442,7 +864,20 @@ impl TensorGraphOp {
             TensorGraphOp::Matmul => "matmul".to_string(),
             TensorGraphOp::BatchedMatmul => "matmul_batched".to_string(),
             TensorGraphOp::Elementwise { name } => format!("elementwise.{name}"),
+            TensorGraphOp::FusedElementwise { ops } => {
+                format!("fused_elementwise.{}", ops.join("+"))
+            }
             TensorGraphOp::Reduction { name } => format!("reduction.{name}"),
+            TensorGraphOp::FusedReduction {
+                elementwise_ops,
+                reduction,
+            } => {
+                format!(
+                    "fused_reduction.{}->{}",
+                    elementwise_ops.join("+"),
+                    reduction
+                )
+            }
             TensorGraphOp::DeviceTransfer { target } => {
                 format!("to_device.{}", target.stable_name())
             }
@@ -711,12 +1146,22 @@ fn infer_output_metadata(
             meta
         }
         TensorGraphOp::Elementwise { .. }
+        | TensorGraphOp::FusedElementwise { .. }
         | TensorGraphOp::Dropout
         | TensorGraphOp::MaxPool2d
         | TensorGraphOp::BatchedMatmul
         | TensorGraphOp::Linear
         | TensorGraphOp::Conv2d => input(0)
             .map(|node| node.output.clone())
+            .unwrap_or_else(TensorMetadata::unknown),
+        TensorGraphOp::FusedReduction { .. } => input(0)
+            .map(|node| {
+                TensorMetadata::new(
+                    node.output.dtype,
+                    TensorShape::Ranked(Vec::new()),
+                    node.output.device.clone(),
+                )
+            })
             .unwrap_or_else(TensorMetadata::unknown),
         TensorGraphOp::Parameter | TensorGraphOp::UnknownHost { .. } => TensorMetadata::unknown(),
     }

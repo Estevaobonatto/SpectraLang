@@ -792,6 +792,19 @@ if ($r1601TensorGraph.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase16-graph"; Teste = "tensor_graph_tests"; Status = $r1601TensorGraph.Status; Detalhe = $r1601TensorGraph.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.12: R-1602 graph optimization and fusion
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1602 graph optimization and fusion ---" -ForegroundColor Yellow
+$r1602GraphOptimization = Invoke-HostCommand -name "tensor_graph_optimization_tests" -fileName "cargo" -arguments @("test", "-p", "spectra-midend", "--test", "tensor_graph_tests", "optimizer") -workingDir (Get-Location).Path
+if ($r1602GraphOptimization.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase16-optimization"; Teste = "tensor_graph_optimization_tests"; Status = $r1602GraphOptimization.Status; Detalhe = $r1602GraphOptimization.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

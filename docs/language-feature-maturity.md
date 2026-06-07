@@ -97,6 +97,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - Phase 16 tensor graph IR baseline:
   - `spectra_midend::TensorGraph` extracts lowered tensor host calls into validated graph nodes with operator, metadata, dependencies, and stable dumps
   - `cargo test -p spectra-midend --test tensor_graph_tests` and `run_tests.ps1` cover snapshot, cycle, shape mismatch, and device mismatch behavior
+  - `TensorGraph::optimize` supports deterministic elementwise and reduction-adjacent fusion with optimized/unoptimized graph comparison and stable snapshots
 
 ### Beta
 

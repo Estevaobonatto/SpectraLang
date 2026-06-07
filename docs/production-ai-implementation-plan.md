@@ -1388,7 +1388,7 @@ Compile tensor/model programs to optimized graph and device execution targets.
 
 ### Current Implementation State
 
-Status: R-1601 is complete for the current graph-IR baseline; R-1602 and R-1603 remain not started.
+Status: R-1601 and R-1602 are complete for the current graph-IR baseline; R-1603 remains not started.
 
 Completed:
 
@@ -1397,6 +1397,10 @@ Completed:
 - `TensorGraph::validate()` catches cycles, invalid dependencies, shape mismatches, and device-placement conflicts.
 - `TensorGraph::stable_dump()` is covered by `midend/tests/snapshots/tensor_graph.snap`.
 - `run_tests.ps1` includes the R-1601 graph validation gate.
+- `TensorGraph::optimize()` performs deterministic elementwise and reduction-adjacent fusion with `TensorGraphOptimizationReport` metrics.
+- `TensorGraph::compare_optimized()` compares observable original and optimized graph outputs under the documented `1e-9` tolerance policy.
+- `midend/tests/snapshots/tensor_graph_optimized.snap` locks the optimized graph dump format.
+- `run_tests.ps1` includes the R-1602 graph optimization gate.
 
 ### Acceptance Direction
 

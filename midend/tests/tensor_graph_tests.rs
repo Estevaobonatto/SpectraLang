@@ -77,6 +77,164 @@ fn tensor_graph_infers_negative_arange_shape() {
 }
 
 #[test]
+fn tensor_graph_optimizer_fuses_elementwise_chain_and_preserves_outputs() {
+    let graph = TensorGraph {
+        module: "manual".to_string(),
+        functions: vec![TensorGraphFunction {
+            name: "main".to_string(),
+            nodes: vec![
+                node(
+                    0,
+                    TensorGraphOp::Parameter,
+                    vec![],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(8)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    1,
+                    TensorGraphOp::Elementwise {
+                        name: "relu".to_string(),
+                    },
+                    vec![0],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(8)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    2,
+                    TensorGraphOp::Elementwise {
+                        name: "sqrt_f".to_string(),
+                    },
+                    vec![1],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(8)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+            ],
+        }],
+    };
+
+    let optimized = graph.optimize().expect("optimization should pass");
+    assert_eq!(optimized.report.original_nodes, 3);
+    assert_eq!(optimized.report.optimized_nodes, 2);
+    assert_eq!(optimized.report.fused_groups, 1);
+    assert_eq!(optimized.report.fused_elementwise_ops, 2);
+    assert_eq!(optimized.report.tolerance_abs, "1e-9");
+
+    let comparison = graph.compare_optimized(&optimized.graph);
+    assert!(comparison.equivalent, "{comparison:?}");
+    assert_eq!(comparison.checked_outputs, 1);
+    assert!(optimized
+        .graph
+        .stable_dump()
+        .contains("fused_elementwise.relu+sqrt_f"));
+}
+
+#[test]
+fn tensor_graph_optimizer_fuses_elementwise_into_reduction() {
+    let graph = TensorGraph {
+        module: "manual".to_string(),
+        functions: vec![TensorGraphFunction {
+            name: "main".to_string(),
+            nodes: vec![
+                node(
+                    0,
+                    TensorGraphOp::Parameter,
+                    vec![],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(16)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    1,
+                    TensorGraphOp::Elementwise {
+                        name: "relu".to_string(),
+                    },
+                    vec![0],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(16)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    2,
+                    TensorGraphOp::Elementwise {
+                        name: "tanh_f".to_string(),
+                    },
+                    vec![1],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(16)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    3,
+                    TensorGraphOp::Reduction {
+                        name: "sum_t".to_string(),
+                    },
+                    vec![2],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+            ],
+        }],
+    };
+
+    let optimized = graph.optimize().expect("optimization should pass");
+    assert_eq!(optimized.report.original_nodes, 4);
+    assert_eq!(optimized.report.optimized_nodes, 2);
+    assert_eq!(optimized.report.fused_groups, 1);
+    assert_eq!(optimized.report.fused_elementwise_ops, 2);
+    assert_eq!(optimized.report.fused_reductions, 1);
+    assert!(graph.compare_optimized(&optimized.graph).equivalent);
+    assert!(optimized
+        .graph
+        .stable_dump()
+        .contains("fused_reduction.relu+tanh_f->sum_t"));
+}
+
+#[test]
+fn tensor_graph_optimizer_snapshot_covers_lowered_elementwise_program() {
+    let graph = lower_source(
+        r#"
+        module tensor_graph_optimization_snapshot;
+
+        pub fn main() -> int {
+            let base = std.tensor.full_f(8, 1.0);
+            let relu = std.tensor.relu(base);
+            let tanh = std.tensor.tanh_f(relu);
+            let loss = std.tensor.sum_t(tanh);
+            std.tensor.backward(loss);
+            return 0;
+        }
+        "#,
+    );
+
+    graph.validate().expect("graph should validate");
+    let optimized = graph.optimize().expect("optimization should pass");
+    let comparison = graph.compare_optimized(&optimized.graph);
+    assert!(comparison.equivalent, "{comparison:?}");
+    assert_snapshot(
+        "tensor_graph_optimized.snap",
+        &optimized.graph.stable_dump(),
+    );
+}
+
+#[test]
 fn tensor_graph_validation_catches_matmul_shape_mismatch() {
     let graph = TensorGraph {
         module: "manual".to_string(),

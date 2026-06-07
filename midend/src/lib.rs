@@ -13,7 +13,8 @@ pub use ir::{
 };
 pub use lowering::ASTLowering;
 pub use tensor_graph::{
-    TensorDType, TensorDevice, TensorGraph, TensorGraphError, TensorGraphErrorKind,
-    TensorGraphFunction, TensorGraphNode, TensorGraphOp, TensorGraphSource, TensorMetadata,
-    TensorShape,
+    TensorDType, TensorDevice, TensorGraph, TensorGraphComparison, TensorGraphError,
+    TensorGraphErrorKind, TensorGraphFunction, TensorGraphNode, TensorGraphOp,
+    TensorGraphOptimizationReport, TensorGraphOptimizationResult, TensorGraphSource,
+    TensorMetadata, TensorShape,
 };

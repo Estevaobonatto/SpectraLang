@@ -1465,7 +1465,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1602 Graph Optimization and Fusion
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-1601`, `R-1501`
@@ -1482,6 +1482,15 @@ the next tracked development cycle toward a broader AI/ML platform.
 - elementwise chains and reduction-adjacent operations fuse in validated cases
 - optimization preserves numerical correctness within documented tolerances
 - optimized and unoptimized graph execution can be compared in tests
+
+### Completion evidence
+
+- `TensorGraph::optimize()` performs deterministic graph-level fusion for single-consumer elementwise chains and elementwise chains feeding reductions.
+- `TensorGraphOptimizationReport` records original/optimized node counts, fused groups, fused elementwise op count, fused reduction count, reusable edges, and `1e-9` absolute/relative tolerance policy.
+- `TensorGraph::compare_optimized()` compares observable optimized outputs against the original graph.
+- `midend/tests/tensor_graph_tests.rs` covers elementwise fusion, reduction-adjacent fusion, optimized/unoptimized comparison, and stable optimized snapshots.
+- `examples/ai/tensor_graph_elementwise_fusion.spectra` and `examples/ai/tensor_graph_reduction_fusion.spectra` provide runnable Spectra examples for the optimized graph patterns.
+- `run_tests.ps1` includes the `phase16-optimization` gate through `cargo test -p spectra-midend --test tensor_graph_tests optimizer`.
 
 ## R-1603 Production GPU Backend
 
