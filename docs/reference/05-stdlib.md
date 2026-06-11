@@ -1423,5 +1423,37 @@ pub fn main() {
 
 ---
 
+## 14. std.ml — AI/ML runtime
+
+```spectra
+import std.ml as ml;
+```
+
+### Evaluation metrics
+
+`std.ml` exposes production evaluation helpers for model gates:
+
+- `metrics_classification(labels: int, predictions: int) -> string`
+- `metrics_regression(expected: int, predicted: int) -> string`
+- `metrics_ranking(relevance: int, scores: int, top_k: int) -> string`
+- `metrics_generation(output: string, reference: string) -> string`
+- `serving_metrics(latencies_ms: int, requests: int, errors: int) -> string`
+- `evaluation_report(path: string, name: string, classification: string, regression: string, ranking: string, generation: string, serving: string) -> string`
+
+The metric functions return deterministic JSON payloads. `evaluation_report`
+writes a versioned machine-readable JSON report and a human-readable `.txt`
+companion report.
+
+```spectra
+import std.ml as ml;
+import std.tensor as tensor;
+
+let labels = tensor.arange(0, 4, 1);
+let predicted = tensor.arange(0, 4, 1);
+let classification = ml.metrics_classification(labels, predicted);
+```
+
+---
+
 > **Próximo / Next:** [06 — Referência Rápida / Quick Reference](06-referencia-rapida.md)  
 > **Anterior / Previous:** [04 — Avançado / Advanced](04-avancado.md)

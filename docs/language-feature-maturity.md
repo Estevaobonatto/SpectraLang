@@ -115,6 +115,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1802_transformer_primitives.py` and `tests/validation/96_ml_phase18_transformer_primitives.spectra` validate the transformer primitive baseline
   - `std.ml` implements deterministic WordPiece-style tokenization, hash embeddings, persistent cosine vector indexes, RAG chunking, prompt assembly, and token-overlap F1 evaluation
   - `scripts/validate_r1803_rag_toolkit.py` and `tests/validation/97_ml_phase18_rag_toolkit.spectra` validate the RAG toolkit baseline
+  - `std.ml` implements model evaluation metrics for classification, regression, ranking, generation, and serving behavior, plus versioned machine-readable and human-readable evaluation reports
+  - `scripts/validate_r1901_evaluation_metrics.py` and `tests/validation/98_ml_phase19_evaluation_metrics.spectra` validate the evaluation metrics baseline
 
 ### Beta
 

@@ -1722,7 +1722,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1901 Model Evaluation and Metrics Suite
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-1702`, `R-1802`
@@ -1739,6 +1739,15 @@ the next tracked development cycle toward a broader AI/ML platform.
 - metrics include accuracy, precision, recall, F1, ROC-AUC baseline, MSE, MAE, perplexity, latency, and throughput
 - evaluation reports are machine-readable and human-readable
 - reference examples include evaluation gates before model export or serving
+
+### Completed
+
+- `std.ml.metrics_classification`, `metrics_regression`, `metrics_ranking`, `metrics_generation`, and `serving_metrics` emit deterministic JSON metric payloads covering the required classification, regression, ranking, generation, latency, and throughput fields.
+- `std.ml.evaluation_report` writes a versioned machine-readable JSON report plus a human-readable `.txt` companion report.
+- `tests/validation/98_ml_phase19_evaluation_metrics.spectra` validates the public language API.
+- `examples/ai/model_evaluation_report.spectra` provides a runnable AI reference example that gates model progression on evaluation evidence before serving/export workflows.
+- `scripts/validate_r1901_evaluation_metrics.py` runs runtime, public Spectra, and AI example validation and parses the generated report.
+- `run_tests.ps1` includes the `phase19-evaluation` gate.
 
 ## R-1902 AI Safety and Guardrail Runtime
 

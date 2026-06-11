@@ -7479,6 +7479,14 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "rag_chunk_text") => Some(host_string("spectra.std.ml.rag_chunk_text")),
             ("ml", "rag_build_prompt") => Some(host_string("spectra.std.ml.rag_build_prompt")),
             ("ml", "rag_evaluate_answer") => Some(host_int("spectra.std.ml.rag_evaluate_answer")),
+            ("ml", "metrics_classification") => {
+                Some(host_string("spectra.std.ml.metrics_classification"))
+            }
+            ("ml", "metrics_regression") => Some(host_string("spectra.std.ml.metrics_regression")),
+            ("ml", "metrics_ranking") => Some(host_string("spectra.std.ml.metrics_ranking")),
+            ("ml", "metrics_generation") => Some(host_string("spectra.std.ml.metrics_generation")),
+            ("ml", "serving_metrics") => Some(host_string("spectra.std.ml.serving_metrics")),
+            ("ml", "evaluation_report") => Some(host_string("spectra.std.ml.evaluation_report")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

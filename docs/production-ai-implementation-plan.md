@@ -1502,6 +1502,18 @@ operations.
 - Serving should support policy enforcement and auditability.
 - Runtime monitoring should produce machine-readable operational evidence.
 
+### Current Implementation State
+
+Status: `R-1901` is complete for the current production evaluation baseline. `R-1902`
+and `R-1903` remain future Phase 19 workstreams.
+
+Completed:
+
+- `std.ml.metrics_classification` reports accuracy, precision, recall, F1, and ROC-AUC baseline evidence.
+- `std.ml.metrics_regression`, `metrics_ranking`, `metrics_generation`, and `serving_metrics` cover MSE/MAE, ranking quality, generation overlap/perplexity proxy, latency, error rate, and throughput.
+- `std.ml.evaluation_report` emits a versioned JSON evaluation report and a human-readable companion report.
+- `scripts/validate_r1901_evaluation_metrics.py`, `tests/validation/98_ml_phase19_evaluation_metrics.spectra`, and `examples/ai/model_evaluation_report.spectra` validate the current R-1901 baseline.
+
 ## Phase 20: Production Certification
 
 ### Goal

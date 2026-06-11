@@ -896,6 +896,19 @@ if ($r1803RagToolkit.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase18-rag"; Teste = "validate_r1803_rag_toolkit"; Status = $r1803RagToolkit.Status; Detalhe = $r1803RagToolkit.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.20: R-1901 model evaluation and metrics suite
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1901 model evaluation and metrics suite ---" -ForegroundColor Yellow
+$r1901EvaluationMetrics = Invoke-HostCommand -name "validate_r1901_evaluation_metrics" -fileName "python" -arguments @("scripts\validate_r1901_evaluation_metrics.py") -workingDir (Get-Location).Path
+if ($r1901EvaluationMetrics.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase19-evaluation"; Teste = "validate_r1901_evaluation_metrics"; Status = $r1901EvaluationMetrics.Status; Detalhe = $r1901EvaluationMetrics.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

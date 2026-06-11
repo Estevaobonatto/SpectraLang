@@ -130,5 +130,7 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.tokenizer_wordpiece` / `tokenizer_encode` / `tokenizer_decode` / `text_embed` | Deterministic WordPiece-style tokenization and hash embeddings. | tokenizer/text/dim | tokenizer handle, tensor handle, or string |
 | `spectra.std.ml.vector_index_new` / `vector_index_insert` / `vector_index_query` / `vector_index_persist` / `vector_index_load` | Cosine vector index with JSON persistence. | index/vector/path params | index handle, result JSON, path, or count |
 | `spectra.std.ml.rag_chunk_text` / `rag_build_prompt` / `rag_evaluate_answer` | Chunking, prompt assembly, and token-overlap F1 evaluation for RAG flows. | text/context/question/answer | JSON, prompt string, or integer permille score |
+| `spectra.std.ml.metrics_classification` / `metrics_regression` / `metrics_ranking` / `metrics_generation` / `serving_metrics` | Deterministic model-evaluation metrics for classification, regression, ranking, generation, and serving behavior. | tensor handles, text, request/error counts | JSON metric payload |
+| `spectra.std.ml.evaluation_report` | Write a versioned JSON evaluation report plus a human-readable `.txt` companion report. | path, name, metric JSON payloads | report path string |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

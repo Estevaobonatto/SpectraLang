@@ -974,6 +974,44 @@ fn make_std_ml() -> ModuleExports {
             vec![Type::String, Type::String],
             int.clone(),
         ),
+        (
+            "metrics_classification",
+            vec![int.clone(), int.clone()],
+            Type::String,
+        ),
+        (
+            "metrics_regression",
+            vec![int.clone(), int.clone()],
+            Type::String,
+        ),
+        (
+            "metrics_ranking",
+            vec![int.clone(), int.clone(), int.clone()],
+            Type::String,
+        ),
+        (
+            "metrics_generation",
+            vec![Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "serving_metrics",
+            vec![int.clone(), int.clone(), int.clone()],
+            Type::String,
+        ),
+        (
+            "evaluation_report",
+            vec![
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::String,
+            ],
+            Type::String,
+        ),
     ];
 
     for (name, params, return_type) in functions {
