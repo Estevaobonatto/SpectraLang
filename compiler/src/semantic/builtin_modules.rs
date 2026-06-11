@@ -882,6 +882,18 @@ fn make_std_ml() -> ModuleExports {
         ),
         ("distributed_resume", vec![Type::String], int.clone()),
         ("distributed_summary", vec![int.clone()], Type::String),
+        (
+            "onnx_export",
+            vec![Type::String, Type::String],
+            Type::String,
+        ),
+        ("onnx_import_summary", vec![Type::String], Type::String),
+        ("onnx_validate", vec![Type::String], int.clone()),
+        (
+            "onnx_roundtrip",
+            vec![Type::String, Type::String],
+            Type::String,
+        ),
     ];
 
     for (name, params, return_type) in functions {

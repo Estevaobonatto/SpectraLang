@@ -124,5 +124,6 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.experiment_manifest_path` / `experiment_repro_command` / `experiment_compare_manifests` | Query manifest path, reproduction command, and compare equivalent run evidence. | experiment handle or manifest paths | string or integer comparison result |
 | `spectra.std.ml.distributed_session_start` / `distributed_worker_step` / `distributed_global_step` | Deterministic single-machine simulated-worker training coordination. | session metadata or worker progress | session handle, worker step, or global step |
 | `spectra.std.ml.distributed_checkpoint_save` / `distributed_resume` / `distributed_summary` / `distributed_worker_step_count` | Coordinated checkpoint, resume from checkpoint JSON, and topology/progress inspection. | session handle, checkpoint path, worker id | string, session handle, or integer |
+| `spectra.std.ml.onnx_export` / `onnx_import_summary` / `onnx_validate` / `onnx_roundtrip` | Binary ONNX `ModelProto` subset export, import validation, summary, and round-trip for linear, convolutional, activation, normalization, and transformer blocks. | path and model kind | string path/summary or integer validation result |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

@@ -109,6 +109,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1702_experiment_tracking.py` and `tests/validation/93_ml_phase17_experiment_tracking.spectra` validate reproducible experiment tracking
   - `std.ml` supports deterministic single-machine distributed-training simulation with worker progress, coordinated checkpoint JSON, interruption recording, resume, and topology summaries
   - `scripts/validate_r1703_distributed_training.py` and `tests/validation/94_ml_phase17_distributed_training.spectra` validate checkpoint/resume behavior
+  - `std.ml` exports/imports a validated binary ONNX `ModelProto` subset for linear, convolutional, activation, normalization, and transformer blocks
+  - `scripts/validate_r1801_onnx_import_export.py` and `tests/validation/95_ml_phase18_onnx_import_export.spectra` validate ONNX round-trip behavior
 
 ### Beta
 

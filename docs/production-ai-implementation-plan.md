@@ -1467,6 +1467,16 @@ and RAG-oriented development.
 - Transformer examples should use real runtime primitives.
 - RAG examples should be runnable and evaluable end-to-end.
 
+### Current Implementation State
+
+Status: R-1801 is complete for the current production ONNX subset baseline; R-1802 and R-1803 remain not started.
+
+Completed:
+
+- `std.ml.onnx_export`, `onnx_import_summary`, `onnx_validate`, and `onnx_roundtrip` provide binary ONNX `ModelProto` subset export/import/round-trip.
+- Supported ONNX model kinds cover linear, convolutional, activation, normalization, and simple transformer blocks with ranked `float32` shapes.
+- `scripts/validate_r1801_onnx_import_export.py`, `tests/validation/95_ml_phase18_onnx_import_export.spectra`, and `examples/ai/onnx_transformer_export.spectra` validate the current ONNX baseline.
+
 ## Phase 19: AI Operations and Evaluation
 
 ### Goal

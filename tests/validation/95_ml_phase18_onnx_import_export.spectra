@@ -1,0 +1,62 @@
+module ml_phase18_onnx_import_export;
+
+import std.ml as ml;
+import std.string as str;
+
+pub fn main() -> int {
+    let linear = ml.onnx_export("target/r1801/linear.onnx", "linear");
+    if ml.onnx_validate(linear) != 1 {
+        return 1;
+    }
+    let linear_summary = ml.onnx_import_summary(linear);
+    if str.contains(linear_summary, "Gemm") {
+        let ok_linear = 1;
+        if ok_linear != 1 {
+            return 2;
+        }
+    } else {
+        return 2;
+    }
+
+    let conv = ml.onnx_export("target/r1801/conv.onnx", "conv");
+    let activation = ml.onnx_export("target/r1801/activation.onnx", "activation");
+    let normalization = ml.onnx_export("target/r1801/normalization.onnx", "normalization");
+    let transformer = ml.onnx_export("target/r1801/transformer.onnx", "transformer");
+
+    if ml.onnx_validate(conv) != 1 {
+        return 3;
+    }
+    if ml.onnx_validate(activation) != 1 {
+        return 4;
+    }
+    if ml.onnx_validate(normalization) != 1 {
+        return 5;
+    }
+    if ml.onnx_validate(transformer) != 1 {
+        return 6;
+    }
+
+    let transformer_summary = ml.onnx_import_summary(transformer);
+    if str.contains(transformer_summary, "Softmax") {
+        let ok_attention = 1;
+        if ok_attention != 1 {
+            return 7;
+        }
+    } else {
+        return 7;
+    }
+    if str.contains(transformer_summary, "LayerNormalization") {
+        let ok_norm = 1;
+        if ok_norm != 1 {
+            return 8;
+        }
+    } else {
+        return 8;
+    }
+
+    let roundtrip = ml.onnx_roundtrip(transformer, "target/r1801/transformer.roundtrip.onnx");
+    if ml.onnx_validate(roundtrip) != 1 {
+        return 9;
+    }
+    return 0;
+}

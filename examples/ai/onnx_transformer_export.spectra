@@ -1,0 +1,44 @@
+// AI reference example: export and re-import a supported ONNX transformer block.
+module ai_onnx_transformer_export;
+
+import std.ml as ml;
+import std.string as str;
+
+pub fn main() -> int {
+    let model = ml.onnx_export("target/ai-examples/onnx/transformer.onnx", "transformer");
+    if ml.onnx_validate(model) != 1 {
+        return 1;
+    }
+
+    let summary = ml.onnx_import_summary(model);
+    if str.contains(summary, "MatMul") {
+        let ok_matmul = 1;
+        if ok_matmul != 1 {
+            return 2;
+        }
+    } else {
+        return 2;
+    }
+    if str.contains(summary, "Softmax") {
+        let ok_attention = 1;
+        if ok_attention != 1 {
+            return 3;
+        }
+    } else {
+        return 3;
+    }
+    if str.contains(summary, "Gelu") {
+        let ok_ffn = 1;
+        if ok_ffn != 1 {
+            return 4;
+        }
+    } else {
+        return 4;
+    }
+
+    let roundtrip = ml.onnx_roundtrip(model, "target/ai-examples/onnx/transformer.roundtrip.onnx");
+    if ml.onnx_validate(roundtrip) != 1 {
+        return 5;
+    }
+    return 0;
+}

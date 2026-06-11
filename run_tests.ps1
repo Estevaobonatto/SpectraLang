@@ -857,6 +857,19 @@ if ($r1703DistributedTraining.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase17-distributed"; Teste = "validate_r1703_distributed_training"; Status = $r1703DistributedTraining.Status; Detalhe = $r1703DistributedTraining.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.17: R-1801 ONNX import and export
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1801 ONNX import and export ---" -ForegroundColor Yellow
+$r1801OnnxImportExport = Invoke-HostCommand -name "validate_r1801_onnx_import_export" -fileName "python" -arguments @("scripts\validate_r1801_onnx_import_export.py") -workingDir (Get-Location).Path
+if ($r1801OnnxImportExport.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase18-onnx"; Teste = "validate_r1801_onnx_import_export"; Status = $r1801OnnxImportExport.Status; Detalhe = $r1801OnnxImportExport.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

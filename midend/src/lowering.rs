@@ -7447,6 +7447,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "distributed_summary") => {
                 Some(host_string("spectra.std.ml.distributed_summary"))
             }
+            ("ml", "onnx_export") => Some(host_string("spectra.std.ml.onnx_export")),
+            ("ml", "onnx_import_summary") => {
+                Some(host_string("spectra.std.ml.onnx_import_summary"))
+            }
+            ("ml", "onnx_validate") => Some(host_int("spectra.std.ml.onnx_validate")),
+            ("ml", "onnx_roundtrip") => Some(host_string("spectra.std.ml.onnx_roundtrip")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

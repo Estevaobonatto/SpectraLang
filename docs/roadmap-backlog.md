@@ -1621,7 +1621,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1801 ONNX Import and Export
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Dependencies: `R-803`, `R-1601`
@@ -1638,6 +1638,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Spectra models can export a supported ONNX subset with shapes and dtypes
 - supported ONNX models can import into Spectra graph/runtime representation
 - round-trip tests cover linear, convolutional, activation, normalization, and simple transformer blocks
+
+### Completed
+
+- `std.ml` exposes `onnx_export`, `onnx_import_summary`, `onnx_validate`, and `onnx_roundtrip`.
+- Export writes binary ONNX `ModelProto` protobuf artifacts for supported model kinds.
+- Import parses the supported ONNX subset and returns a machine-readable summary with graphs, nodes, inputs, outputs, ops, dtype, and ranked-shape status.
+- Round-trip preserves a validated supported ONNX artifact.
+- Covered model kinds are `linear`, `conv`, `activation`, `normalization`, and `transformer`.
+- `tests/validation/95_ml_phase18_onnx_import_export.spectra` validates the public language API.
+- `examples/ai/onnx_transformer_export.spectra` provides an AI reference example for transformer ONNX export/import.
+- `scripts/validate_r1801_onnx_import_export.py` runs runtime, Spectra, and example validation and independently parses generated `.onnx` files.
+- `run_tests.ps1` includes the `phase18-onnx` gate.
 
 ## R-1802 Transformer and LLM Runtime Primitives
 

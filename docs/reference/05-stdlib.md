@@ -1019,6 +1019,7 @@ import std.ml as ml;
 | `experiment_manifest_path`, `experiment_repro_command`, `experiment_compare_manifests` | Manifest path, reproduction command, and manifest comparison |
 | `distributed_session_start`, `distributed_worker_step`, `distributed_global_step` | Single-machine simulated distributed training coordination |
 | `distributed_checkpoint_save`, `distributed_resume`, `distributed_summary`, `distributed_worker_step_count` | Checkpoint/resume and worker progress inspection |
+| `onnx_export`, `onnx_import_summary`, `onnx_validate`, `onnx_roundtrip` | Binary ONNX subset export/import/round-trip for supported AI model blocks |
 
 Exemplos completos estão em:
 
