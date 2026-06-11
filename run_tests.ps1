@@ -870,6 +870,19 @@ if ($r1801OnnxImportExport.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase18-onnx"; Teste = "validate_r1801_onnx_import_export"; Status = $r1801OnnxImportExport.Status; Detalhe = $r1801OnnxImportExport.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.18: R-1802 transformer and LLM runtime primitives
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1802 transformer and LLM runtime primitives ---" -ForegroundColor Yellow
+$r1802TransformerPrimitives = Invoke-HostCommand -name "validate_r1802_transformer_primitives" -fileName "python" -arguments @("scripts\validate_r1802_transformer_primitives.py") -workingDir (Get-Location).Path
+if ($r1802TransformerPrimitives.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase18-transformers"; Teste = "validate_r1802_transformer_primitives"; Status = $r1802TransformerPrimitives.Status; Detalhe = $r1802TransformerPrimitives.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

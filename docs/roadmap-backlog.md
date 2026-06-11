@@ -1653,7 +1653,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1802 Transformer and LLM Runtime Primitives
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Dependencies: `R-1603`, `R-1801`
@@ -1673,6 +1673,16 @@ the next tracked development cycle toward a broader AI/ML platform.
 - attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested
 - toy transformer example uses real runtime primitives rather than placeholder math
 - CPU fallback and accelerator path produce equivalent outputs within tolerance
+
+### Completed
+
+- `std.ml` exposes `embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention`, `kv_cache_new`, `kv_cache_append`, `kv_cache_keys`, `kv_cache_values`, `kv_cache_len`, and `logits_sample`.
+- Runtime implementations operate on real `std.tensor` handles and validate dtype/shape contracts before execution.
+- Scaled dot-product attention, layer norm, GELU/SwiGLU, sinusoidal positional encoding, KV cache append/materialization, and softmax temperature sampling are covered by runtime tests.
+- The toy transformer AI example now uses real transformer primitives instead of placeholder dot/matmul arithmetic.
+- `tests/validation/96_ml_phase18_transformer_primitives.spectra` validates the public language API.
+- `scripts/validate_r1802_transformer_primitives.py` runs runtime, public Spectra, and AI example validation.
+- `run_tests.ps1` includes the `phase18-transformers` gate.
 
 ## R-1803 Tokenization, Embeddings, and RAG Toolkit
 

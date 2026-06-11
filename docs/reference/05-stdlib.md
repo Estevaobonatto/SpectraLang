@@ -1020,6 +1020,8 @@ import std.ml as ml;
 | `distributed_session_start`, `distributed_worker_step`, `distributed_global_step` | Single-machine simulated distributed training coordination |
 | `distributed_checkpoint_save`, `distributed_resume`, `distributed_summary`, `distributed_worker_step_count` | Checkpoint/resume and worker progress inspection |
 | `onnx_export`, `onnx_import_summary`, `onnx_validate`, `onnx_roundtrip` | Binary ONNX subset export/import/round-trip for supported AI model blocks |
+| `embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention` | Transformer tensor primitives |
+| `kv_cache_new`, `kv_cache_append`, `kv_cache_keys`, `kv_cache_values`, `kv_cache_len`, `logits_sample` | LLM KV-cache and logits sampling helpers |
 
 Exemplos completos estão em:
 

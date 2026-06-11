@@ -332,6 +332,18 @@ const ML_ONNX_EXPORT: &str = "spectra.std.ml.onnx_export";
 const ML_ONNX_IMPORT_SUMMARY: &str = "spectra.std.ml.onnx_import_summary";
 const ML_ONNX_VALIDATE: &str = "spectra.std.ml.onnx_validate";
 const ML_ONNX_ROUNDTRIP: &str = "spectra.std.ml.onnx_roundtrip";
+const ML_EMBEDDING_LOOKUP: &str = "spectra.std.ml.embedding_lookup";
+const ML_POSITIONAL_ENCODING: &str = "spectra.std.ml.positional_encoding";
+const ML_LAYER_NORM: &str = "spectra.std.ml.layer_norm";
+const ML_GELU: &str = "spectra.std.ml.gelu";
+const ML_SWIGLU: &str = "spectra.std.ml.swiglu";
+const ML_ATTENTION: &str = "spectra.std.ml.attention";
+const ML_KV_CACHE_NEW: &str = "spectra.std.ml.kv_cache_new";
+const ML_KV_CACHE_APPEND: &str = "spectra.std.ml.kv_cache_append";
+const ML_KV_CACHE_KEYS: &str = "spectra.std.ml.kv_cache_keys";
+const ML_KV_CACHE_VALUES: &str = "spectra.std.ml.kv_cache_values";
+const ML_KV_CACHE_LEN: &str = "spectra.std.ml.kv_cache_len";
+const ML_LOGITS_SAMPLE: &str = "spectra.std.ml.logits_sample";
 
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
@@ -651,6 +663,18 @@ fn register_ml() {
     register_host_function(ML_ONNX_IMPORT_SUMMARY, std_ml_onnx_import_summary);
     register_host_function(ML_ONNX_VALIDATE, std_ml_onnx_validate);
     register_host_function(ML_ONNX_ROUNDTRIP, std_ml_onnx_roundtrip);
+    register_host_function(ML_EMBEDDING_LOOKUP, std_ml_embedding_lookup);
+    register_host_function(ML_POSITIONAL_ENCODING, std_ml_positional_encoding);
+    register_host_function(ML_LAYER_NORM, std_ml_layer_norm);
+    register_host_function(ML_GELU, std_ml_gelu);
+    register_host_function(ML_SWIGLU, std_ml_swiglu);
+    register_host_function(ML_ATTENTION, std_ml_attention);
+    register_host_function(ML_KV_CACHE_NEW, std_ml_kv_cache_new);
+    register_host_function(ML_KV_CACHE_APPEND, std_ml_kv_cache_append);
+    register_host_function(ML_KV_CACHE_KEYS, std_ml_kv_cache_keys);
+    register_host_function(ML_KV_CACHE_VALUES, std_ml_kv_cache_values);
+    register_host_function(ML_KV_CACHE_LEN, std_ml_kv_cache_len);
+    register_host_function(ML_LOGITS_SAMPLE, std_ml_logits_sample);
 }
 
 fn register_concurrent() {
@@ -4813,6 +4837,14 @@ struct MlDistributedSession {
     last_checkpoint_path: Option<String>,
 }
 
+#[derive(Clone)]
+struct MlKvCache {
+    max_tokens: usize,
+    dim: usize,
+    keys: Vec<f64>,
+    values: Vec<f64>,
+}
+
 struct MlRegistry {
     next_id: usize,
     modules: HashMap<usize, MlModule>,
@@ -4821,6 +4853,7 @@ struct MlRegistry {
     dataframes: HashMap<usize, MlDataFrame>,
     experiments: HashMap<usize, MlExperiment>,
     distributed_sessions: HashMap<usize, MlDistributedSession>,
+    kv_caches: HashMap<usize, MlKvCache>,
 }
 
 impl MlRegistry {
@@ -4833,6 +4866,7 @@ impl MlRegistry {
             dataframes: HashMap::new(),
             experiments: HashMap::new(),
             distributed_sessions: HashMap::new(),
+            kv_caches: HashMap::new(),
         }
     }
 
@@ -4898,6 +4932,39 @@ fn ml_store_float_tensor(handle: usize, values: Vec<f64>) -> bool {
         tensor.strides = tensor_strides(&tensor.shape);
         true
     })
+}
+
+fn ml_alloc_float_tensor(shape: Vec<usize>, values: Vec<f64>) -> Result<usize, i32> {
+    if shape.iter().product::<usize>() != values.len() {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    tensor_alloc(TensorDType::Float, shape, f64_values_to_host(&values))
+}
+
+fn ml_sigmoid(value: f64) -> f64 {
+    if value >= 0.0 {
+        let z = (-value).exp();
+        1.0 / (1.0 + z)
+    } else {
+        let z = value.exp();
+        z / (1.0 + z)
+    }
+}
+
+fn ml_softmax_row(values: &[f64]) -> Option<Vec<f64>> {
+    if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let exp = values
+        .iter()
+        .map(|value| (value - max).exp())
+        .collect::<Vec<_>>();
+    let sum = exp.iter().sum::<f64>();
+    if !sum.is_finite() || sum <= 0.0 {
+        return None;
+    }
+    Some(exp.into_iter().map(|value| value / sum).collect())
 }
 
 fn ml_loss_tensor(
@@ -7743,6 +7810,362 @@ extern "C" fn std_ml_onnx_roundtrip(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INTERNAL_ERROR;
         }
         tensor_result(ctx_ref, alloc_spectra_string(&output_path))
+    }
+}
+
+extern "C" fn std_ml_embedding_lookup(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((table_shape, table, _)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some(ids) = ml_tensor_int_data(args[1] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if table_shape.len() != 2 || table_shape[0] == 0 || table_shape[1] == 0 || ids.is_empty() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let vocab = table_shape[0];
+        let dim = table_shape[1];
+        let mut out = Vec::with_capacity(ids.len() * dim);
+        for id in &ids {
+            if *id < 0 || (*id as usize) >= vocab {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            let start = *id as usize * dim;
+            out.extend_from_slice(&table[start..start + dim]);
+        }
+        match ml_alloc_float_tensor(vec![ids.len(), dim], out) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_positional_encoding(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[0] <= 0 || args[1] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let seq_len = args[0] as usize;
+        let dim = args[1] as usize;
+        let mut out = Vec::with_capacity(seq_len * dim);
+        for pos in 0..seq_len {
+            for i in 0..dim {
+                let pair = (i / 2) * 2;
+                let angle = pos as f64 / 10000f64.powf(pair as f64 / dim as f64);
+                out.push(if i % 2 == 0 { angle.sin() } else { angle.cos() });
+            }
+        }
+        match ml_alloc_float_tensor(vec![seq_len, dim], out) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_layer_norm(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 4) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((input_shape, input, _)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some((scale_shape, scale, _)) = ml_tensor_float_data(args[1] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some((bias_shape, bias, _)) = ml_tensor_float_data(args[2] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let eps = f64::from_bits(args[3] as u64);
+        if input_shape.is_empty()
+            || !eps.is_finite()
+            || eps <= 0.0
+            || scale_shape.len() != 1
+            || bias_shape.len() != 1
+        {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let dim = *input_shape.last().unwrap();
+        if dim == 0 || scale.len() != dim || bias.len() != dim || input.len() % dim != 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let mut out = Vec::with_capacity(input.len());
+        for row in input.chunks(dim) {
+            let mean = row.iter().sum::<f64>() / dim as f64;
+            let var = row
+                .iter()
+                .map(|value| {
+                    let delta = value - mean;
+                    delta * delta
+                })
+                .sum::<f64>()
+                / dim as f64;
+            let denom = (var + eps).sqrt();
+            for idx in 0..dim {
+                out.push(((row[idx] - mean) / denom) * scale[idx] + bias[idx]);
+            }
+        }
+        match ml_alloc_float_tensor(input_shape, out) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_gelu(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((shape, input, _)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let out = input
+            .iter()
+            .map(|x| {
+                0.5 * x
+                    * (1.0
+                        + ((2.0 / std::f64::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
+            })
+            .collect::<Vec<_>>();
+        match ml_alloc_float_tensor(shape, out) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_swiglu(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((shape, input, _)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some((gate_shape, gate, _)) = ml_tensor_float_data(args[1] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if shape != gate_shape || input.len() != gate.len() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let out = input
+            .iter()
+            .zip(gate.iter())
+            .map(|(x, g)| x * ml_sigmoid(*g))
+            .collect::<Vec<_>>();
+        match ml_alloc_float_tensor(shape, out) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_attention(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((q_shape, q, _)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some((k_shape, k, _)) = ml_tensor_float_data(args[1] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some((v_shape, v, _)) = ml_tensor_float_data(args[2] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if q_shape.len() != 2 || k_shape.len() != 2 || v_shape.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let (q_len, dim) = (q_shape[0], q_shape[1]);
+        let (k_len, k_dim) = (k_shape[0], k_shape[1]);
+        let (v_len, v_dim) = (v_shape[0], v_shape[1]);
+        if dim == 0 || k_dim != dim || v_len != k_len || q_len == 0 || k_len == 0 || v_dim == 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let scale = (dim as f64).sqrt();
+        let mut out = vec![0.0; q_len * v_dim];
+        for qi in 0..q_len {
+            let mut scores = Vec::with_capacity(k_len);
+            for ki in 0..k_len {
+                let mut dot = 0.0;
+                for d in 0..dim {
+                    dot += q[qi * dim + d] * k[ki * dim + d];
+                }
+                scores.push(dot / scale);
+            }
+            let Some(weights) = ml_softmax_row(&scores) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            };
+            for vi in 0..v_dim {
+                let mut value = 0.0;
+                for ki in 0..k_len {
+                    value += weights[ki] * v[ki * v_dim + vi];
+                }
+                out[qi * v_dim + vi] = value;
+            }
+        }
+        match ml_alloc_float_tensor(vec![q_len, v_dim], out) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_kv_cache_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[0] <= 0 || args[1] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.kv_caches.insert(
+                handle,
+                MlKvCache {
+                    max_tokens: args[0] as usize,
+                    dim: args[1] as usize,
+                    keys: Vec::new(),
+                    values: Vec::new(),
+                },
+            );
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_kv_cache_append(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((key_shape, key, _)) = ml_tensor_float_data(args[1] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some((value_shape, value, _)) = ml_tensor_float_data(args[2] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if key_shape != value_shape || key_shape.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let tokens = key_shape[0];
+        let dim = key_shape[1];
+        let Some(len) = with_ml_registry(|registry| {
+            let cache = registry.kv_caches.get_mut(&(args[0] as usize))?;
+            if cache.dim != dim || tokens == 0 || cache.len() + tokens > cache.max_tokens {
+                return None;
+            }
+            cache.keys.extend_from_slice(&key);
+            cache.values.extend_from_slice(&value);
+            Some(cache.len() as SpectraHostValue)
+        }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(ctx_ref, len)
+    }
+}
+
+impl MlKvCache {
+    fn len(&self) -> usize {
+        self.keys.len() / self.dim
+    }
+}
+
+extern "C" fn std_ml_kv_cache_keys(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((shape, values)) = with_ml_registry(|registry| {
+            let cache = registry.kv_caches.get(&(args[0] as usize))?;
+            Some((vec![cache.len(), cache.dim], cache.keys.clone()))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        match ml_alloc_float_tensor(shape, values) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_kv_cache_values(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((shape, values)) = with_ml_registry(|registry| {
+            let cache = registry.kv_caches.get(&(args[0] as usize))?;
+            Some((vec![cache.len(), cache.dim], cache.values.clone()))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        match ml_alloc_float_tensor(shape, values) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_ml_kv_cache_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(len) = with_ml_registry(|registry| {
+            registry
+                .kv_caches
+                .get(&(args[0] as usize))
+                .map(|cache| cache.len() as SpectraHostValue)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, len)
+    }
+}
+
+extern "C" fn std_ml_logits_sample(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some((_shape, logits, _)) = ml_tensor_float_data(args[0] as usize) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let temperature = f64::from_bits(args[1] as u64);
+        if logits.is_empty() || !temperature.is_finite() || temperature <= 0.0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let scaled = logits
+            .iter()
+            .map(|value| *value / temperature)
+            .collect::<Vec<_>>();
+        let Some(probs) = ml_softmax_row(&scaled) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let sample = {
+            let mut state = random_state().lock().expect("random mutex poisoned");
+            random_unit_f64(&mut state)
+        };
+        let mut cumulative = 0.0;
+        for (index, prob) in probs.iter().enumerate() {
+            cumulative += *prob;
+            if sample <= cumulative {
+                return tensor_result(ctx_ref, index as SpectraHostValue);
+            }
+        }
+        tensor_result(ctx_ref, (probs.len() - 1) as SpectraHostValue)
     }
 }
 
@@ -12920,6 +13343,135 @@ mod tests {
         }
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn ml_phase18_transformer_primitives_and_sampling() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_SET_GRAD_ENABLED, &[0]);
+
+        let one = 1.0f64.to_bits() as i64;
+        let zero = 0.0f64.to_bits() as i64;
+        let (status, table) = call_host(TENSOR_FULL_F, &[12, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, table) = call_host(TENSOR_RESHAPE, &[table, 4, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, ids) = call_host(TENSOR_ARANGE, &[0, 3, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, embedded) = call_host(ML_EMBEDDING_LOOKUP, &[table, ids]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(TENSOR_ROWS, &[embedded]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        assert_eq!(
+            call_host(TENSOR_COLS, &[embedded]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+
+        let (status, pos) = call_host(ML_POSITIONAL_ENCODING, &[3, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_ROWS, &[pos]), (HOST_STATUS_SUCCESS, 3));
+        let (status, pos00) = call_host(TENSOR_GET_F, &[pos, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(f64::from_bits(pos00 as u64).abs() < 1e-12);
+
+        let (status, scale) = call_host(TENSOR_FULL_F, &[3, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, bias) = call_host(TENSOR_FULL_F, &[3, zero]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, normed) = call_host(
+            ML_LAYER_NORM,
+            &[embedded, scale, bias, 1e-5f64.to_bits() as i64],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_LEN, &[normed]), (HOST_STATUS_SUCCESS, 9));
+
+        let (status, gelu) = call_host(ML_GELU, &[normed]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, swiglu) = call_host(ML_SWIGLU, &[gelu, gelu]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_LEN, &[swiglu]), (HOST_STATUS_SUCCESS, 9));
+
+        let (status, query) = call_host(
+            TENSOR_RESHAPE,
+            &[call_host(TENSOR_FULL_F, &[6, one]).1, 2, 3],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, key) = call_host(
+            TENSOR_RESHAPE,
+            &[call_host(TENSOR_FULL_F, &[6, one]).1, 2, 3],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, value) = call_host(
+            TENSOR_RESHAPE,
+            &[
+                call_host(TENSOR_FULL_F, &[4, 2.0f64.to_bits() as i64]).1,
+                2,
+                2,
+            ],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, attended) = call_host(ML_ATTENTION, &[query, key, value]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(TENSOR_ROWS, &[attended]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(TENSOR_COLS, &[attended]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+
+        let (status, query_cpu) = call_host(TENSOR_TO_DEVICE, &[query, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, key_cpu) = call_host(TENSOR_TO_DEVICE, &[key, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, value_cpu) = call_host(TENSOR_TO_DEVICE, &[value, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, attended_cpu) = call_host(ML_ATTENTION, &[query_cpu, key_cpu, value_cpu]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, sum_a) = call_host(TENSOR_SUM_F, &[attended]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, sum_b) = call_host(TENSOR_SUM_F, &[attended_cpu]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(
+            (f64::from_bits(sum_a as u64) - f64::from_bits(sum_b as u64)).abs()
+                <= NUMERICAL_TOLERANCE_ABS
+        );
+
+        let (status, cache) = call_host(ML_KV_CACHE_NEW, &[4, 3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_KV_CACHE_APPEND, &[cache, query, key]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ML_KV_CACHE_LEN, &[cache]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(call_host(ML_KV_CACHE_KEYS, &[cache]).0, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_KV_CACHE_VALUES, &[cache]).0,
+            HOST_STATUS_SUCCESS
+        );
+
+        let (status, logits) = call_host(
+            TENSOR_RESHAPE,
+            &[call_host(TENSOR_FULL_F, &[3, one]).1, 1, 3],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let _ = call_host(TENSOR_SEED, &[123]);
+        let (status, sample) = call_host(ML_LOGITS_SAMPLE, &[logits, 1.0f64.to_bits() as i64]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((0..3).contains(&sample));
+
+        let _ = call_host(TENSOR_SET_GRAD_ENABLED, &[1]);
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
     }
 
     #[test]

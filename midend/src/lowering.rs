@@ -7453,6 +7453,18 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }
             ("ml", "onnx_validate") => Some(host_int("spectra.std.ml.onnx_validate")),
             ("ml", "onnx_roundtrip") => Some(host_string("spectra.std.ml.onnx_roundtrip")),
+            ("ml", "embedding_lookup") => Some(host_int("spectra.std.ml.embedding_lookup")),
+            ("ml", "positional_encoding") => Some(host_int("spectra.std.ml.positional_encoding")),
+            ("ml", "layer_norm") => Some(host_int("spectra.std.ml.layer_norm")),
+            ("ml", "gelu") => Some(host_int("spectra.std.ml.gelu")),
+            ("ml", "swiglu") => Some(host_int("spectra.std.ml.swiglu")),
+            ("ml", "attention") => Some(host_int("spectra.std.ml.attention")),
+            ("ml", "kv_cache_new") => Some(host_int("spectra.std.ml.kv_cache_new")),
+            ("ml", "kv_cache_append") => Some(host_int("spectra.std.ml.kv_cache_append")),
+            ("ml", "kv_cache_keys") => Some(host_int("spectra.std.ml.kv_cache_keys")),
+            ("ml", "kv_cache_values") => Some(host_int("spectra.std.ml.kv_cache_values")),
+            ("ml", "kv_cache_len") => Some(host_int("spectra.std.ml.kv_cache_len")),
+            ("ml", "logits_sample") => Some(host_int("spectra.std.ml.logits_sample")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

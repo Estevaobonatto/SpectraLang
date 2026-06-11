@@ -1,0 +1,74 @@
+module ml_phase18_transformer_primitives;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(false);
+
+    let table = tensor.reshape(tensor.full_f(12, 1.0), 4, 3);
+    let ids = tensor.arange(0, 3, 1);
+    let embedded = ml.embedding_lookup(table, ids);
+    if tensor.rows(embedded) != 3 {
+        return 1;
+    }
+    if tensor.cols(embedded) != 3 {
+        return 2;
+    }
+
+    let pos = ml.positional_encoding(3, 3);
+    if tensor.rows(pos) != 3 {
+        return 3;
+    }
+
+    let scale = tensor.full_f(3, 1.0);
+    let bias = tensor.full_f(3, 0.0);
+    let normed = ml.layer_norm(embedded, scale, bias, 0.00001);
+    if tensor.len(normed) != 9 {
+        return 4;
+    }
+
+    let activated = ml.gelu(normed);
+    let gated = ml.swiglu(activated, activated);
+    if tensor.len(gated) != 9 {
+        return 5;
+    }
+
+    let query = tensor.reshape(tensor.full_f(6, 1.0), 2, 3);
+    let key = tensor.reshape(tensor.full_f(6, 1.0), 2, 3);
+    let value = tensor.reshape(tensor.full_f(4, 2.0), 2, 2);
+    let attended = ml.attention(query, key, value);
+    if tensor.rows(attended) != 2 {
+        return 6;
+    }
+    if tensor.cols(attended) != 2 {
+        return 7;
+    }
+
+    let cache = ml.kv_cache_new(4, 3);
+    if ml.kv_cache_append(cache, query, key) != 2 {
+        return 8;
+    }
+    if ml.kv_cache_len(cache) != 2 {
+        return 9;
+    }
+    let cache_keys = ml.kv_cache_keys(cache);
+    if tensor.rows(cache_keys) != 2 {
+        return 10;
+    }
+
+    tensor.seed(123);
+    let logits = tensor.reshape(tensor.full_f(3, 1.0), 1, 3);
+    let sample = ml.logits_sample(logits, 1.0);
+    if sample < 0 {
+        return 11;
+    }
+    if sample > 2 {
+        return 12;
+    }
+
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    return 0;
+}

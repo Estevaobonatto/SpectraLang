@@ -111,6 +111,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1703_distributed_training.py` and `tests/validation/94_ml_phase17_distributed_training.spectra` validate checkpoint/resume behavior
   - `std.ml` exports/imports a validated binary ONNX `ModelProto` subset for linear, convolutional, activation, normalization, and transformer blocks
   - `scripts/validate_r1801_onnx_import_export.py` and `tests/validation/95_ml_phase18_onnx_import_export.spectra` validate ONNX round-trip behavior
+  - `std.ml` implements transformer/LLM primitives for embedding lookup, sinusoidal positional encoding, layer norm, GELU, SwiGLU, scaled dot-product attention, KV cache, and logits sampling
+  - `scripts/validate_r1802_transformer_primitives.py` and `tests/validation/96_ml_phase18_transformer_primitives.spectra` validate the transformer primitive baseline
 
 ### Beta
 

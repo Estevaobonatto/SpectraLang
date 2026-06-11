@@ -894,6 +894,42 @@ fn make_std_ml() -> ModuleExports {
             vec![Type::String, Type::String],
             Type::String,
         ),
+        (
+            "embedding_lookup",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "positional_encoding",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "layer_norm",
+            vec![int.clone(), int.clone(), int.clone(), float.clone()],
+            int.clone(),
+        ),
+        ("gelu", vec![int.clone()], int.clone()),
+        ("swiglu", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "attention",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("kv_cache_new", vec![int.clone(), int.clone()], int.clone()),
+        (
+            "kv_cache_append",
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("kv_cache_keys", vec![int.clone()], int.clone()),
+        ("kv_cache_values", vec![int.clone()], int.clone()),
+        ("kv_cache_len", vec![int.clone()], int.clone()),
+        (
+            "logits_sample",
+            vec![int.clone(), float.clone()],
+            int.clone(),
+        ),
     ];
 
     for (name, params, return_type) in functions {

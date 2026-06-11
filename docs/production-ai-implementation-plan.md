@@ -1469,13 +1469,16 @@ and RAG-oriented development.
 
 ### Current Implementation State
 
-Status: R-1801 is complete for the current production ONNX subset baseline; R-1802 and R-1803 remain not started.
+Status: R-1801 and R-1802 are complete for the current production model/LLM baseline; R-1803 remains not started.
 
 Completed:
 
 - `std.ml.onnx_export`, `onnx_import_summary`, `onnx_validate`, and `onnx_roundtrip` provide binary ONNX `ModelProto` subset export/import/round-trip.
 - Supported ONNX model kinds cover linear, convolutional, activation, normalization, and simple transformer blocks with ranked `float32` shapes.
 - `scripts/validate_r1801_onnx_import_export.py`, `tests/validation/95_ml_phase18_onnx_import_export.spectra`, and `examples/ai/onnx_transformer_export.spectra` validate the current ONNX baseline.
+- `std.ml.embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention`, `kv_cache_*`, and `logits_sample` provide runtime-backed transformer/LLM primitives over real tensor handles.
+- `examples/ai/toy_transformer_inference.spectra` now uses real transformer primitives instead of placeholder tensor arithmetic.
+- `scripts/validate_r1802_transformer_primitives.py` and `tests/validation/96_ml_phase18_transformer_primitives.spectra` validate the current transformer primitive baseline.
 
 ## Phase 19: AI Operations and Evaluation
 
