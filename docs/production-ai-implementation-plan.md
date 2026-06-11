@@ -1434,7 +1434,7 @@ reproducible training workflows.
 
 ### Current Implementation State
 
-Status: R-1701 and R-1702 are complete for the current production data/experiment baseline; R-1703 remains not started.
+Status: R-1701, R-1702, and R-1703 are complete for the current production data/experiment baseline.
 
 Completed:
 
@@ -1445,6 +1445,8 @@ Completed:
 - `std.ml.experiment_start` through `experiment_finish` record structured experiment manifests with configs, metrics, artifacts, seeds, lockfiles, model outputs, and reproduction commands.
 - `std.ml.experiment_compare_manifests` compares run evidence for metrics/artifacts/configs/lockfile/model output/seed.
 - `scripts/validate_r1702_experiment_tracking.py`, `tests/validation/93_ml_phase17_experiment_tracking.spectra`, and `examples/ai/experiment_tracking_reproducibility.spectra` validate reproducible experiment tracking.
+- `std.ml.distributed_session_start` through `distributed_summary` provide deterministic single-machine simulated-worker training coordination, checkpoint save/resume, interrupted-worker tracking, and topology summaries.
+- `scripts/validate_r1703_distributed_training.py`, `tests/validation/94_ml_phase17_distributed_training.spectra`, and `examples/ai/distributed_training_checkpoint.spectra` validate distributed training foundations.
 
 ## Phase 18: Model Ecosystem and LLM Workloads
 

@@ -107,6 +107,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1701_data_runtime.py` and `tests/validation/92_ml_phase17_data_runtime.spectra` validate file-backed tabular training without Python glue
   - `std.ml` emits experiment manifests with configs, metrics, artifacts, seeds, lockfiles, model outputs, reproduction commands, and manifest comparison
   - `scripts/validate_r1702_experiment_tracking.py` and `tests/validation/93_ml_phase17_experiment_tracking.spectra` validate reproducible experiment tracking
+  - `std.ml` supports deterministic single-machine distributed-training simulation with worker progress, coordinated checkpoint JSON, interruption recording, resume, and topology summaries
+  - `scripts/validate_r1703_distributed_training.py` and `tests/validation/94_ml_phase17_distributed_training.spectra` validate checkpoint/resume behavior
 
 ### Beta
 

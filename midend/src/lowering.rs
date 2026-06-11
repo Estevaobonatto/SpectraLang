@@ -7428,6 +7428,25 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "experiment_compare_manifests") => {
                 Some(host_int("spectra.std.ml.experiment_compare_manifests"))
             }
+            ("ml", "distributed_session_start") => {
+                Some(host_int("spectra.std.ml.distributed_session_start"))
+            }
+            ("ml", "distributed_worker_step") => {
+                Some(host_int("spectra.std.ml.distributed_worker_step"))
+            }
+            ("ml", "distributed_global_step") => {
+                Some(host_int("spectra.std.ml.distributed_global_step"))
+            }
+            ("ml", "distributed_worker_step_count") => {
+                Some(host_int("spectra.std.ml.distributed_worker_step_count"))
+            }
+            ("ml", "distributed_checkpoint_save") => {
+                Some(host_string("spectra.std.ml.distributed_checkpoint_save"))
+            }
+            ("ml", "distributed_resume") => Some(host_int("spectra.std.ml.distributed_resume")),
+            ("ml", "distributed_summary") => {
+                Some(host_string("spectra.std.ml.distributed_summary"))
+            }
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

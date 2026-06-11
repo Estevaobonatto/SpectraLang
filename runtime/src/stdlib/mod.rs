@@ -321,6 +321,13 @@ const ML_EXPERIMENT_FINISH: &str = "spectra.std.ml.experiment_finish";
 const ML_EXPERIMENT_MANIFEST_PATH: &str = "spectra.std.ml.experiment_manifest_path";
 const ML_EXPERIMENT_REPRO_COMMAND: &str = "spectra.std.ml.experiment_repro_command";
 const ML_EXPERIMENT_COMPARE_MANIFESTS: &str = "spectra.std.ml.experiment_compare_manifests";
+const ML_DISTRIBUTED_SESSION_START: &str = "spectra.std.ml.distributed_session_start";
+const ML_DISTRIBUTED_WORKER_STEP: &str = "spectra.std.ml.distributed_worker_step";
+const ML_DISTRIBUTED_GLOBAL_STEP: &str = "spectra.std.ml.distributed_global_step";
+const ML_DISTRIBUTED_WORKER_STEP_COUNT: &str = "spectra.std.ml.distributed_worker_step_count";
+const ML_DISTRIBUTED_CHECKPOINT_SAVE: &str = "spectra.std.ml.distributed_checkpoint_save";
+const ML_DISTRIBUTED_RESUME: &str = "spectra.std.ml.distributed_resume";
+const ML_DISTRIBUTED_SUMMARY: &str = "spectra.std.ml.distributed_summary";
 
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
@@ -620,6 +627,22 @@ fn register_ml() {
         ML_EXPERIMENT_COMPARE_MANIFESTS,
         std_ml_experiment_compare_manifests,
     );
+    register_host_function(
+        ML_DISTRIBUTED_SESSION_START,
+        std_ml_distributed_session_start,
+    );
+    register_host_function(ML_DISTRIBUTED_WORKER_STEP, std_ml_distributed_worker_step);
+    register_host_function(ML_DISTRIBUTED_GLOBAL_STEP, std_ml_distributed_global_step);
+    register_host_function(
+        ML_DISTRIBUTED_WORKER_STEP_COUNT,
+        std_ml_distributed_worker_step_count,
+    );
+    register_host_function(
+        ML_DISTRIBUTED_CHECKPOINT_SAVE,
+        std_ml_distributed_checkpoint_save,
+    );
+    register_host_function(ML_DISTRIBUTED_RESUME, std_ml_distributed_resume);
+    register_host_function(ML_DISTRIBUTED_SUMMARY, std_ml_distributed_summary);
 }
 
 fn register_concurrent() {
@@ -4761,6 +4784,27 @@ struct MlExperiment {
     finished: bool,
 }
 
+#[derive(Clone)]
+struct MlDistributedWorker {
+    worker_id: usize,
+    step_count: i64,
+    sample_count: i64,
+    accumulator: f64,
+    active: bool,
+}
+
+#[derive(Clone)]
+struct MlDistributedSession {
+    name: String,
+    out_dir: String,
+    worker_count: usize,
+    seed: i64,
+    global_step: i64,
+    interrupted_worker: Option<usize>,
+    workers: Vec<MlDistributedWorker>,
+    last_checkpoint_path: Option<String>,
+}
+
 struct MlRegistry {
     next_id: usize,
     modules: HashMap<usize, MlModule>,
@@ -4768,6 +4812,7 @@ struct MlRegistry {
     loaders: HashMap<usize, MlDataLoader>,
     dataframes: HashMap<usize, MlDataFrame>,
     experiments: HashMap<usize, MlExperiment>,
+    distributed_sessions: HashMap<usize, MlDistributedSession>,
 }
 
 impl MlRegistry {
@@ -4779,6 +4824,7 @@ impl MlRegistry {
             loaders: HashMap::new(),
             dataframes: HashMap::new(),
             experiments: HashMap::new(),
+            distributed_sessions: HashMap::new(),
         }
     }
 
@@ -6018,6 +6064,177 @@ fn ml_compare_manifest_payloads(left: &str, right: &str) -> bool {
     true
 }
 
+fn ml_distributed_worker_json(worker: &MlDistributedWorker) -> String {
+    format!(
+        "{{\"worker_id\":{},\"step_count\":{},\"sample_count\":{},\"accumulator\":{},\"active\":{}}}",
+        worker.worker_id,
+        worker.step_count,
+        worker.sample_count,
+        worker.accumulator,
+        if worker.active { "true" } else { "false" }
+    )
+}
+
+fn ml_distributed_session_json(session: &MlDistributedSession) -> String {
+    let workers_json = session
+        .workers
+        .iter()
+        .map(ml_distributed_worker_json)
+        .collect::<Vec<_>>()
+        .join(",");
+    let checkpoint_json = session
+        .last_checkpoint_path
+        .as_ref()
+        .map(|path| ml_json_string(path))
+        .unwrap_or_else(|| "null".to_string());
+    let interrupted_json = session
+        .interrupted_worker
+        .map(|worker_id| worker_id.to_string())
+        .unwrap_or_else(|| "null".to_string());
+    format!(
+        "{{\"schema\":\"spectra.ml.distributed_checkpoint.v1\",\"name\":{},\"topology\":\"single-machine-simulated-workers\",\"seed\":{},\"worker_count\":{},\"global_step\":{},\"interrupted_worker\":{},\"last_checkpoint_path\":{},\"workers\":[{}]}}",
+        ml_json_string(&session.name),
+        session.seed,
+        session.worker_count,
+        session.global_step,
+        interrupted_json,
+        checkpoint_json,
+        workers_json
+    )
+}
+
+fn ml_distributed_summary_json(session: &MlDistributedSession) -> String {
+    let total_samples: i64 = session
+        .workers
+        .iter()
+        .map(|worker| worker.sample_count)
+        .sum();
+    let total_worker_steps: i64 = session.workers.iter().map(|worker| worker.step_count).sum();
+    format!(
+        "{{\"schema\":\"spectra.ml.distributed_summary.v1\",\"name\":{},\"topology\":\"single-machine-simulated-workers\",\"worker_count\":{},\"global_step\":{},\"total_worker_steps\":{},\"total_samples\":{},\"checkpoint\":{}}}",
+        ml_json_string(&session.name),
+        session.worker_count,
+        session.global_step,
+        total_worker_steps,
+        total_samples,
+        session
+            .last_checkpoint_path
+            .as_ref()
+            .map(|path| ml_json_string(path))
+            .unwrap_or_else(|| "null".to_string())
+    )
+}
+
+fn ml_checkpoint_number(source: &str, key: &str) -> Option<i64> {
+    ml_manifest_section(source, key)?.trim().parse::<i64>().ok()
+}
+
+fn ml_checkpoint_string(source: &str, key: &str) -> Option<String> {
+    let encoded = ml_manifest_section(source, key)?;
+    if encoded == "null" {
+        return None;
+    }
+    let trimmed = encoded.trim();
+    if trimmed.len() < 2 || !trimmed.starts_with('"') || !trimmed.ends_with('"') {
+        return None;
+    }
+    Some(
+        trimmed[1..trimmed.len() - 1]
+            .replace("\\\"", "\"")
+            .replace("\\\\", "\\"),
+    )
+}
+
+fn ml_checkpoint_worker_number(worker_source: &str, key: &str) -> Option<i64> {
+    let needle = format!("\"{}\":", key);
+    let start = worker_source.find(&needle)? + needle.len();
+    let bytes = worker_source.as_bytes();
+    let mut end = start;
+    while end < bytes.len()
+        && (bytes[end].is_ascii_digit() || matches!(bytes[end], b'.' | b'e' | b'E' | b'+' | b'-'))
+    {
+        end += 1;
+    }
+    worker_source[start..end]
+        .parse::<f64>()
+        .ok()
+        .map(|value| value as i64)
+}
+
+fn ml_checkpoint_worker_float(worker_source: &str, key: &str) -> Option<f64> {
+    let needle = format!("\"{}\":", key);
+    let start = worker_source.find(&needle)? + needle.len();
+    let bytes = worker_source.as_bytes();
+    let mut end = start;
+    while end < bytes.len()
+        && (bytes[end].is_ascii_digit() || matches!(bytes[end], b'.' | b'e' | b'E' | b'+' | b'-'))
+    {
+        end += 1;
+    }
+    worker_source[start..end].parse::<f64>().ok()
+}
+
+fn ml_checkpoint_worker_bool(worker_source: &str, key: &str) -> Option<bool> {
+    let needle = format!("\"{}\":", key);
+    let start = worker_source.find(&needle)? + needle.len();
+    if worker_source[start..].starts_with("true") {
+        Some(true)
+    } else if worker_source[start..].starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn ml_distributed_session_from_checkpoint(
+    source: &str,
+    checkpoint_path: String,
+) -> Option<MlDistributedSession> {
+    if !source.contains("\"schema\":\"spectra.ml.distributed_checkpoint.v1\"") {
+        return None;
+    }
+    let name = ml_checkpoint_string(source, "\"name\"")?;
+    let seed = ml_checkpoint_number(source, "\"seed\"")?;
+    let worker_count = ml_checkpoint_number(source, "\"worker_count\"")? as usize;
+    let global_step = ml_checkpoint_number(source, "\"global_step\"")?;
+    let interrupted_worker = match ml_manifest_section(source, "\"interrupted_worker\"")?.trim() {
+        "null" => None,
+        value => Some(value.parse::<usize>().ok()?),
+    };
+    let workers_section = ml_manifest_section(source, "\"workers\"")?;
+    let mut workers = Vec::new();
+    let mut offset = 0usize;
+    while let Some(relative_start) = workers_section[offset..].find('{') {
+        let start = offset + relative_start;
+        let end = workers_section[start..].find('}')? + start;
+        let item = &workers_section[start..=end];
+        workers.push(MlDistributedWorker {
+            worker_id: ml_checkpoint_worker_number(item, "worker_id")? as usize,
+            step_count: ml_checkpoint_worker_number(item, "step_count")?,
+            sample_count: ml_checkpoint_worker_number(item, "sample_count")?,
+            accumulator: ml_checkpoint_worker_float(item, "accumulator")?,
+            active: ml_checkpoint_worker_bool(item, "active")?,
+        });
+        offset = end + 1;
+    }
+    if workers.len() != worker_count {
+        return None;
+    }
+    Some(MlDistributedSession {
+        name,
+        out_dir: std::path::Path::new(&checkpoint_path)
+            .parent()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string()),
+        worker_count,
+        seed,
+        global_step,
+        interrupted_worker,
+        workers,
+        last_checkpoint_path: Some(checkpoint_path),
+    })
+}
+
 extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
@@ -6757,6 +6974,214 @@ extern "C" fn std_ml_experiment_compare_manifests(ctx: *mut SpectraHostCallConte
                 0
             },
         )
+    }
+}
+
+extern "C" fn std_ml_distributed_session_start(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 4) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(name) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(out_dir) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let worker_count = args[2];
+        if worker_count <= 0 || worker_count > 1024 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let worker_count = worker_count as usize;
+        let seed = args[3];
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            let workers = (0..worker_count)
+                .map(|worker_id| MlDistributedWorker {
+                    worker_id,
+                    step_count: 0,
+                    sample_count: 0,
+                    accumulator: seed as f64 + worker_id as f64,
+                    active: true,
+                })
+                .collect();
+            registry.distributed_sessions.insert(
+                handle,
+                MlDistributedSession {
+                    name,
+                    out_dir,
+                    worker_count,
+                    seed,
+                    global_step: 0,
+                    interrupted_worker: None,
+                    workers,
+                    last_checkpoint_path: None,
+                },
+            );
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_distributed_worker_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 4) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let session_handle = args[0] as usize;
+        if args[1] < 0 || args[2] <= 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let worker_id = args[1] as usize;
+        let samples = args[2];
+        let loss = f64::from_bits(args[3] as u64);
+        if !loss.is_finite() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(step_count) = with_ml_registry(|registry| {
+            let session = registry.distributed_sessions.get_mut(&session_handle)?;
+            let worker = session.workers.get_mut(worker_id)?;
+            worker.active = true;
+            worker.step_count += 1;
+            worker.sample_count += samples;
+            worker.accumulator += loss * samples as f64;
+            session.interrupted_worker = None;
+            Some(worker.step_count)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, step_count)
+    }
+}
+
+extern "C" fn std_ml_distributed_global_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(global_step) = with_ml_registry(|registry| {
+            let session = registry.distributed_sessions.get_mut(&(args[0] as usize))?;
+            if session
+                .workers
+                .iter()
+                .all(|worker| worker.step_count > session.global_step)
+            {
+                session.global_step += 1;
+            }
+            Some(session.global_step)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, global_step)
+    }
+}
+
+extern "C" fn std_ml_distributed_worker_step_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if args[1] < 0 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(step_count) = with_ml_registry(|registry| {
+            let session = registry.distributed_sessions.get(&(args[0] as usize))?;
+            Some(session.workers.get(args[1] as usize)?.step_count)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, step_count)
+    }
+}
+
+extern "C" fn std_ml_distributed_checkpoint_save(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let interrupted_worker = if args[2] < 0 {
+            None
+        } else {
+            Some(args[2] as usize)
+        };
+        let Some((out_dir, payload)) = with_ml_registry(|registry| {
+            let session = registry.distributed_sessions.get_mut(&(args[0] as usize))?;
+            if let Some(worker_id) = interrupted_worker {
+                let worker = session.workers.get_mut(worker_id)?;
+                worker.active = false;
+                session.interrupted_worker = Some(worker_id);
+            } else {
+                session.interrupted_worker = None;
+            }
+            session.last_checkpoint_path = Some(path.clone());
+            Some((
+                session.out_dir.clone(),
+                ml_distributed_session_json(session),
+            ))
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if std::fs::create_dir_all(&out_dir).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                return HOST_STATUS_INTERNAL_ERROR;
+            }
+        }
+        if std::fs::write(&path, payload.as_bytes()).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        tensor_result(ctx_ref, alloc_spectra_string(&path))
+    }
+}
+
+extern "C" fn std_ml_distributed_resume(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let payload = match std::fs::read_to_string(&path) {
+            Ok(value) => value,
+            Err(_) => return HOST_STATUS_NOT_FOUND,
+        };
+        let Some(mut session) = ml_distributed_session_from_checkpoint(&payload, path) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        for worker in &mut session.workers {
+            worker.active = true;
+        }
+        session.interrupted_worker = None;
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.distributed_sessions.insert(handle, session);
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_distributed_summary(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(summary) = with_ml_registry(|registry| {
+            registry
+                .distributed_sessions
+                .get(&(args[0] as usize))
+                .map(ml_distributed_summary_json)
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, alloc_spectra_string(&summary))
     }
 }
 
@@ -11766,6 +12191,103 @@ mod tests {
             ),
             (HOST_STATUS_SUCCESS, 0)
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn ml_phase17_distributed_training_checkpoint_resume() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        let dir = std::env::temp_dir().join(format!(
+            "spectra_r1703_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let checkpoint = dir.join("checkpoint.json");
+        std::fs::create_dir_all(&dir).expect("create temp distributed dir");
+
+        let (status, session) = call_host(
+            ML_DISTRIBUTED_SESSION_START,
+            &[
+                test_string("single-machine-reference"),
+                test_string(dir.to_string_lossy().as_ref()),
+                3,
+                2026,
+            ],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        for worker_id in 0..3 {
+            assert_eq!(
+                call_host(
+                    ML_DISTRIBUTED_WORKER_STEP,
+                    &[
+                        session,
+                        worker_id,
+                        8,
+                        (0.25f64 + worker_id as f64).to_bits() as i64
+                    ],
+                ),
+                (HOST_STATUS_SUCCESS, 1)
+            );
+        }
+        assert_eq!(
+            call_host(ML_DISTRIBUTED_GLOBAL_STEP, &[session]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, checkpoint_ptr) = call_host(
+            ML_DISTRIBUTED_CHECKPOINT_SAVE,
+            &[
+                session,
+                test_string(checkpoint.to_string_lossy().as_ref()),
+                1,
+            ],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let checkpoint_path =
+            unsafe { read_spectra_string(checkpoint_ptr) }.expect("checkpoint path string");
+        let checkpoint_text = std::fs::read_to_string(&checkpoint_path).expect("checkpoint exists");
+        assert!(checkpoint_text.contains("\"schema\":\"spectra.ml.distributed_checkpoint.v1\""));
+        assert!(checkpoint_text.contains("\"interrupted_worker\":1"));
+        assert!(checkpoint_text.contains("\"topology\":\"single-machine-simulated-workers\""));
+
+        let (status, resumed) = call_host(
+            ML_DISTRIBUTED_RESUME,
+            &[test_string(checkpoint_path.as_str())],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ML_DISTRIBUTED_WORKER_STEP_COUNT, &[resumed, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        for worker_id in 0..3 {
+            assert_eq!(
+                call_host(
+                    ML_DISTRIBUTED_WORKER_STEP,
+                    &[resumed, worker_id, 4, 0.1f64.to_bits() as i64],
+                ),
+                (HOST_STATUS_SUCCESS, 2)
+            );
+        }
+        assert_eq!(
+            call_host(ML_DISTRIBUTED_GLOBAL_STEP, &[resumed]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+
+        let (status, summary_ptr) = call_host(ML_DISTRIBUTED_SUMMARY, &[resumed]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let summary = unsafe { read_spectra_string(summary_ptr) }.expect("summary string");
+        assert!(summary.contains("\"schema\":\"spectra.ml.distributed_summary.v1\""));
+        assert!(summary.contains("\"global_step\":2"));
+        assert!(summary.contains("\"total_samples\":36"));
 
         std::fs::remove_dir_all(&dir).ok();
     }

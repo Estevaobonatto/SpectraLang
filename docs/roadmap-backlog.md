@@ -1586,7 +1586,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1703 Distributed Training Foundations
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `runtime`
 - Dependencies: `R-1101`, `R-1603`, `R-1702`
@@ -1603,6 +1603,17 @@ the next tracked development cycle toward a broader AI/ML platform.
 - single-machine multi-worker training simulation is covered by tests
 - checkpoint save/resume works across worker interruption
 - distributed behavior is documented with explicit non-goals and supported topology
+
+### Completed
+
+- `std.ml` exposes `distributed_session_start`, `distributed_worker_step`, `distributed_global_step`, `distributed_worker_step_count`, `distributed_checkpoint_save`, `distributed_resume`, and `distributed_summary`.
+- The supported topology is explicitly scoped to deterministic single-machine simulated workers; networked multi-process training, GPU collectives, sharding, and elastic membership remain non-goals for this item.
+- Checkpoint JSON uses schema `spectra.ml.distributed_checkpoint.v1` and records topology, seed, worker count, global step, interrupted worker, checkpoint path, and per-worker state.
+- `ml.distributed_resume` restores a new session handle from checkpoint contents and reactivates workers after an interruption.
+- `tests/validation/94_ml_phase17_distributed_training.spectra` validates the public language API.
+- `examples/ai/distributed_training_checkpoint.spectra` provides an AI reference example for checkpoint/resume.
+- `scripts/validate_r1703_distributed_training.py` runs the runtime test, public Spectra validation, AI example, and parses the generated checkpoint.
+- `run_tests.ps1` includes the `phase17-distributed` gate.
 
 ---
 

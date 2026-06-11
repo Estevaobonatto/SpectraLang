@@ -859,6 +859,29 @@ fn make_std_ml() -> ModuleExports {
             vec![Type::String, Type::String],
             int.clone(),
         ),
+        (
+            "distributed_session_start",
+            vec![Type::String, Type::String, int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "distributed_worker_step",
+            vec![int.clone(), int.clone(), int.clone(), float.clone()],
+            int.clone(),
+        ),
+        ("distributed_global_step", vec![int.clone()], int.clone()),
+        (
+            "distributed_worker_step_count",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        (
+            "distributed_checkpoint_save",
+            vec![int.clone(), Type::String, int.clone()],
+            Type::String,
+        ),
+        ("distributed_resume", vec![Type::String], int.clone()),
+        ("distributed_summary", vec![int.clone()], Type::String),
     ];
 
     for (name, params, return_type) in functions {

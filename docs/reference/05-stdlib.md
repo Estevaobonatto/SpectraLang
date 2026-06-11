@@ -1017,6 +1017,8 @@ import std.ml as ml;
 | `experiment_set_config`, `experiment_log_metric`, `experiment_log_artifact` | Experiment config, metrics, and artifacts |
 | `experiment_set_lockfile`, `experiment_set_model_output` | Reproducibility lockfile and model output records |
 | `experiment_manifest_path`, `experiment_repro_command`, `experiment_compare_manifests` | Manifest path, reproduction command, and manifest comparison |
+| `distributed_session_start`, `distributed_worker_step`, `distributed_global_step` | Single-machine simulated distributed training coordination |
+| `distributed_checkpoint_save`, `distributed_resume`, `distributed_summary`, `distributed_worker_step_count` | Checkpoint/resume and worker progress inspection |
 
 Exemplos completos estão em:
 
