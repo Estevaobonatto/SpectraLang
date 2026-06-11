@@ -1022,6 +1022,9 @@ import std.ml as ml;
 | `onnx_export`, `onnx_import_summary`, `onnx_validate`, `onnx_roundtrip` | Binary ONNX subset export/import/round-trip for supported AI model blocks |
 | `embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention` | Transformer tensor primitives |
 | `kv_cache_new`, `kv_cache_append`, `kv_cache_keys`, `kv_cache_values`, `kv_cache_len`, `logits_sample` | LLM KV-cache and logits sampling helpers |
+| `tokenizer_wordpiece`, `tokenizer_encode`, `tokenizer_decode`, `text_embed` | Deterministic tokenization and text embedding utilities |
+| `vector_index_new`, `vector_index_insert`, `vector_index_query`, `vector_index_persist`, `vector_index_load` | Persistent vector index APIs |
+| `rag_chunk_text`, `rag_build_prompt`, `rag_evaluate_answer` | RAG chunking, prompt assembly, and evaluation |
 
 Exemplos completos estão em:
 

@@ -1686,7 +1686,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1803 Tokenization, Embeddings, and RAG Toolkit
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-1701`, `R-1802`
@@ -1703,6 +1703,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 - BPE or WordPiece-style tokenization is implemented with deterministic encoding/decoding
 - vector index APIs support insert, query, persist, and load
 - RAG example runs retrieval, prompt assembly, model call boundary, and evaluation metrics end-to-end
+
+### Completed
+
+- `std.ml` exposes `tokenizer_wordpiece`, `tokenizer_encode`, `tokenizer_decode`, `text_embed`, `vector_index_new`, `vector_index_insert`, `vector_index_query`, `vector_index_persist`, `vector_index_load`, `rag_chunk_text`, `rag_build_prompt`, and `rag_evaluate_answer`.
+- WordPiece-style tokenization uses deterministic greedy longest-match segmentation and deterministic decode with `##` continuation merging.
+- Text embeddings use deterministic normalized hashing so RAG examples run without Python glue or external model downloads.
+- Vector indexes support cosine insert/query plus JSON persist/load.
+- RAG utilities cover deterministic chunking, prompt assembly, model-call boundary integration, and token-overlap F1 evaluation.
+- `tests/validation/97_ml_phase18_rag_toolkit.spectra` validates the public language API.
+- `examples/ai/rag_retrieval_pipeline.spectra` runs retrieval, prompt assembly, model-call boundary, answer evaluation, and persistence end-to-end.
+- `scripts/validate_r1803_rag_toolkit.py` runs runtime, public Spectra, and AI example validation and parses persisted vector index evidence.
+- `run_tests.ps1` includes the `phase18-rag` gate.
 
 ---
 

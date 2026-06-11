@@ -113,6 +113,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1801_onnx_import_export.py` and `tests/validation/95_ml_phase18_onnx_import_export.spectra` validate ONNX round-trip behavior
   - `std.ml` implements transformer/LLM primitives for embedding lookup, sinusoidal positional encoding, layer norm, GELU, SwiGLU, scaled dot-product attention, KV cache, and logits sampling
   - `scripts/validate_r1802_transformer_primitives.py` and `tests/validation/96_ml_phase18_transformer_primitives.spectra` validate the transformer primitive baseline
+  - `std.ml` implements deterministic WordPiece-style tokenization, hash embeddings, persistent cosine vector indexes, RAG chunking, prompt assembly, and token-overlap F1 evaluation
+  - `scripts/validate_r1803_rag_toolkit.py` and `tests/validation/97_ml_phase18_rag_toolkit.spectra` validate the RAG toolkit baseline
 
 ### Beta
 

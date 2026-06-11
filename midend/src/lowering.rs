@@ -7465,6 +7465,20 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "kv_cache_values") => Some(host_int("spectra.std.ml.kv_cache_values")),
             ("ml", "kv_cache_len") => Some(host_int("spectra.std.ml.kv_cache_len")),
             ("ml", "logits_sample") => Some(host_int("spectra.std.ml.logits_sample")),
+            ("ml", "tokenizer_wordpiece") => Some(host_int("spectra.std.ml.tokenizer_wordpiece")),
+            ("ml", "tokenizer_encode") => Some(host_int("spectra.std.ml.tokenizer_encode")),
+            ("ml", "tokenizer_decode") => Some(host_string("spectra.std.ml.tokenizer_decode")),
+            ("ml", "text_embed") => Some(host_int("spectra.std.ml.text_embed")),
+            ("ml", "vector_index_new") => Some(host_int("spectra.std.ml.vector_index_new")),
+            ("ml", "vector_index_insert") => Some(host_int("spectra.std.ml.vector_index_insert")),
+            ("ml", "vector_index_query") => Some(host_string("spectra.std.ml.vector_index_query")),
+            ("ml", "vector_index_persist") => {
+                Some(host_string("spectra.std.ml.vector_index_persist"))
+            }
+            ("ml", "vector_index_load") => Some(host_int("spectra.std.ml.vector_index_load")),
+            ("ml", "rag_chunk_text") => Some(host_string("spectra.std.ml.rag_chunk_text")),
+            ("ml", "rag_build_prompt") => Some(host_string("spectra.std.ml.rag_build_prompt")),
+            ("ml", "rag_evaluate_answer") => Some(host_int("spectra.std.ml.rag_evaluate_answer")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

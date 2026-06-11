@@ -127,5 +127,8 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.onnx_export` / `onnx_import_summary` / `onnx_validate` / `onnx_roundtrip` | Binary ONNX `ModelProto` subset export, import validation, summary, and round-trip for linear, convolutional, activation, normalization, and transformer blocks. | path and model kind | string path/summary or integer validation result |
 | `spectra.std.ml.embedding_lookup` / `positional_encoding` / `layer_norm` / `gelu` / `swiglu` / `attention` | Transformer runtime primitives over real tensor handles. | tensor handles and primitive params | tensor handle |
 | `spectra.std.ml.kv_cache_new` / `kv_cache_append` / `kv_cache_keys` / `kv_cache_values` / `kv_cache_len` / `logits_sample` | KV cache state and logits sampling for LLM-style inference. | cache/tensor handles and sampling params | cache handle, tensor handle, length, or sampled index |
+| `spectra.std.ml.tokenizer_wordpiece` / `tokenizer_encode` / `tokenizer_decode` / `text_embed` | Deterministic WordPiece-style tokenization and hash embeddings. | tokenizer/text/dim | tokenizer handle, tensor handle, or string |
+| `spectra.std.ml.vector_index_new` / `vector_index_insert` / `vector_index_query` / `vector_index_persist` / `vector_index_load` | Cosine vector index with JSON persistence. | index/vector/path params | index handle, result JSON, path, or count |
+| `spectra.std.ml.rag_chunk_text` / `rag_build_prompt` / `rag_evaluate_answer` | Chunking, prompt assembly, and token-overlap F1 evaluation for RAG flows. | text/context/question/answer | JSON, prompt string, or integer permille score |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.

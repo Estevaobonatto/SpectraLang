@@ -1469,7 +1469,7 @@ and RAG-oriented development.
 
 ### Current Implementation State
 
-Status: R-1801 and R-1802 are complete for the current production model/LLM baseline; R-1803 remains not started.
+Status: R-1801, R-1802, and R-1803 are complete for the current production model/LLM/RAG baseline.
 
 Completed:
 
@@ -1479,6 +1479,9 @@ Completed:
 - `std.ml.embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention`, `kv_cache_*`, and `logits_sample` provide runtime-backed transformer/LLM primitives over real tensor handles.
 - `examples/ai/toy_transformer_inference.spectra` now uses real transformer primitives instead of placeholder tensor arithmetic.
 - `scripts/validate_r1802_transformer_primitives.py` and `tests/validation/96_ml_phase18_transformer_primitives.spectra` validate the current transformer primitive baseline.
+- `std.ml.tokenizer_wordpiece`, `tokenizer_encode`, `tokenizer_decode`, `text_embed`, `vector_index_*`, and `rag_*` provide deterministic tokenization, embeddings, retrieval, prompt assembly, and RAG evaluation.
+- `examples/ai/rag_retrieval_pipeline.spectra` runs retrieval, prompt assembly, model-call boundary, evaluation, and vector-index persistence end-to-end.
+- `scripts/validate_r1803_rag_toolkit.py` and `tests/validation/97_ml_phase18_rag_toolkit.spectra` validate the current RAG toolkit baseline.
 
 ## Phase 19: AI Operations and Evaluation
 

@@ -883,6 +883,19 @@ if ($r1802TransformerPrimitives.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase18-transformers"; Teste = "validate_r1802_transformer_primitives"; Status = $r1802TransformerPrimitives.Status; Detalhe = $r1802TransformerPrimitives.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.19: R-1803 tokenization embeddings and RAG toolkit
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1803 tokenization embeddings and RAG toolkit ---" -ForegroundColor Yellow
+$r1803RagToolkit = Invoke-HostCommand -name "validate_r1803_rag_toolkit" -fileName "python" -arguments @("scripts\validate_r1803_rag_toolkit.py") -workingDir (Get-Location).Path
+if ($r1803RagToolkit.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase18-rag"; Teste = "validate_r1803_rag_toolkit"; Status = $r1803RagToolkit.Status; Detalhe = $r1803RagToolkit.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

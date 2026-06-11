@@ -930,6 +930,50 @@ fn make_std_ml() -> ModuleExports {
             vec![int.clone(), float.clone()],
             int.clone(),
         ),
+        ("tokenizer_wordpiece", vec![Type::String], int.clone()),
+        (
+            "tokenizer_encode",
+            vec![int.clone(), Type::String],
+            int.clone(),
+        ),
+        (
+            "tokenizer_decode",
+            vec![int.clone(), int.clone()],
+            Type::String,
+        ),
+        ("text_embed", vec![Type::String, int.clone()], int.clone()),
+        ("vector_index_new", vec![int.clone()], int.clone()),
+        (
+            "vector_index_insert",
+            vec![int.clone(), Type::String, int.clone()],
+            int.clone(),
+        ),
+        (
+            "vector_index_query",
+            vec![int.clone(), int.clone(), int.clone()],
+            Type::String,
+        ),
+        (
+            "vector_index_persist",
+            vec![int.clone(), Type::String],
+            Type::String,
+        ),
+        ("vector_index_load", vec![Type::String], int.clone()),
+        (
+            "rag_chunk_text",
+            vec![Type::String, int.clone(), int.clone()],
+            Type::String,
+        ),
+        (
+            "rag_build_prompt",
+            vec![Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "rag_evaluate_answer",
+            vec![Type::String, Type::String],
+            int.clone(),
+        ),
     ];
 
     for (name, params, return_type) in functions {
