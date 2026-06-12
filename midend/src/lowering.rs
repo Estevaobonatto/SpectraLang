@@ -7549,6 +7549,32 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 Some(host_int("spectra.std.serve.server_resident_model"))
             }
             ("serve", "server_benchmark") => Some(host_int("spectra.std.serve.server_benchmark")),
+            ("serve", "server_set_input_policy") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_set_input_policy",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_set_output_policy") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_set_output_policy",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_set_rate_limit") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_set_rate_limit",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_set_fallback") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_set_fallback",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_last_diagnostic") => {
+                Some(host_string("spectra.std.serve.server_last_diagnostic"))
+            }
+            ("serve", "server_audit_log") => {
+                Some(host_string("spectra.std.serve.server_audit_log"))
+            }
             ("serve", "reset") => Some(host_void("spectra.std.serve.reset")),
             // ── std.collections map ──────────────────────────────────────
             ("collections", "map_new") => Some(HostFunctionDescriptor {

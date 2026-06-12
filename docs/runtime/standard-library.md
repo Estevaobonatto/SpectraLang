@@ -134,3 +134,18 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.evaluation_report` | Write a versioned JSON evaluation report plus a human-readable `.txt` companion report. | path, name, metric JSON payloads | report path string |
 - Host calls are idempotent where practical; re-registering the standard library simply replaces
   existing bindings with the same implementations.
+
+## `std.serve`
+
+`std.serve` provides the local in-process serving baseline used by AI examples and
+runtime validation.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.serve.server_new` / `server_warmup` / `server_is_warm` | Create and warm a local serving server. | model integer, server handle | server handle or bool |
+| `spectra.std.serve.server_enqueue` / `server_process_batch` / `server_result` / `server_pending` / `server_cancel` | Queue, process, read, inspect, and cancel local inference requests. | server/request/input params | request handle, result, count, or bool |
+| `spectra.std.serve.server_set_timeout` / `server_resident_model` / `server_benchmark` | Timeout, model residency, and local batch benchmark utilities. | server and numeric params | bool, model handle, or processed count |
+| `spectra.std.serve.server_set_input_policy` / `server_set_output_policy` | Attach inclusive input/output range guardrails to a server. | server, min, max | bool |
+| `spectra.std.serve.server_set_rate_limit` / `server_set_fallback` | Attach request limit and safe fallback result. | server, limit/fallback | bool |
+| `spectra.std.serve.server_last_diagnostic` / `server_audit_log` | Read structured guardrail diagnostic JSON and versioned audit-log JSON. | server | string |
+| `spectra.std.serve.reset` | Clear local serving registry state. | none | `0` |

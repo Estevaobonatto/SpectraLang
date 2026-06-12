@@ -1455,5 +1455,35 @@ let classification = ml.metrics_classification(labels, predicted);
 
 ---
 
+## 15. std.serve — Serving and guardrails
+
+```spectra
+import std.serve as serve;
+```
+
+`std.serve` provides local serving queues plus guardrails for AI serving baselines:
+
+- `server_set_input_policy(server: int, min: int, max: int) -> bool`
+- `server_set_output_policy(server: int, min: int, max: int) -> bool`
+- `server_set_rate_limit(server: int, limit: int) -> bool`
+- `server_set_fallback(server: int, value: int) -> bool`
+- `server_last_diagnostic(server: int) -> string`
+- `server_audit_log(server: int) -> string`
+
+Guardrail failures complete the request with the configured fallback value and
+record structured diagnostic/audit JSON.
+
+```spectra
+import std.serve as serve;
+
+let server = serve.server_new(3);
+serve.server_set_fallback(server, -999);
+serve.server_set_input_policy(server, 0, 100);
+serve.server_set_output_policy(server, 0, 200);
+serve.server_warmup(server);
+```
+
+---
+
 > **Próximo / Next:** [06 — Referência Rápida / Quick Reference](06-referencia-rapida.md)  
 > **Anterior / Previous:** [04 — Avançado / Advanced](04-avancado.md)

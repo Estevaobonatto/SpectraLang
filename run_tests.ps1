@@ -909,6 +909,19 @@ if ($r1901EvaluationMetrics.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase19-evaluation"; Teste = "validate_r1901_evaluation_metrics"; Status = $r1901EvaluationMetrics.Status; Detalhe = $r1901EvaluationMetrics.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.21: R-1902 AI safety and guardrail runtime
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1902 AI safety and guardrail runtime ---" -ForegroundColor Yellow
+$r1902SafetyGuardrails = Invoke-HostCommand -name "validate_r1902_ai_safety_guardrails" -fileName "python" -arguments @("scripts\validate_r1902_ai_safety_guardrails.py") -workingDir (Get-Location).Path
+if ($r1902SafetyGuardrails.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase19-safety"; Teste = "validate_r1902_ai_safety_guardrails"; Status = $r1902SafetyGuardrails.Status; Detalhe = $r1902SafetyGuardrails.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

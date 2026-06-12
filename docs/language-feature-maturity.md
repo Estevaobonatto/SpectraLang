@@ -117,6 +117,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1803_rag_toolkit.py` and `tests/validation/97_ml_phase18_rag_toolkit.spectra` validate the RAG toolkit baseline
   - `std.ml` implements model evaluation metrics for classification, regression, ranking, generation, and serving behavior, plus versioned machine-readable and human-readable evaluation reports
   - `scripts/validate_r1901_evaluation_metrics.py` and `tests/validation/98_ml_phase19_evaluation_metrics.spectra` validate the evaluation metrics baseline
+  - `std.serve` implements AI serving guardrails with input/output policy hooks, rate limits, safe fallback results, structured diagnostics, and versioned audit logs
+  - `scripts/validate_r1902_ai_safety_guardrails.py` and `tests/validation/99_phase19_ai_safety_guardrails.spectra` validate the guardrail baseline
 
 ### Beta
 
@@ -125,7 +127,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - mutable/reference closure captures beyond the current by-value capture contract
 - first-class tensor language design beyond the current stdlib handle/autodiff API
 - native DWARF/PDB source stepping beyond the current AOT debug-map workflow
-- HTTP/gRPC serving, async I/O integration, and distributed model residency policy
+- HTTP/gRPC serving, async I/O integration, distributed model residency policy, and external policy-engine integration
 
 These are usable where covered, but still not treated as fully production-hardened language design.
 

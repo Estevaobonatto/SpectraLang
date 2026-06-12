@@ -390,6 +390,12 @@ const SERVE_SERVER_PENDING: &str = "spectra.std.serve.server_pending";
 const SERVE_SERVER_SET_TIMEOUT: &str = "spectra.std.serve.server_set_timeout";
 const SERVE_SERVER_RESIDENT_MODEL: &str = "spectra.std.serve.server_resident_model";
 const SERVE_SERVER_BENCHMARK: &str = "spectra.std.serve.server_benchmark";
+const SERVE_SERVER_SET_INPUT_POLICY: &str = "spectra.std.serve.server_set_input_policy";
+const SERVE_SERVER_SET_OUTPUT_POLICY: &str = "spectra.std.serve.server_set_output_policy";
+const SERVE_SERVER_SET_RATE_LIMIT: &str = "spectra.std.serve.server_set_rate_limit";
+const SERVE_SERVER_SET_FALLBACK: &str = "spectra.std.serve.server_set_fallback";
+const SERVE_SERVER_LAST_DIAGNOSTIC: &str = "spectra.std.serve.server_last_diagnostic";
+const SERVE_SERVER_AUDIT_LOG: &str = "spectra.std.serve.server_audit_log";
 const SERVE_RESET: &str = "spectra.std.serve.reset";
 
 // ── std.io (novos) ───────────────────────────────────────────────────────────
@@ -746,6 +752,21 @@ fn register_serve() {
     register_host_function(SERVE_SERVER_SET_TIMEOUT, std_serve_server_set_timeout);
     register_host_function(SERVE_SERVER_RESIDENT_MODEL, std_serve_server_resident_model);
     register_host_function(SERVE_SERVER_BENCHMARK, std_serve_server_benchmark);
+    register_host_function(
+        SERVE_SERVER_SET_INPUT_POLICY,
+        std_serve_server_set_input_policy,
+    );
+    register_host_function(
+        SERVE_SERVER_SET_OUTPUT_POLICY,
+        std_serve_server_set_output_policy,
+    );
+    register_host_function(SERVE_SERVER_SET_RATE_LIMIT, std_serve_server_set_rate_limit);
+    register_host_function(SERVE_SERVER_SET_FALLBACK, std_serve_server_set_fallback);
+    register_host_function(
+        SERVE_SERVER_LAST_DIAGNOSTIC,
+        std_serve_server_last_diagnostic,
+    );
+    register_host_function(SERVE_SERVER_AUDIT_LOG, std_serve_server_audit_log);
     register_host_function(SERVE_RESET, std_serve_reset);
 }
 
@@ -12699,6 +12720,13 @@ struct ServeServer {
     timeout: SpectraHostValue,
     queue: VecDeque<SpectraHostValue>,
     requests: HashMap<SpectraHostValue, (SpectraHostValue, ServeRequestState)>,
+    input_policy: Option<(SpectraHostValue, SpectraHostValue)>,
+    output_policy: Option<(SpectraHostValue, SpectraHostValue)>,
+    rate_limit: Option<SpectraHostValue>,
+    accepted_requests: SpectraHostValue,
+    fallback: SpectraHostValue,
+    last_diagnostic: String,
+    audit_events: Vec<String>,
 }
 
 struct ServeRegistry {
@@ -12732,6 +12760,44 @@ fn lock_serve_registry() -> Result<std::sync::MutexGuard<'static, ServeRegistry>
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
 }
 
+fn serve_guardrail_diagnostic(
+    request_id: SpectraHostValue,
+    stage: &str,
+    policy: &str,
+    value: SpectraHostValue,
+    min: SpectraHostValue,
+    max: SpectraHostValue,
+    fallback: SpectraHostValue,
+) -> String {
+    format!(
+        "{{\"schema\":\"spectra.serve.guardrail_diagnostic.v1\",\"request\":{},\"stage\":\"{}\",\"policy\":\"{}\",\"value\":{},\"min\":{},\"max\":{},\"fallback\":{}}}",
+        request_id, stage, policy, value, min, max, fallback
+    )
+}
+
+fn serve_audit_event(
+    request_id: SpectraHostValue,
+    event: &str,
+    stage: &str,
+    value: SpectraHostValue,
+    result: SpectraHostValue,
+) -> String {
+    format!(
+        "{{\"request\":{},\"event\":\"{}\",\"stage\":\"{}\",\"value\":{},\"result\":{}}}",
+        request_id, event, stage, value, result
+    )
+}
+
+fn serve_audit_json(server: &ServeServer) -> String {
+    format!(
+        "{{\"schema\":\"spectra.serve.audit.v1\",\"model\":{},\"warm\":{},\"accepted_requests\":{},\"events\":[{}]}}",
+        server.model,
+        i64::from(server.warm),
+        server.accepted_requests,
+        server.audit_events.join(",")
+    )
+}
+
 extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
@@ -12751,6 +12817,15 @@ extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
             timeout: 1,
             queue: VecDeque::new(),
             requests: HashMap::new(),
+            input_policy: None,
+            output_policy: None,
+            rate_limit: None,
+            accepted_requests: 0,
+            fallback: -1,
+            last_diagnostic:
+                "{\"schema\":\"spectra.serve.guardrail_diagnostic.v1\",\"status\":\"ok\"}"
+                    .to_string(),
+            audit_events: Vec::new(),
         },
     );
     results[0] = server_id;
@@ -12804,9 +12879,66 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
     let Some(server) = registry.servers.get_mut(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
+    let input = args[1];
+    if let Some(limit) = server.rate_limit {
+        if server.accepted_requests >= limit {
+            server.last_diagnostic = serve_guardrail_diagnostic(
+                request_id,
+                "input",
+                "rate_limit",
+                server.accepted_requests + 1,
+                0,
+                limit,
+                server.fallback,
+            );
+            server.audit_events.push(serve_audit_event(
+                request_id,
+                "blocked",
+                "rate_limit",
+                input,
+                server.fallback,
+            ));
+            server.requests.insert(
+                request_id,
+                (input, ServeRequestState::Complete(server.fallback)),
+            );
+            results[0] = request_id;
+            return HOST_STATUS_SUCCESS;
+        }
+    }
+    if let Some((min, max)) = server.input_policy {
+        if input < min || input > max {
+            server.last_diagnostic = serve_guardrail_diagnostic(
+                request_id,
+                "input",
+                "range",
+                input,
+                min,
+                max,
+                server.fallback,
+            );
+            server.audit_events.push(serve_audit_event(
+                request_id,
+                "blocked",
+                "input",
+                input,
+                server.fallback,
+            ));
+            server.requests.insert(
+                request_id,
+                (input, ServeRequestState::Complete(server.fallback)),
+            );
+            results[0] = request_id;
+            return HOST_STATUS_SUCCESS;
+        }
+    }
+    server.accepted_requests += 1;
     server
         .requests
-        .insert(request_id, (args[1], ServeRequestState::Pending));
+        .insert(request_id, (input, ServeRequestState::Pending));
+    server.audit_events.push(serve_audit_event(
+        request_id, "accepted", "input", input, input,
+    ));
     server.queue.push_back(request_id);
     results[0] = request_id;
     HOST_STATUS_SUCCESS
@@ -12870,7 +13002,38 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
             *state = ServeRequestState::Cancelled;
             continue;
         }
-        *state = ServeRequestState::Complete(*input * server.model);
+        let output = *input * server.model;
+        if let Some((min, max)) = server.output_policy {
+            if output < min || output > max {
+                server.last_diagnostic = serve_guardrail_diagnostic(
+                    request_id,
+                    "output",
+                    "range",
+                    output,
+                    min,
+                    max,
+                    server.fallback,
+                );
+                server.audit_events.push(serve_audit_event(
+                    request_id,
+                    "blocked",
+                    "output",
+                    output,
+                    server.fallback,
+                ));
+                *state = ServeRequestState::Complete(server.fallback);
+                processed += 1;
+                continue;
+            }
+        }
+        server.audit_events.push(serve_audit_event(
+            request_id,
+            "completed",
+            "output",
+            output,
+            output,
+        ));
+        *state = ServeRequestState::Complete(output);
         processed += 1;
     }
     results[0] = processed;
@@ -13020,9 +13183,140 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
     HOST_STATUS_SUCCESS
 }
 
+extern "C" fn std_serve_server_set_input_policy(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] > args[2] {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.input_policy = Some((args[1], args[2]));
+    server.audit_events.push(format!(
+        "{{\"request\":0,\"event\":\"policy_attached\",\"stage\":\"input\",\"value\":{},\"result\":{}}}",
+        args[1], args[2]
+    ));
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_set_output_policy(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] > args[2] {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.output_policy = Some((args[1], args[2]));
+    server.audit_events.push(format!(
+        "{{\"request\":0,\"event\":\"policy_attached\",\"stage\":\"output\",\"value\":{},\"result\":{}}}",
+        args[1], args[2]
+    ));
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_set_rate_limit(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] <= 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.rate_limit = Some(args[1]);
+    server.audit_events.push(format!(
+        "{{\"request\":0,\"event\":\"policy_attached\",\"stage\":\"rate_limit\",\"value\":{},\"result\":{}}}",
+        args[1], args[1]
+    ));
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_set_fallback(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.fallback = args[1];
+    server.audit_events.push(format!(
+        "{{\"request\":0,\"event\":\"fallback_attached\",\"stage\":\"fallback\",\"value\":{},\"result\":{}}}",
+        args[1], args[1]
+    ));
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_last_diagnostic(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let diagnostic = {
+        let registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get(&args[0]) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        server.last_diagnostic.clone()
+    };
+    results[0] = unsafe { alloc_spectra_string(&diagnostic) };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_audit_log(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let audit = {
+        let registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get(&args[0]) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        serve_audit_json(server)
+    };
+    results[0] = unsafe { alloc_spectra_string(&audit) };
+    HOST_STATUS_SUCCESS
+}
+
 extern "C" fn std_serve_reset(ctx: *mut SpectraHostCallContext) -> i32 {
     let _ = match host_call_void_args(ctx, 0) {
-        Ok(args) => args,
+        Ok(registry) => registry,
         Err(status) => return status,
     };
     let mut registry = match lock_serve_registry() {
@@ -15151,5 +15445,97 @@ mod tests {
             call_host(SERVE_SERVER_BENCHMARK, &[server, 8, 3]),
             (HOST_STATUS_SUCCESS, 8)
         );
+    }
+
+    #[test]
+    fn serve_host_calls_cover_guardrails_rate_limit_fallback_and_audit() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        assert_eq!(call_host(SERVE_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let (status, server) = call_host(SERVE_SERVER_NEW, &[3]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_SET_FALLBACK, &[server, -999]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_SET_INPUT_POLICY, &[server, 0, 100]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_SET_OUTPUT_POLICY, &[server, 0, 200]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_SET_RATE_LIMIT, &[server, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_WARMUP, &[server]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, ok_request) = call_host(SERVE_SERVER_ENQUEUE, &[server, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_PROCESS_BATCH, &[server, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, ok_request]),
+            (HOST_STATUS_SUCCESS, 30)
+        );
+
+        let (status, rate_limited) = call_host(SERVE_SERVER_ENQUEUE, &[server, 11]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, rate_limited]),
+            (HOST_STATUS_SUCCESS, -999)
+        );
+        let (status, diagnostic_ptr) = call_host(SERVE_SERVER_LAST_DIAGNOSTIC, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let diagnostic = unsafe { read_spectra_string(diagnostic_ptr) }.expect("diagnostic");
+        assert!(diagnostic.contains("\"policy\":\"rate_limit\""));
+
+        assert_eq!(
+            call_host(SERVE_SERVER_SET_RATE_LIMIT, &[server, 10]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, input_blocked) = call_host(SERVE_SERVER_ENQUEUE, &[server, 101]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, input_blocked]),
+            (HOST_STATUS_SUCCESS, -999)
+        );
+        let (status, diagnostic_ptr) = call_host(SERVE_SERVER_LAST_DIAGNOSTIC, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let diagnostic = unsafe { read_spectra_string(diagnostic_ptr) }.expect("diagnostic");
+        assert!(diagnostic.contains("\"stage\":\"input\""));
+        assert!(diagnostic.contains("\"policy\":\"range\""));
+
+        let (status, output_blocked) = call_host(SERVE_SERVER_ENQUEUE, &[server, 90]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_PROCESS_BATCH, &[server, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, output_blocked]),
+            (HOST_STATUS_SUCCESS, -999)
+        );
+        let (status, diagnostic_ptr) = call_host(SERVE_SERVER_LAST_DIAGNOSTIC, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let diagnostic = unsafe { read_spectra_string(diagnostic_ptr) }.expect("diagnostic");
+        assert!(diagnostic.contains("\"stage\":\"output\""));
+
+        let (status, audit_ptr) = call_host(SERVE_SERVER_AUDIT_LOG, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let audit = unsafe { read_spectra_string(audit_ptr) }.expect("audit log");
+        assert!(audit.contains("spectra.serve.audit.v1"));
+        assert!(audit.contains("\"event\":\"blocked\""));
+        assert!(audit.contains("\"event\":\"policy_attached\""));
     }
 }

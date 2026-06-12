@@ -1123,6 +1123,28 @@ fn make_std_serve() -> ModuleExports {
             vec![int.clone(), int.clone(), int.clone()],
             int.clone(),
         ),
+        (
+            "server_set_input_policy",
+            vec![int.clone(), int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        (
+            "server_set_output_policy",
+            vec![int.clone(), int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        (
+            "server_set_rate_limit",
+            vec![int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        (
+            "server_set_fallback",
+            vec![int.clone(), int.clone()],
+            bool_ty.clone(),
+        ),
+        ("server_last_diagnostic", vec![int.clone()], Type::String),
+        ("server_audit_log", vec![int.clone()], Type::String),
         ("reset", vec![], Type::Unit),
     ];
 

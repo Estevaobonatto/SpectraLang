@@ -1,0 +1,111 @@
+module phase19_ai_safety_guardrails;
+
+import std.serve as serve;
+import std.string as str;
+
+pub fn main() -> int {
+    serve.reset();
+
+    let server = serve.server_new(3);
+    if serve.server_set_fallback(server, -999) {
+        let ok_fallback = 1;
+        if ok_fallback != 1 {
+            return 1;
+        }
+    } else {
+        return 1;
+    }
+    if serve.server_set_input_policy(server, 0, 100) {
+        let ok_input_policy = 1;
+        if ok_input_policy != 1 {
+            return 2;
+        }
+    } else {
+        return 2;
+    }
+    if serve.server_set_output_policy(server, 0, 200) {
+        let ok_output_policy = 1;
+        if ok_output_policy != 1 {
+            return 3;
+        }
+    } else {
+        return 3;
+    }
+    if serve.server_set_rate_limit(server, 1) {
+        let ok_rate_policy = 1;
+        if ok_rate_policy != 1 {
+            return 4;
+        }
+    } else {
+        return 4;
+    }
+    serve.server_warmup(server);
+
+    let allowed = serve.server_enqueue(server, 10);
+    if serve.server_process_batch(server, 1) != 1 {
+        return 5;
+    }
+    if serve.server_result(server, allowed) != 30 {
+        return 6;
+    }
+
+    let rate_limited = serve.server_enqueue(server, 11);
+    if serve.server_result(server, rate_limited) != -999 {
+        return 7;
+    }
+    let rate_diag = serve.server_last_diagnostic(server);
+    if str.contains(rate_diag, "\"policy\":\"rate_limit\"") {
+        let ok_rate = 1;
+        if ok_rate != 1 {
+            return 8;
+        }
+    } else {
+        return 8;
+    }
+
+    serve.server_set_rate_limit(server, 10);
+    let blocked_input = serve.server_enqueue(server, 101);
+    if serve.server_result(server, blocked_input) != -999 {
+        return 9;
+    }
+    let input_diag = serve.server_last_diagnostic(server);
+    if str.contains(input_diag, "\"stage\":\"input\"") {
+        let ok_input = 1;
+        if ok_input != 1 {
+            return 10;
+        }
+    } else {
+        return 10;
+    }
+
+    let blocked_output = serve.server_enqueue(server, 90);
+    if serve.server_process_batch(server, 1) != 1 {
+        return 11;
+    }
+    if serve.server_result(server, blocked_output) != -999 {
+        return 12;
+    }
+    let output_diag = serve.server_last_diagnostic(server);
+    if str.contains(output_diag, "\"stage\":\"output\"") {
+        let ok_output = 1;
+        if ok_output != 1 {
+            return 13;
+        }
+    } else {
+        return 13;
+    }
+
+    let audit = serve.server_audit_log(server);
+    if str.contains(audit, "spectra.serve.audit.v1") {
+        let ok_schema = 1;
+        if ok_schema != 1 {
+            return 14;
+        }
+    } else {
+        return 14;
+    }
+    if str.contains(audit, "\"event\":\"blocked\"") {
+        return 0;
+    }
+    return 15;
+}

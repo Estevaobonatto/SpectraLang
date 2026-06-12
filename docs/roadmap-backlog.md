@@ -1751,7 +1751,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1902 AI Safety and Guardrail Runtime
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `runtime`
 - Dependencies: `R-1102`, `R-1803`, `R-1901`
@@ -1769,6 +1769,17 @@ the next tracked development cycle toward a broader AI/ML platform.
 - serving APIs can attach input and output policy hooks
 - guardrail failures produce structured diagnostics and audit events
 - safety examples cover blocked input, blocked output, and degraded fallback behavior
+
+### Completed
+
+- `std.serve.server_set_input_policy`, `server_set_output_policy`, `server_set_rate_limit`, and `server_set_fallback` attach deterministic guardrails to serving servers.
+- `server_enqueue` enforces input policy and rate-limit failures before queueing; `server_process_batch` enforces output policy before returning model output.
+- Guardrail failures complete requests with the configured fallback value, so callers receive degraded safe behavior instead of internal errors.
+- `std.serve.server_last_diagnostic` emits structured JSON diagnostics and `server_audit_log` emits versioned JSON audit evidence.
+- `tests/validation/99_phase19_ai_safety_guardrails.spectra` validates the public language API.
+- `examples/ai/safe_serving_guardrails.spectra` covers blocked input, blocked output, and fallback behavior in a runnable AI serving example.
+- `scripts/validate_r1902_ai_safety_guardrails.py` runs runtime, public Spectra, and AI example validation and parses generated audit evidence.
+- `run_tests.ps1` includes the `phase19-safety` gate.
 
 ## R-1903 Model Monitoring and Drift Detection
 
