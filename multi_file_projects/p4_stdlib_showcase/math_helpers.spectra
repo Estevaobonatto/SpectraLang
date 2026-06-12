@@ -1,0 +1,23 @@
+module math_helpers;
+
+import std.math as m;
+
+pub fn clamp_int(n: int, lo: int, hi: int) -> int {
+    return m.clamp(n, lo, hi);
+}
+
+pub fn gcd_two(a: int, b: int) -> int {
+    return m.gcd(a, b);
+}
+
+pub fn lcm_two(a: int, b: int) -> int {
+    return m.lcm(a, b);
+}
+
+pub fn abs_int(n: int) -> int {
+    return m.abs(n);
+}
+
+pub fn sign_of(n: int) -> int {
+    return m.sign(n);
+}

@@ -1,0 +1,18 @@
+module counter;
+
+pub struct Counter {
+    pub value: int,
+    pub step: int
+}
+
+pub fn counter_new(step: int) -> Counter {
+    return Counter { value: 0, step: step };
+}
+
+pub fn counter_tick(c: Counter) -> Counter {
+    return Counter { value: c.value + c.step, step: c.step };
+}
+
+pub fn counter_read(c: Counter) -> int {
+    return c.value;
+}

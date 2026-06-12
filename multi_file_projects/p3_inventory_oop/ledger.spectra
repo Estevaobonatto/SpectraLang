@@ -1,0 +1,17 @@
+module ledger;
+
+pub fn total_value(price: int, stock: int) -> int {
+    return price * stock;
+}
+
+pub fn apply_sell(stock: int, qty: int) -> int {
+    let new_stock = stock - qty;
+    if new_stock < 0 {
+        new_stock = 0;
+    }
+    return new_stock;
+}
+
+pub fn discount_price(price: int, pct: int) -> int {
+    return price - (price * pct / 100);
+}

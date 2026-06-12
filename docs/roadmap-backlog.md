@@ -361,6 +361,510 @@ cascading fallback diagnostics.
 - `scripts/validate_r108_diagnostic_classification.py` validates the CLI JSON contract and is integrated into `run_tests.ps1`.
 - Focused validation: `cargo test -p spectra-compiler`; `python scripts\validate_r108_diagnostic_classification.py --binary target\debug\spectralang.exe`.
 
+## R-109 Cross-Module String Value Handling
+
+- Status: `complete`
+- Priority: `P1`
+- Owner: `backend`
+- Dependencies: `R-105`
+
+### Problems Found
+
+The multi-file test project suite (`multi_file_projects/`) surfaced two
+related string-handling defects in the cross-module and main-module paths:
+
+- `let r = module::fn_returning_string(...); println(r);` prints a numeric
+  pointer value (e.g. `2051441058384`) instead of the actual string content.
+  This is reproducible for user modules and for `std.string` functions such as
+  `to_upper`, `to_lower`, `concat`, `repeat_str`, `replace`, `reverse_str`, and
+  `trim`.
+- `let s = "a" + "b"; println(s);` in the main module causes a silent crash
+  that suppresses all subsequent `println` output for the rest of the program.
+  In-module string concatenation inside a callee function (e.g. inside a
+  `while` loop) still works, so the defect is specific to the main-module
+  initialization path for the concatenation result.
+
+Both defects block any realistic multi-file program that needs to format
+or assemble strings.
+
+### Scope
+
+- align the runtime string representation used by cross-module callee returns
+  with the one used for in-module returns
+- ensure `println` of a string value always reads through the correct runtime
+  handle regardless of where the value was produced
+- audit the main-module IR lowering for `let x = <expr>; println(x);` patterns
+  where `<expr>` is a string concatenation of literals, and ensure the result
+  is materialized through the same path as a `println("literal");` literal
+- keep `std.string` return values printable without wrappers in user code
+- keep in-module string concat inside loops/blocks, f-string interpolation, and
+  `println` of bare string literals unchanged
+
+### Acceptance
+
+- a function in module B that returns a `string` is printable in module A and
+  in `main` using `println` and shows the actual string
+- `std.string.to_upper("hello")` prints `HELLO` when called from a user module
+  or from `main`
+- `let s = "Hello" + ", " + "World"; println(s);` in `main` prints
+  `Hello, World` and does not abort the program
+- regression tests cover: cross-module user string return, cross-module
+  `std.string` return, and main-module chained literal string concatenation
+- no regression in existing f-string interpolation or in-module string concat
+  inside loops
+
+### Evidence
+
+- Reproduction project: `multi_file_projects/p2_string_utils/`
+  (`main.spectra` shows both defects; `p4_stdlib_showcase/` shows the
+  `std.string` return variant).
+- Reduction output captured during the 2026-06-12 multi-file sweep.
+- Focused validation: `cargo run -q -p spectra-cli -- run
+  multi_file_projects/p2_string_utils` must print the full expected stdout
+  including all `--- string ops ---` lines and the post-concat `println`
+  values.
+- Completed on 2026-06-12 by aligning stdlib `MethodCall` return-type
+  inference with hostcall lowering and lowering string `+` through
+  `spectra.std.string.concat` instead of pointer arithmetic.
+- Regression coverage: `tests/projects/valid/cross_module_strings/` and
+  `scripts/validate_r109_cross_module_strings.py`, integrated into
+  `run_tests.ps1`.
+- Validation evidence: `python scripts\validate_r109_cross_module_strings.py
+  --binary target\debug\spectralang.exe`; `cargo test -p spectra-midend`;
+  `cargo test -p spectra-compiler`; `cargo test -p spectra-cli`.
+
+## R-110 Cross-Module Type and Method Resolution
+
+- Status: `in_progress`
+- Priority: `P1`
+- Owner: `semantic`
+- Dependencies: `R-105`
+
+### Problems Found
+
+Two related defects appeared when a struct or enum type is defined in one
+module and used by another:
+
+- Static and instance methods on a struct defined in another module are not
+  visible to the importer. `let c = Counter::new(1);` in `main` against a
+  `Counter` struct in `counter` module fails with
+  `error[semantic]: Enum 'Counter' is not defined` even when the struct is
+  marked `pub`. After switching to a `pub struct Counter { pub fields }` plus
+  `pub impl Counter`, method calls fail with
+  `error[semantic]: No methods defined for type 'Counter'`.
+- A struct with a `string` field (e.g. `Item { sku: string, ... }`) that is
+  constructed by a cross-module factory function compiles to IR where the
+  call result value is not linked to the next use, producing
+  `error[codegen]: Value N not found` (e.g. `Value 282 not found`). Switching
+  fields to `int` makes the same code compile, so the defect is specific to
+  aggregate-typed struct fields in cross-module factory returns.
+
+The current workaround in the multi-file projects is to expose only free
+factory functions (e.g. `item_new`, `counter_new`, `counter_tick`) and to
+keep struct fields restricted to `int`. This is not a long-term contract and
+does not match the examples in `test_project/` and `complex_demo/`.
+
+### Scope
+
+- import resolution must surface the type, its `impl` blocks, and its
+  inherent methods when the type is declared in another module
+- import resolution must support `pub` on `struct`, `enum`, `impl`, and
+  `fn` items so cross-module code can call static and instance methods
+- cross-module factory functions that return a struct containing `string`
+  fields must lower to IR where the call result is correctly threaded into
+  the next use
+- when a method genuinely does not exist, the diagnostic must name the
+  receiver type, the method, and the candidate impl blocks in scope
+- keep the existing `pub fn` cross-module function call path unchanged
+
+### Acceptance
+
+- `Counter::new(1)` and `c.tick()` work in `main` when `Counter` and its
+  `impl` are defined in a different module and marked `pub`
+- `Item { sku: string, name: string, ... }` constructed by a cross-module
+  factory compiles and runs; `it.sku` and `it.name` return the expected
+  strings
+- the existing factory-function workaround continues to work
+- regression tests cover: cross-module method dispatch (static + instance),
+  cross-module enum variant construction from a foreign module, and a
+  cross-module struct with `string` fields
+- missing-method diagnostics on cross-module types report the type, method,
+  and candidate impl blocks
+
+### Evidence
+
+- Reproduction projects: `multi_file_projects/p2_string_utils/counter.spectra`
+  (struct/method dispatch) and `multi_file_projects/p3_inventory_oop/item.spectra`
+  (struct with `string` field via cross-module factory).
+- IR dump shows the unlinked call result in the `string`-field case.
+- Focused validation: `cargo run -q -p spectra-cli -- run
+  multi_file_projects/p2_string_utils` and `multi_file_projects/p3_inventory_oop`
+  must complete without `Enum ... is not defined`, `No methods defined for
+  type ...`, or `Value N not found` errors.
+
+## R-111 Cross-Module Aggregate Codegen
+
+- Status: `in_progress`
+- Priority: `P1`
+- Owner: `backend`
+- Dependencies: `R-105`
+
+### Problems Found
+
+Two Cranelift-side defects appeared when the value being passed or matched
+is an aggregate that crosses a module boundary:
+
+- A callee function that takes an `[string]` array parameter and indexes
+  into it (e.g. `let out = out + parts[i];`) compiles through semantic
+  analysis but fails Cranelift verification:
+  `error[codegen]: Failed to define function 'join_strings': Compilation
+  error: Verifier errors`. The same function with `[int]` works.
+- A `match` on a `Result<T, E>` value produced in the main module lowers
+  to IR where the payload of the matched arm is loaded as `void`:
+  `%v547 = load(void) %v546`, which the Cranelift verifier rejects with
+  `Failed to define function 'main': Compilation error: Verifier errors`.
+  The same `match` on `Option<T>` works.
+
+Both defects block core multi-file patterns (joining a list of strings,
+chaining fallible operations in `main`).
+
+### Scope
+
+- ensure parameter storage for `[T]` arrays in callee functions is
+  consistent across element types, including `string`
+- ensure the IR for `match` arms on `Result<T, E>` (and any other generic
+  enum) threads the arm payload through the correct element type
+- keep the working paths intact: `[int]` parameter + index, `Option<T>`
+  match, and all in-module enum match patterns
+
+### Acceptance
+
+- a function `pub fn join(parts: [string], n: int, sep: string) -> string`
+  in another module compiles and runs through Cranelift
+- `let v: int = match ok_r { Result::Ok(v) => v, Result::Err(e) => e * -1 };`
+  in `main` lowers to IR where the arm value has element type `int`, not
+  `void`, and the program runs to completion
+- regression tests cover: `[string]` parameter + index in a callee module
+  and `match` on `Result<T, E>` in a non-stdlib context
+- no regression in `[int]` indexing, `Option` match, or enum variant match
+
+### Evidence
+
+- Reproduction projects: `multi_file_projects/p2_string_utils/string_utils.spectra`
+  (the `[string]` index case, first observed as `join_strings`) and
+  `multi_file_projects/p3_inventory_oop/main.spectra` (the `Result` match
+  case, with `--dump-ir` showing the `load(void)` lowering).
+- Focused validation: `cargo run -q -p spectra-cli -- run
+  multi_file_projects/p2_string_utils` and `multi_file_projects/p3_inventory_oop`
+  must complete without `Verifier errors` and without `load(void)` in the
+  emitted IR.
+
+## R-112 Runtime Float-to-Int Cast Codegen
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-105`, `R-205`
+
+### Problems Found
+
+The 2026-06-12 full test run exposed verifier failures whenever a non-constant
+`float` value returned by a hostcall is cast to `int` and then used in normal
+control flow or return paths. This is distinct from `R-205`, which covered
+constant float casts.
+
+Failing surfaces:
+
+- `tests/validation/59_import_surface.spectra`: `math.floor_f(9.9) as int`
+  and `math.ceil_f(1.1) as int` fail in `compute`.
+- `tests/validation/106_import_alias_named_std_stress.spectra`:
+  `math.floor_f(upper as float + 0.9) as int` fails in `numeric_mix`.
+- `tests/validation/67_tensor_float_surface.spectra`: `tensor.mean_f(...) as
+  int`, `tensor.sum_f(...) as int`, and `tensor.get2_f(...) as int` fail in
+  `main`.
+- The same pattern appears inside tensor/autodiff regressions that compare
+  float reductions against integer literals.
+
+IR evidence:
+
+- `target/r112-import-ir.txt` shows `hostcall spectra.std.math.floor_f`,
+  `hostcall spectra.std.math.ceil_f`, followed by `cast(float -> int)`.
+- `target/r113-tensor-float-ir.txt` shows `hostcall spectra.std.tensor.mean_f`,
+  `sum_f`, `get2_f`, followed by `cast(float -> int)`.
+
+### Correction Plan
+
+- Add a backend-level reduced Rust/codegen test that lowers `hostcall f64 ->
+  cast(float -> int) -> ret int` without involving stdlib imports.
+- Inspect Cranelift lowering for `InstructionKind::Cast` and confirm whether
+  runtime hostcall results are materialized as `I64` bit patterns or `F64`
+  SSA values.
+- Normalize the IR/Cranelift contract:
+  - `IRType::Float` values must be Cranelift `F64`, including hostcall return
+    results.
+  - `cast(float -> int)` must emit a valid Cranelift float-to-signed-int
+    conversion/truncation sequence.
+  - `cast(int -> float)` must emit a valid signed-int-to-float conversion.
+  - bit reinterpretation must be reserved for runtime ABI boundaries, not
+    semantic casts.
+- Add targeted `.spectra` regressions for:
+  - std.math `floor_f`/`ceil_f` returned floats cast to `int`;
+  - std.tensor `mean_f`/`sum_f`/`get_f`/`get2_f` returned floats cast to `int`;
+  - repeated cast use in both condition and return branch.
+- Add a dedicated validation script, for example
+  `scripts/validate_r112_runtime_float_cast_codegen.py`, and wire it into
+  `run_tests.ps1` before the broad conformance gates.
+
+### Acceptance
+
+- `tests/validation/59_import_surface.spectra` compiles and runs.
+- `tests/validation/106_import_alias_named_std_stress.spectra` compiles and
+  runs.
+- `tests/validation/67_tensor_float_surface.spectra` compiles and runs.
+- IR dumps for the reduced cases contain no verifier errors and no invalid
+  float/int ABI mismatch at hostcall boundaries.
+- `cargo test -p spectra-backend` and the dedicated R-112 validation script
+  pass.
+
+## R-113 Tensor Parameter and Return ABI Codegen
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-1401`, `R-1402`, `R-401`
+
+### Problems Found
+
+Tensor values represented as typed `Tensor<...>` annotations compile in simple
+local code, but verifier failures appear when a tensor value crosses a user
+function boundary as a parameter or return value and is then passed to std.tensor
+hostcalls.
+
+Failing surfaces:
+
+- `tests/validation/80_phase14_tensor_language_core.spectra` fails in
+  `vector_total(values: Tensor<float, rank1>)`.
+- `tests/validation/102_pattern_tensor_ai_composition_stress.spectra` fails in
+  `vector_total(values: Tensor<float, rank1, dim4, row_major, cpu>)`.
+- The same ABI path is likely involved in `diff` helper functions that accept
+  typed tensors and return `Tensor<float, rank0>`.
+
+### Correction Plan
+
+- Reduce the failure to a two-function program:
+  `fn sum(values: Tensor<float, rank1>) -> int { return tensor.sum_f(values) as int; }`.
+- Inspect function signature lowering for tensor-typed parameters and returns:
+  tensors must remain opaque runtime handles (`i64`) in backend ABI while
+  preserving semantic metadata in the midend.
+- Audit `lower_type_annotation`, function parameter registration, hostcall
+  argument typing, alloca/load/store for tensor variables, and return lowering
+  for typed tensor aliases.
+- Ensure static metadata (`rank`, `dim`, `layout`, `device`) never leaks into
+  Cranelift value types as aggregate or `void` payloads.
+- Add midend validation that any `IRType::Tensor` value crossing a backend ABI
+  boundary is represented as handle-compatible scalar storage.
+- Add regressions for:
+  - tensor parameter to helper function;
+  - tensor return from helper function;
+  - static-shape tensor passed to dynamic-rank parameter;
+  - tensor helper inside pattern/match-heavy function.
+
+### Acceptance
+
+- `tests/validation/80_phase14_tensor_language_core.spectra` compiles and
+  runs.
+- `tests/validation/102_pattern_tensor_ai_composition_stress.spectra` compiles
+  and runs once R-112 is also satisfied.
+- Reduced tensor parameter/return tests pass without verifier errors.
+- No regression in `tests/validation/66_tensor_core_surface.spectra`,
+  `68_tensor_phase4_kernels.spectra`, or `81_static_shape_mlp_validation.spectra`.
+
+## R-114 Autodiff and Diff Block Tensor Codegen Stabilization
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `midend`
+- Dependencies: `R-112`, `R-113`, `R-501`, `R-502`
+
+### Problems Found
+
+Autodiff and `diff { ... }` examples now reach backend codegen but fail Cranelift
+verification in programs that combine tensor handles, float reductions, casts,
+helper calls, and gradient retrieval.
+
+Failing surfaces:
+
+- `tests/validation/71_tensor_phase5_autodiff.spectra`.
+- `tests/validation/82_diff_block_gradient_coverage.spectra`.
+- `tests/validation/102_pattern_tensor_ai_composition_stress.spectra` and
+  `80_phase14_tensor_language_core.spectra` also include `diff` blocks, but
+  have tensor ABI failures that should be fixed first.
+- `scripts/validate_r2001_ai_conformance.py` fails its `autodiff` category
+  because these two files fail.
+
+### Correction Plan
+
+- After R-112/R-113, rerun the autodiff failures and capture fresh `--dump-ir`
+  to avoid fixing stale symptoms.
+- Reduce autodiff failures into independent cases:
+  - `requires_grad -> mul -> sum_t -> backward -> grad`;
+  - `diff { tensor.sum_t(tensor.mul(x, x)) }`;
+  - `diff` block calling a helper function returning `Tensor<float, rank0>`;
+  - `diff` block wrapping an ML layer loss.
+- Audit lowering of `DifferentiableBlock`, tensor hostcall return types, and
+  gradient hostcall argument/result typing.
+- Ensure `Tensor<float, rank0>` remains a tensor handle, not a raw `float`,
+  unless the source explicitly calls `sum_f`/`get_f`.
+- Add tests that distinguish:
+  - scalar tensor handle (`Tensor<float, rank0>`);
+  - scalar float value (`float`);
+  - integer cast of a scalar float (`as int`).
+
+### Acceptance
+
+- `tests/validation/71_tensor_phase5_autodiff.spectra` compiles and runs.
+- `tests/validation/82_diff_block_gradient_coverage.spectra` compiles and
+  runs.
+- `scripts/validate_r2001_ai_conformance.py --keep-going` has zero failures in
+  the `autodiff` category.
+- No `load(void)`, invalid tensor handle cast, or verifier error remains in
+  autodiff/diff block IR dumps.
+
+## R-115 Tensor Graph Example Codegen and AI Example Conformance
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `midend`
+- Dependencies: `R-112`, `R-113`, `R-1601`, `R-1602`
+
+### Problems Found
+
+The tensor graph unit tests pass, but runnable `.spectra` AI examples that
+exercise graph-optimized elementwise/reduction surfaces fail in backend codegen.
+This means the graph optimizer implementation is covered internally but the
+public Spectra surface is not yet production-stable.
+
+Failing surfaces:
+
+- `examples/ai/tensor_graph_elementwise_fusion.spectra`.
+- `examples/ai/tensor_graph_reduction_fusion.spectra`.
+- `scripts/ai_examples_benchmark.py` fails because these examples fail.
+- `scripts/validate_r2001_ai_conformance.py` fails its `docs_examples`
+  category because the AI example benchmark fails.
+
+### Correction Plan
+
+- After R-112/R-113, rerun both examples with `--dump-ir` to separate generic
+  float-cast/tensor-ABI failures from graph-specific lowering failures.
+- Add focused compile/run tests for:
+  - `relu -> sqrt_f -> tanh_f`;
+  - `relu -> tanh_f -> sum_t`;
+  - `stats_kernel_ops()` after graph-eligible chains.
+- Ensure graph optimization metadata does not alter the executable IR ABI.
+- Extend `scripts/ai_examples_benchmark.py` or add a dedicated R-115 script to
+  classify example failures as compile/codegen/runtime/timeout instead of a
+  single aggregate failure.
+
+### Acceptance
+
+- `examples/ai/tensor_graph_elementwise_fusion.spectra` runs successfully.
+- `examples/ai/tensor_graph_reduction_fusion.spectra` runs successfully.
+- `scripts/ai_examples_benchmark.py --out target/r115-ai-examples.json`
+  reports all examples passed.
+- `scripts/validate_r2001_ai_conformance.py --keep-going` has zero failures in
+  the `docs_examples` category.
+- `cargo test -p spectra-midend tensor_graph` continues to pass.
+
+## R-116 Stress/Soak Runner Contract and Regression Inputs
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Dependencies: `R-112`, `R-114`, `R-1202`
+
+### Problems Found
+
+The `stress_soak_smoke` gate in `run_tests.ps1` currently calls
+`scripts/stress_soak.py` with valid explicit arguments, but direct investigation
+also exposed an obsolete/nonexistent `--smoke` workflow expectation. More
+importantly, the stress runner includes `tests/validation/71_tensor_phase5_autodiff.spectra`
+in both compile and runtime suites, so the smoke gate is expected to fail until
+R-114 is fixed.
+
+Failing surfaces:
+
+- `run_tests.ps1` reports `stress_soak_smoke` failed.
+- Direct `python scripts/stress_soak.py --smoke` fails because `--smoke` is not
+  supported by the CLI.
+- The current stress case list includes known failing autodiff inputs.
+
+### Correction Plan
+
+- Decide and document one supported smoke contract:
+  - either add `--smoke` as a first-class alias for `--iterations 1` with
+    bounded timeout/memory defaults;
+  - or remove all references and docs that imply `--smoke` exists.
+- Add `--json-out` evidence validation that fails with actionable per-case
+  details when a stress case fails.
+- Keep failing production cases in the stress suite, but annotate their
+  dependency on R-114 until fixed; do not silently skip them.
+- After R-114, rerun the compile/runtime/package stress suites with one
+  iteration and verify zero failures.
+
+### Acceptance
+
+- The supported smoke invocation is documented and works from the command line.
+- `run_tests.ps1` `stress_soak_smoke` passes.
+- `target/stress-soak-smoke.json` includes schema, all cases, zero failures,
+  elapsed time, timeout status, and memory samples when available.
+- The stress suite keeps autodiff/tensor coverage rather than replacing it
+  with weaker inputs.
+
+## R-117 Full Suite Failure Classification and Conformance Recovery
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-112`, `R-113`, `R-114`, `R-115`, `R-116`, `R-2001`
+
+### Problems Found
+
+The 2026-06-12 `run_tests.ps1` execution finished with 226 expected tests, 215
+passing and 11 failing. The failures are actionable but currently spread across
+direct validation tests, AI examples, stress/soak, and R-2001 conformance.
+
+Failure set:
+
+- Direct validation failures: `59_import_surface`, `67_tensor_float_surface`,
+  `71_tensor_phase5_autodiff`, `80_phase14_tensor_language_core`,
+  `82_diff_block_gradient_coverage`, `102_pattern_tensor_ai_composition_stress`,
+  `106_import_alias_named_std_stress`.
+- AI examples: `tensor_graph_elementwise_fusion`,
+  `tensor_graph_reduction_fusion`.
+- Gates: `validate_r2001_ai_conformance`, `stress_soak_smoke`.
+
+### Correction Plan
+
+- Add a small parser for `TEST_RESULTS.txt` or structured runner output that
+  groups failures by root-cause item (`R-112` through `R-116`).
+- After each root-cause fix, rerun only the affected subset first, then the
+  full `run_tests.ps1`.
+- Keep R-2001 as the final recovery gate: it should remain rejected while any
+  required category fails, and pass only after tensor/autodiff/docs examples
+  are green.
+- Add a final recovery note to this item with the exact full-suite command,
+  pass/fail counts, and conformance report path.
+
+### Acceptance
+
+- `run_tests.ps1` reports zero failed expected tests.
+- `scripts/validate_r2001_ai_conformance.py --keep-going` reports
+  `candidate_status = accepted` and `certified = true`.
+- `TEST_RESULTS.txt` contains no `FALHOU` entries outside intentionally
+  informational semantic tests.
+- Every failure from the 2026-06-12 report is either fixed or explicitly moved
+  to a new tracked item with an acceptance criterion.
+
 ---
 
 # Phase 2: Scientific Type System

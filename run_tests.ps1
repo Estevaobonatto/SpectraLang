@@ -727,6 +727,19 @@ if ($diagClassification.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase1-diagnostics"; Teste = "validate_r108_diagnostic_classification"; Status = $diagClassification.Status; Detalhe = $diagClassification.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.5c: R-109 cross-module string value handling
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-109 cross-module string value handling ---" -ForegroundColor Yellow
+$crossModuleStrings = Invoke-HostCommand -name "validate_r109_cross_module_strings" -fileName "python" -arguments @("scripts\validate_r109_cross_module_strings.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($crossModuleStrings.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase1-backend"; Teste = "validate_r109_cross_module_strings"; Status = $crossModuleStrings.Status; Detalhe = $crossModuleStrings.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.6: R-106 feature maturity policy
 # ---------------------------------------------------------------------------
 Write-Host ""

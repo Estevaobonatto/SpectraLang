@@ -1,0 +1,51 @@
+module main;
+
+import std.io;
+import ledger;
+import status;
+
+pub fn main() -> int {
+    println("=== Inventory Logic ===");
+
+    println("--- ledger ops ---");
+    println(total_value(5, 20));
+    println(total_value(12, 3));
+    println(discount_price(100, 20));
+    println(discount_price(50, 10));
+    println(apply_sell(20, 15));
+    println(apply_sell(20, 25));
+    println(apply_sell(0, 5));
+
+    println("--- status classification ---");
+    let s_in = status_code(classify(50));
+    let s_lo = status_code(classify(3));
+    let s_no = status_code(classify(0));
+    println(s_in);
+    println(s_lo);
+    println(s_no);
+
+    println("--- enum + match ---");
+    let e1 = error_code(OrderError::InvalidQty);
+    let e2 = error_code(OrderError::UnknownSku);
+    let e3 = error_code(OrderError::InsufficientStock);
+    println(e1);
+    println(e2);
+    println(e3);
+
+    println("--- Option match ---");
+    let maybe: Option<int> = Option::Some(42);
+    let none: Option<int> = Option::None;
+
+    let v1: int = match maybe {
+        Option::Some(v) => v,
+        Option::None    => -1
+    };
+    let v2: int = match none {
+        Option::Some(v) => v,
+        Option::None    => -1
+    };
+    println(v1);
+    println(v2);
+
+    return 0;
+}

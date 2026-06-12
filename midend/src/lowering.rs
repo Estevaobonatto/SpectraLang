@@ -2218,6 +2218,12 @@ impl ASTLowering {
                 arguments: _,
                 type_name,
             } => {
+                if let Some(descriptor) =
+                    self.std_method_host_function_descriptor(object, method_name)
+                {
+                    return descriptor.return_type.clone();
+                }
+
                 if let IRType::DynTrait { trait_name } = self.infer_expr_ir_type(object) {
                     if let Some((_, return_type)) = self
                         .trait_method_signatures
@@ -4619,6 +4625,16 @@ impl ASTLowering {
         self.host_function_descriptor_for_path(&path)
     }
 
+    fn std_method_host_function_descriptor(
+        &self,
+        object: &Expression,
+        method_name: &str,
+    ) -> Option<HostFunctionDescriptor> {
+        let mut path = self.resolve_call_path(object)?;
+        path.push(method_name.to_string());
+        self.host_function_descriptor_for_path(&path)
+    }
+
     fn host_function_descriptor_for_path(&self, path: &[String]) -> Option<HostFunctionDescriptor> {
         // Direct path lookup (e.g. std.io.print).
         if let Some(desc) = lookup_std_host_function(&path) {
@@ -4659,6 +4675,24 @@ impl ASTLowering {
             }
         }
         None
+    }
+
+    fn lower_value_to_string(
+        &mut self,
+        value: Value,
+        value_type: IRType,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let runtime_fn = match value_type {
+            IRType::String => return value,
+            IRType::Float => "spectra.std.convert.float_to_string",
+            IRType::Bool => "spectra.std.convert.bool_to_string",
+            _ => "spectra.std.convert.int_to_string",
+        };
+
+        self.builder
+            .build_host_call(ir_func, runtime_fn.to_string(), vec![value], true)
+            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
     }
 
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
@@ -4710,6 +4744,7 @@ impl ASTLowering {
                 right,
             } => {
                 let left_ir_type = self.infer_expr_ir_type(left);
+                let right_ir_type = self.infer_expr_ir_type(right);
 
                 // Operator overloading: if the left operand is a struct, dispatch to the
                 // correspondingly named method (e.g. `Point_add(lhs, rhs)`).
@@ -4723,6 +4758,25 @@ impl ASTLowering {
                             .build_call(ir_func, fn_name, vec![lhs, rhs], true)
                             .unwrap_or_else(|| ir_func.next_value());
                     }
+                }
+
+                if matches!(operator, BinaryOperator::Add)
+                    && (matches!(left_ir_type, IRType::String)
+                        || matches!(right_ir_type, IRType::String))
+                {
+                    let lhs = self.lower_expression(left, ir_func);
+                    let rhs = self.lower_expression(right, ir_func);
+                    let lhs = self.lower_value_to_string(lhs, left_ir_type, ir_func);
+                    let rhs = self.lower_value_to_string(rhs, right_ir_type, ir_func);
+                    return self
+                        .builder
+                        .build_host_call(
+                            ir_func,
+                            "spectra.std.string.concat".to_string(),
+                            vec![lhs, rhs],
+                            true,
+                        )
+                        .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
                 }
 
                 let lhs = self.lower_expression(left, ir_func);
@@ -5747,37 +5801,18 @@ impl ASTLowering {
             } => {
                 // Check if this is actually a qualified stdlib function call
                 // like `std.string.len(x)` parsed as MethodCall { object: std.string, method: "len" }
-                if let Some(mut obj_path) = self.resolve_call_path(object) {
-                    obj_path.push(method_name.clone());
-                    let desc_opt = lookup_std_host_function(&obj_path).or_else(|| {
-                        // alias.func fallback (2-segment alias path)
-                        if obj_path.len() == 2 {
-                            let alias_key = &obj_path[0];
-                            let func_name = &obj_path[1];
-                            if let Some(full_prefix) = self.std_import_aliases.get(alias_key) {
-                                if full_prefix.len() >= 2 {
-                                    let module_prefix = &full_prefix[..full_prefix.len() - 1];
-                                    let mut resolved = module_prefix.to_vec();
-                                    resolved.push(func_name.clone());
-                                    return lookup_std_host_function(&resolved);
-                                }
-                            }
-                        }
-                        None
-                    });
-                    if let Some(desc) = desc_opt {
-                        let mut call_args = Vec::new();
-                        for arg in arguments {
-                            call_args.push(self.lower_expression(arg, ir_func));
-                        }
-                        let result = self.builder.build_host_call(
-                            ir_func,
-                            desc.runtime_name.to_string(),
-                            call_args,
-                            desc.returns_value,
-                        );
-                        return result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                if let Some(desc) = self.std_method_host_function_descriptor(object, method_name) {
+                    let mut call_args = Vec::new();
+                    for arg in arguments {
+                        call_args.push(self.lower_expression(arg, ir_func));
                     }
+                    let result = self.builder.build_host_call(
+                        ir_func,
+                        desc.runtime_name.to_string(),
+                        call_args,
+                        desc.returns_value,
+                    );
+                    return result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
                 }
 
                 // Lower method call to function call: obj.method(args) -> Type_method(obj, args)

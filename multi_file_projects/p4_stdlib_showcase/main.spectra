@@ -1,0 +1,74 @@
+module main;
+
+import std.io;
+import std.math as m;
+import std.string as s;
+import std.convert as c;
+import std.time as t;
+import math_helpers;
+
+pub fn main() -> int {
+    println("=== Stdlib Showcase ===");
+
+    println("--- std.math (raw) ---");
+    println(m.abs(-42));
+    println(m.max(10, 25));
+    println(m.min(10, 25));
+    println(m.gcd(12, 8));
+    println(m.lcm(4, 6));
+    println(m.sign(-7));
+    println(m.sign(0));
+    println(m.sign(7));
+
+    println("--- math_helpers (cross-module int) ---");
+    println(clamp_int(150, 0, 100));
+    println(clamp_int(-5, 0, 100));
+    println(clamp_int(50, 0, 100));
+    println(gcd_two(48, 18));
+    println(gcd_two(100, 75));
+    println(lcm_two(4, 6));
+    println(lcm_two(3, 5));
+    println(abs_int(-42));
+    println(abs_int(42));
+    println(sign_of(-5));
+    println(sign_of(5));
+
+    println("--- std.string (inline, string-literal arg) ---");
+    println(s.len("Hello SpectraLang World"));
+    println(s.contains("Hello SpectraLang World", "Spectra"));
+    println(s.starts_with("Hello SpectraLang World", "Hello"));
+    println(s.ends_with("Hello SpectraLang World", "World"));
+    println(s.index_of("Hello SpectraLang World", "Lang"));
+    println(s.index_of("Hello World", "ZZZ"));
+    println(s.is_empty(""));
+    println(s.is_empty("x"));
+    println(s.count_occurrences("banana", "a"));
+    println(s.repeat_str("ab", 3));
+
+    println("--- std.convert ---");
+    println(c.int_to_string(42));
+    println(c.int_to_string(-100));
+    println(c.string_to_int("123"));
+    println(c.string_to_int("abc"));
+    println(c.int_to_float(7));
+    println(c.float_to_int(3.9));
+    println(c.string_to_int_or("42", -1));
+    println(c.string_to_int_or("abc", -1));
+    println(c.bool_to_string(true));
+    println(c.string_to_bool("true"));
+    println(c.string_to_bool("false"));
+
+    println("--- std.time ---");
+    let t0 = t.time_now_millis();
+    let sum = 0;
+    let i = 0;
+    while i < 1000 {
+        sum = sum + i;
+        i = i + 1;
+    }
+    let t1 = t.time_now_millis();
+    println(sum);
+    println(t1 - t0);
+
+    return 0;
+}

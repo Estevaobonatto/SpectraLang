@@ -1,0 +1,35 @@
+module string_provider;
+
+import std.string as str;
+
+pub fn user_greeting(name: string) -> string {
+    return "Hello, " + name;
+}
+
+pub fn user_join(a: string, b: string, sep: string) -> string {
+    return a + sep + b;
+}
+
+pub fn user_upper(s: string) -> string {
+    return str.to_upper(s);
+}
+
+pub fn user_lower(s: string) -> string {
+    return str.to_lower(s);
+}
+
+pub fn user_repeat(s: string, n: int) -> string {
+    return str.repeat_str(s, n);
+}
+
+pub fn user_replace(s: string, from: string, to: string) -> string {
+    return str.replace(s, from, to);
+}
+
+pub fn user_reverse(s: string) -> string {
+    return str.reverse_str(s);
+}
+
+pub fn user_trim(s: string) -> string {
+    return str.trim(s);
+}

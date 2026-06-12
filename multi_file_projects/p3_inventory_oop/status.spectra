@@ -1,0 +1,39 @@
+module status;
+
+pub enum StockStatus {
+    InStock,
+    Low,
+    OutOfStock
+}
+
+pub enum OrderError {
+    InvalidQty,
+    UnknownSku,
+    InsufficientStock
+}
+
+pub fn classify(stock: int) -> StockStatus {
+    if stock == 0 {
+        return StockStatus::OutOfStock;
+    }
+    if stock < 5 {
+        return StockStatus::Low;
+    }
+    return StockStatus::InStock;
+}
+
+pub fn status_code(s: StockStatus) -> int {
+    match s {
+        StockStatus::InStock    => 3,
+        StockStatus::Low        => 1,
+        StockStatus::OutOfStock => 0
+    }
+}
+
+pub fn error_code(e: OrderError) -> int {
+    match e {
+        OrderError::InvalidQty       => 100,
+        OrderError::UnknownSku       => 200,
+        OrderError::InsufficientStock => 300
+    }
+}

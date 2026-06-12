@@ -1,6 +1,6 @@
 version = 1
 title = "SpectraLang Production AI Roadmap"
-updated_at = "2026-06-04"
+updated_at = "2026-06-12"
 status_scale = ["not_started", "in_progress", "blocked", "complete"]
 priority_scale = ["P0", "P1", "P2", "P3"]
 
@@ -283,6 +283,167 @@ acceptance = [
   "trait bound violations in user code are reported as semantic diagnostics, not internal errors",
   "unknown qualified module members report the missing member and candidate module exports",
   "regression tests assert diagnostic category and message for these cases"
+]
+
+[[items]]
+id = "R-109"
+title = "Cross-Module String Value Handling"
+phase = "phase_1"
+owner = "backend"
+priority = "P1"
+status = "complete"
+risk = "high"
+dependencies = ["R-105"]
+summary = "Fix cross-module string return value materialization and main-module string concatenation crashes surfaced by the multi-file test project suite."
+acceptance = [
+  "string values returned from a callee in another module (including stdlib modules) are materialized to the same runtime representation as in-module string returns",
+  "`println` of a cross-module string return prints the actual string content, never a numeric pointer or garbage value",
+  "`let s = \"a\" + \"b\";` followed by `println(s);` in the main module produces `ab` and does not crash, abort, or skip the subsequent `println`",
+  "regression tests cover cross-module string return from a user module and from `std.string` (`concat`, `repeat_str`, `to_upper`, `to_lower`, `replace`, `reverse_str`, `trim`) plus main-module chained string literal concatenation",
+  "no regression in existing in-module string concatenation, f-string interpolation, or `println` of string literals"
+]
+
+[[items]]
+id = "R-110"
+title = "Cross-Module Type and Method Resolution"
+phase = "phase_1"
+owner = "semantic"
+priority = "P1"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-105"]
+summary = "Resolve structs, enums, and their static/instance methods when the type is defined in another module, and accept struct fields of any type (including `string`) when the struct is constructed by a cross-module factory function."
+acceptance = [
+  "`Module::Type::method()` and `value.method()` on a type whose definition lives in an imported module resolve to the corresponding impl method",
+  "the previously used workaround of cross-module factory functions returning the type still works; new code can use direct method dispatch on cross-module types",
+  "structs with `string` fields produced by a cross-module factory compile and run without `Value N not found` IR errors or verifier failures",
+  "regression tests cover method dispatch on cross-module struct, cross-module enum variant construction, and string-field struct construction across module boundaries",
+  "diagnostics for genuinely missing methods on cross-module types report the type name, method name, and candidate impl blocks"
+]
+
+[[items]]
+id = "R-111"
+title = "Cross-Module Aggregate Codegen"
+phase = "phase_1"
+owner = "backend"
+priority = "P1"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-105"]
+summary = "Fix Cranelift codegen for cross-module array indexing of `string` elements and for `match` expressions on `Result<T, E>` payloads produced in the main module."
+acceptance = [
+  "functions in module B that take `[string]` (or other aggregate element types) from module A and index into them lower to valid Cranelift IR that passes the verifier",
+  "`match` on a `Result<T, E>` in the main module (or any module) lowers each arm's payload to the correct element type, not `void`",
+  "regression tests cover `[string]` parameter + index in a callee module and `match` on `Result::Ok(v)` / `Result::Err(e)` in a non-stdlib context",
+  "no regression in the existing in-module `[int]` indexing, `Option` match, or enum variant match paths"
+]
+
+[[items]]
+id = "R-112"
+title = "Runtime Float-to-Int Cast Codegen"
+phase = "phase_1"
+owner = "backend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-105", "R-205"]
+summary = "Fix Cranelift lowering for non-constant runtime float values cast to int, including std.math and std.tensor hostcall results."
+acceptance = [
+  "`tests/validation/59_import_surface.spectra` compiles and runs without verifier errors",
+  "`tests/validation/106_import_alias_named_std_stress.spectra` compiles and runs without verifier errors",
+  "`tests/validation/67_tensor_float_surface.spectra` compiles and runs without verifier errors",
+  "reduced backend tests cover hostcall float result -> `cast(float -> int)` -> branch/return",
+  "integer and float casts remain semantically distinct from runtime ABI bit reinterpretation"
+]
+
+[[items]]
+id = "R-113"
+title = "Tensor Parameter and Return ABI Codegen"
+phase = "phase_1"
+owner = "backend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1401", "R-1402", "R-401"]
+summary = "Stabilize backend ABI handling for typed Tensor values crossing user function parameter and return boundaries."
+acceptance = [
+  "`tests/validation/80_phase14_tensor_language_core.spectra` compiles and runs",
+  "`tests/validation/102_pattern_tensor_ai_composition_stress.spectra` compiles and runs after R-112 is satisfied",
+  "typed tensor parameters and returns lower to opaque handle-compatible scalar storage at backend ABI boundaries",
+  "static tensor metadata does not lower as aggregate or void payload values",
+  "no regression in tensor core, kernel, or static shape validation tests"
+]
+
+[[items]]
+id = "R-114"
+title = "Autodiff and Diff Block Tensor Codegen Stabilization"
+phase = "phase_1"
+owner = "midend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-112", "R-113", "R-501", "R-502"]
+summary = "Fix verifier failures in tensor autodiff and diff-block programs that combine tensor handles, helper calls, float reductions, casts, and gradients."
+acceptance = [
+  "`tests/validation/71_tensor_phase5_autodiff.spectra` compiles and runs",
+  "`tests/validation/82_diff_block_gradient_coverage.spectra` compiles and runs",
+  "`scripts/validate_r2001_ai_conformance.py --keep-going` has zero failures in the autodiff category",
+  "IR dumps for autodiff cases contain no `load(void)`, invalid tensor handle casts, or verifier errors",
+  "reduced tests distinguish Tensor<float, rank0> handles from scalar float values"
+]
+
+[[items]]
+id = "R-115"
+title = "Tensor Graph Example Codegen and AI Example Conformance"
+phase = "phase_1"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-112", "R-113", "R-1601", "R-1602"]
+summary = "Make public tensor graph AI examples executable through the normal CLI, not only covered by internal graph optimizer unit tests."
+acceptance = [
+  "`examples/ai/tensor_graph_elementwise_fusion.spectra` runs successfully",
+  "`examples/ai/tensor_graph_reduction_fusion.spectra` runs successfully",
+  "`scripts/ai_examples_benchmark.py --out target/r115-ai-examples.json` reports all examples passed",
+  "`scripts/validate_r2001_ai_conformance.py --keep-going` has zero failures in the docs_examples category",
+  "`cargo test -p spectra-midend tensor_graph` continues to pass"
+]
+
+[[items]]
+id = "R-116"
+title = "Stress/Soak Runner Contract and Regression Inputs"
+phase = "phase_1"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-112", "R-114", "R-1202"]
+summary = "Clarify and harden the stress/soak smoke contract, preserving tensor/autodiff coverage while reporting actionable per-case failures."
+acceptance = [
+  "the supported smoke invocation is documented and works from the command line",
+  "`run_tests.ps1` `stress_soak_smoke` passes",
+  "`target/stress-soak-smoke.json` records schema, all cases, zero failures, timings, timeout status, and memory samples when available",
+  "stress/soak keeps tensor and autodiff coverage instead of weakening inputs",
+  "obsolete or unsupported smoke flags are either implemented or removed from docs and scripts"
+]
+
+[[items]]
+id = "R-117"
+title = "Full Suite Failure Classification and Conformance Recovery"
+phase = "phase_1"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-112", "R-113", "R-114", "R-115", "R-116", "R-2001"]
+summary = "Track the 2026-06-12 full-suite failures through root-cause fixes and recover full run_tests/R-2001 conformance certification."
+acceptance = [
+  "`run_tests.ps1` reports zero failed expected tests",
+  "`scripts/validate_r2001_ai_conformance.py --keep-going` reports an accepted certified candidate",
+  "`TEST_RESULTS.txt` contains no `FALHOU` entries outside informational semantic rows",
+  "all 2026-06-12 failures are fixed or explicitly moved to a new tracked item with acceptance criteria",
+  "failure classification maps each remaining failing test to a roadmap item"
 ]
 
 [[items]]
