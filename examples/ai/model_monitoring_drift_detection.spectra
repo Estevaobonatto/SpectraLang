@@ -1,0 +1,62 @@
+module model_monitoring_drift_detection;
+
+import std.fs as fs;
+import std.serve as serve;
+import std.string as str;
+
+pub fn main() -> int {
+    serve.reset();
+
+    let reference_server = serve.server_new(2);
+    serve.server_set_model_version(reference_server, "fraud-detector-v1");
+    serve.server_warmup(reference_server);
+    let ref_a = serve.server_enqueue(reference_server, 10);
+    let ref_b = serve.server_enqueue(reference_server, 20);
+    serve.server_process_batch(reference_server, 2);
+    if serve.server_result(reference_server, ref_a) != 20 {
+        return 1;
+    }
+    if serve.server_result(reference_server, ref_b) != 40 {
+        return 2;
+    }
+
+    let reference = serve.server_distribution_summary(reference_server);
+
+    let live_server = serve.server_new(2);
+    serve.server_set_model_version(live_server, "fraud-detector-v1");
+    serve.server_warmup(live_server);
+    let live_a = serve.server_enqueue(live_server, 120);
+    let live_b = serve.server_enqueue(live_server, 140);
+    serve.server_process_batch(live_server, 2);
+    if serve.server_result(live_server, live_a) != 240 {
+        return 3;
+    }
+    if serve.server_result(live_server, live_b) != 280 {
+        return 4;
+    }
+
+    let live = serve.server_distribution_summary(live_server);
+    let drift = serve.drift_check(reference, live, 100);
+    let audit = serve.server_audit_log(live_server);
+    let exported = serve.export_monitoring(
+        live_server,
+        "target/ai-examples/monitoring/model-monitoring.json",
+        live,
+        drift,
+        audit
+    );
+
+    if str.contains(drift, "\"drifted\":true") {
+        fs.fs_write(
+            "target/ai-examples/monitoring/summary.txt",
+            "model_monitoring=pass\ndrifted=true\n"
+        );
+    } else {
+        return 5;
+    }
+
+    if str.contains(exported, "model-monitoring.json") {
+        return 0;
+    }
+    return 6;
+}

@@ -1,0 +1,158 @@
+// Advanced AI example: model evaluation gates, serving guardrails, drift
+// monitoring, audit export, and promotion evidence in one serving workflow.
+module advanced_phase19_safe_monitored_model_promotion;
+
+import std.fs as fs;
+import std.ml as ml;
+import std.serve as serve;
+import std.string as str;
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    serve.reset();
+
+    let labels = tensor.arange(0, 4, 1);
+    let predictions = tensor.arange(0, 4, 1);
+    let classification = ml.metrics_classification(labels, predictions);
+    if str.contains(classification, "\"accuracy\":1.000000") {
+        let ok_accuracy = 1;
+        if ok_accuracy != 1 {
+            return 1;
+        }
+    } else {
+        return 1;
+    }
+
+    let expected = tensor.full_f(4, 2.0);
+    let regression_predictions = tensor.full_f(4, 2.0);
+    let regression = ml.metrics_regression(expected, regression_predictions);
+    let ranking = ml.metrics_ranking(labels, tensor.full_f(4, 1.0), 3);
+    let generation = ml.metrics_generation(
+        "safe monitored serving requires evaluation before promotion",
+        "evaluation before promotion"
+    );
+    let serving_metrics = ml.serving_metrics(tensor.arange(10, 60, 10), 5, 0);
+
+    let report = ml.evaluation_report(
+        "target/ai-examples/advanced-phase19/evaluation.json",
+        "advanced-phase19-safe-promotion",
+        classification,
+        regression,
+        ranking,
+        generation,
+        serving_metrics
+    );
+    if str.contains(report, "evaluation.json") {
+        let ok_report = 1;
+        if ok_report != 1 {
+            return 2;
+        }
+    } else {
+        return 2;
+    }
+
+    let reference = serve.server_new(3);
+    serve.server_set_model_version(reference, "candidate-v1");
+    serve.server_set_fallback(reference, -900);
+    serve.server_set_input_policy(reference, 0, 100);
+    serve.server_set_output_policy(reference, 0, 250);
+    serve.server_set_rate_limit(reference, 10);
+    serve.server_warmup(reference);
+
+    let ref_a = serve.server_enqueue(reference, 10);
+    let ref_b = serve.server_enqueue(reference, 20);
+    serve.server_process_batch(reference, 2);
+    if serve.server_result(reference, ref_a) != 30 {
+        return 3;
+    }
+    if serve.server_result(reference, ref_b) != 60 {
+        return 4;
+    }
+    let reference_distribution = serve.server_distribution_summary(reference);
+
+    let live = serve.server_new(3);
+    serve.server_set_model_version(live, "candidate-v1");
+    serve.server_set_fallback(live, -900);
+    serve.server_set_input_policy(live, 0, 150);
+    serve.server_set_output_policy(live, 0, 100);
+    serve.server_set_rate_limit(live, 10);
+    serve.server_warmup(live);
+
+    let ok = serve.server_enqueue(live, 30);
+    let blocked_input = serve.server_enqueue(live, 151);
+    let rate_limited = serve.server_enqueue(live, 40);
+    serve.server_process_batch(live, 3);
+    if serve.server_result(live, ok) != 90 {
+        return 5;
+    }
+    if serve.server_result(live, blocked_input) != -900 {
+        return 6;
+    }
+    if serve.server_result(live, rate_limited) != -900 {
+        return 7;
+    }
+
+    let snapshot = serve.server_monitoring_snapshot(live);
+    if str.contains(snapshot, "\"model_version\":\"candidate-v1\"") {
+        let ok_version = 1;
+        if ok_version != 1 {
+            return 8;
+        }
+    } else {
+        return 8;
+    }
+    if str.contains(snapshot, "\"errors\":2") {
+        let ok_errors = 1;
+        if ok_errors != 1 {
+            return 9;
+        }
+    } else {
+        return 9;
+    }
+
+    let live_distribution = serve.server_distribution_summary(live);
+    let drift = serve.drift_check(reference_distribution, live_distribution, 100);
+    if str.contains(drift, "\"drifted\":true") {
+        let ok_drift = 1;
+        if ok_drift != 1 {
+            return 10;
+        }
+    } else {
+        return 10;
+    }
+
+    let audit = serve.server_audit_log(live);
+    if str.contains(audit, "\"event\":\"blocked\"") {
+        let ok_audit = 1;
+        if ok_audit != 1 {
+            return 11;
+        }
+    } else {
+        return 11;
+    }
+
+    let exported = serve.export_monitoring(
+        live,
+        "target/ai-examples/advanced-phase19/monitoring.json",
+        live_distribution,
+        drift,
+        audit
+    );
+    if str.contains(exported, "monitoring.json") {
+        let ok_export = 1;
+        if ok_export != 1 {
+            return 12;
+        }
+    } else {
+        return 12;
+    }
+
+    fs.fs_write(
+        "target/ai-examples/advanced-phase19/summary.txt",
+        "advanced_phase19_safe_monitored_model_promotion=pass\n"
+    );
+
+    tensor.free_all();
+    return 0;
+}

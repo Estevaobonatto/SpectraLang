@@ -1,0 +1,14 @@
+// Known issue tracked by R-108.
+// This program is semantically valid but currently fails in codegen with
+// `Failed to define function 'main': Compilation error: Verifier errors`.
+module float_const_to_int_cast_codegen_verifier;
+
+const FLOATY: f64 = 7.75;
+
+pub fn main() -> int {
+    let truncated: int = FLOATY as int;
+    if truncated != 7 {
+        return truncated;
+    }
+    return 0;
+}

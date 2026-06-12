@@ -1,0 +1,130 @@
+// Advanced AI example: ONNX round-trip, transformer primitives, tokenizer,
+// vector index persistence, RAG prompt assembly, and answer scoring.
+module advanced_phase18_transformer_onnx_rag_pipeline;
+
+import std.fs as fs;
+import std.ml as ml;
+import std.string as str;
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(false);
+
+    let model = ml.onnx_export("target/ai-examples/advanced-phase18/transformer.onnx", "transformer");
+    if ml.onnx_validate(model) != 1 {
+        return 1;
+    }
+    let summary = ml.onnx_import_summary(model);
+    if str.contains(summary, "Softmax") {
+        let ok_softmax = 1;
+        if ok_softmax != 1 {
+            return 2;
+        }
+    } else {
+        return 2;
+    }
+    if str.contains(summary, "LayerNormalization") {
+        let ok_layer_norm = 1;
+        if ok_layer_norm != 1 {
+            return 3;
+        }
+    } else {
+        return 3;
+    }
+    let roundtrip = ml.onnx_roundtrip(model, "target/ai-examples/advanced-phase18/transformer.roundtrip.onnx");
+    if ml.onnx_validate(roundtrip) != 1 {
+        return 4;
+    }
+
+    let token_ids = tensor.arange(0, 3, 1);
+    let embedding_table = tensor.reshape(tensor.full_f(12, 1.0), 4, 3);
+    let embedded = ml.embedding_lookup(embedding_table, token_ids);
+    let positions = ml.positional_encoding(3, 3);
+    let query = ml.swiglu(embedded, positions);
+    let key = embedded;
+    let value = tensor.reshape(tensor.full_f(9, 2.0), 3, 3);
+    let attended = ml.attention(query, key, value);
+    let scale = tensor.full_f(3, 1.0);
+    let bias = tensor.full_f(3, 0.0);
+    let normalized = ml.layer_norm(attended, scale, bias, 0.00001);
+    let hidden = ml.gelu(normalized);
+    if tensor.len(hidden) != 9 {
+        return 5;
+    }
+
+    let cache = ml.kv_cache_new(12, 3);
+    if ml.kv_cache_append(cache, key, value) != 3 {
+        return 6;
+    }
+    if ml.kv_cache_len(cache) != 3 {
+        return 7;
+    }
+
+    let vocab = "[UNK]:0\nspectra:1\nrag:2\nretrieval:3\nonnx:4\ntransformer:5\nserving:6\nmonitoring:7";
+    let tokenizer = ml.tokenizer_wordpiece(vocab);
+    let encoded = ml.tokenizer_encode(tokenizer, "spectra rag retrieval transformer");
+    let decoded = ml.tokenizer_decode(tokenizer, encoded);
+    if str.contains(decoded, "spectra rag retrieval transformer") {
+        let ok_decode = 1;
+        if ok_decode != 1 {
+            return 8;
+        }
+    } else {
+        return 8;
+    }
+
+    let index = ml.vector_index_new(16);
+    let doc_a = "Spectra RAG retrieval combines indexed context with transformer prompts.";
+    let doc_b = "ONNX export keeps transformer graphs portable for serving.";
+    ml.vector_index_insert(index, "rag-transformer", ml.text_embed(doc_a, 16));
+    ml.vector_index_insert(index, "onnx-serving", ml.text_embed(doc_b, 16));
+    let results = ml.vector_index_query(index, ml.text_embed("rag retrieval transformer prompts", 16), 1);
+    if str.contains(results, "rag-transformer") {
+        let ok_retrieval = 1;
+        if ok_retrieval != 1 {
+            return 9;
+        }
+    } else {
+        return 9;
+    }
+
+    let chunks = ml.rag_chunk_text(doc_a, 32, 4);
+    let prompt = ml.rag_build_prompt(chunks, "How does Spectra build RAG context?");
+    if str.contains(prompt, "Context:") {
+        let ok_prompt = 1;
+        if ok_prompt != 1 {
+            return 10;
+        }
+    } else {
+        return 10;
+    }
+    let score = ml.rag_evaluate_answer(
+        "Spectra RAG retrieval combines indexed context with transformer prompts",
+        "retrieval indexed context transformer prompts"
+    );
+    if score < 650 {
+        return 11;
+    }
+
+    let persisted = ml.vector_index_persist(index, "target/ai-examples/advanced-phase18/vector-index.json");
+    let loaded = ml.vector_index_load(persisted);
+    let loaded_results = ml.vector_index_query(loaded, ml.text_embed("onnx serving portable graphs", 16), 1);
+    if str.contains(loaded_results, "onnx-serving") {
+        let ok_loaded = 1;
+        if ok_loaded != 1 {
+            return 12;
+        }
+    } else {
+        return 12;
+    }
+
+    fs.fs_write(
+        "target/ai-examples/advanced-phase18/summary.txt",
+        "advanced_phase18_transformer_onnx_rag_pipeline=pass\n"
+    );
+
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    return 0;
+}

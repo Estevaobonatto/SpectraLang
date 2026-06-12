@@ -1,0 +1,10 @@
+module closure_return_type_mismatch;
+
+fn make_bad() -> fn(int) -> int {
+    return |value: int| "not an int";
+}
+
+pub fn main() -> int {
+    let f = make_bad();
+    return f(1);
+}

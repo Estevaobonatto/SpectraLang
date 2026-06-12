@@ -1,0 +1,27 @@
+module import_alias_named_std_stress;
+
+import std.io;
+import std.math as math;
+import std.string as str;
+import { abs, min, max } from std.math;
+
+fn numeric_mix(value: int) -> int {
+    let magnitude = abs(value);
+    let lower = min(magnitude, 7);
+    let upper = max(lower, 3);
+    let rounded = math.floor_f(upper as float + 0.9) as int;
+    return rounded;
+}
+
+pub fn main() -> int {
+    let n = numeric_mix(-9);
+    if n != 7 {
+        return n;
+    }
+
+    if str.contains("import alias named std stress", "named") {
+        std.io.println(n);
+        return 0;
+    }
+    return 1;
+}

@@ -254,6 +254,38 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-107"
+title = "Struct Literal Shorthand Contract"
+phase = "phase_1"
+owner = "frontend"
+priority = "P2"
+status = "not_started"
+risk = "low"
+dependencies = ["R-105", "R-203"]
+summary = "Decide and enforce the language contract for struct literal field shorthand such as `Point { x }`."
+acceptance = [
+  "the language either supports `Type { field }` shorthand or rejects it with a stable diagnostic and documented rationale",
+  "parser and semantic regression tests cover accepted explicit field syntax and the chosen shorthand behavior",
+  "language reference and examples do not imply unsupported struct literal syntax"
+]
+
+[[items]]
+id = "R-108"
+title = "Diagnostic Classification Hardening"
+phase = "phase_1"
+owner = "frontend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-105", "R-203"]
+summary = "Replace remaining user-triggerable `error[internal]` and vague uninferrable diagnostics with stable semantic diagnostics."
+acceptance = [
+  "trait bound violations in user code are reported as semantic diagnostics, not internal errors",
+  "unknown qualified module members report the missing member and candidate module exports",
+  "regression tests assert diagnostic category and message for these cases"
+]
+
+[[items]]
 id = "R-201"
 title = "Numeric Type Expansion"
 phase = "phase_2"
@@ -312,6 +344,38 @@ summary = "Finish closure values with runtime closure handles, deterministic by-
 acceptance = [
   "closures can be passed, returned, stored, and invoked",
   "by-value capture semantics are documented and tested"
+]
+
+[[items]]
+id = "R-205"
+title = "Float Const Cast Codegen"
+phase = "phase_2"
+owner = "backend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-201", "R-202"]
+summary = "Fix backend lowering for casts from float const values to integer types so valid programs do not produce verifier errors."
+acceptance = [
+  "`const X: f64 = ...; let y: int = X as int;` compiles without Cranelift verifier errors",
+  "f32 and f64 const-to-int casts have semantic and backend regression tests",
+  "invalid casts still fail with semantic diagnostics rather than backend verifier failures"
+]
+
+[[items]]
+id = "R-206"
+title = "Generic Return Type Enforcement"
+phase = "phase_2"
+owner = "semantic"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-204"]
+summary = "Enforce declared return types for generic function bodies and specializations before lowering."
+acceptance = [
+  "generic functions cannot return unconstrained type parameters where a concrete return type is declared",
+  "invalid generic return mismatches fail during semantic analysis with stable diagnostics",
+  "no invalid generic return mismatch reaches backend codegen or verifier errors"
 ]
 
 [[items]]
@@ -737,6 +801,22 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-1203"
+title = "Filesystem Host Call Path Safety"
+phase = "phase_12"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-105", "R-1202"]
+summary = "Harden `std.fs` host calls so invalid or nested output paths never crash the runtime process."
+acceptance = [
+  "`std.fs.fs_write` on nested missing parent directories either creates parents or returns a controlled runtime diagnostic, never a native process crash",
+  "regression tests cover nested paths, invalid paths, and existing-file overwrite behavior",
+  "AI examples may safely write nested artifact paths without precreating directories"
+]
+
+[[items]]
 id = "R-1301"
 title = "Spectra Book"
 phase = "phase_13"
@@ -1042,7 +1122,7 @@ title = "Model Monitoring and Drift Detection"
 phase = "phase_19"
 owner = "runtime"
 priority = "P2"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-1102", "R-1702", "R-1901"]
 summary = "Track inference metrics, input distributions, prediction drift, and operational health."
@@ -1058,7 +1138,7 @@ title = "AI Conformance Suite"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-1402", "R-1503", "R-1801", "R-1901"]
 summary = "Create a conformance suite that certifies language, tensor, autodiff, interop, serving, and tooling behavior."

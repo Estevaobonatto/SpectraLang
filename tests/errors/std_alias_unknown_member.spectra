@@ -1,0 +1,7 @@
+module std_alias_unknown_member;
+
+import std.math as math;
+
+pub fn main() -> int {
+    return math.not_a_function(1);
+}

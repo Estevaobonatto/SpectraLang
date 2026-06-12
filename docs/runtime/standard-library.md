@@ -148,4 +148,6 @@ runtime validation.
 | `spectra.std.serve.server_set_input_policy` / `server_set_output_policy` | Attach inclusive input/output range guardrails to a server. | server, min, max | bool |
 | `spectra.std.serve.server_set_rate_limit` / `server_set_fallback` | Attach request limit and safe fallback result. | server, limit/fallback | bool |
 | `spectra.std.serve.server_last_diagnostic` / `server_audit_log` | Read structured guardrail diagnostic JSON and versioned audit-log JSON. | server | string |
+| `spectra.std.serve.server_set_model_version` / `server_monitoring_snapshot` | Attach model-version metadata and emit request/error/latency/throughput metrics. | server, version | bool or JSON string |
+| `spectra.std.serve.server_distribution_summary` / `drift_check` / `export_monitoring` | Emit input/output distribution summaries, compare live traffic to references, and write versioned observability JSON. | server, JSON payloads, path, threshold | JSON string or path |
 | `spectra.std.serve.reset` | Clear local serving registry state. | none | `0` |

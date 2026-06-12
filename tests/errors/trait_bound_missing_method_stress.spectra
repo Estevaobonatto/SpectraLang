@@ -1,0 +1,18 @@
+module trait_bound_missing_method_stress;
+
+trait Score {
+    fn score(&self) -> int;
+}
+
+struct Plain {
+    value: int,
+}
+
+fn evaluate<T: Score>(item: T) -> int {
+    return item.score();
+}
+
+pub fn main() -> int {
+    let plain = Plain { value: 1 };
+    return evaluate(plain);
+}

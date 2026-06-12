@@ -283,6 +283,79 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - `python scripts\validate_feature_maturity.py --binary target\debug\spectralang.exe`
 - `.\run_tests.ps1`
 
+## R-107 Struct Literal Shorthand Contract
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `frontend`
+- Dependencies: `R-105`, `R-203`
+
+### Problem Found
+
+During the advanced regression-test expansion, a candidate test using
+`Boxed { value }` failed to parse. The current accepted syntax is explicit field
+assignment, for example `Boxed { value: value }`.
+
+This is not currently a suite failure because the new test was adjusted to the
+implemented language contract. It is still a correction item because shorthand
+syntax is common in Rust-like languages and can be accidentally implied by
+examples or future docs.
+
+### Scope
+
+- decide whether struct literal field shorthand is part of the language
+- if supported, implement parser/semantic lowering for `Type { field }`
+- if not supported, emit a targeted diagnostic instead of a generic parse error
+- align docs and examples with the chosen contract
+
+### Acceptance
+
+- the language either supports `Type { field }` shorthand or rejects it with a stable diagnostic and documented rationale
+- parser and semantic regression tests cover accepted explicit field syntax and the chosen shorthand behavior
+- language reference and examples do not imply unsupported struct literal syntax
+
+### Evidence
+
+- Found while creating `tests/validation/104_nested_scope_shadowing_pattern_stress.spectra`.
+- Working form committed in the test: `Boxed { value: value }`.
+- Rejected form observed locally: `Boxed { value }`.
+
+## R-108 Diagnostic Classification Hardening
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `frontend`
+- Dependencies: `R-105`, `R-203`
+
+### Problems Found
+
+- `tests/errors/trait_bound_missing_method_stress.spectra` currently fails with
+  `error[internal]` for a user-level trait bound violation.
+- `tests/errors/std_alias_unknown_member.spectra` currently fails with a generic
+  "unknown or uninferrable type" diagnostic instead of a precise missing member
+  diagnostic for `math.not_a_function`.
+
+Both cases fail fast, so they are safe in the negative test suite, but the
+diagnostic classification is not production quality.
+
+### Scope
+
+- route trait-bound specialization failures through semantic diagnostics
+- improve qualified module/member lookup diagnostics for aliases
+- keep candidate export hints for known modules
+- add assertions or validation coverage for diagnostic family/category
+
+### Acceptance
+
+- trait bound violations in user code are reported as semantic diagnostics, not internal errors
+- unknown qualified module members report the missing member and candidate module exports
+- regression tests assert diagnostic category and message for these cases
+
+### Evidence
+
+- Found while creating `tests/errors/trait_bound_missing_method_stress.spectra`.
+- Found while creating `tests/errors/std_alias_unknown_member.spectra`.
+
 ---
 
 # Phase 2: Scientific Type System
@@ -399,6 +472,76 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - Captures are by value in deterministic first-use order.
 - `tests/validation/79_closure_captures.spectra` covers local capture, captured closure return, captured closure passing, nested capture, and stdlib HOF callbacks.
 - `tests/errors/closure_capture_mutation.spectra` covers the by-value mutation restriction.
+
+## R-205 Float Const Cast Codegen
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `backend`
+- Dependencies: `R-201`, `R-202`
+
+### Problem Found
+
+A reduced valid program using `const FLOATY: f64 = 7.75;` followed by
+`let truncated: int = FLOATY as int;` reaches codegen and fails with
+`Failed to define function 'main': Compilation error: Verifier errors`.
+
+The normal validation suite avoids this exact lowering path for now, but the
+reproducer is preserved in
+`tests/known_issues/float_const_to_int_cast_codegen_verifier.spectra`.
+
+### Scope
+
+- inspect lowering/backend value kinds for float constants used in casts
+- support f32/f64 const-to-int casts without invalid Cranelift IR
+- ensure invalid casts still fail semantically before backend
+- add regression coverage once fixed
+
+### Acceptance
+
+- `const X: f64 = ...; let y: int = X as int;` compiles without Cranelift verifier errors
+- f32 and f64 const-to-int casts have semantic and backend regression tests
+- invalid casts still fail with semantic diagnostics rather than backend verifier failures
+
+### Evidence
+
+- Found while creating `tests/validation/109_numeric_cast_const_boundaries_stress.spectra`.
+- Known issue file: `tests/known_issues/float_const_to_int_cast_codegen_verifier.spectra`.
+
+## R-206 Generic Return Type Enforcement
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `semantic`
+- Dependencies: `R-204`
+
+### Problems Found
+
+- A generic function declared as `fn bad<T>(value: T) -> string { return value; }`
+  currently compiles when instantiated with `int`, even though the body returns
+  a type parameter incompatible with the declared concrete return type.
+- A related invalid generic function declared as returning `int` can reach
+  backend codegen and fail with `Verifier errors` instead of semantic analysis.
+
+### Scope
+
+- validate generic function bodies against declared return types before
+  specialization/lowering
+- validate monomorphized return substitutions before backend
+- add semantic diagnostics for generic return mismatches
+- add negative regression tests that fail semantically, not in codegen
+
+### Acceptance
+
+- generic functions cannot return unconstrained type parameters where a concrete return type is declared
+- invalid generic return mismatches fail during semantic analysis with stable diagnostics
+- no invalid generic return mismatch reaches backend codegen or verifier errors
+
+### Evidence
+
+- Known issue file: `tests/known_issues/generic_return_annotation_not_enforced.spectra`.
+- Known issue file: `tests/known_issues/generic_return_type_mismatch_codegen_verifier.spectra`.
+- Negative suite replacement: `tests/errors/generic_wrong_return_type_stress.spectra` covers the currently stable semantic diagnostic path.
 
 ---
 
@@ -1175,6 +1318,43 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - Public-key signing or Sigstore/cosign can replace or augment the current
   HMAC release evidence signature in a later security-hardening item.
 
+## R-1203 Filesystem Host Call Path Safety
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-105`, `R-1202`
+
+### Problem Found
+
+While adding advanced AI examples, a first draft wrote files directly to nested
+paths such as `target/ai-examples/advanced-phase16-17/run-a/lock.txt` before
+the parent directory existed. The run produced a native process crash instead
+of a controlled Spectra diagnostic. The example was rewritten to use already
+safe paths, but the runtime behavior should be hardened.
+
+### Scope
+
+- audit `std.fs` host calls for unchecked filesystem failures
+- define the contract for missing parent directories in `fs_write`
+- ensure filesystem failures become controlled runtime diagnostics or safe
+  return values, never native crashes
+- add regression coverage for nested paths, invalid paths, and overwrite cases
+- allow examples and future AI artifact pipelines to use nested output
+  directories safely
+
+### Acceptance
+
+- `std.fs.fs_write` on nested missing parent directories either creates parents or returns a controlled runtime diagnostic, never a native process crash
+- regression tests cover nested paths, invalid paths, and existing-file overwrite behavior
+- AI examples may safely write nested artifact paths without precreating directories
+
+### Evidence
+
+- Found while testing `examples/ai/advanced_phase16_17_training_memory_pipeline.spectra`.
+- Initial process exit was a native crash code before the example was adjusted.
+- Current examples avoid the crash path; this item tracks the runtime fix.
+
 ---
 
 # Phase 13: Documentation and Adoption
@@ -1783,7 +1963,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1903 Model Monitoring and Drift Detection
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `runtime`
 - Dependencies: `R-1102`, `R-1702`, `R-1901`
@@ -1801,13 +1981,25 @@ the next tracked development cycle toward a broader AI/ML platform.
 - drift checks compare live distribution summaries against reference baselines
 - monitoring artifacts are exportable as JSON for external observability systems
 
+### Completed
+
+- `std.serve.server_set_model_version` attaches model-version metadata to local serving servers.
+- `std.serve.server_monitoring_snapshot` emits request, completed, blocked, cancelled, error, batch, pending, latency, throughput, and model-version metrics as JSON.
+- `std.serve.server_distribution_summary` emits input/output distribution summaries for drift baselines and live traffic.
+- `std.serve.drift_check` compares reference and live distribution summaries against a per-mille threshold and emits structured drift JSON.
+- `std.serve.export_monitoring` writes a versioned JSON observability artifact with snapshot, distribution, drift, and audit data.
+- `tests/validation/100_phase19_model_monitoring.spectra` validates the public language API.
+- `examples/ai/model_monitoring_drift_detection.spectra` provides a runnable AI monitoring/drift example.
+- `scripts/validate_r1903_model_monitoring.py` runs runtime, public Spectra, and AI example validation and parses the generated observability artifact.
+- `run_tests.ps1` includes the `phase19-monitoring` gate.
+
 ---
 
 # Phase 20: Production Certification
 
 ## R-2001 AI Conformance Suite
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-1402`, `R-1503`, `R-1801`, `R-1901`
@@ -1825,6 +2017,19 @@ the next tracked development cycle toward a broader AI/ML platform.
 - conformance tests cover compiler, runtime, tensors, autodiff, graph, interop, package, serving, and docs examples
 - the suite emits a versioned certification report
 - release candidates cannot be certified while conformance tests fail
+
+### Completed Implementation
+
+- `scripts/validate_r2001_ai_conformance.py` runs the production conformance gates for compiler, runtime, tensors, autodiff, graph, interop, package, serving, tooling, and docs/examples.
+- The suite emits `target/r2001-conformance/conformance-report.json` with schema `spectralang.ai_conformance_report.v1` and conformance version `R-2001/v1`.
+- Release-candidate certification is enforced by the script exit code: failed, timed-out, missing-category, or invalid-report gates reject the candidate.
+- `run_tests.ps1` includes the `phase20-conformance` gate.
+- `docs/architecture/r2001-ai-conformance-suite.md` documents the report contract, required categories, and certification rule.
+
+### Validation
+
+- `python scripts\validate_r2001_ai_conformance.py --keep-going`
+- `.\run_tests.ps1`
 
 ## R-2002 Production Release Channels
 

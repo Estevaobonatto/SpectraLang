@@ -1,0 +1,15 @@
+module match_arm_type_mismatch_stress;
+
+enum Choice {
+    Number(int),
+    Text,
+}
+
+pub fn main() -> int {
+    let choice = Choice::Text;
+    let value: int = match choice {
+        Choice::Number(n) => n,
+        Choice::Text => "text"
+    };
+    return value;
+}

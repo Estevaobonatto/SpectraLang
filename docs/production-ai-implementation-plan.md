@@ -1504,8 +1504,8 @@ operations.
 
 ### Current Implementation State
 
-Status: `R-1901` and `R-1902` are complete for the current production evaluation
-and safety baseline. `R-1903` remains a future Phase 19 workstream.
+Status: `R-1901`, `R-1902`, and `R-1903` are complete for the current production
+evaluation, safety, monitoring, and drift-detection baseline.
 
 Completed:
 
@@ -1515,6 +1515,8 @@ Completed:
 - `scripts/validate_r1901_evaluation_metrics.py`, `tests/validation/98_ml_phase19_evaluation_metrics.spectra`, and `examples/ai/model_evaluation_report.spectra` validate the current R-1901 baseline.
 - `std.serve` guardrail APIs attach input/output policies, rate limits, safe fallbacks, structured diagnostics, and versioned audit logs to local serving servers.
 - `scripts/validate_r1902_ai_safety_guardrails.py`, `tests/validation/99_phase19_ai_safety_guardrails.spectra`, and `examples/ai/safe_serving_guardrails.spectra` validate the current R-1902 baseline.
+- `std.serve` monitoring APIs emit model-version request metrics, latency/error/throughput snapshots, input/output distribution summaries, drift checks, and versioned observability exports.
+- `scripts/validate_r1903_model_monitoring.py`, `tests/validation/100_phase19_model_monitoring.spectra`, and `examples/ai/model_monitoring_drift_detection.spectra` validate the current R-1903 baseline.
 
 ## Phase 20: Production Certification
 
@@ -1533,3 +1535,13 @@ AI users.
 - Release candidates should require a versioned conformance report.
 - Stable releases should communicate compatibility and deprecation status clearly.
 - Certification should fail when required conformance tests fail.
+
+### Completed So Far
+
+- `R-2001` is complete for the current production baseline.
+- `scripts/validate_r2001_ai_conformance.py` runs executable gates for compiler,
+  runtime, tensors, autodiff, graph, interop, package, serving, tooling, and
+  docs/examples.
+- The conformance report is versioned with schema
+  `spectralang.ai_conformance_report.v1` and conformance version `R-2001/v1`.
+- `run_tests.ps1` includes the `phase20-conformance` release-candidate gate.

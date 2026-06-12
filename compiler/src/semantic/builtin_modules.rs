@@ -1145,6 +1145,37 @@ fn make_std_serve() -> ModuleExports {
         ),
         ("server_last_diagnostic", vec![int.clone()], Type::String),
         ("server_audit_log", vec![int.clone()], Type::String),
+        (
+            "server_set_model_version",
+            vec![int.clone(), Type::String],
+            bool_ty.clone(),
+        ),
+        (
+            "server_monitoring_snapshot",
+            vec![int.clone()],
+            Type::String,
+        ),
+        (
+            "server_distribution_summary",
+            vec![int.clone()],
+            Type::String,
+        ),
+        (
+            "drift_check",
+            vec![Type::String, Type::String, int.clone()],
+            Type::String,
+        ),
+        (
+            "export_monitoring",
+            vec![
+                int.clone(),
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::String,
+            ],
+            Type::String,
+        ),
         ("reset", vec![], Type::Unit),
     ];
 

@@ -119,6 +119,12 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `scripts/validate_r1901_evaluation_metrics.py` and `tests/validation/98_ml_phase19_evaluation_metrics.spectra` validate the evaluation metrics baseline
   - `std.serve` implements AI serving guardrails with input/output policy hooks, rate limits, safe fallback results, structured diagnostics, and versioned audit logs
   - `scripts/validate_r1902_ai_safety_guardrails.py` and `tests/validation/99_phase19_ai_safety_guardrails.spectra` validate the guardrail baseline
+  - `std.serve` implements serving monitoring snapshots, input/output distribution summaries, drift checks, and versioned JSON observability exports
+  - `scripts/validate_r1903_model_monitoring.py` and `tests/validation/100_phase19_model_monitoring.spectra` validate the monitoring baseline
+- Phase 20 production certification baseline:
+  - `scripts/validate_r2001_ai_conformance.py` certifies compiler, runtime, tensors, autodiff, graph, interop, package, serving, tooling, and docs/example conformance
+  - conformance reports use schema `spectralang.ai_conformance_report.v1` and conformance version `R-2001/v1`
+  - `run_tests.ps1` includes the `phase20-conformance` release-candidate gate
 
 ### Beta
 

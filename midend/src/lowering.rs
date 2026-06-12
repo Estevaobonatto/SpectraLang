@@ -7575,6 +7575,21 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("serve", "server_audit_log") => {
                 Some(host_string("spectra.std.serve.server_audit_log"))
             }
+            ("serve", "server_set_model_version") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.serve.server_set_model_version",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("serve", "server_monitoring_snapshot") => {
+                Some(host_string("spectra.std.serve.server_monitoring_snapshot"))
+            }
+            ("serve", "server_distribution_summary") => {
+                Some(host_string("spectra.std.serve.server_distribution_summary"))
+            }
+            ("serve", "drift_check") => Some(host_string("spectra.std.serve.drift_check")),
+            ("serve", "export_monitoring") => {
+                Some(host_string("spectra.std.serve.export_monitoring"))
+            }
             ("serve", "reset") => Some(host_void("spectra.std.serve.reset")),
             // ── std.collections map ──────────────────────────────────────
             ("collections", "map_new") => Some(HostFunctionDescriptor {

@@ -1,0 +1,49 @@
+module trait_generic_associated_method_stress;
+
+trait Score {
+    fn score(&self) -> int;
+}
+
+trait Scale {
+    fn scale(&self, factor: int) -> int;
+}
+
+struct Sample {
+    pub value: int,
+    pub weight: int,
+}
+
+impl Score for Sample {
+    fn score(&self) -> int {
+        return self.value + self.weight;
+    }
+}
+
+impl Scale for Sample {
+    fn scale(&self, factor: int) -> int {
+        return (self.value + self.weight) * factor;
+    }
+}
+
+fn evaluate<T: Score>(item: T) -> int {
+    return item.score();
+}
+
+fn amplify<T: Scale>(item: T, factor: int) -> int {
+    return item.scale(factor);
+}
+
+pub fn main() -> int {
+    let sample = Sample { value: 6, weight: 4 };
+    let score = evaluate(sample);
+    let again = Sample { value: 6, weight: 4 };
+    let scaled = amplify(again, 3);
+
+    if score != 10 {
+        return score;
+    }
+    if scaled != 30 {
+        return scaled;
+    }
+    return 0;
+}

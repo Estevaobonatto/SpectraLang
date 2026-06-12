@@ -1483,6 +1483,17 @@ serve.server_set_output_policy(server, 0, 200);
 serve.server_warmup(server);
 ```
 
+### Monitoring and drift
+
+- `server_set_model_version(server: int, version: string) -> bool`
+- `server_monitoring_snapshot(server: int) -> string`
+- `server_distribution_summary(server: int) -> string`
+- `drift_check(reference: string, live: string, threshold_per_mille: int) -> string`
+- `export_monitoring(server: int, path: string, distribution: string, drift: string, audit: string) -> string`
+
+These APIs emit versioned JSON for request metrics, latency/error/throughput,
+input/output distribution summaries, drift checks, and observability export.
+
 ---
 
 > **Próximo / Next:** [06 — Referência Rápida / Quick Reference](06-referencia-rapida.md)  

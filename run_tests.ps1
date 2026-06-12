@@ -922,6 +922,32 @@ if ($r1902SafetyGuardrails.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase19-safety"; Teste = "validate_r1902_ai_safety_guardrails"; Status = $r1902SafetyGuardrails.Status; Detalhe = $r1902SafetyGuardrails.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.22: R-1903 model monitoring and drift detection
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-1903 model monitoring and drift detection ---" -ForegroundColor Yellow
+$r1903ModelMonitoring = Invoke-HostCommand -name "validate_r1903_model_monitoring" -fileName "python" -arguments @("scripts\validate_r1903_model_monitoring.py") -workingDir (Get-Location).Path
+if ($r1903ModelMonitoring.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase19-monitoring"; Teste = "validate_r1903_model_monitoring"; Status = $r1903ModelMonitoring.Status; Detalhe = $r1903ModelMonitoring.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.23: R-2001 AI conformance suite
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2001 AI conformance suite ---" -ForegroundColor Yellow
+$r2001AiConformance = Invoke-HostCommand -name "validate_r2001_ai_conformance" -fileName "python" -arguments @("scripts\validate_r2001_ai_conformance.py", "--keep-going") -workingDir (Get-Location).Path
+if ($r2001AiConformance.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-conformance"; Teste = "validate_r2001_ai_conformance"; Status = $r2001AiConformance.Status; Detalhe = $r2001AiConformance.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

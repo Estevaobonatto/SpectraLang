@@ -396,6 +396,11 @@ const SERVE_SERVER_SET_RATE_LIMIT: &str = "spectra.std.serve.server_set_rate_lim
 const SERVE_SERVER_SET_FALLBACK: &str = "spectra.std.serve.server_set_fallback";
 const SERVE_SERVER_LAST_DIAGNOSTIC: &str = "spectra.std.serve.server_last_diagnostic";
 const SERVE_SERVER_AUDIT_LOG: &str = "spectra.std.serve.server_audit_log";
+const SERVE_SERVER_SET_MODEL_VERSION: &str = "spectra.std.serve.server_set_model_version";
+const SERVE_SERVER_MONITORING_SNAPSHOT: &str = "spectra.std.serve.server_monitoring_snapshot";
+const SERVE_SERVER_DISTRIBUTION_SUMMARY: &str = "spectra.std.serve.server_distribution_summary";
+const SERVE_DRIFT_CHECK: &str = "spectra.std.serve.drift_check";
+const SERVE_EXPORT_MONITORING: &str = "spectra.std.serve.export_monitoring";
 const SERVE_RESET: &str = "spectra.std.serve.reset";
 
 // ── std.io (novos) ───────────────────────────────────────────────────────────
@@ -767,6 +772,20 @@ fn register_serve() {
         std_serve_server_last_diagnostic,
     );
     register_host_function(SERVE_SERVER_AUDIT_LOG, std_serve_server_audit_log);
+    register_host_function(
+        SERVE_SERVER_SET_MODEL_VERSION,
+        std_serve_server_set_model_version,
+    );
+    register_host_function(
+        SERVE_SERVER_MONITORING_SNAPSHOT,
+        std_serve_server_monitoring_snapshot,
+    );
+    register_host_function(
+        SERVE_SERVER_DISTRIBUTION_SUMMARY,
+        std_serve_server_distribution_summary,
+    );
+    register_host_function(SERVE_DRIFT_CHECK, std_serve_drift_check);
+    register_host_function(SERVE_EXPORT_MONITORING, std_serve_export_monitoring);
     register_host_function(SERVE_RESET, std_serve_reset);
 }
 
@@ -12716,6 +12735,7 @@ enum ServeRequestState {
 
 struct ServeServer {
     model: SpectraHostValue,
+    model_version: String,
     warm: bool,
     timeout: SpectraHostValue,
     queue: VecDeque<SpectraHostValue>,
@@ -12727,6 +12747,15 @@ struct ServeServer {
     fallback: SpectraHostValue,
     last_diagnostic: String,
     audit_events: Vec<String>,
+    total_requests: SpectraHostValue,
+    completed_requests: SpectraHostValue,
+    blocked_requests: SpectraHostValue,
+    cancelled_requests: SpectraHostValue,
+    error_count: SpectraHostValue,
+    batch_count: SpectraHostValue,
+    latency_samples_ms: Vec<SpectraHostValue>,
+    observed_inputs: Vec<SpectraHostValue>,
+    observed_outputs: Vec<SpectraHostValue>,
 }
 
 struct ServeRegistry {
@@ -12798,6 +12827,138 @@ fn serve_audit_json(server: &ServeServer) -> String {
     )
 }
 
+fn serve_latency_for(input: SpectraHostValue, output: SpectraHostValue) -> SpectraHostValue {
+    1 + (input.abs().saturating_add(output.abs()) % 17)
+}
+
+fn serve_record_block(server: &mut ServeServer, output: SpectraHostValue) {
+    server.blocked_requests = server.blocked_requests.saturating_add(1);
+    server.error_count = server.error_count.saturating_add(1);
+    server.observed_outputs.push(output);
+}
+
+fn serve_record_complete(
+    server: &mut ServeServer,
+    input: SpectraHostValue,
+    output: SpectraHostValue,
+) {
+    server.completed_requests = server.completed_requests.saturating_add(1);
+    server.observed_outputs.push(output);
+    server
+        .latency_samples_ms
+        .push(serve_latency_for(input, output));
+}
+
+fn serve_values_summary(values: &[SpectraHostValue]) -> (SpectraHostValue, SpectraHostValue, f64) {
+    if values.is_empty() {
+        return (0, 0, 0.0);
+    }
+    let min = *values.iter().min().unwrap_or(&0);
+    let max = *values.iter().max().unwrap_or(&0);
+    let sum = values.iter().map(|value| *value as f64).sum::<f64>();
+    (min, max, sum / values.len() as f64)
+}
+
+fn serve_p95(values: &[SpectraHostValue]) -> SpectraHostValue {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort();
+    let index = ((sorted.len() as f64 * 0.95).ceil() as usize).saturating_sub(1);
+    sorted[index.min(sorted.len() - 1)]
+}
+
+fn serve_distribution_summary_json(server: &ServeServer) -> String {
+    let (input_min, input_max, input_mean) = serve_values_summary(&server.observed_inputs);
+    let (output_min, output_max, output_mean) = serve_values_summary(&server.observed_outputs);
+    format!(
+        "{{\"schema\":\"spectra.serve.distribution_summary.v1\",\"model_version\":{},\"inputs\":{{\"count\":{},\"min\":{},\"max\":{},\"mean\":{}}},\"outputs\":{{\"count\":{},\"min\":{},\"max\":{},\"mean\":{}}}}}",
+        ml_json_string(&server.model_version),
+        server.observed_inputs.len(),
+        input_min,
+        input_max,
+        ml_float_json(input_mean),
+        server.observed_outputs.len(),
+        output_min,
+        output_max,
+        ml_float_json(output_mean)
+    )
+}
+
+fn serve_monitoring_snapshot_json(server: &ServeServer) -> String {
+    let total_latency = server.latency_samples_ms.iter().sum::<SpectraHostValue>();
+    let latency_avg = if server.latency_samples_ms.is_empty() {
+        0.0
+    } else {
+        total_latency as f64 / server.latency_samples_ms.len() as f64
+    };
+    let error_rate = if server.total_requests <= 0 {
+        0.0
+    } else {
+        server.error_count as f64 / server.total_requests as f64
+    };
+    let throughput = if total_latency <= 0 {
+        server.completed_requests as f64
+    } else {
+        server.completed_requests as f64 / (total_latency as f64 / 1000.0)
+    };
+    format!(
+        "{{\"schema\":\"spectra.serve.monitoring_snapshot.v1\",\"model\":{},\"model_version\":{},\"requests\":{},\"completed\":{},\"blocked\":{},\"cancelled\":{},\"errors\":{},\"error_rate\":{},\"batches\":{},\"pending\":{},\"latency_avg_ms\":{},\"latency_p95_ms\":{},\"throughput_per_second\":{}}}",
+        server.model,
+        ml_json_string(&server.model_version),
+        server.total_requests,
+        server.completed_requests,
+        server.blocked_requests,
+        server.cancelled_requests,
+        server.error_count,
+        ml_float_json(error_rate),
+        server.batch_count,
+        server.queue.len(),
+        ml_float_json(latency_avg),
+        serve_p95(&server.latency_samples_ms),
+        ml_float_json(throughput)
+    )
+}
+
+fn serve_json_number(source: &str, key: &str) -> Option<f64> {
+    let start = source.find(key)? + key.len();
+    let tail = &source[start..];
+    let end =
+        tail.find(|ch: char| !(ch.is_ascii_digit() || ch == '-' || ch == '.' || ch == '+'))?;
+    tail[..end].parse::<f64>().ok()
+}
+
+fn serve_drift_json(
+    reference: &str,
+    live: &str,
+    threshold_per_mille: SpectraHostValue,
+) -> Option<String> {
+    let ref_in = serve_json_number(reference, "\"inputs\":{\"count\":")?;
+    let live_in = serve_json_number(live, "\"inputs\":{\"count\":")?;
+    let ref_input_mean = serve_json_number(reference, "\"mean\":")?;
+    let live_input_mean = serve_json_number(live, "\"mean\":")?;
+    let ref_outputs = reference.find("\"outputs\"")?;
+    let live_outputs = live.find("\"outputs\"")?;
+    let ref_output_mean = serve_json_number(&reference[ref_outputs..], "\"mean\":")?;
+    let live_output_mean = serve_json_number(&live[live_outputs..], "\"mean\":")?;
+    let input_delta = (live_input_mean - ref_input_mean).abs();
+    let output_delta = (live_output_mean - ref_output_mean).abs();
+    let denom = ref_input_mean.abs().max(ref_output_mean.abs()).max(1.0);
+    let score = ((input_delta + output_delta) / denom * 1000.0).round() as SpectraHostValue;
+    let drifted = score > threshold_per_mille;
+    Some(format!(
+        "{{\"schema\":\"spectra.serve.drift_check.v1\",\"reference_count\":{},\"live_count\":{},\"input_mean_delta\":{},\"output_mean_delta\":{},\"score_per_mille\":{},\"threshold_per_mille\":{},\"drifted\":{}}}",
+        ref_in as i64,
+        live_in as i64,
+        ml_float_json(input_delta),
+        ml_float_json(output_delta),
+        score.max(0),
+        threshold_per_mille,
+        if drifted { "true" } else { "false" }
+    ))
+}
+
 extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
@@ -12813,6 +12974,7 @@ extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
         server_id,
         ServeServer {
             model: args[0],
+            model_version: format!("model-{}", args[0]),
             warm: false,
             timeout: 1,
             queue: VecDeque::new(),
@@ -12826,6 +12988,15 @@ extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
                 "{\"schema\":\"spectra.serve.guardrail_diagnostic.v1\",\"status\":\"ok\"}"
                     .to_string(),
             audit_events: Vec::new(),
+            total_requests: 0,
+            completed_requests: 0,
+            blocked_requests: 0,
+            cancelled_requests: 0,
+            error_count: 0,
+            batch_count: 0,
+            latency_samples_ms: Vec::new(),
+            observed_inputs: Vec::new(),
+            observed_outputs: Vec::new(),
         },
     );
     results[0] = server_id;
@@ -12880,6 +13051,8 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
         return HOST_STATUS_NOT_FOUND;
     };
     let input = args[1];
+    server.total_requests = server.total_requests.saturating_add(1);
+    server.observed_inputs.push(input);
     if let Some(limit) = server.rate_limit {
         if server.accepted_requests >= limit {
             server.last_diagnostic = serve_guardrail_diagnostic(
@@ -12898,6 +13071,7 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
                 input,
                 server.fallback,
             ));
+            serve_record_block(server, server.fallback);
             server.requests.insert(
                 request_id,
                 (input, ServeRequestState::Complete(server.fallback)),
@@ -12924,6 +13098,7 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
                 input,
                 server.fallback,
             ));
+            serve_record_block(server, server.fallback);
             server.requests.insert(
                 request_id,
                 (input, ServeRequestState::Complete(server.fallback)),
@@ -12962,6 +13137,11 @@ extern "C" fn std_serve_server_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
     if *state == ServeRequestState::Pending {
         *state = ServeRequestState::Cancelled;
         server.queue.retain(|request| *request != args[1]);
+        server.cancelled_requests = server.cancelled_requests.saturating_add(1);
+        server.error_count = server.error_count.saturating_add(1);
+        server
+            .audit_events
+            .push(serve_audit_event(args[1], "cancelled", "request", 0, -1));
         results[0] = 1;
     } else {
         results[0] = 0;
@@ -12986,23 +13166,29 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
         results[0] = 0;
         return HOST_STATUS_SUCCESS;
     }
+    server.batch_count = server.batch_count.saturating_add(1);
 
     let mut processed = 0;
     for _ in 0..max_batch {
         let Some(request_id) = server.queue.pop_front() else {
             break;
         };
-        let Some((input, state)) = server.requests.get_mut(&request_id) else {
+        let Some((input, state)) = server.requests.get(&request_id) else {
             continue;
         };
         if *state != ServeRequestState::Pending {
             continue;
         }
+        let input_value = *input;
         if server.timeout == 0 {
-            *state = ServeRequestState::Cancelled;
+            if let Some((_, state)) = server.requests.get_mut(&request_id) {
+                *state = ServeRequestState::Cancelled;
+            }
+            server.cancelled_requests = server.cancelled_requests.saturating_add(1);
+            server.error_count = server.error_count.saturating_add(1);
             continue;
         }
-        let output = *input * server.model;
+        let output = input_value * server.model;
         if let Some((min, max)) = server.output_policy {
             if output < min || output > max {
                 server.last_diagnostic = serve_guardrail_diagnostic(
@@ -13021,7 +13207,10 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
                     output,
                     server.fallback,
                 ));
-                *state = ServeRequestState::Complete(server.fallback);
+                serve_record_block(server, server.fallback);
+                if let Some((_, state)) = server.requests.get_mut(&request_id) {
+                    *state = ServeRequestState::Complete(server.fallback);
+                }
                 processed += 1;
                 continue;
             }
@@ -13033,7 +13222,10 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
             output,
             output,
         ));
-        *state = ServeRequestState::Complete(output);
+        serve_record_complete(server, input_value, output);
+        if let Some((_, state)) = server.requests.get_mut(&request_id) {
+            *state = ServeRequestState::Complete(output);
+        }
         processed += 1;
     }
     results[0] = processed;
@@ -13141,6 +13333,9 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
         let Some(server) = registry.servers.get_mut(&server_id) else {
             return HOST_STATUS_NOT_FOUND;
         };
+        server.total_requests = server.total_requests.saturating_add(1);
+        server.accepted_requests = server.accepted_requests.saturating_add(1);
+        server.observed_inputs.push(input);
         server
             .requests
             .insert(request_id, (input, ServeRequestState::Pending));
@@ -13159,22 +13354,32 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
         if server.queue.is_empty() {
             break;
         }
+        server.batch_count = server.batch_count.saturating_add(1);
         let mut processed = 0;
         for _ in 0..batch {
             let Some(request_id) = server.queue.pop_front() else {
                 break;
             };
-            let Some((input, state)) = server.requests.get_mut(&request_id) else {
+            let Some((input, state)) = server.requests.get(&request_id) else {
                 continue;
             };
             if *state != ServeRequestState::Pending {
                 continue;
             }
+            let input_value = *input;
             if server.timeout == 0 {
-                *state = ServeRequestState::Cancelled;
+                if let Some((_, state)) = server.requests.get_mut(&request_id) {
+                    *state = ServeRequestState::Cancelled;
+                }
+                server.cancelled_requests = server.cancelled_requests.saturating_add(1);
+                server.error_count = server.error_count.saturating_add(1);
                 continue;
             }
-            *state = ServeRequestState::Complete(*input * server.model);
+            let output = input_value * server.model;
+            serve_record_complete(server, input_value, output);
+            if let Some((_, state)) = server.requests.get_mut(&request_id) {
+                *state = ServeRequestState::Complete(output);
+            }
             processed += 1;
         }
         processed_total += processed;
@@ -13311,6 +13516,132 @@ extern "C" fn std_serve_server_audit_log(ctx: *mut SpectraHostCallContext) -> i3
         serve_audit_json(server)
     };
     results[0] = unsafe { alloc_spectra_string(&audit) };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_set_model_version(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let Some(version) = ml_read_path_arg(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let mut registry = match lock_serve_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(server) = registry.servers.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    server.model_version = version;
+    server.audit_events.push(format!(
+        "{{\"request\":0,\"event\":\"model_version_set\",\"stage\":\"monitoring\",\"value\":{},\"result\":{}}}",
+        server.model, server.model
+    ));
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_monitoring_snapshot(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let snapshot = {
+        let registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get(&args[0]) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        serve_monitoring_snapshot_json(server)
+    };
+    results[0] = unsafe { alloc_spectra_string(&snapshot) };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_server_distribution_summary(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let summary = {
+        let registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get(&args[0]) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        serve_distribution_summary_json(server)
+    };
+    results[0] = unsafe { alloc_spectra_string(&summary) };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_drift_check(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[2] < 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let Some(reference) = ml_read_path_arg(args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(live) = ml_read_path_arg(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(drift) = serve_drift_json(&reference, &live, args[2]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    results[0] = unsafe { alloc_spectra_string(&drift) };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_serve_export_monitoring(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 5) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let Some(path) = ml_read_path_arg(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(distribution) = ml_json_payload_arg(args[2]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(drift) = ml_json_payload_arg(args[3]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(audit) = ml_json_payload_arg(args[4]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let snapshot = {
+        let registry = match lock_serve_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let Some(server) = registry.servers.get(&args[0]) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        serve_monitoring_snapshot_json(server)
+    };
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        if !parent.as_os_str().is_empty() && std::fs::create_dir_all(parent).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+    }
+    let payload = format!(
+        "{{\"schema\":\"spectra.serve.monitoring_export.v1\",\"snapshot\":{},\"distribution\":{},\"drift\":{},\"audit\":{}}}",
+        snapshot, distribution, drift, audit
+    );
+    if std::fs::write(&path, payload).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    results[0] = unsafe { alloc_spectra_string(&path) };
     HOST_STATUS_SUCCESS
 }
 
@@ -15537,5 +15868,117 @@ mod tests {
         assert!(audit.contains("spectra.serve.audit.v1"));
         assert!(audit.contains("\"event\":\"blocked\""));
         assert!(audit.contains("\"event\":\"policy_attached\""));
+    }
+
+    #[test]
+    fn serve_host_calls_cover_monitoring_drift_and_export() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        assert_eq!(call_host(SERVE_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let (status, server) = call_host(SERVE_SERVER_NEW, &[2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(
+                SERVE_SERVER_SET_MODEL_VERSION,
+                &[server, test_string("model-v1")]
+            ),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_WARMUP, &[server]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, first) = call_host(SERVE_SERVER_ENQUEUE, &[server, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, second) = call_host(SERVE_SERVER_ENQUEUE, &[server, 20]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_PROCESS_BATCH, &[server, 2]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, first]),
+            (HOST_STATUS_SUCCESS, 20)
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_RESULT, &[server, second]),
+            (HOST_STATUS_SUCCESS, 40)
+        );
+
+        let (status, snapshot_ptr) = call_host(SERVE_SERVER_MONITORING_SNAPSHOT, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let snapshot = unsafe { read_spectra_string(snapshot_ptr) }.expect("snapshot");
+        assert!(snapshot.contains("spectra.serve.monitoring_snapshot.v1"));
+        assert!(snapshot.contains("\"model_version\":\"model-v1\""));
+        assert!(snapshot.contains("\"requests\":2"));
+
+        let (status, reference_ptr) = call_host(SERVE_SERVER_DISTRIBUTION_SUMMARY, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let reference = unsafe { read_spectra_string(reference_ptr) }.expect("reference");
+        assert!(reference.contains("spectra.serve.distribution_summary.v1"));
+
+        let (status, live_server) = call_host(SERVE_SERVER_NEW, &[2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(SERVE_SERVER_WARMUP, &[live_server]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_ENQUEUE, &[live_server, 110]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_ENQUEUE, &[live_server, 120]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(SERVE_SERVER_PROCESS_BATCH, &[live_server, 2]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        let (status, live_ptr) = call_host(SERVE_SERVER_DISTRIBUTION_SUMMARY, &[live_server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let live = unsafe { read_spectra_string(live_ptr) }.expect("live");
+
+        let (status, drift_ptr) = call_host(
+            SERVE_DRIFT_CHECK,
+            &[test_string(&reference), test_string(&live), 100],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let drift = unsafe { read_spectra_string(drift_ptr) }.expect("drift");
+        assert!(drift.contains("spectra.serve.drift_check.v1"));
+        assert!(drift.contains("\"drifted\":true"));
+
+        let (status, audit_ptr) = call_host(SERVE_SERVER_AUDIT_LOG, &[server]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let audit = unsafe { read_spectra_string(audit_ptr) }.expect("audit");
+        let dir = std::env::temp_dir().join(format!(
+            "spectra_r1903_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let path = dir.join("monitoring.json");
+        let (status, export_ptr) = call_host(
+            SERVE_EXPORT_MONITORING,
+            &[
+                server,
+                test_string(path.to_string_lossy().as_ref()),
+                test_string(&reference),
+                test_string(&drift),
+                test_string(&audit),
+            ],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let export_path = unsafe { read_spectra_string(export_ptr) }.expect("export path");
+        let exported = std::fs::read_to_string(&export_path).expect("monitoring export");
+        assert!(exported.contains("spectra.serve.monitoring_export.v1"));
+        assert!(exported.contains("\"snapshot\""));
+        assert!(exported.contains("\"drift\""));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
