@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+use crate::release_channel::ReleaseMetadata;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::{fmt, fs, io};
@@ -11,6 +12,8 @@ use std::{fmt, fs, io};
 pub struct ProjectConfig {
     #[serde(rename = "project")]
     pub project: ProjectSection,
+    #[serde(default)]
+    pub release: ReleaseMetadata,
     #[serde(default)]
     pub dependencies: toml::value::Table,
 }
@@ -56,6 +59,7 @@ fn default_version() -> String {
 pub enum ConfigError {
     Io(io::Error),
     Parse(toml::de::Error),
+    Release { path: PathBuf, message: String },
 }
 
 impl fmt::Display for ConfigError {
@@ -63,6 +67,14 @@ impl fmt::Display for ConfigError {
         match self {
             ConfigError::Io(e) => write!(f, "failed to read spectra.toml: {}", e),
             ConfigError::Parse(e) => write!(f, "invalid spectra.toml: {}", e),
+            ConfigError::Release { path, message } => {
+                write!(
+                    f,
+                    "invalid release metadata in '{}': {}",
+                    path.display(),
+                    message
+                )
+            }
         }
     }
 }
@@ -78,6 +90,13 @@ pub fn try_load_config(dir: &Path) -> Result<Option<ProjectConfig>, ConfigError>
         if candidate.exists() {
             let text = fs::read_to_string(candidate).map_err(ConfigError::Io)?;
             let config: ProjectConfig = toml::from_str(&text).map_err(ConfigError::Parse)?;
+            config
+                .release
+                .validate()
+                .map_err(|message| ConfigError::Release {
+                    path: candidate.clone(),
+                    message,
+                })?;
             return Ok(Some(config));
         }
     }

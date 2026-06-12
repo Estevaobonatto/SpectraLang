@@ -5,6 +5,7 @@ mod formatter;
 mod linker;
 mod package;
 mod project;
+mod release_channel;
 mod runtime_lib;
 
 use compiler_integration::{
@@ -13,6 +14,7 @@ use compiler_integration::{
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use package::{PackageCommand, PackageInvocation};
 use project::ProjectPlan;
+use release_channel::{cli_channel, cli_compatibility_level};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use spectra_compiler::{
@@ -120,6 +122,12 @@ struct NewProjectOptions {
 }
 
 #[derive(Debug)]
+struct ReleaseInfoOptions {
+    root: PathBuf,
+    json: bool,
+}
+
+#[derive(Debug)]
 enum CliAction {
     Help(HelpTopic),
     ListExperimental,
@@ -129,6 +137,7 @@ enum CliAction {
     },
     Repl(ReplOptions),
     NewProject(NewProjectOptions),
+    ReleaseInfo(ReleaseInfoOptions),
     Package(PackageInvocation),
     Format(FormatOptions),
 }
@@ -139,6 +148,7 @@ enum HelpTopic {
     Build(BuildCommand),
     Repl,
     NewProject,
+    ReleaseInfo,
     Package,
     Format,
     Lint,
@@ -219,6 +229,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
                 HelpTopic::Build(command) => print_build_help(command),
                 HelpTopic::Repl => print_repl_help(),
                 HelpTopic::NewProject => print_new_help(),
+                HelpTopic::ReleaseInfo => print_release_info_help(),
                 HelpTopic::Package => print_package_help(),
                 HelpTopic::Format => print_format_help(),
                 HelpTopic::Lint => print_lint_help(),
@@ -232,6 +243,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
         CliAction::Build { kind, invocation } => execute_build_command(kind, invocation),
         CliAction::Repl(options) => execute_repl(options),
         CliAction::NewProject(options) => execute_new_project(options),
+        CliAction::ReleaseInfo(options) => execute_release_info(options),
         CliAction::Package(invocation) => execute_package_command(invocation),
         CliAction::Format(options) => execute_format(options),
     }
@@ -254,6 +266,7 @@ fn parse_cli() -> CliResult<CliAction> {
             if let Some(target) = args.next() {
                 return match target.as_str() {
                     "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
+                    "release-info" | "release" => Ok(CliAction::Help(HelpTopic::ReleaseInfo)),
                     "package" | "pkg" => Ok(CliAction::Help(HelpTopic::Package)),
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
                     "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
@@ -301,6 +314,18 @@ fn parse_cli() -> CliResult<CliAction> {
 
             let options = parse_new_project_invocation(&mut args)?;
             return Ok(CliAction::NewProject(options));
+        }
+        Some("release-info") | Some("release") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::ReleaseInfo));
+                }
+            }
+
+            let options = parse_release_info_invocation(&mut args)?;
+            return Ok(CliAction::ReleaseInfo(options));
         }
         Some("package") | Some("pkg") => {
             args.next();
@@ -835,6 +860,39 @@ where
     let path = path.ok_or_else(|| usage_error("No project path supplied."))?;
 
     Ok(NewProjectOptions { path, force })
+}
+
+fn parse_release_info_invocation<I>(
+    args: &mut std::iter::Peekable<I>,
+) -> CliResult<ReleaseInfoOptions>
+where
+    I: Iterator<Item = String>,
+{
+    let mut root = PathBuf::from(".");
+    let mut json = false;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--json" => json = true,
+            "--root" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| usage_error("Missing path after '--root'."))?;
+                root = PathBuf::from(value);
+            }
+            flag if flag.starts_with('-') => {
+                return Err(usage_error(&format!(
+                    "Unknown release-info option: {}",
+                    flag
+                )));
+            }
+            value => {
+                root = PathBuf::from(value);
+            }
+        }
+    }
+
+    Ok(ReleaseInfoOptions { root, json })
 }
 
 fn parse_package_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<PackageInvocation>
@@ -2015,7 +2073,7 @@ fn create_new_project(options: NewProjectOptions) -> CliResult<()> {
     let main_source_path = path.join("src").join("main.spectra");
 
     let manifest_contents = format!(
-        "[project]\nname = \"{}\"\nversion = \"0.1.0\"\nentry = \"src/main.spectra\"\nsrc_dirs = [\"src\"]\n\n[dependencies]\n# Add your dependencies here\n",
+        "[project]\nname = \"{}\"\nversion = \"0.1.0\"\nentry = \"src/main.spectra\"\nsrc_dirs = [\"src\"]\n\n[release]\nchannel = \"nightly\"\ncompatibility = \"spectralang-0.1\"\n\n[dependencies]\n# Add your dependencies here\n",
         project_name
     );
 
@@ -2054,11 +2112,106 @@ fn execute_format(options: FormatOptions) -> CliResult<()> {
     run_formatter(options)
 }
 
+fn execute_release_info(options: ReleaseInfoOptions) -> CliResult<()> {
+    let cli_channel = cli_channel();
+    let cli_compatibility = cli_compatibility_level();
+
+    let workspace = match package::resolve(&options.root) {
+        Ok(workspace) => Some(workspace),
+        Err(package::PackageError::MissingManifest(_)) => None,
+        Err(error) => return Err(CliError::io(error.to_string())),
+    };
+
+    let warnings = workspace
+        .as_ref()
+        .map(package::deprecation_warnings)
+        .unwrap_or_default();
+    for warning in &warnings {
+        eprintln!("{}", warning);
+    }
+
+    if options.json {
+        let packages = workspace
+            .as_ref()
+            .map(|workspace| {
+                workspace
+                    .packages
+                    .iter()
+                    .map(|package| {
+                        json!({
+                            "name": package.name,
+                            "version": package.version,
+                            "channel": package.release.channel.as_str(),
+                            "compatibility": package.release.compatibility,
+                            "deprecated_since": package.release.deprecated_since,
+                            "migration": package.release.migration,
+                            "manifest": package.manifest.to_string_lossy(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let payload = json!({
+            "schema": "spectralang.release-info.v1",
+            "cli": {
+                "version": env!("CARGO_PKG_VERSION"),
+                "channel": cli_channel.as_str(),
+                "compatibility": cli_compatibility,
+            },
+            "packages": packages,
+            "warnings": warnings,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload)
+                .map_err(|error| CliError::io(error.to_string()))?
+        );
+        return Ok(());
+    }
+
+    println!("SpectraLang release information");
+    println!("  cli.version: {}", env!("CARGO_PKG_VERSION"));
+    println!("  cli.channel: {}", cli_channel);
+    println!("  cli.compatibility: {}", cli_compatibility);
+
+    if let Some(workspace) = workspace {
+        println!("  packages:");
+        for package in &workspace.packages {
+            println!(
+                "    {} {} channel={} compatibility={}",
+                package.name,
+                package.version,
+                package.release.channel,
+                package.release.compatibility
+            );
+            if let Some(deprecated_since) = &package.release.deprecated_since {
+                println!(
+                    "      deprecated_since={} migration={}",
+                    deprecated_since,
+                    package.release.migration.as_deref().unwrap_or("")
+                );
+            }
+        }
+    } else {
+        println!("  packages: none");
+    }
+
+    Ok(())
+}
+
+fn emit_package_deprecation_warnings(workspace: &package::ResolvedWorkspace) {
+    for warning in package::deprecation_warnings(workspace) {
+        eprintln!("{}", warning);
+    }
+}
+
 fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
     match invocation.command {
         PackageCommand::Lock | PackageCommand::Update => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
+            emit_package_deprecation_warnings(&workspace);
             let path = package::write_lockfile(&workspace)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Locked {}", path.display());
@@ -2067,6 +2220,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
         PackageCommand::Build | PackageCommand::Check | PackageCommand::Run => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
+            emit_package_deprecation_warnings(&workspace);
             let lock_path = package::write_lockfile(&workspace)
                 .map_err(|error| CliError::io(error.to_string()))?;
             let entries = workspace.source_entries();
@@ -2092,6 +2246,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
         PackageCommand::Test => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
+            emit_package_deprecation_warnings(&workspace);
             let mut entries = workspace.source_entries();
             entries.extend(package::discover_test_entries(&workspace));
             let lock_path = package::write_lockfile(&workspace)
@@ -2112,6 +2267,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
         PackageCommand::Bench => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
+            emit_package_deprecation_warnings(&workspace);
             let lock_path = package::write_lockfile(&workspace)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Locked {}", lock_path.display());
@@ -2133,6 +2289,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
         PackageCommand::Doc => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
+            emit_package_deprecation_warnings(&workspace);
             let lock_path = package::write_lockfile(&workspace)
                 .map_err(|error| CliError::io(error.to_string()))?;
             let docs_path =
@@ -2160,6 +2317,9 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             Ok(())
         }
         PackageCommand::Publish { registry } => {
+            let workspace = package::resolve(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            emit_package_deprecation_warnings(&workspace);
             let package_path = package::publish(&invocation.root, &registry)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Published {}", package_path.display());
@@ -2681,6 +2841,7 @@ fn print_global_help() {
     println!("    bench      Compile with benchmark timings and optional JSON report");
     println!("    repl       Start an interactive Spectra prompt");
     println!("    new        Scaffold a new Spectra project");
+    println!("    release-info  Report CLI and package release channel metadata");
     println!("    package    Resolve, lock, build, publish, and consume packages");
     println!("    fmt        Format Spectra source files");
     println!("    help       Print this help message");
@@ -2699,6 +2860,7 @@ fn print_global_help() {
     println!("    spectralang bench --bench-json target/bench.json src/");
     println!("    spectralang repl --run");
     println!("    spectralang new my-project");
+    println!("    spectralang release-info --json --root .");
     println!("    spectralang package build --root .");
     println!("    spectralang package add math --path ../math");
     println!("    spectralang --list-experimental");
@@ -2797,6 +2959,23 @@ fn print_new_help() {
     println!("Examples:");
     println!("    spectralang new hello-world");
     println!("    spectralang new --force .");
+}
+
+fn print_release_info_help() {
+    println!("SpectraLang CLI - 'release-info' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectralang release-info [OPTIONS] [root]");
+    println!();
+    println!("Report CLI and package release channel metadata.");
+    println!();
+    println!("OPTIONS:");
+    println!("    --root <path>     Package or workspace root (default: .)");
+    println!("    --json            Emit machine-readable JSON");
+    println!();
+    println!("Examples:");
+    println!("    spectralang release-info --root .");
+    println!("    spectralang release-info --json --root tests/projects/valid/package_workspace");
 }
 
 fn print_package_help() {

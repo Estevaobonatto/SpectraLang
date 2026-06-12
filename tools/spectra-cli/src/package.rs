@@ -1,4 +1,5 @@
 use crate::discovery;
+use crate::release_channel::ReleaseMetadata;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
@@ -68,6 +69,7 @@ impl ResolvedWorkspace {
 pub struct ResolvedPackage {
     pub name: String,
     pub version: String,
+    pub release: ReleaseMetadata,
     pub root: PathBuf,
     pub manifest: PathBuf,
     pub src_dirs: Vec<PathBuf>,
@@ -139,6 +141,8 @@ impl std::error::Error for PackageError {}
 struct Manifest {
     project: ProjectSection,
     #[serde(default)]
+    release: ReleaseMetadata,
+    #[serde(default)]
     workspace: WorkspaceSection,
     #[serde(default)]
     dependencies: BTreeMap<String, DependencySpec>,
@@ -181,6 +185,10 @@ struct Lockfile {
 struct LockPackage {
     name: String,
     version: String,
+    channel: String,
+    compatibility: String,
+    deprecated_since: Option<String>,
+    migration: Option<String>,
     source: String,
     manifest_hash: String,
     dependencies: Vec<LockDependency>,
@@ -197,6 +205,14 @@ struct LockDependency {
 struct RegistryMetadata {
     name: String,
     version: String,
+    #[serde(default)]
+    channel: String,
+    #[serde(default)]
+    compatibility: String,
+    #[serde(default)]
+    deprecated_since: Option<String>,
+    #[serde(default)]
+    migration: Option<String>,
     checksum: String,
 }
 
@@ -244,6 +260,10 @@ pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageE
             .map(|package| LockPackage {
                 name: package.name.clone(),
                 version: package.version.clone(),
+                channel: package.release.channel.as_str().to_string(),
+                compatibility: package.release.compatibility.clone(),
+                deprecated_since: package.release.deprecated_since.clone(),
+                migration: package.release.migration.clone(),
                 source: path_source(&workspace.root, &package.root),
                 manifest_hash: package.manifest_hash.clone(),
                 dependencies: package
@@ -345,6 +365,10 @@ pub fn publish(root: &Path, registry: &Path) -> Result<PathBuf, PackageError> {
     let metadata = RegistryMetadata {
         name: package.name.clone(),
         version: package.version.clone(),
+        channel: package.release.channel.as_str().to_string(),
+        compatibility: package.release.compatibility.clone(),
+        deprecated_since: package.release.deprecated_since.clone(),
+        migration: package.release.migration.clone(),
         checksum,
     };
     let metadata_text = toml::to_string_pretty(&metadata).map_err(PackageError::Serialize)?;
@@ -367,6 +391,14 @@ pub fn write_docs(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError
     let mut text = String::from("# Spectra Packages\n\n");
     for package in &workspace.packages {
         text.push_str(&format!("## {} {}\n\n", package.name, package.version));
+        text.push_str(&format!("- channel: `{}`\n", package.release.channel));
+        text.push_str(&format!(
+            "- compatibility: `{}`\n",
+            package.release.compatibility
+        ));
+        if let Some(warning) = package.release.deprecation_warning(&package.name) {
+            text.push_str(&format!("- deprecation: `{}`\n", warning));
+        }
         text.push_str(&format!("- root: `{}`\n", package.root.display()));
         text.push_str(&format!("- manifest: `{}`\n", package.manifest.display()));
         if package.dependencies.is_empty() {
@@ -395,6 +427,7 @@ pub fn write_docs(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError
 struct LoadedPackage {
     name: String,
     version: String,
+    release: ReleaseMetadata,
     root: PathBuf,
     manifest: PathBuf,
     src_dirs: Vec<PathBuf>,
@@ -464,6 +497,7 @@ fn collect_package(
     ordered.push(ResolvedPackage {
         name: loaded.name,
         version: loaded.version,
+        release: loaded.release,
         root: loaded.root,
         manifest: loaded.manifest,
         src_dirs: loaded.src_dirs,
@@ -530,6 +564,13 @@ fn load_package(manifest_path: &Path) -> Result<LoadedPackage, PackageError> {
             ),
         });
     }
+    manifest
+        .release
+        .validate()
+        .map_err(|message| PackageError::InvalidManifest {
+            path: manifest_path.clone(),
+            message,
+        })?;
     let src_dirs = if manifest.project.src_dirs.is_empty() {
         vec![root.join("src")]
     } else {
@@ -544,6 +585,7 @@ fn load_package(manifest_path: &Path) -> Result<LoadedPackage, PackageError> {
     Ok(LoadedPackage {
         name: manifest.project.name,
         version: manifest.project.version,
+        release: manifest.release,
         root,
         manifest: manifest_path,
         src_dirs,
@@ -763,6 +805,14 @@ pub fn discover_test_entries(workspace: &ResolvedWorkspace) -> Vec<PathBuf> {
         }
     }
     entries
+}
+
+pub fn deprecation_warnings(workspace: &ResolvedWorkspace) -> Vec<String> {
+    workspace
+        .packages
+        .iter()
+        .filter_map(|package| package.release.deprecation_warning(&package.name))
+        .collect()
 }
 
 #[cfg(test)]

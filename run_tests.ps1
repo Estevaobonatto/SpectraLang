@@ -987,6 +987,19 @@ if ($r2001AiConformance.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-conformance"; Teste = "validate_r2001_ai_conformance"; Status = $r2001AiConformance.Status; Detalhe = $r2001AiConformance.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.25: R-2002 production release channels
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2002 production release channels ---" -ForegroundColor Yellow
+$r2002ReleaseChannels = Invoke-HostCommand -name "validate_r2002_release_channels" -fileName "python" -arguments @("scripts\validate_r2002_release_channels.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2002ReleaseChannels.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-release"; Teste = "validate_r2002_release_channels"; Status = $r2002ReleaseChannels.Status; Detalhe = $r2002ReleaseChannels.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

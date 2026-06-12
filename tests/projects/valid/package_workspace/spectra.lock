@@ -4,6 +4,8 @@ root = "package_workspace_app"
 [[packages]]
 name = "core"
 version = "0.1.0"
+channel = "nightly"
+compatibility = "spectralang-0.1"
 source = "path+packages/core"
 manifest_hash = "149c33177a163956"
 dependencies = []
@@ -11,6 +13,8 @@ dependencies = []
 [[packages]]
 name = "package_workspace_app"
 version = "0.1.0"
+channel = "nightly"
+compatibility = "spectralang-0.1"
 source = "path+"
 manifest_hash = "da4a2a6542231929"
 

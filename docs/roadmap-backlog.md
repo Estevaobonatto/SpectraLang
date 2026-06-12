@@ -2047,7 +2047,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2002 Production Release Channels
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Dependencies: `R-1201`, `R-2001`
@@ -2068,19 +2068,25 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Completed Implementation
 
-- `examples/ai/linear_regression_train_export.spectra`
-- `examples/ai/logistic_regression_train_export.spectra`
-- `examples/ai/mlp_training_serving.spectra`
-- `examples/ai/cnn_image_classifier.spectra`
-- `examples/ai/toy_transformer_inference.spectra`
-- `examples/ai/data_preprocessing_pipeline.spectra`
-- `scripts/ai_examples_benchmark.py` emits a JSON timing report for all Phase 13
-  AI examples.
-- `run_tests.ps1` executes all six examples as gated Phase 13 checks.
+- `docs/release-channels.md` documents nightly, beta, stable, compatibility
+  levels, deprecation, migration guidance, and CLI/package metadata.
+- `spectralang release-info [--json] [--root <path>]` reports CLI and package
+  release metadata with schema `spectralang.release-info.v1`.
+- `spectra.toml` supports `[release]` with `channel`, `compatibility`,
+  `deprecated_since`, and `migration`.
+- `spectralang new` scaffolds explicit nightly release metadata.
+- `spectralang package lock` persists channel, compatibility, deprecation, and
+  migration metadata into `spectra.lock`.
+- `spectralang package publish` persists channel and compatibility metadata in
+  registry `package.toml`.
+- Deprecated packages emit `warning[release-deprecated]` with migration guidance.
+- `scripts/validate_r2002_release_channels.py` validates CLI metadata, package
+  metadata, lockfile metadata, registry metadata, scaffold metadata, and
+  deprecation warnings.
 
 ### Validation
 
-- `python scripts\ai_examples_benchmark.py --out target\ai-examples\benchmark.json --timeout-seconds 20`
+- `python scripts\validate_r2002_release_channels.py --binary target\debug\spectralang.exe`
 - `.\run_tests.ps1`
 
 ---
