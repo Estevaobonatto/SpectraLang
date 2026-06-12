@@ -1097,21 +1097,25 @@ if std.string.is_empty(conteudo) {
 
 #### `fs_write(path: string, content: string) -> bool`
 
-**PT-BR:** Escreve (substitui) o conteúdo de um arquivo. Retorna `true` em sucesso.  
-**EN-US:** Writes (replaces) file content. Returns `true` on success.
+**PT-BR:** Escreve (substitui) o conteúdo de um arquivo. Cria diretórios pais ausentes quando possível. Retorna `true` em sucesso e `false` em falhas controladas de sistema de arquivos.
+**EN-US:** Writes (replaces) file content. Creates missing parent directories when possible. Returns `true` on success and `false` for controlled filesystem failures.
 
 ```spectra
-let ok = std.fs.fs_write("saida.txt", "Hello, World!\n");
+let ok = std.fs.fs_write("target/artefatos/saida.txt", "Hello, World!\n");
 ```
 
 #### `fs_append(path: string, content: string) -> bool`
 
-**PT-BR:** Adiciona conteúdo ao final de um arquivo.  
-**EN-US:** Appends content to the end of a file.
+**PT-BR:** Adiciona conteúdo ao final de um arquivo. Cria diretórios pais ausentes quando possível e retorna `false` em falhas controladas.
+**EN-US:** Appends content to the end of a file. Creates missing parent directories when possible and returns `false` for controlled failures.
 
 ```spectra
 std.fs.fs_append("log.txt", "Nova entrada de log\n");
 ```
+
+Falhas comuns, como caminho vazio, pai bloqueado por arquivo, permissão negada
+ou arquivo inexistente em leitura/remoção, não devem derrubar o processo nativo.
+Use o valor de retorno para decidir o fluxo de erro.
 
 #### `fs_exists(path: string) -> bool`
 

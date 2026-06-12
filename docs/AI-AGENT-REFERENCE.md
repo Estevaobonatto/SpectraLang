@@ -1642,15 +1642,18 @@ import std.fs;
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `fs_read` | `(path: string) -> string` | Read entire file ("" on error) |
-| `fs_write` | `(path: string, content: string) -> bool` | Write file |
-| `fs_append` | `(path: string, content: string) -> bool` | Append to file |
+| `fs_write` | `(path: string, content: string) -> bool` | Write file, creating missing parent directories when possible |
+| `fs_append` | `(path: string, content: string) -> bool` | Append to file, creating missing parent directories when possible |
 | `fs_exists` | `(path: string) -> bool` | File exists? |
 | `fs_remove` | `(path: string) -> bool` | Delete file |
+
+Filesystem operations return safe values for ordinary filesystem failures:
+`fs_read` returns `""`, while write/append/exists/remove return `false`.
 
 ```spectra
 import std.fs;
 
-let ok = fs_write("output.txt", "Hello\n");
+let ok = fs_write("target/artifacts/output.txt", "Hello\n");
 let content = fs_read("output.txt");
 let exists = fs_exists("output.txt");
 ```

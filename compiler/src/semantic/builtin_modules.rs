@@ -1410,11 +1410,13 @@ fn make_std_fs() -> ModuleExports {
         pub_fn(vec![Type::String], Type::String),
     );
     // fs_write(path: string, content: string) -> bool
+    // Creates missing parent directories when possible; returns false on controlled filesystem failures.
     exports.functions.insert(
         "fs_write".to_string(),
         pub_fn(vec![Type::String, Type::String], Type::Bool),
     );
     // fs_append(path: string, content: string) -> bool
+    // Creates missing parent directories when possible; returns false on controlled filesystem failures.
     exports.functions.insert(
         "fs_append".to_string(),
         pub_fn(vec![Type::String, Type::String], Type::Bool),

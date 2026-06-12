@@ -10,7 +10,7 @@ is the adoption-oriented subset needed to run the checked-in AI examples.
 |--------|---------|
 | `std.tensor` | tensor handles, kernels, RNG, autodiff, lifecycle |
 | `std.ml` | layers, losses, optimizers, datasets, dataloaders |
-| `std.fs` | deterministic export files |
+| `std.fs` | deterministic export files with safe nested artifact writes |
 | `std.concurrent` | local pipeline primitives |
 | `std.serve` | local in-process serving |
 
@@ -21,6 +21,11 @@ import std.tensor as tensor;
 import std.ml as ml;
 import std.fs as fs;
 ```
+
+`std.fs.fs_write` and `std.fs.fs_append` create missing parent directories when
+possible and return `false` for controlled filesystem failures. AI examples can
+write nested artifact paths such as `target/ai-examples/run/report.txt` without
+precreating the directory tree.
 
 ## Runtime Lifecycle
 

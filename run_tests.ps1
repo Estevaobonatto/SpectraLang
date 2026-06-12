@@ -1017,6 +1017,11 @@ $phase12Checks = @(
         File = "python"
         Args = @("scripts\stress_soak.py", "--iterations", "1", "--timeout-seconds", "20", "--memory-limit-mb", "1024", "--json-out", "target\stress-soak-smoke.json")
     }
+    [PSCustomObject]@{
+        Nome = "validate_r1203_fs_path_safety"
+        File = "python"
+        Args = @("scripts\validate_r1203_fs_path_safety.py", "--binary", $binary)
+    }
 )
 
 foreach ($check in $phase12Checks) {

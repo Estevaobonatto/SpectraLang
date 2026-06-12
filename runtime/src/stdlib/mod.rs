@@ -6,6 +6,7 @@ use crate::initialize;
 use crate::memory::ManualBox;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
@@ -10241,6 +10242,44 @@ unsafe fn alloc_spectra_string(s: &str) -> SpectraHostValue {
     raw as i64
 }
 
+fn fs_path_from_string(path: String) -> Option<PathBuf> {
+    if path.trim().is_empty() || path.contains('\0') {
+        return None;
+    }
+    Some(PathBuf::from(path))
+}
+
+unsafe fn read_fs_path_arg(arg: SpectraHostValue) -> Result<Option<PathBuf>, i32> {
+    match read_spectra_string(arg) {
+        Some(path) => Ok(fs_path_from_string(path)),
+        None => Err(HOST_STATUS_INVALID_ARGUMENT),
+    }
+}
+
+fn ensure_file_parent(path: &Path) -> bool {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => std::fs::create_dir_all(parent).is_ok(),
+        _ => true,
+    }
+}
+
+fn fs_write_text(path: &Path, content: &str, append: bool) -> bool {
+    if !ensure_file_parent(path) {
+        return false;
+    }
+
+    if append {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+            .and_then(|mut file| file.write_all(content.as_bytes()))
+            .is_ok()
+    } else {
+        std::fs::write(path, content.as_bytes()).is_ok()
+    }
+}
+
 // ── std.string host functions ────────────────────────────────────────────────
 
 extern "C" fn std_string_len(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -11041,11 +11080,16 @@ extern "C" fn std_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let path = match read_spectra_string(args[0]) {
-            Some(p) => p,
-            None => return HOST_STATUS_INVALID_ARGUMENT,
+        let path = match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = alloc_spectra_string("");
+                return HOST_STATUS_SUCCESS;
+            }
+            Err(status) => return status,
         };
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let content = std::fs::read_to_string(path).unwrap_or_default();
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = alloc_spectra_string(&content);
     }
@@ -11065,12 +11109,17 @@ extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let path = match read_spectra_string(args[0]) {
-            Some(p) => p,
-            None => return HOST_STATUS_INVALID_ARGUMENT,
+        let path = match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = 0;
+                return HOST_STATUS_SUCCESS;
+            }
+            Err(status) => return status,
         };
         let content = read_spectra_string(args[1]).unwrap_or_default();
-        let ok = std::fs::write(&path, content.as_bytes()).is_ok();
+        let ok = fs_write_text(&path, &content, false);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -11090,18 +11139,17 @@ extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let path = match read_spectra_string(args[0]) {
-            Some(p) => p,
-            None => return HOST_STATUS_INVALID_ARGUMENT,
+        let path = match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = 0;
+                return HOST_STATUS_SUCCESS;
+            }
+            Err(status) => return status,
         };
         let content = read_spectra_string(args[1]).unwrap_or_default();
-        use std::io::Write as _;
-        let ok = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&path)
-            .and_then(|mut f| f.write_all(content.as_bytes()))
-            .is_ok();
+        let ok = fs_write_text(&path, &content, true);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -11121,11 +11169,16 @@ extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let path = match read_spectra_string(args[0]) {
-            Some(p) => p,
-            None => return HOST_STATUS_INVALID_ARGUMENT,
+        let path = match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = 0;
+                return HOST_STATUS_SUCCESS;
+            }
+            Err(status) => return status,
         };
-        let exists = std::path::Path::new(&path).exists();
+        let exists = path.exists();
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = exists as SpectraHostValue;
     }
@@ -11145,11 +11198,16 @@ extern "C" fn std_fs_remove(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let path = match read_spectra_string(args[0]) {
-            Some(p) => p,
-            None => return HOST_STATUS_INVALID_ARGUMENT,
+        let path = match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+                results[0] = 0;
+                return HOST_STATUS_SUCCESS;
+            }
+            Err(status) => return status,
         };
-        let ok = std::fs::remove_file(&path).is_ok();
+        let ok = std::fs::remove_file(path).is_ok();
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -13709,6 +13767,18 @@ mod tests {
         std::fs::write(path, bytes).expect("write test npy");
     }
 
+    fn temp_test_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "spectra_{}_{}_{}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ))
+    }
+
     #[test]
     fn math_abs_host_function_produces_positive_value() {
         let _lock = test_guard();
@@ -13751,6 +13821,88 @@ mod tests {
         let status = func(&mut ctx);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert_eq!(results[0], 3);
+    }
+
+    #[test]
+    fn fs_write_append_and_overwrite_create_nested_parents() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let dir = temp_test_dir("fs_nested");
+        let path = dir.join("level1").join("level2").join("artifact.txt");
+        let path_arg = test_string(path.to_string_lossy().as_ref());
+
+        assert_eq!(
+            call_host(FS_WRITE, &[path_arg, test_string("first")]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(std::fs::read_to_string(&path).expect("read first"), "first");
+
+        assert_eq!(
+            call_host(FS_APPEND, &[path_arg, test_string("-second")]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read appended"),
+            "first-second"
+        );
+
+        assert_eq!(
+            call_host(FS_WRITE, &[path_arg, test_string("overwrite")]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read overwritten"),
+            "overwrite"
+        );
+
+        let (status, read_ptr) = call_host(FS_READ, &[path_arg]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let read_back = unsafe { read_spectra_string(read_ptr) }.expect("fs read string");
+        assert_eq!(read_back, "overwrite");
+
+        assert_eq!(call_host(FS_EXISTS, &[path_arg]), (HOST_STATUS_SUCCESS, 1));
+        assert_eq!(call_host(FS_REMOVE, &[path_arg]), (HOST_STATUS_SUCCESS, 1));
+        assert_eq!(call_host(FS_EXISTS, &[path_arg]), (HOST_STATUS_SUCCESS, 0));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn fs_invalid_paths_return_safe_values_without_panicking() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let empty = test_string("");
+        assert_eq!(
+            call_host(FS_WRITE, &[empty, test_string("ignored")]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(FS_APPEND, &[empty, test_string("ignored")]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(call_host(FS_EXISTS, &[empty]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(call_host(FS_REMOVE, &[empty]), (HOST_STATUS_SUCCESS, 0));
+
+        let dir = temp_test_dir("fs_blocked_parent");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, "not a directory").expect("write blocker");
+        let child = blocker.join("child.txt");
+        let child_arg = test_string(child.to_string_lossy().as_ref());
+
+        assert_eq!(
+            call_host(FS_WRITE, &[child_arg, test_string("payload")]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(FS_APPEND, &[child_arg, test_string("payload")]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert!(!child.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -1330,7 +1330,7 @@ to an integer-typed local and then compared/returned through invalid IR.
 
 ## R-1203 Filesystem Host Call Path Safety
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `runtime`
 - Dependencies: `R-105`, `R-1202`
@@ -1341,7 +1341,7 @@ While adding advanced AI examples, a first draft wrote files directly to nested
 paths such as `target/ai-examples/advanced-phase16-17/run-a/lock.txt` before
 the parent directory existed. The run produced a native process crash instead
 of a controlled Spectra diagnostic. The example was rewritten to use already
-safe paths, but the runtime behavior should be hardened.
+safe paths, and the runtime behavior is now hardened.
 
 ### Scope
 
@@ -1355,15 +1355,19 @@ safe paths, but the runtime behavior should be hardened.
 
 ### Acceptance
 
-- `std.fs.fs_write` on nested missing parent directories either creates parents or returns a controlled runtime diagnostic, never a native process crash
-- regression tests cover nested paths, invalid paths, and existing-file overwrite behavior
+- `std.fs.fs_write` on nested missing parent directories creates parent directories and never native-crashes
+- `std.fs.fs_append` follows the same parent-directory behavior as `fs_write`
+- invalid textual paths and blocked parent paths return safe `false` values
+- regression tests cover nested paths, invalid paths, append, and existing-file overwrite behavior
 - AI examples may safely write nested artifact paths without precreating directories
 
 ### Evidence
 
 - Found while testing `examples/ai/advanced_phase16_17_training_memory_pipeline.spectra`.
-- Initial process exit was a native crash code before the example was adjusted.
-- Current examples avoid the crash path; this item tracks the runtime fix.
+- Runtime implementation: `runtime/src/stdlib/mod.rs`.
+- Direct runtime regressions: `fs_write_append_and_overwrite_create_nested_parents` and `fs_invalid_paths_return_safe_values_without_panicking`.
+- Spectra regression: `tests/validation/111_fs_path_safety.spectra`.
+- Dedicated runner gate: `scripts/validate_r1203_fs_path_safety.py`.
 
 ---
 

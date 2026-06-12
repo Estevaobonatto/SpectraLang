@@ -806,13 +806,15 @@ title = "Filesystem Host Call Path Safety"
 phase = "phase_12"
 owner = "runtime"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-105", "R-1202"]
 summary = "Harden `std.fs` host calls so invalid or nested output paths never crash the runtime process."
 acceptance = [
-  "`std.fs.fs_write` on nested missing parent directories either creates parents or returns a controlled runtime diagnostic, never a native process crash",
-  "regression tests cover nested paths, invalid paths, and existing-file overwrite behavior",
+  "`std.fs.fs_write` on nested missing parent directories creates parents and never native-crashes",
+  "`std.fs.fs_append` follows the same parent-directory behavior as `fs_write`",
+  "invalid textual paths and blocked parent paths return safe false values",
+  "regression tests cover nested paths, invalid paths, append, and existing-file overwrite behavior",
   "AI examples may safely write nested artifact paths without precreating directories"
 ]
 
