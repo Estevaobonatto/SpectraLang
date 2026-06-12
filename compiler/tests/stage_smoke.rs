@@ -173,3 +173,60 @@ fn unknown_import_alias_member_reports_candidates() {
                 && semantic.hint.as_deref().unwrap_or("").contains("sqrt_f")
     ));
 }
+
+#[test]
+fn generic_return_type_parameter_matches_declared_type_parameter() {
+    let source = r#"
+        module smoke;
+
+        fn identity<T>(value: T) -> T {
+            return value;
+        }
+
+        pub fn main() -> int {
+            return identity(42);
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    pipeline
+        .compile(source, "generic_identity.spectra")
+        .expect("generic function returning its declared type parameter should compile");
+}
+
+#[test]
+fn generic_return_type_parameter_cannot_satisfy_concrete_return() {
+    let source = r#"
+        module smoke;
+
+        fn bad<T>(value: T) -> string {
+            return value;
+        }
+
+        pub fn main() -> int {
+            let x = bad(1);
+            return 0;
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    let errors = pipeline
+        .compile(source, "generic_bad_return.spectra")
+        .expect_err("generic return mismatch should fail in semantic analysis");
+
+    assert!(errors
+        .iter()
+        .all(|error| !matches!(error, CompilerError::Backend(_) | CompilerError::Midend(_))));
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected no backend or cascading diagnostics: {errors:?}"
+    );
+    assert!(matches!(
+        &errors[0],
+        CompilerError::Semantic(semantic)
+            if semantic.code.as_deref() == Some("E004")
+                && semantic.message.contains("expected string")
+                && semantic.message.contains("found T")
+    ));
+}

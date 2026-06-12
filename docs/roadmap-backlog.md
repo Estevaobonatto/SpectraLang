@@ -515,7 +515,7 @@ reproducer is preserved in
 
 ## R-206 Generic Return Type Enforcement
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Dependencies: `R-204`
@@ -523,16 +523,16 @@ reproducer is preserved in
 ### Problems Found
 
 - A generic function declared as `fn bad<T>(value: T) -> string { return value; }`
-  currently compiles when instantiated with `int`, even though the body returns
+  used to compile when instantiated with `int`, even though the body returned
   a type parameter incompatible with the declared concrete return type.
-- A related invalid generic function declared as returning `int` can reach
+- A related invalid generic function declared as returning `int` could reach
   backend codegen and fail with `Verifier errors` instead of semantic analysis.
 
 ### Scope
 
 - validate generic function bodies against declared return types before
   specialization/lowering
-- validate monomorphized return substitutions before backend
+- validate return type-parameter compatibility before backend
 - add semantic diagnostics for generic return mismatches
 - add negative regression tests that fail semantically, not in codegen
 
@@ -544,9 +544,12 @@ reproducer is preserved in
 
 ### Evidence
 
-- Known issue file: `tests/known_issues/generic_return_annotation_not_enforced.spectra`.
-- Known issue file: `tests/known_issues/generic_return_type_mismatch_codegen_verifier.spectra`.
-- Negative suite replacement: `tests/errors/generic_wrong_return_type_stress.spectra` covers the currently stable semantic diagnostic path.
+- `tests/errors/generic_return_annotation_mismatch.spectra` now emits one semantic `E004` return mismatch.
+- `tests/errors/generic_return_type_mismatch_codegen_guard.spectra` now emits one semantic `E004` return mismatch instead of reaching backend verifier errors.
+- The fixed reproducers were removed from `tests/known_issues/`.
+- `compiler/tests/stage_smoke.rs` covers both valid `T -> T` return and invalid `T -> string` return.
+- `scripts/validate_r206_generic_return_enforcement.py` validates the CLI JSON contract and is integrated into `run_tests.ps1`.
+- Focused validation: `cargo test -p spectra-compiler`; `python scripts\validate_r206_generic_return_enforcement.py --binary target\debug\spectralang.exe`.
 
 ---
 

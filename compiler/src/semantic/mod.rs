@@ -1773,6 +1773,98 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn return_types_match(&self, actual: &Type, expected: &Type) -> bool {
+        if matches!(actual, Type::Unknown) || matches!(expected, Type::Unknown) {
+            return true;
+        }
+
+        if self.can_auto_promote(actual, expected) {
+            return true;
+        }
+
+        match (actual, expected) {
+            (Type::TypeParameter { name: actual }, Type::TypeParameter { name: expected }) => {
+                actual == expected
+            }
+            (Type::TypeParameter { .. }, _) | (_, Type::TypeParameter { .. }) => false,
+            (
+                Type::Fn {
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+                Type::Fn {
+                    params: expected_params,
+                    return_type: expected_return,
+                },
+            ) => {
+                actual_params.len() == expected_params.len()
+                    && actual_params
+                        .iter()
+                        .zip(expected_params.iter())
+                        .all(|(actual, expected)| self.return_types_match(actual, expected))
+                    && self.return_types_match(actual_return, expected_return)
+            }
+            (
+                Type::Array {
+                    element_type: actual_element,
+                    size: actual_size,
+                },
+                Type::Array {
+                    element_type: expected_element,
+                    size: expected_size,
+                },
+            ) => {
+                self.return_types_match(actual_element, expected_element)
+                    && (actual_size.is_none()
+                        || expected_size.is_none()
+                        || actual_size == expected_size)
+            }
+            (
+                Type::Tuple {
+                    elements: actual_elements,
+                },
+                Type::Tuple {
+                    elements: expected_elements,
+                },
+            ) => {
+                actual_elements.len() == expected_elements.len()
+                    && actual_elements
+                        .iter()
+                        .zip(expected_elements.iter())
+                        .all(|(actual, expected)| self.return_types_match(actual, expected))
+            }
+            (
+                Type::Tensor {
+                    dtype: actual_dtype,
+                    rank: actual_rank,
+                    dims: actual_dims,
+                    layout: actual_layout,
+                    device: actual_device,
+                },
+                Type::Tensor {
+                    dtype: expected_dtype,
+                    rank: expected_rank,
+                    dims: expected_dims,
+                    layout: expected_layout,
+                    device: expected_device,
+                },
+            ) => {
+                self.return_types_match(actual_dtype, expected_dtype)
+                    && (actual_rank.is_none()
+                        || expected_rank.is_none()
+                        || actual_rank == expected_rank)
+                    && Self::tensor_dims_match(actual_dims, expected_dims)
+                    && (actual_layout.is_none()
+                        || expected_layout.is_none()
+                        || actual_layout == expected_layout)
+                    && (actual_device.is_none()
+                        || expected_device.is_none()
+                        || actual_device == expected_device)
+            }
+            _ => self.types_match(actual, expected),
+        }
+    }
+
     fn types_compatible(&self, a: &Type, b: &Type) -> bool {
         self.types_match(a, b) && self.types_match(b, a)
     }
@@ -7648,7 +7740,7 @@ impl SemanticAnalyzer {
                     return;
                 }
 
-                if !self.types_match(&actual, &expected) {
+                if !self.return_types_match(&actual, &expected) {
                     let hint = self.conversion_hint(&actual, &expected);
                     self.push_semantic_error_coded(
                         "E004",
@@ -7782,14 +7874,20 @@ impl SemanticAnalyzer {
                         );
                     }
                     actual => {
-                        if !self.types_match(&actual, expected_type) {
-                            self.error(
+                        if !self.return_types_match(&actual, expected_type) {
+                            self.push_semantic_error_coded(
+                                "E004",
                                 format!(
                                     "Function final expression has type {}, expected {}",
                                     type_name(&actual),
                                     type_name(expected_type)
                                 ),
                                 body.span,
+                                Some(format!(
+                                    "function declared to return {}",
+                                    type_name(expected_type)
+                                )),
+                                self.conversion_hint(&actual, expected_type),
                             );
                         }
                     }

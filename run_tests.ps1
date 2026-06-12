@@ -753,7 +753,20 @@ if ($patternErgonomics.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase2-patterns"; Teste = "validate_pattern_ergonomics"; Status = $patternErgonomics.Status; Detalhe = $patternErgonomics.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.8: R-1002 debugger and stack traces
+# Grupo 8.8: R-206 generic return type enforcement
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-206 generic return type enforcement ---" -ForegroundColor Yellow
+$genericReturn = Invoke-HostCommand -name "validate_r206_generic_return_enforcement" -fileName "python" -arguments @("scripts\validate_r206_generic_return_enforcement.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($genericReturn.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase2-generics"; Teste = "validate_r206_generic_return_enforcement"; Status = $genericReturn.Status; Detalhe = $genericReturn.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.9: R-1002 debugger and stack traces
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1002 debugger and stack traces ---" -ForegroundColor Yellow
@@ -766,7 +779,7 @@ if ($debuggerStackTraces.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase10-debugger"; Teste = "validate_debugger_stack_traces"; Status = $debuggerStackTraces.Status; Detalhe = $debuggerStackTraces.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.9: R-1501 numerical performance benchmark gate
+# Grupo 8.10: R-1501 numerical performance benchmark gate
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1501 numerical performance benchmarks ---" -ForegroundColor Yellow
@@ -779,7 +792,7 @@ if ($r1501Bench.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase15-performance"; Teste = "validate_r1501_bench"; Status = $r1501Bench.Status; Detalhe = $r1501Bench.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.10: R-1503 numerical correctness certification
+# Grupo 8.11: R-1503 numerical correctness certification
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1503 numerical correctness certification ---" -ForegroundColor Yellow
@@ -792,7 +805,7 @@ if ($r1503Correctness.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase15-correctness"; Teste = "validate_r1503_correctness"; Status = $r1503Correctness.Status; Detalhe = $r1503Correctness.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.11: R-1601 tensor graph IR
+# Grupo 8.12: R-1601 tensor graph IR
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1601 tensor graph IR ---" -ForegroundColor Yellow
@@ -805,7 +818,7 @@ if ($r1601TensorGraph.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase16-graph"; Teste = "tensor_graph_tests"; Status = $r1601TensorGraph.Status; Detalhe = $r1601TensorGraph.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.12: R-1602 graph optimization and fusion
+# Grupo 8.13: R-1602 graph optimization and fusion
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1602 graph optimization and fusion ---" -ForegroundColor Yellow
@@ -818,7 +831,7 @@ if ($r1602GraphOptimization.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase16-optimization"; Teste = "tensor_graph_optimization_tests"; Status = $r1602GraphOptimization.Status; Detalhe = $r1602GraphOptimization.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.13: R-1603 production GPU backend
+# Grupo 8.14: R-1603 production GPU backend
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1603 production GPU backend ---" -ForegroundColor Yellow
@@ -831,7 +844,7 @@ if ($r1603GpuBackend.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase16-gpu"; Teste = "validate_r1603_gpu_backend"; Status = $r1603GpuBackend.Status; Detalhe = $r1603GpuBackend.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.14: R-1701 dataset and dataframe runtime
+# Grupo 8.15: R-1701 dataset and dataframe runtime
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1701 dataset and dataframe runtime ---" -ForegroundColor Yellow
@@ -844,7 +857,7 @@ if ($r1701DataRuntime.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase17-data"; Teste = "validate_r1701_data_runtime"; Status = $r1701DataRuntime.Status; Detalhe = $r1701DataRuntime.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.15: R-1702 experiment tracking and reproducibility
+# Grupo 8.16: R-1702 experiment tracking and reproducibility
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1702 experiment tracking and reproducibility ---" -ForegroundColor Yellow
@@ -857,7 +870,7 @@ if ($r1702ExperimentTracking.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase17-experiments"; Teste = "validate_r1702_experiment_tracking"; Status = $r1702ExperimentTracking.Status; Detalhe = $r1702ExperimentTracking.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.16: R-1703 distributed training foundations
+# Grupo 8.17: R-1703 distributed training foundations
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1703 distributed training foundations ---" -ForegroundColor Yellow
@@ -870,7 +883,7 @@ if ($r1703DistributedTraining.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase17-distributed"; Teste = "validate_r1703_distributed_training"; Status = $r1703DistributedTraining.Status; Detalhe = $r1703DistributedTraining.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.17: R-1801 ONNX import and export
+# Grupo 8.18: R-1801 ONNX import and export
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1801 ONNX import and export ---" -ForegroundColor Yellow
@@ -883,7 +896,7 @@ if ($r1801OnnxImportExport.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase18-onnx"; Teste = "validate_r1801_onnx_import_export"; Status = $r1801OnnxImportExport.Status; Detalhe = $r1801OnnxImportExport.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.18: R-1802 transformer and LLM runtime primitives
+# Grupo 8.19: R-1802 transformer and LLM runtime primitives
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1802 transformer and LLM runtime primitives ---" -ForegroundColor Yellow
@@ -896,7 +909,7 @@ if ($r1802TransformerPrimitives.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase18-transformers"; Teste = "validate_r1802_transformer_primitives"; Status = $r1802TransformerPrimitives.Status; Detalhe = $r1802TransformerPrimitives.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.19: R-1803 tokenization embeddings and RAG toolkit
+# Grupo 8.20: R-1803 tokenization embeddings and RAG toolkit
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1803 tokenization embeddings and RAG toolkit ---" -ForegroundColor Yellow
@@ -909,7 +922,7 @@ if ($r1803RagToolkit.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase18-rag"; Teste = "validate_r1803_rag_toolkit"; Status = $r1803RagToolkit.Status; Detalhe = $r1803RagToolkit.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.20: R-1901 model evaluation and metrics suite
+# Grupo 8.21: R-1901 model evaluation and metrics suite
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1901 model evaluation and metrics suite ---" -ForegroundColor Yellow
@@ -922,7 +935,7 @@ if ($r1901EvaluationMetrics.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase19-evaluation"; Teste = "validate_r1901_evaluation_metrics"; Status = $r1901EvaluationMetrics.Status; Detalhe = $r1901EvaluationMetrics.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.21: R-1902 AI safety and guardrail runtime
+# Grupo 8.22: R-1902 AI safety and guardrail runtime
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1902 AI safety and guardrail runtime ---" -ForegroundColor Yellow
@@ -935,7 +948,7 @@ if ($r1902SafetyGuardrails.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase19-safety"; Teste = "validate_r1902_ai_safety_guardrails"; Status = $r1902SafetyGuardrails.Status; Detalhe = $r1902SafetyGuardrails.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.22: R-1903 model monitoring and drift detection
+# Grupo 8.23: R-1903 model monitoring and drift detection
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1903 model monitoring and drift detection ---" -ForegroundColor Yellow
@@ -948,7 +961,7 @@ if ($r1903ModelMonitoring.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase19-monitoring"; Teste = "validate_r1903_model_monitoring"; Status = $r1903ModelMonitoring.Status; Detalhe = $r1903ModelMonitoring.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.23: R-2001 AI conformance suite
+# Grupo 8.24: R-2001 AI conformance suite
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2001 AI conformance suite ---" -ForegroundColor Yellow
