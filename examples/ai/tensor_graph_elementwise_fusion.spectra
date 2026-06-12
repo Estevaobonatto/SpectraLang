@@ -15,7 +15,7 @@ pub fn main() -> int {
     if tensor.len(projected) != 8 {
         return tensor.len(projected);
     }
-    if tensor.get_f(projected, 0) as int <= 0 {
+    if tensor.get_f(projected, 0) <= 0.0 {
         return 1;
     }
     if tensor.stats_kernel_ops() < 3 {

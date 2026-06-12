@@ -728,7 +728,12 @@ impl CodeGenerator {
                     }
                 }
             }
-            InstructionKind::HostCall { result, host, args } => {
+            InstructionKind::HostCall {
+                result,
+                host,
+                args,
+                result_type,
+            } => {
                 let record = intern_host_name(host_name_data, host_name_storage, host);
                 let name_ptr = if let Some(data_id) = record.data_id {
                     // AOT mode: the name lives in a .rodata section; get its address
@@ -838,7 +843,17 @@ impl CodeGenerator {
                 builder.seal_block(success_block);
 
                 if let (Some(result_value), Some(ptr)) = (result, result_allocation) {
-                    let value = builder.ins().load(types::I64, MemFlags::new(), ptr, 0);
+                    let raw_value = builder.ins().load(types::I64, MemFlags::new(), ptr, 0);
+                    let value = match result_type {
+                        Some(IRType::Float) => {
+                            builder
+                                .ins()
+                                .bitcast(types::F64, MemFlags::new(), raw_value)
+                        }
+                        Some(IRType::Bool) => builder.ins().ireduce(types::I8, raw_value),
+                        Some(IRType::Char) => builder.ins().ireduce(types::I32, raw_value),
+                        _ => raw_value,
+                    };
                     value_map.insert(result_value.id, value);
 
                     let free_ref = module.declare_func_in_func(manual_free_func, builder.func);
@@ -1482,6 +1497,46 @@ mod tests {
         });
 
         // Generate code
+        assert!(codegen.declare_function(&func).is_ok());
+        assert!(codegen.define_function(&func).is_ok());
+    }
+
+    #[test]
+    fn test_typed_host_float_result_cast_to_int_codegen() {
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
+
+        let mut codegen = CodeGenerator::new();
+        let mut func = IRFunction::new("host_float_to_int", vec![], IRType::Int);
+
+        let entry_block_id = func.add_block("entry");
+        let entry_block = func.get_block_mut(entry_block_id).unwrap();
+
+        let float_arg = Value { id: 0 };
+        entry_block.add_instruction(InstructionKind::ConstFloat {
+            result: float_arg,
+            value: 9.9,
+        });
+
+        let host_result = Value { id: 1 };
+        entry_block.add_instruction(InstructionKind::HostCall {
+            result: Some(host_result),
+            host: "spectra.std.math.floor_f".to_string(),
+            args: vec![float_arg],
+            result_type: Some(IRType::Float),
+        });
+
+        let cast_result = Value { id: 2 };
+        entry_block.add_instruction(InstructionKind::Cast {
+            result: cast_result,
+            operand: host_result,
+            from_ty: IRType::Float,
+            to_ty: IRType::Int,
+        });
+
+        entry_block.set_terminator(Terminator::Return {
+            value: Some(cast_result),
+        });
+
         assert!(codegen.declare_function(&func).is_ok());
         assert!(codegen.define_function(&func).is_ok());
     }

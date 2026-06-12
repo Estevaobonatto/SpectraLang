@@ -211,7 +211,9 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     None => format!("call {}({})", function, arg_list),
                 }
             }
-            InstructionKind::HostCall { result, host, args } => {
+            InstructionKind::HostCall {
+                result, host, args, ..
+            } => {
                 let arg_list = args
                     .iter()
                     .map(|arg| fmt_value(*arg))

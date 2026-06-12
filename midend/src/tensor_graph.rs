@@ -309,7 +309,9 @@ impl TensorGraphFunction {
                             (right != 0).then(|| left % right)
                         });
                     }
-                    InstructionKind::HostCall { result, host, args } => {
+                    InstructionKind::HostCall {
+                        result, host, args, ..
+                    } => {
                         extractor.lower_host_call(block.id, instruction.id, *result, host, args);
                     }
                     _ => {}

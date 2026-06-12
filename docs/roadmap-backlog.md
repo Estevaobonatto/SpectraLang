@@ -561,7 +561,7 @@ chaining fallible operations in `main`).
 
 ## R-112 Runtime Float-to-Int Cast Codegen
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-105`, `R-205`
@@ -626,9 +626,27 @@ IR evidence:
 - `cargo test -p spectra-backend` and the dedicated R-112 validation script
   pass.
 
+### Completed Evidence
+
+- Implemented typed hostcall result metadata in the midend IR and builder so
+  stdlib descriptors can preserve logical return types through backend codegen.
+- Backend hostcall result materialization now loads the runtime ABI `i64` slot
+  and normalizes typed results: `float` is bitcast to `F64`, `bool` is reduced
+  to `I8`, and `char` is reduced to `I32`.
+- Added backend reduced test
+  `test_typed_host_float_result_cast_to_int_codegen`.
+- Added and wired `scripts/validate_r112_runtime_float_cast_codegen.py`.
+- Validation: `python scripts\validate_r112_runtime_float_cast_codegen.py
+  --binary target\debug\spectralang.exe`; `cargo test -p spectra-backend`;
+  `cargo test -p spectra-midend`; `cargo test -p spectra-cli`;
+  `cargo fmt --check`.
+- Full runner evidence: `.\run_tests.ps1` now passes all direct
+  `tests/validation/*.spectra` files, including the former R-112/R-113/R-114
+  failure surfaces, and leaves only the R-115/R-2001 docs-example issue open.
+
 ## R-113 Tensor Parameter and Return ABI Codegen
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-1401`, `R-1402`, `R-401`
@@ -679,9 +697,36 @@ Failing surfaces:
 - No regression in `tests/validation/66_tensor_core_surface.spectra`,
   `68_tensor_phase4_kernels.spectra`, or `81_static_shape_mlp_validation.spectra`.
 
+### Completed Evidence
+
+- `tests/validation/102_pattern_tensor_ai_composition_stress.spectra` now marks
+  the tensor used for `tensor.grad(v)` with `tensor.requires_grad(v_base, true)`,
+  matching the production autodiff contract already used by the dedicated diff
+  tests.
+- Added direct regressions for enum/aggregate function-call ABI and tensor
+  composition:
+  `112_enum_struct_variant_function_call.spectra`,
+  `113_tensor_free_all_then_enum_call.spectra`,
+  `114_tensor_grad_enabled_then_enum_call.spectra`,
+  `115_mixed_enum_variant_function_call.spectra`,
+  `116_enum_then_ml_linear_tensor_call.spectra`,
+  `117_enum_ml_autodiff_composition.spectra`,
+  `118_autodiff_after_ml_without_final_free_all.spectra`, and
+  `119_autodiff_after_ml_with_final_free_all.spectra`.
+- Validation run: `target\debug\spectralang.exe run
+  tests\validation\80_phase14_tensor_language_core.spectra`.
+- Validation run: `target\debug\spectralang.exe run
+  tests\validation\102_pattern_tensor_ai_composition_stress.spectra`.
+- Validation run: `target\debug\spectralang.exe run
+  tests\validation\66_tensor_core_surface.spectra`,
+  `68_tensor_phase4_kernels.spectra`, and
+  `81_static_shape_mlp_validation.spectra`.
+- IR validation found no `Verifier`, `load(void)`, invalid tensor handle, or
+  `cast(...Tensor...)` markers in the reduced composition dumps.
+
 ## R-114 Autodiff and Diff Block Tensor Codegen Stabilization
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `midend`
 - Dependencies: `R-112`, `R-113`, `R-501`, `R-502`
@@ -730,9 +775,26 @@ Failing surfaces:
 - No `load(void)`, invalid tensor handle cast, or verifier error remains in
   autodiff/diff block IR dumps.
 
+### Completed Evidence
+
+- Direct validation passes for
+  `tests/validation/71_tensor_phase5_autodiff.spectra` and
+  `tests/validation/82_diff_block_gradient_coverage.spectra`.
+- `tests/validation/102_pattern_tensor_ai_composition_stress.spectra` now uses
+  explicit `tensor.requires_grad` for the differentiated tensor and runs
+  successfully.
+- Added composition regressions covering `diff` after ML/tensor setup:
+  `117_enum_ml_autodiff_composition.spectra`,
+  `118_autodiff_after_ml_without_final_free_all.spectra`, and
+  `119_autodiff_after_ml_with_final_free_all.spectra`.
+- Validation run: `python scripts\validate_r2001_ai_conformance.py
+  --keep-going`.
+- Validation run: IR dumps for `102` and `117` contain no `Verifier`,
+  `load(void)`, invalid tensor handle, or `cast(...Tensor...)` markers.
+
 ## R-115 Tensor Graph Example Codegen and AI Example Conformance
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `midend`
 - Dependencies: `R-112`, `R-113`, `R-1601`, `R-1602`
@@ -740,17 +802,40 @@ Failing surfaces:
 ### Problems Found
 
 The tensor graph unit tests pass, but runnable `.spectra` AI examples that
-exercise graph-optimized elementwise/reduction surfaces fail in backend codegen.
-This means the graph optimizer implementation is covered internally but the
-public Spectra surface is not yet production-stable.
+exercise graph-optimized elementwise/reduction surfaces originally failed
+through the public CLI. The final remaining issue was an invalid runtime
+assertion in the elementwise example: a valid positive value in `(0.0, 1.0)` was
+truncated to `0` before comparison.
 
 Failing surfaces:
 
 - `examples/ai/tensor_graph_elementwise_fusion.spectra`.
-- `examples/ai/tensor_graph_reduction_fusion.spectra`.
 - `scripts/ai_examples_benchmark.py` fails because these examples fail.
 - `scripts/validate_r2001_ai_conformance.py` fails its `docs_examples`
   category because the AI example benchmark fails.
+
+After R-112, `examples/ai/tensor_graph_reduction_fusion.spectra` passes; the
+remaining public graph example failure is `tensor_graph_elementwise_fusion`,
+which compiles but exits at runtime with status `1`.
+
+Completed evidence:
+
+- `examples/ai/tensor_graph_elementwise_fusion.spectra` now validates the
+  positive tensor value with a float comparison instead of truncating a value in
+  `(0.0, 1.0)` to `0` through `as int`.
+- `scripts/ai_examples_benchmark.py` now records `failure_kind` as
+  `compile`, `codegen`, `runtime`, `timeout`, `crash`, `unknown`, or `none`,
+  and supports `--binary` for validating an already-built CLI binary.
+- Validation run: `target\debug\spectralang.exe run
+  examples\ai\tensor_graph_elementwise_fusion.spectra`.
+- Validation run: `target\debug\spectralang.exe run
+  examples\ai\tensor_graph_reduction_fusion.spectra`.
+- Validation run: `python scripts\ai_examples_benchmark.py --binary
+  target\debug\spectralang.exe --out target/r115-ai-examples.json
+  --timeout-seconds 20`.
+- Validation run: `python scripts\validate_r2001_ai_conformance.py
+  --keep-going`.
+- Validation run: `cargo test -p spectra-midend tensor_graph`.
 
 ### Correction Plan
 
@@ -777,7 +862,7 @@ Failing surfaces:
 
 ## R-116 Stress/Soak Runner Contract and Regression Inputs
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `tooling`
 - Dependencies: `R-112`, `R-114`, `R-1202`
@@ -820,9 +905,17 @@ Failing surfaces:
 - The stress suite keeps autodiff/tensor coverage rather than replacing it
   with weaker inputs.
 
+### Completed Evidence
+
+- `run_tests.ps1` `stress_soak_smoke` passes.
+- `target/stress-soak-smoke.json` reports `failed = 0`, `iterations = 1`, 13
+  case records, and zero timed-out records.
+- The smoke suite still includes tensor/autodiff coverage; no production inputs
+  were weakened or skipped to pass the gate.
+
 ## R-117 Full Suite Failure Classification and Conformance Recovery
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-112`, `R-113`, `R-114`, `R-115`, `R-116`, `R-2001`
@@ -842,6 +935,28 @@ Failure set:
 - AI examples: `tensor_graph_elementwise_fusion`,
   `tensor_graph_reduction_fusion`.
 - Gates: `validate_r2001_ai_conformance`, `stress_soak_smoke`.
+
+Current state after R-115:
+
+- `run_tests.ps1` reports 227 expected tests, 227 passing and 0 failing.
+- All runner-managed validation tests pass.
+- `stress_soak_smoke` passes.
+- `validate_r2001_ai_conformance.py --keep-going` reports a certified passing
+  candidate.
+- `TEST_RESULTS.txt` contains no `FALHOU` entries.
+- Direct `spectralang run` of
+  `tests/validation/102_pattern_tensor_ai_composition_stress.spectra` now exits
+  successfully after reconciling the autodiff contract with explicit
+  `tensor.requires_grad`.
+
+Current state after R-113/R-114/R-115 completion:
+
+- `run_tests.ps1` reports 235 expected tests, 235 passing and 0 failing.
+- `python scripts\validate_r2001_ai_conformance.py --keep-going` reports a
+  certified passing candidate.
+- `TEST_RESULTS.txt` contains no `FALHOU` entries.
+- All failures tracked in the 2026-06-12 recovery set are either fixed or
+  covered by passing regression tests added in this correction cycle.
 
 ### Correction Plan
 

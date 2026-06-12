@@ -177,6 +177,7 @@ pub enum InstructionKind {
         result: Option<Value>,
         host: String,
         args: Vec<Value>,
+        result_type: Option<Type>,
     },
     /// Get the address of a named function as an opaque i64 pointer (for closures/HOF).
     FuncAddr {

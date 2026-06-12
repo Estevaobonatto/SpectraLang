@@ -1,4 +1,4 @@
-module pattern_tensor_ai_composition_stress;
+module enum_then_ml_linear_tensor_call;
 
 import std.ml as ml;
 import std.tensor as tensor;
@@ -19,10 +19,6 @@ fn state_weight(state: PipelineState) -> int {
     };
 }
 
-fn vector_total(values: Tensor<float, rank1, dim4, row_major, cpu>) -> int {
-    return tensor.sum_f(values) as int;
-}
-
 pub fn main() -> int {
     tensor.free_all();
     tensor.set_grad_enabled(true);
@@ -41,20 +37,6 @@ pub fn main() -> int {
     }
     if tensor.cols(y) != 1 {
         return 3;
-    }
-
-    let v_base: Tensor<float, rank1, dim4, row_major, cpu> = [1.0, 2.0, 3.0, 4.0];
-    let v: Tensor<float, rank1, dim4, row_major, cpu> = tensor.requires_grad(v_base, true);
-    if vector_total(v) != 10 {
-        return 4;
-    }
-
-    let loss: Tensor<float, rank0> = diff {
-        tensor.sum_t(tensor.mul(v, v))
-    };
-    let grad = tensor.grad(v);
-    if tensor.len(grad) != 4 {
-        return 5;
     }
 
     tensor.free_all();

@@ -4691,7 +4691,13 @@ impl ASTLowering {
         };
 
         self.builder
-            .build_host_call(ir_func, runtime_fn.to_string(), vec![value], true)
+            .build_typed_host_call(
+                ir_func,
+                runtime_fn.to_string(),
+                vec![value],
+                IRType::String,
+                true,
+            )
             .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
     }
 
@@ -4770,10 +4776,11 @@ impl ASTLowering {
                     let rhs = self.lower_value_to_string(rhs, right_ir_type, ir_func);
                     return self
                         .builder
-                        .build_host_call(
+                        .build_typed_host_call(
                             ir_func,
                             "spectra.std.string.concat".to_string(),
                             vec![lhs, rhs],
+                            IRType::String,
                             true,
                         )
                         .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
@@ -4855,19 +4862,21 @@ impl ASTLowering {
                             paired.push(tag_val);
                             paired.push(*arg_val);
                         }
-                        let result_value = self.builder.build_host_call(
+                        let result_value = self.builder.build_typed_host_call(
                             ir_func,
                             descriptor.runtime_name.to_string(),
                             paired,
+                            descriptor.return_type.clone(),
                             descriptor.returns_value,
                         );
                         return result_value.unwrap_or_else(|| ir_func.next_value());
                     }
 
-                    let result_value = self.builder.build_host_call(
+                    let result_value = self.builder.build_typed_host_call(
                         ir_func,
                         descriptor.runtime_name.to_string(),
                         arg_values.clone(),
+                        descriptor.return_type.clone(),
                         descriptor.returns_value,
                     );
                     return result_value.unwrap_or_else(|| ir_func.next_value());
@@ -5806,10 +5815,11 @@ impl ASTLowering {
                     for arg in arguments {
                         call_args.push(self.lower_expression(arg, ir_func));
                     }
-                    let result = self.builder.build_host_call(
+                    let result = self.builder.build_typed_host_call(
                         ir_func,
                         desc.runtime_name.to_string(),
                         call_args,
+                        desc.return_type.clone(),
                         desc.returns_value,
                     );
                     return result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
@@ -5889,10 +5899,11 @@ impl ASTLowering {
                             };
                             if let Some(runtime_fn) = conv {
                                 self.builder
-                                    .build_host_call(
+                                    .build_typed_host_call(
                                         ir_func,
                                         runtime_fn.to_string(),
                                         vec![val],
+                                        IRType::String,
                                         true,
                                     )
                                     .unwrap_or_else(|| ir_func.next_value())
@@ -5910,10 +5921,11 @@ impl ASTLowering {
                 for part in &string_parts[1..] {
                     result = self
                         .builder
-                        .build_host_call(
+                        .build_typed_host_call(
                             ir_func,
                             "spectra.std.string.concat".to_string(),
                             vec![result, *part],
+                            IRType::String,
                             true,
                         )
                         .unwrap_or(result);

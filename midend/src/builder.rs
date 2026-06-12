@@ -240,6 +240,28 @@ impl IRBuilder {
         args: Vec<Value>,
         has_return: bool,
     ) -> Option<Value> {
+        self.build_host_call_with_type(func, host_name, args, has_return, None)
+    }
+
+    pub fn build_typed_host_call(
+        &self,
+        func: &mut Function,
+        host_name: String,
+        args: Vec<Value>,
+        return_type: Type,
+        has_return: bool,
+    ) -> Option<Value> {
+        self.build_host_call_with_type(func, host_name, args, has_return, Some(return_type))
+    }
+
+    fn build_host_call_with_type(
+        &self,
+        func: &mut Function,
+        host_name: String,
+        args: Vec<Value>,
+        has_return: bool,
+        result_type: Option<Type>,
+    ) -> Option<Value> {
         let Some(block_id) = self.current_block else {
             return None;
         };
@@ -255,6 +277,7 @@ impl IRBuilder {
             result,
             host: host_name,
             args,
+            result_type,
         });
         result
     }

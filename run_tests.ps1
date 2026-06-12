@@ -740,6 +740,19 @@ if ($crossModuleStrings.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase1-backend"; Teste = "validate_r109_cross_module_strings"; Status = $crossModuleStrings.Status; Detalhe = $crossModuleStrings.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.5d: R-112 runtime float-to-int cast codegen
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-112 runtime float-to-int cast codegen ---" -ForegroundColor Yellow
+$runtimeFloatCasts = Invoke-HostCommand -name "validate_r112_runtime_float_cast_codegen" -fileName "python" -arguments @("scripts\validate_r112_runtime_float_cast_codegen.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($runtimeFloatCasts.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase1-backend"; Teste = "validate_r112_runtime_float_cast_codegen"; Status = $runtimeFloatCasts.Status; Detalhe = $runtimeFloatCasts.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.6: R-106 feature maturity policy
 # ---------------------------------------------------------------------------
 Write-Host ""

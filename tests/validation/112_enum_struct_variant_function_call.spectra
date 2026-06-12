@@ -1,0 +1,27 @@
+module enum_struct_variant_function_call;
+
+enum PipelineState {
+    Ready { batch: int },
+    Failed(int),
+}
+
+fn state_weight(state: PipelineState) -> int {
+    return match state {
+        PipelineState::Ready { batch } => batch,
+        PipelineState::Failed(code) => code
+    };
+}
+
+pub fn main() -> int {
+    let state = PipelineState::Ready { batch: 4 };
+    if state_weight(state) != 4 {
+        return 1;
+    }
+
+    let failed = PipelineState::Failed(7);
+    if state_weight(failed) != 7 {
+        return 2;
+    }
+
+    return 0;
+}
