@@ -6005,12 +6005,20 @@ impl ASTLowering {
     ) -> Value {
         let from_ty = self.infer_expr_ir_type(inner);
         let to_ty = self.lower_type_annotation(target_type);
-        let operand = self.lower_expression(inner, ir_func);
 
         // Special case: coerce struct to dyn Trait
         if let IRType::DynTrait { trait_name } = &to_ty.clone() {
+            let operand = self.lower_expression(inner, ir_func);
             return self.lower_coerce_to_dyn(operand, &from_ty, trait_name, ir_func);
         }
+
+        if let Some(value) = self.eval_const_expression(inner) {
+            if let Some(casted) = self.cast_const_value(value, &to_ty) {
+                return self.emit_const_value(&casted, ir_func);
+            }
+        }
+
+        let operand = self.lower_expression(inner, ir_func);
 
         // If same type, just copy
         if from_ty == to_ty {

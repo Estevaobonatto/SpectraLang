@@ -480,7 +480,7 @@ cascading fallback diagnostics.
 
 ## R-205 Float Const Cast Codegen
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `backend`
 - Dependencies: `R-201`, `R-202`
@@ -488,12 +488,12 @@ cascading fallback diagnostics.
 ### Problem Found
 
 A reduced valid program using `const FLOATY: f64 = 7.75;` followed by
-`let truncated: int = FLOATY as int;` reaches codegen and fails with
+`let truncated: int = FLOATY as int;` used to reach codegen and fail with
 `Failed to define function 'main': Compilation error: Verifier errors`.
 
-The normal validation suite avoids this exact lowering path for now, but the
-reproducer is preserved in
-`tests/known_issues/float_const_to_int_cast_codegen_verifier.spectra`.
+The root cause was midend lowering: identifier constants inside cast expressions
+were lowered as their original constant value, so a float constant could be bound
+to an integer-typed local and then compared/returned through invalid IR.
 
 ### Scope
 
@@ -510,8 +510,10 @@ reproducer is preserved in
 
 ### Evidence
 
-- Found while creating `tests/validation/109_numeric_cast_const_boundaries_stress.spectra`.
-- Known issue file: `tests/known_issues/float_const_to_int_cast_codegen_verifier.spectra`.
+- Implemented const cast folding in `midend/src/lowering.rs`.
+- Positive regression: `tests/validation/100_float_const_cast_codegen.spectra`.
+- Negative regression: `tests/errors/float_const_invalid_cast.spectra`.
+- Dedicated gate: `scripts/validate_r205_float_const_cast_codegen.py`.
 
 ## R-206 Generic Return Type Enforcement
 

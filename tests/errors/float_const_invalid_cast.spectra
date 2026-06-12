@@ -1,0 +1,8 @@
+module float_const_invalid_cast;
+
+const FLOATY: f64 = 1.5;
+
+pub fn main() -> int {
+    let text = FLOATY as string;
+    return 0;
+}

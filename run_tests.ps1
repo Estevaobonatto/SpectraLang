@@ -766,7 +766,20 @@ if ($genericReturn.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase2-generics"; Teste = "validate_r206_generic_return_enforcement"; Status = $genericReturn.Status; Detalhe = $genericReturn.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.9: R-1002 debugger and stack traces
+# Grupo 8.9: R-205 float const cast codegen
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-205 float const cast codegen ---" -ForegroundColor Yellow
+$floatConstCast = Invoke-HostCommand -name "validate_r205_float_const_cast_codegen" -fileName "python" -arguments @("scripts\validate_r205_float_const_cast_codegen.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($floatConstCast.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase2-codegen"; Teste = "validate_r205_float_const_cast_codegen"; Status = $floatConstCast.Status; Detalhe = $floatConstCast.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.10: R-1002 debugger and stack traces
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1002 debugger and stack traces ---" -ForegroundColor Yellow
