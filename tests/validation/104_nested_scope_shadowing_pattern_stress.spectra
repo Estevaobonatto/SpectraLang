@@ -23,7 +23,7 @@ fn inspect(item: Item, adjust: fn(int) -> int) -> int {
 
 pub fn main() -> int {
     let value = 10;
-    let boxed = Boxed { value: value };
+    let boxed = Boxed { value };
     let adjust: fn(int) -> int = |input: int| input + value;
 
     let first = inspect(Item::One(3), adjust);

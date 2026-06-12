@@ -613,6 +613,9 @@ struct Wrapper<T> {
 
 ```spectra
 let p = Point { x: 3, y: 4 };
+let x = 3;
+let y = 4;
+let p2 = Point { x, y }; // shorthand for Point { x: x, y: y }
 let person = Person { name: "Alice", age: 30 };
 ```
 
@@ -634,6 +637,7 @@ p.x = 10;       // direct field assignment
 - All fields require explicit type annotations.
 - Fields are private by default — only accessible within `impl` blocks unless declared `pub`.
 - When instantiating, all fields must be provided (no defaults).
+- Field shorthand is supported in literals: `Point { x }` means `Point { x: x }`.
 - Field names must match exactly (case-sensitive).
 
 ---

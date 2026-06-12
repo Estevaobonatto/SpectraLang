@@ -561,6 +561,47 @@ mod tests {
         );
         assert!(imports[3].is_reexport);
     }
+
+    #[test]
+    fn parses_struct_literal_field_shorthand() {
+        let source = r#"
+            module demo;
+
+            struct Point {
+                x: int,
+                y: int,
+            }
+
+            fn main() -> int {
+                let x = 1;
+                let point = Point { x, y: 2 };
+                return point.x;
+            }
+        "#;
+
+        assert!(parse_with_features(source, &[]).is_ok());
+    }
+
+    #[test]
+    fn match_expression_is_not_misclassified_as_struct_literal_shorthand() {
+        let source = r#"
+            module demo;
+
+            enum OptionInt {
+                Some(int),
+                None,
+            }
+
+            fn main(value: OptionInt) -> int {
+                return match value {
+                    OptionInt::Some(x) => x,
+                    OptionInt::None => 0,
+                };
+            }
+        "#;
+
+        assert!(parse_with_features(source, &[]).is_ok());
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

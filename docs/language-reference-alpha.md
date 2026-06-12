@@ -41,7 +41,7 @@ This document captures the currently implemented SpectraLang surface that define
 - Composite types:
   - Arrays: array literals use `[a, b, c]`, and user-facing type annotations use `[T]`.
   - Tuples: `(T1, T2, ...)`.
-  - Structs: `StructName { field: value, ... }`.
+  - Structs: `StructName { field: value, ... }` and field shorthand `StructName { field }`.
   - Enums: `EnumName::Variant` with optional tuple or struct payload.
 - Generic type parameters are accepted in function, struct, enum, and trait signatures, but semantic resolution of generic arguments is limited.
 - Implicit conversions are restricted to numeric widening (`int` → `float`) in expressions and assignments; all other implicit coercions produce diagnostics requiring explicit handling.
@@ -110,7 +110,7 @@ enum Option<T> {
 - Method calls: `object.method(args)`.
 - Function calls: `identifier(args)`.
 - Index access: `array[index]`.
-- Struct literals: `StructName { field: value, ... }`.
+- Struct literals: `StructName { field: value, ... }`; `StructName { field }` is shorthand for `StructName { field: field }`.
 - Enum variants: `EnumName::Variant(args)`.
 - Conditional expressions: `if / elif / else`, `unless`, with block bodies.
 - Pattern matching: `match scrutinee { Pattern => expr, ... }`.

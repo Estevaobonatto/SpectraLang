@@ -553,27 +553,29 @@ impl Parser {
                 }
 
                 // Check if it's a struct literal: Name { fields }
-                // Only if followed by { and then identifier:value pattern
+                // Supports explicit fields (`x: expr`) and shorthand (`x`).
                 if self.check_symbol('{') {
-                    // Lookahead: after '{', should see identifier followed by SINGLE ':'
-                    // (not '::' which would be enum variant)
                     let is_struct_literal = if self.position + 1 < self.tokens.len() {
-                        let has_identifier = matches!(
-                            self.tokens[self.position + 1].kind,
-                            TokenKind::Identifier(_)
-                        );
-                        let has_colon = self.position + 2 < self.tokens.len()
-                            && matches!(
-                                self.tokens[self.position + 2].kind,
-                                TokenKind::Symbol(':')
-                            );
-                        // Make sure it's NOT followed by another colon (::)
-                        let not_double_colon = self.position + 3 >= self.tokens.len()
-                            || !matches!(
-                                self.tokens[self.position + 3].kind,
-                                TokenKind::Symbol(':')
-                            );
-                        has_identifier && has_colon && not_double_colon
+                        match &self.tokens[self.position + 1].kind {
+                            TokenKind::Symbol('}') => true,
+                            TokenKind::Identifier(_) => {
+                                let after_field =
+                                    self.tokens.get(self.position + 2).map(|token| &token.kind);
+                                let after_colon =
+                                    self.tokens.get(self.position + 3).map(|token| &token.kind);
+
+                                match after_field {
+                                    Some(TokenKind::Symbol(':')) => {
+                                        !matches!(after_colon, Some(TokenKind::Symbol(':')))
+                                    }
+                                    Some(TokenKind::Symbol(',')) | Some(TokenKind::Symbol('}')) => {
+                                        true
+                                    }
+                                    _ => false,
+                                }
+                            }
+                            _ => false,
+                        }
                     } else {
                         false
                     };
@@ -583,12 +585,19 @@ impl Parser {
 
                         let mut fields = Vec::new();
 
-                        // Parse fields
                         while !self.check_symbol('}') && !self.is_at_end() {
-                            // Parse: field_name: value
-                            let (field_name, _) = self.consume_identifier("Expected field name")?;
-                            self.consume_symbol(':', "Expected ':' after field name")?;
-                            let field_value = self.parse_expression()?;
+                            // Parse either `field_name: value` or shorthand `field_name`.
+                            let (field_name, field_span) =
+                                self.consume_identifier("Expected field name")?;
+                            let field_value = if self.check_symbol(':') {
+                                self.advance();
+                                self.parse_expression()?
+                            } else {
+                                Expression {
+                                    span: field_span,
+                                    kind: ExpressionKind::Identifier(field_name.clone()),
+                                }
+                            };
 
                             fields.push((field_name, field_value));
 

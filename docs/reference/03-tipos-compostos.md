@@ -306,6 +306,9 @@ struct Retangulo {
 pub fn main() {
     // Instanciação de struct / Struct instantiation
     let p = Ponto { x: 10, y: 20 };
+    let x = 5;
+    let y = 8;
+    let p2 = Ponto { x, y }; // shorthand: x == x: x, y == y: y
     let pessoa = Pessoa {
         nome: "Alice",
         idade: 30,
@@ -943,6 +946,9 @@ pub fn main() {
     let resultado = transformar(7);    // 8
 }
 ```
+
+Field shorthand is supported when a local variable has the same name as the
+struct field. `Ponto { x, y }` is equivalent to `Ponto { x: x, y: y }`.
 
 Closures capturam variáveis externas por valor no momento em que a closure é criada.
 Closures capture external variables by value when the closure is created.

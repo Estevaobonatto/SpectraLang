@@ -1,0 +1,10 @@
+module struct_literal_shorthand_undefined_binding;
+
+struct Point {
+    x: int,
+}
+
+pub fn main() -> int {
+    let point = Point { x };
+    return point.x;
+}

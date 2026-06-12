@@ -285,7 +285,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 
 ## R-107 Struct Literal Shorthand Contract
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `frontend`
 - Dependencies: `R-105`, `R-203`
@@ -293,32 +293,34 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 ### Problem Found
 
 During the advanced regression-test expansion, a candidate test using
-`Boxed { value }` failed to parse. The current accepted syntax is explicit field
-assignment, for example `Boxed { value: value }`.
+`Boxed { value }` failed to parse. The language now supports this shorthand as
+the production contract: `Type { field }` is equivalent to
+`Type { field: field }` and resolves the right-hand side through normal local
+binding lookup.
 
-This is not currently a suite failure because the new test was adjusted to the
-implemented language contract. It is still a correction item because shorthand
-syntax is common in Rust-like languages and can be accidentally implied by
-examples or future docs.
+The parser lookahead is intentionally conservative so block-like constructs such
+as `match value { ... }` are not misclassified as struct literals.
 
 ### Scope
 
-- decide whether struct literal field shorthand is part of the language
-- if supported, implement parser/semantic lowering for `Type { field }`
-- if not supported, emit a targeted diagnostic instead of a generic parse error
+- support explicit and shorthand struct literal fields in the parser
+- lower shorthand fields to identifier expressions using the same local binding semantics as `field: field`
+- keep `match value { ... }` and other block-like expressions parsed correctly
 - align docs and examples with the chosen contract
 
 ### Acceptance
 
-- the language either supports `Type { field }` shorthand or rejects it with a stable diagnostic and documented rationale
-- parser and semantic regression tests cover accepted explicit field syntax and the chosen shorthand behavior
+- `Type { field }` shorthand is supported and documented as equivalent to `Type { field: field }`
+- parser and semantic regression tests cover accepted explicit field syntax and shorthand behavior
+- undefined shorthand bindings fail with the normal stable undefined-variable diagnostic
 - language reference and examples do not imply unsupported struct literal syntax
 
 ### Evidence
 
-- Found while creating `tests/validation/104_nested_scope_shadowing_pattern_stress.spectra`.
-- Working form committed in the test: `Boxed { value: value }`.
-- Rejected form observed locally: `Boxed { value }`.
+- Parser regression tests cover `Point { x, y: 2 }` and ensure `match value { ... }` is not treated as a struct literal.
+- Positive validation test: `tests/validation/104_nested_scope_shadowing_pattern_stress.spectra` uses `Boxed { value }`.
+- Negative validation test: `tests/errors/struct_literal_shorthand_undefined_binding.spectra` verifies missing shorthand bindings fail semantically.
+- Focused validation: `cargo test -p spectra-compiler`; `spectralang compile` for the positive and negative examples.
 
 ## R-108 Diagnostic Classification Hardening
 
