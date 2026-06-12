@@ -58,3 +58,118 @@ fn pipeline_reports_coded_semantic_error() {
         CompilerError::Semantic(semantic) if semantic.code.as_deref() == Some("E001")
     )));
 }
+
+#[test]
+fn trait_bound_violation_is_semantic_not_midend() {
+    let source = r#"
+        module smoke;
+
+        trait Score {
+            fn score(&self) -> int;
+        }
+
+        struct Plain {
+            value: int,
+        }
+
+        fn evaluate<T: Score>(item: T) -> int {
+            return item.score();
+        }
+
+        pub fn main() -> int {
+            let plain = Plain { value: 1 };
+            return evaluate(plain);
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    let errors = pipeline
+        .compile(source, "trait_bound.spectra")
+        .expect_err("compilation should fail before midend");
+
+    assert!(errors
+        .iter()
+        .all(|error| !matches!(error, CompilerError::Midend(_))));
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected no cascading diagnostics: {errors:?}"
+    );
+    assert!(matches!(
+        &errors[0],
+        CompilerError::Semantic(semantic)
+            if semantic.code.as_deref() == Some("E010")
+                && semantic.message.contains("Plain")
+                && semantic.message.contains("T: Score")
+    ));
+}
+
+#[test]
+fn trait_bound_satisfaction_is_not_item_order_dependent() {
+    let source = r#"
+        module smoke;
+
+        trait Score {
+            fn score(&self) -> int;
+        }
+
+        struct Ranked {
+            value: int,
+        }
+
+        fn evaluate<T: Score>(item: T) -> int {
+            return item.score();
+        }
+
+        pub fn main() -> int {
+            let ranked = Ranked { value: 7 };
+            return evaluate(ranked);
+        }
+
+        impl Score for Ranked {
+            fn score(&self) -> int {
+                return self.value;
+            }
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    pipeline
+        .compile(source, "trait_bound_order.spectra")
+        .expect("trait impl declared later should satisfy the generic bound");
+}
+
+#[test]
+fn unknown_import_alias_member_reports_candidates() {
+    let source = r#"
+        module smoke;
+
+        import std.math as math;
+
+        pub fn main() -> int {
+            return math.not_a_function(1);
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    let errors = pipeline
+        .compile(source, "unknown_alias_member.spectra")
+        .expect_err("compilation should fail semantically");
+
+    assert!(errors
+        .iter()
+        .all(|error| !matches!(error, CompilerError::Midend(_))));
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected no cascading diagnostics: {errors:?}"
+    );
+    assert!(matches!(
+        &errors[0],
+        CompilerError::Semantic(semantic)
+            if semantic.code.as_deref() == Some("E011")
+                && semantic.message.contains("math")
+                && semantic.message.contains("not_a_function")
+                && semantic.hint.as_deref().unwrap_or("").contains("sqrt_f")
+    ));
+}

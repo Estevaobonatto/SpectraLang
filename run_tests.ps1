@@ -714,6 +714,19 @@ if (-not $jsonDiag.TimedOut -and -not $sarifDiag.TimedOut -and $diagValidate.Sta
 }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.5b: R-108 diagnostic classification hardening
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-108 diagnostic classification hardening ---" -ForegroundColor Yellow
+$diagClassification = Invoke-HostCommand -name "validate_r108_diagnostic_classification" -fileName "python" -arguments @("scripts\validate_r108_diagnostic_classification.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($diagClassification.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase1-diagnostics"; Teste = "validate_r108_diagnostic_classification"; Status = $diagClassification.Status; Detalhe = $diagClassification.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.6: R-106 feature maturity policy
 # ---------------------------------------------------------------------------
 Write-Host ""

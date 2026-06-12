@@ -217,6 +217,8 @@ pub struct SemanticAnalyzer {
     symbols: Vec<HashMap<String, SymbolInfo>>,
     // Function table: maps function names to their signatures
     functions: HashMap<String, FunctionSignature>,
+    // Generic function type parameters and bounds, keyed by function name.
+    function_type_params: HashMap<String, Vec<crate::ast::TypeParameter>>,
     // Enum definitions: maps enum names to their variants
     enum_definitions: HashMap<String, Vec<String>>,
     // Methods: maps type_name to (method_name, signature)
@@ -455,6 +457,7 @@ impl SemanticAnalyzer {
             errors: Vec::new(),
             symbols: vec![HashMap::new()], // Start with global scope
             functions: HashMap::new(),
+            function_type_params: HashMap::new(),
             enum_definitions: HashMap::new(),
             methods: HashMap::new(),
             method_definitions: HashMap::new(),
@@ -798,6 +801,10 @@ impl SemanticAnalyzer {
         self.push_semantic_error(message, span, Some(context.into()), Some(hint.into()));
     }
 
+    fn has_error_at_span(&self, span: Span) -> bool {
+        self.errors.iter().any(|error| error.span == span)
+    }
+
     fn push_scope(&mut self) {
         self.symbols.push(HashMap::new());
     }
@@ -943,6 +950,134 @@ impl SemanticAnalyzer {
             }
             _ => {}
         }
+    }
+
+    fn type_satisfies_trait_bound(&self, concrete_type: &Type, trait_name: &str) -> bool {
+        match concrete_type {
+            Type::Struct { name } | Type::Enum { name, .. } => self
+                .trait_impls
+                .contains_key(&(trait_name.to_string(), name.clone())),
+            Type::TypeParameter { name } => self
+                .get_generic_bounds(name)
+                .map(|bounds| bounds.iter().any(|bound| bound == trait_name))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    fn validate_type_parameter_bounds(
+        &mut self,
+        function_name: &str,
+        type_params: &[crate::ast::TypeParameter],
+        substitutions: &HashMap<String, Type>,
+        span: Span,
+    ) {
+        for param in type_params {
+            let Some(concrete_type) = substitutions.get(&param.name) else {
+                continue;
+            };
+
+            if matches!(concrete_type, Type::Unknown) {
+                continue;
+            }
+
+            for trait_name in &param.bounds {
+                if !self.type_satisfies_trait_bound(concrete_type, trait_name) {
+                    self.error_coded_with_hint(
+                        "E010",
+                        format!(
+                            "Type '{}' does not satisfy trait bound '{}: {}' required by function '{}'",
+                            type_name(concrete_type),
+                            param.name,
+                            trait_name,
+                            function_name
+                        ),
+                        span,
+                        format!(
+                            "Implement trait '{}' for type '{}' before passing it to '{}'.",
+                            trait_name,
+                            type_name(concrete_type),
+                            function_name
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    fn module_export_names(exports: &ModuleExports) -> String {
+        let mut names = exports
+            .functions
+            .keys()
+            .chain(exports.types.keys())
+            .cloned()
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+
+        if names.is_empty() {
+            "<none>".to_string()
+        } else {
+            names.join(", ")
+        }
+    }
+
+    fn namespace_export_names(&self, namespace: &str) -> Vec<String> {
+        let prefix = format!("{}.", namespace);
+        let mut names = self
+            .functions
+            .keys()
+            .filter_map(|name| name.strip_prefix(&prefix).map(str::to_string))
+            .filter(|name| !name.contains('.'))
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    fn report_unknown_qualified_member(
+        &mut self,
+        module_path: &str,
+        member_name: &str,
+        exports: &ModuleExports,
+        span: Span,
+    ) {
+        self.error_coded_with_hint(
+            "E011",
+            format!(
+                "Module '{}' does not export member '{}'",
+                module_path, member_name
+            ),
+            span,
+            format!(
+                "Available exports from '{}': {}",
+                module_path,
+                Self::module_export_names(exports)
+            ),
+        );
+    }
+
+    fn report_unknown_qualified_member_names(
+        &mut self,
+        module_path: &str,
+        member_name: &str,
+        export_names: Vec<String>,
+        span: Span,
+    ) {
+        let exports = if export_names.is_empty() {
+            "<none>".to_string()
+        } else {
+            export_names.join(", ")
+        };
+        self.error_coded_with_hint(
+            "E011",
+            format!(
+                "Module '{}' does not export member '{}'",
+                module_path, member_name
+            ),
+            span,
+            format!("Available exports from '{}': {}", module_path, exports),
+        );
     }
 
     fn substitute_type_parameters(&self, ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
@@ -2695,6 +2830,8 @@ impl SemanticAnalyzer {
                         };
 
                         self.functions.insert(func.name.clone(), signature.clone());
+                        self.function_type_params
+                            .insert(func.name.clone(), func.type_params.clone());
                         // Store the full function type so that passing the
                         // function as a first-class value gives the correct
                         // `Fn(params) -> return_type` type instead of just the
@@ -2849,6 +2986,23 @@ impl SemanticAnalyzer {
 
         for item in &module.items {
             self.enforce_visibility_rules(item);
+        }
+
+        // Trait implementations must be visible before function body analysis so
+        // generic bound checks do not depend on textual item order. Full impl
+        // validation and method-body analysis still run in the normal item pass.
+        for item in &module.items {
+            match item {
+                Item::TraitImpl(trait_impl) => {
+                    self.predeclare_trait_impl(&trait_impl.trait_name, &trait_impl.type_name);
+                }
+                Item::Impl(impl_block) => {
+                    if let Some(trait_name) = &impl_block.trait_name {
+                        self.predeclare_trait_impl(trait_name, &impl_block.type_name);
+                    }
+                }
+                _ => {}
+            }
         }
 
         // Second pass: analyze function bodies
@@ -3263,6 +3417,13 @@ impl SemanticAnalyzer {
         }
 
         aliases
+    }
+
+    fn predeclare_trait_impl(&mut self, trait_name: &str, type_name: &str) {
+        if self.traits.contains_key(trait_name) {
+            self.trait_impls
+                .insert((trait_name.to_string(), type_name.to_string()), true);
+        }
     }
 
     fn analyze_trait_impl(&mut self, trait_impl: &crate::ast::TraitImpl) {
@@ -5264,6 +5425,20 @@ impl SemanticAnalyzer {
                                     );
                                 }
                             }
+
+                            let substitutions = self
+                                .infer_type_parameter_substitutions(&signature.params, arguments);
+                            let type_params = self
+                                .function_type_params
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_default();
+                            self.validate_type_parameter_bounds(
+                                name,
+                                &type_params,
+                                &substitutions,
+                                expr.span,
+                            );
                         }
                     } else if let Some(symbol_ty) =
                         self.lookup_symbol(name).map(|info| info.ty.clone())
@@ -6281,15 +6456,15 @@ impl SemanticAnalyzer {
 
                 if let Some(path) = namespace_path(object) {
                     let qualified_name = format!("{}.{}", path, method_name);
+                    let exports_cloned: Option<ModuleExports> = self
+                        .registry
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .get_module(&path)
+                        .cloned();
                     let qualified_sig =
                         self.functions.get(&qualified_name).cloned().or_else(|| {
-                            let exports_cloned: Option<ModuleExports> = self
-                                .registry
-                                .read()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .get_module(&path)
-                                .cloned();
-                            exports_cloned.and_then(|exports| {
+                            exports_cloned.as_ref().and_then(|exports| {
                                 exports.functions.get(method_name.as_str()).map(|func| {
                                     FunctionSignature {
                                         params: func.params.clone(),
@@ -6343,6 +6518,29 @@ impl SemanticAnalyzer {
                             }
                         }
 
+                        self.record_expression_type(expr);
+                        return;
+                    }
+
+                    if let Some(exports) = exports_cloned.as_ref() {
+                        self.report_unknown_qualified_member(
+                            &path,
+                            method_name,
+                            exports,
+                            expr.span,
+                        );
+                        self.record_expression_type(expr);
+                        return;
+                    }
+
+                    if self.module_namespaces.contains(path.as_str()) {
+                        let export_names = self.namespace_export_names(&path);
+                        self.report_unknown_qualified_member_names(
+                            &path,
+                            method_name,
+                            export_names,
+                            expr.span,
+                        );
                         self.record_expression_type(expr);
                         return;
                     }
@@ -7435,6 +7633,9 @@ impl SemanticAnalyzer {
 
                 let actual = self.infer_expression_type(expr);
                 if matches!(actual, Type::Unknown) {
+                    if self.has_error_at_span(expr.span) {
+                        return;
+                    }
                     self.error_with_hint(
                         "Cannot determine return type: the expression has an unknown or uninferrable type",
                         expr.span,

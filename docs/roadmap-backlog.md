@@ -324,7 +324,7 @@ as `match value { ... }` are not misclassified as struct literals.
 
 ## R-108 Diagnostic Classification Hardening
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `frontend`
 - Dependencies: `R-105`, `R-203`
@@ -332,31 +332,34 @@ as `match value { ... }` are not misclassified as struct literals.
 ### Problems Found
 
 - `tests/errors/trait_bound_missing_method_stress.spectra` currently fails with
-  `error[internal]` for a user-level trait bound violation.
+  a midend diagnostic for a user-level trait bound violation.
 - `tests/errors/std_alias_unknown_member.spectra` currently fails with a generic
   "unknown or uninferrable type" diagnostic instead of a precise missing member
   diagnostic for `math.not_a_function`.
 
-Both cases fail fast, so they are safe in the negative test suite, but the
-diagnostic classification is not production quality.
+Both cases now fail during semantic analysis with stable codes and without
+cascading fallback diagnostics.
 
 ### Scope
 
-- route trait-bound specialization failures through semantic diagnostics
-- improve qualified module/member lookup diagnostics for aliases
+- route trait-bound specialization failures through semantic diagnostics before midend lowering
+- improve qualified module/member lookup diagnostics for imports, stdlib modules, and aliases
 - keep candidate export hints for known modules
 - add assertions or validation coverage for diagnostic family/category
 
 ### Acceptance
 
-- trait bound violations in user code are reported as semantic diagnostics, not internal errors
+- trait bound violations in user code are reported as semantic diagnostics, not internal or midend errors
 - unknown qualified module members report the missing member and candidate module exports
-- regression tests assert diagnostic category and message for these cases
+- regression tests assert diagnostic category, stable code, message, and lack of cascading diagnostics for these cases
 
 ### Evidence
 
-- Found while creating `tests/errors/trait_bound_missing_method_stress.spectra`.
-- Found while creating `tests/errors/std_alias_unknown_member.spectra`.
+- `tests/errors/trait_bound_missing_method_stress.spectra` now emits one `error[E010]` semantic diagnostic.
+- `tests/errors/std_alias_unknown_member.spectra` now emits one `error[E011]` semantic diagnostic with available `math` exports.
+- `compiler/tests/stage_smoke.rs` asserts both regressions are semantic, coded, non-cascading, and not midend.
+- `scripts/validate_r108_diagnostic_classification.py` validates the CLI JSON contract and is integrated into `run_tests.ps1`.
+- Focused validation: `cargo test -p spectra-compiler`; `python scripts\validate_r108_diagnostic_classification.py --binary target\debug\spectralang.exe`.
 
 ---
 

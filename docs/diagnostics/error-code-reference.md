@@ -44,6 +44,8 @@ The following set is the current stable Phase 1 table for high-frequency diagnos
 | `E007` | semantic | `break` outside loop | move `break` into a loop body |
 | `E008` | semantic | `continue` outside loop | move `continue` into a loop body |
 | `E009` | semantic | generic or trait-bound inference failure | provide required type arguments or satisfy the bound |
+| `E010` | semantic | unsatisfied generic trait bound | implement the required trait for the concrete type before calling the generic function |
+| `E011` | semantic | unknown qualified module member | use an exported member from the module or import alias; inspect the candidate export list |
 
 This satisfies the Phase 1 acceptance target of at least 20 high-frequency diagnostics with actionable remediation guidance.
 
