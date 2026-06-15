@@ -3001,7 +3001,7 @@ blocks to a state-machine SSA that integrates with the runtime scheduler.
 
 ## R-2104 Event Loop Multiplexer (epoll/IOCP/kqueue)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
@@ -3022,6 +3022,32 @@ platform-specific backends for `epoll` (Linux), `IOCP` (Windows), and
   interface.
 - The reactor is documented in the runtime crate with platform-specific
   notes.
+
+### Completed in this pass
+
+- Added `runtime::reactor` with automatic backend selection labels for Linux
+  `epoll`, Windows `IOCP`, macOS/BSD `kqueue`, and a portable fallback,
+  backed by `mio::Poll` for the platform readiness multiplexer.
+- Added one reactor interface for task wakeups, timer readiness, and I/O
+  readiness registration/notification.
+- Connected `spectra.async.task.ready` and `spectra.async.task.cancel` to the
+  global reactor wake queue.
+- Added host calls under `spectra.async.reactor.*` for backend inspection,
+  wakeups, timers, I/O registration/notification, polling, last-event metadata,
+  stats, and reset.
+- Added runtime crate documentation in `runtime/src/reactor/mod.rs` covering
+  platform-specific backend notes and the scheduler/reactor boundary.
+- Validation: `cargo test -q -p spectra-runtime reactor`,
+  `cargo test -q -p spectra-runtime async_reactor`,
+  `python scripts\validate_r2104_reactor.py`, and the checked fixture
+  `tests/validation/123_async_reactor_ready_tasks.spectra`.
+
+### Remaining outside this item
+
+- `R-2105` owns `CancelHandle`, timeout APIs, structured task scopes, and
+  parent-child cancellation propagation.
+- `R-2107` owns public async filesystem, TCP, UDP, and channel APIs on top of
+  this reactor boundary.
 
 ## R-2105 Cancellation, Timeouts, and Structured Concurrency
 

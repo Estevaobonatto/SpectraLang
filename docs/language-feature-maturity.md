@@ -138,6 +138,8 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - async/await execution baseline: `async fn`, `async { ... }`, `Task<T>`,
   `await`, deterministic ready/poll/result/cancel host calls, and explicit
   suspend/resume/ready IR markers
+- async reactor baseline: platform-selected `epoll` / `IOCP` / `kqueue`
+  boundary with shared task wakeup, timer readiness, and I/O readiness events
 - first-class tensor language design beyond the current stdlib handle/autodiff API
 - native DWARF/PDB source stepping beyond the current AOT debug-map workflow
 - HTTP/gRPC serving, async I/O integration, distributed model residency policy, and external policy-engine integration
@@ -169,9 +171,9 @@ CLI compatibility contract:
 - native CUDA/ROCm/Metal/DirectML/Vulkan backends beyond the current optional `wgpu` baseline
 - `.npz`, safetensors, checkpoints, and ONNX import/export beyond the current `.npy` baseline
 - network package registry protocol, authentication, provenance signatures, and semver range solving beyond exact local versions
-- platform reactor backends, non-blocking filesystem/network operations,
-  structured concurrency trees, async test macros, `Stream<T>`, and async trait
-  object production hardening beyond the `R-2103` deterministic task baseline
+- public non-blocking filesystem/network operations, structured concurrency
+  trees, timeout APIs, async test macros, `Stream<T>`, and async trait object
+  production hardening beyond the `R-2103`/`R-2104` async runtime baseline
 
 ## Synchronization Rules
 

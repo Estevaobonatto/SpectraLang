@@ -4,6 +4,7 @@ use crate::ffi::{
 };
 use crate::initialize;
 use crate::memory::ManualBox;
+use crate::reactor::{self, Interest, ReactorEvent};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -387,6 +388,21 @@ const ASYNC_TASK_CANCEL: &str = "spectra.async.task.cancel";
 const ASYNC_TASK_IS_CANCELLED: &str = "spectra.async.task.is_cancelled";
 const ASYNC_TASK_RESET: &str = "spectra.async.task.reset";
 
+const ASYNC_REACTOR_BACKEND: &str = "spectra.async.reactor.backend";
+const ASYNC_REACTOR_WAKE: &str = "spectra.async.reactor.wake";
+const ASYNC_REACTOR_TIMER: &str = "spectra.async.reactor.timer";
+const ASYNC_REACTOR_IO_REGISTER: &str = "spectra.async.reactor.io_register";
+const ASYNC_REACTOR_IO_NOTIFY: &str = "spectra.async.reactor.io_notify";
+const ASYNC_REACTOR_POLL: &str = "spectra.async.reactor.poll";
+const ASYNC_REACTOR_LAST_KIND: &str = "spectra.async.reactor.last_kind";
+const ASYNC_REACTOR_LAST_READINESS: &str = "spectra.async.reactor.last_readiness";
+const ASYNC_REACTOR_STATS_QUEUED: &str = "spectra.async.reactor.stats_queued";
+const ASYNC_REACTOR_STATS_TASK_WAKEUPS: &str = "spectra.async.reactor.stats_task_wakeups";
+const ASYNC_REACTOR_STATS_TIMER_EVENTS: &str = "spectra.async.reactor.stats_timer_events";
+const ASYNC_REACTOR_STATS_IO_EVENTS: &str = "spectra.async.reactor.stats_io_events";
+const ASYNC_REACTOR_STATS_IO_REGISTRATIONS: &str = "spectra.async.reactor.stats_io_registrations";
+const ASYNC_REACTOR_RESET: &str = "spectra.async.reactor.reset";
+
 const SERVE_SERVER_NEW: &str = "spectra.std.serve.server_new";
 const SERVE_SERVER_WARMUP: &str = "spectra.std.serve.server_warmup";
 const SERVE_SERVER_IS_WARM: &str = "spectra.std.serve.server_is_warm";
@@ -761,6 +777,35 @@ fn register_async() {
     register_host_function(ASYNC_TASK_CANCEL, std_async_task_cancel);
     register_host_function(ASYNC_TASK_IS_CANCELLED, std_async_task_is_cancelled);
     register_host_function(ASYNC_TASK_RESET, std_async_task_reset);
+    register_host_function(ASYNC_REACTOR_BACKEND, std_async_reactor_backend);
+    register_host_function(ASYNC_REACTOR_WAKE, std_async_reactor_wake);
+    register_host_function(ASYNC_REACTOR_TIMER, std_async_reactor_timer);
+    register_host_function(ASYNC_REACTOR_IO_REGISTER, std_async_reactor_io_register);
+    register_host_function(ASYNC_REACTOR_IO_NOTIFY, std_async_reactor_io_notify);
+    register_host_function(ASYNC_REACTOR_POLL, std_async_reactor_poll);
+    register_host_function(ASYNC_REACTOR_LAST_KIND, std_async_reactor_last_kind);
+    register_host_function(
+        ASYNC_REACTOR_LAST_READINESS,
+        std_async_reactor_last_readiness,
+    );
+    register_host_function(ASYNC_REACTOR_STATS_QUEUED, std_async_reactor_stats_queued);
+    register_host_function(
+        ASYNC_REACTOR_STATS_TASK_WAKEUPS,
+        std_async_reactor_stats_task_wakeups,
+    );
+    register_host_function(
+        ASYNC_REACTOR_STATS_TIMER_EVENTS,
+        std_async_reactor_stats_timer_events,
+    );
+    register_host_function(
+        ASYNC_REACTOR_STATS_IO_EVENTS,
+        std_async_reactor_stats_io_events,
+    );
+    register_host_function(
+        ASYNC_REACTOR_STATS_IO_REGISTRATIONS,
+        std_async_reactor_stats_io_registrations,
+    );
+    register_host_function(ASYNC_REACTOR_RESET, std_async_reactor_reset);
 }
 
 fn register_serve() {
@@ -12478,6 +12523,19 @@ fn lock_async_task_registry() -> Result<std::sync::MutexGuard<'static, AsyncTask
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
 }
 
+fn async_last_reactor_event() -> &'static Mutex<Option<ReactorEvent>> {
+    static LAST: OnceLock<Mutex<Option<ReactorEvent>>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(None))
+}
+
+fn set_async_last_reactor_event(event: Option<ReactorEvent>) -> Result<(), i32> {
+    let mut last = async_last_reactor_event()
+        .lock()
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    *last = event;
+    Ok(())
+}
+
 extern "C" fn std_async_task_ready(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
@@ -12496,6 +12554,7 @@ extern "C" fn std_async_task_ready(ctx: *mut SpectraHostCallContext) -> i32 {
             cancelled: false,
         },
     );
+    reactor::global().wake_task(task_id);
     results[0] = task_id;
     HOST_STATUS_SUCCESS
 }
@@ -12548,6 +12607,7 @@ extern "C" fn std_async_task_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
         return HOST_STATUS_NOT_FOUND;
     };
     task.cancelled = true;
+    reactor::global().wake_task(args[0]);
     results[0] = 1;
     HOST_STATUS_SUCCESS
 }
@@ -12579,6 +12639,171 @@ extern "C" fn std_async_task_reset(ctx: *mut SpectraHostCallContext) -> i32 {
         Err(status) => return status,
     };
     registry.clear();
+    reactor::global().reset();
+    if set_async_last_reactor_event(None).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_backend(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    results[0] = reactor::global().backend().as_code();
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_wake(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    reactor::global().wake_task(args[0]);
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_timer(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] < 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    reactor::global().register_timer(args[0], Duration::from_millis(args[1] as u64));
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_io_register(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let Some(interest) = Interest::from_bits(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    results[0] = i64::from(reactor::global().register_io(args[0], interest));
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_io_notify(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let Some(readiness) = Interest::from_bits(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    results[0] = i64::from(reactor::global().notify_io(args[0], readiness));
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_poll(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[0] < -1 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let timeout = if args[0] < 0 {
+        None
+    } else {
+        Some(Duration::from_millis(args[0] as u64))
+    };
+    let event = reactor::global().poll(timeout);
+    if set_async_last_reactor_event(event).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    results[0] = event.map(|event| event.token).unwrap_or(-1);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_last_kind(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let last = match async_last_reactor_event().lock() {
+        Ok(last) => last,
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    results[0] = last.map(|event| event.kind.as_code()).unwrap_or(0);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_last_readiness(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let last = match async_last_reactor_event().lock() {
+        Ok(last) => last,
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    results[0] = last.map(|event| event.readiness.bits()).unwrap_or(0);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_stats_queued(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    results[0] = reactor::global().stats().queued as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_stats_task_wakeups(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    results[0] = reactor::global().stats().task_wakeups as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_stats_timer_events(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    results[0] = reactor::global().stats().timer_events as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_stats_io_events(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    results[0] = reactor::global().stats().io_events as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_stats_io_registrations(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    results[0] = reactor::global().stats().io_registrations as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_reactor_reset(ctx: *mut SpectraHostCallContext) -> i32 {
+    let args = match host_call_void_args(ctx, 0) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
+    let _ = args;
+    reactor::global().reset();
+    if set_async_last_reactor_event(None).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
     HOST_STATUS_SUCCESS
 }
 
@@ -16110,6 +16335,100 @@ mod tests {
         assert_eq!(
             call_host(ASYNC_TASK_RESULT, &[cancelled_task]).0,
             HOST_STATUS_INVALID_ARGUMENT
+        );
+    }
+
+    #[test]
+    fn async_reactor_host_calls_cover_backend_wake_timer_and_io() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(ASYNC_REACTOR_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let (status, backend) = call_host(ASYNC_REACTOR_BACKEND, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        #[cfg(target_os = "linux")]
+        assert_eq!(backend, 1);
+        #[cfg(target_os = "windows")]
+        assert_eq!(backend, 2);
+        #[cfg(target_os = "macos")]
+        assert_eq!(backend, 3);
+
+        assert_eq!(
+            call_host(ASYNC_REACTOR_WAKE, &[101]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_REACTOR_IO_REGISTER, &[202, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_REACTOR_IO_NOTIFY, &[202, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_REACTOR_TIMER, &[303, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let mut kinds = Vec::new();
+        for _ in 0..3 {
+            let (status, token) = call_host(ASYNC_REACTOR_POLL, &[100]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            assert_ne!(token, -1);
+            let (status, kind) = call_host(ASYNC_REACTOR_LAST_KIND, &[]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            kinds.push(kind);
+        }
+
+        assert!(kinds.contains(&1));
+        assert!(kinds.contains(&2));
+        assert!(kinds.contains(&3));
+        assert_eq!(
+            call_host(ASYNC_REACTOR_STATS_TASK_WAKEUPS, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_REACTOR_STATS_TIMER_EVENTS, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_REACTOR_STATS_IO_EVENTS, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_REACTOR_STATS_IO_REGISTRATIONS, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_async_reactor_host_calls_handle_10k_task_wakeups() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(ASYNC_REACTOR_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        for task in 0..10_000 {
+            assert_eq!(
+                call_host(ASYNC_REACTOR_WAKE, &[task]),
+                (HOST_STATUS_SUCCESS, 1)
+            );
+        }
+
+        let mut drained = 0usize;
+        while call_host(ASYNC_REACTOR_POLL, &[0]).1 != -1 {
+            drained += 1;
+        }
+
+        assert_eq!(drained, 10_000);
+        assert_eq!(
+            call_host(ASYNC_REACTOR_STATS_TASK_WAKEUPS, &[]),
+            (HOST_STATUS_SUCCESS, 10_000)
         );
     }
 

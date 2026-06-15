@@ -6,6 +6,7 @@ pub mod ffi;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod memory;
+pub mod reactor;
 pub mod stdlib;
 
 pub use memory::{

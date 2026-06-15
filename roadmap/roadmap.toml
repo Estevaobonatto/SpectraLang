@@ -1464,7 +1464,7 @@ title = "Event Loop Multiplexer (epoll/IOCP/kqueue)"
 phase = "phase_21"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2103"]
 summary = "Implement the runtime reactor that drives async tasks, with platform-specific backends for epoll (Linux), IOCP (Windows), and kqueue (macOS)."
@@ -1472,7 +1472,8 @@ acceptance = [
   "the runtime detects the platform and selects the matching backend automatically",
   "a focused test exercises 10k concurrently suspended tasks on Linux",
   "task wakeups, timer events, and I/O events share a single reactor interface",
-  "the reactor is documented in the runtime crate with platform-specific notes"
+  "the reactor is documented in the runtime crate with platform-specific notes",
+  "`scripts/validate_r2104_reactor.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

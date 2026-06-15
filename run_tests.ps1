@@ -1091,6 +1091,19 @@ if ($r2103AsyncLowering.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2103_async_lowering"; Status = $r2103AsyncLowering.Status; Detalhe = $r2103AsyncLowering.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.29: R-2104 event loop multiplexer
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2104 event loop multiplexer ---" -ForegroundColor Yellow
+$r2104Reactor = Invoke-HostCommand -name "validate_r2104_reactor" -fileName "python" -arguments @("scripts\validate_r2104_reactor.py") -workingDir (Get-Location).Path
+if ($r2104Reactor.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2104_reactor"; Status = $r2104Reactor.Status; Detalhe = $r2104Reactor.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

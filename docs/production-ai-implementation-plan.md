@@ -1628,7 +1628,9 @@ The eight phases are summarized below; the detailed items live in
 - `R-2103` `await` expression and async lowering (complete; `Task<T>` baseline,
   explicit suspend/resume/ready IR markers, deterministic task host calls, and
   validation gate landed)
-- `R-2104` Event loop multiplexer (epoll/IOCP/kqueue)
+- `R-2104` Event loop multiplexer (complete; platform-selected reactor
+  boundary, shared task/timer/I/O readiness interface, host-call surface, and
+  validation gate landed)
 - `R-2105` Cancellation, timeouts, structured concurrency
 - `R-2106` `Stream<T>` and stream adaptors
 - `R-2107` Async stdlib: `fs`, `tcp`, `channel`
