@@ -114,6 +114,46 @@ id = "phase_20"
 name = "Production Certification"
 goal = "Establish compatibility, benchmark, conformance, and release gates for production AI users."
 
+[[phases]]
+id = "phase_21"
+name = "Async Language Core"
+goal = "Promote async/await from a runtime primitive into a first-class language and runtime model that supports 10k+ concurrent connections."
+
+[[phases]]
+id = "phase_22"
+name = "API Library Foundation"
+goal = "Deliver the `spectra.api` library: HTTP/1.1 server and client, JSON, routing, TLS, and the package surface that teams will use to build APIs."
+
+[[phases]]
+id = "phase_23"
+name = "Middleware and Security"
+goal = "Add production middleware, authentication, authorization, threat mitigation, and unified error handling for `spectra.api`."
+
+[[phases]]
+id = "phase_24"
+name = "Advanced API Features"
+goal = "Cover WebSocket, SSE, HTTP/2, OpenAPI, caching, versioning, pagination, content negotiation, and other production API features."
+
+[[phases]]
+id = "phase_25"
+name = "Persistence and Database"
+goal = "Provide production-grade connection pooling, SQL query builder, migrations, first-class drivers for PostgreSQL/SQLite/Redis, and a minimal ORM."
+
+[[phases]]
+id = "phase_26"
+name = "API Tooling and Developer Experience"
+goal = "Make `spectra.api` pleasant to develop: scaffolder, hot reload, tests, mock, Swagger UI, IDE integration, and graceful shutdown."
+
+[[phases]]
+id = "phase_27"
+name = "Observability and API Operations"
+goal = "Deliver OpenTelemetry tracing, Prometheus metrics, audit logs, health checks, and per-tenant rate limiting for production API operations."
+
+[[phases]]
+id = "phase_28"
+name = "API Conformance and Release"
+goal = "Certify `spectra.api` v1.0: conformance suite, interop tests, full example gallery, production hardening, and registry release."
+
 [[items]]
 id = "R-001"
 title = "ADR Foundation"
@@ -1344,3 +1384,1913 @@ acceptance = [
   "CLI and package metadata report channel and compatibility level",
   "deprecation warnings and migration guidance are tested"
 ]
+
+[[items]]
+id = "R-2101"
+title = "ADR: Async/Await Execution Model"
+phase = "phase_21"
+owner = "frontend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = []
+summary = "Decide the asynchronous execution model for Spectra: stackless coroutines vs stackful, polling vs callback, Task<T>/Stream<T> types, cancellation, and pinning semantics."
+acceptance = [
+  "ADR `docs/adr/0010-async-execution-model.md` is committed and approved",
+  "the ADR fixes the syntax surface for `async fn`, `await`, `Task<T>`, `Stream<T>`, and `Pin`",
+  "the ADR covers lowering strategy to a state machine SSA and the runtime scheduler interface",
+  "the ADR addresses Send/Sync rules, structured concurrency, and cancellation propagation"
+]
+
+[[items]]
+id = "R-2102"
+title = "Async fn and Async Block in Frontend"
+phase = "phase_21"
+owner = "frontend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2101"]
+summary = "Parse and represent `async fn`, async block expressions, and async closures in the lexer, parser, and AST."
+acceptance = [
+  "`async fn` is parsed in function declarations and method declarations",
+  "`async { ... }` is parsed as an async block expression",
+  "AST introduces `AsyncFunctionDecl` and `AsyncBlock` nodes with deterministic children",
+  "the parser produces actionable diagnostics for missing or misplaced `async`/`await`",
+  "snapshot tests cover happy path and a representative set of malformed inputs"
+]
+
+[[items]]
+id = "R-2103"
+title = "Await Expression and Async Lowering"
+phase = "phase_21"
+owner = "frontend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2102"]
+summary = "Add `await` as a first-class expression and lower async functions/blocks to a state-machine SSA that integrates with the runtime scheduler."
+acceptance = [
+  "`await <expr>` parses and type-checks as a suspend point",
+  "async functions lower to SSA with explicit suspend/resume markers",
+  "Cranelift backend compiles the lowered state machine for a minimal async function",
+  "structured async tests cover happy path, early return, and explicit cancellation"
+]
+
+[[items]]
+id = "R-2104"
+title = "Event Loop Multiplexer (epoll/IOCP/kqueue)"
+phase = "phase_21"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2103"]
+summary = "Implement the runtime reactor that drives async tasks, with platform-specific backends for epoll (Linux), IOCP (Windows), and kqueue (macOS)."
+acceptance = [
+  "the runtime detects the platform and selects the matching backend automatically",
+  "a focused test exercises 10k concurrently suspended tasks on Linux",
+  "task wakeups, timer events, and I/O events share a single reactor interface",
+  "the reactor is documented in the runtime crate with platform-specific notes"
+]
+
+[[items]]
+id = "R-2105"
+title = "Cancellation, Timeouts, and Structured Concurrency"
+phase = "phase_21"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2104"]
+summary = "Add `CancelHandle`, `with_timeout`, scope-based join, and parent-child cancellation for async tasks."
+acceptance = [
+  "cancelling a parent task cancels every child task in the scope",
+  "`with_timeout(duration)` cancels the wrapped future deterministically when the deadline elapses",
+  "`JoinHandle<T>` returns the task result or a structured cancellation error",
+  "deterministic tests cover cascading cancellation, timeout, and join ordering"
+]
+
+[[items]]
+id = "R-2106"
+title = "Stream Type and Stream Adaptors"
+phase = "phase_21"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2105"]
+summary = "Add a first-class `Stream<T>` type with map, filter, fold, take, skip, chunks, fuse, and backpressure-aware composition."
+acceptance = [
+  "the public `Stream<T>` API exposes the documented adaptors",
+  "slower consumers do not block faster producers (backpressure)",
+  "stream finish is deterministic when the upstream signals `done`",
+  "tests cover happy path, cancellation mid-stream, and consumer-faster-than-producer"
+]
+
+[[items]]
+id = "R-2107"
+title = "Async Standard Library Surface"
+phase = "phase_21"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2105"]
+summary = "Expose async counterparts for filesystem, TCP, UDP, and channel operations through the standard library."
+acceptance = [
+  "`fs.read_async` and `fs.write_async` are available with cancellation support",
+  "`tcp.connect_async`, `tcp.accept_async`, and `udp` operations are exposed",
+  "async `channel.send`/`channel.recv` are available alongside the existing sync channels",
+  "tests cover async socket reads/writes and clean cancellation"
+]
+
+[[items]]
+id = "R-2108"
+title = "Async Trait Objects and dyn Future"
+phase = "phase_21"
+owner = "semantic"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2103"]
+summary = "Support object-safe async trait methods and `Box<dyn Future>`/`Box<dyn Stream>` for dynamic dispatch."
+acceptance = [
+  "`dyn Future` and `dyn Stream` compile and dispatch through virtual tables",
+  "async methods in traits follow the documented object-safety rules",
+  "non-object-safe async trait methods emit a stable diagnostic with the offending method"
+]
+
+[[items]]
+id = "R-2109"
+title = "Async Test Runtime and Test Macros"
+phase = "phase_21"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2107"]
+summary = "Provide `#[spectra_async_test]` plus a `block_on` runtime so API test code can use plain `async fn` without manual setup."
+acceptance = [
+  "`#[spectra_async_test]` runs async test functions inside the Spectra test runner",
+  "`block_on(future)` is available in test code without external setup",
+  "tests can be filtered, listed, and reported like synchronous tests"
+]
+
+[[items]]
+id = "R-2110"
+title = "Async Diagnostics and Send/Sync Validation"
+phase = "phase_21"
+owner = "semantic"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2103"]
+summary = "Emit stable semantic diagnostics for `Send`/`Sync` violations across await points, `RefCell` held across await, and other async borrow errors."
+acceptance = [
+  "stable diagnostic codes `E2101` through `E2120` are documented",
+  "non-`Send` types held across await produce a precise semantic diagnostic with span",
+  "`!Send` types crossing task boundaries are reported before runtime",
+  "regression tests cover each diagnostic family"
+]
+
+[[items]]
+id = "R-2111"
+title = "Async Benchmarks and Profiling"
+phase = "phase_21"
+owner = "tooling"
+priority = "P2"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2107"]
+summary = "Add an async benchmark harness that emits p50/p95/p99 latency, throughput, and concurrent connection counts for async workloads."
+acceptance = [
+  "`spectralang bench --async` runs async micro-benchmarks and emits JSON",
+  "the suite covers 1k, 10k, and 100k concurrent tasks",
+  "the JSON report is machine-readable and is compared against a checked-in baseline"
+]
+
+[[items]]
+id = "R-2201"
+title = "ADR: API Library Architecture"
+phase = "phase_22"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2107"]
+summary = "Decide the structural model for the new `spectra.api` library: a separate Rust companion crate, a Spectra package, the `std.api.*` binding surface, and the relationship with `std`."
+acceptance = [
+  "ADR `docs/adr/0011-api-library-architecture.md` is committed and approved",
+  "the ADR fixes the crate layout, the package name, the import path, and the public API surface",
+  "the ADR documents the migration path from any prior ad-hoc `std` web modules",
+  "the ADR identifies the supported HTTP versions, TLS model, and async dependencies"
+]
+
+[[items]]
+id = "R-2202"
+title = "spectra-api Rust Crate and Host Call Registration"
+phase = "phase_22"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2201"]
+summary = "Add a new workspace crate `spectra-api` that hosts the Rust implementation of HTTP parsing, server, client, JSON, TLS, and registers the host calls that `std.api.*` will dispatch into."
+acceptance = [
+  "the new crate compiles in the workspace and links against the existing runtime",
+  "host calls are registered in the runtime host-call registry",
+  "the crate has unit tests for the registered host functions",
+  "a focused script verifies host call naming and registration count"
+]
+
+[[items]]
+id = "R-2203"
+title = "std.api Surface in Semantic Analysis"
+phase = "phase_22"
+owner = "semantic"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2202"]
+summary = "Expose `std.api.*` to the semantic analyzer with the public function signatures, struct types, and trait surface declared by the `spectra.api` package."
+acceptance = [
+  "`std.api.*` is visible in the formatter, LSP completion, and `spectralang --list-experimental`",
+  "type checking resolves qualified `std.api.*` calls without false missing-module diagnostics",
+  "snapshot tests cover the public function table"
+]
+
+[[items]]
+id = "R-2204"
+title = "HTTP/1.1 Parser"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2107", "R-2202"]
+summary = "Implement a streaming HTTP/1.1 request and response parser, including request line, status line, headers, chunked transfer encoding, and keep-alive."
+acceptance = [
+  "the parser produces structured request and response values with headers and body chunks",
+  "chunked transfer encoding round-trips through the parser in both directions",
+  "malformed input returns a typed parse error with the offending position",
+  "tests cover representative RFC 7230 samples and known-malformed inputs"
+]
+
+[[items]]
+id = "R-2205"
+title = "HTTP/1.1 Server"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2204"]
+summary = "Implement the HTTP/1.1 server: accept loop, connection state, request body limits, response writer, and per-connection timeouts."
+acceptance = [
+  "an end-to-end test exercises GET, POST with body, chunked responses, and HEAD",
+  "body size limits and slowloris protections are enforced",
+  "the server cleans up connections on timeout, body-limit violation, and parse error",
+  "the server survives 10k concurrent connections on the local test machine"
+]
+
+[[items]]
+id = "R-2206"
+title = "HTTP/1.1 Client"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2204"]
+summary = "Implement the HTTP/1.1 client: connection pool, redirect handling, configurable timeouts, and structured responses."
+acceptance = [
+  "the client supports GET, POST, PUT, PATCH, DELETE, and HEAD with arbitrary bodies",
+  "redirect chains (up to the configured limit) are followed with the right method semantics",
+  "timeouts, connection failures, and protocol errors are reported as typed errors",
+  "tests cover redirect chains, large bodies, and explicit timeout"
+]
+
+[[items]]
+id = "R-2207"
+title = "TLS via rustls (HTTPS Server and Client)"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2206", "R-2205"]
+summary = "Add HTTPS support using `rustls` for both the server and the client, with SNI, configurable certificate chains, and ALPN negotiation."
+acceptance = [
+  "an HTTPS server runs a self-signed certificate in the integration test",
+  "an HTTPS client connects to a known external test endpoint and validates the chain",
+  "ALPN advertises `http/1.1` (and `h2` when Phase 24 lands it)",
+  "TLS handshake failures are reported as typed errors with the underlying cause"
+]
+
+[[items]]
+id = "R-2208"
+title = "std.api.json Encoder and Decoder"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2202"]
+summary = "Implement a JSON encoder and decoder that handles primitives, arrays, maps, null, nested structures, and common escape sequences for the public API surface."
+acceptance = [
+  "round-trip tests cover primitives, nested structures, arrays, maps, and null",
+  "invalid JSON returns a typed parse error with byte offset",
+  "the encoder produces valid RFC 8259 JSON for all supported values",
+  "the surface is exposed through `std.api.json.*` and documented in the book"
+]
+
+[[items]]
+id = "R-2209"
+title = "JSON Derive: Serialize and Deserialize"
+phase = "phase_22"
+owner = "frontend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2208"]
+summary = "Add `#[derive(Serialize, Deserialize)]` to the language so structs and enums can be encoded/decoded through the JSON runtime."
+acceptance = [
+  "the derive macro generates code that uses `std.api.json.*`",
+  "optional fields and explicit renaming are supported",
+  "invalid input produces a typed error that points to the failing field",
+  "tests cover happy path, missing field, wrong type, and rename"
+]
+
+[[items]]
+id = "R-2210"
+title = "Request, Response, Header, Cookie, Method, Status Types"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2204"]
+summary = "Define the core HTTP types in the public `std.api.*` surface: `Request`, `Response`, `Header`, `Cookie`, `Method`, and `Status`."
+acceptance = [
+  "the types are usable as handler parameters and return values",
+  "`Method` and `Status` enumerate the documented values",
+  "header and cookie accessors are case-insensitive and validate input",
+  "tests cover representative CRUD request/response flows"
+]
+
+[[items]]
+id = "R-2211"
+title = "Router: Path Matching and Wildcards"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2210"]
+summary = "Implement a router that supports literal paths, path parameters (`{id}`), wildcards (`*`), and optional regex constraints."
+acceptance = [
+  "the router matches `/users`, `/users/{id}`, `/files/*path`, and `/orders/{id:\\d+}`",
+  "path parameters are available in the request handler as typed values",
+  "route conflicts (e.g. literal vs parameter) are reported with the conflicting paths",
+  "tests cover 100k registered routes with sub-millisecond lookup"
+]
+
+[[items]]
+id = "R-2212"
+title = "Query String Parser and Binding"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2210"]
+summary = "Parse query strings and bind them to struct fields, including repeated keys, arrays, and basic type coercion."
+acceptance = [
+  "query strings parse to a structured map and to a typed struct when bound",
+  "repeated keys become arrays; mismatched types produce typed errors",
+  "URL decoding and reserved character handling are RFC 3986 compliant",
+  "tests cover simple, repeated, and malformed queries"
+]
+
+[[items]]
+id = "R-2213"
+title = "URL-Encoded Form Binding"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2212"]
+summary = "Parse `application/x-www-form-urlencoded` bodies and bind them to struct fields, including arrays and nested objects."
+acceptance = [
+  "form bodies parse to a typed struct or to a key-value map",
+  "duplicate keys produce a typed error with the offending field",
+  "missing required fields produce a validation error with the field name",
+  "tests cover happy path, malformed input, and field validation failures"
+]
+
+[[items]]
+id = "R-2214"
+title = "Multipart Form and File Uploads"
+phase = "phase_22"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2213"]
+summary = "Parse `multipart/form-data` bodies, expose file uploads through a streaming interface, and enforce size and count limits."
+acceptance = [
+  "the parser exposes text parts, file parts, and stream-friendly file readers",
+  "per-request size limits and per-part count limits are enforced",
+  "files are streamed to disk or a sink to avoid loading them entirely in memory",
+  "tests cover simple forms, multiple files, and oversize rejection"
+]
+
+[[items]]
+id = "R-2215"
+title = "Handler Trait and Response Return"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2210"]
+summary = "Define the `api.handler` trait that user handlers implement and that the router calls to produce a `Response`."
+acceptance = [
+  "the trait supports `async fn` and synchronous handlers",
+  "handlers can return any value that implements `IntoResponse`",
+  "errors thrown by handlers flow through the unified error middleware",
+  "tests cover both handler shapes and trait object dispatch"
+]
+
+[[items]]
+id = "R-2216"
+title = "Server Lifecycle, Listen, Serve, and Graceful Shutdown"
+phase = "phase_22"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2205", "R-2211", "R-2215"]
+summary = "Wire the server lifecycle: `listen`, `serve`, graceful shutdown on signal, and clean teardown of in-flight requests."
+acceptance = [
+  "a server can be started on a configured port and shut down deterministically on SIGINT/SIGTERM",
+  "in-flight requests are given a configurable drain timeout before forced termination",
+  "resources (sockets, pools, timers) are released on shutdown",
+  "tests cover signal handling, drain, and post-shutdown refusal of new connections"
+]
+
+[[items]]
+id = "R-2217"
+title = "spectra.api Package Published to Local Registry"
+phase = "phase_22"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2203", "R-2216"]
+summary = "Publish the `spectra.api` package to the local Phase 9 registry with a clear manifest, dependency declarations, and a deterministic version."
+acceptance = [
+  "`spectralang package add spectra-api` resolves from the local registry",
+  "the manifest pins compatible Spectra and async runtime versions",
+  "`spectralang package build/check/run` work end-to-end on the published package",
+  "the registry entry includes checksum and source path metadata"
+]
+
+[[items]]
+id = "R-2218"
+title = "API Book Chapter: Hello HTTP"
+phase = "phase_22"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2217"]
+summary = "Add a `Hello HTTP` chapter to `docs/book/` that walks through defining a route, returning a typed response, and running the server locally."
+acceptance = [
+  "the chapter is reachable from the book index and from the API reference docs",
+  "the chapter is validated by the existing `scripts/validate_ai_book.py` style validator",
+  "the example in the chapter runs end-to-end on the local machine"
+]
+
+[[items]]
+id = "R-2219"
+title = "API Example: REST CRUD"
+phase = "phase_22"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2217", "R-2209"]
+summary = "Provide a runnable REST CRUD example that exercises routes, JSON, path params, query strings, and form binding through `spectra.api`."
+acceptance = [
+  "`examples/api/01_rest_crud.spectra` builds and runs",
+  "the example uses the public `std.api.*` surface and a real local server",
+  "the example includes a smoke test that asserts the CRUD responses"
+]
+
+[[items]]
+id = "R-2220"
+title = "API Conformance Suite v0 (HTTP/1.1)"
+phase = "phase_22"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2216", "R-2217", "R-2208"]
+summary = "Stand up the v0 API conformance suite covering HTTP/1.1 parsing, status codes, headers, JSON round-trip, and the basic router."
+acceptance = [
+  "`scripts/validate_r2220_api_conformance_v0.py` runs the suite and emits a machine-readable report",
+  "the suite covers the documented must-pass HTTP/1.1 cases and a JSON conformance matrix",
+  "the suite gates `run_tests.ps1` for Phase 22"
+]
+
+[[items]]
+id = "R-2301"
+title = "Middleware Chain Trait and Deterministic Ordering"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2215"]
+summary = "Define the middleware trait, the chain composition, and the deterministic ordering rules (request order, response reverse order)."
+acceptance = [
+  "the middleware trait supports `async fn` and synchronous middleware",
+  "middleware order is deterministic and documented in the book chapter",
+  "the response chain runs in reverse order",
+  "tests cover ordering, short-circuit, and post-response hooks"
+]
+
+[[items]]
+id = "R-2302"
+title = "CORS Middleware (RFC 7231)"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2301"]
+summary = "Add a CORS middleware that handles preflight requests, exposes the documented allow/deny configuration, and emits the correct headers."
+acceptance = [
+  "preflight requests return the correct `Access-Control-*` headers for the configured policy",
+  "exposed headers, allowed methods, allowed origins, and credentials flag are honored",
+  "non-preflight requests receive the correct `Access-Control-Allow-Origin` header",
+  "tests cover permissive, restrictive, and credentialed configurations"
+]
+
+[[items]]
+id = "R-2303"
+title = "Structured Logging and Request ID Tracing"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2301"]
+summary = "Provide a structured logging middleware that emits a request ID, method, path, status, latency, and a configurable log format (JSON or text)."
+acceptance = [
+  "every request gets a unique request ID that flows through the log lines",
+  "the middleware emits one log line per request with the documented fields",
+  "log format is configurable (JSON for production, text for development)",
+  "tests assert the log line contents and the request ID propagation"
+]
+
+[[items]]
+id = "R-2304"
+title = "Rate Limiting (Token Bucket and Sliding Window)"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2301"]
+summary = "Add a rate-limiting middleware supporting token bucket and sliding window, configurable per route, per tenant, and per user."
+acceptance = [
+  "the middleware enforces the configured limit and returns `429` when exceeded",
+  "per-tenant and per-user limits are isolated (one tenant cannot exhaust another tenant's budget)",
+  "configuration is hot-reloadable in dev mode",
+  "tests cover token bucket, sliding window, and per-tenant isolation"
+]
+
+[[items]]
+id = "R-2305"
+title = "Response Compression (gzip, brotli, deflate)"
+phase = "phase_23"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2301"]
+summary = "Add a compression middleware that negotiates gzip, brotli, and deflate based on the `Accept-Encoding` header."
+acceptance = [
+  "the middleware negotiates the best supported encoding from the request",
+  "small responses below the threshold are not compressed",
+  "the `Content-Encoding` and `Vary` headers are set correctly",
+  "tests cover each encoding and the threshold behavior"
+]
+
+[[items]]
+id = "R-2306"
+title = "Security Headers Middleware"
+phase = "phase_23"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2301"]
+summary = "Add a security headers middleware that sets CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy."
+acceptance = [
+  "the middleware applies the configured header policy on every response",
+  "CSP and Permissions-Policy are configurable per route",
+  "HSTS preload and includeSubDomains are honored when configured",
+  "tests assert each header is present and correctly configured"
+]
+
+[[items]]
+id = "R-2307"
+title = "API Key Authentication"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2301"]
+summary = "Add an API key auth middleware that validates keys from a header, a query parameter, or a revocation list."
+acceptance = [
+  "the middleware extracts the key from the configured source",
+  "expired or revoked keys are rejected with `401` and a structured error",
+  "the middleware can be combined with rate limiting per key",
+  "tests cover valid, invalid, expired, and revoked keys"
+]
+
+[[items]]
+id = "R-2308"
+title = "JWT (HS256, RS256, ES256)"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2202"]
+summary = "Implement JWT signing and verification for HS256, RS256, and ES256, with claims validation (exp, nbf, iss, aud, sub, jti)."
+acceptance = [
+  "tokens can be signed and verified with each documented algorithm",
+  "claims validation rejects expired, not-yet-valid, and wrong-issuer tokens",
+  "the verifier is constant-time for signature comparison",
+  "tests cover happy path, expiry, wrong issuer, and tampered payload"
+]
+
+[[items]]
+id = "R-2309"
+title = "OAuth2 Client (Authorization Code + PKCE + Refresh)"
+phase = "phase_23"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2308"]
+summary = "Add an OAuth2 client that supports the authorization code flow with PKCE and refresh tokens."
+acceptance = [
+  "the client follows the authorization code flow and exchanges the code for tokens",
+  "PKCE is generated and verified end-to-end",
+  "refresh tokens are exchanged for new access tokens",
+  "tests cover happy path, refresh, and revocation"
+]
+
+[[items]]
+id = "R-2310"
+title = "OAuth2 Resource Server and Token Introspection"
+phase = "phase_23"
+owner = "web"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2308"]
+summary = "Add an OAuth2 resource server that accepts bearer tokens, validates them locally, and falls back to introspection for opaque tokens."
+acceptance = [
+  "JWT bearer tokens are validated locally with the configured JWKS",
+  "opaque tokens are validated via RFC 7662 introspection",
+  "the resource server emits `WWW-Authenticate` on rejection",
+  "tests cover JWT, opaque, and revoked tokens"
+]
+
+[[items]]
+id = "R-2311"
+title = "Session Management"
+phase = "phase_23"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2312"]
+summary = "Add server-side session management with a configurable store, configurable TTL, sliding expiration, and forced invalidation."
+acceptance = [
+  "sessions are stored in a pluggable store (memory, Redis) with a defined interface",
+  "sliding expiration extends the session on activity up to a maximum lifetime",
+  "explicit logout invalidates the session immediately",
+  "tests cover creation, lookup, expiry, sliding, and invalidation"
+]
+
+[[items]]
+id = "R-2312"
+title = "Cookie API (Secure, httpOnly, SameSite, Signed)"
+phase = "phase_23"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2210"]
+summary = "Provide a typed cookie API supporting Secure, HttpOnly, SameSite (Lax/Strict/None), and signed cookies with HMAC verification."
+acceptance = [
+  "cookies can be set with the documented attributes and read back as a typed value",
+  "signed cookies are verified with constant-time comparison",
+  "invalid signatures or expired cookies are rejected with a typed error",
+  "tests cover each attribute and the signature verification paths"
+]
+
+[[items]]
+id = "R-2313"
+title = "Request Validation (Constraints, RFC 7807)"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2209"]
+summary = "Add a request validation framework that produces RFC 7807 Problem Details responses for failed validation."
+acceptance = [
+  "field-level constraints (required, length, range, regex) are applied to validated structs",
+  "failed validation returns a `422` with an RFC 7807 body listing the offending fields",
+  "the validation framework composes with the JSON derive",
+  "tests cover each constraint and the response shape"
+]
+
+[[items]]
+id = "R-2314"
+title = "Unified Error Handling and Exception Middleware"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2301"]
+summary = "Define a unified error type for the API surface, a default `IntoResponse` mapping, and an exception middleware that converts internal errors to safe public responses."
+acceptance = [
+  "the public `api.Error` type maps to HTTP status codes and bodies deterministically",
+  "internal errors are logged with full detail and produce sanitized public responses",
+  "the middleware can be customized per route",
+  "tests cover the default mapping, the custom mapping, and the sanitization"
+]
+
+[[items]]
+id = "R-2315"
+title = "HTTPS Hardening (HSTS Preload, OCSP Stapling)"
+phase = "phase_23"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2207"]
+summary = "Add HSTS preload, OCSP stapling, and automatic certificate rotation support to the HTTPS server."
+acceptance = [
+  "the server emits `Strict-Transport-Security: max-age=...; preload; includeSubDomains` when configured",
+  "OCSP responses are stapled to the TLS handshake when available",
+  "certificate rotation is supported without server restart",
+  "tests cover the HSTS header, OCSP stapling, and hot rotation"
+]
+
+[[items]]
+id = "R-2316"
+title = "Threat Mitigations (CSRF, SSRF, Body Size, Timeouts)"
+phase = "phase_23"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2301"]
+summary = "Add default-on and configurable mitigations for CSRF, SSRF, request body size, and request timeouts."
+acceptance = [
+  "CSRF protection validates the `Origin` header against an allowlist for state-changing methods",
+  "SSRF protection blocks requests to private IP ranges and link-local addresses by default",
+  "body size limits are enforced before the body is fully read",
+  "request timeouts cut off slow clients without affecting other requests"
+]
+
+[[items]]
+id = "R-2317"
+title = "API Example: Authenticated REST API (JWT)"
+phase = "phase_23"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2308", "R-2219"]
+summary = "Provide a runnable example that wires JWT authentication, request validation, and error handling into a CRUD API."
+acceptance = [
+  "`examples/api/02_jwt_auth_crud.spectra` builds and runs",
+  "the example issues, validates, and rejects JWTs end-to-end",
+  "the example uses the unified error middleware and validation framework"
+]
+
+[[items]]
+id = "R-2318"
+title = "API Example: Middleware Composition"
+phase = "phase_23"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2302", "R-2303", "R-2304", "R-2306"]
+summary = "Provide a runnable example that composes CORS, logging, rate limiting, security headers, and request ID tracing in the documented order."
+acceptance = [
+  "`examples/api/03_middleware_composition.spectra` builds and runs",
+  "the example asserts the middleware order matches the documentation",
+  "the example demonstrates per-route configuration of the rate limit and security headers"
+]
+
+[[items]]
+id = "R-2401"
+title = "WebSocket Server (RFC 6455)"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2210", "R-2215"]
+summary = "Implement a WebSocket server compatible with RFC 6455: handshake, fragmented messages, ping/pong, and per-message deflate."
+acceptance = [
+  "the server completes the RFC 6455 handshake and upgrades the connection",
+  "fragmented messages are reassembled and ping/pong are handled",
+  "per-message deflate is supported and negotiated via the extension header",
+  "tests cover handshake, fragmented messages, ping/pong, and a 10k concurrent connections soak"
+]
+
+[[items]]
+id = "R-2402"
+title = "WebSocket Client"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2401"]
+summary = "Implement a WebSocket client that performs the handshake, sends and receives text/binary frames, and supports per-message deflate."
+acceptance = [
+  "the client connects to a known external test echo server and round-trips messages",
+  "the client supports text and binary frames and ping/pong",
+  "reconnect with backoff is supported when configured",
+  "tests cover handshake, frame round-trip, and reconnect"
+]
+
+[[items]]
+id = "R-2403"
+title = "Server-Sent Events (SSE)"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2210"]
+summary = "Implement a server-sent events response type that streams events to the client, with heartbeat, last-event-id, and automatic reconnection hints."
+acceptance = [
+  "the SSE response streams events in the documented format",
+  "heartbeats are emitted at the configured interval to keep the connection alive",
+  "the `Last-Event-ID` header is honored for resume on the server",
+  "tests cover streaming, heartbeat, and resume"
+]
+
+[[items]]
+id = "R-2404"
+title = "HTTP/2 Server (h2, ALPN, HPACK)"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2205", "R-2207"]
+summary = "Add HTTP/2 support to the server: ALPN negotiation, HPACK header compression, stream multiplexing, and flow control."
+acceptance = [
+  "ALPN advertises `h2` alongside `http/1.1`",
+  "the server multiplexes streams on a single connection without head-of-line blocking",
+  "HPACK encoding round-trips with the configured client",
+  "tests cover ALPN negotiation, multiplexing, and HPACK"
+]
+
+[[items]]
+id = "R-2405"
+title = "HTTP/2 Client"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2404", "R-2206"]
+summary = "Add HTTP/2 support to the client: connection reuse, stream prioritization, and server push reception."
+acceptance = [
+  "the client connects to a known external h2 endpoint and round-trips requests",
+  "multiple concurrent requests on a single connection are multiplexed",
+  "server push is accepted and exposed through a callback",
+  "tests cover multiplexing and server push"
+]
+
+[[items]]
+id = "R-2406"
+title = "HTTP/3 and QUIC"
+phase = "phase_24"
+owner = "web"
+priority = "P3"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2404"]
+summary = "Optionally add HTTP/3 over QUIC for low-latency and connection-migration use cases."
+acceptance = [
+  "the decision is documented: include HTTP/3 only when a stable Rust QUIC implementation is available",
+  "if implemented, the server and client negotiate HTTP/3 over QUIC and exchange a request/response",
+  "if deferred, the rationale and the re-evaluation date are documented in the ADR"
+]
+
+[[items]]
+id = "R-2407"
+title = "API Versioning (Path, Header, Query)"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2211"]
+summary = "Support API versioning through path prefix (`/v1/users`), a custom header (`X-API-Version`), or a query parameter (`?version=1`)."
+acceptance = [
+  "all three versioning strategies are supported and documented",
+  "a single request can be matched to exactly one version",
+  "version deprecation emits a `Deprecation` and `Sunset` header on responses",
+  "tests cover each strategy and the deprecation headers"
+]
+
+[[items]]
+id = "R-2408"
+title = "Pagination (Cursor, Offset, Link Header RFC 5988)"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2210"]
+summary = "Provide standard pagination helpers for list endpoints: cursor-based, offset-based, and RFC 5988 Link headers."
+acceptance = [
+  "cursor pagination returns opaque cursors and the next cursor in the response",
+  "offset pagination returns `page`, `page_size`, and `total`",
+  "RFC 5988 Link headers are emitted for both pagination styles",
+  "tests cover happy path, last page, and invalid cursor"
+]
+
+[[items]]
+id = "R-2409"
+title = "Content Negotiation (JSON, XML, MessagePack, CBOR)"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2208"]
+summary = "Negotiate the response representation based on the `Accept` header for JSON, XML, MessagePack, and CBOR."
+acceptance = [
+  "the server picks the best supported type from the `Accept` header",
+  "the client serializes requests in the negotiated type",
+  "415 Unsupported Media Type is returned when no acceptable type is offered",
+  "tests cover each type, the negotiation, and the 415 path"
+]
+
+[[items]]
+id = "R-2410"
+title = "Caching Headers (ETag, Last-Modified, Cache-Control, Vary)"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2210"]
+summary = "Add caching primitives: strong and weak ETags, `Last-Modified`, `Cache-Control`, and `Vary`."
+acceptance = [
+  "the server emits `ETag` and `Last-Modified` for cacheable responses",
+  "`If-None-Match` and `If-Modified-Since` are honored with `304`",
+  "`Cache-Control` directives are configurable per response",
+  "tests cover ETag round-trips, conditional requests, and `Vary`"
+]
+
+[[items]]
+id = "R-2411"
+title = "OpenAPI 3.1 Generation"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2211", "R-2209", "R-2210"]
+summary = "Generate an OpenAPI 3.1 document from the registered routes, the JSON-derived types, and the documented request/response shapes."
+acceptance = [
+  "the generator produces a valid OpenAPI 3.1 JSON document",
+  "the document includes paths, parameters, request bodies, responses, and schemas",
+  "the document is exposed at the configured path (default `/openapi.json`)",
+  "tests assert the document against a checked-in golden file"
+]
+
+[[items]]
+id = "R-2412"
+title = "Background Jobs and Task Queue"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2205", "R-2107"]
+summary = "Provide an in-process job queue plus a Redis-backed queue, with delayed jobs, retries with backoff, and dead-letter handling."
+acceptance = [
+  "jobs can be enqueued with a payload and a delay",
+  "failed jobs are retried with the configured backoff up to the configured max attempts",
+  "dead-letter jobs are visible through a typed query",
+  "tests cover happy path, retry, and dead-letter"
+]
+
+[[items]]
+id = "R-2413"
+title = "Cron and Scheduled Jobs"
+phase = "phase_24"
+owner = "web"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2412"]
+summary = "Allow handlers to be scheduled with cron expressions, with timezone support and a documented overlap policy."
+acceptance = [
+  "cron expressions parse and produce a deterministic next-run schedule",
+  "overlapping runs are handled according to the documented policy",
+  "timezone changes do not produce off-by-one or off-by-hour schedules",
+  "tests cover each schedule shape and the overlap policy"
+]
+
+[[items]]
+id = "R-2414"
+title = "Email Send (SMTP and Templates)"
+phase = "phase_24"
+owner = "web"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2219"]
+summary = "Add an SMTP client and a templating helper to send transactional emails."
+acceptance = [
+  "the SMTP client sends plain and HTML emails with optional attachments",
+  "templates can be rendered with a typed context",
+  "send failures are retried with backoff and reported as typed errors",
+  "tests cover happy path, retry, and an integration test against a local SMTP server"
+]
+
+[[items]]
+id = "R-2415"
+title = "Webhooks (Signed Payloads, Retry, Dead Letter)"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2401", "R-2206"]
+summary = "Send signed webhooks to subscribed URLs, with retry, dead-letter, and per-event filtering."
+acceptance = [
+  "webhook payloads are signed with HMAC-SHA256 and the signature is in the header",
+  "failed deliveries are retried with exponential backoff",
+  "dead-letter webhooks are visible through a typed query",
+  "tests cover happy path, signature verification, retry, and dead-letter"
+]
+
+[[items]]
+id = "R-2416"
+title = "File Storage Abstraction (S3-Compatible)"
+phase = "phase_24"
+owner = "web"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2206"]
+summary = "Provide a storage trait with an in-memory implementation and an S3-compatible implementation (put, get, delete, presigned URL)."
+acceptance = [
+  "the storage trait exposes put, get, delete, list, and presigned URL operations",
+  "the S3-compatible implementation works against AWS S3 and a local MinIO test instance",
+  "the in-memory implementation is used by tests",
+  "tests cover put/get/delete, presigned URLs, and a multipart upload"
+]
+
+[[items]]
+id = "R-2417"
+title = "Cache Layer (LRU In-Memory, Redis Distributed)"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2507"]
+summary = "Provide a cache trait with an LRU in-memory implementation and a Redis distributed implementation."
+acceptance = [
+  "the cache trait exposes get, set, delete, and TTL-aware operations",
+  "the in-memory implementation enforces capacity and LRU eviction",
+  "the Redis implementation works against a local Redis test instance",
+  "tests cover happy path, TTL, eviction, and concurrent access"
+]
+
+[[items]]
+id = "R-2418"
+title = "Configuration Management"
+phase = "phase_24"
+owner = "web"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2107"]
+summary = "Add layered configuration: defaults, file, environment variables, and explicit overrides, with typed access and hot reload."
+acceptance = [
+  "configuration is loaded from defaults, file, environment variables, and explicit overrides in that order",
+  "accessors are typed and emit a clear error for missing required values",
+  "the file layer supports JSON and TOML",
+  "hot reload is supported in dev mode with a documented notification"
+]
+
+[[items]]
+id = "R-2419"
+title = "gRPC Server and Client (Protobuf, Async Streams)"
+phase = "phase_24"
+owner = "web"
+priority = "P2"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2107", "R-2404"]
+summary = "Add gRPC support: protobuf codec, unary, server streaming, client streaming, and bidirectional streaming over HTTP/2."
+acceptance = [
+  "a `.proto` file compiles to a typed Spectra service",
+  "unary and streaming RPCs are supported on the server and the client",
+  "deadlines and cancellation are honored",
+  "tests cover each RPC style and a metadata propagation case"
+]
+
+[[items]]
+id = "R-2420"
+title = "WebSocket Example: Real-Time Dashboard"
+phase = "phase_24"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2401"]
+summary = "Provide a runnable example that broadcasts a counter update to all connected WebSocket clients."
+acceptance = [
+  "`examples/api/04_websocket_dashboard.spectra` builds and runs",
+  "the example pushes updates to all clients and disconnects gracefully on shutdown",
+  "the example uses the documented WebSocket API only"
+]
+
+[[items]]
+id = "R-2421"
+title = "OpenAPI Example: Serve Swagger UI"
+phase = "phase_24"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2411"]
+summary = "Provide a runnable example that serves the OpenAPI document and the Swagger UI."
+acceptance = [
+  "`examples/api/05_openapi_swagger.spectra` builds and runs",
+  "the example serves `/openapi.json` and `/docs` (Swagger UI)",
+  "the example wires the generated document into the UI"
+]
+
+[[items]]
+id = "R-2501"
+title = "Connection Pool (Async-Aware)"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2107"]
+summary = "Implement a generic async connection pool with configurable min/max size, idle timeout, and acquisition timeout."
+acceptance = [
+  "the pool enforces the configured min/max size and idle timeout",
+  "acquisition timeout is honored with a typed error",
+  "the pool integrates with the database drivers in Phase 25",
+  "tests cover happy path, exhaustion, and recovery"
+]
+
+[[items]]
+id = "R-2502"
+title = "SQL Query Builder (Type-Safe)"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2501"]
+summary = "Provide a type-safe SQL query builder for SELECT, INSERT, UPDATE, DELETE, with parameter binding and dialect-aware SQL generation."
+acceptance = [
+  "queries can be composed without string concatenation",
+  "parameters are bound through the driver and not interpolated into SQL",
+  "the builder emits parameterized SQL for at least one supported dialect",
+  "tests cover each query kind and parameter binding"
+]
+
+[[items]]
+id = "R-2503"
+title = "Migrations Framework"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2502"]
+summary = "Add a migrations framework with up/down migrations, version tracking, checksum validation, and a CLI integration."
+acceptance = [
+  "migrations are applied in order and recorded in a tracking table",
+  "checksum validation refuses to run if a previously-applied migration has changed",
+  "down migrations roll back the schema and the tracking table",
+  "tests cover up, down, partial state, and checksum mismatch"
+]
+
+[[items]]
+id = "R-2504"
+title = "SQLite Driver (Sync and Async)"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2501"]
+summary = "Add a SQLite driver with both synchronous and asynchronous variants, prepared statements, transactions, and a checked-in test database."
+acceptance = [
+  "CRUD, prepared statements, and transactions work against a file-backed SQLite database",
+  "the async driver is non-blocking and integrates with the connection pool",
+  "the sync driver is used by the migration framework when running tests",
+  "tests cover CRUD, prepared statements, transactions, and concurrent reads"
+]
+
+[[items]]
+id = "R-2505"
+title = "PostgreSQL Driver (Async, Prepared, COPY)"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2501"]
+summary = "Add a fully async PostgreSQL driver with prepared statements, COPY IN/OUT, transactions with savepoints, and LISTEN/NOTIFY."
+acceptance = [
+  "CRUD, prepared statements, transactions, and savepoints work against PostgreSQL",
+  "COPY IN/OUT round-trips a large dataset within tolerance",
+  "LISTEN/NOTIFY is exposed through a typed channel",
+  "tests run against a local PostgreSQL test instance and are gated by environment"
+]
+
+[[items]]
+id = "R-2506"
+title = "MySQL Driver"
+phase = "phase_25"
+owner = "db"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2505"]
+summary = "Add a MySQL driver that supports CRUD, prepared statements, transactions, and the common MySQL parameter binding rules."
+acceptance = [
+  "CRUD, prepared statements, and transactions work against MySQL",
+  "the driver is dialect-aware and integrates with the query builder",
+  "tests run against a local MySQL test instance and are gated by environment"
+]
+
+[[items]]
+id = "R-2507"
+title = "Redis Driver (with Pool)"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2501"]
+summary = "Add a Redis driver with the connection pool, basic commands (GET, SET, DEL, EXPIRE), pub/sub, and the operations needed for the cache layer."
+acceptance = [
+  "GET, SET, DEL, EXPIRE, INCR, and pub/sub work against a local Redis test instance",
+  "the driver integrates with the connection pool and the cache layer",
+  "tests cover happy path, expiry, eviction, and concurrent access"
+]
+
+[[items]]
+id = "R-2508"
+title = "Minimal ORM: Model Trait and Typed Queries"
+phase = "phase_25"
+owner = "db"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2502", "R-2504", "R-2505"]
+summary = "Add a thin ORM on top of the query builder: model trait, primary key inference, generated CRUD methods, and typed find-by queries."
+acceptance = [
+  "models can derive CRUD methods through the documented macro",
+  "primary key inference handles common cases (single field, `id` named)",
+  "typed find-by queries return the right type or a typed not-found error",
+  "tests cover CRUD and find-by for SQLite and PostgreSQL"
+]
+
+[[items]]
+id = "R-2509"
+title = "Transactions (Begin, Commit, Rollback, Savepoints)"
+phase = "phase_25"
+owner = "db"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2501"]
+summary = "Provide a transaction abstraction that supports begin, commit, rollback, and savepoints across the supported drivers."
+acceptance = [
+  "transactions work for SQLite, PostgreSQL, MySQL, and Redis (when applicable)",
+  "rollback is automatic on panic, error, or explicit abort",
+  "savepoints are supported with the documented semantics",
+  "tests cover commit, rollback, and savepoint nesting"
+]
+
+[[items]]
+id = "R-2510"
+title = "Health Checks (Liveness, Readiness, Startup)"
+phase = "phase_25"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2216"]
+summary = "Add liveness, readiness, and startup probes, with optional custom checks per dependency (database, cache, external services)."
+acceptance = [
+  "the liveness endpoint always returns 200 while the process is up",
+  "the readiness endpoint returns 200 only when all required checks pass",
+  "the startup endpoint returns 200 only when startup is complete",
+  "tests cover up, degraded, and recovering scenarios"
+]
+
+[[items]]
+id = "R-2511"
+title = "Database Example: REST + SQLite CRUD"
+phase = "phase_25"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2504", "R-2219", "R-2502"]
+summary = "Provide a runnable example that wires REST CRUD to a SQLite database through the query builder and migrations."
+acceptance = [
+  "`examples/api/06_rest_sqlite_crud.spectra` builds and runs",
+  "the example applies migrations and exposes CRUD endpoints",
+  "the example runs an in-process integration test"
+]
+
+[[items]]
+id = "R-2512"
+title = "Database Example: REST + PostgreSQL"
+phase = "phase_25"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2505", "R-2219", "R-2502"]
+summary = "Provide a runnable example that wires REST CRUD to a PostgreSQL database through the query builder and migrations."
+acceptance = [
+  "`examples/api/07_rest_postgres_crud.spectra` builds and runs",
+  "the example applies migrations and exposes CRUD endpoints",
+  "the example runs an in-process integration test against a local PostgreSQL test instance"
+]
+
+[[items]]
+id = "R-2513"
+title = "Redis Example: Rate-Limit via Redis"
+phase = "phase_25"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2507", "R-2304"]
+summary = "Provide a runnable example that uses Redis as the backing store for the rate-limiting middleware."
+acceptance = [
+  "`examples/api/08_redis_rate_limit.spectra` builds and runs",
+  "the example enforces a per-tenant limit with a configurable window",
+  "the example asserts that one tenant's burst does not affect another tenant"
+]
+
+[[items]]
+id = "R-2514"
+title = "Migration Example: Multi-Version Evolution"
+phase = "phase_25"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2503", "R-2504"]
+summary = "Provide a runnable example that evolves a schema through several migrations and rolls back safely."
+acceptance = [
+  "`examples/api/09_migrations.spectra` builds and runs",
+  "the example applies three migrations, rolls back, and re-applies",
+  "the example verifies the final schema and seed data"
+]
+
+[[items]]
+id = "R-2601"
+title = "spectralang api new Scaffolder"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2217", "R-2219"]
+summary = "Provide a project scaffolder that creates a ready-to-run API project: `spectra.toml`, source tree, dependency on `spectra.api`, a sample handler, and tests."
+acceptance = [
+  "`spectralang api new my_api` produces a buildable project",
+  "the project depends on `spectra.api` from the local registry",
+  "`spectralang package run` starts the sample server and responds on the documented port",
+  "the project includes a smoke test that runs as part of `spectralang package test`"
+]
+
+[[items]]
+id = "R-2602"
+title = "Hot Reload Dev Server (spectralang api dev)"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2601"]
+summary = "Add a dev server that watches the source tree, recompiles on change, and restarts the API process with the new build."
+acceptance = [
+  "saving a handler file restarts the server within the documented debounce window",
+  "request logs are emitted to the dev terminal in real time",
+  "the dev server exposes the same routes as the production build",
+  "tests cover file change, syntax error recovery, and graceful restart"
+]
+
+[[items]]
+id = "R-2603"
+title = "API Testing Framework (#[api_test])"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2210", "R-2109"]
+summary = "Add an API testing framework that spins up the app in-process, fires requests through the public handler, and asserts on the response."
+acceptance = [
+  "`#[api_test]` boots the app and exposes a typed test client",
+  "the test client can be configured with a base URL, default headers, and a cookie store",
+  "assertions cover status, headers, body, and timing",
+  "tests run inside the existing `spectralang package test` flow"
+]
+
+[[items]]
+id = "R-2604"
+title = "API Mocking and Contract Tests (Pact)"
+phase = "phase_26"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2603"]
+summary = "Add a mocking layer for tests and a contract test mode that records and verifies Pact-compatible interactions."
+acceptance = [
+  "tests can register mocks for external services and assert on call counts",
+  "Pact-compatible contract files are emitted and verified by the test suite",
+  "the contract test mode is opt-in per test",
+  "tests cover a happy-path contract and a breaking-change rejection"
+]
+
+[[items]]
+id = "R-2605"
+title = "spectralang api doc (Swagger UI and Redoc)"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2411"]
+summary = "Add a CLI command that serves the OpenAPI document and the Swagger UI / Redoc frontend."
+acceptance = [
+  "`spectralang api doc` starts a local server that serves `/openapi.json` and the UI",
+  "the UI is interactive and supports `try it out` for the documented endpoints",
+  "the CLI can target a built artifact and a running dev server"
+]
+
+[[items]]
+id = "R-2606"
+title = "Postman, Bruno, and Insomnia Export"
+phase = "phase_26"
+owner = "tooling"
+priority = "P2"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2411"]
+summary = "Export the OpenAPI document as Postman v2.1, Bruno, and Insomnia collections."
+acceptance = [
+  "the CLI emits each collection format from the same OpenAPI source",
+  "the exported collections include auth, headers, and example bodies",
+  "the exported collections import cleanly into the documented tool versions"
+]
+
+[[items]]
+id = "R-2607"
+title = "Graceful Shutdown and Signal Handling"
+phase = "phase_26"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2216", "R-2105"]
+summary = "Add deterministic shutdown: SIGINT and SIGTERM trigger graceful drain, and the process exits with a documented code."
+acceptance = [
+  "SIGINT and SIGTERM are handled in dev and production builds",
+  "in-flight requests are given a configurable drain timeout",
+  "the process exits with code 0 on success and a documented non-zero code on shutdown error",
+  "tests cover both signals and the drain timeout"
+]
+
+[[items]]
+id = "R-2608"
+title = "Production Config Profiles (dev, staging, prod)"
+phase = "phase_26"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2418"]
+summary = "Document and implement config profiles that pick the right defaults for dev, staging, and prod, with a documented override mechanism."
+acceptance = [
+  "the profile is selected by env var or CLI flag",
+  "each profile has a documented default set of middleware, log format, and rate limit",
+  "profile-aware defaults are tested by the conformance suite",
+  "the documentation explains the security and observability implications of each profile"
+]
+
+[[items]]
+id = "R-2609"
+title = "API Conformance Suite v1 (Status, Headers, Errors)"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2220", "R-2314"]
+summary = "Extend the v0 conformance suite with status codes, headers, and the unified error shape for the public API."
+acceptance = [
+  "the suite covers 50+ documented must-pass status and header cases",
+  "the suite asserts the unified error shape for validation, auth, and 5xx paths",
+  "the suite is gated by `run_tests.ps1`",
+  "the suite emits a versioned conformance report"
+]
+
+[[items]]
+id = "R-2610"
+title = "Book Chapter: Building Production APIs in Spectra"
+phase = "phase_26"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2218", "R-2601"]
+summary = "Add a dedicated book chapter that walks the reader from a hello-world API to a production-ready service with auth, validation, database, and observability."
+acceptance = [
+  "the chapter is reachable from the book index and from `docs/api/`",
+  "the chapter is validated by the existing `scripts/validate_ai_book.py` style validator",
+  "the reader can complete the chapter end-to-end on a local machine"
+]
+
+[[items]]
+id = "R-2611"
+title = "LSP: Routes, Handlers, and Types"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2211", "R-1001"]
+summary = "Add LSP support for the `spectra.api` surface: route completion, go-to-definition on handlers, hover with route metadata, and typed completions for `Request` and `Response`."
+acceptance = [
+  "LSP completion lists routes, handler parameters, and typed response shapes",
+  "go-to-definition resolves handler symbols across modules",
+  "hover shows the route path, method, and constraints",
+  "tests assert completion and hover in a multi-file API project"
+]
+
+[[items]]
+id = "R-2612"
+title = "spectralang api lint"
+phase = "phase_26"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2211"]
+summary = "Add a static checker for API projects: missing auth on state-changing routes, unsafe CORS, missing rate limit on expensive routes, and undocumented error responses."
+acceptance = [
+  "the linter reports each rule with a stable code and an actionable message",
+  "the linter integrates with `spectralang lint`",
+  "a focused test project covers each rule and its suppression"
+]
+
+[[items]]
+id = "R-2613"
+title = "Debugger: Breakpoints in Handlers"
+phase = "phase_26"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1002", "R-2215"]
+summary = "Allow source-level breakpoints inside API handlers, with the same step, continue, and inspect capabilities as the rest of the language."
+acceptance = [
+  "breakpoints can be set on handler entry, on each statement, and on the return",
+  "the debugger shows the request, the response, and the local variables",
+  "the debugger integrates with the existing source map and the existing debug adapter"
+]
+
+[[items]]
+id = "R-2614"
+title = "VS Code Plugin Updates for spectra.api"
+phase = "phase_26"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2611", "R-2605"]
+summary = "Update the VS Code plugin to surface `spectra.api` completions, the OpenAPI document, and a `Run API` task."
+acceptance = [
+  "the plugin surfaces the `spectra.api` completions in `.spectra` files",
+  "the plugin exposes a `Run API` task that starts `spectralang api dev`",
+  "the plugin shows the OpenAPI document in a side panel"
+]
+
+[[items]]
+id = "R-2615"
+title = "Project Templates: REST, GraphQL, gRPC, Microservice"
+phase = "phase_26"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2601"]
+summary = "Provide project templates for the common API shapes: REST, GraphQL, gRPC, and a microservice with database, cache, and queue."
+acceptance = [
+  "`spectralang api new --template rest` creates a REST project",
+  "the GraphQL, gRPC, and microservice templates are available behind a documented flag",
+  "each template builds, runs, and has a smoke test"
+]
+
+[[items]]
+id = "R-2701"
+title = "OpenTelemetry-Compatible Tracing"
+phase = "phase_27"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2210", "R-2107"]
+summary = "Add OpenTelemetry-compatible traces: spans, span attributes, context propagation, and an OTLP exporter."
+acceptance = [
+  "the runtime emits spans for HTTP request handling, database queries, and external calls",
+  "the OTLP exporter sends spans to a local collector for tests",
+  "the trace context propagates across the supported HTTP clients",
+  "tests assert span hierarchy, attributes, and context propagation"
+]
+
+[[items]]
+id = "R-2702"
+title = "Prometheus-Compatible Metrics Endpoint"
+phase = "phase_27"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2210"]
+summary = "Expose a `/metrics` endpoint in the Prometheus exposition format with default metrics (request count, latency histogram, error count) and the ability to add custom counters and histograms."
+acceptance = [
+  "the `/metrics` endpoint returns a valid Prometheus exposition payload",
+  "default metrics cover request count, latency histogram, and error count",
+  "custom counters and histograms can be registered and incremented",
+  "tests assert the metric shape and a known Prometheus parser round-trip"
+]
+
+[[items]]
+id = "R-2703"
+title = "Health, Readiness, and Startup Probes (Integrated)"
+phase = "phase_27"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2510"]
+summary = "Integrate liveness, readiness, and startup probes with the HTTP server, and document how to wire them with Kubernetes, Docker, and systemd."
+acceptance = [
+  "the probes are served on the documented paths (`/healthz`, `/readyz`, `/startupz`)",
+  "the probe results aggregate the custom checks registered through `R-2510`",
+  "the documentation covers the Kubernetes, Docker, and systemd wiring",
+  "tests cover up, degraded, and recovering scenarios"
+]
+
+[[items]]
+id = "R-2704"
+title = "Request and Response Audit Log (LGPD, GDPR)"
+phase = "phase_27"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2303"]
+summary = "Add an audit log middleware that records request, response, request ID, user identity, and a configurable PII redaction policy, with a queryable JSON output."
+acceptance = [
+  "the audit log records request, response, request ID, and user identity",
+  "PII fields are redacted according to the configured policy",
+  "the audit log is emitted as a versioned JSON stream",
+  "tests cover happy path, redaction, and missing user identity"
+]
+
+[[items]]
+id = "R-2705"
+title = "Distributed Tracing (W3C Trace Context)"
+phase = "phase_27"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2701", "R-2206"]
+summary = "Propagate W3C Trace Context (`traceparent` and `tracestate`) across the HTTP client, the database drivers, and the Redis driver."
+acceptance = [
+  "outgoing HTTP requests carry the configured `traceparent` header",
+  "incoming `traceparent` headers are honored and used as the parent span",
+  "database and Redis calls inherit the current trace context",
+  "tests assert context propagation end-to-end"
+]
+
+[[items]]
+id = "R-2706"
+title = "Per-Tenant and Per-User Rate Limiting"
+phase = "phase_27"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2304", "R-2701"]
+summary = "Extend rate limiting to be configurable per tenant and per user, with isolation, observability, and a documented back-pressure policy."
+acceptance = [
+  "each tenant has an isolated budget that is not affected by other tenants",
+  "rate-limit rejections emit a structured metric and a span event",
+  "the limit is hot-reloadable without server restart",
+  "tests cover per-tenant isolation, hot reload, and the observability hook"
+]
+
+[[items]]
+id = "R-2707"
+title = "OTel and Prometheus Exporters Example"
+phase = "phase_27"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2701", "R-2702"]
+summary = "Provide a runnable example that wires OpenTelemetry traces and Prometheus metrics into the API server, with a local collector."
+acceptance = [
+  "`examples/api/10_otel_prometheus.spectra` builds and runs",
+  "the example starts a local OTel collector and Prometheus endpoint",
+  "the example asserts that the expected spans and metrics are emitted"
+]
+
+[[items]]
+id = "R-2708"
+title = "Audit Log Example with PII Redaction"
+phase = "phase_27"
+owner = "ecosystem"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2704"]
+summary = "Provide a runnable example that demonstrates the audit log middleware with a PII redaction policy."
+acceptance = [
+  "`examples/api/11_audit_log.spectra` builds and runs",
+  "the example redacts configured PII fields and keeps the request shape",
+  "the example emits a versioned JSON audit log"
+]
+
+[[items]]
+id = "R-2801"
+title = "API Conformance Suite v1 (Final)"
+phase = "phase_28"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2220", "R-2609", "R-2703"]
+summary = "Finalize the v1 API conformance suite covering HTTP/1.1, JSON, routing, middleware, status codes, headers, errors, health checks, and the unified error shape."
+acceptance = [
+  "the suite covers 100+ documented must-pass cases for the public API surface",
+  "the suite emits a versioned certification report",
+  "release candidates cannot be certified while any required category fails",
+  "the suite is gated by `run_tests.ps1`"
+]
+
+[[items]]
+id = "R-2802"
+title = "Interop Tests Against Express, FastAPI, and Actix"
+phase = "phase_28"
+owner = "tooling"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2801"]
+summary = "Run interop tests against a reference Express, FastAPI, and Actix server to verify Spectra API server compatibility for shared contracts."
+acceptance = [
+  "an interop test suite exercises JSON, headers, status, and CORS with the reference servers",
+  "the suite reports per-server and per-case pass/fail with reproducible commands",
+  "the suite is gated by environment and CI, not by the local test runner"
+]
+
+[[items]]
+id = "R-2803"
+title = "Documentation Site for spectra.api"
+phase = "phase_28"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2610", "R-2218"]
+summary = "Stand up a dedicated documentation site for `spectra.api` that bundles the API reference, the tutorials, the cookbook, and the migration guide."
+acceptance = [
+  "the site is reachable from the main book index",
+  "the site includes the public API reference, the cookbook, and the migration guide",
+  "the site is built and validated by `run_tests.ps1`"
+]
+
+[[items]]
+id = "R-2804"
+title = "API Example Gallery (REST, GraphQL, gRPC, WebSocket, SSE)"
+phase = "phase_28"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2217", "R-2411", "R-2401", "R-2403", "R-2419"]
+summary = "Provide a complete gallery of runnable API examples: REST CRUD, JWT auth, GraphQL, gRPC, WebSocket dashboard, SSE stream, and the database examples."
+acceptance = [
+  "the gallery is documented at `examples/api/README.md` with a one-line description per example",
+  "every example in the gallery builds, runs, and has a smoke test",
+  "the gallery is validated by `scripts/validate_r2804_api_gallery.py` and gated by `run_tests.ps1`"
+]
+
+[[items]]
+id = "R-2805"
+title = "Production Hardening: Load, Soak, Chaos"
+phase = "phase_28"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2701", "R-2702", "R-2703"]
+summary = "Run production hardening on the v1 `spectra.api`: load test, soak test, and chaos test, with regression thresholds and a versioned report."
+acceptance = [
+  "a load test exercises the documented target throughput and reports p95/p99 latency",
+  "a soak test runs for at least 24 hours and reports leaks, latency drift, and error rate",
+  "a chaos test kills dependencies and asserts graceful degradation",
+  "regression thresholds are stored in `docs/performance/r2805-hardening.json`",
+  "the hardening report is versioned and is part of the release evidence"
+]
+
+[[items]]
+id = "R-2806"
+title = "spectra.api v1.0 Registry Release"
+phase = "phase_28"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2801", "R-2804", "R-2805"]
+summary = "Promote `spectra.api` to v1.0 in the local registry with a stable API contract, deprecation policy, and migration guide."
+acceptance = [
+  "`spectra.api@1.0.0` is published to the local registry",
+  "the v1 contract is documented and versioned",
+  "the deprecation policy and the migration guide are published",
+  "`spectralang package add spectra-api@1.0.0` resolves cleanly from a fresh project"
+]
+
+[[items]]
+id = "R-2807"
+title = "Migration Guide: From ad-hoc std web to spectra.api"
+phase = "phase_28"
+owner = "ecosystem"
+priority = "P2"
+status = "not_started"
+risk = "low"
+dependencies = ["R-2801"]
+summary = "Document the migration path for any ad-hoc HTTP or web code that lives outside the `spectra.api` package, so teams have a clear upgrade path."
+acceptance = [
+  "the guide lists the differences between the previous surface and the v1 `spectra.api` surface",
+  "the guide includes step-by-step migration recipes for the most common patterns",
+  "the guide is published in the documentation site and referenced from the changelog"
+]
+

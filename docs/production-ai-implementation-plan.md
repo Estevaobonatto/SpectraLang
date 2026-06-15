@@ -1545,3 +1545,281 @@ AI users.
 - The conformance report is versioned with schema
   `spectralang.ai_conformance_report.v1` and conformance version `R-2001/v1`.
 - `run_tests.ps1` includes the `phase20-conformance` release-candidate gate.
+
+---
+
+# API Platform Vision
+
+The previous 20 phases focused on making SpectraLang a production-grade
+language and runtime for AI/ML workloads: tensors, autodiff, ONNX, RAG,
+ML serving, and observability for models. The next horizon turns SpectraLang
+into a production-grade language and runtime for **building the HTTP and
+event-driven services that surround those models** — APIs, gateways,
+workers, webhooks, schedulers, and the operational layer around them.
+
+This is delivered as a separate package, `spectra.api`, published through
+the existing Phase 9 registry. The platform is intentionally **not** part
+of `std` because it evolves on a faster cadence, has its own version, and
+pulls in heavier optional dependencies (TLS, drivers, observability
+exporters).
+
+## Why a separate package, not more `std` modules
+
+- Independent versioning: `spectra.api` follows its own release cadence
+  while `std` remains the stable core.
+- Heavier optional dependencies: `rustls`, `tokio`-style primitives, and
+  database drivers should not bloat every `spectra` build.
+- Independent deprecation policy: web standards and APIs change faster
+  than the language core, and the migration surface is much smaller when
+  it lives in a package.
+- Independent distribution: `spectra.api` can be published to the local
+  registry and adopted incrementally by teams.
+
+## Why async/await must come first (Phase 21)
+
+The API platform depends on a first-class async/await model with a
+platform-specific reactor (`epoll` on Linux, `IOCP` on Windows, `kqueue` on
+macOS) and structured concurrency. Without this, the API server cannot
+match the latency, throughput, and connection-density characteristics that
+production teams expect. Callbacks and `std.concurrent` primitives are
+insufficient for sustained 10k+ concurrent connections.
+
+## Why HTTP/1.1 first (Phase 22)
+
+HTTP/1.1 still serves the overwhelming majority of public APIs. It is also
+where the foundational HTTP/1.1 parsing, routing, and TLS surface must be
+correct before HTTP/2 multiplexing, HPACK, and HTTP/3/QUIC can be layered
+on top. The Phase 24 workstream covers h2 and h3 explicitly.
+
+## Why first-class drivers for PostgreSQL, SQLite, and Redis (Phase 25)
+
+These three cover the dominant backend combinations that AI/ML services
+need: a transactional store (Postgres or SQLite), a fast in-memory store
+or message broker (Redis), and migrations. The driver selection keeps the
+core surface small while still addressing the dominant production use
+cases. MySQL and NoSQL options are listed as P1 and P2 follow-on work.
+
+## Phases 21 to 28
+
+The eight phases are summarized below; the detailed items live in
+`docs/roadmap-backlog.md` (Phase 21 to Phase 28) and in
+`roadmap/roadmap.toml` (items `R-2101` to `R-2807`).
+
+### Phase 21 — Async Language Core
+
+- `R-2101` ADR: Async/Await Execution Model
+- `R-2102` `async fn` and async block in frontend
+- `R-2103` `await` expression and async lowering
+- `R-2104` Event loop multiplexer (epoll/IOCP/kqueue)
+- `R-2105` Cancellation, timeouts, structured concurrency
+- `R-2106` `Stream<T>` and stream adaptors
+- `R-2107` Async stdlib: `fs`, `tcp`, `channel`
+- `R-2108` Async trait objects and `dyn Future`
+- `R-2109` Async test runtime and macros
+- `R-2110` Async diagnostics and `Send`/`Sync` validation
+- `R-2111` Async benchmarks and profiling
+
+### Phase 22 — API Library Foundation (`spectra.api`)
+
+- `R-2201` ADR: API Library Architecture
+- `R-2202` `spectra-api` Rust crate and host call registration
+- `R-2203` `std.api.*` surface in semantic analysis
+- `R-2204` HTTP/1.1 parser
+- `R-2205` HTTP/1.1 server
+- `R-2206` HTTP/1.1 client
+- `R-2207` TLS via `rustls` (HTTPS server and client)
+- `R-2208` `std.api.json` encoder and decoder
+- `R-2209` JSON derive: `Serialize` and `Deserialize`
+- `R-2210` `Request`, `Response`, `Header`, `Cookie`, `Method`, `Status`
+- `R-2211` Router: path matching, params, wildcards
+- `R-2212` Query string parser and binding
+- `R-2213` URL-encoded form binding
+- `R-2214` Multipart form and file uploads
+- `R-2215` `api.handler` trait and response return
+- `R-2216` Server lifecycle, listen, serve, graceful shutdown
+- `R-2217` `spectra.api` package published to local registry
+- `R-2218` API book chapter: `Hello HTTP`
+- `R-2219` API example: REST CRUD
+- `R-2220` API conformance suite v0 (HTTP/1.1)
+
+### Phase 23 — Middleware and Security
+
+- `R-2301` Middleware chain trait and deterministic ordering
+- `R-2302` CORS middleware (RFC 7231)
+- `R-2303` Structured logging and request ID tracing
+- `R-2304` Rate limiting (token bucket, sliding window)
+- `R-2305` Response compression (gzip, brotli, deflate)
+- `R-2306` Security headers (CSP, HSTS, X-Frame-Options, ...)
+- `R-2307` API key authentication
+- `R-2308` JWT (HS256, RS256, ES256)
+- `R-2309` OAuth2 client (auth code + PKCE + refresh)
+- `R-2310` OAuth2 resource server and introspection
+- `R-2311` Sessions (server-side store)
+- `R-2312` Cookie API (Secure, httpOnly, SameSite, signed)
+- `R-2313` Request validation (RFC 7807)
+- `R-2314` Unified error handling and exception middleware
+- `R-2315` HTTPS hardening (HSTS preload, OCSP stapling)
+- `R-2316` Threat mitigations (CSRF, SSRF, body size, timeouts)
+- `R-2317` API example: authenticated REST API (JWT)
+- `R-2318` API example: middleware composition
+
+### Phase 24 — Advanced API Features
+
+- `R-2401` WebSocket server (RFC 6455)
+- `R-2402` WebSocket client
+- `R-2403` Server-Sent Events (SSE)
+- `R-2404` HTTP/2 server (h2, ALPN, HPACK)
+- `R-2405` HTTP/2 client
+- `R-2406` HTTP/3 and QUIC
+- `R-2407` API versioning (path, header, query)
+- `R-2408` Pagination (cursor, offset, RFC 5988 Link header)
+- `R-2409` Content negotiation (JSON, XML, MessagePack, CBOR)
+- `R-2410` Caching headers (ETag, Last-Modified, Cache-Control, Vary)
+- `R-2411` OpenAPI 3.1 generation
+- `R-2412` Background jobs and task queue
+- `R-2413` Cron and scheduled jobs
+- `R-2414` Email send (SMTP and templates)
+- `R-2415` Webhooks (signed payloads, retry, dead letter)
+- `R-2416` File storage abstraction (S3-compatible)
+- `R-2417` Cache layer (LRU in-memory, Redis distributed)
+- `R-2418` Configuration management
+- `R-2419` gRPC server and client (protobuf, async streams)
+- `R-2420` WebSocket example: real-time dashboard
+- `R-2421` OpenAPI example: serve Swagger UI
+
+### Phase 25 — Persistence and Database
+
+- `R-2501` Connection pool (async-aware)
+- `R-2502` SQL query builder (type-safe)
+- `R-2503` Migrations framework
+- `R-2504` SQLite driver (sync and async)
+- `R-2505` PostgreSQL driver (async, prepared, COPY)
+- `R-2506` MySQL driver
+- `R-2507` Redis driver (with pool)
+- `R-2508` Minimal ORM: model trait and typed queries
+- `R-2509` Transactions (begin, commit, rollback, savepoints)
+- `R-2510` Health checks (liveness, readiness, startup)
+- `R-2511` Database example: REST + SQLite CRUD
+- `R-2512` Database example: REST + PostgreSQL
+- `R-2513` Redis example: rate-limit via Redis
+- `R-2514` Migration example: multi-version evolution
+
+### Phase 26 — API Tooling and Developer Experience
+
+- `R-2601` `spectralang api new` scaffolder
+- `R-2602` Hot reload dev server (`spectralang api dev`)
+- `R-2603` API testing framework (`#[api_test]`)
+- `R-2604` API mocking and contract tests (Pact)
+- `R-2605` `spectralang api doc` (Swagger UI and Redoc)
+- `R-2606` Postman, Bruno, and Insomnia export
+- `R-2607` Graceful shutdown and signal handling
+- `R-2608` Production config profiles (dev, staging, prod)
+- `R-2609` API conformance suite v1 (status, headers, errors)
+- `R-2610` Book chapter: "Building Production APIs in Spectra"
+- `R-2611` LSP: routes, handlers, types
+- `R-2612` `spectralang api lint`
+- `R-2613` Debugger: breakpoints in handlers
+- `R-2614` VS Code plugin updates for `spectra.api`
+- `R-2615` Project templates: REST, GraphQL, gRPC, microservice
+
+### Phase 27 — Observability and API Operations
+
+- `R-2701` OpenTelemetry-compatible tracing
+- `R-2702` Prometheus-compatible metrics endpoint
+- `R-2703` Health, readiness, and startup probes (integrated)
+- `R-2704` Request and response audit log (LGPD, GDPR)
+- `R-2705` Distributed tracing (W3C Trace Context)
+- `R-2706` Per-tenant and per-user rate limiting
+- `R-2707` OTel and Prometheus exporters example
+- `R-2708` Audit log example with PII redaction
+
+### Phase 28 — API Conformance and Release
+
+- `R-2801` API conformance suite v1 (final)
+- `R-2802` Interop tests against Express, FastAPI, and Actix
+- `R-2803` Documentation site for `spectra.api`
+- `R-2804` API example gallery (REST, GraphQL, gRPC, WebSocket, SSE)
+- `R-2805` Production hardening: load, soak, chaos
+- `R-2806` `spectra.api` v1.0 registry release
+- `R-2807` Migration guide: from ad-hoc `std` web to `spectra.api`
+
+## Architectural Principles for the API Platform
+
+1. **Async by default, sync where it makes sense.** Handlers can be
+   `async fn` or synchronous; the runtime and the reactor drive both
+   through the same task scheduler.
+2. **Typed HTTP.** `Request`, `Response`, `Method`, `Status`, `Header`,
+   and `Cookie` are first-class types, not raw strings. The `api.Error`
+   type maps to HTTP status codes and bodies deterministically.
+3. **JSON as the lingua franca, with content negotiation.** `serde`-style
+   derives work over JSON, with content negotiation for XML, MessagePack,
+   and CBOR.
+4. **Middleware is a typed chain, not a function soup.** Middleware
+   composes deterministically: request order top-down, response order
+   bottom-up, with a documented lifecycle.
+5. **Authentication is a first-class middleware.** JWT, API keys,
+   sessions, and OAuth2 are all middleware that yields an authenticated
+   request.
+6. **Validation is RFC 7807 by default.** Failed validation returns a
+   `Problem Details` body with the offending fields and stable codes.
+7. **TLS is on by default, with explicit opt-out.** HTTPS hardening
+   (HSTS, OCSP stapling) is a documented, configurable default, not a
+   separate effort.
+8. **Databases are async, pooled, and explicit.** No connection
+   string magic; the pool is configured and the query builder is type
+   safe.
+9. **Observability is not an afterthought.** OpenTelemetry traces and
+   Prometheus metrics are first-class, with W3C Trace Context
+   propagation across the HTTP client and the database drivers.
+10. **Hot reload and graceful shutdown are non-negotiable.** The dev
+    server reloads in milliseconds, the production server drains in
+    seconds.
+
+## Workstream Dependencies
+
+```
+R-2101 → R-2102 → R-2103 → R-2104 → R-2105 → R-2107
+                                              ↓
+                              R-2201 → R-2202 → R-2204 → R-2205
+                                                          ↓
+                                          R-2211 → R-2301 → R-2304
+                                                          ↓
+                                          R-2411 → R-2412 → R-2501 → R-2505
+                                                                          ↓
+                                                              R-2701 → R-2801 → R-2806
+```
+
+## New Owner Groups
+
+| Owner | Scope |
+|---|---|
+| `web` | HTTP server/client, routing, middleware, WebSocket, SSE |
+| `db` | Drivers, query builder, migrations, ORM, connection pool |
+
+These owner groups are added to the same ownership table defined in
+`AGENTS.md` and used by `roadmap/roadmap.toml` so that the
+cross-cutting review policy applies to the API platform work the same
+way it applies to the AI/ML work.
+
+## Risk Register
+
+| Risk | Phase | Mitigation |
+|---|---|---|
+| Async/await design changes after Phase 22 starts | 21 | Land `R-2101` ADR first; freeze the surface before starting the parser |
+| TLS library choice (`rustls` vs `openssl`) | 22 | Use `rustls`; record rationale in `R-2201` ADR |
+| Connection pool semantics differ across drivers | 25 | Define the pool trait first; drivers implement it |
+| OpenAPI generator scope creep | 24 | Lock the supported subset in the ADR before generating |
+| Production hardening (R-2805) depends on real deployments | 28 | Run on a representative staging workload before cutting v1.0 |
+| `Send`/`Sync` ergonomics | 21 | Document the rules in the language reference and enforce them with stable diagnostics |
+
+## Cross-Reference
+
+- Strategic direction: this chapter.
+- Executable backlog: `docs/roadmap-backlog.md`, Phase 21 to Phase 28.
+- Machine-readable tracker: `roadmap/roadmap.toml`, items `R-2101` to
+  `R-2807`.
+- Feature maturity classification: `docs/language-feature-maturity.md`
+  (to be updated when each phase begins implementation).
+- Conformance: `R-2801` is the final API conformance gate; release
+  candidates for `spectra.api` v1.0 cannot be certified while any
+  required category fails.

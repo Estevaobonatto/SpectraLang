@@ -21,12 +21,23 @@ SpectraLang is a language and toolchain project with these major areas:
 - `compiler/`: lexer, parser, AST, semantic analysis, linting, pipeline
 - `midend/`: IR lowering, validation, optimization
 - `backend/`: Cranelift codegen, JIT/AOT
-- `runtime/`: runtime services, memory, host calls, stdlib plumbing
+- `runtime/`: runtime services, memory, host calls, stdlib plumbing, async reactor, API crate host calls
+- `runtime/src/api/`: HTTP parser, server, client, JSON, TLS, routing (sibling to the existing `runtime/src/stdlib/`)
+- `runtime/src/reactor/`: platform-specific event loop (`epoll` / `IOCP` / `kqueue`)
 - `tools/spectra-cli/`: CLI
 - `tools/spectra-lsp/`: language tooling / LSP
+- `tools/spectra-interop/`: language interop
 - `tests/`: language, semantic, CLI, and project tests
 - `docs/`: language docs, project docs, implementation planning docs
+- `docs/api/`: API library reference (added in Phase 22)
 - `roadmap/`: machine-readable roadmap tracking
+- `packages/spectra-api/`: the published Spectra package that delivers the API platform surface (Phase 22+)
+- `examples/api/`: runnable API examples for REST, WebSocket, GraphQL, gRPC, SSE, and database integration
+
+The platform targets two complementary workstreams:
+
+- **AI/ML core**: tensors, autodiff, ONNX, RAG, ML serving, model evaluation, drift detection.
+- **API platform**: async/await first-class syntax, `spectra.api` package (HTTP/1.1 → HTTP/2 → HTTP/3, TLS, JSON, middleware, auth, OpenAPI, drivers, observability).
 
 ---
 
@@ -291,8 +302,46 @@ Recommended grouping:
 - `R-11xx`: concurrency/serving
 - `R-12xx`: security/ops
 - `R-13xx`: docs/adoption
+- `R-21xx`: async language core
+- `R-22xx`: API library foundation (`spectra.api`)
+- `R-23xx`: middleware and security
+- `R-24xx`: advanced API features
+- `R-25xx`: persistence and database
+- `R-26xx`: API tooling and developer experience
+- `R-27xx`: observability and API operations
+- `R-28xx`: API conformance and release
 
 Do not renumber existing IDs unless absolutely necessary.
+
+---
+
+## Owner Groups
+
+Every roadmap item in `roadmap/roadmap.toml` is owned by exactly one group.
+Owners are responsible for design, implementation, tests, and the
+acceptance criteria of items in their group, and for raising cross-cutting
+risks in the planning files.
+
+| Owner | Scope |
+|---|---|
+| `frontend` | lexer, parser, AST, diagnostics, language surface |
+| `semantic` | type system, imports, traits, validation |
+| `midend` | IR lowering, optimization, validation, graph IR |
+| `backend` | Cranelift, object emission, target ABIs |
+| `runtime` | runtime services, allocators, reactor, async stdlib, host calls |
+| `numerics` | tensor core, kernels, BLAS/GPU integration, numerics conformance |
+| `ml` | autodiff, modules, optimizers, datasets, model serving, ML safety |
+| `web` | HTTP server/client, routing, middleware, WebSocket, SSE, OpenAPI, `spectra.api` package |
+| `db` | drivers, query builder, migrations, ORM, connection pool |
+| `tooling` | CLI, formatter, lint, LSP, debugger, benchmarks, scaffolder |
+| `ecosystem` | package manager, registry, ADRs, documentation, examples, release |
+
+The `web` and `db` groups were introduced together with the API platform
+workstream (Phase 22+). Items that previously fell under `runtime` purely
+because they were "in the runtime crate" should be reassigned to `web` or
+`db` when the work shifts from runtime infrastructure to the public API
+surface or the database layer. The cross-cutting review rules defined in
+this file apply uniformly across all owner groups.
 
 ---
 
@@ -394,6 +443,42 @@ In practical terms:
 - tensor/runtime/autodiff/interop work is generally higher leverage than cosmetic syntax work
 - package manager and tooling are high priority if they unblock real ML use
 - documentation should keep the AI production target explicit
+
+---
+
+## API Platform Direction Rules
+
+Because SpectraLang is also intended to be a first-class language for
+building HTTP and event-driven APIs natively, agents must prefer planning
+decisions that strengthen:
+
+- async/await as a first-class language and runtime model
+- typed HTTP primitives (`Request`, `Response`, `Method`, `Status`, `Header`, `Cookie`)
+- middleware and authentication as composable, documented building blocks
+- first-class drivers for the dominant production backends (PostgreSQL, SQLite, Redis)
+- observability and threat mitigation as documented defaults, not afterthoughts
+- toolchain that turns a scaffolded project into a running service in minutes
+- conformance, interop, and production hardening before declaring v1.0
+
+The `spectra.api` package is the canonical home for this surface. New HTTP,
+routing, middleware, WebSocket, SSE, or database work that targets the
+public API surface belongs in `spectra.api` and is owned by the `web` or
+`db` owner groups, not by `runtime` or `frontend`.
+
+In practical terms:
+
+- Phase 21 (async/await) is the foundation; no API platform work begins
+  before its core is in place.
+- HTTP/1.1 is the first protocol; HTTP/2 and HTTP/3 follow once the
+  foundation is stable.
+- TLS, authentication, validation, and error handling are non-negotiable
+  defaults, not optional extras.
+- Driver coverage should match the dominant production backends first;
+  exotic drivers are follow-on work.
+- The `spectralang api new` / `spectralang api dev` / `spectralang api doc`
+  experience is part of the public contract.
+- `R-2801` (API conformance v1) is the release-candidate gate for
+  `spectra.api` v1.0.
 
 ---
 

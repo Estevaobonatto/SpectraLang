@@ -2802,3 +2802,2134 @@ This sequence establishes:
 - coverage visibility
 - compiler confidence
 - the first real foundation for AI workloads
+
+---
+
+# Next Horizon: Native API Platform
+
+The baseline roadmap through Phase 20 is complete. The phases below define a
+new, production-grade workstream that turns SpectraLang into a first-class
+language for **building HTTP and event-driven APIs natively**, without
+sacrificing the AI/ML and tensor story.
+
+The platform is delivered as a separate Spectra package, `spectra.api`,
+published through the existing Phase 9 registry. It is **not** part of `std`
+because it evolves on a faster cadence, has its own version, and pulls in
+heavier optional dependencies (TLS, drivers, observability exporters).
+
+The eight phases (Phase 21 to Phase 28) are ordered by dependency. Phase 21
+is the foundation: without async/await as a first-class language feature,
+the API library cannot match the latency and concurrency characteristics
+that production teams expect.
+
+The companion strategic document (`docs/production-ai-implementation-plan.md`)
+has a new top-level chapter "API Platform Vision" that mirrors these phases.
+
+---
+
+# Phase 21: Async Language Core
+
+The foundation of the API platform. Async/await becomes a first-class
+language and runtime model, with a platform-specific reactor and
+deterministic structured concurrency.
+
+## R-2101 ADR: Async/Await Execution Model
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `frontend` / `ecosystem`
+- Risk: `high`
+- Dependencies: none
+
+### Scope
+
+Decide the asynchronous execution model for Spectra: stackless coroutines vs
+stackful, polling vs callback, `Task<T>` / `Stream<T>` types, cancellation,
+pinning, and `Send` / `Sync` rules.
+
+### Acceptance
+
+- ADR `docs/adr/0010-async-execution-model.md` is committed and approved.
+- The ADR fixes the syntax surface for `async fn`, `await`, `Task<T>`,
+  `Stream<T>`, and any `Pin`-style API.
+- The ADR covers lowering to a state-machine SSA and the runtime scheduler
+  interface.
+- The ADR addresses `Send`/`Sync` rules, structured concurrency, and
+  cancellation propagation.
+
+## R-2102 Async fn and Async Block in Frontend
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `frontend`
+- Risk: `high`
+- Dependencies: `R-2101`
+
+### Scope
+
+Parse and represent `async fn`, async block expressions, and async closures
+in the lexer, parser, and AST.
+
+### Acceptance
+
+- `async fn` is parsed in function declarations and method declarations.
+- `async { ... }` is parsed as an async block expression.
+- The AST introduces `AsyncFunctionDecl` and `AsyncBlock` nodes with
+  deterministic children.
+- The parser produces actionable diagnostics for missing or misplaced
+  `async` / `await`.
+- Snapshot tests cover the happy path and a representative set of malformed
+  inputs.
+
+## R-2103 Await Expression and Async Lowering
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `frontend` / `midend`
+- Risk: `high`
+- Dependencies: `R-2102`
+
+### Scope
+
+Add `await` as a first-class expression and lower async functions and
+blocks to a state-machine SSA that integrates with the runtime scheduler.
+
+### Acceptance
+
+- `await <expr>` parses and type-checks as a suspend point.
+- Async functions lower to SSA with explicit suspend/resume markers.
+- Cranelift backend compiles the lowered state machine for a minimal async
+  function.
+- Structured async tests cover happy path, early return, and explicit
+  cancellation.
+
+## R-2104 Event Loop Multiplexer (epoll/IOCP/kqueue)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2103`
+
+### Scope
+
+Implement the runtime reactor that drives async tasks, with
+platform-specific backends for `epoll` (Linux), `IOCP` (Windows), and
+`kqueue` (macOS).
+
+### Acceptance
+
+- The runtime detects the platform and selects the matching backend
+  automatically.
+- A focused test exercises 10k concurrently suspended tasks on Linux.
+- Task wakeups, timer events, and I/O events share a single reactor
+  interface.
+- The reactor is documented in the runtime crate with platform-specific
+  notes.
+
+## R-2105 Cancellation, Timeouts, and Structured Concurrency
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2104`
+
+### Scope
+
+Add `CancelHandle`, `with_timeout`, scope-based join, and parent-child
+cancellation for async tasks.
+
+### Acceptance
+
+- Cancelling a parent task cancels every child task in the scope.
+- `with_timeout(duration)` cancels the wrapped future deterministically
+  when the deadline elapses.
+- `JoinHandle<T>` returns the task result or a structured cancellation
+  error.
+- Deterministic tests cover cascading cancellation, timeout, and join
+  ordering.
+
+## R-2106 Stream Type and Stream Adaptors
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2105`
+
+### Scope
+
+Add a first-class `Stream<T>` type with `map`, `filter`, `fold`, `take`,
+`skip`, `chunks`, `fuse`, and backpressure-aware composition.
+
+### Acceptance
+
+- The public `Stream<T>` API exposes the documented adaptors.
+- Slower consumers do not block faster producers (backpressure).
+- Stream finish is deterministic when the upstream signals `done`.
+- Tests cover happy path, cancellation mid-stream, and
+  consumer-faster-than-producer.
+
+## R-2107 Async Standard Library Surface
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2105`
+
+### Scope
+
+Expose async counterparts for filesystem, TCP, UDP, and channel operations
+through the standard library.
+
+### Acceptance
+
+- `fs.read_async` and `fs.write_async` are available with cancellation
+  support.
+- `tcp.connect_async`, `tcp.accept_async`, and `udp` operations are
+  exposed.
+- Async `channel.send` / `channel.recv` are available alongside the
+  existing sync channels.
+- Tests cover async socket reads/writes and clean cancellation.
+
+## R-2108 Async Trait Objects and dyn Future
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `semantic`
+- Risk: `medium`
+- Dependencies: `R-2103`
+
+### Scope
+
+Support object-safe async trait methods and `Box<dyn Future>` /
+`Box<dyn Stream>` for dynamic dispatch.
+
+### Acceptance
+
+- `dyn Future` and `dyn Stream` compile and dispatch through virtual
+  tables.
+- Async methods in traits follow the documented object-safety rules.
+- Non-object-safe async trait methods emit a stable diagnostic with the
+  offending method.
+
+## R-2109 Async Test Runtime and Test Macros
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2107`
+
+### Scope
+
+Provide `#[spectra_async_test]` plus a `block_on` runtime so API test
+code can use plain `async fn` without manual setup.
+
+### Acceptance
+
+- `#[spectra_async_test]` runs async test functions inside the Spectra
+  test runner.
+- `block_on(future)` is available in test code without external setup.
+- Tests can be filtered, listed, and reported like synchronous tests.
+
+## R-2110 Async Diagnostics and Send/Sync Validation
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `semantic`
+- Risk: `high`
+- Dependencies: `R-2103`
+
+### Scope
+
+Emit stable semantic diagnostics for `Send` / `Sync` violations across
+await points, `RefCell` held across await, and other async borrow errors.
+
+### Acceptance
+
+- Stable diagnostic codes `E2101` through `E2120` are documented.
+- Non-`Send` types held across await produce a precise semantic diagnostic
+  with span.
+- `!Send` types crossing task boundaries are reported before runtime.
+- Regression tests cover each diagnostic family.
+
+## R-2111 Async Benchmarks and Profiling
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `tooling`
+- Risk: `low`
+- Dependencies: `R-2107`
+
+### Scope
+
+Add an async benchmark harness that emits p50/p95/p99 latency, throughput,
+and concurrent connection counts for async workloads.
+
+### Acceptance
+
+- `spectralang bench --async` runs async micro-benchmarks and emits JSON.
+- The suite covers 1k, 10k, and 100k concurrent tasks.
+- The JSON report is machine-readable and is compared against a checked-in
+  baseline.
+
+---
+
+# Phase 22: API Library Foundation
+
+The library itself: HTTP/1.1 server and client, JSON, routing, TLS, and
+the public `std.api.*` surface. The package is published to the local
+registry as `spectra.api`.
+
+## R-2201 ADR: API Library Architecture
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `high`
+- Dependencies: `R-2107`
+
+### Scope
+
+Decide the structural model for the new `spectra.api` library: a separate
+Rust companion crate, a Spectra package, the `std.api.*` binding surface,
+and the relationship with `std`.
+
+### Acceptance
+
+- ADR `docs/adr/0011-api-library-architecture.md` is committed and
+  approved.
+- The ADR fixes the crate layout, the package name, the import path, and
+  the public API surface.
+- The ADR documents the migration path from any prior ad-hoc `std` web
+  modules.
+- The ADR identifies the supported HTTP versions, TLS model, and async
+  dependencies.
+
+## R-2202 spectra-api Rust Crate and Host Call Registration
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2201`
+
+### Scope
+
+Add a new workspace crate `spectra-api` that hosts the Rust implementation
+of HTTP parsing, server, client, JSON, TLS, and registers the host calls
+that `std.api.*` will dispatch into.
+
+### Acceptance
+
+- The new crate compiles in the workspace and links against the existing
+  runtime.
+- Host calls are registered in the runtime host-call registry.
+- The crate has unit tests for the registered host functions.
+- A focused script verifies host call naming and registration count.
+
+## R-2203 std.api Surface in Semantic Analysis
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `semantic`
+- Risk: `high`
+- Dependencies: `R-2202`
+
+### Scope
+
+Expose `std.api.*` to the semantic analyzer with the public function
+signatures, struct types, and trait surface declared by the
+`spectra.api` package.
+
+### Acceptance
+
+- `std.api.*` is visible in the formatter, LSP completion, and
+  `spectralang --list-experimental`.
+- Type checking resolves qualified `std.api.*` calls without false
+  missing-module diagnostics.
+- Snapshot tests cover the public function table.
+
+## R-2204 HTTP/1.1 Parser
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2107`, `R-2202`
+
+### Scope
+
+Implement a streaming HTTP/1.1 request and response parser, including
+request line, status line, headers, chunked transfer encoding, and
+keep-alive.
+
+### Acceptance
+
+- The parser produces structured request and response values with headers
+  and body chunks.
+- Chunked transfer encoding round-trips through the parser in both
+  directions.
+- Malformed input returns a typed parse error with the offending position.
+- Tests cover representative RFC 7230 samples and known-malformed inputs.
+
+## R-2205 HTTP/1.1 Server
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2204`
+
+### Scope
+
+Implement the HTTP/1.1 server: accept loop, connection state, request
+body limits, response writer, and per-connection timeouts.
+
+### Acceptance
+
+- An end-to-end test exercises GET, POST with body, chunked responses, and
+  HEAD.
+- Body size limits and slowloris protections are enforced.
+- The server cleans up connections on timeout, body-limit violation, and
+  parse error.
+- The server survives 10k concurrent connections on the local test
+  machine.
+
+## R-2206 HTTP/1.1 Client
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2204`
+
+### Scope
+
+Implement the HTTP/1.1 client: connection pool, redirect handling,
+configurable timeouts, and structured responses.
+
+### Acceptance
+
+- The client supports GET, POST, PUT, PATCH, DELETE, and HEAD with
+  arbitrary bodies.
+- Redirect chains (up to the configured limit) are followed with the right
+  method semantics.
+- Timeouts, connection failures, and protocol errors are reported as
+  typed errors.
+- Tests cover redirect chains, large bodies, and explicit timeout.
+
+## R-2207 TLS via rustls (HTTPS Server and Client)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2206`, `R-2205`
+
+### Scope
+
+Add HTTPS support using `rustls` for both the server and the client, with
+SNI, configurable certificate chains, and ALPN negotiation.
+
+### Acceptance
+
+- An HTTPS server runs a self-signed certificate in the integration test.
+- An HTTPS client connects to a known external test endpoint and
+  validates the chain.
+- ALPN advertises `http/1.1` (and `h2` when Phase 24 lands it).
+- TLS handshake failures are reported as typed errors with the underlying
+  cause.
+
+## R-2208 std.api.json Encoder and Decoder
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2202`
+
+### Scope
+
+Implement a JSON encoder and decoder that handles primitives, arrays,
+maps, null, nested structures, and common escape sequences for the public
+API surface.
+
+### Acceptance
+
+- Round-trip tests cover primitives, nested structures, arrays, maps, and
+  null.
+- Invalid JSON returns a typed parse error with byte offset.
+- The encoder produces valid RFC 8259 JSON for all supported values.
+- The surface is exposed through `std.api.json.*` and documented in the
+  book.
+
+## R-2209 JSON Derive: Serialize and Deserialize
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `frontend` / `semantic`
+- Risk: `high`
+- Dependencies: `R-2208`
+
+### Scope
+
+Add `#[derive(Serialize, Deserialize)]` to the language so structs and
+enums can be encoded/decoded through the JSON runtime.
+
+### Acceptance
+
+- The derive macro generates code that uses `std.api.json.*`.
+- Optional fields and explicit renaming are supported.
+- Invalid input produces a typed error that points to the failing field.
+- Tests cover happy path, missing field, wrong type, and rename.
+
+## R-2210 Request, Response, Header, Cookie, Method, Status Types
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2204`
+
+### Scope
+
+Define the core HTTP types in the public `std.api.*` surface: `Request`,
+`Response`, `Header`, `Cookie`, `Method`, and `Status`.
+
+### Acceptance
+
+- The types are usable as handler parameters and return values.
+- `Method` and `Status` enumerate the documented values.
+- Header and cookie accessors are case-insensitive and validate input.
+- Tests cover representative CRUD request/response flows.
+
+## R-2211 Router: Path Matching and Wildcards
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2210`
+
+### Scope
+
+Implement a router that supports literal paths, path parameters
+(`{id}`), wildcards (`*`), and optional regex constraints.
+
+### Acceptance
+
+- The router matches `/users`, `/users/{id}`, `/files/*path`, and
+  `/orders/{id:\d+}`.
+- Path parameters are available in the request handler as typed values.
+- Route conflicts (e.g. literal vs parameter) are reported with the
+  conflicting paths.
+- Tests cover 100k registered routes with sub-millisecond lookup.
+
+## R-2212 Query String Parser and Binding
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2210`
+
+### Scope
+
+Parse query strings and bind them to struct fields, including repeated
+keys, arrays, and basic type coercion.
+
+### Acceptance
+
+- Query strings parse to a structured map and to a typed struct when
+  bound.
+- Repeated keys become arrays; mismatched types produce typed errors.
+- URL decoding and reserved character handling are RFC 3986 compliant.
+- Tests cover simple, repeated, and malformed queries.
+
+## R-2213 URL-Encoded Form Binding
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2212`
+
+### Scope
+
+Parse `application/x-www-form-urlencoded` bodies and bind them to struct
+fields, including arrays and nested objects.
+
+### Acceptance
+
+- Form bodies parse to a typed struct or to a key-value map.
+- Duplicate keys produce a typed error with the offending field.
+- Missing required fields produce a validation error with the field name.
+- Tests cover happy path, malformed input, and field validation failures.
+
+## R-2214 Multipart Form and File Uploads
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2213`
+
+### Scope
+
+Parse `multipart/form-data` bodies, expose file uploads through a
+streaming interface, and enforce size and count limits.
+
+### Acceptance
+
+- The parser exposes text parts, file parts, and stream-friendly file
+  readers.
+- Per-request size limits and per-part count limits are enforced.
+- Files are streamed to disk or a sink to avoid loading them entirely in
+  memory.
+- Tests cover simple forms, multiple files, and oversize rejection.
+
+## R-2215 Handler Trait and Response Return
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2210`
+
+### Scope
+
+Define the `api.handler` trait that user handlers implement and that the
+router calls to produce a `Response`.
+
+### Acceptance
+
+- The trait supports `async fn` and synchronous handlers.
+- Handlers can return any value that implements `IntoResponse`.
+- Errors thrown by handlers flow through the unified error middleware.
+- Tests cover both handler shapes and trait object dispatch.
+
+## R-2216 Server Lifecycle, Listen, Serve, and Graceful Shutdown
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2205`, `R-2211`, `R-2215`
+
+### Scope
+
+Wire the server lifecycle: `listen`, `serve`, graceful shutdown on signal,
+and clean teardown of in-flight requests.
+
+### Acceptance
+
+- A server can be started on a configured port and shut down
+  deterministically on SIGINT/SIGTERM.
+- In-flight requests are given a configurable drain timeout before forced
+  termination.
+- Resources (sockets, pools, timers) are released on shutdown.
+- Tests cover signal handling, drain, and post-shutdown refusal of new
+  connections.
+
+## R-2217 spectra.api Package Published to Local Registry
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `medium`
+- Dependencies: `R-2203`, `R-2216`
+
+### Scope
+
+Publish the `spectra.api` package to the local Phase 9 registry with a
+clear manifest, dependency declarations, and a deterministic version.
+
+### Acceptance
+
+- `spectralang package add spectra-api` resolves from the local registry.
+- The manifest pins compatible Spectra and async runtime versions.
+- `spectralang package build/check/run` work end-to-end on the published
+  package.
+- The registry entry includes checksum and source path metadata.
+
+## R-2218 API Book Chapter: Hello HTTP
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2217`
+
+### Scope
+
+Add a `Hello HTTP` chapter to `docs/book/` that walks through defining a
+route, returning a typed response, and running the server locally.
+
+### Acceptance
+
+- The chapter is reachable from the book index and from the API reference
+  docs.
+- The chapter is validated by the existing
+  `scripts/validate_ai_book.py`-style validator.
+- The example in the chapter runs end-to-end on the local machine.
+
+## R-2219 API Example: REST CRUD
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2217`, `R-2209`
+
+### Scope
+
+Provide a runnable REST CRUD example that exercises routes, JSON, path
+params, query strings, and form binding through `spectra.api`.
+
+### Acceptance
+
+- `examples/api/01_rest_crud.spectra` builds and runs.
+- The example uses the public `std.api.*` surface and a real local server.
+- The example includes a smoke test that asserts the CRUD responses.
+
+## R-2220 API Conformance Suite v0 (HTTP/1.1)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2216`, `R-2217`, `R-2208`
+
+### Scope
+
+Stand up the v0 API conformance suite covering HTTP/1.1 parsing, status
+codes, headers, JSON round-trip, and the basic router.
+
+### Acceptance
+
+- `scripts/validate_r2220_api_conformance_v0.py` runs the suite and emits
+  a machine-readable report.
+- The suite covers the documented must-pass HTTP/1.1 cases and a JSON
+  conformance matrix.
+- The suite gates `run_tests.ps1` for Phase 22.
+
+---
+
+# Phase 23: Middleware and Security
+
+Production middleware, authentication, authorization, threat mitigation,
+and unified error handling. Every item is a real, configurable building
+block with documented behavior.
+
+## R-2301 Middleware Chain Trait and Deterministic Ordering
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2215`
+
+### Acceptance
+
+- The middleware trait supports `async fn` and synchronous middleware.
+- Middleware order is deterministic and documented in the book chapter.
+- The response chain runs in reverse order.
+- Tests cover ordering, short-circuit, and post-response hooks.
+
+## R-2302 CORS Middleware (RFC 7231)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- Preflight requests return the correct `Access-Control-*` headers for
+  the configured policy.
+- Exposed headers, allowed methods, allowed origins, and credentials flag
+  are honored.
+- Non-preflight requests receive the correct `Access-Control-Allow-Origin`
+  header.
+- Tests cover permissive, restrictive, and credentialed configurations.
+
+## R-2303 Structured Logging and Request ID Tracing
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- Every request gets a unique request ID that flows through the log lines.
+- The middleware emits one log line per request with the documented
+  fields.
+- Log format is configurable (JSON for production, text for development).
+- Tests assert the log line contents and the request ID propagation.
+
+## R-2304 Rate Limiting (Token Bucket and Sliding Window)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- The middleware enforces the configured limit and returns `429` when
+  exceeded.
+- Per-tenant and per-user limits are isolated (one tenant cannot exhaust
+  another tenant's budget).
+- Configuration is hot-reloadable in dev mode.
+- Tests cover token bucket, sliding window, and per-tenant isolation.
+
+## R-2305 Response Compression (gzip, brotli, deflate)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- The middleware negotiates the best supported encoding from the request.
+- Small responses below the threshold are not compressed.
+- The `Content-Encoding` and `Vary` headers are set correctly.
+- Tests cover each encoding and the threshold behavior.
+
+## R-2306 Security Headers Middleware
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `low`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- The middleware applies the configured header policy on every response.
+- CSP and Permissions-Policy are configurable per route.
+- HSTS preload and `includeSubDomains` are honored when configured.
+- Tests assert each header is present and correctly configured.
+
+## R-2307 API Key Authentication
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- The middleware extracts the key from the configured source.
+- Expired or revoked keys are rejected with `401` and a structured error.
+- The middleware can be combined with rate limiting per key.
+- Tests cover valid, invalid, expired, and revoked keys.
+
+## R-2308 JWT (HS256, RS256, ES256)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2202`
+
+### Acceptance
+
+- Tokens can be signed and verified with each documented algorithm.
+- Claims validation rejects expired, not-yet-valid, and wrong-issuer
+  tokens.
+- The verifier is constant-time for signature comparison.
+- Tests cover happy path, expiry, wrong issuer, and tampered payload.
+
+## R-2309 OAuth2 Client (Authorization Code + PKCE + Refresh)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2308`
+
+### Acceptance
+
+- The client follows the authorization code flow and exchanges the code
+  for tokens.
+- PKCE is generated and verified end-to-end.
+- Refresh tokens are exchanged for new access tokens.
+- Tests cover happy path, refresh, and revocation.
+
+## R-2310 OAuth2 Resource Server and Token Introspection
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2308`
+
+### Acceptance
+
+- JWT bearer tokens are validated locally with the configured JWKS.
+- Opaque tokens are validated via RFC 7662 introspection.
+- The resource server emits `WWW-Authenticate` on rejection.
+- Tests cover JWT, opaque, and revoked tokens.
+
+## R-2311 Session Management
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2312`
+
+### Acceptance
+
+- Sessions are stored in a pluggable store (memory, Redis) with a
+  defined interface.
+- Sliding expiration extends the session on activity up to a maximum
+  lifetime.
+- Explicit logout invalidates the session immediately.
+- Tests cover creation, lookup, expiry, sliding, and invalidation.
+
+## R-2312 Cookie API (Secure, httpOnly, SameSite, Signed)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `low`
+- Dependencies: `R-2210`
+
+### Acceptance
+
+- Cookies can be set with the documented attributes and read back as a
+  typed value.
+- Signed cookies are verified with constant-time comparison.
+- Invalid signatures or expired cookies are rejected with a typed error.
+- Tests cover each attribute and the signature verification paths.
+
+## R-2313 Request Validation (Constraints, RFC 7807)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2209`
+
+### Acceptance
+
+- Field-level constraints (required, length, range, regex) are applied to
+  validated structs.
+- Failed validation returns a `422` with an RFC 7807 body listing the
+  offending fields.
+- The validation framework composes with the JSON derive.
+- Tests cover each constraint and the response shape.
+
+## R-2314 Unified Error Handling and Exception Middleware
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- The public `api.Error` type maps to HTTP status codes and bodies
+  deterministically.
+- Internal errors are logged with full detail and produce sanitized
+  public responses.
+- The middleware can be customized per route.
+- Tests cover the default mapping, the custom mapping, and the
+  sanitization.
+
+## R-2315 HTTPS Hardening (HSTS Preload, OCSP Stapling)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2207`
+
+### Acceptance
+
+- The server emits
+  `Strict-Transport-Security: max-age=...; preload; includeSubDomains` when
+  configured.
+- OCSP responses are stapled to the TLS handshake when available.
+- Certificate rotation is supported without server restart.
+- Tests cover the HSTS header, OCSP stapling, and hot rotation.
+
+## R-2316 Threat Mitigations (CSRF, SSRF, Body Size, Timeouts)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2301`
+
+### Acceptance
+
+- CSRF protection validates the `Origin` header against an allowlist for
+  state-changing methods.
+- SSRF protection blocks requests to private IP ranges and link-local
+  addresses by default.
+- Body size limits are enforced before the body is fully read.
+- Request timeouts cut off slow clients without affecting other requests.
+
+## R-2317 API Example: Authenticated REST API (JWT)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2308`, `R-2219`
+
+### Acceptance
+
+- `examples/api/02_jwt_auth_crud.spectra` builds and runs.
+- The example issues, validates, and rejects JWTs end-to-end.
+- The example uses the unified error middleware and validation framework.
+
+## R-2318 API Example: Middleware Composition
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2302`, `R-2303`, `R-2304`, `R-2306`
+
+### Acceptance
+
+- `examples/api/03_middleware_composition.spectra` builds and runs.
+- The example asserts the middleware order matches the documentation.
+- The example demonstrates per-route configuration of the rate limit and
+  security headers.
+
+---
+
+# Phase 24: Advanced API Features
+
+WebSocket, SSE, HTTP/2, OpenAPI, caching, versioning, pagination, content
+negotiation, and other production API features.
+
+## R-2401 WebSocket Server (RFC 6455)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2210`, `R-2215`
+
+### Acceptance
+
+- The server completes the RFC 6455 handshake and upgrades the
+  connection.
+- Fragmented messages are reassembled and ping/pong are handled.
+- Per-message deflate is supported and negotiated via the extension
+  header.
+- Tests cover handshake, fragmented messages, ping/pong, and a 10k
+  concurrent connections soak.
+
+## R-2402 WebSocket Client
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2401`
+
+### Acceptance
+
+- The client connects to a known external test echo server and
+  round-trips messages.
+- The client supports text and binary frames and ping/pong.
+- Reconnect with backoff is supported when configured.
+- Tests cover handshake, frame round-trip, and reconnect.
+
+## R-2403 Server-Sent Events (SSE)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2210`
+
+### Acceptance
+
+- The SSE response streams events in the documented format.
+- Heartbeats are emitted at the configured interval to keep the
+  connection alive.
+- The `Last-Event-ID` header is honored for resume on the server.
+- Tests cover streaming, heartbeat, and resume.
+
+## R-2404 HTTP/2 Server (h2, ALPN, HPACK)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2205`, `R-2207`
+
+### Acceptance
+
+- ALPN advertises `h2` alongside `http/1.1`.
+- The server multiplexes streams on a single connection without
+  head-of-line blocking.
+- HPACK encoding round-trips with the configured client.
+- Tests cover ALPN negotiation, multiplexing, and HPACK.
+
+## R-2405 HTTP/2 Client
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2404`, `R-2206`
+
+### Acceptance
+
+- The client connects to a known external h2 endpoint and round-trips
+  requests.
+- Multiple concurrent requests on a single connection are multiplexed.
+- Server push is accepted and exposed through a callback.
+- Tests cover multiplexing and server push.
+
+## R-2406 HTTP/3 and QUIC
+
+- Status: `not_started`
+- Priority: `P3`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2404`
+
+### Acceptance
+
+- The decision is documented: include HTTP/3 only when a stable Rust QUIC
+  implementation is available.
+- If implemented, the server and client negotiate HTTP/3 over QUIC and
+  exchange a request/response.
+- If deferred, the rationale and the re-evaluation date are documented in
+  the ADR.
+
+## R-2407 API Versioning (Path, Header, Query)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2211`
+
+### Acceptance
+
+- All three versioning strategies are supported and documented.
+- A single request can be matched to exactly one version.
+- Version deprecation emits a `Deprecation` and `Sunset` header on
+  responses.
+- Tests cover each strategy and the deprecation headers.
+
+## R-2408 Pagination (Cursor, Offset, Link Header RFC 5988)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2210`
+
+### Acceptance
+
+- Cursor pagination returns opaque cursors and the next cursor in the
+  response.
+- Offset pagination returns `page`, `page_size`, and `total`.
+- RFC 5988 Link headers are emitted for both pagination styles.
+- Tests cover happy path, last page, and invalid cursor.
+
+## R-2409 Content Negotiation (JSON, XML, MessagePack, CBOR)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2208`
+
+### Acceptance
+
+- The server picks the best supported type from the `Accept` header.
+- The client serializes requests in the negotiated type.
+- `415 Unsupported Media Type` is returned when no acceptable type is
+  offered.
+- Tests cover each type, the negotiation, and the 415 path.
+
+## R-2410 Caching Headers (ETag, Last-Modified, Cache-Control, Vary)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2210`
+
+### Acceptance
+
+- The server emits `ETag` and `Last-Modified` for cacheable responses.
+- `If-None-Match` and `If-Modified-Since` are honored with `304`.
+- `Cache-Control` directives are configurable per response.
+- Tests cover ETag round-trips, conditional requests, and `Vary`.
+
+## R-2411 OpenAPI 3.1 Generation
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web` / `tooling`
+- Risk: `high`
+- Dependencies: `R-2211`, `R-2209`, `R-2210`
+
+### Acceptance
+
+- The generator produces a valid OpenAPI 3.1 JSON document.
+- The document includes paths, parameters, request bodies, responses, and
+  schemas.
+- The document is exposed at the configured path (default `/openapi.json`).
+- Tests assert the document against a checked-in golden file.
+
+## R-2412 Background Jobs and Task Queue
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2205`, `R-2107`
+
+### Acceptance
+
+- Jobs can be enqueued with a payload and a delay.
+- Failed jobs are retried with the configured backoff up to the
+  configured max attempts.
+- Dead-letter jobs are visible through a typed query.
+- Tests cover happy path, retry, and dead-letter.
+
+## R-2413 Cron and Scheduled Jobs
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2412`
+
+### Acceptance
+
+- Cron expressions parse and produce a deterministic next-run schedule.
+- Overlapping runs are handled according to the documented policy.
+- Timezone changes do not produce off-by-one or off-by-hour schedules.
+- Tests cover each schedule shape and the overlap policy.
+
+## R-2414 Email Send (SMTP and Templates)
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2219`
+
+### Acceptance
+
+- The SMTP client sends plain and HTML emails with optional attachments.
+- Templates can be rendered with a typed context.
+- Send failures are retried with backoff and reported as typed errors.
+- Tests cover happy path, retry, and an integration test against a local
+  SMTP server.
+
+## R-2415 Webhooks (Signed Payloads, Retry, Dead Letter)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2401`, `R-2206`
+
+### Acceptance
+
+- Webhook payloads are signed with HMAC-SHA256 and the signature is in
+  the header.
+- Failed deliveries are retried with exponential backoff.
+- Dead-letter webhooks are visible through a typed query.
+- Tests cover happy path, signature verification, retry, and dead-letter.
+
+## R-2416 File Storage Abstraction (S3-Compatible)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2206`
+
+### Acceptance
+
+- The storage trait exposes put, get, delete, list, and presigned URL
+  operations.
+- The S3-compatible implementation works against AWS S3 and a local
+  MinIO test instance.
+- The in-memory implementation is used by tests.
+- Tests cover put/get/delete, presigned URLs, and a multipart upload.
+
+## R-2417 Cache Layer (LRU In-Memory, Redis Distributed)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2507`
+
+### Acceptance
+
+- The cache trait exposes get, set, delete, and TTL-aware operations.
+- The in-memory implementation enforces capacity and LRU eviction.
+- The Redis implementation works against a local Redis test instance.
+- Tests cover happy path, TTL, eviction, and concurrent access.
+
+## R-2418 Configuration Management
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `medium`
+- Dependencies: `R-2107`
+
+### Acceptance
+
+- Configuration is loaded from defaults, file, environment variables, and
+  explicit overrides in that order.
+- Accessors are typed and emit a clear error for missing required values.
+- The file layer supports JSON and TOML.
+- Hot reload is supported in dev mode with a documented notification.
+
+## R-2419 gRPC Server and Client (Protobuf, Async Streams)
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2107`, `R-2404`
+
+### Acceptance
+
+- A `.proto` file compiles to a typed Spectra service.
+- Unary and streaming RPCs are supported on the server and the client.
+- Deadlines and cancellation are honored.
+- Tests cover each RPC style and a metadata propagation case.
+
+## R-2420 WebSocket Example: Real-Time Dashboard
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2401`
+
+### Acceptance
+
+- `examples/api/04_websocket_dashboard.spectra` builds and runs.
+- The example pushes updates to all clients and disconnects gracefully on
+  shutdown.
+- The example uses the documented WebSocket API only.
+
+## R-2421 OpenAPI Example: Serve Swagger UI
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2411`
+
+### Acceptance
+
+- `examples/api/05_openapi_swagger.spectra` builds and runs.
+- The example serves `/openapi.json` and `/docs` (Swagger UI).
+- The example wires the generated document into the UI.
+
+---
+
+# Phase 25: Persistence and Database
+
+Production-grade connection pooling, SQL query builder, migrations,
+first-class drivers for PostgreSQL, SQLite, and Redis, plus a minimal
+ORM.
+
+## R-2501 Connection Pool (Async-Aware)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2107`
+
+### Acceptance
+
+- The pool enforces the configured min/max size and idle timeout.
+- Acquisition timeout is honored with a typed error.
+- The pool integrates with the database drivers in Phase 25.
+- Tests cover happy path, exhaustion, and recovery.
+
+## R-2502 SQL Query Builder (Type-Safe)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2501`
+
+### Acceptance
+
+- Queries can be composed without string concatenation.
+- Parameters are bound through the driver and not interpolated into SQL.
+- The builder emits parameterized SQL for at least one supported dialect.
+- Tests cover each query kind and parameter binding.
+
+## R-2503 Migrations Framework
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2502`
+
+### Acceptance
+
+- Migrations are applied in order and recorded in a tracking table.
+- Checksum validation refuses to run if a previously-applied migration has
+  changed.
+- Down migrations roll back the schema and the tracking table.
+- Tests cover up, down, partial state, and checksum mismatch.
+
+## R-2504 SQLite Driver (Sync and Async)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2501`
+
+### Acceptance
+
+- CRUD, prepared statements, and transactions work against a file-backed
+  SQLite database.
+- The async driver is non-blocking and integrates with the connection
+  pool.
+- The sync driver is used by the migration framework when running tests.
+- Tests cover CRUD, prepared statements, transactions, and concurrent
+  reads.
+
+## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2501`
+
+### Acceptance
+
+- CRUD, prepared statements, transactions, and savepoints work against
+  PostgreSQL.
+- COPY IN/OUT round-trips a large dataset within tolerance.
+- LISTEN/NOTIFY is exposed through a typed channel.
+- Tests run against a local PostgreSQL test instance and are gated by
+  environment.
+
+## R-2506 MySQL Driver
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `db`
+- Risk: `medium`
+- Dependencies: `R-2505`
+
+### Acceptance
+
+- CRUD, prepared statements, and transactions work against MySQL.
+- The driver is dialect-aware and integrates with the query builder.
+- Tests run against a local MySQL test instance and are gated by
+  environment.
+
+## R-2507 Redis Driver (with Pool)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2501`
+
+### Acceptance
+
+- GET, SET, DEL, EXPIRE, INCR, and pub/sub work against a local Redis
+  test instance.
+- The driver integrates with the connection pool and the cache layer.
+- Tests cover happy path, expiry, eviction, and concurrent access.
+
+## R-2508 Minimal ORM: Model Trait and Typed Queries
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2502`, `R-2504`, `R-2505`
+
+### Acceptance
+
+- Models can derive CRUD methods through the documented macro.
+- Primary key inference handles common cases (single field, `id` named).
+- Typed find-by queries return the right type or a typed not-found error.
+- Tests cover CRUD and find-by for SQLite and PostgreSQL.
+
+## R-2509 Transactions (Begin, Commit, Rollback, Savepoints)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `db`
+- Risk: `high`
+- Dependencies: `R-2501`
+
+### Acceptance
+
+- Transactions work for SQLite, PostgreSQL, MySQL, and Redis (when
+  applicable).
+- Rollback is automatic on panic, error, or explicit abort.
+- Savepoints are supported with the documented semantics.
+- Tests cover commit, rollback, and savepoint nesting.
+
+## R-2510 Health Checks (Liveness, Readiness, Startup)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2216`
+
+### Acceptance
+
+- The liveness endpoint always returns 200 while the process is up.
+- The readiness endpoint returns 200 only when all required checks pass.
+- The startup endpoint returns 200 only when startup is complete.
+- Tests cover up, degraded, and recovering scenarios.
+
+## R-2511 Database Example: REST + SQLite CRUD
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2504`, `R-2219`, `R-2502`
+
+### Acceptance
+
+- `examples/api/06_rest_sqlite_crud.spectra` builds and runs.
+- The example applies migrations and exposes CRUD endpoints.
+- The example runs an in-process integration test.
+
+## R-2512 Database Example: REST + PostgreSQL
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2505`, `R-2219`, `R-2502`
+
+### Acceptance
+
+- `examples/api/07_rest_postgres_crud.spectra` builds and runs.
+- The example applies migrations and exposes CRUD endpoints.
+- The example runs an in-process integration test against a local
+  PostgreSQL test instance.
+
+## R-2513 Redis Example: Rate-Limit via Redis
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2507`, `R-2304`
+
+### Acceptance
+
+- `examples/api/08_redis_rate_limit.spectra` builds and runs.
+- The example enforces a per-tenant limit with a configurable window.
+- The example asserts that one tenant's burst does not affect another
+  tenant.
+
+## R-2514 Migration Example: Multi-Version Evolution
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2503`, `R-2504`
+
+### Acceptance
+
+- `examples/api/09_migrations.spectra` builds and runs.
+- The example applies three migrations, rolls back, and re-applies.
+- The example verifies the final schema and seed data.
+
+---
+
+# Phase 26: API Tooling and Developer Experience
+
+Scaffolder, hot reload, tests, mock, Swagger UI, IDE integration, and
+graceful shutdown. The work that turns `spectra.api` into something teams
+can adopt.
+
+## R-2601 spectralang api new Scaffolder
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2217`, `R-2219`
+
+### Acceptance
+
+- `spectralang api new my_api` produces a buildable project.
+- The project depends on `spectra.api` from the local registry.
+- `spectralang package run` starts the sample server and responds on the
+  documented port.
+- The project includes a smoke test that runs as part of
+  `spectralang package test`.
+
+## R-2602 Hot Reload Dev Server (spectralang api dev)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `high`
+- Dependencies: `R-2601`
+
+### Acceptance
+
+- Saving a handler file restarts the server within the documented debounce
+  window.
+- Request logs are emitted to the dev terminal in real time.
+- The dev server exposes the same routes as the production build.
+- Tests cover file change, syntax error recovery, and graceful restart.
+
+## R-2603 API Testing Framework (#[api_test])
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `high`
+- Dependencies: `R-2210`, `R-2109`
+
+### Acceptance
+
+- `#[api_test]` boots the app and exposes a typed test client.
+- The test client can be configured with a base URL, default headers, and
+  a cookie store.
+- Assertions cover status, headers, body, and timing.
+- Tests run inside the existing `spectralang package test` flow.
+
+## R-2604 API Mocking and Contract Tests (Pact)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2603`
+
+### Acceptance
+
+- Tests can register mocks for external services and assert on call
+  counts.
+- Pact-compatible contract files are emitted and verified by the test
+  suite.
+- The contract test mode is opt-in per test.
+- Tests cover a happy-path contract and a breaking-change rejection.
+
+## R-2605 spectralang api doc (Swagger UI and Redoc)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2411`
+
+### Acceptance
+
+- `spectralang api doc` starts a local server that serves `/openapi.json`
+  and the UI.
+- The UI is interactive and supports `try it out` for the documented
+  endpoints.
+- The CLI can target a built artifact and a running dev server.
+
+## R-2606 Postman, Bruno, and Insomnia Export
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `tooling`
+- Risk: `low`
+- Dependencies: `R-2411`
+
+### Acceptance
+
+- The CLI emits each collection format from the same OpenAPI source.
+- The exported collections include auth, headers, and example bodies.
+- The exported collections import cleanly into the documented tool
+  versions.
+
+## R-2607 Graceful Shutdown and Signal Handling
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2216`, `R-2105`
+
+### Acceptance
+
+- SIGINT and SIGTERM are handled in dev and production builds.
+- In-flight requests are given a configurable drain timeout.
+- The process exits with code 0 on success and a documented non-zero code
+  on shutdown error.
+- Tests cover both signals and the drain timeout.
+
+## R-2608 Production Config Profiles (dev, staging, prod)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2418`
+
+### Acceptance
+
+- The profile is selected by env var or CLI flag.
+- Each profile has a documented default set of middleware, log format,
+  and rate limit.
+- Profile-aware defaults are tested by the conformance suite.
+- The documentation explains the security and observability implications
+  of each profile.
+
+## R-2609 API Conformance Suite v1 (Status, Headers, Errors)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2220`, `R-2314`
+
+### Acceptance
+
+- The suite covers 50+ documented must-pass status and header cases.
+- The suite asserts the unified error shape for validation, auth, and
+  5xx paths.
+- The suite is gated by `run_tests.ps1`.
+- The suite emits a versioned conformance report.
+
+## R-2610 Book Chapter: Building Production APIs in Spectra
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2218`, `R-2601`
+
+### Acceptance
+
+- The chapter is reachable from the book index and from `docs/api/`.
+- The chapter is validated by the existing
+  `scripts/validate_ai_book.py`-style validator.
+- The reader can complete the chapter end-to-end on a local machine.
+
+## R-2611 LSP: Routes, Handlers, and Types
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2211`, `R-1001`
+
+### Acceptance
+
+- LSP completion lists routes, handler parameters, and typed response
+  shapes.
+- Go-to-definition resolves handler symbols across modules.
+- Hover shows the route path, method, and constraints.
+- Tests assert completion and hover in a multi-file API project.
+
+## R-2612 spectralang api lint
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `low`
+- Dependencies: `R-2211`
+
+### Acceptance
+
+- The linter reports each rule with a stable code and an actionable
+  message.
+- The linter integrates with `spectralang lint`.
+- A focused test project covers each rule and its suppression.
+
+## R-2613 Debugger: Breakpoints in Handlers
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-1002`, `R-2215`
+
+### Acceptance
+
+- Breakpoints can be set on handler entry, on each statement, and on the
+  return.
+- The debugger shows the request, the response, and the local variables.
+- The debugger integrates with the existing source map and the existing
+  debug adapter.
+
+## R-2614 VS Code Plugin Updates for spectra.api
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `low`
+- Dependencies: `R-2611`, `R-2605`
+
+### Acceptance
+
+- The plugin surfaces the `spectra.api` completions in `.spectra` files.
+- The plugin exposes a `Run API` task that starts
+  `spectralang api dev`.
+- The plugin shows the OpenAPI document in a side panel.
+
+## R-2615 Project Templates: REST, GraphQL, gRPC, Microservice
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2601`
+
+### Acceptance
+
+- `spectralang api new --template rest` creates a REST project.
+- The GraphQL, gRPC, and microservice templates are available behind a
+  documented flag.
+- Each template builds, runs, and has a smoke test.
+
+---
+
+# Phase 27: Observability and API Operations
+
+OpenTelemetry tracing, Prometheus metrics, audit logs, health checks, and
+per-tenant rate limiting. The work that makes `spectra.api` production
+operable.
+
+## R-2701 OpenTelemetry-Compatible Tracing
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2210`, `R-2107`
+
+### Acceptance
+
+- The runtime emits spans for HTTP request handling, database queries,
+  and external calls.
+- The OTLP exporter sends spans to a local collector for tests.
+- The trace context propagates across the supported HTTP clients.
+- Tests assert span hierarchy, attributes, and context propagation.
+
+## R-2702 Prometheus-Compatible Metrics Endpoint
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2210`
+
+### Acceptance
+
+- The `/metrics` endpoint returns a valid Prometheus exposition payload.
+- Default metrics cover request count, latency histogram, and error
+  count.
+- Custom counters and histograms can be registered and incremented.
+- Tests assert the metric shape and a known Prometheus parser round-trip.
+
+## R-2703 Health, Readiness, and Startup Probes (Integrated)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2510`
+
+### Acceptance
+
+- The probes are served on the documented paths
+  (`/healthz`, `/readyz`, `/startupz`).
+- The probe results aggregate the custom checks registered through
+  `R-2510`.
+- The documentation covers the Kubernetes, Docker, and systemd wiring.
+- Tests cover up, degraded, and recovering scenarios.
+
+## R-2704 Request and Response Audit Log (LGPD, GDPR)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2303`
+
+### Acceptance
+
+- The audit log records request, response, request ID, and user identity.
+- PII fields are redacted according to the configured policy.
+- The audit log is emitted as a versioned JSON stream.
+- Tests cover happy path, redaction, and missing user identity.
+
+## R-2705 Distributed Tracing (W3C Trace Context)
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Risk: `medium`
+- Dependencies: `R-2701`, `R-2206`
+
+### Acceptance
+
+- Outgoing HTTP requests carry the configured `traceparent` header.
+- Incoming `traceparent` headers are honored and used as the parent span.
+- Database and Redis calls inherit the current trace context.
+- Tests assert context propagation end-to-end.
+
+## R-2706 Per-Tenant and Per-User Rate Limiting
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2304`, `R-2701`
+
+### Acceptance
+
+- Each tenant has an isolated budget that is not affected by other
+  tenants.
+- Rate-limit rejections emit a structured metric and a span event.
+- The limit is hot-reloadable without server restart.
+- Tests cover per-tenant isolation, hot reload, and the observability
+  hook.
+
+## R-2707 OTel and Prometheus Exporters Example
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2701`, `R-2702`
+
+### Acceptance
+
+- `examples/api/10_otel_prometheus.spectra` builds and runs.
+- The example starts a local OTel collector and Prometheus endpoint.
+- The example asserts that the expected spans and metrics are emitted.
+
+## R-2708 Audit Log Example with PII Redaction
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2704`
+
+### Acceptance
+
+- `examples/api/11_audit_log.spectra` builds and runs.
+- The example redacts configured PII fields and keeps the request shape.
+- The example emits a versioned JSON audit log.
+
+---
+
+# Phase 28: API Conformance and Release
+
+Certify `spectra.api` v1.0: conformance suite, interop tests, full
+example gallery, production hardening, and registry release.
+
+## R-2801 API Conformance Suite v1 (Final)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `high`
+- Dependencies: `R-2220`, `R-2609`, `R-2703`
+
+### Acceptance
+
+- The suite covers 100+ documented must-pass cases for the public API
+  surface.
+- The suite emits a versioned certification report.
+- Release candidates cannot be certified while any required category
+  fails.
+- The suite is gated by `run_tests.ps1`.
+
+## R-2802 Interop Tests Against Express, FastAPI, and Actix
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2801`
+
+### Acceptance
+
+- An interop test suite exercises JSON, headers, status, and CORS with
+  the reference servers.
+- The suite reports per-server and per-case pass/fail with reproducible
+  commands.
+- The suite is gated by environment and CI, not by the local test runner.
+
+## R-2803 Documentation Site for spectra.api
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2610`, `R-2218`
+
+### Acceptance
+
+- The site is reachable from the main book index.
+- The site includes the public API reference, the cookbook, and the
+  migration guide.
+- The site is built and validated by `run_tests.ps1`.
+
+## R-2804 API Example Gallery (REST, GraphQL, gRPC, WebSocket, SSE)
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2217`, `R-2411`, `R-2401`, `R-2403`, `R-2419`
+
+### Acceptance
+
+- The gallery is documented at `examples/api/README.md` with a one-line
+  description per example.
+- Every example in the gallery builds, runs, and has a smoke test.
+- The gallery is validated by `scripts/validate_r2804_api_gallery.py` and
+  gated by `run_tests.ps1`.
+
+## R-2805 Production Hardening: Load, Soak, Chaos
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `high`
+- Dependencies: `R-2701`, `R-2702`, `R-2703`
+
+### Acceptance
+
+- A load test exercises the documented target throughput and reports
+  p95/p99 latency.
+- A soak test runs for at least 24 hours and reports leaks, latency
+  drift, and error rate.
+- A chaos test kills dependencies and asserts graceful degradation.
+- Regression thresholds are stored in
+  `docs/performance/r2805-hardening.json`.
+- The hardening report is versioned and is part of the release evidence.
+
+## R-2806 spectra.api v1.0 Registry Release
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `high`
+- Dependencies: `R-2801`, `R-2804`, `R-2805`
+
+### Acceptance
+
+- `spectra.api@1.0.0` is published to the local registry.
+- The v1 contract is documented and versioned.
+- The deprecation policy and the migration guide are published.
+- `spectralang package add spectra-api@1.0.0` resolves cleanly from a
+  fresh project.
+
+## R-2807 Migration Guide: From ad-hoc std web to spectra.api
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `ecosystem`
+- Risk: `low`
+- Dependencies: `R-2801`
+
+### Acceptance
+
+- The guide lists the differences between the previous surface and the
+  v1 `spectra.api` surface.
+- The guide includes step-by-step migration recipes for the most common
+  patterns.
+- The guide is published in the documentation site and referenced from
+  the changelog.
+
+---
+
+# API Platform Quick-Reference
+
+## Owner Groups (additions)
+
+| Owner | Scope |
+|---|---|
+| `web` | HTTP server/client, routing, middleware, WebSocket, SSE |
+| `db` | Drivers, query builder, migrations, ORM, connection pool |
+
+## Dependency Tree (Critical Path)
+
+```
+R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2107 (async stdlib)
+                                                                                                      ↓
+                                                                                          R-2201 (ADR api) → R-2202 (crate) → R-2204 (parser) → R-2205 (server) → R-2211 (router)
+                                                                                                                                                  ↓
+                                                                                                                                              R-2301 (middleware) → R-2302..R-2316
+                                                                                                                                                  ↓
+                                                                                                                                              R-2501 (pool) → R-2505 (postgres)
+                                                                                                                                                  ↓
+                                                                                                                                              R-2801 (conformance) → R-2806 (release)
+```
+
+## Item Count by Phase
+
+| Phase | Items | Priority Mix |
+|---|---|---|
+| 21 — Async Language Core | 11 | 6 P0, 4 P1, 1 P2 |
+| 22 — API Library Foundation | 20 | 14 P0, 1 P1, 5 ecosystem |
+| 23 — Middleware and Security | 18 | 9 P0, 6 P1, 3 P2 |
+| 24 — Advanced API Features | 21 | 6 P0, 13 P1, 2 P2/P3 |
+| 25 — Persistence and Database | 14 | 9 P0, 5 P1 |
+| 26 — API Tooling and DX | 15 | 8 P0, 6 P1, 1 P2 |
+| 27 — Observability and API Ops | 8 | 5 P0, 3 P1 |
+| 28 — API Conformance and Release | 7 | 5 P0, 2 P1/P2 |
+| **Total** | **114** | — |
+
+## New Files To Be Added by the Workstream
+
+- `runtime/src/api/` (parser HTTP, server, client, JSON, TLS)
+- `runtime/src/reactor/` (event loop multiplexador)
+- `runtime/Cargo.toml` (deps: `rustls`, primitives async próprias)
+- `packages/spectra-api/` (pacote Spectra publicado via registry)
+- `packages/spectra-api/src/*.spectra` (bindings `std.api.*`)
+- `packages/spectra-api/spectra.toml`
+- `docs/adr/0010-async-execution-model.md`
+- `docs/adr/0011-api-library-architecture.md`
+- `docs/adr/0012-http-server-runtime-architecture.md`
+- `docs/api/` (reference para `spectra.api`)
+- `docs/book/09-building-apis.md`
+- `examples/api/` (galeria)
+- `scripts/validate_r22XX_*.py` (um validator por fase)
+- `tests/validation/api_*.spectra`
