@@ -24,6 +24,7 @@ struct TraitMethodSignature {
     params: Vec<ParameterInfo>,
     return_type: Option<TypeAnnotationPattern>,
     has_default_body: bool,
+    is_async: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +162,7 @@ struct FunctionSignature {
     params: Vec<Type>,
     return_type: Type,
     self_kind: Option<SelfParamKind>,
+    is_async: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -641,6 +643,7 @@ impl SemanticAnalyzer {
                             params,
                             return_type,
                             visibility: vis,
+                            is_async: func.is_async,
                         },
                     );
                 }
@@ -767,6 +770,7 @@ impl SemanticAnalyzer {
                                     return_type,
                                     visibility: vis,
                                     self_kind,
+                                    is_async: method.is_async,
                                 },
                             );
                     }
@@ -941,6 +945,7 @@ impl SemanticAnalyzer {
                         params,
                         return_type: trait_method_info.signature.return_type.clone(),
                         self_kind: trait_method_info.signature.self_kind,
+                        is_async: trait_method_info.signature.is_async,
                     };
 
                     return Some((signature, trait_name.clone()));
@@ -1635,7 +1640,8 @@ impl SemanticAnalyzer {
             .map(|ty| format!(" -> {}", ty))
             .unwrap_or_default();
 
-        format!("fn {}({}){}", method_name, params, return_part)
+        let prefix = if signature.is_async { "async fn" } else { "fn" };
+        format!("{} {}({}){}", prefix, method_name, params, return_part)
     }
 
     fn declare_symbol(&mut self, name: String, span: Span, ty: Type) -> bool {
@@ -2674,7 +2680,9 @@ impl SemanticAnalyzer {
                     self.validate_differentiable_block_operations(block);
                 }
             }
-            ExpressionKind::Block(block) | ExpressionKind::DifferentiableBlock(block) => {
+            ExpressionKind::Block(block)
+            | ExpressionKind::DifferentiableBlock(block)
+            | ExpressionKind::AsyncBlock(block) => {
                 self.validate_differentiable_block_operations(block);
             }
             ExpressionKind::ArrayLiteral { elements }
@@ -3194,6 +3202,7 @@ impl SemanticAnalyzer {
                             params,
                             return_type: return_type.clone(),
                             self_kind: None,
+                            is_async: func.is_async,
                         };
 
                         self.functions.insert(func.name.clone(), signature.clone());
@@ -3601,6 +3610,7 @@ impl SemanticAnalyzer {
                     params: func_export.params.clone(),
                     return_type: func_export.return_type.clone(),
                     self_kind: None,
+                    is_async: func_export.is_async,
                 };
                 // Insert as the plain name (for unaliased imports) so that
                 // `analyze_expression` can look it up.
@@ -3735,6 +3745,7 @@ impl SemanticAnalyzer {
                             params: method_export.params.clone(),
                             return_type: method_export.return_type.clone(),
                             self_kind: method_export.self_kind.clone().map(SelfParamKind::from),
+                            is_async: method_export.is_async,
                         };
                         self.methods
                             .entry(local_name.clone())
@@ -3941,6 +3952,7 @@ impl SemanticAnalyzer {
                 params: param_types,
                 return_type,
                 self_kind,
+                is_async: method.is_async,
             };
 
             let type_methods = self
@@ -3973,6 +3985,12 @@ impl SemanticAnalyzer {
 
         // Fase 2: Analisar corpos dos métodos
         for method in &impl_block.methods {
+            if method.is_async {
+                self.error(
+                    "Async method execution is parsed by R-2102 but requires R-2103 async lowering before it can be checked or compiled",
+                    method.span,
+                );
+            }
             self.current_function = Some(format!("{}::{}", impl_block.type_name, method.name));
             let expected_return = self.type_annotation_to_type(&method.return_type);
             let previous_return = self.current_return_type.replace(expected_return.clone());
@@ -4090,6 +4108,7 @@ impl SemanticAnalyzer {
                 params: param_types,
                 return_type,
                 self_kind,
+                is_async: method.is_async,
             };
 
             let method_info = TraitMethodInfo {
@@ -4117,6 +4136,7 @@ impl SemanticAnalyzer {
                     params: parameter_infos,
                     return_type: return_pattern,
                     has_default_body: method.body.is_some(),
+                    is_async: method.is_async,
                 },
             );
         }
@@ -4205,6 +4225,7 @@ impl SemanticAnalyzer {
                 params: param_types,
                 return_type,
                 self_kind,
+                is_async: method.is_async,
             };
 
             implemented_methods.insert(method.name.clone(), (signature, method.span));
@@ -4228,6 +4249,16 @@ impl SemanticAnalyzer {
                         self.error(
                             format!(
                                 "Method '{}' has incompatible self receiver between trait and implementation",
+                                trait_method_name
+                            ),
+                            impl_block.span,
+                        );
+                    }
+
+                    if trait_method_info.signature.is_async != impl_signature.is_async {
+                        self.error(
+                            format!(
+                                "Method '{}' has incompatible async marker between trait and implementation",
                                 trait_method_name
                             ),
                             impl_block.span,
@@ -4375,6 +4406,7 @@ impl SemanticAnalyzer {
                     params: concrete_params,
                     return_type: trait_method_info.signature.return_type.clone(),
                     self_kind: trait_method_info.signature.self_kind,
+                    is_async: trait_method_info.signature.is_async,
                 };
 
                 // Registrar método no tipo
@@ -4389,6 +4421,13 @@ impl SemanticAnalyzer {
 
     fn analyze_function(&mut self, func: &Function) {
         let pushed_generics = self.push_generic_params(&func.type_params);
+
+        if func.is_async {
+            self.error(
+                "Async function execution is parsed by R-2102 but requires R-2103 async lowering before it can be checked or compiled",
+                func.span,
+            );
+        }
 
         self.current_function = Some(func.name.clone());
         let expected_return = self
@@ -5121,7 +5160,7 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::CharLiteral(_) => Type::Char,
             ExpressionKind::FString(_) => Type::String,
-            ExpressionKind::Lambda { params, body } => {
+            ExpressionKind::Lambda { params, body, .. } => {
                 self.push_scope();
 
                 let param_types: Vec<Type> = params
@@ -5176,6 +5215,7 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
+            ExpressionKind::AsyncBlock(_) => Type::Unknown,
         }
     }
 
@@ -5239,7 +5279,7 @@ impl SemanticAnalyzer {
                     self.collect_capture_names_expr(arg, locals, captures);
                 }
             }
-            ExpressionKind::Lambda { params, body } => {
+            ExpressionKind::Lambda { params, body, .. } => {
                 let mut nested_locals = locals.clone();
                 for param in params {
                     nested_locals.insert(param.name.clone());
@@ -5252,7 +5292,7 @@ impl SemanticAnalyzer {
                     self.collect_capture_names_stmt(stmt, &mut block_locals, captures);
                 }
             }
-            ExpressionKind::DifferentiableBlock(block) => {
+            ExpressionKind::DifferentiableBlock(block) | ExpressionKind::AsyncBlock(block) => {
                 let mut block_locals = locals.clone();
                 for stmt in &block.statements {
                     self.collect_capture_names_stmt(stmt, &mut block_locals, captures);
@@ -5463,6 +5503,11 @@ impl SemanticAnalyzer {
     fn collect_assigned_names_in_expression(expr: &Expression, assigned: &mut Vec<String>) {
         match &expr.kind {
             ExpressionKind::Block(block) => {
+                for stmt in &block.statements {
+                    Self::collect_assigned_names_in_statement(stmt, assigned);
+                }
+            }
+            ExpressionKind::AsyncBlock(block) => {
                 for stmt in &block.statements {
                     Self::collect_assigned_names_in_statement(stmt, assigned);
                 }
@@ -6420,6 +6465,7 @@ impl SemanticAnalyzer {
                                     params: func.params.clone(),
                                     return_type: func.return_type.clone(),
                                     self_kind: None,
+                                    is_async: func.is_async,
                                 }
                             });
                             // Register for the midend so lowering knows the return type.
@@ -7010,6 +7056,7 @@ impl SemanticAnalyzer {
                                         params: func.params.clone(),
                                         return_type: func.return_type.clone(),
                                         self_kind: None,
+                                        is_async: func.is_async,
                                     }
                                 })
                             })
@@ -7180,6 +7227,7 @@ impl SemanticAnalyzer {
                                                     .return_type
                                                     .clone(),
                                                 self_kind: trait_method_info.signature.self_kind,
+                                                is_async: trait_method_info.signature.is_async,
                                             });
                                             break;
                                         }
@@ -7257,7 +7305,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            ExpressionKind::Lambda { params, body } => {
+            ExpressionKind::Lambda { params, body, .. } => {
                 let captured = self.collect_lambda_capture_names(params, body);
                 let mut mutated = Vec::new();
                 Self::collect_assigned_names_in_expression(body, &mut mutated);
@@ -7362,6 +7410,17 @@ impl SemanticAnalyzer {
                         "Return the tensor loss as the final expression of the `diff { ... }` block.",
                     );
                 }
+            }
+            ExpressionKind::AsyncBlock(block) => {
+                self.push_scope();
+                for stmt in &block.statements {
+                    self.analyze_statement(stmt);
+                }
+                self.pop_scope();
+                self.error(
+                    "Async block execution is parsed by R-2102 but requires R-2103 async lowering before it can be checked or compiled",
+                    expr.span,
+                );
             }
         }
 
@@ -8351,7 +8410,9 @@ impl SemanticAnalyzer {
                         .iter()
                         .all(|arm| self.expression_guaranteed_return(&arm.body))
             }
-            ExpressionKind::Block(block) => self.block_guaranteed_return(block),
+            ExpressionKind::Block(block) | ExpressionKind::AsyncBlock(block) => {
+                self.block_guaranteed_return(block)
+            }
             _ => false,
         }
     }
@@ -8932,6 +8993,9 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::DifferentiableBlock(block) => {
+                self.infer_generic_types_in_block(block);
+            }
+            ExpressionKind::AsyncBlock(block) => {
                 self.infer_generic_types_in_block(block);
             }
             ExpressionKind::ArrayLiteral { elements } => {

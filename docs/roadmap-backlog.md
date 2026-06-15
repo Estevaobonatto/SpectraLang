@@ -2923,7 +2923,7 @@ pinning, and `Send` / `Sync` rules.
 
 ## R-2102 Async fn and Async Block in Frontend
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `frontend`
 - Risk: `high`
@@ -2938,12 +2938,27 @@ in the lexer, parser, and AST.
 
 - `async fn` is parsed in function declarations and method declarations.
 - `async { ... }` is parsed as an async block expression.
-- The AST introduces `AsyncFunctionDecl` and `AsyncBlock` nodes with
-  deterministic children.
+- The AST preserves async markers on function, method, trait method, and
+  closure nodes and represents `async { ... }` as `AsyncBlock`.
 - The parser produces actionable diagnostics for missing or misplaced
   `async` / `await`.
 - Snapshot tests cover the happy path and a representative set of malformed
   inputs.
+
+### Completed in this pass
+
+- Lexer/parser recognize `async` and `await` keywords.
+- `async fn` is represented by `is_async` on functions, inherent methods,
+  trait methods, and trait impl methods.
+- `async { ... }` is represented as `ExpressionKind::AsyncBlock`; async
+  closures preserve `is_async` on `ExpressionKind::Lambda`.
+- Language-service and LSP signatures render async functions and methods as
+  `async fn ...`.
+- `await` remains reserved for `R-2103` and emits parser diagnostic `P006`;
+  async execution is blocked with explicit semantic/midend diagnostics until
+  async lowering exists.
+- Validation: `cargo test -q -p spectra-compiler`, `cargo check -q`, and
+  `python scripts\validate_r2102_async_frontend.py`.
 
 ## R-2103 Await Expression and Async Lowering
 

@@ -21,6 +21,7 @@ pub struct Parser {
     position: usize,
     errors: Vec<ParseError>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
+    async_context_depth: usize,
 }
 
 impl Parser {
@@ -37,6 +38,7 @@ impl Parser {
             // Pre-allocate with a reasonable capacity to reduce rehashing while
             // parsing modules that typically have a handful of known traits.
             trait_signatures: HashMap::with_capacity(8),
+            async_context_depth: 0,
         }
     }
 
@@ -203,6 +205,7 @@ impl Parser {
             &self.current().kind,
             TokenKind::Keyword(Keyword::Module)
                 | TokenKind::Keyword(Keyword::Import)
+                | TokenKind::Keyword(Keyword::Async)
                 | TokenKind::Keyword(Keyword::Fn)
                 | TokenKind::Keyword(Keyword::Class)
                 | TokenKind::Keyword(Keyword::Trait)
@@ -304,6 +307,7 @@ impl Parser {
                     | Keyword::Class
                     | Keyword::Module
                     | Keyword::Import
+                    | Keyword::Async
                     | Keyword::Pub
                     | Keyword::Case
                     | Keyword::Else
@@ -334,6 +338,7 @@ impl Parser {
             | TokenKind::Keyword(Keyword::Class)
             | TokenKind::Keyword(Keyword::Module)
             | TokenKind::Keyword(Keyword::Import)
+            | TokenKind::Keyword(Keyword::Async)
             | TokenKind::Keyword(Keyword::Return) => true,
             _ => false,
         }
@@ -414,6 +419,10 @@ impl Parser {
                 Some("Use `import path.to.module;` to bring other modules into scope.".to_string())
             }
             Keyword::Fn => Some("Function declarations start with `fn name(...)`.".to_string()),
+            Keyword::Async => Some(
+                "`async` must be followed by `fn`, `{ ... }`, or a closure parameter list."
+                    .to_string(),
+            ),
             Keyword::Trait => {
                 Some("Traits are declared with `trait TraitName { ... }`.".to_string())
             }
@@ -439,6 +448,18 @@ impl Parser {
             '(' => Some("Insert `(` to start the parameter or argument list.".to_string()),
             _ => None,
         }
+    }
+
+    pub(super) fn push_async_context(&mut self) {
+        self.async_context_depth += 1;
+    }
+
+    pub(super) fn pop_async_context(&mut self) {
+        self.async_context_depth = self.async_context_depth.saturating_sub(1);
+    }
+
+    pub(super) fn in_async_context(&self) -> bool {
+        self.async_context_depth > 0
     }
 }
 
@@ -577,6 +598,98 @@ mod tests {
 
         assert!(parse_with_features(source, &[]).is_ok());
     }
+
+    #[test]
+    fn async_frontend_surface_preserves_ast_markers() {
+        let source = r#"
+            module demo;
+
+            async fn fetch() {
+                let task = async { 1 };
+                let work = async |value: int| { value };
+                let empty = async || 1;
+            }
+
+            struct Service {}
+
+            impl Service {
+                pub async fn handle(&self) {
+                    let value = async { 2 };
+                }
+            }
+
+            trait Handler {
+                async fn call(&self);
+            }
+        "#;
+
+        let module = parse_with_features(source, &[]).expect("async frontend syntax should parse");
+        let crate::ast::Item::Function(function) = &module.items[0] else {
+            panic!("expected async function item");
+        };
+        assert!(function.is_async);
+
+        let crate::ast::StatementKind::Let(task_stmt) = &function.body.statements[0].kind else {
+            panic!("expected async block binding");
+        };
+        assert!(matches!(
+            task_stmt.value.as_ref().map(|expr| &expr.kind),
+            Some(crate::ast::ExpressionKind::AsyncBlock(_))
+        ));
+
+        let crate::ast::StatementKind::Let(work_stmt) = &function.body.statements[1].kind else {
+            panic!("expected async lambda binding");
+        };
+        assert!(matches!(
+            work_stmt.value.as_ref().map(|expr| &expr.kind),
+            Some(crate::ast::ExpressionKind::Lambda { is_async: true, .. })
+        ));
+
+        let crate::ast::Item::Impl(impl_block) = &module.items[2] else {
+            panic!("expected impl block");
+        };
+        assert!(impl_block.methods[0].is_async);
+
+        let crate::ast::Item::Trait(trait_decl) = &module.items[3] else {
+            panic!("expected trait declaration");
+        };
+        assert!(trait_decl.methods[0].is_async);
+    }
+
+    #[test]
+    fn async_and_await_misuse_produce_actionable_diagnostics() {
+        let misplaced_async = r#"
+            module demo;
+
+            fn main() {
+                let value = async 1;
+            }
+        "#;
+        let errors = parse_with_features(misplaced_async, &[]).expect_err("misplaced async should fail");
+        assert!(errors.iter().any(|error| {
+            error.code.as_deref() == Some("P005")
+                && error
+                    .hint
+                    .as_deref()
+                    .is_some_and(|hint| hint.contains("async {"))
+        }));
+
+        let reserved_await = r#"
+            module demo;
+
+            async fn main() {
+                let value = await work();
+            }
+        "#;
+        let errors = parse_with_features(reserved_await, &[]).expect_err("await is reserved for R-2103");
+        assert!(errors.iter().any(|error| {
+            error.code.as_deref() == Some("P006")
+                && error
+                    .hint
+                    .as_deref()
+                    .is_some_and(|hint| hint.contains("R-2103"))
+        }));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -584,6 +697,7 @@ pub struct TraitMethodSignature {
     pub params: Vec<ParameterSignature>,
     pub return_type: Option<TypePattern>,
     pub has_default_body: bool,
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

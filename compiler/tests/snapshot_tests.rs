@@ -92,6 +92,28 @@ fn expression(expr: &Expression) -> String {
                 .join(", ");
             format!("call({} [{}])", expression(callee), args)
         }
+        ExpressionKind::AsyncBlock(block) => {
+            let body = block
+                .statements
+                .iter()
+                .map(statement)
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("async_block({body})")
+        }
+        ExpressionKind::Lambda {
+            is_async,
+            params,
+            body,
+        } => {
+            let params = params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let prefix = if *is_async { "async_lambda" } else { "lambda" };
+            format!("{prefix}([{params}] {})", expression(body))
+        }
         other => format!("{other:?}"),
     }
 }
@@ -161,8 +183,10 @@ fn ast_snapshot(module: &Module) -> String {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
+                let prefix = if function.is_async { "async fn" } else { "fn" };
                 out.push_str(&format!(
-                    "fn {:?} {}({params}) -> {}\n",
+                    "{} {:?} {}({params}) -> {}\n",
+                    prefix,
                     function.visibility,
                     function.name,
                     type_annotation(&function.return_type)
@@ -187,6 +211,11 @@ fn ast_snapshot_covers_parser_stage() {
         fn add(lhs: int, rhs: int) -> int {
             let total = lhs + rhs;
             return total;
+        }
+
+        async fn fetch() {
+            let task = async { 1 };
+            let work = async |value: int| value;
         }
 
         pub fn main() -> int {

@@ -53,6 +53,7 @@ fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
         params,
         return_type,
         visibility: ExportVisibility::Public,
+        is_async: false,
     }
 }
 

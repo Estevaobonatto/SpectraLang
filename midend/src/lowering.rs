@@ -2403,7 +2403,7 @@ impl ASTLowering {
             }
             ExpressionKind::CharLiteral(_) => IRType::Char,
             ExpressionKind::FString(_) => IRType::String,
-            ExpressionKind::Lambda { params, body } => {
+            ExpressionKind::Lambda { params, body, .. } => {
                 // Return IRType::Function so callers can emit CallIndirect with the right sig.
                 let param_types: Vec<IRType> = params
                     .iter()
@@ -2471,6 +2471,7 @@ impl ASTLowering {
                     _ => None,
                 })
                 .unwrap_or(IRType::Void),
+            ExpressionKind::AsyncBlock(_) => IRType::Void,
             ExpressionKind::Cast { target_type, .. } => self.lower_type_annotation(target_type),
         }
     }
@@ -3194,6 +3195,7 @@ impl ASTLowering {
             ExpressionKind::Lambda {
                 params: nested_params,
                 body,
+                ..
             } => {
                 let mut nested_locals = locals.clone();
                 for param in nested_params {
@@ -3207,7 +3209,7 @@ impl ASTLowering {
                     self.collect_lambda_captures_stmt(stmt, &mut block_locals, captures, seen);
                 }
             }
-            ExpressionKind::DifferentiableBlock(block) => {
+            ExpressionKind::DifferentiableBlock(block) | ExpressionKind::AsyncBlock(block) => {
                 let mut block_locals = locals.clone();
                 for stmt in &block.statements {
                     self.collect_lambda_captures_stmt(stmt, &mut block_locals, captures, seen);
@@ -3499,6 +3501,7 @@ impl ASTLowering {
             seen.insert(method.name.clone());
             out.push(ASTMethod {
                 name: method.name.clone(),
+                is_async: method.is_async,
                 params: method.params.clone(),
                 return_type: method.return_type.clone(),
                 body: method.body.clone().unwrap_or(Block {
@@ -6101,7 +6104,7 @@ impl ASTLowering {
                 let _end_val = self.lower_expression(end, ir_func);
                 self.lower_expression(start, ir_func)
             }
-            ExpressionKind::Lambda { params, body } => {
+            ExpressionKind::Lambda { params, body, .. } => {
                 // Lower as a top-level IR function with a generated unique name.
                 let lambda_name = format!("__lambda_{}", self.lambda_counter);
                 self.lambda_counter += 1;
@@ -6160,6 +6163,12 @@ impl ASTLowering {
                     false,
                 );
                 loss
+            }
+            ExpressionKind::AsyncBlock(_) => {
+                self.error(
+                    "Async block lowering is parsed by R-2102 but requires R-2103 state-machine lowering",
+                );
+                self.builder.build_const_int(ir_func, 0)
             }
             ExpressionKind::Cast {
                 expr: inner,

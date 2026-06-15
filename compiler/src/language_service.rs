@@ -378,7 +378,8 @@ fn format_function(function: &Function) -> String {
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    format!("fn {}({}) -> {}", function.name, params, return_type)
+    let prefix = if function.is_async { "async fn" } else { "fn" };
+    format!("{} {}({}) -> {}", prefix, function.name, params, return_type)
 }
 
 fn format_method(type_name: &str, method: &Method) -> String {
@@ -393,9 +394,10 @@ fn format_method(type_name: &str, method: &Method) -> String {
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
+    let prefix = if method.is_async { "async fn" } else { "fn" };
     format!(
-        "fn {}::{}({}) -> {}",
-        type_name, method.name, params, return_type
+        "{} {}::{}({}) -> {}",
+        prefix, type_name, method.name, params, return_type
     )
 }
 
@@ -544,5 +546,41 @@ fn hints_from_statement(
         }
         StatementKind::WhileLet(s) => hints_from_block(&s.body, analysis, out),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn definition_labels_preserve_async_markers() {
+        let source = r#"
+            module labels;
+
+            async fn fetch() {}
+
+            struct Service {}
+
+            impl Service {
+                async fn handle(&self) {}
+            }
+        "#;
+
+        let analysis = analyze_document(
+            source,
+            "labels.spectra",
+            &CompilationOptions::default(),
+            None,
+        );
+
+        let labels = analysis
+            .definitions
+            .values()
+            .map(|definition| definition.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&"async fn fetch() -> unit"));
+        assert!(labels.contains(&"async fn Service::handle(&self) -> unit"));
     }
 }

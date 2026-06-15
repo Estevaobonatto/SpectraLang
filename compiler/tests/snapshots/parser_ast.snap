@@ -3,6 +3,9 @@ import path=std.tensor alias=tensor names=- reexport=false
 fn Private add(lhs: int, rhs: int) -> int
   let bind(total): unit = binary(ident(lhs) Add ident(rhs))
   return ident(total)
+async fn Private fetch() -> unit
+  let bind(task): unit = async_block(expr number(1))
+  let bind(work): unit = async_lambda([value] ident(value))
 fn Public main() -> int
   let bind(value): unit = call(ident(add) [number(40), number(2)])
   return ident(value)

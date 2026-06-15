@@ -1623,7 +1623,8 @@ The eight phases are summarized below; the detailed items live in
 ### Phase 21 — Async Language Core
 
 - `R-2101` ADR: Async/Await Execution Model (complete; ADR 0010 accepted)
-- `R-2102` `async fn` and async block in frontend
+- `R-2102` `async fn` and async block in frontend (complete; parser/AST,
+  diagnostics, language-service labels, and validation gate landed)
 - `R-2103` `await` expression and async lowering
 - `R-2104` Event loop multiplexer (epoll/IOCP/kqueue)
 - `R-2105` Cancellation, timeouts, structured concurrency

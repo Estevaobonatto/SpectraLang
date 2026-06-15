@@ -21,6 +21,7 @@ pub struct ExportedFunction {
     pub params: Vec<Type>,
     pub return_type: Type,
     pub visibility: ExportVisibility,
+    pub is_async: bool,
 }
 
 /// How an exported method receives `self`, when it is an instance method.
@@ -37,6 +38,7 @@ pub struct ExportedMethod {
     pub return_type: Type,
     pub visibility: ExportVisibility,
     pub self_kind: Option<ExportedSelfParamKind>,
+    pub is_async: bool,
 }
 
 /// A type (struct or enum) exported from a module.

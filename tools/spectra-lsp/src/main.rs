@@ -1695,7 +1695,8 @@ fn format_function_signature(function: &spectra_compiler::ast::Function) -> Stri
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    format!("fn {}({}) -> {}", function.name, params, return_type)
+    let prefix = if function.is_async { "async fn" } else { "fn" };
+    format!("{} {}({}) -> {}", prefix, function.name, params, return_type)
 }
 
 fn format_method_signature(type_name: &str, method: &spectra_compiler::ast::Method) -> String {
@@ -1710,9 +1711,10 @@ fn format_method_signature(type_name: &str, method: &spectra_compiler::ast::Meth
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
+    let prefix = if method.is_async { "async fn" } else { "fn" };
     format!(
-        "fn {}::{}({}) -> {}",
-        type_name, method.name, params, return_type
+        "{} {}::{}({}) -> {}",
+        prefix, type_name, method.name, params, return_type
     )
 }
 
@@ -1728,7 +1730,8 @@ fn format_trait_method_signature(method: &spectra_compiler::ast::TraitMethod) ->
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    format!("fn {}({}) -> {}", method.name, params, return_type)
+    let prefix = if method.is_async { "async fn" } else { "fn" };
+    format!("{} {}({}) -> {}", prefix, method.name, params, return_type)
 }
 
 fn format_parameter_signature(param: &spectra_compiler::ast::Parameter) -> String {
@@ -2107,6 +2110,9 @@ fn find_call_site_in_expression(
             find_call_site_in_block(block, line, column, best);
         }
         spectra_compiler::ast::ExpressionKind::DifferentiableBlock(block) => {
+            find_call_site_in_block(block, line, column, best);
+        }
+        spectra_compiler::ast::ExpressionKind::AsyncBlock(block) => {
             find_call_site_in_block(block, line, column, best);
         }
         spectra_compiler::ast::ExpressionKind::Cast { expr, .. } => {

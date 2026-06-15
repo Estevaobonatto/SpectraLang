@@ -422,6 +422,23 @@ impl Parser {
                 self.parse_unless_expression()
             }
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),
+            TokenKind::Keyword(Keyword::Async) => self.parse_async_expression(),
+            TokenKind::Keyword(Keyword::Await) => {
+                let hint = if self.in_async_context() {
+                    "`await` parsing and lowering are tracked by R-2103; keep this expression behind that implementation gate."
+                } else {
+                    "`await` must appear inside an `async fn`, `async { ... }`, or async closure after R-2103 lands."
+                };
+                self.push_error_coded(
+                    "P006",
+                    "`await` expressions are reserved for the async lowering phase",
+                    span,
+                    Some(hint.to_string()),
+                    Some("R-2102 reserves `await`; R-2103 implements await expression lowering".to_string()),
+                );
+                self.advance();
+                Err(())
+            }
             TokenKind::Symbol('{') => {
                 let block = self.parse_block()?;
                 let block_span = block.span;
@@ -663,70 +680,13 @@ impl Parser {
             TokenKind::Operator(Operator::Or) => {
                 // '||' detected as Operator::Or in primary position = empty lambda params
                 self.advance(); // consume '||'
-                                // Body can be a block `{ ... }` or a single expression
-                let body = if self.check_symbol('{') {
-                    let block = self.parse_block()?;
-                    let block_span = block.span;
-                    Expression {
-                        span: block_span,
-                        kind: ExpressionKind::Block(block),
-                    }
-                } else {
-                    self.parse_expression()?
-                };
-                let end_span = body.span;
-                Ok(Expression {
-                    span: crate::span::span_union(span, end_span),
-                    kind: ExpressionKind::Lambda {
-                        params: vec![],
-                        body: Box::new(body),
-                    },
-                })
+                self.finish_lambda_expression(span, false, Vec::new())
             }
             TokenKind::Symbol('|') => {
                 // Lambda with params: |x, y: int| expr
                 self.advance(); // consume '|'
-                let mut params = Vec::new();
-                while !matches!(&self.current().kind, TokenKind::Symbol('|')) && !self.is_at_end() {
-                    let (param_name, param_span) =
-                        self.consume_identifier("Expected parameter name in lambda")?;
-                    let ty = if self.check_symbol(':') {
-                        self.advance(); // consume ':'
-                        Some(self.parse_type_annotation()?)
-                    } else {
-                        None
-                    };
-                    params.push(LambdaParam {
-                        name: param_name,
-                        ty,
-                        span: param_span,
-                    });
-                    if self.check_symbol(',') {
-                        self.advance(); // consume ','
-                    } else {
-                        break;
-                    }
-                }
-                self.consume_symbol('|', "Expected '|' to close lambda parameters")?;
-                // Body can be a block `{ ... }` or a single expression
-                let body = if self.check_symbol('{') {
-                    let block = self.parse_block()?;
-                    let block_span = block.span;
-                    Expression {
-                        span: block_span,
-                        kind: ExpressionKind::Block(block),
-                    }
-                } else {
-                    self.parse_expression()?
-                };
-                let end_span = body.span;
-                Ok(Expression {
-                    span: crate::span::span_union(span, end_span),
-                    kind: ExpressionKind::Lambda {
-                        params,
-                        body: Box::new(body),
-                    },
-                })
+                let params = self.parse_lambda_params_after_open_pipe()?;
+                self.finish_lambda_expression(span, false, params)
             }
             TokenKind::Symbol('(') => {
                 self.advance(); // consume '('
@@ -801,6 +761,117 @@ impl Parser {
                 self.error("Expected expression");
                 Err(())
             }
+        }
+    }
+
+    fn parse_async_expression(&mut self) -> Result<Expression, ()> {
+        let start_span = self.current().span;
+        self.advance();
+
+        if self.check_symbol('{') {
+            self.push_async_context();
+            let parsed = self.parse_block();
+            self.pop_async_context();
+            let block = parsed?;
+            let block_span = block.span;
+            return Ok(Expression {
+                span: crate::span::span_union(start_span, block_span),
+                kind: ExpressionKind::AsyncBlock(block),
+            });
+        }
+
+        if matches!(&self.current().kind, TokenKind::Operator(Operator::Or)) {
+            self.advance();
+            return self.finish_lambda_expression(start_span, true, Vec::new());
+        }
+
+        if self.check_symbol('|') {
+            self.advance();
+            let params = self.parse_lambda_params_after_open_pipe()?;
+            return self.finish_lambda_expression(start_span, true, params);
+        }
+
+        if self.check_keyword(Keyword::Fn) {
+            self.push_error_coded(
+                "P005",
+                "`async fn` is only valid as an item, method, or trait method declaration",
+                start_span,
+                Some("Move `async fn` to declaration position, or use `async { ... }` for an async block expression.".to_string()),
+                Some("misplaced `async fn` in expression position".to_string()),
+            );
+        } else {
+            self.push_error_coded(
+                "P005",
+                "Expected `{`, `|`, or `fn` after `async`",
+                self.current().span,
+                Some("Use `async { ... }`, `async |args| expr`, or `async fn name(...) { ... }` in declaration position.".to_string()),
+                Some("`async` must prefix a block, closure, function, or method declaration".to_string()),
+            );
+        }
+        Err(())
+    }
+
+    fn parse_lambda_params_after_open_pipe(&mut self) -> Result<Vec<LambdaParam>, ()> {
+        let mut params = Vec::new();
+        while !matches!(&self.current().kind, TokenKind::Symbol('|')) && !self.is_at_end() {
+            let (param_name, param_span) =
+                self.consume_identifier("Expected parameter name in lambda")?;
+            let ty = if self.check_symbol(':') {
+                self.advance(); // consume ':'
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+            params.push(LambdaParam {
+                name: param_name,
+                ty,
+                span: param_span,
+            });
+            if self.check_symbol(',') {
+                self.advance(); // consume ','
+            } else {
+                break;
+            }
+        }
+        self.consume_symbol('|', "Expected '|' to close lambda parameters")?;
+        Ok(params)
+    }
+
+    fn finish_lambda_expression(
+        &mut self,
+        start_span: crate::span::Span,
+        is_async: bool,
+        params: Vec<LambdaParam>,
+    ) -> Result<Expression, ()> {
+        let body = if is_async {
+            self.push_async_context();
+            let parsed = self.parse_lambda_body_expression();
+            self.pop_async_context();
+            parsed?
+        } else {
+            self.parse_lambda_body_expression()?
+        };
+        let end_span = body.span;
+        Ok(Expression {
+            span: crate::span::span_union(start_span, end_span),
+            kind: ExpressionKind::Lambda {
+                is_async,
+                params,
+                body: Box::new(body),
+            },
+        })
+    }
+
+    fn parse_lambda_body_expression(&mut self) -> Result<Expression, ()> {
+        if self.check_symbol('{') {
+            let block = self.parse_block()?;
+            let block_span = block.span;
+            Ok(Expression {
+                span: block_span,
+                kind: ExpressionKind::Block(block),
+            })
+        } else {
+            self.parse_expression()
         }
     }
 

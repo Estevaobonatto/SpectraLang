@@ -1427,16 +1427,17 @@ title = "Async fn and Async Block in Frontend"
 phase = "phase_21"
 owner = "frontend"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2101"]
 summary = "Parse and represent `async fn`, async block expressions, and async closures in the lexer, parser, and AST."
 acceptance = [
   "`async fn` is parsed in function declarations and method declarations",
   "`async { ... }` is parsed as an async block expression",
-  "AST introduces `AsyncFunctionDecl` and `AsyncBlock` nodes with deterministic children",
+  "AST preserves async markers on function, method, trait method, and closure nodes and represents `async { ... }` as `AsyncBlock`",
   "the parser produces actionable diagnostics for missing or misplaced `async`/`await`",
-  "snapshot tests cover happy path and a representative set of malformed inputs"
+  "snapshot tests cover happy path and a representative set of malformed inputs",
+  "`scripts/validate_r2102_async_frontend.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

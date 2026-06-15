@@ -506,6 +506,9 @@ impl<'a> LintRunner<'a> {
             ExpressionKind::DifferentiableBlock(block) => {
                 self.visit_block(block, true);
             }
+            ExpressionKind::AsyncBlock(block) => {
+                self.visit_block(block, true);
+            }
             ExpressionKind::Cast { expr, .. } => {
                 self.visit_expression(expr);
             }

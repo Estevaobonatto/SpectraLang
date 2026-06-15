@@ -2172,7 +2172,7 @@ mod cst {
                     collect_doc_comments_from_statement(stmt, lines, line_offsets);
                 }
             }
-            ExpressionKind::DifferentiableBlock(block) => {
+            ExpressionKind::DifferentiableBlock(block) | ExpressionKind::AsyncBlock(block) => {
                 for stmt in &block.statements {
                     collect_doc_comments_from_statement(stmt, lines, line_offsets);
                 }
@@ -2386,7 +2386,7 @@ mod cst {
             ExpressionKind::Block(block) => {
                 collect_match_spans_block(block, spans);
             }
-            ExpressionKind::DifferentiableBlock(block) => {
+            ExpressionKind::DifferentiableBlock(block) | ExpressionKind::AsyncBlock(block) => {
                 collect_match_spans_block(block, spans);
             }
         }

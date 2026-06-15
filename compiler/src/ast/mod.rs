@@ -132,6 +132,8 @@ pub struct Function {
     pub name: String,
     pub span: Span,
     pub visibility: Visibility,
+    /// True when the declaration was written as `async fn`.
+    pub is_async: bool,
     pub type_params: Vec<TypeParameter>, // NEW: Generic type parameters
     pub params: Vec<FunctionParam>,
     pub return_type: Option<TypeAnnotation>,
@@ -317,6 +319,8 @@ pub enum ExpressionKind {
     Block(Block),
     /// Differentiable block expression: `diff { ... }`.
     DifferentiableBlock(Block),
+    /// Async block expression: `async { ... }`.
+    AsyncBlock(Block),
 
     // Operations
     Binary {
@@ -416,6 +420,7 @@ pub enum ExpressionKind {
 
     /// Closure/lambda: |params| expr  or  |params| { body }
     Lambda {
+        is_async: bool,
         params: Vec<LambdaParam>,
         body: Box<Expression>,
     },
@@ -625,6 +630,8 @@ pub struct ImplBlock {
 #[derive(Debug, Clone)]
 pub struct Method {
     pub name: String,
+    /// True when the method declaration was written as `async fn`.
+    pub is_async: bool,
     pub params: Vec<Parameter>, // Parâmetros (incluindo self, se presente)
     pub return_type: Option<TypeAnnotation>,
     pub body: Block,
@@ -662,6 +669,8 @@ pub struct TraitDeclaration {
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
     pub name: String,
+    /// True when the trait method signature was written as `async fn`.
+    pub is_async: bool,
     pub params: Vec<Parameter>, // Parâmetros (incluindo self)
     pub return_type: Option<TypeAnnotation>,
     pub body: Option<Block>, // NEW: None = apenas assinatura, Some = default implementation

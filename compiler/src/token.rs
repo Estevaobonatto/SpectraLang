@@ -10,6 +10,8 @@ pub enum Keyword {
 
     // Declarations
     Fn,
+    Async,
+    Await,
     Struct,
     Enum,
     Impl,
@@ -78,6 +80,8 @@ impl Keyword {
 
             // Declarations
             "fn" => Some(Self::Fn),
+            "async" => Some(Self::Async),
+            "await" => Some(Self::Await),
             "struct" => Some(Self::Struct),
             "enum" => Some(Self::Enum),
             "impl" => Some(Self::Impl),
@@ -150,6 +154,8 @@ impl fmt::Display for Keyword {
 
             // Declarations
             Keyword::Fn => "fn",
+            Keyword::Async => "async",
+            Keyword::Await => "await",
             Keyword::Struct => "struct",
             Keyword::Enum => "enum",
             Keyword::Impl => "impl",

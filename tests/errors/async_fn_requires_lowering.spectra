@@ -1,0 +1,9 @@
+module async_fn_requires_lowering;
+
+async fn fetch() {
+    return;
+}
+
+fn main() {
+    fetch();
+}

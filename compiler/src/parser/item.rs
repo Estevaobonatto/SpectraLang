@@ -48,6 +48,9 @@ impl Parser {
             crate::token::TokenKind::Keyword(Keyword::Fn) => {
                 self.parse_item_with_visibility(Visibility::Private)
             }
+            crate::token::TokenKind::Keyword(Keyword::Async) => {
+                self.parse_item_with_visibility(Visibility::Private)
+            }
             crate::token::TokenKind::Keyword(Keyword::Struct) => {
                 self.parse_item_with_visibility(Visibility::Private)
             }
@@ -81,6 +84,10 @@ impl Parser {
                 let function = self.parse_function(visibility)?;
                 Ok(Item::Function(function))
             }
+            crate::token::TokenKind::Keyword(Keyword::Async) => {
+                let function = self.parse_function(visibility)?;
+                Ok(Item::Function(function))
+            }
             crate::token::TokenKind::Keyword(Keyword::Struct) => {
                 let struct_item = self.parse_struct(visibility)?;
                 Ok(Item::Struct(struct_item))
@@ -101,8 +108,25 @@ impl Parser {
     }
 
     pub(super) fn parse_function(&mut self, visibility: Visibility) -> Result<Function, ()> {
-        // Expect: fn <name><T: Trait>(<params>) [-> type] { <body> }
-        let start_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword")?;
+        // Expect: [async] fn <name><T: Trait>(<params>) [-> type] { <body> }
+        let (start_span, is_async) = if self.check_keyword(Keyword::Async) {
+            let async_span = self.current().span;
+            self.advance();
+            if !self.check_keyword(Keyword::Fn) {
+                self.push_error_coded(
+                    "P005",
+                    "Expected `fn` after `async` in item declaration",
+                    self.current().span,
+                    Some("Write `async fn name(...) { ... }` or move `async` before a block expression.".to_string()),
+                    Some("`async` at item scope only prefixes function declarations".to_string()),
+                );
+                return Err(());
+            }
+            self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword after 'async'")?;
+            (async_span, true)
+        } else {
+            (self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword")?, false)
+        };
 
         let (name, _name_span) = self.consume_identifier("Expected function name")?;
 
@@ -130,13 +154,21 @@ impl Parser {
             None
         };
 
-        let body = self.parse_block()?;
+        let body = if is_async {
+            self.push_async_context();
+            let parsed = self.parse_block();
+            self.pop_async_context();
+            parsed?
+        } else {
+            self.parse_block()?
+        };
         let end_span = body.span;
 
         Ok(Function {
             name,
             span: span_union(start_span, end_span),
             visibility,
+            is_async,
             type_params,
             params,
             return_type,
@@ -397,6 +429,12 @@ impl Parser {
             } else {
                 Visibility::Private
             };
+            let is_async = if self.check_keyword(Keyword::Async) {
+                self.advance();
+                true
+            } else {
+                false
+            };
             self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword for method")?;
 
             let (method_name, method_name_span) =
@@ -490,11 +528,19 @@ impl Parser {
                 None
             };
 
-            let body = self.parse_block()?;
+            let body = if is_async {
+                self.push_async_context();
+                let parsed = self.parse_block();
+                self.pop_async_context();
+                parsed?
+            } else {
+                self.parse_block()?
+            };
             let body_end_span = body.span;
 
             methods.push(Method {
                 name: method_name,
+                is_async,
                 params,
                 return_type,
                 body,
@@ -544,8 +590,17 @@ impl Parser {
 
         // Parse method signatures (sem corpo, apenas assinaturas)
         while !self.check_symbol('}') && !self.is_at_end() {
-            let method_start =
-                self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?;
+            let (method_start, is_async) = if self.check_keyword(Keyword::Async) {
+                let async_span = self.current().span;
+                self.advance();
+                self.consume_keyword(Keyword::Fn, "Expected 'fn' after 'async' for method signature")?;
+                (async_span, true)
+            } else {
+                (
+                    self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?,
+                    false,
+                )
+            };
 
             let (method_name, _method_name_span) =
                 self.consume_identifier("Expected method name")?;
@@ -638,7 +693,14 @@ impl Parser {
             // 2. Default implementation: fn method(&self) -> Type { body }
             let (body, method_end) = if self.check_symbol('{') {
                 // Has default implementation
-                let body = self.parse_block()?;
+                let body = if is_async {
+                    self.push_async_context();
+                    let parsed = self.parse_block();
+                    self.pop_async_context();
+                    parsed?
+                } else {
+                    self.parse_block()?
+                };
                 let end = body.span;
                 (Some(body), end)
             } else {
@@ -649,6 +711,7 @@ impl Parser {
 
             methods.push(TraitMethod {
                 name: method_name,
+                is_async,
                 params,
                 return_type,
                 body,
@@ -711,6 +774,12 @@ impl Parser {
 
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse method (igual ao impl block regular)
+            let is_async = if self.check_keyword(Keyword::Async) {
+                self.advance();
+                true
+            } else {
+                false
+            };
             let _fn_keyword_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method")?;
 
             let (method_name, method_name_span) =
@@ -796,13 +865,21 @@ impl Parser {
                 None
             };
 
-            let body = self.parse_block()?;
+            let body = if is_async {
+                self.push_async_context();
+                let parsed = self.parse_block();
+                self.pop_async_context();
+                parsed?
+            } else {
+                self.parse_block()?
+            };
             let body_end_span = body.span;
 
             let method_name_for_checks = method_name.clone();
 
             methods.push(Method {
                 name: method_name,
+                is_async,
                 params,
                 return_type,
                 body,
@@ -904,6 +981,7 @@ impl Parser {
                 .as_ref()
                 .map(TypePattern::from_annotation),
             has_default_body: method.body.is_some(),
+            is_async: method.is_async,
         }
     }
 
