@@ -487,6 +487,25 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-118"
+title = "Stable Core Control Flow Promotion"
+phase = "phase_1"
+owner = "frontend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-106", "R-103", "R-105"]
+summary = "Promote `switch`, `unless`, `do-while`, and `loop` from experimental gates to stable production syntax with parser, semantic, lowering, JIT, CLI, and documentation alignment."
+acceptance = [
+  "`switch`, `unless`, `do-while`, and `loop` parse without `--enable-experimental`",
+  "`spectralang --list-experimental` reports no active experimental syntax gates",
+  "`tests/validation/120_stable_promoted_control_flow.spectra` runs successfully through the normal CLI JIT path",
+  "lowering does not emit instructions or branches after terminated blocks in promoted control-flow bodies",
+  "return-path analysis recognizes exhaustive `switch`, `unless`, block, and `if let` return paths",
+  "language reference, maturity policy, CLI help, and planning docs agree on stable status"
+]
+
+[[items]]
 id = "R-201"
 title = "Numeric Type Expansion"
 phase = "phase_2"

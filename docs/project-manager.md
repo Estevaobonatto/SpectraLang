@@ -49,7 +49,7 @@
 - [x] Tuplas e destructuring básico
 - [x] Arrays com acesso por índice
 - [x] `break`, `continue`, `return`
-- [x] `switch/case` (feature-gated)
+- [x] `switch/case` (stable)
 - [x] Inferência de tipos em let bindings
 - [x] Análise semântica completa com erros descritivos
 - [x] Lowering para SSA IR (midend)

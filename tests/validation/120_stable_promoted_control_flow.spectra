@@ -1,0 +1,62 @@
+module stable_promoted_control_flow;
+
+fn classify(value: int) -> int {
+    unless value < 0 {
+        switch value {
+            case 0 => {
+                return 10;
+            }
+            case 1 => {
+                return 20;
+            }
+            else => {
+                return 30;
+            }
+        }
+    } else {
+        return -10;
+    }
+}
+
+fn loop_sum(limit: int) -> int {
+    let total = 0;
+    let i = 0;
+    loop {
+        i = i + 1;
+        if i == 3 {
+            continue;
+        }
+        if i > limit {
+            break;
+        }
+        total = total + i;
+    }
+    return total;
+}
+
+fn do_while_count(limit: int) -> int {
+    let count = 0;
+    do {
+        count = count + 1;
+    } while count < limit;
+    return count;
+}
+
+pub fn main() -> int {
+    if classify(-1) != -10 {
+        return 1;
+    }
+    if classify(0) != 10 {
+        return 2;
+    }
+    if classify(2) != 30 {
+        return 3;
+    }
+    if loop_sum(5) != 12 {
+        return 4;
+    }
+    if do_while_count(4) != 4 {
+        return 5;
+    }
+    return 0;
+}

@@ -3515,6 +3515,14 @@ impl ASTLowering {
         self.lower_block_with_scope(statements, ir_func, true);
     }
 
+    fn current_block_is_terminated(&self, ir_func: &IRFunction) -> bool {
+        self.builder
+            .get_current_block()
+            .and_then(|block_id| ir_func.get_block(block_id))
+            .map(|block| block.terminator.is_some())
+            .unwrap_or(false)
+    }
+
     fn lower_block_with_scope(
         &mut self,
         statements: &[Statement],
@@ -3529,10 +3537,21 @@ impl ASTLowering {
         }
 
         for stmt in statements {
+            if self.current_block_is_terminated(ir_func) {
+                break;
+            }
             self.lower_statement(stmt, ir_func);
         }
 
         if create_scope {
+            if self.current_block_is_terminated(ir_func) {
+                self.struct_var_map.pop_scope();
+                self.array_map.pop_scope();
+                self.variable_types.pop_scope();
+                self.value_map.pop_scope();
+                return;
+            }
+
             // Drop semantics: before leaving the scope, call `StructName_drop(ptr)` for every
             // struct variable whose type implements the `Drop` trait (in reverse order).
             let drop_calls: Vec<(String, Value)> = self
@@ -4114,7 +4133,9 @@ impl ASTLowering {
                 });
                 self.builder.set_current_block(body_block);
                 self.lower_block(&while_stmt.body.statements, ir_func);
-                self.builder.build_branch(ir_func, header_block);
+                if !self.current_block_is_terminated(ir_func) {
+                    self.builder.build_branch(ir_func, header_block);
+                }
                 self.loop_stack.pop();
 
                 // Exit
@@ -4135,7 +4156,9 @@ impl ASTLowering {
                 });
                 self.builder.set_current_block(body_block);
                 self.lower_block(&do_while.body.statements, ir_func);
-                self.builder.build_branch(ir_func, header_block);
+                if !self.current_block_is_terminated(ir_func) {
+                    self.builder.build_branch(ir_func, header_block);
+                }
                 self.loop_stack.pop();
 
                 // Header/condition
@@ -4345,7 +4368,9 @@ impl ASTLowering {
                 });
                 self.builder.set_current_block(body_block);
                 self.lower_block(&loop_stmt.body.statements, ir_func);
-                self.builder.build_branch(ir_func, body_block);
+                if !self.current_block_is_terminated(ir_func) {
+                    self.builder.build_branch(ir_func, body_block);
+                }
                 self.loop_stack.pop();
 
                 // Exit (unreachable unless break is used)
@@ -4355,7 +4380,11 @@ impl ASTLowering {
                 let scrutinee = self.lower_expression(&switch.value, ir_func);
 
                 // Create blocks for each case and default/exit
-                let exit_block = ir_func.add_block("switch.exit");
+                let mut exit_block = if switch.default.is_none() {
+                    Some(ir_func.add_block("switch.exit"))
+                } else {
+                    None
+                };
                 let mut cases = Vec::new();
                 let mut case_blocks = Vec::new();
 
@@ -4380,7 +4409,7 @@ impl ASTLowering {
                 let default = if switch.default.is_some() {
                     ir_func.add_block("switch.default")
                 } else {
-                    exit_block
+                    exit_block.expect("switch without default must have an exit block")
                 };
 
                 if let Some(current_block) = self.builder.get_current_block() {
@@ -4397,18 +4426,28 @@ impl ASTLowering {
                 for (case_block, case) in case_blocks {
                     self.builder.set_current_block(case_block);
                     self.lower_block(&case.body.statements, ir_func);
-                    self.builder.build_branch(ir_func, exit_block);
+                    if !self.current_block_is_terminated(ir_func) {
+                        let exit = *exit_block
+                            .get_or_insert_with(|| ir_func.add_block("switch.exit"));
+                        self.builder.build_branch(ir_func, exit);
+                    }
                 }
 
                 // Lower default if present
                 if let Some(ref default_block) = switch.default {
                     self.builder.set_current_block(default);
                     self.lower_block(&default_block.statements, ir_func);
-                    self.builder.build_branch(ir_func, exit_block);
+                    if !self.current_block_is_terminated(ir_func) {
+                        let exit = *exit_block
+                            .get_or_insert_with(|| ir_func.add_block("switch.exit"));
+                        self.builder.build_branch(ir_func, exit);
+                    }
                 }
 
                 // Exit
-                self.builder.set_current_block(exit_block);
+                if let Some(exit) = exit_block {
+                    self.builder.set_current_block(exit);
+                }
             }
             StatementKind::Break => {
                 // Branch to the exit block of the innermost loop
@@ -5147,15 +5186,15 @@ impl ASTLowering {
                 let unless_else_bb = ir_func.add_block("unless.else");
                 let unless_merge_bb = ir_func.add_block("unless.merge");
 
-                // Evaluate and negate condition
+                // `unless condition { then } else { else }` branches to `else`
+                // when the condition is true and to `then` when it is false.
                 let cond_value = self.lower_expression(condition, ir_func);
-                let negated_cond = self.builder.build_not(ir_func, cond_value);
 
                 self.builder.build_cond_branch(
                     ir_func,
-                    negated_cond,
-                    unless_then_bb,
+                    cond_value,
                     unless_else_bb,
+                    unless_then_bb,
                 );
 
                 // Unless body (executes when condition is false)

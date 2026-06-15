@@ -248,7 +248,7 @@ $cliTests = @(
         Nome = "list_experimental"
         Args = @("--list-experimental")
         ExpectExit = 0
-        Contains = "switch"
+        Contains = "none"
         UseStdin = $false
     }
     [PSCustomObject]@{

@@ -22,7 +22,7 @@
 - [x] Improve error recovery to continue after common syntax mistakes _(Parser now skips malformed call/method argument lists via `recover_in_delimited_list` and synthetic symbol insertion)_
 - [x] Attach detailed span information and contextual hints to diagnostics _(CLI diagnostics now highlight source spans with contextual notes and actionable hints)_
 - [x] Support incremental or module-aware parsing to prepare for multi-file projects _(parser workspace cache now reuses module ASTs and CLI keeps a persistent pipeline for multi-file runs; see `compiler/src/parser/workspace.rs`)_
-- [x] Verify CLI and compiler flags gate experimental syntax behind feature toggles when needed _(feature-gated constructs enforced via `require_feature` with CLI flag plumbing and parser unit tests)_
+- [x] Verify CLI and compiler flags gate experimental syntax behind feature toggles when needed _(no active syntax gates remain after `switch`, `unless`, `do-while`, and `loop` promotion; future gates must update the maturity policy and CLI list together)_
 
 ## Midend & Backend
 

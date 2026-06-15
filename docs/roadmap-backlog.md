@@ -273,7 +273,7 @@ The machine-oriented counterpart is [roadmap/roadmap.toml](/D:/Lang/SpectraLang/
 - `docs/language-feature-maturity.md` defines stable, beta, experimental, and
   deferred feature classes.
 - `spectralang --list-experimental` returns the exact experimental feature set
-  documented by the policy: `switch`, `unless`, `do-while`, and `loop`.
+  documented by the policy; after R-118 this set is empty.
 - `scripts/validate_feature_maturity.py` compares policy docs, CLI source, and
   CLI output.
 - `run_tests.ps1` runs R-106 validation as a gated check.
@@ -1005,6 +1005,59 @@ Current state after R-113/R-114/R-115 completion:
   informational semantic tests.
 - Every failure from the 2026-06-12 report is either fixed or explicitly moved
   to a new tracked item with an acceptance criterion.
+
+## R-118 Stable Core Control Flow Promotion
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `frontend`
+- Dependencies: `R-106`, `R-103`, `R-105`
+
+### Problems Found
+
+The language still treated `switch`, `unless`, `do-while`, and `loop` as
+experimental even though they are core control-flow constructs. Promoting them
+surfaced real production defects:
+
+- parser and CLI policy still required `--enable-experimental`
+- return-path analysis did not recognize exhaustive `switch` in `unless`
+- lowering emitted instructions and fallthrough branches after terminated blocks
+- `switch.exit` was emitted even when all switch branches returned, producing an
+  unreachable block rejected by IR validation
+- `unless` lowering depended on a synthetic `not` instead of directly inverting
+  branch targets
+
+### Scope
+
+- Remove the parser gates for `switch`, `unless`, `do-while`, and `loop`.
+- Keep `--enable-experimental` accepted as a compatibility no-op.
+- Make `spectralang --list-experimental` report no active syntax gates.
+- Harden lowering for terminated blocks in loops and switch bodies.
+- Update return-path analysis for exhaustive switch/unless/block/if-let flows.
+- Add a production regression `.spectra` file that runs all promoted constructs
+  through the normal CLI JIT path.
+
+### Acceptance
+
+- `switch`, `unless`, `do-while`, and `loop` parse without
+  `--enable-experimental`.
+- `spectralang --list-experimental` reports no active experimental syntax gates.
+- `tests/validation/120_stable_promoted_control_flow.spectra` runs successfully.
+- Lowering does not emit instructions or branches after terminated control-flow
+  blocks.
+- Return-path analysis accepts exhaustive promoted-control-flow returns.
+- Language reference, maturity policy, CLI help, and planning docs agree on
+  stable status.
+
+### Evidence
+
+- Added `tests/validation/120_stable_promoted_control_flow.spectra`.
+- Updated parser/cache tests for stable parsing without feature flags.
+- Validation commands:
+  - `cargo test -q -p spectra-compiler`
+  - `cargo test -q -p spectra-midend`
+  - `cargo run -q -p spectra-cli -- run tests\validation\120_stable_promoted_control_flow.spectra`
+  - `cargo run -q -p spectra-cli -- --list-experimental`
 
 ---
 

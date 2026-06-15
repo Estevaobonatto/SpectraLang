@@ -10,7 +10,8 @@ from pathlib import Path
 
 
 REQUIRED_SECTIONS = ("Stable", "Beta", "Experimental", "Deferred")
-REQUIRED_EXPERIMENTAL = ("switch", "unless", "do-while", "loop")
+REQUIRED_EXPERIMENTAL: tuple[str, ...] = ()
+PROMOTED_STABLE = ("switch", "unless", "do-while", "loop")
 
 
 def extract_section(text: str, name: str) -> str:
@@ -25,8 +26,14 @@ def extract_doc_experimental(text: str) -> list[str]:
     for line in section.splitlines():
         match = re.match(r"\s*-\s+`([^`]+)`\s*$", line)
         if match:
-            found.append(match.group(1))
+            feature = match.group(1)
+            if not feature.startswith("--") and " " not in feature:
+                found.append(feature)
     return found
+
+
+def extract_doc_stable(text: str) -> str:
+    return extract_section(text, "Stable")
 
 
 def extract_source_experimental(source: str) -> list[str]:
@@ -90,6 +97,7 @@ def main() -> int:
             errors.append(f"maturity policy missing non-empty section: {section}")
 
     doc_features = extract_doc_experimental(policy)
+    stable_section = extract_doc_stable(policy)
     source_features = extract_source_experimental(source)
     try:
         cli_features = extract_cli_experimental(binary)
@@ -105,9 +113,13 @@ def main() -> int:
     if cli_features != expected:
         errors.append(f"CLI experimental features mismatch: {cli_features} != {expected}")
 
+    for feature in PROMOTED_STABLE:
+        if f"`{feature}`" not in stable_section:
+            errors.append(f"promoted stable feature missing from Stable section: {feature}")
+
     required_phrases = (
-        "experimental`: available only behind `--enable-experimental <feature>`",
-        "parser diagnostics for disabled use must emit a feature-gate error with code `P004`",
+        "experimental`: available only behind an explicit feature gate when active",
+        "there are currently no active experimental syntax gates",
         "update CLI help or `--list-experimental` if the change affects experimental gating",
     )
     for phrase in required_phrases:

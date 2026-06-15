@@ -212,6 +212,38 @@ diff against all acceptance criteria in:
 If any criterion is not implemented and validated, the item remains
 `in_progress`.
 
+### Core Language Correction Rule
+
+When analyzing or correcting core language constructs such as variables,
+assignments, `if`, `unless`, `while`, `while let`, `do-while`, `for`, `loop`,
+`switch`, `match`, methods, structs/classes, traits, closures, and return paths,
+agents must validate the full pipeline, not only parser acceptance.
+
+Required behavior:
+
+- add or update at least one `.spectra` regression in `tests/validation/` or
+  `tests/errors/` for the affected construct
+- run a frontend/semantic test when the change affects parsing, binding,
+  type checking, diagnostics, or return-path analysis
+- run a midend/backend or normal `spectralang run` validation when the change
+  affects lowering, branches, loops, method calls, aggregate values, or JIT/AOT
+  execution
+- do not promote a feature from experimental/beta to stable unless it parses
+  without flags, compiles, and executes through the normal CLI path when it has
+  runtime behavior
+- if a construct has compile-only coverage but no reliable execution coverage,
+  keep it tracked as incomplete or add a roadmap item with production
+  acceptance criteria before calling it complete
+
+Current production baseline:
+
+- `switch`, `unless`, `do-while`, and `loop` are stable core syntax, not active
+  experimental features.
+- `--enable-experimental <feature>` is accepted only as a compatibility no-op
+  until a future gated feature is added and documented.
+- `spectralang --list-experimental` must report no active syntax gates unless
+  the maturity policy and roadmap are updated in the same change.
+
 ---
 
 ## Acceptance Criteria Rules

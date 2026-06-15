@@ -50,18 +50,18 @@
 | `elif` | ✅ Implementado | Senão-se |
 | `elseif` | ✅ Implementado | Alias de `elif` |
 | `else` | ✅ Implementado | Senão |
-| `unless` | 🧪 Experimental | Requer `--enable-experimental unless` |
+| `unless` | Estável | Ativado por padrão |
 | `while` | ✅ Implementado | Laço condicional |
-| `do` | 🧪 Experimental | Requer `--enable-experimental do-while` |
+| `do` | Estável | `do { ... } while ...;` ativado por padrão |
 | `for` | ✅ Implementado | Laço `for in` |
 | `foreach` | 🚧 Reservado | (futuro / future) |
 | `in` | ✅ Implementado | Em `for x in` |
 | `of` | ✅ Implementado | Alias de `in` em `for x of` |
-| `loop` | 🧪 Experimental | Requer `--enable-experimental loop` |
+| `loop` | Estável | Ativado por padrão |
 | `repeat` | 🚧 Reservado | (futuro / future) |
 | `until` | 🚧 Reservado | (futuro / future) |
 | `match` | ✅ Implementado | Pattern matching |
-| `switch` | 🧪 Experimental | Requer `--enable-experimental switch` |
+| `switch` | Estável | Ativado por padrão |
 | `case` | ✅ Implementado | Braço de switch/match |
 | `cond` | 🚧 Reservado | (futuro / future) |
 | `return` | ✅ Implementado | Retorno explícito |
@@ -450,10 +450,9 @@ spectralang <comando> [flags] <arquivo>...
 
 | Flag | Descrição PT-BR | Description EN-US |
 |------|-----------------|-------------------|
-| `--enable-experimental <feature>` | Ativa feature experimental | Enable experimental feature |
+| `--enable-experimental <feature>` | Compatibilidade com scripts antigos; sem gates ativos | Compatibility no-op; no active gates |
 
-> **Features experimentais disponíveis / Available experimental features:**
-> `switch`, `unless`, `do-while`, `loop`
+> **Features experimentais disponíveis / Available experimental features:** nenhuma no momento / none currently.
 
 ### Regras de Lint Disponíveis / Available Lint Rules
 

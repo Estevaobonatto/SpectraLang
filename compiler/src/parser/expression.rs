@@ -419,13 +419,6 @@ impl Parser {
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
             TokenKind::Keyword(Keyword::Unless) => {
-                if self
-                    .require_feature("unless", span, "Unless expressions")
-                    .is_err()
-                {
-                    self.synchronize();
-                    return Err(());
-                }
                 self.parse_unless_expression()
             }
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),

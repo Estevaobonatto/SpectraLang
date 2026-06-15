@@ -19,7 +19,7 @@ Status labels:
 | Local bindings and assignments | supported | Shadowing bugs identified during stabilization were fixed. |
 | Arithmetic and comparison expressions | supported | |
 | Branching (`if`, `elif`, `else`) | supported | |
-| Loops (`while`, `for`, `loop`, `do-while`) | supported | Current gated loop forms lower correctly. |
+| Loops (`while`, `for`, `loop`, `do-while`) | supported | Stable loop forms lower and execute through regression coverage. |
 | `break` / `continue` | supported | |
 | Function calls | supported | Direct and imported stdlib calls lower. |
 | Method calls | supported | Includes current trait-object paths used in the suite. |

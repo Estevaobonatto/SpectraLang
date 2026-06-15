@@ -21,11 +21,10 @@ pub struct Parser {
     position: usize,
     errors: Vec<ParseError>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
-    enabled_features: HashSet<String>,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>, enabled_features: HashSet<String>) -> Self {
+    pub fn new(tokens: Vec<Token>, _enabled_features: HashSet<String>) -> Self {
         let eof_sentinel = Token::new(
             TokenKind::EndOfFile,
             Span::new(0, 0, Location::new(1, 1), Location::new(1, 1)),
@@ -38,7 +37,6 @@ impl Parser {
             // Pre-allocate with a reasonable capacity to reduce rehashing while
             // parsing modules that typically have a handful of known traits.
             trait_signatures: HashMap::with_capacity(8),
-            enabled_features,
         }
     }
 
@@ -216,29 +214,6 @@ impl Parser {
                 | TokenKind::Keyword(Keyword::Case)
                 | TokenKind::Keyword(Keyword::Switch)
         )
-    }
-
-    fn is_feature_enabled(&self, feature: &str) -> bool {
-        self.enabled_features.contains(feature)
-    }
-
-    fn require_feature(&mut self, feature: &str, span: Span, description: &str) -> Result<(), ()> {
-        if self.is_feature_enabled(feature) {
-            return Ok(());
-        }
-
-        let message = format!(
-            "{} require enabling the experimental '{}' feature",
-            description, feature
-        );
-        let hint = format!(
-            "Re-run with --enable-experimental {} to opt into {}.",
-            feature,
-            description.to_lowercase()
-        );
-        let context = format!("feature '{}' is disabled for this compilation", feature);
-        self.push_error_coded("P004", message, span, Some(hint), Some(context));
-        Err(())
     }
 
     fn recover_missing_symbol(&self, symbol: char) -> Option<Span> {
@@ -486,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn loop_feature_flag_gates_parsing() {
+    fn loop_parses_without_feature_flag() {
         let source = r#"
             module demo;
 
@@ -497,12 +472,12 @@ mod tests {
             }
         "#;
 
-        assert!(parse_with_features(source, &[]).is_err());
+        assert!(parse_with_features(source, &[]).is_ok());
         assert!(parse_with_features(source, &["loop"]).is_ok());
     }
 
     #[test]
-    fn unless_feature_flag_gates_parsing() {
+    fn unless_parses_without_feature_flag() {
         let source = r#"
             module demo;
 
@@ -511,7 +486,7 @@ mod tests {
             }
         "#;
 
-        assert!(parse_with_features(source, &[]).is_err());
+        assert!(parse_with_features(source, &[]).is_ok());
         assert!(parse_with_features(source, &["unless"]).is_ok());
     }
 

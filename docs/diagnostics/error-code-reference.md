@@ -33,7 +33,7 @@ The following set is the current stable Phase 1 table for high-frequency diagnos
 | `P001` | parser | expected keyword | insert the missing keyword or fix item order |
 | `P002` | parser | expected or synthesized symbol | insert the required delimiter such as `;`, `)`, or `}` |
 | `P003` | parser | expected identifier | provide a valid identifier in the current grammar slot |
-| `P004` | parser | experimental feature disabled | rerun with `--enable-experimental <feature>` |
+| `P004` | parser | future experimental feature disabled | rerun with the documented feature gate once an active experimental feature exists |
 | `P999` | parser | generic syntax failure | inspect nearby syntax; parser context and hint should narrow the issue |
 | `E001` | semantic | undefined variable or function | declare/import the symbol or fix the name |
 | `E002` | semantic | argument count mismatch | pass the expected number of arguments |

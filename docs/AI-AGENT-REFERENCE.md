@@ -513,7 +513,7 @@ switch option {
 }
 ```
 
-**Note:** `switch` is an experimental feature. Enable with `--enable-experimental switch` or just use `match` instead, which is the preferred construct.
+**Note:** `switch` is stable syntax. `match` remains preferred for pattern-oriented branching.
 
 ---
 
@@ -1888,7 +1888,7 @@ let credit = TxKind::Credit(100);
 | `--verbose` / `-v` | Verbose build output |
 | `--summary` | Per-module pipeline summary |
 | `--json` | JSON diagnostic output (`compile`, `check`, `lint`, and `repl --json`) |
-| `--enable-experimental <feature>` | Enable experimental feature |
+| `--enable-experimental <feature>` | Compatibility no-op; no active experimental syntax gates |
 
 ### Available Experimental Features
 
@@ -1899,7 +1899,7 @@ let credit = TxKind::Credit(100);
 | `do-while` | `do { } while` loop |
 | `loop` | Infinite `loop { }` |
 
-> Note: Experimental syntax is feature-gated in the current compiler. Use `--enable-experimental <feature>` explicitly when compiling examples that depend on it.
+> Note: There are currently no active experimental syntax gates. `--enable-experimental <feature>` is accepted only for compatibility with older scripts.
 
 ### Exit Codes
 
@@ -2578,15 +2578,15 @@ external kernels, and production checkpoint formats remain future adoption work.
 | `elif` | ✅ Implemented | Else-if |
 | `elseif` | ✅ Implemented | Alias for elif |
 | `else` | ✅ Implemented | Else branch |
-| `unless` | 🧪 Experimental | Requires `--enable-experimental unless` |
+| `unless` | Stable | Enabled by default |
 | `while` | ✅ Implemented | While loop |
-| `do` | 🧪 Experimental | `do { } while` requires `--enable-experimental do-while` |
+| `do` | Stable | `do { } while` is enabled by default |
 | `for` | ✅ Implemented | For loop |
 | `in` | ✅ Implemented | For x in iterable |
 | `of` | ✅ Implemented | Alias for in (for x of iterable) |
-| `loop` | 🧪 Experimental | Requires `--enable-experimental loop` |
+| `loop` | Stable | Enabled by default |
 | `match` | ✅ Implemented | Pattern matching |
-| `switch` | 🧪 Experimental | Requires `--enable-experimental switch` |
+| `switch` | Stable | Enabled by default |
 | `case` | ✅ Implemented | Switch/match arm |
 | `return` | ✅ Implemented | Return from function |
 | `break` | ✅ Implemented | Exit loop |

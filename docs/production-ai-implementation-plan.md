@@ -254,10 +254,12 @@ codes when no stable subcode exists.
 
 ## 1.4 Language Surface Stabilization
 
-Current state: complete for the current Phase 1 maturity-policy baseline. The
-language maturity policy documents stable, beta, experimental, and deferred
-features; the CLI exposes the exact experimental feature list through
-`--list-experimental`; and the main runner validates docs/source/CLI agreement.
+Current state: complete for the current Phase 1 maturity-policy baseline.
+The language maturity policy documents stable, beta, experimental, and
+deferred features. `switch`, `unless`, `do-while`, and `loop` have been
+promoted from experimental gates to stable syntax; the CLI reports no active
+experimental syntax gates through `--list-experimental`; and the main runner
+validates docs/source/CLI agreement.
 
 ### Tasks
 
@@ -268,12 +270,13 @@ features; the CLI exposes the exact experimental feature list through
   - closures
   - `if let` / `while let`
   - enums and patterns
-- Revisit experimental gates:
+- Keep promoted core control flow stable:
   - `switch`
   - `unless`
   - `do-while`
   - `loop`
-- Decide which move to stable and which remain gated.
+- Future experimental syntax must add a documented gate, CLI list entry, and
+  parser diagnostic before use.
 - Remove or document partially implemented syntax.
 
 ### Acceptance Criteria
@@ -281,13 +284,17 @@ features; the CLI exposes the exact experimental feature list through
 - Language reference clearly labels stable vs experimental syntax.
 - No feature remains in undocumented limbo.
 - CLI feature gates match documented policy exactly.
+- `tests/validation/120_stable_promoted_control_flow.spectra` runs through the
+  normal CLI JIT path without feature flags.
 
 ### Current Implementation
 
 - `docs/language-feature-maturity.md`
-- `spectralang --list-experimental`
+- `spectralang --list-experimental` reports no active experimental syntax gates.
 - `scripts/validate_feature_maturity.py`
 - `run_tests.ps1` includes the R-106 feature maturity gate.
+- `R-118` completes the production promotion of `switch`, `unless`,
+  `do-while`, and `loop`.
 
 ---
 

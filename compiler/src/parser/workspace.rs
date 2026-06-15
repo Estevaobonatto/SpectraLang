@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn feature_set_changes_trigger_reparse() {
+    fn feature_set_changes_trigger_reparse_without_gating_stable_syntax() {
         let mut loader = ModuleLoader::new();
         let mut features = HashSet::new();
         features.insert("unless".to_string());
@@ -217,7 +217,9 @@ mod tests {
             .expect("feature-enabled parse should succeed");
 
         let disabled_features = HashSet::new();
-        let result = loader.parse_module("demo", source, &disabled_features);
-        assert!(matches!(result, Err(ModuleParseError::Parse(_))));
+        let result = loader
+            .parse_module("demo", source, &disabled_features)
+            .expect("promoted syntax should parse even when compatibility feature set is empty");
+        assert!(!result.reused, "feature-set changes still invalidate the cache");
     }
 }

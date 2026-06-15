@@ -72,9 +72,9 @@ Status labels:
 | `while let` | supported | Implemented as a dedicated parser path. |
 | `for ... in ...` | supported | |
 | `for ... of ...` | supported | Documented canonical collection iteration form. |
-| `loop` | gated | Requires `--enable-experimental loop`. |
-| `do { } while ...;` | gated | Requires `--enable-experimental do-while`. |
-| `switch` | gated | Requires `--enable-experimental switch`. |
+| `loop` | supported | Stable syntax; executes through JIT regression coverage. |
+| `do { } while ...;` | supported | Stable syntax; executes through JIT regression coverage. |
+| `switch` | supported | Stable syntax; executes through JIT regression coverage. |
 | `repeat/until`, `foreach`, `goto`, `yield` | deferred | Tokens exist, parser implementation is intentionally absent. |
 
 ## Expression Coverage
@@ -92,7 +92,7 @@ Status labels:
 | Type casts `expr as Type` | supported | |
 | Blocks `{ ... }` as expressions | supported | |
 | `if` expressions | supported | |
-| `unless` expressions | gated | Requires `--enable-experimental unless`. |
+| `unless` expressions | supported | Stable syntax; lowering branches directly without a synthetic `not`. |
 | `match` expressions | supported | |
 | Lambda/closure expressions | supported | Current parser surface accepts the documented closure syntax. |
 | Array literals | partial | Lower stages do not yet treat them as a production-ready numeric container surface. |

@@ -91,10 +91,10 @@ enum Option<T> {
 - Expression statements use the standard `expr;` form. When `match`, `if`, or `unless` are used as statements and more statements follow in the same block, terminate them with `;`.
 - Loops and control flow:
   - `while condition { ... }`
-  - `do { ... } while condition;` with `--enable-experimental do-while`
+  - `do { ... } while condition;`
   - `for item in iterable { ... }` and `for item of iterable { ... }`
-  - `loop { ... }` with `--enable-experimental loop`
-  - `switch value { case literal => { ... } ... else => { ... } }` with `--enable-experimental switch`
+  - `loop { ... }`
+  - `switch value { case literal => { ... } ... else => { ... } }`
   - `break;`, `continue;`
 - `goto`, `repeat`, `until`, `foreach`, and `yield` are reserved but not implemented.
 

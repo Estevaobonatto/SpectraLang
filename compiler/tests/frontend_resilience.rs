@@ -22,25 +22,41 @@ fn malformed_frontend_inputs_do_not_panic() {
 }
 
 #[test]
-fn feature_gate_errors_are_coded_and_fast() {
+fn promoted_control_flow_constructs_parse_without_feature_flags() {
     let source = r#"
-        module gated;
+        module stable_control_flow;
 
-        fn main() {
+        fn classify(value: int) -> int {
+            unless value < 0 {
+                switch value {
+                    case 0 => {
+                        return 10;
+                    }
+                    else => {
+                        return 20;
+                    }
+                }
+            } else {
+                return -1;
+            }
+        }
+
+        fn main() -> int {
+            let i = 0;
+            do {
+                i = i + 1;
+            } while i < 2;
             loop {
                 break;
             }
+            return classify(i);
         }
     "#;
 
     let tokens = Lexer::new(source).tokenize().expect("lexer should succeed");
-    let errors = Parser::new(tokens, HashSet::new())
+    Parser::new(tokens, HashSet::new())
         .parse()
-        .expect_err("loop should require the feature flag");
-
-    assert!(errors
-        .iter()
-        .any(|error| error.code.as_deref() == Some("P004")));
+        .expect("promoted control-flow constructs should be stable syntax");
 }
 
 #[test]

@@ -8287,6 +8287,26 @@ impl SemanticAnalyzer {
             StatementKind::Return(_) => true,
             StatementKind::Expression(expr) if is_last => self.expression_guaranteed_return(expr),
             StatementKind::Loop(_) if is_last => true,
+            StatementKind::Switch(switch_stmt) if is_last => {
+                switch_stmt.default.is_some()
+                    && switch_stmt
+                        .cases
+                        .iter()
+                        .all(|case| self.block_guaranteed_return(&case.body))
+                    && switch_stmt
+                        .default
+                        .as_ref()
+                        .map(|block| self.block_guaranteed_return(block))
+                        .unwrap_or(false)
+            }
+            StatementKind::IfLet(if_let) if is_last => {
+                self.block_guaranteed_return(&if_let.then_block)
+                    && if_let
+                        .else_block
+                        .as_ref()
+                        .map(|block| self.block_guaranteed_return(block))
+                        .unwrap_or(false)
+            }
             _ => false,
         }
     }
@@ -8331,6 +8351,7 @@ impl SemanticAnalyzer {
                         .iter()
                         .all(|arm| self.expression_guaranteed_return(&arm.body))
             }
+            ExpressionKind::Block(block) => self.block_guaranteed_return(block),
             _ => false,
         }
     }

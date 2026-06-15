@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{env, fs, process};
 
-const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &["switch", "unless", "do-while", "loop"];
+const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &[];
 const AOT_DEBUG_MAP_SCHEMA_VERSION: u32 = 1;
 
 #[repr(i32)]
@@ -2848,7 +2848,7 @@ fn print_global_help() {
     println!();
     println!("GLOBAL OPTIONS:");
     println!("    -h, --help             Print this help message");
-    println!("    --list-experimental    List available experimental features and exit");
+    println!("    --list-experimental    Report active experimental language gates");
     println!();
     print_compilation_options(None);
     println!();
@@ -2913,7 +2913,7 @@ fn print_build_help(command: BuildCommand) {
         }
     }
     println!();
-    println!("Use 'spectralang --list-experimental' to see available experimental features.");
+    println!("Use 'spectralang --list-experimental' to see active experimental language gates.");
 }
 
 fn print_repl_help() {
@@ -2934,7 +2934,7 @@ fn print_repl_help() {
     println!("    -O1/-O2/-O3            Set optimization level");
     println!("    --run, -r              Automatically run modules after compiling");
     println!("    --enable-experimental <feature>");
-    println!("                           Enable experimental language feature (may be repeated)");
+    println!("                           Compatibility no-op for older scripts (no active experimental language gates)");
     println!();
     println!("Interactive commands:");
     println!("    :load <paths>...       Compile modules without executing");
@@ -3053,7 +3053,7 @@ fn print_lint_help() {
     println!("    --verbose, -v       Print additional plan diagnostics");
     println!("    --json              Emit diagnostics as JSON");
     println!("    --enable-experimental <feature>");
-    println!("                        Enable experimental language feature (may repeat)");
+    println!("                        Compatibility no-op for older scripts");
     println!(
         "    -O0/-O1/-O2/-O3     Set optimization level (ignored by lint but accepted for parity)"
     );
@@ -3088,7 +3088,7 @@ fn print_compilation_options(command: Option<BuildCommand>) {
         }
     }
     println!("    --enable-experimental <feature>");
-    println!("                           Enable experimental language feature (may be repeated)");
+    println!("                           Compatibility no-op for older scripts (no active experimental language gates)");
     if matches!(command, Some(BuildCommand::Lint)) {
         println!("    --lint                 Redundant; 'lint' always enables lint rules");
     } else {
@@ -3106,9 +3106,12 @@ fn print_compilation_options(command: Option<BuildCommand>) {
 }
 
 fn print_experimental_features() {
-    println!("Experimental features you can enable with --enable-experimental <feature>:");
-    for feature in KNOWN_EXPERIMENTAL_FEATURES {
-        println!("    - {}", feature);
+    println!("Experimental language features: none");
+    if !KNOWN_EXPERIMENTAL_FEATURES.is_empty() {
+        println!("Enable with --enable-experimental <feature>:");
+        for feature in KNOWN_EXPERIMENTAL_FEATURES {
+            println!("    - {}", feature);
+        }
     }
 }
 

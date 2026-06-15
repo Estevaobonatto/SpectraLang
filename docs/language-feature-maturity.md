@@ -1,7 +1,7 @@
 # Language Feature Maturity Policy
 
-Updated: 2026-06-04
-Roadmap item: `R-106`
+Updated: 2026-06-15
+Roadmap item: `R-106`, `R-118`
 
 This file is the source of truth for language maturity labels. Documentation, examples, and CLI behavior must match this policy exactly.
 
@@ -9,7 +9,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 
 - `stable`: enabled by default, documented as part of the normal language contract, and covered by the positive test suite
 - `beta`: enabled by default and usable, but still expected to evolve in ergonomics or performance
-- `experimental`: available only behind `--enable-experimental <feature>`
+- `experimental`: available only behind an explicit feature gate when active
 - `deferred`: documented only as roadmap/future work, not as usable language syntax
 
 ## Current Feature Matrix
@@ -40,6 +40,10 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `while let`
   - `for ... in ...`
   - `for ... of ...`
+  - `loop`
+  - `do-while` (`do { ... } while ...`)
+  - `unless`
+  - `switch`
   - `match`
   - `return`, `break`, `continue`
 - tuple, struct, enum, and OR-patterns in the validated pattern surface
@@ -139,18 +143,13 @@ These are usable where covered, but still not treated as fully production-harden
 
 ### Experimental
 
-These features must remain hidden behind the CLI feature gate and are the exact values returned by `spectralang --list-experimental`.
+there are currently no active experimental syntax gates. `spectralang --list-experimental` must report an empty set.
 
-- `switch`
-- `unless`
-- `do-while`
-- `loop`
+CLI compatibility contract:
 
-CLI contract:
-
-- enable with `--enable-experimental <feature>`
-- repeat the flag to enable more than one feature
-- parser diagnostics for disabled use must emit a feature-gate error with code `P004`
+- `--enable-experimental <feature>` remains accepted as a no-op for older scripts
+- new experimental syntax must not be added without documenting the exact feature name here and returning it from `spectralang --list-experimental`
+- parser diagnostics for future disabled experimental syntax must emit a feature-gate error with code `P004`
 
 ### Deferred
 
