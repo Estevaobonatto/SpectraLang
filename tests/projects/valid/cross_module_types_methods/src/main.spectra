@@ -1,0 +1,26 @@
+module main;
+
+import std.io;
+import counter;
+import inventory;
+
+pub fn main() -> int {
+    let c0 = Counter::new(2);
+    let c1 = c0.tick();
+    let c2 = c1.tick();
+    println(c2.read());
+
+    let c3 = counter::Counter::with_value(10, 5);
+    println(c3.tick().read());
+
+    let item = Item::new("sku-001", "Widget", 7, 6);
+    println(item.sku);
+    println(item.name);
+    println(item.value());
+
+    let low = StockStatus::Low;
+    println(status_code(low));
+    println(status_code(classify(0)));
+
+    return 0;
+}

@@ -15,7 +15,8 @@ pub mod module_registry;
 
 use builtin_modules::register_builtin_modules;
 use module_registry::{
-    ExportVisibility, ExportedFunction, ExportedType, ModuleExports, ModuleRegistry,
+    ExportVisibility, ExportedFunction, ExportedMethod, ExportedSelfParamKind, ExportedType,
+    ModuleExports, ModuleRegistry,
 };
 
 #[derive(Debug, Clone)]
@@ -135,6 +136,24 @@ pub struct SymbolInfo {
 enum SelfParamKind {
     Value,
     Reference { mutable: bool },
+}
+
+impl From<SelfParamKind> for ExportedSelfParamKind {
+    fn from(kind: SelfParamKind) -> Self {
+        match kind {
+            SelfParamKind::Value => ExportedSelfParamKind::Value,
+            SelfParamKind::Reference { mutable } => ExportedSelfParamKind::Reference { mutable },
+        }
+    }
+}
+
+impl From<ExportedSelfParamKind> for SelfParamKind {
+    fn from(kind: ExportedSelfParamKind) -> Self {
+        match kind {
+            ExportedSelfParamKind::Value => SelfParamKind::Value,
+            ExportedSelfParamKind::Reference { mutable } => SelfParamKind::Reference { mutable },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -701,6 +720,55 @@ impl SemanticAnalyzer {
                         },
                     );
                 }
+                Item::Impl(impl_block) if impl_block.trait_name.is_none() => {
+                    for method in &impl_block.methods {
+                        if method.visibility != Visibility::Public
+                            && method.visibility != Visibility::Internal
+                        {
+                            continue;
+                        }
+
+                        let vis = if method.visibility == Visibility::Public {
+                            ExportVisibility::Public
+                        } else {
+                            ExportVisibility::Internal
+                        };
+                        let mut params = Vec::new();
+                        let mut self_kind = None;
+                        for param in &method.params {
+                            if param.is_self {
+                                let kind = if param.is_reference {
+                                    SelfParamKind::Reference {
+                                        mutable: param.is_mutable,
+                                    }
+                                } else {
+                                    SelfParamKind::Value
+                                };
+                                self_kind = Some(ExportedSelfParamKind::from(kind));
+                                params.push(Type::Struct {
+                                    name: impl_block.type_name.clone(),
+                                });
+                            } else {
+                                params.push(self.type_annotation_to_type(&param.type_annotation));
+                            }
+                        }
+
+                        let return_type = self.type_annotation_to_type(&method.return_type);
+                        exports
+                            .methods
+                            .entry(impl_block.type_name.clone())
+                            .or_default()
+                            .insert(
+                                method.name.clone(),
+                                ExportedMethod {
+                                    params,
+                                    return_type,
+                                    visibility: vis,
+                                    self_kind,
+                                },
+                            );
+                    }
+                }
                 _ => {}
             }
         }
@@ -1012,6 +1080,11 @@ impl SemanticAnalyzer {
             .chain(exports.types.keys())
             .cloned()
             .collect::<Vec<_>>();
+        for (type_name, methods) in &exports.methods {
+            for method_name in methods.keys() {
+                names.push(format!("{}::{}", type_name, method_name));
+            }
+        }
         names.sort();
         names.dedup();
 
@@ -1033,6 +1106,31 @@ impl SemanticAnalyzer {
         names.sort();
         names.dedup();
         names
+    }
+
+    fn missing_method_diagnostic(&self, type_name: &str, method_name: &str) -> String {
+        let mut candidates = self
+            .methods
+            .get(type_name)
+            .map(|methods| methods.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        candidates.sort();
+        candidates.dedup();
+
+        if candidates.is_empty() {
+            format!(
+                "Method '{}' not found for type '{}'; candidate impl blocks in scope: <none>",
+                method_name, type_name
+            )
+        } else {
+            format!(
+                "Method '{}' not found for type '{}'; candidate impl blocks in scope for '{}': {}",
+                method_name,
+                type_name,
+                type_name,
+                candidates.join(", ")
+            )
+        }
     }
 
     fn report_unknown_qualified_member(
@@ -3399,7 +3497,7 @@ impl SemanticAnalyzer {
                     } else {
                         Visibility::Internal
                     };
-                    self.enum_infos.entry(local_name).or_insert(EnumInfo {
+                    self.enum_infos.entry(local_name.clone()).or_insert(EnumInfo {
                         visibility: vis,
                         type_params: Vec::new(),
                         variants: variant_map,
@@ -3429,11 +3527,56 @@ impl SemanticAnalyzer {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    self.struct_infos.entry(local_name).or_insert(StructInfo {
+                    self.struct_infos.entry(local_name.clone()).or_insert(StructInfo {
                         visibility: vis,
                         type_params: Vec::new(),
                         fields: field_map,
                     });
+                }
+
+                if let Some(exported_methods) = exports.methods.get(name.as_str()) {
+                    for (method_name, method_export) in exported_methods {
+                        let method_is_internal =
+                            method_export.visibility == ExportVisibility::Internal;
+                        if method_is_internal {
+                            let same_pkg = exports
+                                .package_name
+                                .as_deref()
+                                .zip(self.current_package.as_deref())
+                                .map(|(ep, cp)| ep == cp)
+                                .unwrap_or(false);
+                            if !same_pkg {
+                                continue;
+                            }
+                        }
+
+                        let signature = FunctionSignature {
+                            params: method_export.params.clone(),
+                            return_type: method_export.return_type.clone(),
+                            self_kind: method_export.self_kind.clone().map(SelfParamKind::from),
+                        };
+                        self.methods
+                            .entry(local_name.clone())
+                            .or_default()
+                            .entry(method_name.clone())
+                            .or_insert(signature);
+                        self.method_visibility
+                            .entry(local_name.clone())
+                            .or_default()
+                            .entry(method_name.clone())
+                            .or_insert(if method_export.visibility == ExportVisibility::Public {
+                                Visibility::Public
+                            } else {
+                                Visibility::Internal
+                            });
+
+                        if stdlib_path_prefix.is_none() {
+                            user_fn_types.push((
+                                format!("{}_{}", name, method_name),
+                                method_export.return_type.clone(),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -6057,6 +6200,81 @@ impl SemanticAnalyzer {
 
                         // Cross-module type: struct or enum
                         if let Some(type_export) = exports.types.get(&item_name) {
+                            if let Some(args) = data {
+                                if let Some(method_export) = exports
+                                    .methods
+                                    .get(&item_name)
+                                    .and_then(|methods| methods.get(&inner_variant))
+                                {
+                                    if method_export.self_kind.is_some() {
+                                        self.error_with_hint(
+                                            format!(
+                                                "Method '{}::{}' takes 'self'; call it on a value",
+                                                item_name, inner_variant
+                                            ),
+                                            expr.span,
+                                            format!(
+                                                "Use `value.{}(...)` instead of `{}::{}(...)`.",
+                                                inner_variant, item_name, inner_variant
+                                            ),
+                                        );
+                                        return;
+                                    }
+
+                                    for arg in args {
+                                        self.analyze_expression(arg);
+                                    }
+                                    if args.len() != method_export.params.len() {
+                                        self.error(
+                                            format!(
+                                                "Associated function '{}::{}' expects {} argument(s), got {}",
+                                                item_name,
+                                                inner_variant,
+                                                method_export.params.len(),
+                                                args.len()
+                                            ),
+                                            expr.span,
+                                        );
+                                    } else {
+                                        for (idx, (arg, expected)) in
+                                            args.iter().zip(method_export.params.iter()).enumerate()
+                                        {
+                                            let arg_ty = self.infer_expression_type(arg);
+                                            if !self.types_match(&arg_ty, expected)
+                                                && arg_ty != Type::Unknown
+                                                && *expected != Type::Unknown
+                                            {
+                                                self.error(
+                                                    format!(
+                                                        "Argument {} of '{}::{}' expects {}, found {}",
+                                                        idx + 1,
+                                                        item_name,
+                                                        inner_variant,
+                                                        type_name(expected),
+                                                        type_name(&arg_ty)
+                                                    ),
+                                                    arg.span,
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    self.symbol_resolutions.insert(
+                                        expr.span,
+                                        SymbolInfo {
+                                            is_local: false,
+                                            def_span: None,
+                                            ty: method_export.return_type.clone(),
+                                        },
+                                    );
+                                    self.qualified_fn_types.push((
+                                        format!("{}_{}", item_name, inner_variant),
+                                        method_export.return_type.clone(),
+                                    ));
+                                    return;
+                                }
+                            }
+
                             if type_export.is_enum {
                                 // Validate as local enum variant
                                 if let Some(ref variants) = type_export.enum_variants {
@@ -6788,15 +7006,12 @@ impl SemanticAnalyzer {
                         }
                     } else if self.methods.contains_key(type_name) {
                         self.error(
-                            format!(
-                                "Method '{}' not found for type '{}'",
-                                method_name, type_name
-                            ),
+                            self.missing_method_diagnostic(type_name, method_name),
                             expr.span,
                         );
                     } else {
                         self.error(
-                            format!("No methods defined for type '{}'", type_name),
+                            self.missing_method_diagnostic(type_name, method_name),
                             expr.span,
                         );
                     }

@@ -645,16 +645,6 @@ impl ASTLowering {
             }
         }
 
-        // Pre-register return types of imported user functions so that
-        // cross-module calls are not mis-classified as unknown closures by
-        // the temporary bypass code in lower_expression.
-        for (name, ty) in &ast_module.imported_function_return_types {
-            let ir_ty = self.lower_type(ty);
-            self.function_return_types
-                .entry(name.clone())
-                .or_insert(ir_ty);
-        }
-
         // Pre-register enum/struct definitions from imported user modules so
         // that cross-module type references resolve before the local first pass.
         for enum_def in &ast_module.imported_enum_defs {
@@ -756,6 +746,16 @@ impl ASTLowering {
                 self.struct_definitions
                     .insert(struct_def.name.clone(), fields);
             }
+        }
+
+        // Pre-register return types of imported user functions and methods
+        // after imported layouts exist. Otherwise aggregate returns degrade to
+        // opaque Pointer(Void), and later method calls lose their receiver type.
+        for (name, ty) in &ast_module.imported_function_return_types {
+            let ir_ty = self.lower_type(ty);
+            self.function_return_types
+                .entry(name.clone())
+                .or_insert(ir_ty);
         }
 
         // First pass: collect struct and enum definitions, and trait implementations
@@ -6763,9 +6763,15 @@ impl ASTLowering {
                     elements: ir_elements,
                 }
             }
-            ASTType::Struct { name: _ } => {
-                // Structs são representados como ponteiros
-                IRType::Pointer(Box::new(IRType::Void))
+            ASTType::Struct { name } => {
+                if let Some(fields) = self.struct_definitions.get(name) {
+                    IRType::Struct {
+                        name: name.clone(),
+                        fields: fields.clone(),
+                    }
+                } else {
+                    IRType::Pointer(Box::new(IRType::Void))
+                }
             }
             ASTType::Enum { name } => {
                 // Enums são representados como tagged unions

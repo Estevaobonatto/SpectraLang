@@ -1,0 +1,8 @@
+module main;
+
+import counter;
+
+pub fn main() -> int {
+    let c = Counter::new(1);
+    return c.reset();
+}

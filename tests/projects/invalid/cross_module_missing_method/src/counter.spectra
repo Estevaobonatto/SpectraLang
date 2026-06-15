@@ -1,0 +1,15 @@
+module counter;
+
+pub struct Counter {
+    pub value: int
+}
+
+impl Counter {
+    pub fn new(value: int) -> Counter {
+        return Counter { value: value };
+    }
+
+    pub fn read(&self) -> int {
+        return self.value;
+    }
+}

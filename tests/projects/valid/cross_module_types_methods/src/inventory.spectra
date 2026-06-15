@@ -1,0 +1,42 @@
+module inventory;
+
+pub struct Item {
+    pub sku: string,
+    pub name: string,
+    pub price: int,
+    pub stock: int
+}
+
+pub enum StockStatus {
+    InStock,
+    Low,
+    OutOfStock
+}
+
+impl Item {
+    pub fn new(sku: string, name: string, price: int, stock: int) -> Item {
+        return Item { sku: sku, name: name, price: price, stock: stock };
+    }
+
+    pub fn value(&self) -> int {
+        return self.price * self.stock;
+    }
+}
+
+pub fn classify(stock: int) -> StockStatus {
+    if stock == 0 {
+        return StockStatus::OutOfStock;
+    }
+    if stock < 5 {
+        return StockStatus::Low;
+    }
+    return StockStatus::InStock;
+}
+
+pub fn status_code(status: StockStatus) -> int {
+    return match status {
+        StockStatus::InStock => 3,
+        StockStatus::Low => 1,
+        StockStatus::OutOfStock => 0
+    };
+}

@@ -435,7 +435,7 @@ or assemble strings.
 
 ## R-110 Cross-Module Type and Method Resolution
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Dependencies: `R-105`
@@ -443,7 +443,8 @@ or assemble strings.
 ### Problems Found
 
 Two related defects appeared when a struct or enum type is defined in one
-module and used by another:
+module and used by another. These are now covered by the `R-110` regression
+project and validator:
 
 - Static and instance methods on a struct defined in another module are not
   visible to the importer. `let c = Counter::new(1);` in `main` against a
@@ -459,10 +460,11 @@ module and used by another:
   fields to `int` makes the same code compile, so the defect is specific to
   aggregate-typed struct fields in cross-module factory returns.
 
-The current workaround in the multi-file projects is to expose only free
-factory functions (e.g. `item_new`, `counter_new`, `counter_tick`) and to
-keep struct fields restricted to `int`. This is not a long-term contract and
-does not match the examples in `test_project/` and `complex_demo/`.
+The previous workaround in the multi-file projects was to expose only free
+factory functions (e.g. `counter_new`, `counter_tick`) and to avoid exercising
+direct method dispatch across module boundaries. That workaround remains
+supported, but the production path now resolves public cross-module inherent
+methods directly.
 
 ### Scope
 
@@ -493,14 +495,25 @@ does not match the examples in `test_project/` and `complex_demo/`.
 
 ### Evidence
 
-- Reproduction projects: `multi_file_projects/p2_string_utils/counter.spectra`
-  (struct/method dispatch) and `multi_file_projects/p3_inventory_oop/item.spectra`
-  (struct with `string` field via cross-module factory).
-- IR dump shows the unlinked call result in the `string`-field case.
-- Focused validation: `cargo run -q -p spectra-cli -- run
-  multi_file_projects/p2_string_utils` and `multi_file_projects/p3_inventory_oop`
-  must complete without `Enum ... is not defined`, `No methods defined for
-  type ...`, or `Value N not found` errors.
+- Implemented cross-module method export/import in the semantic module registry
+  for visible inherent methods, including static methods and instance methods.
+- Implemented `module::Type::method(...)` validation before struct-literal and
+  enum-variant fallback so associated methods on foreign types do not produce
+  false `Enum ... is not defined` or struct-initializer diagnostics.
+- Fixed midend imported aggregate return lowering so imported function/method
+  returns are lowered after imported struct/enum layouts are registered, avoiding
+  `Pointer(Void)` receiver degradation and later `Value N not found` paths.
+- Added `tests/projects/valid/cross_module_types_methods` covering
+  `Counter::new`, `counter::Counter::with_value`, `c.tick()`, `c.read()`,
+  cross-module enum variant construction, and `Item` string fields/methods.
+- Added `tests/projects/invalid/cross_module_missing_method` and
+  `scripts/validate_r110_cross_module_types_methods.py` to assert the missing
+  method diagnostic names the type, missing method, and candidate impl methods.
+- Validation completed:
+  `cargo test -p spectra-compiler`;
+  `cargo test -p spectra-midend -p spectra-cli`;
+  `cargo build -p spectra-cli`;
+  `python scripts/validate_r110_cross_module_types_methods.py --binary target/debug/spectralang.exe`.
 
 ## R-111 Cross-Module Aggregate Codegen
 

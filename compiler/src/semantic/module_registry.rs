@@ -23,6 +23,22 @@ pub struct ExportedFunction {
     pub visibility: ExportVisibility,
 }
 
+/// How an exported method receives `self`, when it is an instance method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportedSelfParamKind {
+    Value,
+    Reference { mutable: bool },
+}
+
+/// A method exported from an inherent impl block.
+#[derive(Debug, Clone)]
+pub struct ExportedMethod {
+    pub params: Vec<Type>,
+    pub return_type: Type,
+    pub visibility: ExportVisibility,
+    pub self_kind: Option<ExportedSelfParamKind>,
+}
+
 /// A type (struct or enum) exported from a module.
 #[derive(Debug, Clone)]
 pub struct ExportedType {
@@ -45,6 +61,8 @@ pub struct ExportedType {
 pub struct ModuleExports {
     pub functions: HashMap<String, ExportedFunction>,
     pub types: HashMap<String, ExportedType>,
+    /// Inherent methods exported by type name, then method name.
+    pub methods: HashMap<String, HashMap<String, ExportedMethod>>,
     /// Package this module belongs to (from `spectra.toml` `name` field).
     pub package_name: Option<String>,
     /// Stdlib module path segments for builtin modules (e.g. ["std","io"]).
