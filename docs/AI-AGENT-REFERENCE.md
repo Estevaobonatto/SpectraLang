@@ -1689,7 +1689,7 @@ import std.option;
 |----------|-----------|-------------|
 | `is_some` | `(opt: any) -> bool` | Is Some? |
 | `is_none` | `(opt: any) -> bool` | Is None? |
-| `option_unwrap` | `(opt: any) -> any` | Unwrap (panics on None) |
+| `option_unwrap` | `(opt: any) -> any` | Unwrap (runtime error on None) |
 | `option_unwrap_or` | `(opt: any, default: any) -> any` | Unwrap or default |
 
 ```spectra
@@ -1711,9 +1711,9 @@ import std.result;
 |----------|-----------|-------------|
 | `is_ok` | `(res: any) -> bool` | Is Ok? |
 | `is_err` | `(res: any) -> bool` | Is Err? |
-| `result_unwrap` | `(res: any) -> any` | Unwrap Ok (panics on Err) |
+| `result_unwrap` | `(res: any) -> any` | Unwrap Ok (runtime error on Err) |
 | `result_unwrap_or` | `(res: any, default: any) -> any` | Unwrap Ok or default |
-| `result_unwrap_err` | `(res: any) -> any` | Unwrap Err (panics on Ok) |
+| `result_unwrap_err` | `(res: any) -> any` | Unwrap Err (runtime error on Ok) |
 
 ```spectra
 import std.result;

@@ -1481,7 +1481,7 @@ fn make_std_option() -> ModuleExports {
         "is_none".to_string(),
         pub_fn(vec![Type::Unknown], Type::Bool),
     );
-    // option_unwrap(opt: unknown) -> unknown  (panics on None)
+    // option_unwrap(opt: unknown) -> unknown  (runtime error on None)
     exports.functions.insert(
         "option_unwrap".to_string(),
         pub_fn(vec![Type::Unknown], Type::Unknown),
@@ -1511,7 +1511,7 @@ fn make_std_result() -> ModuleExports {
         "is_err".to_string(),
         pub_fn(vec![Type::Unknown], Type::Bool),
     );
-    // result_unwrap(res: unknown) -> unknown  (panics on Err)
+    // result_unwrap(res: unknown) -> unknown  (runtime error on Err)
     exports.functions.insert(
         "result_unwrap".to_string(),
         pub_fn(vec![Type::Unknown], Type::Unknown),
@@ -1521,7 +1521,7 @@ fn make_std_result() -> ModuleExports {
         "result_unwrap_or".to_string(),
         pub_fn(vec![Type::Unknown, Type::Unknown], Type::Unknown),
     );
-    // result_unwrap_err(res: unknown) -> unknown  (panics on Ok)
+    // result_unwrap_err(res: unknown) -> unknown  (runtime error on Ok)
     exports.functions.insert(
         "result_unwrap_err".to_string(),
         pub_fn(vec![Type::Unknown], Type::Unknown),

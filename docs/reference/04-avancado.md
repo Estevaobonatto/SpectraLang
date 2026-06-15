@@ -445,7 +445,7 @@ pub fn main() {
 
     let opt = Option::Some(42);
     let tem = std.option.is_some(opt);      // true
-    let val = std.option.option_unwrap(opt);// 42 (panic se None)
+    let val = std.option.option_unwrap(opt);// 42 (erro de runtime se None)
     let ou  = std.option.option_unwrap_or(Option::None, 0);  // 0 (padrão)
 }
 ```

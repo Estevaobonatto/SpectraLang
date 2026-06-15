@@ -2014,6 +2014,50 @@ safe paths, and the runtime behavior is now hardened.
 - Spectra regression: `tests/validation/111_fs_path_safety.spectra`.
 - Dedicated runner gate: `scripts/validate_r1203_fs_path_safety.py`.
 
+## R-1204 Option and Result Unwrap Host Call Safety
+
+- Status: `complete`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-105`, `R-1202`
+
+### Problem Found
+
+`std.option.option_unwrap`, `std.result.result_unwrap`, and
+`std.result.result_unwrap_err` used native `panic!` when called on the wrong
+variant. The FFI dispatcher can catch some panics, but direct host-function
+invocation and production embedding should not rely on unwinding through
+runtime code for ordinary invalid argument cases.
+
+### Scope
+
+- replace panic-based wrong-variant handling with stable host status returns
+- preserve successful payload extraction for valid `Some`, `Ok`, and `Err`
+  values
+- cover null handles as invalid arguments
+- update public docs so the contract is runtime error / invalid argument, not
+  native panic
+- add a dedicated runner gate for the regression
+
+### Acceptance
+
+- `std.option.option_unwrap` on `None` or null handles returns
+  `HOST_STATUS_INVALID_ARGUMENT` without native panic
+- `std.result.result_unwrap` on `Err` or null handles returns
+  `HOST_STATUS_INVALID_ARGUMENT` without native panic
+- `std.result.result_unwrap_err` on `Ok` or null handles returns
+  `HOST_STATUS_INVALID_ARGUMENT` without native panic
+- valid unwrap paths still return the payload with `HOST_STATUS_SUCCESS`
+- regression tests and runner gate cover both invalid and valid unwrap paths
+
+### Evidence
+
+- Runtime implementation: `runtime/src/stdlib/mod.rs`.
+- Direct runtime regression:
+  `stdlib::tests::option_result_unwrap_wrong_variant_returns_host_status`.
+- Dedicated runner gate: `scripts/validate_r1204_std_unwrap_safety.py`,
+  integrated into `run_tests.ps1`.
+
 ---
 
 # Phase 13: Documentation and Adoption

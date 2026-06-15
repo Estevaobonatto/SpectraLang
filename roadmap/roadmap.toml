@@ -980,6 +980,24 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-1204"
+title = "Option and Result Unwrap Host Call Safety"
+phase = "phase_12"
+owner = "runtime"
+priority = "P1"
+status = "complete"
+risk = "medium"
+dependencies = ["R-105", "R-1202"]
+summary = "Harden `std.option` and `std.result` unwrap host calls so wrong variants return controlled host status values instead of panicking inside the runtime."
+acceptance = [
+  "`std.option.option_unwrap` on `None` or null handles returns `HOST_STATUS_INVALID_ARGUMENT` without native panic",
+  "`std.result.result_unwrap` on `Err` or null handles returns `HOST_STATUS_INVALID_ARGUMENT` without native panic",
+  "`std.result.result_unwrap_err` on `Ok` or null handles returns `HOST_STATUS_INVALID_ARGUMENT` without native panic",
+  "valid unwrap paths still return the payload with `HOST_STATUS_SUCCESS`",
+  "regression tests and runner gate cover both invalid and valid unwrap paths"
+]
+
+[[items]]
 id = "R-1301"
 title = "Spectra Book"
 phase = "phase_13"

@@ -1205,12 +1205,12 @@ let vazio = std.option.is_none(nada);    // true
 
 #### `option_unwrap(opt: unknown) -> unknown`
 
-**PT-BR:** Extrai o valor de `Some`. **Provoca panic** se for `None`.  
-**EN-US:** Extracts the value from `Some`. **Panics** if `None`.
+**PT-BR:** Extrai o valor de `Some`. Retorna erro de runtime controlado se for `None`.
+**EN-US:** Extracts the value from `Some`. Returns a controlled runtime error if `None`.
 
 ```spectra
 let val = std.option.option_unwrap(Option::Some(42));   // 42
-// std.option.option_unwrap(Option::None);  // PANIC!
+// std.option.option_unwrap(Option::None);  // erro de runtime controlado
 ```
 
 #### `option_unwrap_or(opt: unknown, default: unknown) -> unknown`
@@ -1247,8 +1247,8 @@ let err = std.result.is_err(e);    // true
 
 #### `result_unwrap(res: unknown) -> unknown`
 
-**PT-BR:** Extrai o valor de `Ok`. **Provoca panic** se for `Err`.  
-**EN-US:** Extracts the value from `Ok`. **Panics** if `Err`.
+**PT-BR:** Extrai o valor de `Ok`. Retorna erro de runtime controlado se for `Err`.
+**EN-US:** Extracts the value from `Ok`. Returns a controlled runtime error if `Err`.
 
 ```spectra
 let val = std.result.result_unwrap(Result::Ok(42));    // 42
@@ -1262,8 +1262,8 @@ let val = std.result.result_unwrap_or(Result::Err("e"), 0);   // 0
 
 #### `result_unwrap_err(res: unknown) -> unknown`
 
-**PT-BR:** Extrai o valor de `Err`. **Provoca panic** se for `Ok`.  
-**EN-US:** Extracts the value from `Err`. **Panics** if `Ok`.
+**PT-BR:** Extrai o valor de `Err`. Retorna erro de runtime controlado se for `Ok`.
+**EN-US:** Extracts the value from `Err`. Returns a controlled runtime error if `Ok`.
 
 ```spectra
 let msg = std.result.result_unwrap_err(Result::Err("algo errado"));   // "algo errado"

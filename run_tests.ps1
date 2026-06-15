@@ -1087,6 +1087,11 @@ $phase12Checks = @(
         File = "python"
         Args = @("scripts\validate_r1203_fs_path_safety.py", "--binary", $binary)
     }
+    [PSCustomObject]@{
+        Nome = "validate_r1204_std_unwrap_safety"
+        File = "python"
+        Args = @("scripts\validate_r1204_std_unwrap_safety.py")
+    }
 )
 
 foreach ($check in $phase12Checks) {

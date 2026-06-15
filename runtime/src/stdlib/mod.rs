@@ -11375,7 +11375,7 @@ extern "C" fn std_option_unwrap(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let ptr = args[0] as *const i64;
         if ptr.is_null() || *ptr != 0 {
-            panic!("option_unwrap called on None");
+            return HOST_STATUS_INVALID_ARGUMENT;
         }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = *ptr.add(1);
@@ -11465,7 +11465,7 @@ extern "C" fn std_result_unwrap(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let ptr = args[0] as *const i64;
         if ptr.is_null() || *ptr != 0 {
-            panic!("result_unwrap called on Err");
+            return HOST_STATUS_INVALID_ARGUMENT;
         }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = *ptr.add(1);
@@ -11510,7 +11510,7 @@ extern "C" fn std_result_unwrap_err(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let ptr = args[0] as *const i64;
         if ptr.is_null() || *ptr == 0 {
-            panic!("result_unwrap_err called on Ok");
+            return HOST_STATUS_INVALID_ARGUMENT;
         }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = *ptr.add(1);
@@ -13821,6 +13821,52 @@ mod tests {
         let status = func(&mut ctx);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert_eq!(results[0], 3);
+    }
+
+    #[test]
+    fn option_result_unwrap_wrong_variant_returns_host_status() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let none = [1_i64, 0_i64];
+        let some = [0_i64, 42_i64];
+        let ok = [0_i64, 7_i64];
+        let err = [1_i64, 9_i64];
+
+        assert_eq!(
+            call_host(OPTION_UNWRAP, &[none.as_ptr() as SpectraHostValue]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(OPTION_UNWRAP, &[0]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(RESULT_UNWRAP, &[err.as_ptr() as SpectraHostValue]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(RESULT_UNWRAP_ERR, &[ok.as_ptr() as SpectraHostValue]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(RESULT_UNWRAP_ERR, &[0]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+
+        assert_eq!(
+            call_host(OPTION_UNWRAP, &[some.as_ptr() as SpectraHostValue]),
+            (HOST_STATUS_SUCCESS, 42)
+        );
+        assert_eq!(
+            call_host(RESULT_UNWRAP, &[ok.as_ptr() as SpectraHostValue]),
+            (HOST_STATUS_SUCCESS, 7)
+        );
+        assert_eq!(
+            call_host(RESULT_UNWRAP_ERR, &[err.as_ptr() as SpectraHostValue]),
+            (HOST_STATUS_SUCCESS, 9)
+        );
     }
 
     #[test]
