@@ -2835,7 +2835,7 @@ deterministic structured concurrency.
 
 ## R-2101 ADR: Async/Await Execution Model
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `frontend` / `ecosystem`
 - Risk: `high`
@@ -2856,6 +2856,17 @@ pinning, and `Send` / `Sync` rules.
   interface.
 - The ADR addresses `Send`/`Sync` rules, structured concurrency, and
   cancellation propagation.
+
+### Acceptance Evidence
+
+- `docs/adr/0010-async-execution-model.md` is accepted and freezes the
+  stackless polling model, public syntax, `Task<T>`, `Stream<T>`, internal
+  pinning policy, state-machine SSA lowering, scheduler ABI, structured
+  concurrency, cancellation propagation, and `Send`/`Sync` rules.
+- `scripts/validate_r2101_async_adr.py` validates that the required ADR
+  decisions and roadmap/backlog status stay synchronized.
+- `run_tests.ps1` includes the R-2101 validation gate before Phase 12 and
+  later release checks.
 
 ## R-2102 Async fn and Async Block in Frontend
 

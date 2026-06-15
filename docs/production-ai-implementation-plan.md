@@ -1584,6 +1584,14 @@ match the latency, throughput, and connection-density characteristics that
 production teams expect. Callbacks and `std.concurrent` primitives are
 insufficient for sustained 10k+ concurrent connections.
 
+`R-2101` is complete through `docs/adr/0010-async-execution-model.md`. The
+accepted model is stackless async lowered to state-machine SSA, driven by a
+polling scheduler and platform reactor boundary. The public surface is fixed
+around `async fn`, `async {}`, `await`, `Task<T>`, and `Stream<T>`; pinning is
+internal to runtime-managed task frames. Structured concurrency, cooperative
+cancellation, and `Send`/`Sync` validation are required gates for the remaining
+Phase 21 implementation items.
+
 ## Why HTTP/1.1 first (Phase 22)
 
 HTTP/1.1 still serves the overwhelming majority of public APIs. It is also
@@ -1607,7 +1615,7 @@ The eight phases are summarized below; the detailed items live in
 
 ### Phase 21 — Async Language Core
 
-- `R-2101` ADR: Async/Await Execution Model
+- `R-2101` ADR: Async/Await Execution Model (complete; ADR 0010 accepted)
 - `R-2102` `async fn` and async block in frontend
 - `R-2103` `await` expression and async lowering
 - `R-2104` Event loop multiplexer (epoll/IOCP/kqueue)
