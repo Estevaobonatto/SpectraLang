@@ -2061,7 +2061,7 @@ mod cst {
                 collect_doc_comments_from_expression(left, lines, line_offsets);
                 collect_doc_comments_from_expression(right, lines, line_offsets);
             }
-            ExpressionKind::Unary { operand, .. } => {
+            ExpressionKind::Unary { operand, .. } | ExpressionKind::Await(operand) => {
                 collect_doc_comments_from_expression(operand, lines, line_offsets);
             }
             ExpressionKind::Call { callee, arguments } => {
@@ -2278,7 +2278,9 @@ mod cst {
                 collect_match_spans_expression(left, spans);
                 collect_match_spans_expression(right, spans);
             }
-            ExpressionKind::Unary { operand, .. } => collect_match_spans_expression(operand, spans),
+            ExpressionKind::Unary { operand, .. } | ExpressionKind::Await(operand) => {
+                collect_match_spans_expression(operand, spans)
+            }
             ExpressionKind::Call { callee, arguments } => {
                 collect_match_spans_expression(callee, spans);
                 for arg in arguments {

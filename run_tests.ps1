@@ -1078,6 +1078,19 @@ if ($r2102AsyncFrontend.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2102_async_frontend"; Status = $r2102AsyncFrontend.Status; Detalhe = $r2102AsyncFrontend.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.28: R-2103 await expression and async lowering
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2103 await expression and async lowering ---" -ForegroundColor Yellow
+$r2103AsyncLowering = Invoke-HostCommand -name "validate_r2103_async_lowering" -fileName "python" -arguments @("scripts\validate_r2103_async_lowering.py") -workingDir (Get-Location).Path
+if ($r2103AsyncLowering.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2103_async_lowering"; Status = $r2103AsyncLowering.Status; Detalhe = $r2103AsyncLowering.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

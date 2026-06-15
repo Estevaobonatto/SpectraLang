@@ -865,6 +865,37 @@ impl CodeGenerator {
                     builder.ins().call(free_ref, &[ptr]);
                 }
             }
+            InstructionKind::AsyncSuspend { .. } | InstructionKind::AsyncResume { .. } => {}
+            InstructionKind::AsyncReady {
+                result,
+                value,
+                output_type,
+            } => {
+                let raw = if let Some(value) = value {
+                    get_value(value)?
+                } else {
+                    builder.ins().iconst(types::I64, 0)
+                };
+                let value = match output_type {
+                    IRType::Float => {
+                        if builder.func.dfg.value_type(raw) == types::F64 {
+                            builder.ins().bitcast(types::I64, MemFlags::new(), raw)
+                        } else {
+                            raw
+                        }
+                    }
+                    IRType::Bool | IRType::Char => {
+                        let ty = builder.func.dfg.value_type(raw);
+                        if ty == types::I64 {
+                            raw
+                        } else {
+                            builder.ins().uextend(types::I64, raw)
+                        }
+                    }
+                    _ => raw,
+                };
+                value_map.insert(result.id, value);
+            }
 
             InstructionKind::FuncAddr { result, function } => {
                 let func_id = *function_map
@@ -1211,6 +1242,7 @@ impl CodeGenerator {
             IRType::Enum { .. } => Ok(types::I64), // Enums são representados como ponteiros ou ints
             IRType::Function { .. } => Ok(types::I64),
             IRType::Tensor { .. } => Ok(types::I64),
+            IRType::Task { .. } => Ok(types::I64),
             IRType::DynTrait { .. } => Ok(types::I64), // fat pointer represented as i64 address
         }
     }
@@ -1225,6 +1257,7 @@ impl CodeGenerator {
             IRType::Float => 8,
             IRType::String => 8,
             IRType::Pointer(_) => 8,
+            IRType::Task { .. } => 8,
             IRType::Array { element_type, size } => Self::type_size_bytes(element_type) * size,
             IRType::Tuple { elements } => {
                 // Soma dos tamanhos de cada elemento (sem padding por enquanto)
@@ -1339,6 +1372,13 @@ mod tests {
         assert_eq!(
             CodeGenerator::ir_type_to_cranelift(&IRType::Float).unwrap(),
             types::F64
+        );
+        assert_eq!(
+            CodeGenerator::ir_type_to_cranelift(&IRType::Task {
+                output: Box::new(IRType::Int),
+            })
+            .unwrap(),
+            types::I64
         );
     }
 
@@ -1536,6 +1576,42 @@ mod tests {
         entry_block.set_terminator(Terminator::Return {
             value: Some(cast_result),
         });
+
+        assert!(codegen.declare_function(&func).is_ok());
+        assert!(codegen.define_function(&func).is_ok());
+    }
+
+    #[test]
+    fn test_async_ready_suspend_resume_codegen() {
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
+
+        let mut codegen = CodeGenerator::new();
+        let mut func = IRFunction::new(
+            "async_minimal",
+            vec![],
+            IRType::Task {
+                output: Box::new(IRType::Int),
+            },
+        );
+
+        let entry_block_id = func.add_block("entry");
+        let entry_block = func.get_block_mut(entry_block_id).unwrap();
+
+        let payload = Value { id: 0 };
+        entry_block.add_instruction(InstructionKind::ConstInt {
+            result: payload,
+            value: 7,
+        });
+
+        let task = Value { id: 1 };
+        entry_block.add_instruction(InstructionKind::AsyncReady {
+            result: task,
+            value: Some(payload),
+            output_type: IRType::Int,
+        });
+        entry_block.add_instruction(InstructionKind::AsyncSuspend { task, state: 0 });
+        entry_block.add_instruction(InstructionKind::AsyncResume { task, state: 0 });
+        entry_block.set_terminator(Terminator::Return { value: Some(task) });
 
         assert!(codegen.declare_function(&func).is_ok());
         assert!(codegen.define_function(&func).is_ok());

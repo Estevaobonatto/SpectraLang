@@ -493,7 +493,7 @@ impl<'a> LintRunner<'a> {
             ExpressionKind::Lambda { body, .. } => {
                 self.visit_expression(body);
             }
-            ExpressionKind::Try(inner) => {
+            ExpressionKind::Try(inner) | ExpressionKind::Await(inner) => {
                 self.visit_expression(inner);
             }
             ExpressionKind::Range { start, end, .. } => {

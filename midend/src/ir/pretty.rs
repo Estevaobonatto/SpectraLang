@@ -264,6 +264,25 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     None => format!("call_indirect {}({})", fmt_value(*fn_ptr), arg_list),
                 }
             }
+            InstructionKind::AsyncSuspend { task, state } => {
+                format!("async.suspend state{} {}", state, fmt_value(*task))
+            }
+            InstructionKind::AsyncResume { task, state } => {
+                format!("async.resume state{} {}", state, fmt_value(*task))
+            }
+            InstructionKind::AsyncReady {
+                result,
+                value,
+                output_type,
+            } => {
+                let value = value.map(fmt_value).unwrap_or_else(|| "unit".to_string());
+                format!(
+                    "{} = async.ready<{}> {}",
+                    fmt_value(*result),
+                    fmt_type(output_type),
+                    value
+                )
+            }
             InstructionKind::ConstInt { result, value } => {
                 format!("{} = const.int {}", fmt_value(*result), value)
             }
@@ -403,6 +422,7 @@ fn fmt_type(ty: &Type) -> String {
                 .join(", ");
             format!("fn({}) -> {}", params, fmt_type(return_type))
         }
+        Type::Task { output } => format!("Task<{}>", fmt_type(output)),
         Type::Tensor {
             dtype,
             rank,

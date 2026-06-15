@@ -665,7 +665,8 @@ mod tests {
                 let value = async 1;
             }
         "#;
-        let errors = parse_with_features(misplaced_async, &[]).expect_err("misplaced async should fail");
+        let errors =
+            parse_with_features(misplaced_async, &[]).expect_err("misplaced async should fail");
         assert!(errors.iter().any(|error| {
             error.code.as_deref() == Some("P005")
                 && error
@@ -674,21 +675,42 @@ mod tests {
                     .is_some_and(|hint| hint.contains("async {"))
         }));
 
-        let reserved_await = r#"
+        let await_outside_async = r#"
+            module demo;
+
+            fn main() {
+                let value = await work();
+            }
+        "#;
+        let errors = parse_with_features(await_outside_async, &[])
+            .expect_err("await outside async should fail");
+        assert!(errors.iter().any(|error| {
+            error.code.as_deref() == Some("P006")
+                && error
+                    .hint
+                    .as_deref()
+                    .is_some_and(|hint| hint.contains("async fn"))
+        }));
+
+        let await_inside_async = r#"
             module demo;
 
             async fn main() {
                 let value = await work();
             }
         "#;
-        let errors = parse_with_features(reserved_await, &[]).expect_err("await is reserved for R-2103");
-        assert!(errors.iter().any(|error| {
-            error.code.as_deref() == Some("P006")
-                && error
-                    .hint
-                    .as_deref()
-                    .is_some_and(|hint| hint.contains("R-2103"))
-        }));
+        let module =
+            parse_with_features(await_inside_async, &[]).expect("await inside async parses");
+        let crate::ast::Item::Function(function) = &module.items[0] else {
+            panic!("expected function");
+        };
+        let crate::ast::StatementKind::Let(stmt) = &function.body.statements[0].kind else {
+            panic!("expected let statement");
+        };
+        assert!(matches!(
+            stmt.value.as_ref().map(|expr| &expr.kind),
+            Some(crate::ast::ExpressionKind::Await(_))
+        ));
     }
 }
 

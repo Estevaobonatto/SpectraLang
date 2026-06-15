@@ -1,9 +1,0 @@
-module await_reserved_until_lowering;
-
-async fn fetch() {
-    let value = await work();
-}
-
-fn work() -> int {
-    return 1;
-}

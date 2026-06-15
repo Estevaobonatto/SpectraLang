@@ -1446,7 +1446,7 @@ title = "Await Expression and Async Lowering"
 phase = "phase_21"
 owner = "frontend"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2102"]
 summary = "Add `await` as a first-class expression and lower async functions/blocks to a state-machine SSA that integrates with the runtime scheduler."
@@ -1454,7 +1454,8 @@ acceptance = [
   "`await <expr>` parses and type-checks as a suspend point",
   "async functions lower to SSA with explicit suspend/resume markers",
   "Cranelift backend compiles the lowered state machine for a minimal async function",
-  "structured async tests cover happy path, early return, and explicit cancellation"
+  "structured async tests cover happy path, early return, and explicit cancellation",
+  "`scripts/validate_r2103_async_lowering.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

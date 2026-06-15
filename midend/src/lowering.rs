@@ -338,6 +338,8 @@ pub struct ASTLowering {
     /// Used to resolve Generic enum type args when they can't be fully inferred from
     /// the construction expression (e.g., Result::Ok(x) in a fn -> Result<int, string>).
     current_function_return_annotation: Option<TypeAnnotation>,
+    current_async_output_type: Option<IRType>,
+    async_state_counter: usize,
     /// Expected expression type annotation from a local binding or other typed context.
     /// This refines generic aggregate constructors such as `Result::Ok(x)` when the
     /// expression itself only determines part of the generic argument list.
@@ -381,6 +383,8 @@ impl ASTLowering {
             pending_lambdas: Vec::new(),
             closure_var_map: HashMap::new(),
             current_function_return_annotation: None,
+            current_async_output_type: None,
+            async_state_counter: 0,
             current_expected_annotation: None,
             trait_method_order: HashMap::new(),
             trait_method_signatures: HashMap::new(),
@@ -2471,7 +2475,13 @@ impl ASTLowering {
                     _ => None,
                 })
                 .unwrap_or(IRType::Void),
-            ExpressionKind::AsyncBlock(_) => IRType::Void,
+            ExpressionKind::Await(inner) => match self.infer_expr_ir_type(inner) {
+                IRType::Task { output } => *output,
+                _ => IRType::Void,
+            },
+            ExpressionKind::AsyncBlock(block) => IRType::Task {
+                output: Box::new(self.infer_block_result_type(block).unwrap_or(IRType::Void)),
+            },
             ExpressionKind::Cast { target_type, .. } => self.lower_type_annotation(target_type),
         }
     }
@@ -2644,11 +2654,18 @@ impl ASTLowering {
             .collect();
 
         // Create function
-        let return_type = ast_func
+        let body_return_type = ast_func
             .return_type
             .as_ref()
             .map(|t| self.lower_type_annotation(t))
             .unwrap_or(IRType::Void);
+        let return_type = if ast_func.is_async {
+            IRType::Task {
+                output: Box::new(body_return_type.clone()),
+            }
+        } else {
+            body_return_type.clone()
+        };
 
         self.function_return_types
             .insert(ast_func.name.clone(), return_type.clone());
@@ -2703,6 +2720,12 @@ impl ASTLowering {
         // Lower function body
         self.current_function = Some(ir_func.clone());
         self.current_function_return_annotation = ast_func.return_type.clone();
+        let saved_async_output = self.current_async_output_type.clone();
+        let saved_async_state_counter = self.async_state_counter;
+        if ast_func.is_async {
+            self.current_async_output_type = Some(body_return_type.clone());
+            self.async_state_counter = 0;
+        }
 
         // Check if last statement is an expression (implicit return)
         let mut implicit_return_value = None;
@@ -2717,8 +2740,12 @@ impl ASTLowering {
                 // Lower the last expression for side effects. Only treat it as an
                 // implicit return value when the function does not return void.
                 let last_value = self.lower_expression(expr, &mut ir_func);
-                if return_type != IRType::Void {
-                    implicit_return_value = Some(last_value);
+                if body_return_type != IRType::Void {
+                    implicit_return_value = Some(self.wrap_async_return_value(
+                        &mut ir_func,
+                        Some(last_value),
+                        body_return_type.clone(),
+                    ));
                 }
             } else {
                 // No implicit return, lower all statements
@@ -2732,13 +2759,25 @@ impl ASTLowering {
         // Ensure function has a return in the current block
         // (After lowering all statements, we should be in the final block)
         if let Some(current_block_id) = self.builder.get_current_block() {
-            if let Some(block) = ir_func.get_block_mut(current_block_id) {
-                if block.terminator.is_none() {
-                    block.set_terminator(Terminator::Return {
-                        value: implicit_return_value,
-                    });
+            let needs_terminator = ir_func
+                .get_block(current_block_id)
+                .map(|block| block.terminator.is_none())
+                .unwrap_or(false);
+            if needs_terminator {
+                let value = if ast_func.is_async && implicit_return_value.is_none() {
+                    Some(self.wrap_async_return_value(&mut ir_func, None, body_return_type.clone()))
+                } else {
+                    implicit_return_value
+                };
+                if let Some(block) = ir_func.get_block_mut(current_block_id) {
+                    block.set_terminator(Terminator::Return { value });
                 }
             }
+        }
+
+        if ast_func.is_async {
+            self.current_async_output_type = saved_async_output;
+            self.async_state_counter = saved_async_state_counter;
         }
 
         ir_func
@@ -2797,11 +2836,18 @@ impl ASTLowering {
             })
             .collect();
 
-        let return_type = method
+        let body_return_type = method
             .return_type
             .as_ref()
             .map(|t| self.lower_type_annotation_with_self(t, type_name))
             .unwrap_or(IRType::Void);
+        let return_type = if method.is_async {
+            IRType::Task {
+                output: Box::new(body_return_type.clone()),
+            }
+        } else {
+            body_return_type.clone()
+        };
 
         self.function_return_types
             .insert(mangled_name.clone(), return_type.clone());
@@ -2852,6 +2898,12 @@ impl ASTLowering {
 
         self.current_function = Some(ir_func.clone());
         self.current_function_return_annotation = method.return_type.clone();
+        let saved_async_output = self.current_async_output_type.clone();
+        let saved_async_state_counter = self.async_state_counter;
+        if method.is_async {
+            self.current_async_output_type = Some(body_return_type.clone());
+            self.async_state_counter = 0;
+        }
 
         // Lower the body; support implicit returns (last expression = return value).
         let mut implicit_return_value = None;
@@ -2863,8 +2915,12 @@ impl ASTLowering {
                     }
                 }
                 let last_value = self.lower_expression(expr, &mut ir_func);
-                if return_type != IRType::Void {
-                    implicit_return_value = Some(last_value);
+                if body_return_type != IRType::Void {
+                    implicit_return_value = Some(self.wrap_async_return_value(
+                        &mut ir_func,
+                        Some(last_value),
+                        body_return_type.clone(),
+                    ));
                 }
             } else {
                 self.lower_block(&method.body.statements, &mut ir_func);
@@ -2875,13 +2931,25 @@ impl ASTLowering {
 
         // Seal the current block with a return terminator if one is missing.
         if let Some(current_block_id) = self.builder.get_current_block() {
-            if let Some(block) = ir_func.get_block_mut(current_block_id) {
-                if block.terminator.is_none() {
-                    block.set_terminator(Terminator::Return {
-                        value: implicit_return_value,
-                    });
+            let needs_terminator = ir_func
+                .get_block(current_block_id)
+                .map(|block| block.terminator.is_none())
+                .unwrap_or(false);
+            if needs_terminator {
+                let value = if method.is_async && implicit_return_value.is_none() {
+                    Some(self.wrap_async_return_value(&mut ir_func, None, body_return_type.clone()))
+                } else {
+                    implicit_return_value
+                };
+                if let Some(block) = ir_func.get_block_mut(current_block_id) {
+                    block.set_terminator(Terminator::Return { value });
                 }
             }
+        }
+
+        if method.is_async {
+            self.current_async_output_type = saved_async_output;
+            self.async_state_counter = saved_async_state_counter;
         }
 
         ir_func
@@ -3175,7 +3243,9 @@ impl ASTLowering {
                 self.collect_lambda_captures_expr(left, locals, captures, seen);
                 self.collect_lambda_captures_expr(right, locals, captures, seen);
             }
-            ExpressionKind::Unary { operand, .. } | ExpressionKind::Try(operand) => {
+            ExpressionKind::Unary { operand, .. }
+            | ExpressionKind::Try(operand)
+            | ExpressionKind::Await(operand) => {
                 self.collect_lambda_captures_expr(operand, locals, captures, seen);
             }
             ExpressionKind::Call { callee, arguments } => {
@@ -3516,6 +3586,39 @@ impl ASTLowering {
 
     fn lower_block(&mut self, statements: &[Statement], ir_func: &mut IRFunction) {
         self.lower_block_with_scope(statements, ir_func, true);
+    }
+
+    fn wrap_async_return_value(
+        &mut self,
+        ir_func: &mut IRFunction,
+        value: Option<Value>,
+        output_type: IRType,
+    ) -> Value {
+        if self.current_async_output_type.is_none() {
+            return value.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+        }
+
+        let payload = value.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+        self.builder
+            .build_async_ready(ir_func, Some(payload), output_type.clone());
+
+        self.builder
+            .build_typed_host_call(
+                ir_func,
+                "spectra.async.task.ready".to_string(),
+                vec![payload],
+                IRType::Task {
+                    output: Box::new(output_type),
+                },
+                true,
+            )
+            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+    }
+
+    fn next_async_state(&mut self) -> usize {
+        let state = self.async_state_counter;
+        self.async_state_counter += 1;
+        state
     }
 
     fn current_block_is_terminated(&self, ir_func: &IRFunction) -> bool {
@@ -4110,6 +4213,11 @@ impl ASTLowering {
                     .value
                     .as_ref()
                     .map(|expr| self.lower_expression(expr, ir_func));
+                let value = if let Some(output_type) = self.current_async_output_type.clone() {
+                    Some(self.wrap_async_return_value(ir_func, value, output_type))
+                } else {
+                    value
+                };
                 self.builder.build_return(ir_func, value);
             }
             StatementKind::Expression(expr) => {
@@ -4430,8 +4538,8 @@ impl ASTLowering {
                     self.builder.set_current_block(case_block);
                     self.lower_block(&case.body.statements, ir_func);
                     if !self.current_block_is_terminated(ir_func) {
-                        let exit = *exit_block
-                            .get_or_insert_with(|| ir_func.add_block("switch.exit"));
+                        let exit =
+                            *exit_block.get_or_insert_with(|| ir_func.add_block("switch.exit"));
                         self.builder.build_branch(ir_func, exit);
                     }
                 }
@@ -4441,8 +4549,8 @@ impl ASTLowering {
                     self.builder.set_current_block(default);
                     self.lower_block(&default_block.statements, ir_func);
                     if !self.current_block_is_terminated(ir_func) {
-                        let exit = *exit_block
-                            .get_or_insert_with(|| ir_func.add_block("switch.exit"));
+                        let exit =
+                            *exit_block.get_or_insert_with(|| ir_func.add_block("switch.exit"));
                         self.builder.build_branch(ir_func, exit);
                     }
                 }
@@ -5193,12 +5301,8 @@ impl ASTLowering {
                 // when the condition is true and to `then` when it is false.
                 let cond_value = self.lower_expression(condition, ir_func);
 
-                self.builder.build_cond_branch(
-                    ir_func,
-                    cond_value,
-                    unless_else_bb,
-                    unless_then_bb,
-                );
+                self.builder
+                    .build_cond_branch(ir_func, cond_value, unless_else_bb, unless_then_bb);
 
                 // Unless body (executes when condition is false)
                 self.builder.set_current_block(unless_then_bb);
@@ -6097,6 +6201,53 @@ impl ASTLowering {
                         .build_getelementptr(ir_func, result_ptr, one_idx, IRType::Int);
                 self.builder.build_load(ir_func, payload_ptr)
             }
+            ExpressionKind::Await(inner) => {
+                let task = self.lower_expression(inner, ir_func);
+                let output_type = match self.infer_expr_ir_type(inner) {
+                    IRType::Task { output } => *output,
+                    other => {
+                        self.error(format!(
+                            "await operand must lower to Task<T>, found {:?}",
+                            other
+                        ));
+                        IRType::Void
+                    }
+                };
+                let state = self.next_async_state();
+                self.builder.build_async_suspend(ir_func, task, state);
+                let poll = self
+                    .builder
+                    .build_typed_host_call(
+                        ir_func,
+                        "spectra.async.task.poll".to_string(),
+                        vec![task],
+                        IRType::Bool,
+                        true,
+                    )
+                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 1));
+                let not_cancelled = self
+                    .builder
+                    .build_typed_host_call(
+                        ir_func,
+                        "spectra.async.task.is_cancelled".to_string(),
+                        vec![task],
+                        IRType::Bool,
+                        true,
+                    )
+                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                let _ = poll;
+                let _ = not_cancelled;
+                self.builder.build_async_resume(ir_func, task, state);
+                self.builder
+                    .build_typed_host_call(
+                        ir_func,
+                        "spectra.async.task.result".to_string(),
+                        vec![task],
+                        output_type.clone(),
+                        output_type != IRType::Void,
+                    )
+                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+            }
             ExpressionKind::Range { start, end, .. } => {
                 // Range expressions used outside of for-loops (e.g., stored in a variable)
                 // Lower both bounds; return the start value as a placeholder.
@@ -6164,11 +6315,46 @@ impl ASTLowering {
                 );
                 loss
             }
-            ExpressionKind::AsyncBlock(_) => {
-                self.error(
-                    "Async block lowering is parsed by R-2102 but requires R-2103 state-machine lowering",
-                );
-                self.builder.build_const_int(ir_func, 0)
+            ExpressionKind::AsyncBlock(block) => {
+                let output_type = self.infer_block_result_type(block).unwrap_or(IRType::Void);
+                let saved_async_output = self.current_async_output_type.clone();
+                self.current_async_output_type = Some(output_type.clone());
+
+                let stmts = &block.statements;
+                let value = if stmts.is_empty() {
+                    None
+                } else {
+                    for stmt in &stmts[..stmts.len() - 1] {
+                        self.lower_statement(stmt, ir_func);
+                    }
+                    match &stmts[stmts.len() - 1].kind {
+                        StatementKind::Expression(expr) => {
+                            if output_type == IRType::Void {
+                                self.lower_expression(expr, ir_func);
+                                None
+                            } else {
+                                Some(self.lower_expression(expr, ir_func))
+                            }
+                        }
+                        last => {
+                            let stmt = Statement {
+                                kind: last.clone(),
+                                span: stmts[stmts.len() - 1].span,
+                            };
+                            self.lower_statement(&stmt, ir_func);
+                            None
+                        }
+                    }
+                };
+
+                let result = if self.current_block_is_terminated(ir_func) {
+                    self.builder.build_const_int(ir_func, 0)
+                } else {
+                    self.wrap_async_return_value(ir_func, value, output_type)
+                };
+
+                self.current_async_output_type = saved_async_output;
+                result
             }
             ExpressionKind::Cast {
                 expr: inner,
@@ -6821,6 +7007,16 @@ impl ASTLowering {
                     };
                 }
 
+                if name == "Task" {
+                    let output = type_args
+                        .first()
+                        .map(|ann| self.lower_type_annotation_with_map(ann, substitutions))
+                        .unwrap_or(IRType::Void);
+                    return IRType::Task {
+                        output: Box::new(output),
+                    };
+                }
+
                 // Resolve to the monomorphized enum type.
                 // First, try the already-specialized version (e.g., "Option_int").
                 let type_names: Vec<String> = type_args
@@ -6963,6 +7159,9 @@ impl ASTLowering {
                     return_type: ir_return,
                 }
             }
+            ASTType::Task { output } => IRType::Task {
+                output: Box::new(self.lower_type(output)),
+            },
             ASTType::Tensor {
                 dtype,
                 rank,
@@ -8353,5 +8552,72 @@ fn tensor_metadata(type_args: &[TypeAnnotation]) -> LoweredTensorMetadata {
 impl Default for ASTLowering {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spectra_compiler::{analyze_modules, Lexer, Parser};
+    use std::collections::HashSet;
+
+    fn lower_source(source: &str) -> IRModule {
+        let tokens = Lexer::new(source).tokenize().expect("lexing should pass");
+        let mut module = Parser::new(tokens, HashSet::new())
+            .parse()
+            .expect("parsing should pass");
+        analyze_modules(&mut [&mut module]).expect("semantic analysis should pass");
+        ASTLowering::new()
+            .lower_module(&module)
+            .expect("lowering should pass")
+    }
+
+    #[test]
+    fn r2103_async_await_lowers_to_task_and_suspend_resume_markers() {
+        let ir = lower_source(
+            r#"
+            module r2103_async_await;
+
+            async fn ready() -> int {
+                return 41;
+            }
+
+            async fn add_one() -> int {
+                let value = await ready();
+                return value + 1;
+            }
+            "#,
+        );
+
+        let pretty = crate::ir::pretty::format_module(&ir);
+        assert!(pretty.contains("fn ready() -> Task<int>"));
+        assert!(pretty.contains("fn add_one() -> Task<int>"));
+        assert!(pretty.contains("async.suspend"));
+        assert!(pretty.contains("async.resume"));
+        assert!(pretty.contains("async.ready"));
+        assert!(pretty.contains("spectra.async.task.ready"));
+        assert!(pretty.contains("spectra.async.task.poll"));
+        assert!(pretty.contains("spectra.async.task.result"));
+    }
+
+    #[test]
+    fn r2103_async_early_return_lowers_every_exit_to_ready_task() {
+        let ir = lower_source(
+            r#"
+            module r2103_async_early_return;
+
+            async fn choose(flag: bool) -> int {
+                if flag {
+                    return 7;
+                }
+                return 9;
+            }
+            "#,
+        );
+
+        let pretty = crate::ir::pretty::format_module(&ir);
+        let ready_markers = pretty.matches("async.ready").count();
+        assert!(pretty.contains("fn choose(bool flag) -> Task<int>"));
+        assert!(ready_markers >= 2, "{pretty}");
     }
 }

@@ -2954,15 +2954,14 @@ in the lexer, parser, and AST.
   closures preserve `is_async` on `ExpressionKind::Lambda`.
 - Language-service and LSP signatures render async functions and methods as
   `async fn ...`.
-- `await` remains reserved for `R-2103` and emits parser diagnostic `P006`;
-  async execution is blocked with explicit semantic/midend diagnostics until
-  async lowering exists.
+- `await` outside async contexts emits parser diagnostic `P006`; `await`
+  inside async contexts is implemented by `R-2103`.
 - Validation: `cargo test -q -p spectra-compiler`, `cargo check -q`, and
   `python scripts\validate_r2102_async_frontend.py`.
 
 ## R-2103 Await Expression and Async Lowering
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `frontend` / `midend`
 - Risk: `high`
@@ -2981,6 +2980,24 @@ blocks to a state-machine SSA that integrates with the runtime scheduler.
   function.
 - Structured async tests cover happy path, early return, and explicit
   cancellation.
+
+### Completed in this pass
+
+- `await <expr>` is parsed as `ExpressionKind::Await` inside async contexts
+  and rejected outside async contexts with parser diagnostic `P006`.
+- Semantic analysis models `Task<T>` and requires `await` operands to be
+  `Task<T>`.
+- Async functions, methods, and async blocks lower to `Task<T>` handles with
+  explicit `async.suspend`, `async.resume`, and `async.ready` IR markers.
+- Runtime host calls `spectra.async.task.ready`, `.poll`, `.result`,
+  `.cancel`, and `.is_cancelled` provide the deterministic task baseline used
+  by lowering; platform reactor work remains in `R-2104`.
+- Cranelift backend compiles `Task<T>` as an ABI handle and accepts the async
+  marker instructions.
+- Validation: `cargo test -q`, `python scripts\validate_r2103_async_lowering.py`,
+  and the checked fixtures `tests/validation/121_async_await_lowering.spectra`,
+  `tests/validation/122_async_early_return.spectra`, and
+  `tests/errors/await_requires_task.spectra`.
 
 ## R-2104 Event Loop Multiplexer (epoll/IOCP/kqueue)
 

@@ -380,6 +380,13 @@ const CONCURRENT_STATS_TASKS_SPAWNED: &str = "spectra.std.concurrent.stats_tasks
 const CONCURRENT_STATS_CHANNELS: &str = "spectra.std.concurrent.stats_channels";
 const CONCURRENT_RESET: &str = "spectra.std.concurrent.reset";
 
+const ASYNC_TASK_READY: &str = "spectra.async.task.ready";
+const ASYNC_TASK_POLL: &str = "spectra.async.task.poll";
+const ASYNC_TASK_RESULT: &str = "spectra.async.task.result";
+const ASYNC_TASK_CANCEL: &str = "spectra.async.task.cancel";
+const ASYNC_TASK_IS_CANCELLED: &str = "spectra.async.task.is_cancelled";
+const ASYNC_TASK_RESET: &str = "spectra.async.task.reset";
+
 const SERVE_SERVER_NEW: &str = "spectra.std.serve.server_new";
 const SERVE_SERVER_WARMUP: &str = "spectra.std.serve.server_warmup";
 const SERVE_SERVER_IS_WARM: &str = "spectra.std.serve.server_is_warm";
@@ -425,6 +432,7 @@ pub fn register() {
     register_tensor();
     register_ml();
     register_concurrent();
+    register_async();
     register_serve();
 }
 
@@ -744,6 +752,15 @@ fn register_concurrent() {
     );
     register_host_function(CONCURRENT_STATS_CHANNELS, std_concurrent_stats_channels);
     register_host_function(CONCURRENT_RESET, std_concurrent_reset);
+}
+
+fn register_async() {
+    register_host_function(ASYNC_TASK_READY, std_async_task_ready);
+    register_host_function(ASYNC_TASK_POLL, std_async_task_poll);
+    register_host_function(ASYNC_TASK_RESULT, std_async_task_result);
+    register_host_function(ASYNC_TASK_CANCEL, std_async_task_cancel);
+    register_host_function(ASYNC_TASK_IS_CANCELLED, std_async_task_is_cancelled);
+    register_host_function(ASYNC_TASK_RESET, std_async_task_reset);
 }
 
 fn register_serve() {
@@ -12426,6 +12443,145 @@ fn host_call_void_args<'a>(
     }
 }
 
+#[derive(Clone, Copy)]
+struct AsyncTask {
+    value: SpectraHostValue,
+    cancelled: bool,
+}
+
+struct AsyncTaskRegistry {
+    next_task: SpectraHostValue,
+    tasks: HashMap<SpectraHostValue, AsyncTask>,
+}
+
+impl AsyncTaskRegistry {
+    fn new() -> Self {
+        Self {
+            next_task: 1,
+            tasks: HashMap::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Self::new();
+    }
+}
+
+fn async_task_registry() -> &'static Mutex<AsyncTaskRegistry> {
+    static REGISTRY: OnceLock<Mutex<AsyncTaskRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(AsyncTaskRegistry::new()))
+}
+
+fn lock_async_task_registry() -> Result<std::sync::MutexGuard<'static, AsyncTaskRegistry>, i32> {
+    async_task_registry()
+        .lock()
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
+}
+
+extern "C" fn std_async_task_ready(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let task_id = registry.next_task;
+    registry.next_task += 1;
+    registry.tasks.insert(
+        task_id,
+        AsyncTask {
+            value: args[0],
+            cancelled: false,
+        },
+    );
+    results[0] = task_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_poll(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = i64::from(!task.cancelled);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_result(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    if task.cancelled {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    results[0] = task.value;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    task.cancelled = true;
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_is_cancelled(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = i64::from(task.cancelled);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_reset(ctx: *mut SpectraHostCallContext) -> i32 {
+    let args = match host_call_void_args(ctx, 0) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
+    let _ = args;
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.clear();
+    HOST_STATUS_SUCCESS
+}
+
 struct ConcurrentTask {
     handle: Option<JoinHandle<SpectraHostValue>>,
     result: Option<SpectraHostValue>,
@@ -15915,6 +16071,45 @@ mod tests {
         assert_eq!(
             call_host(CONCURRENT_STATS_CHANNELS, &[]),
             (HOST_STATUS_SUCCESS, 1)
+        );
+    }
+
+    #[test]
+    fn async_task_host_calls_cover_ready_poll_result_and_cancellation() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let (status, task) = call_host(ASYNC_TASK_READY, &[42]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_POLL, &[task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[task]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_RESULT, &[task]),
+            (HOST_STATUS_SUCCESS, 42)
+        );
+
+        let (status, cancelled_task) = call_host(ASYNC_TASK_READY, &[99]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_CANCEL, &[cancelled_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[cancelled_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_RESULT, &[cancelled_task]).0,
+            HOST_STATUS_INVALID_ARGUMENT
         );
     }
 

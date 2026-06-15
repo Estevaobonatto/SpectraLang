@@ -125,7 +125,10 @@ impl Parser {
             self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword after 'async'")?;
             (async_span, true)
         } else {
-            (self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword")?, false)
+            (
+                self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword")?,
+                false,
+            )
         };
 
         let (name, _name_span) = self.consume_identifier("Expected function name")?;
@@ -593,7 +596,10 @@ impl Parser {
             let (method_start, is_async) = if self.check_keyword(Keyword::Async) {
                 let async_span = self.current().span;
                 self.advance();
-                self.consume_keyword(Keyword::Fn, "Expected 'fn' after 'async' for method signature")?;
+                self.consume_keyword(
+                    Keyword::Fn,
+                    "Expected 'fn' after 'async' for method signature",
+                )?;
                 (async_span, true)
             } else {
                 (

@@ -220,6 +220,9 @@ mod tests {
         let result = loader
             .parse_module("demo", source, &disabled_features)
             .expect("promoted syntax should parse even when compatibility feature set is empty");
-        assert!(!result.reused, "feature-set changes still invalidate the cache");
+        assert!(
+            !result.reused,
+            "feature-set changes still invalidate the cache"
+        );
     }
 }

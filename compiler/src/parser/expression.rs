@@ -189,6 +189,27 @@ impl Parser {
 
     // Unary expressions (-, !)
     fn parse_unary(&mut self) -> Result<Expression, ()> {
+        if matches!(&self.current().kind, TokenKind::Keyword(Keyword::Await)) {
+            let start_span = self.current().span;
+            self.advance();
+            if !self.in_async_context() {
+                self.push_error_coded(
+                    "P006",
+                    "`await` is only valid inside an async context",
+                    start_span,
+                    Some("Move this expression into an `async fn`, `async { ... }`, or async closure.".to_string()),
+                    Some("`await` outside async context".to_string()),
+                );
+                return Err(());
+            }
+            let operand = self.parse_unary()?;
+            let span = crate::span::span_union(start_span, operand.span);
+            return Ok(Expression {
+                span,
+                kind: ExpressionKind::Await(Box::new(operand)),
+            });
+        }
+
         let operator = match &self.current().kind {
             TokenKind::Symbol('-') => Some(UnaryOperator::Negate),
             TokenKind::Symbol('!') => Some(UnaryOperator::Not),
@@ -418,27 +439,10 @@ impl Parser {
                 })
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
-            TokenKind::Keyword(Keyword::Unless) => {
-                self.parse_unless_expression()
-            }
+            TokenKind::Keyword(Keyword::Unless) => self.parse_unless_expression(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),
             TokenKind::Keyword(Keyword::Async) => self.parse_async_expression(),
-            TokenKind::Keyword(Keyword::Await) => {
-                let hint = if self.in_async_context() {
-                    "`await` parsing and lowering are tracked by R-2103; keep this expression behind that implementation gate."
-                } else {
-                    "`await` must appear inside an `async fn`, `async { ... }`, or async closure after R-2103 lands."
-                };
-                self.push_error_coded(
-                    "P006",
-                    "`await` expressions are reserved for the async lowering phase",
-                    span,
-                    Some(hint.to_string()),
-                    Some("R-2102 reserves `await`; R-2103 implements await expression lowering".to_string()),
-                );
-                self.advance();
-                Err(())
-            }
+            TokenKind::Keyword(Keyword::Await) => self.parse_unary(),
             TokenKind::Symbol('{') => {
                 let block = self.parse_block()?;
                 let block_span = block.span;

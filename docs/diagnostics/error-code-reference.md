@@ -35,7 +35,7 @@ The following set is the current stable Phase 1 table for high-frequency diagnos
 | `P003` | parser | expected identifier | provide a valid identifier in the current grammar slot |
 | `P004` | parser | future experimental feature disabled | rerun with the documented feature gate once an active experimental feature exists |
 | `P005` | parser | misplaced or incomplete `async` syntax | use `async fn` in declaration position, `async { ... }`, or `async |...| ...` |
-| `P006` | parser | `await` reserved before async lowering | keep `await` inside async contexts after `R-2103` implements lowering |
+| `P006` | parser | `await` outside async context | move the expression into `async fn`, `async { ... }`, or an async closure |
 | `P999` | parser | generic syntax failure | inspect nearby syntax; parser context and hint should narrow the issue |
 | `E001` | semantic | undefined variable or function | declare/import the symbol or fix the name |
 | `E002` | semantic | argument count mismatch | pass the expected number of arguments |

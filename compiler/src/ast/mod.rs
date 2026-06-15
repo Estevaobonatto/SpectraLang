@@ -33,6 +33,10 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
+    /// Async task/future handle: Task<T>
+    Task {
+        output: Box<Type>,
+    },
     /// Tensor handle with compiler-visible dtype, rank, shape, layout, and device metadata.
     Tensor {
         dtype: Box<Type>,
@@ -334,6 +338,8 @@ pub enum ExpressionKind {
     },
     /// Error propagation operator: expr?
     Try(Box<Expression>),
+    /// Await a task/future inside an async context: await expr
+    Await(Box<Expression>),
     /// Range: start..end (exclusive) or start..=end (inclusive)
     Range {
         start: Box<Expression>,

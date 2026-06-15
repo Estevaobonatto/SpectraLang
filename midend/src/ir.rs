@@ -194,6 +194,22 @@ pub enum InstructionKind {
         /// Return type of the callee signature.
         signature_return: Box<Type>,
     },
+    /// Async suspend boundary before polling or registering a task.
+    AsyncSuspend {
+        task: Value,
+        state: usize,
+    },
+    /// Async resume boundary after a task is ready.
+    AsyncResume {
+        task: Value,
+        state: usize,
+    },
+    /// Produce a ready task handle from a completed async result.
+    AsyncReady {
+        result: Value,
+        value: Option<Value>,
+        output_type: Type,
+    },
 
     // PHI node for SSA
     Phi {
@@ -307,6 +323,10 @@ pub enum Type {
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
+    },
+    /// Async task/future handle. Lowered as an opaque i64 handle by the current backend.
+    Task {
+        output: Box<Type>,
     },
     /// Runtime tensor handle carrying compiler-visible dtype/rank/shape/layout/device metadata.
     Tensor {

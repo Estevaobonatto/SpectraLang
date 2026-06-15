@@ -1696,7 +1696,10 @@ fn format_function_signature(function: &spectra_compiler::ast::Function) -> Stri
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
     let prefix = if function.is_async { "async fn" } else { "fn" };
-    format!("{} {}({}) -> {}", prefix, function.name, params, return_type)
+    format!(
+        "{} {}({}) -> {}",
+        prefix, function.name, params, return_type
+    )
 }
 
 fn format_method_signature(type_name: &str, method: &spectra_compiler::ast::Method) -> String {
@@ -2031,6 +2034,7 @@ fn find_call_site_in_expression(
         }
         spectra_compiler::ast::ExpressionKind::Unary { operand, .. }
         | spectra_compiler::ast::ExpressionKind::Try(operand)
+        | spectra_compiler::ast::ExpressionKind::Await(operand)
         | spectra_compiler::ast::ExpressionKind::Grouping(operand) => {
             find_call_site_in_expression(operand, line, column, best);
         }

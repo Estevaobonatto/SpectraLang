@@ -1,0 +1,25 @@
+module async_await_lowering;
+
+async fn ready_value() -> int {
+    return 41;
+}
+
+async fn add_one() -> int {
+    let value = await ready_value();
+    return value + 1;
+}
+
+async fn from_block() -> int {
+    let task: Task<int> = async {
+        let base = await ready_value();
+        base + 1;
+    };
+    let result = await task;
+    return result;
+}
+
+fn main() -> int {
+    let task = add_one();
+    let block_task = from_block();
+    return 0;
+}

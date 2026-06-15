@@ -158,6 +158,7 @@ pub fn type_to_string(ty: &Type) -> String {
                 .join(", "),
             type_to_string(return_type)
         ),
+        Type::Task { output } => format!("Task<{}>", type_to_string(output)),
         Type::Tensor {
             dtype,
             rank,
@@ -379,7 +380,10 @@ fn format_function(function: &Function) -> String {
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
     let prefix = if function.is_async { "async fn" } else { "fn" };
-    format!("{} {}({}) -> {}", prefix, function.name, params, return_type)
+    format!(
+        "{} {}({}) -> {}",
+        prefix, function.name, params, return_type
+    )
 }
 
 fn format_method(type_name: &str, method: &Method) -> String {

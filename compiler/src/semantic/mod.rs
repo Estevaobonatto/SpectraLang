@@ -274,6 +274,7 @@ pub struct SemanticAnalyzer {
     current_function: Option<String>,
     current_return_type: Option<Type>,
     current_expected_type: Option<Type>,
+    async_context_depth: usize,
     // Stack of in-scope generic type parameters
     generic_params: Vec<HashSet<String>>,
     generic_param_bounds: Vec<HashMap<String, Vec<String>>>,
@@ -358,6 +359,7 @@ pub fn type_name(ty: &Type) -> String {
             let ps = params.iter().map(type_name).collect::<Vec<_>>().join(", ");
             format!("fn({}) -> {}", ps, type_name(return_type))
         }
+        Type::Task { output } => format!("Task<{}>", type_name(output)),
         Type::Tensor {
             dtype,
             rank,
@@ -496,6 +498,7 @@ impl SemanticAnalyzer {
             trait_signatures: HashMap::new(),
             current_return_type: None,
             current_expected_type: None,
+            async_context_depth: 0,
             generic_params: Vec::new(),
             generic_param_bounds: Vec::new(),
             registry,
@@ -636,7 +639,10 @@ impl SemanticAnalyzer {
                         .iter()
                         .map(|p| self.type_annotation_to_type(&p.ty))
                         .collect();
-                    let return_type = self.type_annotation_to_type(&func.return_type);
+                    let return_type = Self::async_task_type(
+                        func.is_async,
+                        self.type_annotation_to_type(&func.return_type),
+                    );
                     exports.functions.insert(
                         func.name.clone(),
                         ExportedFunction {
@@ -758,7 +764,10 @@ impl SemanticAnalyzer {
                             }
                         }
 
-                        let return_type = self.type_annotation_to_type(&method.return_type);
+                        let return_type = Self::async_task_type(
+                            method.is_async,
+                            self.type_annotation_to_type(&method.return_type),
+                        );
                         exports
                             .methods
                             .entry(impl_block.type_name.clone())
@@ -1376,6 +1385,15 @@ impl SemanticAnalyzer {
                         size: None,
                     }
                 }
+                TypeAnnotationKind::Generic { name, type_args } if name == "Task" => {
+                    let output = type_args
+                        .first()
+                        .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                        .unwrap_or(Type::Unknown);
+                    Type::Task {
+                        output: Box::new(output),
+                    }
+                }
                 TypeAnnotationKind::Generic { name, type_args }
                     if self.generic_enums.contains_key(name) =>
                 {
@@ -1389,6 +1407,16 @@ impl SemanticAnalyzer {
                 _ => Type::Unknown,
             },
             None => Type::Unknown,
+        }
+    }
+
+    fn async_task_type(is_async: bool, output: Type) -> Type {
+        if is_async {
+            Type::Task {
+                output: Box::new(output),
+            }
+        } else {
+            output
         }
     }
 
@@ -1539,6 +1567,15 @@ impl SemanticAnalyzer {
                 Type::Array {
                     element_type: Box::new(element_type),
                     size: None,
+                }
+            }
+            TypeAnnotationKind::Generic { name, type_args } if name == "Task" => {
+                let output = type_args
+                    .first()
+                    .map(|arg| self.type_annotation_to_type_with_substitutions(arg, substitutions))
+                    .unwrap_or(Type::Unknown);
+                Type::Task {
+                    output: Box::new(output),
                 }
             }
             _ => self.type_annotation_to_type(&Some(ann.clone())),
@@ -1988,6 +2025,7 @@ impl SemanticAnalyzer {
                         .all(|(a, b)| self.types_match(a, b))
                     && self.types_match(r1, r2)
             }
+            (Type::Task { output: a }, Type::Task { output: b }) => self.types_match(a, b),
 
             // Dynamic trait objects match structurally by trait name.
             (Type::DynTrait { trait_name: a }, Type::DynTrait { trait_name: b }) => a == b,
@@ -2084,6 +2122,9 @@ impl SemanticAnalyzer {
                         .zip(expected_params.iter())
                         .all(|(actual, expected)| self.return_types_match(actual, expected))
                     && self.return_types_match(actual_return, expected_return)
+            }
+            (Type::Task { output: actual }, Type::Task { output: expected }) => {
+                self.return_types_match(actual, expected)
             }
             (
                 Type::Array {
@@ -2650,6 +2691,7 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::Unary { operand, .. }
             | ExpressionKind::Try(operand)
+            | ExpressionKind::Await(operand)
             | ExpressionKind::Grouping(operand) => {
                 self.validate_differentiable_expression(operand);
             }
@@ -3192,7 +3234,10 @@ impl SemanticAnalyzer {
                             .collect();
 
                         // Extract return type
-                        let return_type = self.type_annotation_to_type(&func.return_type);
+                        let return_type = Self::async_task_type(
+                            func.is_async,
+                            self.type_annotation_to_type(&func.return_type),
+                        );
 
                         if pushed_generics {
                             self.pop_generic_params();
@@ -3945,7 +3990,10 @@ impl SemanticAnalyzer {
                 }
             }
 
-            let return_type = self.type_annotation_to_type(&method.return_type);
+            let return_type = Self::async_task_type(
+                method.is_async,
+                self.type_annotation_to_type(&method.return_type),
+            );
 
             // Registrar método
             let signature = FunctionSignature {
@@ -3985,15 +4033,12 @@ impl SemanticAnalyzer {
 
         // Fase 2: Analisar corpos dos métodos
         for method in &impl_block.methods {
-            if method.is_async {
-                self.error(
-                    "Async method execution is parsed by R-2102 but requires R-2103 async lowering before it can be checked or compiled",
-                    method.span,
-                );
-            }
             self.current_function = Some(format!("{}::{}", impl_block.type_name, method.name));
             let expected_return = self.type_annotation_to_type(&method.return_type);
             let previous_return = self.current_return_type.replace(expected_return.clone());
+            if method.is_async {
+                self.async_context_depth += 1;
+            }
             self.push_scope();
 
             // Declarar parâmetros no escopo
@@ -4018,6 +4063,9 @@ impl SemanticAnalyzer {
             self.validate_function_block_return(&method.body, &expected_return, method.span);
 
             self.pop_scope();
+            if method.is_async {
+                self.async_context_depth = self.async_context_depth.saturating_sub(1);
+            }
             self.current_function = None;
             self.current_return_type = previous_return;
         }
@@ -4101,7 +4149,10 @@ impl SemanticAnalyzer {
                 }
             }
 
-            let return_type = self.type_annotation_to_type(&method.return_type);
+            let return_type = Self::async_task_type(
+                method.is_async,
+                self.type_annotation_to_type(&method.return_type),
+            );
             let return_pattern = Self::option_annotation_to_pattern(&method.return_type);
 
             let signature = FunctionSignature {
@@ -4219,7 +4270,10 @@ impl SemanticAnalyzer {
                 }
             }
 
-            let return_type = self.type_annotation_to_type(&method.return_type);
+            let return_type = Self::async_task_type(
+                method.is_async,
+                self.type_annotation_to_type(&method.return_type),
+            );
 
             let signature = FunctionSignature {
                 params: param_types,
@@ -4422,20 +4476,12 @@ impl SemanticAnalyzer {
     fn analyze_function(&mut self, func: &Function) {
         let pushed_generics = self.push_generic_params(&func.type_params);
 
-        if func.is_async {
-            self.error(
-                "Async function execution is parsed by R-2102 but requires R-2103 async lowering before it can be checked or compiled",
-                func.span,
-            );
-        }
-
         self.current_function = Some(func.name.clone());
-        let expected_return = self
-            .functions
-            .get(&func.name)
-            .map(|sig| sig.return_type.clone())
-            .unwrap_or_else(|| self.type_annotation_to_type(&func.return_type));
+        let expected_return = self.type_annotation_to_type(&func.return_type);
         let previous_return = self.current_return_type.replace(expected_return.clone());
+        if func.is_async {
+            self.async_context_depth += 1;
+        }
 
         self.push_scope();
 
@@ -4455,6 +4501,9 @@ impl SemanticAnalyzer {
         self.validate_function_block_return(&func.body, &expected_return, func.span);
 
         self.pop_scope();
+        if func.is_async {
+            self.async_context_depth = self.async_context_depth.saturating_sub(1);
+        }
         if pushed_generics {
             self.pop_generic_params();
         }
@@ -5181,6 +5230,17 @@ impl SemanticAnalyzer {
                 }
             }
             ExpressionKind::Try(inner) => self.infer_expression_type(inner),
+            ExpressionKind::Await(inner) => match self.infer_expression_type(inner) {
+                Type::Task { output } => *output,
+                Type::Unknown => Type::Unknown,
+                other => {
+                    self.error(
+                        format!("`await` expects Task<T>, found {}", type_name(&other)),
+                        expr.span,
+                    );
+                    Type::Unknown
+                }
+            },
             ExpressionKind::Cast { target_type, .. } => {
                 self.type_annotation_to_type(&Some(target_type.clone()))
             }
@@ -5215,7 +5275,9 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
-            ExpressionKind::AsyncBlock(_) => Type::Unknown,
+            ExpressionKind::AsyncBlock(block) => Type::Task {
+                output: Box::new(self.infer_block_type(block)),
+            },
         }
     }
 
@@ -5262,7 +5324,9 @@ impl SemanticAnalyzer {
                 self.collect_capture_names_expr(left, locals, captures);
                 self.collect_capture_names_expr(right, locals, captures);
             }
-            ExpressionKind::Unary { operand, .. } | ExpressionKind::Try(operand) => {
+            ExpressionKind::Unary { operand, .. }
+            | ExpressionKind::Try(operand)
+            | ExpressionKind::Await(operand) => {
                 self.collect_capture_names_expr(operand, locals, captures);
             }
             ExpressionKind::Call { callee, arguments } => {
@@ -7331,6 +7395,19 @@ impl SemanticAnalyzer {
             ExpressionKind::Try(inner) => {
                 self.analyze_expression(inner);
             }
+            ExpressionKind::Await(inner) => {
+                if self.async_context_depth == 0 {
+                    self.error("`await` is only valid inside an async context", expr.span);
+                }
+                self.analyze_expression(inner);
+                let task_type = self.infer_expression_type(inner);
+                if !matches!(task_type, Type::Task { .. } | Type::Unknown) {
+                    self.error(
+                        format!("`await` expects Task<T>, found {}", type_name(&task_type)),
+                        expr.span,
+                    );
+                }
+            }
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
@@ -7413,14 +7490,12 @@ impl SemanticAnalyzer {
             }
             ExpressionKind::AsyncBlock(block) => {
                 self.push_scope();
+                self.async_context_depth += 1;
                 for stmt in &block.statements {
                     self.analyze_statement(stmt);
                 }
+                self.async_context_depth = self.async_context_depth.saturating_sub(1);
                 self.pop_scope();
-                self.error(
-                    "Async block execution is parsed by R-2102 but requires R-2103 async lowering before it can be checked or compiled",
-                    expr.span,
-                );
             }
         }
 
@@ -9208,6 +9283,10 @@ impl SemanticAnalyzer {
             },
             Type::Fn { .. } => TypeAnnotationKind::Simple {
                 segments: vec!["fn".to_string()],
+            },
+            Type::Task { output } => TypeAnnotationKind::Generic {
+                name: "Task".to_string(),
+                type_args: vec![self.type_to_annotation(output)],
             },
             Type::Tensor {
                 dtype,
