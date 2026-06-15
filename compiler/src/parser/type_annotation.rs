@@ -76,10 +76,16 @@ impl Parser {
         // Check if it's an array type: [int], [string], etc.
         if self.check_symbol('[') {
             self.advance(); // consume '['
-                            // Parse the element type but discard it — stored as Simple { "array" }
-            if !self.check_symbol(']') {
-                let _ = self.parse_type_annotation(); // element type
-            }
+            let element_type = if !self.check_symbol(']') {
+                self.parse_type_annotation()?
+            } else {
+                TypeAnnotation {
+                    kind: TypeAnnotationKind::Simple {
+                        segments: vec!["unknown".to_string()],
+                    },
+                    span: start_span,
+                }
+            };
             self.consume_symbol(']', "Expected ']' after array element type")?;
             let end_span = self
                 .tokens
@@ -87,8 +93,9 @@ impl Parser {
                 .map(|t| t.span)
                 .unwrap_or(start_span);
             return Ok(TypeAnnotation {
-                kind: TypeAnnotationKind::Simple {
-                    segments: vec!["array".to_string()],
+                kind: TypeAnnotationKind::Generic {
+                    name: "array".to_string(),
+                    type_args: vec![element_type],
                 },
                 span: span_union(start_span, end_span),
             });

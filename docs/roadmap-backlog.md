@@ -517,7 +517,7 @@ methods directly.
 
 ## R-111 Cross-Module Aggregate Codegen
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `backend`
 - Dependencies: `R-105`
@@ -571,6 +571,19 @@ chaining fallible operations in `main`).
   multi_file_projects/p2_string_utils` and `multi_file_projects/p3_inventory_oop`
   must complete without `Verifier errors` and without `load(void)` in the
   emitted IR.
+- Completed implementation adds typed `[T]` parsing/lowering instead of erasing
+  array element type, semantic specialization for generic enum annotations, and
+  typed-expression refinement for generic enum constructors in local bindings.
+- Dedicated regression project:
+  `tests/projects/valid/cross_module_aggregate_codegen`, covering `[string]`
+  parameter indexing, `[int]` indexing regression, and `Result<int, int>`
+  `Ok`/`Err` matches across module boundaries.
+- Dedicated gate: `scripts/validate_r111_cross_module_aggregate_codegen.py`,
+  integrated into `run_tests.ps1`.
+- Validation: `python scripts\validate_r111_cross_module_aggregate_codegen.py
+  --binary target\debug\spectralang.exe`; `cargo test -p spectra-runtime -p
+  spectra-compiler -p spectra-midend -p spectra-cli`; `.\run_tests.ps1`
+  reported 239/239 decisive tests passing.
 
 ## R-112 Runtime Float-to-Int Cast Codegen
 

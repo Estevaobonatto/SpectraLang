@@ -1,0 +1,16 @@
+module result_flow;
+
+pub fn ok_value(v: int) -> Result<int, int> {
+    return Result::Ok(v);
+}
+
+pub fn err_value(code: int) -> Result<int, int> {
+    return Result::Err(code);
+}
+
+pub fn consume_result(value: Result<int, int>) -> int {
+    return match value {
+        Result::Ok(v) => v,
+        Result::Err(e) => e * -1
+    };
+}

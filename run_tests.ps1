@@ -753,7 +753,20 @@ if ($crossModuleTypesMethods.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase1-semantics"; Teste = "validate_r110_cross_module_types_methods"; Status = $crossModuleTypesMethods.Status; Detalhe = $crossModuleTypesMethods.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.5e: R-112 runtime float-to-int cast codegen
+# Grupo 8.5e: R-111 cross-module aggregate codegen
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-111 cross-module aggregate codegen ---" -ForegroundColor Yellow
+$crossModuleAggregates = Invoke-HostCommand -name "validate_r111_cross_module_aggregate_codegen" -fileName "python" -arguments @("scripts\validate_r111_cross_module_aggregate_codegen.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($crossModuleAggregates.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase1-backend"; Teste = "validate_r111_cross_module_aggregate_codegen"; Status = $crossModuleAggregates.Status; Detalhe = $crossModuleAggregates.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.5f: R-112 runtime float-to-int cast codegen
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-112 runtime float-to-int cast codegen ---" -ForegroundColor Yellow

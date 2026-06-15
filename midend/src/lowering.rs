@@ -338,6 +338,10 @@ pub struct ASTLowering {
     /// Used to resolve Generic enum type args when they can't be fully inferred from
     /// the construction expression (e.g., Result::Ok(x) in a fn -> Result<int, string>).
     current_function_return_annotation: Option<TypeAnnotation>,
+    /// Expected expression type annotation from a local binding or other typed context.
+    /// This refines generic aggregate constructors such as `Result::Ok(x)` when the
+    /// expression itself only determines part of the generic argument list.
+    current_expected_annotation: Option<TypeAnnotation>,
     /// Maps trait names to their methods in declaration order (for vtable slot lookup).
     trait_method_order: HashMap<String, Vec<String>>,
     /// Maps trait names to method signatures for dyn dispatch and type inference.
@@ -377,6 +381,7 @@ impl ASTLowering {
             pending_lambdas: Vec::new(),
             closure_var_map: HashMap::new(),
             current_function_return_annotation: None,
+            current_expected_annotation: None,
             trait_method_order: HashMap::new(),
             trait_method_signatures: HashMap::new(),
             trait_declarations: HashMap::new(),
@@ -2157,8 +2162,44 @@ impl ASTLowering {
                     type_args.clone()
                 };
 
-                self.resolve_enum_type(enum_name, final_args.as_slice())
-                    .unwrap_or(IRType::Int)
+                let resolved = self
+                    .resolve_enum_type(enum_name, final_args.as_slice())
+                    .unwrap_or(IRType::Int);
+
+                match (resolved, data.as_ref()) {
+                    (IRType::Enum { name, variants }, Some(data_exprs)) => {
+                        let refined_variants = variants
+                            .into_iter()
+                            .map(|(name, variant_data)| {
+                                if name == *variant_name {
+                                    if let Some(data_types) = variant_data {
+                                        let refined = data_types
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(idx, ty)| {
+                                                if matches!(ty, IRType::Void) {
+                                                    data_exprs
+                                                        .get(idx)
+                                                        .map(|expr| self.infer_expr_ir_type(expr))
+                                                        .unwrap_or(IRType::Void)
+                                                } else {
+                                                    ty
+                                                }
+                                            })
+                                            .collect();
+                                        return (name, Some(refined));
+                                    }
+                                }
+                                (name, variant_data)
+                            })
+                            .collect();
+                        IRType::Enum {
+                            name,
+                            variants: refined_variants,
+                        }
+                    }
+                    (resolved, _) => resolved,
+                }
             }
             ExpressionKind::IndexAccess { array, .. } => match self.infer_expr_ir_type(array) {
                 IRType::Array { element_type, .. } => *element_type,
@@ -3766,16 +3807,22 @@ impl ASTLowering {
                     _ => None,
                 };
 
-                // Discover variable type either from initializer or annotation
+                let declared_type = let_stmt
+                    .ty
+                    .as_ref()
+                    .map(|type_ann| self.lower_type_annotation(type_ann));
+
+                // Discover variable type either from initializer or annotation.
+                // An explicit annotation is the binding contract and must win over
+                // partially inferred constructor types like Result::Ok(int, unknown).
                 let inferred_type = if let Some(ref value_expr) = let_stmt.value {
                     Some(self.infer_expr_ir_type(value_expr))
-                } else if let Some(ref type_ann) = let_stmt.ty {
-                    Some(self.lower_type_annotation(type_ann))
                 } else {
-                    None
+                    declared_type.clone()
                 };
+                let binding_type = declared_type.clone().or_else(|| inferred_type.clone());
 
-                if let (Some(name), Some(ty)) = (binding_name.as_ref(), inferred_type.as_ref()) {
+                if let (Some(name), Some(ty)) = (binding_name.as_ref(), binding_type.as_ref()) {
                     self.variable_types.insert(name.clone(), (*ty).clone());
                 }
 
@@ -3789,6 +3836,8 @@ impl ASTLowering {
                         let ty = self.lower_type_annotation(type_ann);
                         matches!(ty, IRType::Tensor { .. }).then_some(ty)
                     });
+                    let saved_expected_annotation = self.current_expected_annotation.clone();
+                    self.current_expected_annotation = let_stmt.ty.clone();
                     let value = if let Some(IRType::Tensor { dtype, rank, .. }) =
                         annotated_tensor_type.as_ref()
                     {
@@ -3802,13 +3851,14 @@ impl ASTLowering {
                     } else {
                         self.lower_expression(value_expr, ir_func)
                     };
+                    self.current_expected_annotation = saved_expected_annotation;
 
                     // Register in closure_var_map when the value bound is a lambda
                     if let Some(name) = binding_name.as_ref().filter(|_| is_lambda_binding) {
                         if let Some(IRType::Function {
                             params,
                             return_type,
-                        }) = inferred_type.clone()
+                        }) = binding_type.clone()
                         {
                             self.closure_var_map.insert(
                                 name.clone(),
@@ -3821,7 +3871,7 @@ impl ASTLowering {
                     }
 
                     if binding_name.is_none() {
-                        let scrutinee_type = inferred_type.as_ref();
+                        let scrutinee_type = binding_type.as_ref().or(inferred_type.as_ref());
                         let scrutinee_enum = match scrutinee_type {
                             Some(IRType::Enum { name, .. }) => Some(name.as_str()),
                             _ => None,
@@ -3841,7 +3891,7 @@ impl ASTLowering {
                     match &value_expr.kind {
                         ExpressionKind::ArrayLiteral { .. } => {
                             if let Some(IRType::Array { element_type, size }) =
-                                inferred_type.clone()
+                                binding_type.clone().or_else(|| inferred_type.clone())
                             {
                                 self.array_map.insert(
                                     name.clone(),
@@ -5233,15 +5283,24 @@ impl ASTLowering {
                 // Avaliar o índice
                 let index_value = self.lower_expression(index, ir_func);
 
-                // Calcular o endereço do elemento
-                // Por simplicidade, assumir tipo Int
-                let elem_type = IRType::Int;
-                let elem_ptr =
-                    self.builder
-                        .build_getelementptr(ir_func, array_ptr, index_value, elem_type);
+                let elem_type = match self.infer_expr_ir_type(array) {
+                    IRType::Array { element_type, .. } => *element_type,
+                    other => {
+                        self.error(format!(
+                            "Index access expected array expression, found {:?}",
+                            other
+                        ));
+                        IRType::Int
+                    }
+                };
+                let elem_ptr = self.builder.build_getelementptr(
+                    ir_func,
+                    array_ptr,
+                    index_value,
+                    elem_type.clone(),
+                );
 
-                // Carregar o valor do elemento
-                self.builder.build_load(ir_func, elem_ptr)
+                self.builder.build_load_typed(ir_func, elem_ptr, elem_type)
             }
             ExpressionKind::TupleLiteral { elements } => {
                 // Alocar memória para a tuple
@@ -5525,42 +5584,55 @@ impl ASTLowering {
                         .iter()
                         .any(|a| self.type_annotation_needs_refinement(a))
                     {
-                        if let Some(ret_ann) = self.current_function_return_annotation.clone() {
+                        let contextual_annotations = [
+                            self.current_expected_annotation.clone(),
+                            self.current_function_return_annotation.clone(),
+                        ];
+                        for context_ann in contextual_annotations.into_iter().flatten() {
                             if let TypeAnnotationKind::Generic {
-                                name: ret_name,
-                                type_args: ret_args,
-                            } = &ret_ann.kind
+                                name: context_name,
+                                type_args: context_args,
+                            } = &context_ann.kind
                             {
-                                if ret_name == enum_name && ret_args.len() == args.len() {
-                                    for (arg, ret_arg) in args.iter_mut().zip(ret_args.iter()) {
+                                if context_name == enum_name && context_args.len() == args.len() {
+                                    for (arg, context_arg) in
+                                        args.iter_mut().zip(context_args.iter())
+                                    {
                                         if self.type_annotation_needs_refinement(arg) {
-                                            *arg = ret_arg.clone();
+                                            *arg = context_arg.clone();
                                         }
                                     }
                                 }
+                            }
+                            if !args
+                                .iter()
+                                .any(|a| self.type_annotation_needs_refinement(a))
+                            {
+                                break;
                             }
                         }
                     }
                     args
                 } else {
-                    // Check the function return annotation as the primary source of type args
-                    if let Some(ret_ann) = self.current_function_return_annotation.clone() {
+                    // Check typed expression contexts as the primary source of type args.
+                    let contextual_annotations = [
+                        self.current_expected_annotation.clone(),
+                        self.current_function_return_annotation.clone(),
+                    ];
+                    let mut contextual_args = None;
+                    for context_ann in contextual_annotations.into_iter().flatten() {
                         if let TypeAnnotationKind::Generic {
-                            name: ret_name,
-                            type_args: ret_args,
-                        } = &ret_ann.kind
+                            name: context_name,
+                            type_args: context_args,
+                        } = &context_ann.kind
                         {
-                            if ret_name == enum_name {
-                                ret_args.clone()
-                            } else {
-                                type_args.clone()
+                            if context_name == enum_name {
+                                contextual_args = Some(context_args.clone());
+                                break;
                             }
-                        } else {
-                            type_args.clone()
                         }
-                    } else {
-                        type_args.clone()
                     }
+                    contextual_args.unwrap_or_else(|| type_args.clone())
                 };
 
                 let (resolved_enum_name, variants) =
@@ -5613,6 +5685,20 @@ impl ASTLowering {
 
                         // Se é tuple variant, criar tupla (tag, data...)
                         if let Some(data_types) = variant_data_types {
+                            let data_types: Vec<IRType> = data_types
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, ty)| {
+                                    if matches!(ty, IRType::Void) {
+                                        data.as_ref()
+                                            .and_then(|exprs| exprs.get(idx))
+                                            .map(|expr| self.infer_expr_ir_type(expr))
+                                            .unwrap_or(IRType::Void)
+                                    } else {
+                                        ty.clone()
+                                    }
+                                })
+                                .collect();
                             let mut elements = Vec::new();
 
                             // Primeiro elemento: tag
@@ -5625,7 +5711,7 @@ impl ASTLowering {
 
                             // Criar tipos da tupla
                             let mut element_types = vec![IRType::Int];
-                            element_types.extend(data_types.clone());
+                            element_types.extend(data_types);
 
                             let tuple_type = IRType::Tuple {
                                 elements: element_types.clone(),
@@ -6311,14 +6397,17 @@ impl ASTLowering {
                 struct_data: _,
                 ..
             } => {
-                let mut variants = scrutinee_enum
-                    .and_then(|name| self.enum_definitions.get(name).cloned())
+                let mut variants = self
+                    .enum_variants_from_ir_type(scrutinee_type)
                     .or_else(|| {
                         if let Some(IRType::Enum { name, .. }) = scrutinee_type {
                             self.enum_definitions.get(name).cloned()
                         } else {
                             None
                         }
+                    })
+                    .or_else(|| {
+                        scrutinee_enum.and_then(|name| self.enum_definitions.get(name).cloned())
                     })
                     .or_else(|| self.enum_definitions.get(enum_name).cloned());
 
@@ -6493,8 +6582,8 @@ impl ASTLowering {
                     };
 
                 if !ordered_patterns.is_empty() {
-                    let mut variants = scrutinee_enum
-                        .and_then(|name| self.enum_definitions.get(name).cloned())
+                    let mut variants = self
+                        .enum_variants_from_ir_type(scrutinee_type)
                         .or_else(|| {
                             if let Some(IRType::Enum { name, .. }) = scrutinee_type {
                                 self.enum_definitions.get(name).cloned()
@@ -6502,7 +6591,9 @@ impl ASTLowering {
                                 None
                             }
                         })
-                        .or_else(|| self.enum_variants_from_ir_type(scrutinee_type))
+                        .or_else(|| {
+                            scrutinee_enum.and_then(|name| self.enum_definitions.get(name).cloned())
+                        })
                         .or_else(|| self.enum_definitions.get(enum_name).cloned());
 
                     if variants.is_none() && !type_args.is_empty() {
@@ -6659,6 +6750,17 @@ impl ASTLowering {
                 }
             }
             TypeAnnotationKind::Generic { name, type_args } => {
+                if name == "array" {
+                    let element_type = type_args
+                        .first()
+                        .map(|ann| self.lower_type_annotation_with_map(ann, substitutions))
+                        .unwrap_or(IRType::Void);
+                    return IRType::Array {
+                        element_type: Box::new(element_type),
+                        size: 0,
+                    };
+                }
+
                 if name == "Tensor" && !type_args.is_empty() {
                     let dtype = self.lower_type_annotation_with_map(&type_args[0], substitutions);
                     let meta = tensor_metadata(&type_args[1..]);
@@ -6749,10 +6851,10 @@ impl ASTLowering {
             ASTType::Char => IRType::Char,
             ASTType::Unit => IRType::Void,
             ASTType::Unknown => IRType::Void,
-            ASTType::Array { element_type, .. } => {
-                // Arrays são representados como ponteiros no IR
-                IRType::Pointer(Box::new(self.lower_type(element_type)))
-            }
+            ASTType::Array { element_type, .. } => IRType::Array {
+                element_type: Box::new(self.lower_type(element_type)),
+                size: 0,
+            },
             ASTType::Tuple { elements } => {
                 // Converter cada tipo do elemento
                 let ir_elements: Vec<IRType> = elements

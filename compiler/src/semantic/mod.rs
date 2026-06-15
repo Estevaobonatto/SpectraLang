@@ -271,6 +271,7 @@ pub struct SemanticAnalyzer {
     // Track if we're inside a function (for return validation)
     current_function: Option<String>,
     current_return_type: Option<Type>,
+    current_expected_type: Option<Type>,
     // Stack of in-scope generic type parameters
     generic_params: Vec<HashSet<String>>,
     generic_param_bounds: Vec<HashMap<String, Vec<String>>>,
@@ -492,6 +493,7 @@ impl SemanticAnalyzer {
             current_function: None,
             trait_signatures: HashMap::new(),
             current_return_type: None,
+            current_expected_type: None,
             generic_params: Vec::new(),
             generic_param_bounds: Vec::new(),
             registry,
@@ -1299,6 +1301,10 @@ impl SemanticAnalyzer {
                         "bool" => Type::Bool,
                         "string" => Type::String,
                         "char" => Type::Char,
+                        "array" => Type::Array {
+                            element_type: Box::new(Type::Unknown),
+                            size: None,
+                        },
                         "Self" => Type::SelfType, // Self type
                         other => {
                             if self.is_generic_param(other) {
@@ -1355,12 +1361,182 @@ impl SemanticAnalyzer {
                         device: meta.device,
                     }
                 }
+                TypeAnnotationKind::Generic { name, type_args } if name == "array" => {
+                    let element_type = type_args
+                        .first()
+                        .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                        .unwrap_or(Type::Unknown);
+                    Type::Array {
+                        element_type: Box::new(element_type),
+                        size: None,
+                    }
+                }
+                TypeAnnotationKind::Generic { name, type_args }
+                    if self.generic_enums.contains_key(name) =>
+                {
+                    Type::Enum {
+                        name: self.mangle_generic_type_name(name, type_args),
+                    }
+                }
                 TypeAnnotationKind::DynTrait { trait_name } => Type::DynTrait {
                     trait_name: trait_name.clone(),
                 },
                 _ => Type::Unknown,
             },
             None => Type::Unknown,
+        }
+    }
+
+    fn mangle_generic_type_name(
+        &self,
+        name: &str,
+        type_args: &[crate::ast::TypeAnnotation],
+    ) -> String {
+        if type_args.is_empty() {
+            return name.to_string();
+        }
+        let suffix = type_args
+            .iter()
+            .map(|ann| self.type_annotation_mangle_part(ann))
+            .collect::<Vec<_>>()
+            .join("_");
+        format!("{}_{}", name, suffix)
+    }
+
+    fn type_annotation_mangle_part(&self, ann: &crate::ast::TypeAnnotation) -> String {
+        use crate::ast::TypeAnnotationKind;
+
+        match &ann.kind {
+            TypeAnnotationKind::Simple { segments } => segments.join("_"),
+            TypeAnnotationKind::Tuple { elements } => {
+                let parts = elements
+                    .iter()
+                    .map(|elem| self.type_annotation_mangle_part(elem))
+                    .collect::<Vec<_>>()
+                    .join("_");
+                format!("tuple_{}", parts)
+            }
+            TypeAnnotationKind::Function { .. } => "function".to_string(),
+            TypeAnnotationKind::Generic { name, type_args } => {
+                self.mangle_generic_type_name(name, type_args)
+            }
+            TypeAnnotationKind::DynTrait { trait_name } => format!("dyn_{}", trait_name),
+        }
+    }
+
+    fn type_from_mangle_part(&self, part: &str) -> Type {
+        match part {
+            "int" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
+            | "usize" => Type::Int,
+            "float" | "f16" | "bf16" | "f32" | "f64" => Type::Float,
+            "bool" => Type::Bool,
+            "string" => Type::String,
+            "char" => Type::Char,
+            other if self.struct_infos.contains_key(other) => Type::Struct {
+                name: other.to_string(),
+            },
+            other
+                if self.enum_infos.contains_key(other)
+                    || self.generic_enums.contains_key(other) =>
+            {
+                Type::Enum {
+                    name: other.to_string(),
+                }
+            }
+            other => Type::Enum {
+                name: other.to_string(),
+            },
+        }
+    }
+
+    fn specialized_enum_context(
+        &self,
+        enum_type_name: &str,
+    ) -> Option<(String, EnumInfo, HashMap<String, Type>)> {
+        let mut candidates = self
+            .generic_enums
+            .iter()
+            .filter_map(|(base, (params, _))| {
+                let prefix = format!("{}_", base);
+                enum_type_name
+                    .strip_prefix(&prefix)
+                    .map(|suffix| (base.clone(), params.clone(), suffix.to_string()))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
+
+        for (base, params, suffix) in candidates {
+            let parts = if params.len() == 1 {
+                vec![suffix.as_str()]
+            } else {
+                suffix.split('_').collect::<Vec<_>>()
+            };
+            if parts.len() != params.len() {
+                continue;
+            }
+            let Some(info) = self.enum_infos.get(&base).cloned() else {
+                continue;
+            };
+            let substitutions = params
+                .iter()
+                .zip(parts.iter())
+                .map(|(param, part)| (param.name.clone(), self.type_from_mangle_part(part)))
+                .collect::<HashMap<_, _>>();
+            return Some((base, info, substitutions));
+        }
+
+        if let Some(info) = self.enum_infos.get(enum_type_name) {
+            return Some((enum_type_name.to_string(), info.clone(), HashMap::new()));
+        }
+
+        None
+    }
+
+    fn type_annotation_to_type_with_substitutions(
+        &self,
+        ann: &crate::ast::TypeAnnotation,
+        substitutions: &HashMap<String, Type>,
+    ) -> Type {
+        use crate::ast::TypeAnnotationKind;
+
+        match &ann.kind {
+            TypeAnnotationKind::Simple { segments } if segments.len() == 1 => substitutions
+                .get(&segments[0])
+                .cloned()
+                .unwrap_or_else(|| self.type_annotation_to_type(&Some(ann.clone()))),
+            TypeAnnotationKind::Tuple { elements } => Type::Tuple {
+                elements: elements
+                    .iter()
+                    .map(|elem| {
+                        self.type_annotation_to_type_with_substitutions(elem, substitutions)
+                    })
+                    .collect(),
+            },
+            TypeAnnotationKind::Function {
+                params,
+                return_type,
+            } => Type::Fn {
+                params: params
+                    .iter()
+                    .map(|param| {
+                        self.type_annotation_to_type_with_substitutions(param, substitutions)
+                    })
+                    .collect(),
+                return_type: Box::new(
+                    self.type_annotation_to_type_with_substitutions(return_type, substitutions),
+                ),
+            },
+            TypeAnnotationKind::Generic { name, type_args } if name == "array" => {
+                let element_type = type_args
+                    .first()
+                    .map(|arg| self.type_annotation_to_type_with_substitutions(arg, substitutions))
+                    .unwrap_or(Type::Unknown);
+                Type::Array {
+                    element_type: Box::new(element_type),
+                    size: None,
+                }
+            }
+            _ => self.type_annotation_to_type(&Some(ann.clone())),
         }
     }
 
@@ -1784,7 +1960,8 @@ impl SemanticAnalyzer {
             // Structs com mesmo nome
             (Type::Struct { name: n1 }, Type::Struct { name: n2 }) => n1 == n2,
 
-            // Enums com mesmo nome
+            // Enums specialized from generics must match the full mangled type,
+            // not just the generic base (Result_int_string != Result_int_int).
             (Type::Enum { name: n1, .. }, Type::Enum { name: n2, .. }) => n1 == n2,
 
             // Function types must agree on arity, parameter types, and return type.
@@ -3497,11 +3674,13 @@ impl SemanticAnalyzer {
                     } else {
                         Visibility::Internal
                     };
-                    self.enum_infos.entry(local_name.clone()).or_insert(EnumInfo {
-                        visibility: vis,
-                        type_params: Vec::new(),
-                        variants: variant_map,
-                    });
+                    self.enum_infos
+                        .entry(local_name.clone())
+                        .or_insert(EnumInfo {
+                            visibility: vis,
+                            type_params: Vec::new(),
+                            variants: variant_map,
+                        });
                 } else {
                     // Struct registration: populate fields from the exported type.
                     let vis = if type_export.visibility == ExportVisibility::Public {
@@ -3527,11 +3706,13 @@ impl SemanticAnalyzer {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    self.struct_infos.entry(local_name.clone()).or_insert(StructInfo {
-                        visibility: vis,
-                        type_params: Vec::new(),
-                        fields: field_map,
-                    });
+                    self.struct_infos
+                        .entry(local_name.clone())
+                        .or_insert(StructInfo {
+                            visibility: vis,
+                            type_params: Vec::new(),
+                            fields: field_map,
+                        });
                 }
 
                 if let Some(exported_methods) = exports.methods.get(name.as_str()) {
@@ -4261,14 +4442,24 @@ impl SemanticAnalyzer {
                     self.analyze_expression(value);
                 }
 
-                // Infer type from value expression or annotation.
+                let declared_type = let_stmt
+                    .ty
+                    .as_ref()
+                    .map(|ann| self.type_annotation_to_type_checked(&Some(ann.clone())));
+
+                // Infer type from value expression or annotation. An explicit annotation
+                // also provides context for generic constructors such as Result::Ok(v),
+                // where not every type parameter appears in the selected variant payload.
                 let inferred_type = if let Some(ref value) = let_stmt.value {
-                    self.infer_expression_type(value)
+                    let saved_expected = self.current_expected_type.clone();
+                    self.current_expected_type = declared_type.clone();
+                    let ty = self.infer_expression_type(value);
+                    self.current_expected_type = saved_expected;
+                    ty
                 } else {
-                    self.type_annotation_to_type_checked(&let_stmt.ty)
+                    declared_type.clone().unwrap_or(Type::Unknown)
                 };
-                let binding_type = if let Some(ann) = &let_stmt.ty {
-                    let declared_type = self.type_annotation_to_type_checked(&Some(ann.clone()));
+                let binding_type = if let Some(declared_type) = declared_type {
                     if let Some(ref value) = let_stmt.value {
                         if !self.types_match(&inferred_type, &declared_type)
                             && !self.tensor_literal_matches(value, &declared_type)
@@ -4778,9 +4969,48 @@ impl SemanticAnalyzer {
             ExpressionKind::EnumVariant {
                 enum_name,
                 variant_name,
+                type_args,
+                data,
                 ..
             } => {
-                if self.enum_infos.contains_key(enum_name) {
+                if self.generic_enums.contains_key(enum_name) {
+                    if !type_args.is_empty() {
+                        return Type::Enum {
+                            name: self.mangle_generic_type_name(enum_name, type_args),
+                        };
+                    }
+
+                    if let Some(Type::Enum {
+                        name: expected_name,
+                    }) = self.current_expected_type.clone()
+                    {
+                        if let Some((base_name, enum_info, _)) =
+                            self.specialized_enum_context(&expected_name)
+                        {
+                            if base_name == *enum_name
+                                && enum_info.variants.contains_key(variant_name)
+                            {
+                                return Type::Enum {
+                                    name: expected_name,
+                                };
+                            }
+                        }
+                    }
+
+                    if let Some(args) = data {
+                        let inferred_args =
+                            self.infer_enum_type_args(enum_name, variant_name, args.as_slice());
+                        if !inferred_args.is_empty() {
+                            return Type::Enum {
+                                name: self.mangle_generic_type_name(enum_name, &inferred_args),
+                            };
+                        }
+                    }
+
+                    Type::Enum {
+                        name: enum_name.clone(),
+                    }
+                } else if self.enum_infos.contains_key(enum_name) {
                     Type::Enum {
                         name: enum_name.clone(),
                     }
@@ -7258,7 +7488,7 @@ impl SemanticAnalyzer {
                 struct_data,
                 ..
             } => {
-                let enum_type = match &effective_type {
+                let enum_type_name = match &effective_type {
                     Type::Enum { name } => name.clone(),
                     _ => {
                         if let Some(Type::Enum { name }) = self.infer_pattern_type(pattern) {
@@ -7269,13 +7499,15 @@ impl SemanticAnalyzer {
                     }
                 };
 
-                if enum_type != *enum_name {
+                let Some((base_enum_name, enum_info, substitutions)) =
+                    self.specialized_enum_context(&enum_type_name)
+                else {
+                    return;
+                };
+                if base_enum_name != *enum_name {
                     return;
                 }
 
-                let Some(enum_info) = self.enum_infos.get(enum_name) else {
-                    return;
-                };
                 let Some(variant_info) = enum_info.variants.get(variant_name).cloned() else {
                     return;
                 };
@@ -7287,7 +7519,9 @@ impl SemanticAnalyzer {
 
                     let inferred_field_types: Vec<Type> = field_types
                         .iter()
-                        .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                        .map(|ann| {
+                            self.type_annotation_to_type_with_substitutions(ann, &substitutions)
+                        })
                         .collect();
 
                     for (sub_pattern, field_type) in
@@ -7305,7 +7539,10 @@ impl SemanticAnalyzer {
                         .map(|(name, ann)| {
                             (
                                 name.clone(),
-                                self.type_annotation_to_type(&Some(ann.clone())),
+                                self.type_annotation_to_type_with_substitutions(
+                                    ann,
+                                    &substitutions,
+                                ),
                             )
                         })
                         .collect();
@@ -7536,16 +7773,65 @@ impl SemanticAnalyzer {
                     (enum_name.clone(), variant_name.clone())
                 };
 
-                let enum_info = match self.enum_infos.get(&resolved_enum_name).cloned() {
-                    Some(info) => info,
-                    None => {
+                let scrutinee_enum_context = match scrutinee_type {
+                    Type::Enum { name } => self.specialized_enum_context(name),
+                    Type::Unknown => self.specialized_enum_context(&resolved_enum_name),
+                    _ => None,
+                };
+
+                let (actual_enum_name, enum_info, substitutions) = match scrutinee_enum_context {
+                    Some(context) => context,
+                    None => match self.enum_infos.get(&resolved_enum_name).cloned() {
+                        Some(info) => (resolved_enum_name.clone(), info, HashMap::new()),
+                        None => {
+                            self.error(
+                                format!("Enum '{}' is not defined", resolved_enum_name),
+                                match_span,
+                            );
+                            return;
+                        }
+                    },
+                };
+
+                if actual_enum_name != resolved_enum_name {
+                    self.error(
+                        format!(
+                            "Pattern '{}::{}' cannot match enum value of type '{}'",
+                            enum_name,
+                            variant_name,
+                            match scrutinee_type {
+                                Type::Enum { name } => name.as_str(),
+                                _ => "<unknown>",
+                            }
+                        ),
+                        match_span,
+                    );
+                    return;
+                }
+
+                if !matches!(scrutinee_type, Type::Enum { .. } | Type::Unknown) {
+                    self.error(
+                        format!(
+                            "Pattern '{}::{}' cannot match value of type {:?}",
+                            enum_name, variant_name, scrutinee_type
+                        ),
+                        match_span,
+                    );
+                    return;
+                }
+
+                if let Type::Enum { name } = scrutinee_type {
+                    if self.specialized_enum_context(name).is_none() {
                         self.error(
-                            format!("Enum '{}' is not defined", resolved_enum_name),
+                            format!(
+                                "Pattern '{}::{}' cannot match enum value of type '{}'",
+                                enum_name, variant_name, name
+                            ),
                             match_span,
                         );
                         return;
                     }
-                };
+                }
 
                 if !type_args.is_empty() {
                     let expected_args = enum_info.type_params.len();
@@ -7568,30 +7854,6 @@ impl SemanticAnalyzer {
                             ),
                             match_span,
                         );
-                    }
-                }
-
-                match scrutinee_type {
-                    Type::Enum { name } if name == enum_name => {}
-                    Type::Unknown => {}
-                    Type::Enum { name } => {
-                        self.error(
-                            format!(
-                                "Pattern '{}::{}' cannot match enum value of type '{}'",
-                                enum_name, variant_name, name
-                            ),
-                            match_span,
-                        );
-                    }
-                    other => {
-                        self.error(
-                            format!(
-                                "Pattern '{}::{}' cannot match value of type {:?}",
-                                enum_name, variant_name, other
-                            ),
-                            match_span,
-                        );
-                        return;
                     }
                 }
 
@@ -7651,8 +7913,10 @@ impl SemanticAnalyzer {
                         for (sub_pattern, expected_ann) in
                             sub_patterns.iter().zip(expected_types.iter())
                         {
-                            let expected_ty =
-                                self.type_annotation_to_type(&Some(expected_ann.clone()));
+                            let expected_ty = self.type_annotation_to_type_with_substitutions(
+                                expected_ann,
+                                &substitutions,
+                            );
                             self.validate_pattern_against_type(
                                 sub_pattern,
                                 &expected_ty,
@@ -7688,8 +7952,10 @@ impl SemanticAnalyzer {
                                 continue;
                             };
 
-                            let expected_ty =
-                                self.type_annotation_to_type(&Some(expected_ann.clone()));
+                            let expected_ty = self.type_annotation_to_type_with_substitutions(
+                                expected_ann,
+                                &substitutions,
+                            );
                             self.validate_pattern_against_type(
                                 sub_pattern,
                                 &expected_ty,
@@ -7854,7 +8120,7 @@ impl SemanticAnalyzer {
                 struct_data,
                 ..
             } => {
-                let enum_type = match &effective_type {
+                let enum_type_name = match &effective_type {
                     Type::Enum { name } => name.clone(),
                     _ => {
                         if let Some(Type::Enum { name }) = self.infer_pattern_type(pattern) {
@@ -7865,13 +8131,15 @@ impl SemanticAnalyzer {
                     }
                 };
 
-                if enum_type != *enum_name {
+                let Some((base_enum_name, enum_info, substitutions)) =
+                    self.specialized_enum_context(&enum_type_name)
+                else {
+                    return;
+                };
+                if base_enum_name != *enum_name {
                     return;
                 }
 
-                let Some(enum_info) = self.enum_infos.get(enum_name) else {
-                    return;
-                };
                 let Some(variant_info) = enum_info.variants.get(variant_name).cloned() else {
                     return;
                 };
@@ -7883,7 +8151,9 @@ impl SemanticAnalyzer {
 
                     let inferred_field_types: Vec<Type> = field_types
                         .iter()
-                        .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                        .map(|ann| {
+                            self.type_annotation_to_type_with_substitutions(ann, &substitutions)
+                        })
                         .collect();
 
                     for (sub_pattern, field_type) in
@@ -7901,7 +8171,10 @@ impl SemanticAnalyzer {
                         .map(|(name, ann)| {
                             (
                                 name.clone(),
-                                self.type_annotation_to_type(&Some(ann.clone())),
+                                self.type_annotation_to_type_with_substitutions(
+                                    ann,
+                                    &substitutions,
+                                ),
                             )
                         })
                         .collect();
@@ -7938,7 +8211,10 @@ impl SemanticAnalyzer {
                     return;
                 }
 
+                let saved_expected = self.current_expected_type.clone();
+                self.current_expected_type = Some(expected.clone());
                 let actual = self.infer_expression_type(expr);
+                self.current_expected_type = saved_expected;
                 if matches!(actual, Type::Unknown) {
                     if self.has_error_at_span(expr.span) {
                         return;
@@ -8161,7 +8437,8 @@ impl SemanticAnalyzer {
 
         match scrutinee_type {
             Type::Enum { name } => {
-                let Some(enum_info) = self.enum_infos.get(name) else {
+                let Some((base_enum_name, enum_info, _)) = self.specialized_enum_context(name)
+                else {
                     return;
                 };
 
@@ -8185,7 +8462,7 @@ impl SemanticAnalyzer {
                             ..
                         } = pattern
                         {
-                            if enum_name != name {
+                            if enum_name != &base_enum_name {
                                 continue;
                             }
 
@@ -8223,7 +8500,7 @@ impl SemanticAnalyzer {
                 if !missing_variants.is_empty() {
                     let missing_str = missing_variants
                         .into_iter()
-                        .map(|variant| format!("{}::{}", name, variant))
+                        .map(|variant| format!("{}::{}", base_enum_name, variant))
                         .collect::<Vec<_>>()
                         .join(", ");
 
@@ -8243,7 +8520,7 @@ impl SemanticAnalyzer {
                         if covered {
                             None
                         } else {
-                            Some(format!("{}::{}", name, variant))
+                            Some(format!("{}::{}", base_enum_name, variant))
                         }
                     })
                     .collect();
@@ -8253,7 +8530,7 @@ impl SemanticAnalyzer {
                     self.error(
                         format!(
                             "Match on enum '{}' must include wildcard bindings for payload of variant(s): {}",
-                            name, list
+                            base_enum_name, list
                         ),
                         span,
                     );
