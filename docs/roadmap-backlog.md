@@ -3222,7 +3222,7 @@ Support object-safe async trait methods and `Box<dyn Future>` /
 
 ## R-2109 Async Test Runtime and Test Macros
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `tooling`
 - Risk: `medium`
@@ -3239,6 +3239,19 @@ code can use plain `async fn` without manual setup.
   test runner.
 - `block_on(future)` is available in test code without external setup.
 - Tests can be filtered, listed, and reported like synchronous tests.
+- `scripts\validate_r2109_async_test_runtime.py` passes and is wired
+  into `run_tests.ps1`.
+
+### Completed Notes
+
+- Added parser/AST support for function attributes, including
+  `#[spectra_async_test]`.
+- Added builtin `block_on(Task<T>) -> T` semantic inference and IR lowering
+  through the existing async task result host call.
+- Replaced `package test`'s check-only behavior with async test discovery,
+  generated wrappers, JIT execution, `--list`, `--filter`, and JSON reporting.
+- Added `tests\validation\130_async_test_runtime_block_on.spectra` and
+  `tests\projects\valid\async_test_runtime`.
 
 ## R-2110 Async Diagnostics and Send/Sync Validation
 

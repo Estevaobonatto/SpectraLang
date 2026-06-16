@@ -16,7 +16,7 @@ pub enum PackageCommand {
     Build,
     Check,
     Run,
-    Test,
+    Test(PackageTestOptions),
     Bench,
     Doc,
     Add {
@@ -29,6 +29,13 @@ pub enum PackageCommand {
     Publish {
         registry: PathBuf,
     },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PackageTestOptions {
+    pub filter: Option<String>,
+    pub list: bool,
+    pub json: bool,
 }
 
 #[derive(Clone, Debug)]

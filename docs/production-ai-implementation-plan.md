@@ -1647,7 +1647,9 @@ The eight phases are summarized below; the detailed items live in
   `Future`/`Stream` traits, `Box<dyn Future>` / `Box<dyn Stream>` type
   lowering, async vtable dispatch, object-safety diagnostic `E2108`, and
   validation gate landed)
-- `R-2109` Async test runtime and macros
+- `R-2109` Async test runtime and macros (complete; function attributes,
+  `#[spectra_async_test]` discovery, `block_on(Task<T>) -> T`, package test
+  list/filter/JSON reporting, and validation gate landed)
 - `R-2110` Async diagnostics and `Send`/`Sync` validation
 - `R-2111` Async benchmarks and profiling
 

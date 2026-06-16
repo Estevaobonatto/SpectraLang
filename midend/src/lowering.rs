@@ -2312,6 +2312,18 @@ impl ASTLowering {
                 _ => IRType::Int,
             },
             ExpressionKind::Call { callee, arguments } => {
+                if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if name == "block_on" {
+                        return arguments
+                            .first()
+                            .map(|arg| match self.infer_expr_ir_type(arg) {
+                                IRType::Task { output } => *output,
+                                _ => IRType::Void,
+                            })
+                            .unwrap_or(IRType::Void);
+                    }
+                }
+
                 if let Some(descriptor) = self.host_function_descriptor(callee) {
                     return descriptor.return_type.clone();
                 }
@@ -5137,6 +5149,32 @@ impl ASTLowering {
                     .iter()
                     .map(|arg| self.lower_expression(arg, ir_func))
                     .collect();
+
+                if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if name == "block_on" {
+                        let Some(task) = arg_values.first().copied() else {
+                            self.error("block_on expects one Task<T> argument".to_string());
+                            return self.builder.build_const_int(ir_func, 0);
+                        };
+                        let output_type = arguments
+                            .first()
+                            .map(|arg| match self.infer_expr_ir_type(arg) {
+                                IRType::Task { output } => *output,
+                                _ => IRType::Void,
+                            })
+                            .unwrap_or(IRType::Void);
+                        return self
+                            .builder
+                            .build_typed_host_call(
+                                ir_func,
+                                "spectra.async.task.result".to_string(),
+                                vec![task],
+                                output_type.clone(),
+                                output_type != IRType::Void,
+                            )
+                            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    }
+                }
 
                 if let Some(descriptor) = self.host_function_descriptor(callee) {
                     // Special case: io.print / io.println / io.eprint / io.eprintln

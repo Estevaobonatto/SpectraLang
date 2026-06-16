@@ -1,0 +1,11 @@
+version = 1
+root = "async_test_runtime"
+
+[[packages]]
+name = "async_test_runtime"
+version = "0.1.0"
+channel = "nightly"
+compatibility = "spectralang-0.1"
+source = "path+"
+manifest_hash = "e6400d049d10d432"
+dependencies = []

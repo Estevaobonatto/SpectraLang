@@ -75,6 +75,7 @@ fn make_function(name: &str, stmts: Vec<Statement>) -> Item {
         name: name.to_string(),
         span: s(),
         visibility: Visibility::Public,
+        attributes: Vec::new(),
         is_async: false,
         type_params: vec![],
         params: vec![],
@@ -96,6 +97,7 @@ fn make_function_with_params(
         name: name.to_string(),
         span: s(),
         visibility: Visibility::Public,
+        attributes: Vec::new(),
         is_async: false,
         type_params: vec![],
         params: params

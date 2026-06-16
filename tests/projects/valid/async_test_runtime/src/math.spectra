@@ -1,0 +1,5 @@
+module math;
+
+pub async fn ready_add(left: int, right: int) -> int {
+    return left + right;
+}

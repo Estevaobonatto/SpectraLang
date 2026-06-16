@@ -1,0 +1,4 @@
+[project]
+name = "async_test_runtime"
+version = "0.1.0"
+src_dirs = ["src"]

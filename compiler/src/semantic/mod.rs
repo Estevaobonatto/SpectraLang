@@ -5160,6 +5160,16 @@ impl SemanticAnalyzer {
             ExpressionKind::Unary { operand, .. } => self.infer_expression_type(operand),
             ExpressionKind::Call { callee, arguments } => {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if name == "block_on" {
+                        return arguments
+                            .first()
+                            .map(|arg| match self.infer_expression_type(arg) {
+                                Type::Task { output } => *output,
+                                Type::Unknown => Type::Unknown,
+                                _ => Type::Unknown,
+                            })
+                            .unwrap_or(Type::Unknown);
+                    }
                     if let Some(sig) = self.functions.get(name).cloned() {
                         let substitutions =
                             self.infer_type_parameter_substitutions(&sig.params, arguments);
@@ -6179,7 +6189,28 @@ impl SemanticAnalyzer {
 
                 // Track callee resolution if it's an identifier
                 if let ExpressionKind::Identifier(name) = &callee.kind {
-                    if let Some(signature) = self.functions.get(name).cloned() {
+                    if name == "block_on" {
+                        if arguments.len() != 1 {
+                            self.error(
+                                format!(
+                                    "Function 'block_on' expects 1 argument, but {} were provided",
+                                    arguments.len()
+                                ),
+                                expr.span,
+                            );
+                        } else {
+                            let arg_type = self.infer_expression_type(&arguments[0]);
+                            if !matches!(arg_type, Type::Task { .. } | Type::Unknown) {
+                                self.error(
+                                    format!(
+                                        "Argument 1 of function 'block_on' has type {}, expected Task<T>",
+                                        type_name(&arg_type)
+                                    ),
+                                    arguments[0].span,
+                                );
+                            }
+                        }
+                    } else if let Some(signature) = self.functions.get(name).cloned() {
                         let def_span = self.lookup_symbol(name).and_then(|info| info.def_span);
                         self.symbol_resolutions.insert(
                             callee.span,

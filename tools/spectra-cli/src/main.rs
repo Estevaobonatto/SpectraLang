@@ -18,10 +18,13 @@ use release_channel::{cli_channel, cli_compatibility_level};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use spectra_compiler::{
-    error::CompilerError, lint::LintDiagnostic, span::Span, CompilationOptions, LintOptions,
-    LintRule,
+    ast::{Item, Module, TypeAnnotationKind},
+    error::CompilerError,
+    lint::LintDiagnostic,
+    span::Span,
+    CompilationOptions, Lexer, LintOptions, LintRule, Parser,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -907,6 +910,9 @@ where
     let mut version: Option<String> = None;
     let mut path: Option<PathBuf> = None;
     let mut registry: Option<PathBuf> = None;
+    let mut test_filter: Option<String> = None;
+    let mut test_list = false;
+    let mut test_json = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -934,6 +940,18 @@ where
                         usage_error("Missing path after '--registry'.")
                     })?));
             }
+            "--filter" if subcommand == "test" => {
+                test_filter = Some(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing value after '--filter'."))?,
+                );
+            }
+            "--list" if subcommand == "test" => {
+                test_list = true;
+            }
+            "--json" if subcommand == "test" => {
+                test_json = true;
+            }
             flag if flag.starts_with('-') => {
                 return Err(usage_error(&format!("Unknown package option: {}", flag)));
             }
@@ -953,7 +971,11 @@ where
         "build" => PackageCommand::Build,
         "check" => PackageCommand::Check,
         "run" => PackageCommand::Run,
-        "test" => PackageCommand::Test,
+        "test" => PackageCommand::Test(package::PackageTestOptions {
+            filter: test_filter,
+            list: test_list,
+            json: test_json,
+        }),
         "bench" => PackageCommand::Bench,
         "doc" => PackageCommand::Doc,
         "update" => PackageCommand::Update,
@@ -2206,6 +2228,347 @@ fn emit_package_deprecation_warnings(workspace: &package::ResolvedWorkspace) {
     }
 }
 
+#[derive(Clone, Debug)]
+struct AsyncTestCase {
+    name: String,
+    module_name: String,
+    function_name: String,
+    path: PathBuf,
+    source: String,
+    returns_int: bool,
+}
+
+#[derive(Serialize)]
+struct PackageTestReport {
+    schema: &'static str,
+    success: bool,
+    listed: bool,
+    tests: Vec<PackageTestCaseReport>,
+}
+
+#[derive(Serialize)]
+struct PackageTestCaseReport {
+    name: String,
+    path: String,
+    status: String,
+    detail: Option<String>,
+}
+
+fn discover_async_test_cases(entries: &[PathBuf]) -> CliResult<Vec<AsyncTestCase>> {
+    let mut cases = Vec::new();
+
+    for path in entries {
+        let source = fs::read_to_string(path).map_err(|error| {
+            CliError::io(format!(
+                "Cannot read async test source '{}': {}",
+                path.display(),
+                error
+            ))
+        })?;
+        let owned;
+        let effective_source = if source_has_module_decl(&source) {
+            source.as_str()
+        } else {
+            let module_name = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(sanitize_module_name)
+                .unwrap_or_else(|| "test_module".to_string());
+            owned = format!("module {};\n{}", module_name, source);
+            owned.as_str()
+        };
+
+        let tokens = Lexer::new(effective_source).tokenize().map_err(|errors| {
+            CliError::compilation(format!(
+                "Cannot lex async test source '{}': {:?}",
+                path.display(),
+                errors
+            ))
+        })?;
+        let module: Module = Parser::new(tokens, HashSet::new())
+            .parse()
+            .map_err(|errors| {
+                CliError::compilation(format!(
+                    "Cannot parse async test source '{}': {:?}",
+                    path.display(),
+                    errors
+                ))
+            })?;
+
+        for item in &module.items {
+            let Item::Function(function) = item else {
+                continue;
+            };
+            if !function
+                .attributes
+                .iter()
+                .any(|attribute| attribute.name == "spectra_async_test")
+            {
+                continue;
+            }
+            if !function.is_async {
+                return Err(CliError::compilation(format!(
+                    "{}::{} uses #[spectra_async_test] but is not async",
+                    module.name, function.name
+                )));
+            }
+            if !function.params.is_empty() {
+                return Err(CliError::compilation(format!(
+                    "{}::{} uses #[spectra_async_test] but declares parameters",
+                    module.name, function.name
+                )));
+            }
+
+            let returns_int = function.return_type.as_ref().is_some_and(|annotation| {
+                matches!(
+                    &annotation.kind,
+                    TypeAnnotationKind::Simple { segments }
+                        if segments.len() == 1 && segments[0] == "int"
+                )
+            });
+            cases.push(AsyncTestCase {
+                name: format!("{}::{}", module.name, function.name),
+                module_name: module.name.clone(),
+                function_name: function.name.clone(),
+                path: path.clone(),
+                source: effective_source.to_string(),
+                returns_int,
+            });
+        }
+    }
+
+    cases.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(cases)
+}
+
+fn filter_async_tests(cases: Vec<AsyncTestCase>, filter: Option<&str>) -> Vec<AsyncTestCase> {
+    match filter {
+        Some(filter) => cases
+            .into_iter()
+            .filter(|case| {
+                case.name.contains(filter) || case.path.to_string_lossy().contains(filter)
+            })
+            .collect(),
+        None => cases,
+    }
+}
+
+fn async_test_wrapper_source(case: &AsyncTestCase) -> String {
+    let body = if case.returns_int {
+        format!("    return block_on({}());", case.function_name)
+    } else {
+        format!("    block_on({}());\n    return 0;", case.function_name)
+    };
+
+    format!(
+        "{}\n\nfn main() -> int {{\n{}\n}}\n",
+        case.source.trim_end(),
+        body
+    )
+}
+
+fn run_async_test_case(
+    workspace: &package::ResolvedWorkspace,
+    case: &AsyncTestCase,
+    index: usize,
+) -> PackageTestCaseReport {
+    let target_dir = workspace
+        .root
+        .join("target")
+        .join("spectra-async-tests")
+        .join(format!("{:04}_{}", index, sanitize_module_name(&case.name)));
+    if let Err(error) = fs::create_dir_all(&target_dir) {
+        return PackageTestCaseReport {
+            name: case.name.clone(),
+            path: display_path(&case.path),
+            status: "failed".to_string(),
+            detail: Some(format!("cannot create test target directory: {}", error)),
+        };
+    }
+
+    let wrapper_path = target_dir.join(format!(
+        "{}.spectra",
+        sanitize_module_name(&case.module_name)
+    ));
+    if let Err(error) = fs::write(&wrapper_path, async_test_wrapper_source(case)) {
+        return PackageTestCaseReport {
+            name: case.name.clone(),
+            path: display_path(&case.path),
+            status: "failed".to_string(),
+            detail: Some(format!("cannot write generated test wrapper: {}", error)),
+        };
+    }
+
+    let mut entries = workspace.source_entries();
+    entries.push(wrapper_path);
+    let plan = match ProjectPlan::build(entries) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return PackageTestCaseReport {
+                name: case.name.clone(),
+                path: display_path(&case.path),
+                status: "failed".to_string(),
+                detail: Some(error.to_string()),
+            };
+        }
+    };
+
+    let mut compiler = SpectraCompiler::new(CompilationOptions {
+        run_jit: true,
+        ..CompilationOptions::default()
+    });
+    compiler.set_emit_output(false);
+    compiler.set_quiet_execution(true);
+    if let Some(name) = workspace.root_package_name() {
+        compiler.set_package_name(name);
+    }
+
+    let (has_failures, _) = compile_plan(BuildCommand::Run, &mut compiler, &plan, false, false);
+    if has_failures {
+        return PackageTestCaseReport {
+            name: case.name.clone(),
+            path: display_path(&case.path),
+            status: "failed".to_string(),
+            detail: Some("compilation failed".to_string()),
+        };
+    }
+
+    match take_last_exec_exit() {
+        Some(0) => PackageTestCaseReport {
+            name: case.name.clone(),
+            path: display_path(&case.path),
+            status: "passed".to_string(),
+            detail: None,
+        },
+        Some(code) => PackageTestCaseReport {
+            name: case.name.clone(),
+            path: display_path(&case.path),
+            status: "failed".to_string(),
+            detail: Some(format!("program exited with status {}", code)),
+        },
+        None => PackageTestCaseReport {
+            name: case.name.clone(),
+            path: display_path(&case.path),
+            status: "failed".to_string(),
+            detail: Some("generated wrapper did not execute a main entry point".to_string()),
+        },
+    }
+}
+
+fn execute_package_tests(root: &Path, options: package::PackageTestOptions) -> CliResult<()> {
+    let workspace = package::resolve(root).map_err(|error| CliError::io(error.to_string()))?;
+    emit_package_deprecation_warnings(&workspace);
+    let test_entries = package::discover_test_entries(&workspace);
+    let all_cases = discover_async_test_cases(&test_entries)?;
+    let cases = filter_async_tests(all_cases, options.filter.as_deref());
+    let lock_path =
+        package::write_lockfile(&workspace).map_err(|error| CliError::io(error.to_string()))?;
+
+    if options.list {
+        let tests = cases
+            .iter()
+            .map(|case| PackageTestCaseReport {
+                name: case.name.clone(),
+                path: display_path(&case.path),
+                status: "listed".to_string(),
+                detail: None,
+            })
+            .collect::<Vec<_>>();
+        if options.json {
+            let report = PackageTestReport {
+                schema: "spectra-package-test-report-v1",
+                success: true,
+                listed: true,
+                tests,
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report)
+                    .map_err(|error| CliError::io(error.to_string()))?
+            );
+        } else {
+            println!("     Locked {}", lock_path.display());
+            for test in tests {
+                println!("{}", test.name);
+            }
+            println!("     Listed {} async test(s)", cases.len());
+        }
+        return Ok(());
+    }
+
+    if cases.is_empty() {
+        let mut entries = workspace.source_entries();
+        entries.extend(test_entries);
+        if !options.json {
+            println!("     Locked {}", lock_path.display());
+        }
+        return execute_plan_with_options(
+            BuildCommand::Check,
+            CompilationOptions::default(),
+            entries,
+            workspace.root_package_name(),
+            false,
+            false,
+            !options.json,
+            false,
+            None,
+        );
+    }
+
+    if !options.json {
+        println!("     Locked {}", lock_path.display());
+        println!("     Running {} async test(s)", cases.len());
+    }
+
+    let mut results = Vec::with_capacity(cases.len());
+    for (index, case) in cases.iter().enumerate() {
+        let result = run_async_test_case(&workspace, case, index);
+        if !options.json {
+            let marker = if result.status == "passed" {
+                "ok"
+            } else {
+                "FAILED"
+            };
+            println!("test {} ... {}", result.name, marker);
+            if let Some(detail) = &result.detail {
+                println!("     {}", detail);
+            }
+        }
+        results.push(result);
+    }
+
+    let success = results.iter().all(|result| result.status == "passed");
+    if options.json {
+        let report = PackageTestReport {
+            schema: "spectra-package-test-report-v1",
+            success,
+            listed: false,
+            tests: results,
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|error| CliError::io(error.to_string()))?
+        );
+    } else {
+        let passed = results
+            .iter()
+            .filter(|result| result.status == "passed")
+            .count();
+        println!(
+            "     Result: {} passed; {} failed",
+            passed,
+            results.len() - passed
+        );
+    }
+
+    if success {
+        Ok(())
+    } else {
+        Err(CliError::compilation("one or more async tests failed"))
+    }
+}
+
 fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
     match invocation.command {
         PackageCommand::Lock | PackageCommand::Update => {
@@ -2243,27 +2606,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 None,
             )
         }
-        PackageCommand::Test => {
-            let workspace = package::resolve(&invocation.root)
-                .map_err(|error| CliError::io(error.to_string()))?;
-            emit_package_deprecation_warnings(&workspace);
-            let mut entries = workspace.source_entries();
-            entries.extend(package::discover_test_entries(&workspace));
-            let lock_path = package::write_lockfile(&workspace)
-                .map_err(|error| CliError::io(error.to_string()))?;
-            println!("     Locked {}", lock_path.display());
-            execute_plan_with_options(
-                BuildCommand::Check,
-                CompilationOptions::default(),
-                entries,
-                workspace.root_package_name(),
-                false,
-                false,
-                true,
-                false,
-                None,
-            )
-        }
+        PackageCommand::Test(options) => execute_package_tests(&invocation.root, options),
         PackageCommand::Bench => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
@@ -2989,7 +3332,7 @@ fn print_package_help() {
     println!("    build      Resolve, lock, and compile a package workspace");
     println!("    check      Resolve, lock, and type-check a package workspace");
     println!("    run        Resolve, lock, compile, and run the workspace entry point");
-    println!("    test       Resolve, lock, and check package plus tests/ sources");
+    println!("    test       Resolve, lock, list/filter, and run #[spectra_async_test] tests");
     println!("    bench      Resolve, lock, and check with pipeline timings");
     println!("    doc        Generate package documentation into target/spectra-docs");
     println!("    add        Add a path or registry dependency and refresh spectra.lock");
@@ -3001,10 +3344,14 @@ fn print_package_help() {
     println!("    --path <path>          Local dependency path for 'add'");
     println!("    --version <version>    Dependency version for 'add'");
     println!("    --registry <path>      Local registry path for 'add' or 'publish'");
+    println!("    --list                 List async tests for 'test'");
+    println!("    --filter <text>        Run or list async tests whose name/path contains text");
+    println!("    --json                 Emit JSON report for 'test'");
     println!();
     println!("Examples:");
     println!("    spectralang package lock --root .");
     println!("    spectralang package build --root examples/workspace");
+    println!("    spectralang package test --root . --filter api");
     println!("    spectralang package add math --path ../math --version 0.1.0");
     println!("    spectralang package publish --root packages/math --registry .spectra-registry");
     println!("    spectralang package add math --version 0.1.0 --registry .spectra-registry");

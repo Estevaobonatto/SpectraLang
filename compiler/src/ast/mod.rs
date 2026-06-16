@@ -131,11 +131,18 @@ pub enum Visibility {
     Private,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attribute {
+    pub name: String,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub span: Span,
     pub visibility: Visibility,
+    pub attributes: Vec<Attribute>,
     /// True when the declaration was written as `async fn`.
     pub is_async: bool,
     pub type_params: Vec<TypeParameter>, // NEW: Generic type parameters

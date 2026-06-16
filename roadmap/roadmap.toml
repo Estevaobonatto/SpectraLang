@@ -1553,14 +1553,15 @@ title = "Async Test Runtime and Test Macros"
 phase = "phase_21"
 owner = "tooling"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2107"]
 summary = "Provide `#[spectra_async_test]` plus a `block_on` runtime so API test code can use plain `async fn` without manual setup."
 acceptance = [
   "`#[spectra_async_test]` runs async test functions inside the Spectra test runner",
   "`block_on(future)` is available in test code without external setup",
-  "tests can be filtered, listed, and reported like synchronous tests"
+  "tests can be filtered, listed, and reported like synchronous tests",
+  "`scripts/validate_r2109_async_test_runtime.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Block, ConstDecl, Function, FunctionParam, ImplBlock, Item, Method, Parameter, StaticDecl,
-        TraitDeclaration, TraitImpl, TraitMethod, TypeAlias, TypeParameter, Visibility,
+        Attribute, Block, ConstDecl, Function, FunctionParam, ImplBlock, Item, Method, Parameter,
+        StaticDecl, TraitDeclaration, TraitImpl, TraitMethod, TypeAlias, TypeParameter, Visibility,
     },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
@@ -12,8 +12,16 @@ use super::{ParameterSignature, Parser, TraitMethodSignature, TypePattern};
 
 impl Parser {
     pub(super) fn parse_item(&mut self) -> Result<Item, ()> {
+        let attributes = self.parse_outer_attributes()?;
         match &self.current().kind {
             crate::token::TokenKind::Keyword(Keyword::Import) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 let import = self.parse_import(false)?;
                 Ok(Item::Import(import))
             }
@@ -24,10 +32,17 @@ impl Parser {
                     &self.current().kind,
                     crate::token::TokenKind::Keyword(Keyword::Import)
                 ) {
+                    if !attributes.is_empty() {
+                        self.error_at(
+                            "Attributes are currently supported only on function declarations",
+                            attributes[0].span,
+                        );
+                        return Err(());
+                    }
                     let import = self.parse_import(true)?;
                     return Ok(Item::Import(import));
                 }
-                self.parse_item_with_visibility(Visibility::Public)
+                self.parse_item_with_visibility(Visibility::Public, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Internal) => {
                 self.advance(); // consume 'internal'
@@ -36,6 +51,13 @@ impl Parser {
                     &self.current().kind,
                     crate::token::TokenKind::Keyword(Keyword::Import)
                 ) {
+                    if !attributes.is_empty() {
+                        self.error_at(
+                            "Attributes are currently supported only on function declarations",
+                            attributes[0].span,
+                        );
+                        return Err(());
+                    }
                     let mut import = self.parse_import(false)?;
                     // Mark as internal re-export (visible only within the package).
                     // We reuse the is_reexport flag and rely on the visibility of the
@@ -43,32 +65,69 @@ impl Parser {
                     import.is_reexport = false; // not a full re-export
                     return Ok(Item::Import(import));
                 }
-                self.parse_item_with_visibility(Visibility::Internal)
+                self.parse_item_with_visibility(Visibility::Internal, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Fn) => {
-                self.parse_item_with_visibility(Visibility::Private)
+                self.parse_item_with_visibility(Visibility::Private, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Async) => {
-                self.parse_item_with_visibility(Visibility::Private)
+                self.parse_item_with_visibility(Visibility::Private, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Struct) => {
-                self.parse_item_with_visibility(Visibility::Private)
+                self.parse_item_with_visibility(Visibility::Private, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Enum) => {
-                self.parse_item_with_visibility(Visibility::Private)
+                self.parse_item_with_visibility(Visibility::Private, attributes)
             }
-            crate::token::TokenKind::Keyword(Keyword::Impl) => self.parse_impl_block(),
+            crate::token::TokenKind::Keyword(Keyword::Impl) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                self.parse_impl_block()
+            }
             crate::token::TokenKind::Keyword(Keyword::Trait) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 let trait_decl = self.parse_trait_declaration()?;
                 Ok(Item::Trait(trait_decl))
             }
             crate::token::TokenKind::Keyword(Keyword::Type) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 self.parse_type_alias(Visibility::Private)
             }
             crate::token::TokenKind::Keyword(Keyword::Const) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 self.parse_const_decl(Visibility::Private)
             }
             crate::token::TokenKind::Keyword(Keyword::Static) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 self.parse_static_decl(Visibility::Private)
             }
             _ => {
@@ -78,28 +137,100 @@ impl Parser {
         }
     }
 
-    fn parse_item_with_visibility(&mut self, visibility: Visibility) -> Result<Item, ()> {
+    fn parse_outer_attributes(&mut self) -> Result<Vec<Attribute>, ()> {
+        let mut attributes = Vec::new();
+
+        while self.check_symbol('#') {
+            let start_span = self.current().span;
+            self.advance();
+            self.consume_symbol('[', "Expected '[' after '#' in attribute")?;
+            let (name, name_span) = self.consume_identifier("Expected attribute name")?;
+            let end_span = self.consume_symbol(']', "Expected ']' after attribute name")?;
+            attributes.push(Attribute {
+                name,
+                span: span_union(start_span, span_union(name_span, end_span)),
+            });
+        }
+
+        Ok(attributes)
+    }
+
+    fn parse_item_with_visibility(
+        &mut self,
+        visibility: Visibility,
+        attributes: Vec<Attribute>,
+    ) -> Result<Item, ()> {
         match &self.current().kind {
             crate::token::TokenKind::Keyword(Keyword::Fn) => {
-                let function = self.parse_function(visibility)?;
+                let function = self.parse_function(visibility, attributes)?;
                 Ok(Item::Function(function))
             }
             crate::token::TokenKind::Keyword(Keyword::Async) => {
-                let function = self.parse_function(visibility)?;
+                let function = self.parse_function(visibility, attributes)?;
                 Ok(Item::Function(function))
             }
             crate::token::TokenKind::Keyword(Keyword::Struct) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 let struct_item = self.parse_struct(visibility)?;
                 Ok(Item::Struct(struct_item))
             }
             crate::token::TokenKind::Keyword(Keyword::Enum) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
                 let enum_item = self.parse_enum(visibility)?;
                 Ok(Item::Enum(enum_item))
             }
-            crate::token::TokenKind::Keyword(Keyword::Impl) => self.parse_impl_block(),
-            crate::token::TokenKind::Keyword(Keyword::Type) => self.parse_type_alias(visibility),
-            crate::token::TokenKind::Keyword(Keyword::Const) => self.parse_const_decl(visibility),
-            crate::token::TokenKind::Keyword(Keyword::Static) => self.parse_static_decl(visibility),
+            crate::token::TokenKind::Keyword(Keyword::Impl) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                self.parse_impl_block()
+            }
+            crate::token::TokenKind::Keyword(Keyword::Type) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                self.parse_type_alias(visibility)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Const) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                self.parse_const_decl(visibility)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Static) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on function declarations",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                self.parse_static_decl(visibility)
+            }
             _ => {
                 self.error("Expected function, struct, enum, or impl declaration");
                 Err(())
@@ -107,7 +238,11 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_function(&mut self, visibility: Visibility) -> Result<Function, ()> {
+    pub(super) fn parse_function(
+        &mut self,
+        visibility: Visibility,
+        attributes: Vec<Attribute>,
+    ) -> Result<Function, ()> {
         // Expect: [async] fn <name><T: Trait>(<params>) [-> type] { <body> }
         let (start_span, is_async) = if self.check_keyword(Keyword::Async) {
             let async_span = self.current().span;
@@ -171,6 +306,7 @@ impl Parser {
             name,
             span: span_union(start_span, end_span),
             visibility,
+            attributes,
             is_async,
             type_params,
             params,
