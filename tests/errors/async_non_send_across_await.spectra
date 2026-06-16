@@ -1,0 +1,15 @@
+module async_non_send_across_await;
+
+struct NonSend {
+    value: int
+}
+
+async fn ready() -> int {
+    return 1;
+}
+
+async fn bad() -> int {
+    let local = NonSend { value: 41 };
+    let waited = await ready();
+    return local.value + waited;
+}

@@ -1,0 +1,15 @@
+module async_refcell_across_await;
+
+struct RefCell {
+    value: int
+}
+
+async fn ready() -> int {
+    return 1;
+}
+
+async fn bad() -> int {
+    let cell = RefCell { value: 41 };
+    let waited = await ready();
+    return cell.value + waited;
+}

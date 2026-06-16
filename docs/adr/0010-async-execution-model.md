@@ -264,6 +264,12 @@ The compiler and runtime must provide stable diagnostics for:
 - leaked or detached task without explicit policy.
 
 Diagnostics must include stable error codes once R-2110 begins implementation.
+R-2110 reserves `E2101` through `E2120` for async diagnostics. The first
+implemented Send/Sync gates are:
+
+- `E2101`: a non-`Send` value is live across an `await`;
+- `E2102`: a `RefCell`/interior-mutable value is held across an `await`;
+- `E2103`: a `!Send` value crosses a spawn-style task boundary.
 
 ## Consequences
 

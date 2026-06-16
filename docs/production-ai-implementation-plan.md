@@ -1650,8 +1650,13 @@ The eight phases are summarized below; the detailed items live in
 - `R-2109` Async test runtime and macros (complete; function attributes,
   `#[spectra_async_test]` discovery, `block_on(Task<T>) -> T`, package test
   list/filter/JSON reporting, and validation gate landed)
-- `R-2110` Async diagnostics and `Send`/`Sync` validation
+- `R-2110` Async diagnostics and `Send`/`Sync` validation (complete; stable
+  `E2101` through `E2120` documentation, non-`Send` across `await`,
+  `RefCell` across `await`, spawn-boundary diagnostics, and validation gate
+  landed)
 - `R-2111` Async benchmarks and profiling
+- `R-2112` Formal `Send`/`Sync` trait bounds (`T: Send`, `T: Sync`,
+  `dyn Trait + Send`, and task-boundary evidence)
 
 ### Phase 22 — API Library Foundation (`spectra.api`)
 

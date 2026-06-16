@@ -155,6 +155,9 @@ This file is the source of truth for language maturity labels. Documentation, ex
   `Future` and `Stream` trait object signatures, `Box<dyn Future>` /
   `Box<dyn Stream>` lowering to `dyn Trait` fat pointers, and diagnostic
   `E2108` for non-object-safe async trait methods
+- async diagnostics baseline: stable `E2101` through `E2120` code range,
+  non-`Send` values live across `await`, `RefCell`/interior-mutable values
+  across `await`, and `!Send` values crossing spawn-style task boundaries
 - first-class tensor language design beyond the current stdlib handle/autodiff API
 - native DWARF/PDB source stepping beyond the current AOT debug-map workflow
 - HTTP/gRPC serving, async I/O integration, distributed model residency policy, and external policy-engine integration

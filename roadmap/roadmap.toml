@@ -1570,7 +1570,7 @@ title = "Async Diagnostics and Send/Sync Validation"
 phase = "phase_21"
 owner = "semantic"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2103"]
 summary = "Emit stable semantic diagnostics for `Send`/`Sync` violations across await points, `RefCell` held across await, and other async borrow errors."
@@ -1578,7 +1578,8 @@ acceptance = [
   "stable diagnostic codes `E2101` through `E2120` are documented",
   "non-`Send` types held across await produce a precise semantic diagnostic with span",
   "`!Send` types crossing task boundaries are reported before runtime",
-  "regression tests cover each diagnostic family"
+  "regression tests cover each diagnostic family",
+  "`scripts/validate_r2110_async_send_sync.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]
@@ -1595,6 +1596,24 @@ acceptance = [
   "`spectralang bench --async` runs async micro-benchmarks and emits JSON",
   "the suite covers 1k, 10k, and 100k concurrent tasks",
   "the JSON report is machine-readable and is compared against a checked-in baseline"
+]
+
+[[items]]
+id = "R-2112"
+title = "Formal Send/Sync Trait Bounds"
+phase = "phase_21"
+owner = "semantic"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2108", "R-2110"]
+summary = "Add first-class `Send` and `Sync` trait bounds to generic, async, task, and dynamic trait object typing so async safety is expressed by the type system instead of only by explicit type-family classification."
+acceptance = [
+  "`T: Send` and `T: Sync` bounds parse, type-check, and participate in generic trait-bound validation",
+  "`dyn Trait + Send` and `dyn Trait + Sync` are represented in the AST, semantic type model, and lowering without breaking existing `dyn Trait` code",
+  "`Task<T>: Send` and spawn-style APIs require formal `Send` evidence instead of name-family-only classification",
+  "diagnostics reuse the `E2101` through `E2120` async range with precise spans for missing `Send`/`Sync` evidence",
+  "regression tests cover generic bounds, dyn trait bounds, task boundary checks, and backwards-compatible plain `dyn Trait` behavior"
 ]
 
 [[items]]

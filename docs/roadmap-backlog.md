@@ -3255,7 +3255,7 @@ code can use plain `async fn` without manual setup.
 
 ## R-2110 Async Diagnostics and Send/Sync Validation
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Risk: `high`
@@ -3273,6 +3273,21 @@ await points, `RefCell` held across await, and other async borrow errors.
   with span.
 - `!Send` types crossing task boundaries are reported before runtime.
 - Regression tests cover each diagnostic family.
+- `scripts\validate_r2110_async_send_sync.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed Notes
+
+- Added semantic async Send/Sync event analysis for `async fn` bodies.
+- Documented the stable async diagnostic range `E2101` through `E2120`.
+- Implemented `E2101` for non-`Send` values live across `await`, `E2102`
+  for `RefCell`/interior-mutable values held across `await`, and `E2103`
+  for `!Send` values crossing spawn-style task boundaries.
+- Added regression fixtures:
+  `tests\errors\async_non_send_across_await.spectra`,
+  `tests\errors\async_refcell_across_await.spectra`,
+  `tests\errors\async_non_send_task_boundary.spectra`, and
+  `tests\validation\131_async_send_sync_valid.spectra`.
 
 ## R-2111 Async Benchmarks and Profiling
 
@@ -3293,6 +3308,40 @@ and concurrent connection counts for async workloads.
 - The suite covers 1k, 10k, and 100k concurrent tasks.
 - The JSON report is machine-readable and is compared against a checked-in
   baseline.
+
+## R-2112 Formal Send/Sync Trait Bounds
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `semantic`
+- Risk: `medium`
+- Dependencies: `R-2108`, `R-2110`
+
+### Scope
+
+Add first-class `Send` and `Sync` trait bounds to generic, async, task, and
+dynamic trait object typing so async safety is expressed by the type system
+instead of only by explicit type-family classification.
+
+This item closes the known gap left after `R-2110`: until this lands, the
+compiler uses explicit classification for families such as `RefCell`, `Cell`,
+`Rc`, `NonSend`, and `LocalOnly`, plus recursive struct-field checks. Formal
+bounds must let users and libraries express the contract directly as
+`T: Send`, `T: Sync`, `dyn Trait + Send`, and `dyn Trait + Sync`.
+
+### Acceptance
+
+- `T: Send` and `T: Sync` bounds parse, type-check, and participate in
+  generic trait-bound validation.
+- `dyn Trait + Send` and `dyn Trait + Sync` are represented in the AST,
+  semantic type model, and lowering without breaking existing `dyn Trait`
+  code.
+- `Task<T>: Send` and spawn-style APIs require formal `Send` evidence instead
+  of name-family-only classification.
+- Diagnostics reuse the `E2101` through `E2120` async range with precise spans
+  for missing `Send`/`Sync` evidence.
+- Regression tests cover generic bounds, dyn trait bounds, task boundary
+  checks, and backwards-compatible plain `dyn Trait` behavior.
 
 ---
 

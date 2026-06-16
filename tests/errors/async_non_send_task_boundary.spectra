@@ -1,0 +1,14 @@
+module async_non_send_task_boundary;
+
+struct NonSend {
+    value: int
+}
+
+fn spawn_task(value: NonSend) -> int {
+    return value.value;
+}
+
+async fn bad() -> int {
+    let local = NonSend { value: 42 };
+    return spawn_task(local);
+}

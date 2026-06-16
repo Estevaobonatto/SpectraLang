@@ -12,6 +12,7 @@ This file defines the stable diagnostic-code ranges currently implemented in Pha
 | `L001-L099` | lexer | Tokenization and literal scanning errors |
 | `P001-P099` | parser | Syntax and feature-gate errors |
 | `E001-E099` | semantic | Name resolution, typing, control flow, and trait validation errors |
+| `E2101-E2120` | semantic | Phase 21 async/await, task safety, and Send/Sync diagnostics |
 | `lint(<rule>)` | lint | Lint warnings or denied lint findings |
 | `midend` | midend | Internal IR/lowering errors without a stable subcode yet |
 | `backend` | backend | Codegen or backend execution errors without a stable subcode yet |
@@ -50,6 +51,35 @@ The following set is the current stable Phase 1 table for high-frequency diagnos
 | `E011` | semantic | unknown qualified module member | use an exported member from the module or import alias; inspect the candidate export list |
 
 This satisfies the Phase 1 acceptance target of at least 20 high-frequency diagnostics with actionable remediation guidance.
+
+## Phase 21 Async Diagnostics
+
+The following async diagnostic range is stable for tooling and documentation.
+Codes are reserved even when a later phase broadens the implementation behind
+the code.
+
+| Code | Phase | Meaning | Expected hint/action |
+| --- | --- | --- | --- |
+| `E2101` | semantic | non-`Send` value is live across an `await` | drop or convert the value before `await`, or keep the task on a local executor lane |
+| `E2102` | semantic | `RefCell`/interior-mutable value is held across an `await` | shorten the value lifetime or replace it with an async-safe synchronization primitive |
+| `E2103` | semantic | `!Send` value crosses a spawn/task boundary | use a local task API or pass only `Send` values to spawn-style APIs |
+| `E2104` | semantic | non-`Sync` shared state is required by an async API | use synchronized shared state or avoid sharing across executor threads |
+| `E2105` | semantic | `await` operand is not `Task<T>` | await only task values or remove `await` |
+| `E2106` | semantic | `await` is used outside an async semantic context | move the expression into `async fn`, `async {}`, or an async closure |
+| `E2107` | semantic | async return type does not match `Task<T>` output | align the declared async return type and returned values |
+| `E2108` | semantic | async trait method is not object-safe for `dyn Trait` | change the receiver to an object-safe form such as `&self` |
+| `E2109` | semantic | async closure captures a non-`Send` value where `Send` is required | capture a `Send` value or use a local-only closure/task API |
+| `E2110` | semantic | async block captures a non-`Send` value where `Send` is required | narrow the capture or use a local executor lane |
+| `E2111` | semantic | task cancellation token is used after completion | stop using the token after the owning task completes |
+| `E2112` | semantic | timeout scope contains a non-cancellable async operation | use cancellable operations inside timeout scopes |
+| `E2113` | semantic | blocking host call is used directly in async context | route the call through `spawn_blocking` or an async API |
+| `E2114` | semantic | task is detached without an explicit detach policy | join, cancel, or explicitly detach the task |
+| `E2115` | semantic | task result is polled after completion | consume the result once or create a new task |
+| `E2116` | semantic | stream item is awaited after stream cancellation | stop polling the stream after cancellation |
+| `E2117` | semantic | async state frame contains unsupported self-reference | rewrite the value to avoid self-reference across suspend points |
+| `E2118` | semantic | borrowed value escapes an async state frame | return an owned value or shorten the borrow |
+| `E2119` | semantic | task-local value is used from a different executor lane | keep the value on its original lane or make it `Send` |
+| `E2120` | semantic | reserved async diagnostic catch-all | file a targeted diagnostic code before relying on this code in tooling |
 
 ## Machine-Readable JSON Diagnostics
 
