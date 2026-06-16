@@ -3291,7 +3291,7 @@ await points, `RefCell` held across await, and other async borrow errors.
 
 ## R-2111 Async Benchmarks and Profiling
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `tooling`
 - Risk: `low`
@@ -3308,6 +3308,22 @@ and concurrent connection counts for async workloads.
 - The suite covers 1k, 10k, and 100k concurrent tasks.
 - The JSON report is machine-readable and is compared against a checked-in
   baseline.
+
+### Completed Notes
+
+- Added `spectralang bench --async` for the Phase 21 async runtime benchmark
+  suite.
+- The report schema `spectra.r2111.async_benchmark.v1` emits p50/p95/p99
+  latency, throughput, concurrent task counts, concurrent connection counts,
+  sample counts, and full-task-set checksums.
+- The suite covers 1k, 10k, and 100k concurrent async tasks.
+- Added runtime host calls for production benchmark support:
+  `spectra.async.task.ready_batch` and
+  `spectra.async.task.batch_checksum`.
+- Added checked-in regression thresholds at
+  `docs/performance/r2111-async-benchmark-baseline.json`.
+- Added `scripts/validate_r2111_async_bench.py` and wired it into
+  `run_tests.ps1`.
 
 ## R-2112 Formal Send/Sync Trait Bounds
 

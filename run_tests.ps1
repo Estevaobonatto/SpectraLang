@@ -1182,6 +1182,19 @@ if ($r2110AsyncSendSync.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2110_async_send_sync"; Status = $r2110AsyncSendSync.Status; Detalhe = $r2110AsyncSendSync.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.36: R-2111 async benchmarks and profiling
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2111 async benchmarks and profiling ---" -ForegroundColor Yellow
+$r2111AsyncBench = Invoke-HostCommand -name "validate_r2111_async_bench" -fileName "python" -arguments @("scripts\validate_r2111_async_bench.py") -workingDir (Get-Location).Path
+if ($r2111AsyncBench.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2111_async_bench"; Status = $r2111AsyncBench.Status; Detalhe = $r2111AsyncBench.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

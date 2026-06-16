@@ -28,6 +28,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Instant;
 use std::{env, fs, process};
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &[];
@@ -103,6 +104,8 @@ struct CliInvocation {
     emit_exe: Option<PathBuf>,
     /// When `Some(path)`, write a machine-readable benchmark report.
     bench_json: Option<PathBuf>,
+    /// Run the Phase 21 async runtime microbenchmark suite instead of compiler timing benchmarks.
+    async_bench: bool,
     /// Arguments forwarded to the Spectra program when running via JIT (`run` command).
     /// These are accessible through `std.env.env_arg` / `std.env.env_args_count`.
     program_args: Vec<String>,
@@ -430,6 +433,7 @@ where
     let mut emit_object: Option<PathBuf> = None;
     let mut emit_exe: Option<PathBuf> = None;
     let mut bench_json: Option<PathBuf> = None;
+    let mut async_bench = false;
     let mut program_args: Vec<String> = Vec::new();
 
     while let Some(arg) = args.next() {
@@ -554,6 +558,14 @@ where
                     .ok_or_else(|| usage_error("Missing output path after '--bench-json'."))?;
                 bench_json = Some(PathBuf::from(path));
             }
+            "--async" => {
+                if command != BuildCommand::Bench {
+                    return Err(usage_error(
+                        "'--async' is only supported with the 'bench' command.",
+                    ));
+                }
+                async_bench = true;
+            }
             "--emit-object" | "-o" => {
                 let path = args
                     .next()
@@ -573,7 +585,7 @@ where
         }
     }
 
-    if entries.is_empty() {
+    if entries.is_empty() && !(command == BuildCommand::Bench && async_bench) {
         return Err(usage_error("No source files or directories were provided."));
     }
 
@@ -605,6 +617,7 @@ where
         emit_object,
         emit_exe,
         bench_json,
+        async_bench,
         program_args,
     })
 }
@@ -1107,8 +1120,13 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         emit_object,
         emit_exe,
         bench_json,
+        async_bench,
         program_args,
     } = invocation;
+
+    if kind == BuildCommand::Bench && async_bench {
+        return execute_async_benchmarks(bench_json);
+    }
 
     if json_output || sarif_output {
         return match kind {
@@ -1544,6 +1562,205 @@ struct BenchTotals {
 
 fn duration_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
+}
+
+const ASYNC_BENCH_COUNTS: &[usize] = &[1_000, 10_000, 100_000];
+const ASYNC_BENCH_SCHEMA: &str = "spectra.r2111.async_benchmark.v1";
+const ASYNC_BENCH_MAX_LATENCY_SAMPLES: usize = 1_024;
+
+#[derive(Serialize)]
+struct AsyncBenchReport {
+    schema: &'static str,
+    version: u8,
+    runtime: &'static str,
+    benchmarks: Vec<AsyncBenchCaseReport>,
+    totals: AsyncBenchTotals,
+}
+
+#[derive(Serialize)]
+struct AsyncBenchCaseReport {
+    id: String,
+    concurrent_tasks: usize,
+    concurrent_connections: usize,
+    samples: usize,
+    p50_latency_ns: u128,
+    p95_latency_ns: u128,
+    p99_latency_ns: u128,
+    throughput_tasks_per_sec: f64,
+    total_ms: f64,
+    checksum: i64,
+}
+
+#[derive(Serialize)]
+struct AsyncBenchTotals {
+    cases: usize,
+    total_tasks: usize,
+    total_ms: f64,
+    min_throughput_tasks_per_sec: f64,
+    max_p99_latency_ns: u128,
+}
+
+fn execute_async_benchmarks(bench_json: Option<PathBuf>) -> CliResult<()> {
+    spectra_runtime::initialize();
+    spectra_runtime::register_standard_library();
+
+    let mut benchmarks = Vec::new();
+    let suite_start = Instant::now();
+
+    for &count in ASYNC_BENCH_COUNTS {
+        benchmarks.push(run_async_benchmark_case(count)?);
+    }
+
+    let total_ms = duration_ms(suite_start.elapsed());
+    let total_tasks = benchmarks
+        .iter()
+        .map(|bench| bench.concurrent_tasks)
+        .sum::<usize>();
+    let min_throughput_tasks_per_sec = benchmarks
+        .iter()
+        .map(|bench| bench.throughput_tasks_per_sec)
+        .fold(f64::INFINITY, f64::min);
+    let max_p99_latency_ns = benchmarks
+        .iter()
+        .map(|bench| bench.p99_latency_ns)
+        .max()
+        .unwrap_or(0);
+
+    let report = AsyncBenchReport {
+        schema: ASYNC_BENCH_SCHEMA,
+        version: 1,
+        runtime: "spectra-runtime-hostcalls",
+        totals: AsyncBenchTotals {
+            cases: benchmarks.len(),
+            total_tasks,
+            total_ms,
+            min_throughput_tasks_per_sec,
+            max_p99_latency_ns,
+        },
+        benchmarks,
+    };
+
+    let text = serde_json::to_string_pretty(&report).map_err(|error| {
+        CliError::io(format!("Failed to serialize async bench report: {}", error))
+    })?;
+
+    if let Some(path) = bench_json {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    CliError::io(format!(
+                        "Failed to create async bench report directory '{}': {}",
+                        parent.display(),
+                        error
+                    ))
+                })?;
+            }
+        }
+        fs::write(&path, format!("{}\n", text)).map_err(|error| {
+            CliError::io(format!(
+                "Failed to write async bench report '{}': {}",
+                path.display(),
+                error
+            ))
+        })?;
+        println!("     Written async bench report {}", path.display());
+    } else {
+        println!("{}", text);
+    }
+
+    Ok(())
+}
+
+fn run_async_benchmark_case(concurrent_tasks: usize) -> CliResult<AsyncBenchCaseReport> {
+    let _ = call_async_host_i64("spectra.async.task.reset", &[])?;
+
+    let total_start = Instant::now();
+    let first_task = call_async_host_i64(
+        "spectra.async.task.ready_batch",
+        &[concurrent_tasks as i64, 1],
+    )?;
+    let sample_count = concurrent_tasks.min(ASYNC_BENCH_MAX_LATENCY_SAMPLES);
+    let mut latencies = Vec::with_capacity(sample_count);
+
+    for sample_index in 0..sample_count {
+        let index = if sample_count <= 1 {
+            0
+        } else {
+            sample_index * (concurrent_tasks - 1) / (sample_count - 1)
+        };
+        let task = first_task + index as i64;
+        let ready = call_async_host_i64("spectra.async.task.poll", &[task])?;
+        if ready == 0 {
+            return Err(CliError::compilation(
+                "async benchmark expected ready task to poll successfully",
+            ));
+        }
+    }
+
+    for sample_index in 0..sample_count {
+        let index = if sample_count <= 1 {
+            0
+        } else {
+            sample_index * (concurrent_tasks - 1) / (sample_count - 1)
+        };
+        let task = first_task + index as i64;
+        let latency_start = Instant::now();
+        let result = call_async_host_i64("spectra.async.task.result", &[task])?;
+        if result != (index as i64) + 1 {
+            return Err(CliError::compilation(
+                "async benchmark observed an unexpected sampled task result",
+            ));
+        }
+        latencies.push(latency_start.elapsed().as_nanos());
+    }
+    let checksum = call_async_host_i64(
+        "spectra.async.task.batch_checksum",
+        &[first_task, concurrent_tasks as i64],
+    )?;
+
+    let total_elapsed = total_start.elapsed();
+    latencies.sort_unstable();
+
+    Ok(AsyncBenchCaseReport {
+        id: format!("ready_task_{}", concurrent_tasks),
+        concurrent_tasks,
+        concurrent_connections: concurrent_tasks,
+        samples: sample_count,
+        p50_latency_ns: percentile_latency(&latencies, 50),
+        p95_latency_ns: percentile_latency(&latencies, 95),
+        p99_latency_ns: percentile_latency(&latencies, 99),
+        throughput_tasks_per_sec: concurrent_tasks as f64 / total_elapsed.as_secs_f64().max(1.0e-9),
+        total_ms: duration_ms(total_elapsed),
+        checksum,
+    })
+}
+
+fn percentile_latency(sorted_latencies: &[u128], percentile: usize) -> u128 {
+    if sorted_latencies.is_empty() {
+        return 0;
+    }
+    let clamped = percentile.min(100);
+    let idx = ((sorted_latencies.len() - 1) * clamped).div_ceil(100);
+    sorted_latencies[idx]
+}
+
+fn call_async_host_i64(name: &str, args: &[i64]) -> CliResult<i64> {
+    let mut results = [0i64; 1];
+    let status = spectra_runtime::ffi::spectra_rt_host_invoke(
+        name.as_ptr(),
+        name.len(),
+        args.as_ptr(),
+        args.len(),
+        results.as_mut_ptr(),
+        results.len(),
+    );
+    if status != spectra_runtime::ffi::HOST_STATUS_SUCCESS {
+        return Err(CliError::compilation(format!(
+            "async benchmark host call '{}' failed with status {}",
+            name, status
+        )));
+    }
+    Ok(results[0])
 }
 
 fn execute_plan_with_options(
@@ -3253,6 +3470,7 @@ fn print_build_help(command: BuildCommand) {
         BuildCommand::Bench => {
             println!("    spectralang bench src/");
             println!("    spectralang bench --bench-json target/bench.json tests/validation/");
+            println!("    spectralang bench --async --bench-json target/async-bench.json");
         }
     }
     println!();
@@ -3446,6 +3664,9 @@ fn print_compilation_options(command: Option<BuildCommand>) {
     println!("    --json                 Emit diagnostics as JSON");
     println!("    --sarif                Emit diagnostics as SARIF 2.1.0");
     println!("    --bench-json <path>    Write benchmark timings as JSON (bench only)");
+    if matches!(command, Some(BuildCommand::Bench)) {
+        println!("    --async                Run Phase 21 async runtime microbenchmarks");
+    }
     println!(
         "                           Available rules: {}",
         lint_rule_list()

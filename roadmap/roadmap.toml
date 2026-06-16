@@ -1588,14 +1588,15 @@ title = "Async Benchmarks and Profiling"
 phase = "phase_21"
 owner = "tooling"
 priority = "P2"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-2107"]
 summary = "Add an async benchmark harness that emits p50/p95/p99 latency, throughput, and concurrent connection counts for async workloads."
 acceptance = [
   "`spectralang bench --async` runs async micro-benchmarks and emits JSON",
   "the suite covers 1k, 10k, and 100k concurrent tasks",
-  "the JSON report is machine-readable and is compared against a checked-in baseline"
+  "the JSON report is machine-readable and is compared against a checked-in baseline",
+  "`scripts/validate_r2111_async_bench.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

@@ -383,6 +383,8 @@ const CONCURRENT_STATS_CHANNELS: &str = "spectra.std.concurrent.stats_channels";
 const CONCURRENT_RESET: &str = "spectra.std.concurrent.reset";
 
 const ASYNC_TASK_READY: &str = "spectra.async.task.ready";
+const ASYNC_TASK_READY_BATCH: &str = "spectra.async.task.ready_batch";
+const ASYNC_TASK_BATCH_CHECKSUM: &str = "spectra.async.task.batch_checksum";
 const ASYNC_TASK_POLL: &str = "spectra.async.task.poll";
 const ASYNC_TASK_RESULT: &str = "spectra.async.task.result";
 const ASYNC_TASK_JOIN: &str = "spectra.async.task.join";
@@ -823,6 +825,8 @@ fn register_concurrent() {
 
 fn register_async() {
     register_host_function(ASYNC_TASK_READY, std_async_task_ready);
+    register_host_function(ASYNC_TASK_READY_BATCH, std_async_task_ready_batch);
+    register_host_function(ASYNC_TASK_BATCH_CHECKSUM, std_async_task_batch_checksum);
     register_host_function(ASYNC_TASK_POLL, std_async_task_poll);
     register_host_function(ASYNC_TASK_RESULT, std_async_task_result);
     register_host_function(ASYNC_TASK_JOIN, std_async_task_join);
@@ -12746,7 +12750,14 @@ impl AsyncTaskRegistry {
         timeout_inner: Option<SpectraHostValue>,
         deadline_ms: Option<SpectraHostValue>,
     ) -> SpectraHostValue {
-        self.allocate_task_with_completion(value, parent_scope, timeout_inner, deadline_ms, true)
+        self.allocate_task_with_completion(
+            value,
+            parent_scope,
+            timeout_inner,
+            deadline_ms,
+            true,
+            true,
+        )
     }
 
     fn allocate_task_with_completion(
@@ -12756,6 +12767,7 @@ impl AsyncTaskRegistry {
         timeout_inner: Option<SpectraHostValue>,
         deadline_ms: Option<SpectraHostValue>,
         completed: bool,
+        wake: bool,
     ) -> SpectraHostValue {
         let task_id = self.next_task;
         self.next_task += 1;
@@ -12781,7 +12793,9 @@ impl AsyncTaskRegistry {
                 scope.children.push(task_id);
             }
         }
-        reactor::global().wake_task(task_id);
+        if wake {
+            reactor::global().wake_task(task_id);
+        }
         task_id
     }
 
@@ -13572,6 +13586,66 @@ extern "C" fn std_async_task_ready(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+extern "C" fn std_async_task_ready_batch(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let count = args[0];
+    if count <= 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let mut first_task = 0;
+    for offset in 0..count {
+        let task_id = registry.allocate_task_with_completion(
+            args[1].saturating_add(offset),
+            None,
+            None,
+            None,
+            true,
+            false,
+        );
+        if offset == 0 {
+            first_task = task_id;
+        }
+    }
+    reactor::global().wake_task(first_task);
+    results[0] = first_task;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_batch_checksum(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let count = args[1];
+    if count <= 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.process_due_timeouts();
+    let mut checksum = 0i64;
+    for offset in 0..count {
+        let Some(task) = registry.tasks.get(&args[0].saturating_add(offset)) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if task.cancelled || task.failed || !task.completed {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        checksum = checksum.wrapping_add(task.value);
+    }
+    results[0] = checksum;
+    HOST_STATUS_SUCCESS
+}
+
 extern "C" fn std_async_task_poll(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
@@ -13998,7 +14072,7 @@ extern "C" fn std_async_stream_next(ctx: *mut SpectraHostCallContext) -> i32 {
     };
     let (task, status) = match pulled {
         AsyncStreamPull::Pending => {
-            let task = registry.allocate_task_with_completion(0, None, None, None, false);
+            let task = registry.allocate_task_with_completion(0, None, None, None, false, true);
             if let Some(stream) = registry.streams.get_mut(&args[0]) {
                 stream.pending_next.push_back(task);
             }
@@ -14171,8 +14245,14 @@ extern "C" fn std_async_stream_fold(ctx: *mut SpectraHostCallContext) -> i32 {
                 return HOST_STATUS_SUCCESS;
             }
             Some(AsyncStreamPull::Pending) => {
-                results[0] =
-                    registry.allocate_task_with_completion(accumulator, None, None, None, false);
+                results[0] = registry.allocate_task_with_completion(
+                    accumulator,
+                    None,
+                    None,
+                    None,
+                    false,
+                    true,
+                );
                 return HOST_STATUS_SUCCESS;
             }
             Some(AsyncStreamPull::Cancelled) => {
@@ -14449,7 +14529,7 @@ extern "C" fn std_async_tcp_accept(ctx: *mut SpectraHostCallContext) -> i32 {
             results[0] = registry.allocate_task(stream_id, None, None, None);
         }
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+            let task_id = registry.allocate_task_with_completion(0, None, None, None, false, true);
             if let Some(listener) = registry.tcp_listeners.get_mut(&args[0]) {
                 listener.pending_accepts.push_back(task_id);
             }
@@ -14481,7 +14561,7 @@ extern "C" fn std_async_tcp_read(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(0) => results[0] = registry.allocate_task(-1, None, None, None),
         Ok(_) => results[0] = registry.allocate_task(byte[0] as SpectraHostValue, None, None, None),
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+            let task_id = registry.allocate_task_with_completion(0, None, None, None, false, true);
             if let Some(state) = registry.tcp_streams.get_mut(&args[0]) {
                 state.pending_reads.push_back(task_id);
             }
@@ -14643,7 +14723,7 @@ extern "C" fn std_async_udp_recv(ctx: *mut SpectraHostCallContext) -> i32 {
             results[0] = registry.allocate_task(byte[0] as SpectraHostValue, None, None, None)
         }
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+            let task_id = registry.allocate_task_with_completion(0, None, None, None, false, true);
             if let Some(state) = registry.udp_sockets.get_mut(&args[0]) {
                 state.pending_recvs.push_back(task_id);
             }
@@ -14728,7 +14808,7 @@ extern "C" fn std_async_channel_send(ctx: *mut SpectraHostCallContext) -> i32 {
         channel.queue.push_back(args[1]);
         results[0] = registry.allocate_task(1, None, None, None);
     } else {
-        let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+        let task_id = registry.allocate_task_with_completion(0, None, None, None, false, true);
         if let Some(channel) = registry.async_channels.get_mut(&args[0]) {
             channel.pending_sends.push_back((task_id, args[1]));
         }
@@ -14778,7 +14858,7 @@ extern "C" fn std_async_channel_recv(ctx: *mut SpectraHostCallContext) -> i32 {
         results[0] = registry.allocate_task(-1, None, None, None);
         return HOST_STATUS_SUCCESS;
     }
-    let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+    let task_id = registry.allocate_task_with_completion(0, None, None, None, false, true);
     if let Some(channel) = registry.async_channels.get_mut(&args[0]) {
         channel.pending_recvs.push_back(task_id);
     }
@@ -18543,6 +18623,42 @@ mod tests {
         assert_eq!(
             call_host(ASYNC_TASK_JOIN, &[cancelled_task]),
             (HOST_STATUS_SUCCESS, -1)
+        );
+    }
+
+    #[test]
+    fn async_task_ready_batch_creates_sequential_ready_tasks() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let (status, first_task) = call_host(ASYNC_TASK_READY_BATCH, &[5, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        for offset in 0..5 {
+            let task = first_task + offset;
+            assert_eq!(
+                call_host(ASYNC_TASK_POLL, &[task]),
+                (HOST_STATUS_SUCCESS, 1)
+            );
+            assert_eq!(
+                call_host(ASYNC_TASK_RESULT, &[task]),
+                (HOST_STATUS_SUCCESS, 10 + offset)
+            );
+        }
+        assert_eq!(
+            call_host(ASYNC_TASK_BATCH_CHECKSUM, &[first_task, 5]),
+            (HOST_STATUS_SUCCESS, 60)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_READY_BATCH, &[0, 1]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_BATCH_CHECKSUM, &[first_task, 0]).0,
+            HOST_STATUS_INVALID_ARGUMENT
         );
     }
 

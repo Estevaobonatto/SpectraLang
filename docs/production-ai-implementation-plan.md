@@ -1654,7 +1654,9 @@ The eight phases are summarized below; the detailed items live in
   `E2101` through `E2120` documentation, non-`Send` across `await`,
   `RefCell` across `await`, spawn-boundary diagnostics, and validation gate
   landed)
-- `R-2111` Async benchmarks and profiling
+- `R-2111` Async benchmarks and profiling (complete; `spectralang bench
+  --async`, schema `spectra.r2111.async_benchmark.v1`, checked-in baseline,
+  and validation gate landed)
 - `R-2112` Formal `Send`/`Sync` trait bounds (`T: Send`, `T: Sync`,
   `dyn Trait + Send`, and task-boundary evidence)
 

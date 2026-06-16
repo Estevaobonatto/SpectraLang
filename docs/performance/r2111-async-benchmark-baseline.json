@@ -1,0 +1,19 @@
+{
+  "schema": "spectra.r2111.async_benchmark_baseline.v1",
+  "benchmark_schema": "spectra.r2111.async_benchmark.v1",
+  "required_concurrency": [1000, 10000, 100000],
+  "thresholds": {
+    "ready_task_1000": {
+      "max_p99_latency_ns": 10000000,
+      "min_throughput_tasks_per_sec": 500
+    },
+    "ready_task_10000": {
+      "max_p99_latency_ns": 50000000,
+      "min_throughput_tasks_per_sec": 500
+    },
+    "ready_task_100000": {
+      "max_p99_latency_ns": 250000000,
+      "min_throughput_tasks_per_sec": 500
+    }
+  }
+}
