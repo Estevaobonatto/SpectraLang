@@ -1639,7 +1639,10 @@ The eight phases are summarized below; the detailed items live in
   handles, async `next`, backpressure, deterministic finish, cancellation,
   `map`/`filter`/`fold`/`take`/`skip`/`chunks`/`fuse`, and validation gate
   landed)
-- `R-2107` Async stdlib: `fs`, `tcp`, `channel`
+- `R-2107` Async stdlib: `fs`, `tcp`, `udp`, `channel` (complete; async
+  filesystem read/write, nonblocking TCP listener/connect/accept/read/write,
+  UDP bind/send/recv, bounded async channels, cancellation coverage, and
+  validation gate landed)
 - `R-2108` Async trait objects and `dyn Future`
 - `R-2109` Async test runtime and macros
 - `R-2110` Async diagnostics and `Send`/`Sync` validation

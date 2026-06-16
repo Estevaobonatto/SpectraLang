@@ -1518,15 +1518,16 @@ title = "Async Standard Library Surface"
 phase = "phase_21"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
-dependencies = ["R-2105"]
+dependencies = ["R-2105", "R-2106"]
 summary = "Expose async counterparts for filesystem, TCP, UDP, and channel operations through the standard library."
 acceptance = [
   "`fs.read_async` and `fs.write_async` are available with cancellation support",
   "`tcp.connect_async`, `tcp.accept_async`, and `udp` operations are exposed",
   "async `channel.send`/`channel.recv` are available alongside the existing sync channels",
-  "tests cover async socket reads/writes and clean cancellation"
+  "tests cover async socket reads/writes and clean cancellation",
+  "`scripts/validate_r2107_async_stdlib.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

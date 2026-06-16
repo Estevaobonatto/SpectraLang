@@ -6,7 +6,8 @@ use crate::initialize;
 use crate::memory::ManualBox;
 use crate::reactor::{self, Interest, ReactorEvent};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -418,6 +419,25 @@ const ASYNC_STREAM_TAKE: &str = "spectra.async.stream.take";
 const ASYNC_STREAM_SKIP: &str = "spectra.async.stream.skip";
 const ASYNC_STREAM_CHUNKS: &str = "spectra.async.stream.chunks";
 const ASYNC_STREAM_FUSE: &str = "spectra.async.stream.fuse";
+const ASYNC_FS_READ: &str = "spectra.async.fs.read_async";
+const ASYNC_FS_WRITE: &str = "spectra.async.fs.write_async";
+const ASYNC_TCP_LISTEN: &str = "spectra.async.tcp.listen";
+const ASYNC_TCP_LISTENER_PORT: &str = "spectra.async.tcp.listener_port";
+const ASYNC_TCP_CONNECT: &str = "spectra.async.tcp.connect_async";
+const ASYNC_TCP_ACCEPT: &str = "spectra.async.tcp.accept_async";
+const ASYNC_TCP_READ: &str = "spectra.async.tcp.read_async";
+const ASYNC_TCP_WRITE: &str = "spectra.async.tcp.write_async";
+const ASYNC_TCP_CLOSE: &str = "spectra.async.tcp.close";
+const ASYNC_UDP_BIND: &str = "spectra.async.udp.bind";
+const ASYNC_UDP_PORT: &str = "spectra.async.udp.port";
+const ASYNC_UDP_SEND_TO: &str = "spectra.async.udp.send_to_async";
+const ASYNC_UDP_RECV: &str = "spectra.async.udp.recv_async";
+const ASYNC_UDP_CLOSE: &str = "spectra.async.udp.close";
+const ASYNC_CHANNEL_NEW: &str = "spectra.async.channel.new";
+const ASYNC_CHANNEL_SEND: &str = "spectra.async.channel.send";
+const ASYNC_CHANNEL_RECV: &str = "spectra.async.channel.recv";
+const ASYNC_CHANNEL_CLOSE: &str = "spectra.async.channel.close";
+const ASYNC_CHANNEL_LEN: &str = "spectra.async.channel.len";
 
 const ASYNC_REACTOR_BACKEND: &str = "spectra.async.reactor.backend";
 const ASYNC_REACTOR_WAKE: &str = "spectra.async.reactor.wake";
@@ -842,6 +862,25 @@ fn register_async() {
     register_host_function(ASYNC_STREAM_SKIP, std_async_stream_skip);
     register_host_function(ASYNC_STREAM_CHUNKS, std_async_stream_chunks);
     register_host_function(ASYNC_STREAM_FUSE, std_async_stream_fuse);
+    register_host_function(ASYNC_FS_READ, std_async_fs_read);
+    register_host_function(ASYNC_FS_WRITE, std_async_fs_write);
+    register_host_function(ASYNC_TCP_LISTEN, std_async_tcp_listen);
+    register_host_function(ASYNC_TCP_LISTENER_PORT, std_async_tcp_listener_port);
+    register_host_function(ASYNC_TCP_CONNECT, std_async_tcp_connect);
+    register_host_function(ASYNC_TCP_ACCEPT, std_async_tcp_accept);
+    register_host_function(ASYNC_TCP_READ, std_async_tcp_read);
+    register_host_function(ASYNC_TCP_WRITE, std_async_tcp_write);
+    register_host_function(ASYNC_TCP_CLOSE, std_async_tcp_close);
+    register_host_function(ASYNC_UDP_BIND, std_async_udp_bind);
+    register_host_function(ASYNC_UDP_PORT, std_async_udp_port);
+    register_host_function(ASYNC_UDP_SEND_TO, std_async_udp_send_to);
+    register_host_function(ASYNC_UDP_RECV, std_async_udp_recv);
+    register_host_function(ASYNC_UDP_CLOSE, std_async_udp_close);
+    register_host_function(ASYNC_CHANNEL_NEW, std_async_channel_new);
+    register_host_function(ASYNC_CHANNEL_SEND, std_async_channel_send);
+    register_host_function(ASYNC_CHANNEL_RECV, std_async_channel_recv);
+    register_host_function(ASYNC_CHANNEL_CLOSE, std_async_channel_close);
+    register_host_function(ASYNC_CHANNEL_LEN, std_async_channel_len);
     register_host_function(ASYNC_REACTOR_BACKEND, std_async_reactor_backend);
     register_host_function(ASYNC_REACTOR_WAKE, std_async_reactor_wake);
     register_host_function(ASYNC_REACTOR_TIMER, std_async_reactor_timer);
@@ -12618,6 +12657,31 @@ struct AsyncStream {
     chunk_items: Vec<SpectraHostValue>,
 }
 
+struct AsyncTcpListenerState {
+    listener: TcpListener,
+    pending_accepts: VecDeque<SpectraHostValue>,
+}
+
+struct AsyncTcpStreamState {
+    stream: TcpStream,
+    pending_reads: VecDeque<SpectraHostValue>,
+    closed: bool,
+}
+
+struct AsyncUdpSocketState {
+    socket: UdpSocket,
+    pending_recvs: VecDeque<SpectraHostValue>,
+    closed: bool,
+}
+
+struct AsyncChannelState {
+    queue: VecDeque<SpectraHostValue>,
+    capacity: usize,
+    pending_sends: VecDeque<(SpectraHostValue, SpectraHostValue)>,
+    pending_recvs: VecDeque<SpectraHostValue>,
+    closed: bool,
+}
+
 enum AsyncStreamPull {
     Pending,
     Item(SpectraHostValue),
@@ -12631,12 +12695,20 @@ struct AsyncTaskRegistry {
     next_scope: SpectraHostValue,
     next_cancel_handle: SpectraHostValue,
     next_stream: SpectraHostValue,
+    next_tcp_listener: SpectraHostValue,
+    next_tcp_stream: SpectraHostValue,
+    next_udp_socket: SpectraHostValue,
+    next_async_channel: SpectraHostValue,
     now_ms: SpectraHostValue,
     next_join_order: SpectraHostValue,
     tasks: HashMap<SpectraHostValue, AsyncTask>,
     scopes: HashMap<SpectraHostValue, AsyncScope>,
     cancel_handles: HashMap<SpectraHostValue, SpectraHostValue>,
     streams: HashMap<SpectraHostValue, AsyncStream>,
+    tcp_listeners: HashMap<SpectraHostValue, AsyncTcpListenerState>,
+    tcp_streams: HashMap<SpectraHostValue, AsyncTcpStreamState>,
+    udp_sockets: HashMap<SpectraHostValue, AsyncUdpSocketState>,
+    async_channels: HashMap<SpectraHostValue, AsyncChannelState>,
 }
 
 impl AsyncTaskRegistry {
@@ -12646,12 +12718,20 @@ impl AsyncTaskRegistry {
             next_scope: 1,
             next_cancel_handle: 1,
             next_stream: 1,
+            next_tcp_listener: 1,
+            next_tcp_stream: 1,
+            next_udp_socket: 1,
+            next_async_channel: 1,
             now_ms: 0,
             next_join_order: 1,
             tasks: HashMap::new(),
             scopes: HashMap::new(),
             cancel_handles: HashMap::new(),
             streams: HashMap::new(),
+            tcp_listeners: HashMap::new(),
+            tcp_streams: HashMap::new(),
+            udp_sockets: HashMap::new(),
+            async_channels: HashMap::new(),
         }
     }
 
@@ -12707,10 +12787,34 @@ impl AsyncTaskRegistry {
 
     fn complete_task(&mut self, task_id: SpectraHostValue, value: SpectraHostValue) -> Option<()> {
         let task = self.tasks.get_mut(&task_id)?;
+        if task.cancelled {
+            return Some(());
+        }
         task.value = value;
         task.completed = true;
         reactor::global().wake_task(task_id);
         Some(())
+    }
+
+    fn fail_task(&mut self, task_id: SpectraHostValue) -> Option<()> {
+        let task = self.tasks.get_mut(&task_id)?;
+        task.failed = true;
+        task.completed = true;
+        reactor::global().wake_task(task_id);
+        Some(())
+    }
+
+    fn allocate_failed_task(&mut self) -> SpectraHostValue {
+        let task_id = self.allocate_task(-2, None, None, None);
+        let _ = self.fail_task(task_id);
+        task_id
+    }
+
+    fn task_is_cancelled(&self, task_id: SpectraHostValue) -> bool {
+        self.tasks
+            .get(&task_id)
+            .map(|task| task.cancelled)
+            .unwrap_or(true)
     }
 
     fn create_scope(&mut self, parent: Option<SpectraHostValue>) -> Option<SpectraHostValue> {
@@ -13159,6 +13263,227 @@ impl AsyncTaskRegistry {
         stream.chunk_items.clear();
         Some(value)
     }
+
+    fn insert_tcp_stream(&mut self, stream: TcpStream) -> Option<SpectraHostValue> {
+        if stream.set_nonblocking(true).is_err() {
+            return None;
+        }
+        let stream_id = self.next_tcp_stream;
+        self.next_tcp_stream += 1;
+        self.tcp_streams.insert(
+            stream_id,
+            AsyncTcpStreamState {
+                stream,
+                pending_reads: VecDeque::new(),
+                closed: false,
+            },
+        );
+        Some(stream_id)
+    }
+
+    fn drive_tcp_accepts(&mut self) {
+        let listener_ids = self.tcp_listeners.keys().copied().collect::<Vec<_>>();
+        for listener_id in listener_ids {
+            loop {
+                let task_id = match self
+                    .tcp_listeners
+                    .get_mut(&listener_id)
+                    .and_then(|listener| listener.pending_accepts.pop_front())
+                {
+                    Some(task_id) if self.task_is_cancelled(task_id) => continue,
+                    Some(task_id) => task_id,
+                    None => break,
+                };
+
+                let accepted = match self.tcp_listeners.get(&listener_id) {
+                    Some(listener) => listener.listener.accept(),
+                    None => break,
+                };
+                match accepted {
+                    Ok((stream, _)) => {
+                        let Some(stream_id) = self.insert_tcp_stream(stream) else {
+                            let _ = self.fail_task(task_id);
+                            continue;
+                        };
+                        let _ = self.complete_task(task_id, stream_id);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if let Some(listener) = self.tcp_listeners.get_mut(&listener_id) {
+                            listener.pending_accepts.push_front(task_id);
+                        }
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = self.fail_task(task_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn drive_tcp_reads(&mut self) {
+        let stream_ids = self.tcp_streams.keys().copied().collect::<Vec<_>>();
+        for stream_id in stream_ids {
+            loop {
+                let task_id = match self
+                    .tcp_streams
+                    .get_mut(&stream_id)
+                    .and_then(|stream| stream.pending_reads.pop_front())
+                {
+                    Some(task_id) if self.task_is_cancelled(task_id) => continue,
+                    Some(task_id) => task_id,
+                    None => break,
+                };
+
+                let mut byte = [0u8; 1];
+                let read = match self.tcp_streams.get_mut(&stream_id) {
+                    Some(state) if state.closed => Ok(0),
+                    Some(state) => state.stream.read(&mut byte),
+                    None => break,
+                };
+                match read {
+                    Ok(0) => {
+                        let _ = self.complete_task(task_id, -1);
+                    }
+                    Ok(_) => {
+                        let _ = self.complete_task(task_id, byte[0] as SpectraHostValue);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if let Some(state) = self.tcp_streams.get_mut(&stream_id) {
+                            state.pending_reads.push_front(task_id);
+                        }
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = self.fail_task(task_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn drive_udp_recvs(&mut self) {
+        let socket_ids = self.udp_sockets.keys().copied().collect::<Vec<_>>();
+        for socket_id in socket_ids {
+            loop {
+                let task_id = match self
+                    .udp_sockets
+                    .get_mut(&socket_id)
+                    .and_then(|socket| socket.pending_recvs.pop_front())
+                {
+                    Some(task_id) if self.task_is_cancelled(task_id) => continue,
+                    Some(task_id) => task_id,
+                    None => break,
+                };
+
+                let mut byte = [0u8; 1];
+                let recv = match self.udp_sockets.get_mut(&socket_id) {
+                    Some(state) if state.closed => Ok((
+                        0,
+                        "127.0.0.1:0"
+                            .parse()
+                            .expect("valid local UDP sentinel address"),
+                    )),
+                    Some(state) => state.socket.recv_from(&mut byte),
+                    None => break,
+                };
+                match recv {
+                    Ok((0, _)) => {
+                        let _ = self.complete_task(task_id, -1);
+                    }
+                    Ok((_, _)) => {
+                        let _ = self.complete_task(task_id, byte[0] as SpectraHostValue);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if let Some(state) = self.udp_sockets.get_mut(&socket_id) {
+                            state.pending_recvs.push_front(task_id);
+                        }
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = self.fail_task(task_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn drive_async_channel(&mut self, channel_id: SpectraHostValue) -> Option<()> {
+        loop {
+            let recv_task = {
+                let channel = self.async_channels.get_mut(&channel_id)?;
+                channel.pending_recvs.pop_front()
+            };
+            let Some(recv_task) = recv_task else {
+                break;
+            };
+            if self.task_is_cancelled(recv_task) {
+                continue;
+            }
+
+            let delivered = {
+                let channel = self.async_channels.get_mut(&channel_id)?;
+                channel.queue.pop_front()
+            };
+            if let Some(value) = delivered {
+                let _ = self.complete_task(recv_task, value);
+                continue;
+            }
+
+            let pending_send = {
+                let channel = self.async_channels.get_mut(&channel_id)?;
+                channel.pending_sends.pop_front()
+            };
+            if let Some((send_task, value)) = pending_send {
+                if !self.task_is_cancelled(send_task) {
+                    let _ = self.complete_task(send_task, 1);
+                    let _ = self.complete_task(recv_task, value);
+                    continue;
+                }
+            }
+
+            let closed = self
+                .async_channels
+                .get(&channel_id)
+                .map(|channel| channel.closed)
+                .unwrap_or(true);
+            if closed {
+                let _ = self.complete_task(recv_task, -1);
+                continue;
+            }
+
+            if let Some(channel) = self.async_channels.get_mut(&channel_id) {
+                channel.pending_recvs.push_front(recv_task);
+            }
+            break;
+        }
+
+        loop {
+            let can_buffer = self
+                .async_channels
+                .get(&channel_id)
+                .map(|channel| channel.queue.len() < channel.capacity)
+                .unwrap_or(false);
+            if !can_buffer {
+                break;
+            }
+            let pending_send = {
+                let channel = self.async_channels.get_mut(&channel_id)?;
+                channel.pending_sends.pop_front()
+            };
+            let Some((send_task, value)) = pending_send else {
+                break;
+            };
+            if self.task_is_cancelled(send_task) {
+                continue;
+            }
+            if let Some(channel) = self.async_channels.get_mut(&channel_id) {
+                channel.queue.push_back(value);
+            }
+            let _ = self.complete_task(send_task, 1);
+        }
+        Some(())
+    }
 }
 
 fn map_stream_value(
@@ -13285,12 +13610,12 @@ extern "C" fn std_async_task_result(ctx: *mut SpectraHostCallContext) -> i32 {
 }
 
 fn async_task_join_status(task: &AsyncTask) -> SpectraHostValue {
-    if !task.completed {
-        3
-    } else if task.cancelled {
+    if task.cancelled {
         1
     } else if task.failed {
         2
+    } else if !task.completed {
+        3
     } else {
         0
     }
@@ -13963,6 +14288,535 @@ extern "C" fn std_async_stream_fuse(ctx: *mut SpectraHostCallContext) -> i32 {
         },
         1,
     );
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let path = unsafe {
+        match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => return HOST_STATUS_INVALID_ARGUMENT,
+            Err(status) => return status,
+        }
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let ptr = unsafe { alloc_spectra_string(&content) };
+            results[0] = registry.allocate_task(ptr, None, None, None);
+        }
+        Err(_) => {
+            results[0] = registry.allocate_failed_task();
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let path = unsafe {
+        match read_fs_path_arg(args[0]) {
+            Ok(Some(path)) => path,
+            Ok(None) => return HOST_STATUS_INVALID_ARGUMENT,
+            Err(status) => return status,
+        }
+    };
+    let content = unsafe {
+        match read_spectra_string(args[1]) {
+            Some(content) => content,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        }
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if fs_write_text(&path, &content, false) {
+        results[0] = registry.allocate_task(content.len() as SpectraHostValue, None, None, None);
+    } else {
+        results[0] = registry.allocate_failed_task();
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_listen(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if !(0..=65_535).contains(&args[0]) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let listener = match TcpListener::bind(("127.0.0.1", args[0] as u16)) {
+        Ok(listener) => listener,
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    if listener.set_nonblocking(true).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let listener_id = registry.next_tcp_listener;
+    registry.next_tcp_listener += 1;
+    registry.tcp_listeners.insert(
+        listener_id,
+        AsyncTcpListenerState {
+            listener,
+            pending_accepts: VecDeque::new(),
+        },
+    );
+    results[0] = listener_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_listener_port(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(listener) = registry.tcp_listeners.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let Ok(addr) = listener.listener.local_addr() else {
+        return HOST_STATUS_INTERNAL_ERROR;
+    };
+    results[0] = addr.port() as SpectraHostValue;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_connect(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if !(1..=65_535).contains(&args[0]) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    match TcpStream::connect(("127.0.0.1", args[0] as u16)) {
+        Ok(stream) => {
+            let Some(stream_id) = registry.insert_tcp_stream(stream) else {
+                results[0] = registry.allocate_failed_task();
+                return HOST_STATUS_SUCCESS;
+            };
+            results[0] = registry.allocate_task(stream_id, None, None, None);
+            registry.drive_tcp_accepts();
+        }
+        Err(_) => {
+            results[0] = registry.allocate_failed_task();
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_accept(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(listener) = registry.tcp_listeners.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    match listener.listener.accept() {
+        Ok((stream, _)) => {
+            let Some(stream_id) = registry.insert_tcp_stream(stream) else {
+                results[0] = registry.allocate_failed_task();
+                return HOST_STATUS_SUCCESS;
+            };
+            results[0] = registry.allocate_task(stream_id, None, None, None);
+        }
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+            if let Some(listener) = registry.tcp_listeners.get_mut(&args[0]) {
+                listener.pending_accepts.push_back(task_id);
+            }
+            results[0] = task_id;
+        }
+        Err(_) => {
+            results[0] = registry.allocate_failed_task();
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_read(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let mut byte = [0u8; 1];
+    let read = match registry.tcp_streams.get_mut(&args[0]) {
+        Some(state) if state.closed => Ok(0),
+        Some(state) => state.stream.read(&mut byte),
+        None => return HOST_STATUS_NOT_FOUND,
+    };
+    match read {
+        Ok(0) => results[0] = registry.allocate_task(-1, None, None, None),
+        Ok(_) => results[0] = registry.allocate_task(byte[0] as SpectraHostValue, None, None, None),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+            if let Some(state) = registry.tcp_streams.get_mut(&args[0]) {
+                state.pending_reads.push_back(task_id);
+            }
+            results[0] = task_id;
+        }
+        Err(_) => results[0] = registry.allocate_failed_task(),
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_write(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if !(0..=255).contains(&args[1]) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let write = match registry.tcp_streams.get_mut(&args[0]) {
+        Some(state) if state.closed => Ok(0),
+        Some(state) => state.stream.write(&[args[1] as u8]),
+        None => return HOST_STATUS_NOT_FOUND,
+    };
+    match write {
+        Ok(count) => {
+            results[0] = registry.allocate_task(count as SpectraHostValue, None, None, None)
+        }
+        Err(_) => results[0] = registry.allocate_failed_task(),
+    }
+    registry.drive_tcp_reads();
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_tcp_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if let Some(state) = registry.tcp_streams.get_mut(&args[0]) {
+        state.closed = true;
+        results[0] = 1;
+        registry.drive_tcp_reads();
+        return HOST_STATUS_SUCCESS;
+    }
+    if registry.tcp_listeners.remove(&args[0]).is_some() {
+        results[0] = 1;
+        return HOST_STATUS_SUCCESS;
+    }
+    HOST_STATUS_NOT_FOUND
+}
+
+extern "C" fn std_async_udp_bind(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if !(0..=65_535).contains(&args[0]) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let socket = match UdpSocket::bind(("127.0.0.1", args[0] as u16)) {
+        Ok(socket) => socket,
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    if socket.set_nonblocking(true).is_err() {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let socket_id = registry.next_udp_socket;
+    registry.next_udp_socket += 1;
+    registry.udp_sockets.insert(
+        socket_id,
+        AsyncUdpSocketState {
+            socket,
+            pending_recvs: VecDeque::new(),
+            closed: false,
+        },
+    );
+    results[0] = socket_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_udp_port(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(socket) = registry.udp_sockets.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let Ok(addr) = socket.socket.local_addr() else {
+        return HOST_STATUS_INTERNAL_ERROR;
+    };
+    results[0] = addr.port() as SpectraHostValue;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_udp_send_to(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if !(1..=65_535).contains(&args[1]) || !(0..=255).contains(&args[2]) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let send = match registry.udp_sockets.get(&args[0]) {
+        Some(state) if state.closed => Ok(0),
+        Some(state) => state
+            .socket
+            .send_to(&[args[2] as u8], ("127.0.0.1", args[1] as u16)),
+        None => return HOST_STATUS_NOT_FOUND,
+    };
+    match send {
+        Ok(count) => {
+            results[0] = registry.allocate_task(count as SpectraHostValue, None, None, None)
+        }
+        Err(_) => results[0] = registry.allocate_failed_task(),
+    }
+    registry.drive_udp_recvs();
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_udp_recv(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let mut byte = [0u8; 1];
+    let recv = match registry.udp_sockets.get_mut(&args[0]) {
+        Some(state) if state.closed => Ok((0, "127.0.0.1:0".parse().unwrap())),
+        Some(state) => state.socket.recv_from(&mut byte),
+        None => return HOST_STATUS_NOT_FOUND,
+    };
+    match recv {
+        Ok((0, _)) => results[0] = registry.allocate_task(-1, None, None, None),
+        Ok((_, _)) => {
+            results[0] = registry.allocate_task(byte[0] as SpectraHostValue, None, None, None)
+        }
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+            if let Some(state) = registry.udp_sockets.get_mut(&args[0]) {
+                state.pending_recvs.push_back(task_id);
+            }
+            results[0] = task_id;
+        }
+        Err(_) => results[0] = registry.allocate_failed_task(),
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_udp_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(state) = registry.udp_sockets.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    state.closed = true;
+    results[0] = 1;
+    registry.drive_udp_recvs();
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_channel_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[0] <= 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let channel_id = registry.next_async_channel;
+    registry.next_async_channel += 1;
+    registry.async_channels.insert(
+        channel_id,
+        AsyncChannelState {
+            queue: VecDeque::new(),
+            capacity: args[0] as usize,
+            pending_sends: VecDeque::new(),
+            pending_recvs: VecDeque::new(),
+            closed: false,
+        },
+    );
+    results[0] = channel_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_channel_send(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.async_channels.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    if channel.closed {
+        results[0] = registry.allocate_task(0, None, None, None);
+        return HOST_STATUS_SUCCESS;
+    }
+    if let Some(recv_task) = channel.pending_recvs.pop_front() {
+        if !registry.task_is_cancelled(recv_task) {
+            let _ = registry.complete_task(recv_task, args[1]);
+            results[0] = registry.allocate_task(1, None, None, None);
+            return HOST_STATUS_SUCCESS;
+        }
+    }
+    let channel = registry.async_channels.get_mut(&args[0]).unwrap();
+    if channel.queue.len() < channel.capacity {
+        channel.queue.push_back(args[1]);
+        results[0] = registry.allocate_task(1, None, None, None);
+    } else {
+        let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+        if let Some(channel) = registry.async_channels.get_mut(&args[0]) {
+            channel.pending_sends.push_back((task_id, args[1]));
+        }
+        results[0] = task_id;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_channel_recv(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.async_channels.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    let queued = registry
+        .async_channels
+        .get_mut(&args[0])
+        .and_then(|channel| channel.queue.pop_front());
+    if let Some(value) = queued {
+        results[0] = registry.allocate_task(value, None, None, None);
+        let _ = registry.drive_async_channel(args[0]);
+        return HOST_STATUS_SUCCESS;
+    }
+    let pending_send = registry
+        .async_channels
+        .get_mut(&args[0])
+        .and_then(|channel| channel.pending_sends.pop_front());
+    if let Some((send_task, value)) = pending_send {
+        if !registry.task_is_cancelled(send_task) {
+            let _ = registry.complete_task(send_task, 1);
+            results[0] = registry.allocate_task(value, None, None, None);
+            return HOST_STATUS_SUCCESS;
+        }
+    }
+    let closed = registry
+        .async_channels
+        .get(&args[0])
+        .map(|channel| channel.closed)
+        .unwrap_or(true);
+    if closed {
+        results[0] = registry.allocate_task(-1, None, None, None);
+        return HOST_STATUS_SUCCESS;
+    }
+    let task_id = registry.allocate_task_with_completion(0, None, None, None, false);
+    if let Some(channel) = registry.async_channels.get_mut(&args[0]) {
+        channel.pending_recvs.push_back(task_id);
+    }
+    results[0] = task_id;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_channel_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.async_channels.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    channel.closed = true;
+    results[0] = 1;
+    let _ = registry.drive_async_channel(args[0]);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_channel_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(channel) = registry.async_channels.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = channel.queue.len() as SpectraHostValue;
     HOST_STATUS_SUCCESS
 }
 
@@ -18021,6 +18875,195 @@ mod tests {
             call_host(ASYNC_TASK_IS_CANCELLED, &[cancelled_next]),
             (HOST_STATUS_SUCCESS, 1)
         );
+    }
+
+    #[test]
+    fn async_stdlib_host_calls_cover_fs_tcp_udp_channels_and_cancellation() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let dir = std::env::temp_dir().join(format!(
+            "spectra_r2107_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create async stdlib temp dir");
+        let file = dir.join("payload.txt");
+        let file_arg = test_string(file.to_string_lossy().as_ref());
+        let payload_arg = test_string("async-payload");
+
+        let (status, write_task) = call_host(ASYNC_FS_WRITE, &[file_arg, payload_arg]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[write_task]),
+            (HOST_STATUS_SUCCESS, 13)
+        );
+        let (status, read_task) = call_host(ASYNC_FS_READ, &[file_arg]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, read_ptr) = call_host(ASYNC_TASK_JOIN, &[read_task]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let read_back = unsafe { read_spectra_string(read_ptr) }.expect("async fs read string");
+        assert_eq!(read_back, "async-payload");
+
+        let (status, cancelled_write) =
+            call_host(ASYNC_FS_WRITE, &[file_arg, test_string("cancel")]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_CANCEL, &[cancelled_write]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[cancelled_write]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, listener) = call_host(ASYNC_TCP_LISTEN, &[0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, port) = call_host(ASYNC_TCP_LISTENER_PORT, &[listener]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, accept_task) = call_host(ASYNC_TCP_ACCEPT, &[listener]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[accept_task]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        let (status, connect_task) = call_host(ASYNC_TCP_CONNECT, &[port]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, client_stream) = call_host(ASYNC_TASK_JOIN, &[connect_task]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, server_stream) = call_host(ASYNC_TASK_JOIN, &[accept_task]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        let (status, pending_read) = call_host(ASYNC_TCP_READ, &[server_stream]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[pending_read]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        let (status, write_byte) = call_host(ASYNC_TCP_WRITE, &[client_stream, 65]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[write_byte]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[pending_read]),
+            (HOST_STATUS_SUCCESS, 65)
+        );
+
+        let (status, cancelled_tcp_read) = call_host(ASYNC_TCP_READ, &[server_stream]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_CANCEL, &[cancelled_tcp_read]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TCP_WRITE, &[client_stream, 66]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[cancelled_tcp_read]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TCP_CLOSE, &[client_stream]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ASYNC_TCP_CLOSE, &[server_stream]).0,
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(
+            call_host(ASYNC_TCP_CLOSE, &[listener]).0,
+            HOST_STATUS_SUCCESS
+        );
+
+        let (status, udp_a) = call_host(ASYNC_UDP_BIND, &[0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, udp_b) = call_host(ASYNC_UDP_BIND, &[0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, udp_b_port) = call_host(ASYNC_UDP_PORT, &[udp_b]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, udp_recv) = call_host(ASYNC_UDP_RECV, &[udp_b]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[udp_recv]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        let (status, udp_send) = call_host(ASYNC_UDP_SEND_TO, &[udp_a, udp_b_port, 77]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[udp_send]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[udp_recv]),
+            (HOST_STATUS_SUCCESS, 77)
+        );
+        assert_eq!(call_host(ASYNC_UDP_CLOSE, &[udp_a]).0, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(ASYNC_UDP_CLOSE, &[udp_b]).0, HOST_STATUS_SUCCESS);
+
+        let (status, channel) = call_host(ASYNC_CHANNEL_NEW, &[1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, waiting_recv) = call_host(ASYNC_CHANNEL_RECV, &[channel]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[waiting_recv]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        let (status, send_task) = call_host(ASYNC_CHANNEL_SEND, &[channel, 91]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[send_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[waiting_recv]),
+            (HOST_STATUS_SUCCESS, 91)
+        );
+        assert_eq!(
+            call_host(ASYNC_CHANNEL_SEND, &[channel, 1]).0,
+            HOST_STATUS_SUCCESS
+        );
+        let (status, pending_send) = call_host(ASYNC_CHANNEL_SEND, &[channel, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[pending_send]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_CANCEL, &[pending_send]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, first_recv) = call_host(ASYNC_CHANNEL_RECV, &[channel]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[first_recv]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, closing_recv) = call_host(ASYNC_CHANNEL_RECV, &[channel]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_CHANNEL_CLOSE, &[channel]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[closing_recv]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+        assert_eq!(
+            call_host(ASYNC_CHANNEL_LEN, &[channel]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -884,22 +884,36 @@ impl ASTLowering {
         for item in &ast_module.items {
             if let Item::Function(func) = item {
                 if func.type_params.is_empty() {
-                    let return_type = func
+                    let body_return_type = func
                         .return_type
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
+                    let return_type = if func.is_async {
+                        IRType::Task {
+                            output: Box::new(body_return_type),
+                        }
+                    } else {
+                        body_return_type
+                    };
                     self.function_return_types
                         .insert(func.name.clone(), return_type);
                 }
             } else if let Item::Impl(impl_block) = item {
                 for method in &impl_block.methods {
                     let mangled = format!("{}_{}", impl_block.type_name, method.name);
-                    let return_type = method
+                    let body_return_type = method
                         .return_type
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
+                    let return_type = if method.is_async {
+                        IRType::Task {
+                            output: Box::new(body_return_type),
+                        }
+                    } else {
+                        body_return_type
+                    };
                     self.function_return_types
                         .entry(mangled)
                         .or_insert(return_type);
@@ -907,11 +921,18 @@ impl ASTLowering {
             } else if let Item::TraitImpl(trait_impl) = item {
                 for method in &trait_impl.methods {
                     let mangled = format!("{}_{}", trait_impl.type_name, method.name);
-                    let return_type = method
+                    let body_return_type = method
                         .return_type
                         .as_ref()
                         .map(|t| self.lower_type_annotation(t))
                         .unwrap_or(IRType::Void);
+                    let return_type = if method.is_async {
+                        IRType::Task {
+                            output: Box::new(body_return_type),
+                        }
+                    } else {
+                        body_return_type
+                    };
                     self.function_return_types
                         .entry(mangled)
                         .or_insert(return_type);
@@ -2113,6 +2134,33 @@ impl ASTLowering {
                 data,
                 struct_data,
             } => {
+                let looks_like_call = data.is_some() || struct_data.is_some();
+                let is_known_type = self.struct_definitions.contains_key(enum_name.as_str())
+                    || self.generic_structs.contains_key(enum_name.as_str())
+                    || self.enum_definitions.contains_key(enum_name.as_str())
+                    || self.generic_enums.contains_key(enum_name.as_str());
+
+                // Cross-module function calls such as `tasks::ready(x)` are parsed as
+                // EnumVariant nodes. Imported function returns are registered under the
+                // exported function name, so resolve them before enum refinement.
+                if looks_like_call && !is_known_type {
+                    if let Some(ret) = self.function_return_types.get(variant_name) {
+                        return ret.clone();
+                    }
+                    if self.generic_functions.contains_key(variant_name) {
+                        let concrete_types =
+                            self.infer_argument_types(data.as_deref().unwrap_or(&[]));
+                        let request = MonomorphizationRequest {
+                            generic_name: variant_name.clone(),
+                            concrete_types,
+                        };
+                        let mangled = request.mangled_name();
+                        if let Some(ret) = self.function_return_types.get(&mangled) {
+                            return ret.clone();
+                        }
+                    }
+                }
+
                 // Handle StructName::method(args) — the parser treats `Name::Other(...)` as
                 // EnumVariant even for struct static/associated-function calls.
                 if let Some(fields) = self.struct_definitions.get(enum_name.as_str()) {

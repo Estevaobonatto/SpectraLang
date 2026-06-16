@@ -1,0 +1,20 @@
+module main;
+
+import tasks;
+import streams;
+import io_async;
+
+pub async fn phase21_total() -> int {
+    let pair = await tasks::add_pair(10, 20);
+    let selected = await tasks::choose(true, 7, 3);
+    let stream_sum = await streams::mapped_like_sum(1);
+    let file_value = await io_async::file_like_roundtrip(4);
+    let socket_value = await io_async::socket_like_roundtrip(9);
+    let channel_value = await io_async::channel_like_roundtrip(11);
+    return pair + selected + stream_sum + file_value + socket_value + channel_value;
+}
+
+pub fn main() -> int {
+    let task = phase21_total();
+    return 0;
+}

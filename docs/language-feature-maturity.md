@@ -1,7 +1,7 @@
 # Language Feature Maturity Policy
 
 Updated: 2026-06-16
-Roadmap item: `R-106`, `R-118`, `R-2102`, `R-2103`, `R-2104`, `R-2105`, `R-2106`
+Roadmap item: `R-106`, `R-118`, `R-2102`, `R-2103`, `R-2104`, `R-2105`, `R-2106`, `R-2107`
 
 This file is the source of truth for language maturity labels. Documentation, examples, and CLI behavior must match this policy exactly.
 
@@ -148,6 +148,9 @@ This file is the source of truth for language maturity labels. Documentation, ex
   finite source streams, backpressure status, deterministic `done`,
   cancellation, and `map`/`filter`/`fold`/`take`/`skip`/`chunks`/`fuse`
   adaptor host calls
+- async stdlib baseline: cancelable async filesystem read/write host calls,
+  nonblocking TCP listener/connect/accept/read/write, UDP bind/send/recv, and
+  bounded async channel send/recv host calls
 - first-class tensor language design beyond the current stdlib handle/autodiff API
 - native DWARF/PDB source stepping beyond the current AOT debug-map workflow
 - HTTP/gRPC serving, async I/O integration, distributed model residency policy, and external policy-engine integration
@@ -179,9 +182,8 @@ CLI compatibility contract:
 - native CUDA/ROCm/Metal/DirectML/Vulkan backends beyond the current optional `wgpu` baseline
 - `.npz`, safetensors, checkpoints, and ONNX import/export beyond the current `.npy` baseline
 - network package registry protocol, authentication, provenance signatures, and semver range solving beyond exact local versions
-- public non-blocking filesystem/network operations, async test macros, and
-  async trait object production hardening beyond the
-  `R-2103`/`R-2104`/`R-2105`/`R-2106` async runtime baseline
+- async test macros and async trait object production hardening beyond the
+  `R-2103`/`R-2104`/`R-2105`/`R-2106`/`R-2107` async runtime baseline
 
 ## Synchronization Rules
 

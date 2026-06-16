@@ -1130,6 +1130,19 @@ if ($r2106Streams.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2106_streams"; Status = $r2106Streams.Status; Detalhe = $r2106Streams.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.32: R-2107 async standard library surface
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2107 async standard library surface ---" -ForegroundColor Yellow
+$r2107AsyncStdlib = Invoke-HostCommand -name "validate_r2107_async_stdlib" -fileName "python" -arguments @("scripts\validate_r2107_async_stdlib.py") -workingDir (Get-Location).Path
+if ($r2107AsyncStdlib.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2107_async_stdlib"; Status = $r2107AsyncStdlib.Status; Detalhe = $r2107AsyncStdlib.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -1,0 +1,23 @@
+module async_phase21_pipeline;
+
+async fn fetch_piece(seed: int) -> int {
+    return seed + 1;
+}
+
+async fn transform_piece(value: int) -> int {
+    let left = await fetch_piece(value);
+    let right = await fetch_piece(left);
+    return left + right;
+}
+
+async fn aggregate() -> int {
+    let first = await transform_piece(1);
+    let second = await transform_piece(3);
+    let third = await transform_piece(5);
+    return first + second + third;
+}
+
+fn main() -> int {
+    let task = aggregate();
+    return 0;
+}

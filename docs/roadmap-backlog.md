@@ -3138,11 +3138,11 @@ Add a first-class `Stream<T>` type with `map`, `filter`, `fold`, `take`,
 
 ## R-2107 Async Standard Library Surface
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
-- Dependencies: `R-2105`
+- Dependencies: `R-2105`, `R-2106`
 
 ### Scope
 
@@ -3158,6 +3158,29 @@ through the standard library.
 - Async `channel.send` / `channel.recv` are available alongside the
   existing sync channels.
 - Tests cover async socket reads/writes and clean cancellation.
+- `scripts\validate_r2107_async_stdlib.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed in this pass
+
+- Added async filesystem host calls for `fs.read_async` and
+  `fs.write_async`, returning cancelable `Task` handles and structured failed
+  tasks on I/O failure.
+- Added TCP listener/connect/accept/read/write/close host calls with
+  nonblocking sockets, pending accept/read tasks, local loopback test support,
+  and clean cancellation of pending reads.
+- Added UDP bind/port/send_to/recv/close host calls with pending receive tasks
+  and deterministic one-byte datagram delivery for runtime-level validation.
+- Added async channels with bounded capacity, nonblocking send/recv tasks,
+  pending send/recv queues, close semantics, length reporting, and
+  cancellation of pending channel operations.
+- Added `tests/validation/126_async_stdlib_surface.spectra` and the R-2107
+  validation gate.
+
+### Remaining outside this item
+
+- `R-2108` owns async trait objects and `dyn Future`.
+- `R-2109` owns async test runtime and macros.
 
 ## R-2108 Async Trait Objects and dyn Future
 
