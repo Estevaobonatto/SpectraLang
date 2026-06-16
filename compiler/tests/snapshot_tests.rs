@@ -64,7 +64,16 @@ fn type_annotation_inner(ty: &TypeAnnotation) -> String {
                 .join(", ");
             format!("{name}<{args}>")
         }
-        TypeAnnotationKind::DynTrait { trait_name } => format!("dyn {trait_name}"),
+        TypeAnnotationKind::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {trait_name}")
+            } else {
+                format!("dyn {trait_name} + {}", auto_traits.join(" + "))
+            }
+        }
     }
 }
 

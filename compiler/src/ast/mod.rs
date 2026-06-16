@@ -45,9 +45,10 @@ pub enum Type {
         layout: Option<String>,
         device: Option<String>,
     },
-    /// Dynamic trait object: dyn TraitName
+    /// Dynamic trait object: dyn TraitName [+ AutoTrait...]
     DynTrait {
         trait_name: String,
+        auto_traits: Vec<String>,
     },
 }
 
@@ -224,8 +225,11 @@ pub enum TypeAnnotationKind {
         name: String,
         type_args: Vec<TypeAnnotation>,
     },
-    /// Dynamic trait object: dyn TraitName
-    DynTrait { trait_name: String },
+    /// Dynamic trait object: dyn TraitName [+ AutoTrait...]
+    DynTrait {
+        trait_name: String,
+        auto_traits: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,14 @@
+module formal_send_bound_rejects_non_send;
+
+struct NonSend {
+    value: int
+}
+
+fn requires_send<T: Send>(value: T) -> int {
+    return 1;
+}
+
+fn main() -> int {
+    let local = NonSend { value: 7 };
+    return requires_send(local);
+}

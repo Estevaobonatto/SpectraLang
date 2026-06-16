@@ -1605,7 +1605,7 @@ title = "Formal Send/Sync Trait Bounds"
 phase = "phase_21"
 owner = "semantic"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2108", "R-2110"]
 summary = "Add first-class `Send` and `Sync` trait bounds to generic, async, task, and dynamic trait object typing so async safety is expressed by the type system instead of only by explicit type-family classification."
@@ -1614,7 +1614,8 @@ acceptance = [
   "`dyn Trait + Send` and `dyn Trait + Sync` are represented in the AST, semantic type model, and lowering without breaking existing `dyn Trait` code",
   "`Task<T>: Send` and spawn-style APIs require formal `Send` evidence instead of name-family-only classification",
   "diagnostics reuse the `E2101` through `E2120` async range with precise spans for missing `Send`/`Sync` evidence",
-  "regression tests cover generic bounds, dyn trait bounds, task boundary checks, and backwards-compatible plain `dyn Trait` behavior"
+  "regression tests cover generic bounds, dyn trait bounds, task boundary checks, and backwards-compatible plain `dyn Trait` behavior",
+  "`scripts/validate_r2112_formal_send_sync_bounds.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

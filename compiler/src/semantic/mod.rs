@@ -422,7 +422,10 @@ pub fn type_name(ty: &Type) -> String {
             layout,
             device,
         } => format_tensor_type_name(type_name(dtype), *rank, dims, layout, device),
-        Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
+        Type::DynTrait {
+            trait_name,
+            auto_traits,
+        } => format_dyn_trait_name(trait_name, auto_traits),
     }
 }
 
@@ -454,6 +457,20 @@ fn format_tensor_type_name(
         parts.push(device.clone());
     }
     format!("Tensor<{}>", parts.join(", "))
+}
+
+fn format_dyn_trait_name(trait_name: &str, auto_traits: &[String]) -> String {
+    if auto_traits.is_empty() {
+        format!("dyn {}", trait_name)
+    } else {
+        format!("dyn {} + {}", trait_name, auto_traits.join(" + "))
+    }
+}
+
+fn auto_trait_bounds_satisfied(actual: &[String], expected: &[String]) -> bool {
+    expected
+        .iter()
+        .all(|bound| actual.iter().any(|actual_bound| actual_bound == bound))
 }
 
 fn namespace_path(expr: &Expression) -> Option<String> {
@@ -1226,6 +1243,12 @@ impl SemanticAnalyzer {
     }
 
     fn type_satisfies_trait_bound(&self, concrete_type: &Type, trait_name: &str) -> bool {
+        if trait_name == "Send" {
+            return self.type_is_send(concrete_type);
+        }
+        if trait_name == "Sync" {
+            return self.type_is_sync(concrete_type);
+        }
         match concrete_type {
             Type::Struct { name } | Type::Enum { name, .. } => self
                 .trait_impls
@@ -1256,6 +1279,26 @@ impl SemanticAnalyzer {
 
             for trait_name in &param.bounds {
                 if !self.type_satisfies_trait_bound(concrete_type, trait_name) {
+                    if matches!(trait_name.as_str(), "Send" | "Sync") {
+                        self.error_coded_with_hint(
+                            "E2104",
+                            format!(
+                                "Type '{}' does not provide formal {} evidence required by bound '{}: {}'",
+                                type_name(concrete_type),
+                                trait_name,
+                                param.name,
+                                trait_name
+                            ),
+                            span,
+                            format!(
+                                "Add a `{}` bound/evidence for '{}' or use a type that satisfies `{}`.",
+                                trait_name,
+                                type_name(concrete_type),
+                                trait_name
+                            ),
+                        );
+                        continue;
+                    }
                     self.error_coded_with_hint(
                         "E010",
                         format!(
@@ -1586,10 +1629,15 @@ impl SemanticAnalyzer {
                 TypeAnnotationKind::Generic { name, type_args } if name == "Box" => {
                     match type_args.first() {
                         Some(crate::ast::TypeAnnotation {
-                            kind: TypeAnnotationKind::DynTrait { trait_name },
+                            kind:
+                                TypeAnnotationKind::DynTrait {
+                                    trait_name,
+                                    auto_traits,
+                                },
                             ..
                         }) => Type::DynTrait {
                             trait_name: trait_name.clone(),
+                            auto_traits: auto_traits.clone(),
                         },
                         _ => Type::Unknown,
                     }
@@ -1601,8 +1649,12 @@ impl SemanticAnalyzer {
                         name: self.mangle_generic_type_name(name, type_args),
                     }
                 }
-                TypeAnnotationKind::DynTrait { trait_name } => Type::DynTrait {
+                TypeAnnotationKind::DynTrait {
+                    trait_name,
+                    auto_traits,
+                } => Type::DynTrait {
                     trait_name: trait_name.clone(),
+                    auto_traits: auto_traits.clone(),
                 },
                 _ => Type::Unknown,
             },
@@ -1653,7 +1705,17 @@ impl SemanticAnalyzer {
             TypeAnnotationKind::Generic { name, type_args } => {
                 self.mangle_generic_type_name(name, type_args)
             }
-            TypeAnnotationKind::DynTrait { trait_name } => format!("dyn_{}", trait_name),
+            TypeAnnotationKind::DynTrait {
+                trait_name,
+                auto_traits,
+            } => format!(
+                "dyn_{}{}",
+                trait_name,
+                auto_traits
+                    .iter()
+                    .map(|bound| format!("_{}", bound))
+                    .collect::<String>()
+            ),
         }
     }
 
@@ -1781,10 +1843,15 @@ impl SemanticAnalyzer {
             TypeAnnotationKind::Generic { name, type_args } if name == "Box" => {
                 match type_args.first() {
                     Some(crate::ast::TypeAnnotation {
-                        kind: TypeAnnotationKind::DynTrait { trait_name },
+                        kind:
+                            TypeAnnotationKind::DynTrait {
+                                trait_name,
+                                auto_traits,
+                            },
                         ..
                     }) => Type::DynTrait {
                         trait_name: trait_name.clone(),
+                        auto_traits: auto_traits.clone(),
                     },
                     _ => Type::Unknown,
                 }
@@ -1844,8 +1911,11 @@ impl SemanticAnalyzer {
             TypeAnnotationKind::Generic { name, .. } => {
                 TypeAnnotationPattern::Simple(vec![name.clone()])
             }
-            TypeAnnotationKind::DynTrait { trait_name } => {
-                TypeAnnotationPattern::Simple(vec![format!("dyn {}", trait_name)])
+            TypeAnnotationKind::DynTrait {
+                trait_name,
+                auto_traits,
+            } => {
+                TypeAnnotationPattern::Simple(vec![format_dyn_trait_name(trait_name, auto_traits)])
             }
         }
     }
@@ -2314,7 +2384,16 @@ impl SemanticAnalyzer {
             (Type::Task { output: a }, Type::Task { output: b }) => self.types_match(a, b),
 
             // Dynamic trait objects match structurally by trait name.
-            (Type::DynTrait { trait_name: a }, Type::DynTrait { trait_name: b }) => a == b,
+            (
+                Type::DynTrait {
+                    trait_name: a,
+                    auto_traits: auto_a,
+                },
+                Type::DynTrait {
+                    trait_name: b,
+                    auto_traits: auto_b,
+                },
+            ) => a == b && auto_trait_bounds_satisfied(auto_a, auto_b),
 
             // Tensor handles carry compiler-visible dtype/rank metadata but
             // remain runtime handles, so they are compatible with int at FFI
@@ -5471,7 +5550,13 @@ impl SemanticAnalyzer {
             Type::Tuple { elements } => elements.iter().all(|element| self.type_is_send(element)),
             Type::Enum { name } => !self.type_name_is_non_send(name),
             Type::Task { output } => self.type_is_send(output),
-            Type::DynTrait { trait_name } => !self.type_name_is_non_send(trait_name),
+            Type::DynTrait {
+                trait_name,
+                auto_traits,
+            } => {
+                (auto_traits.is_empty() || auto_traits.iter().any(|bound| bound == "Send"))
+                    && !self.type_name_is_non_send(trait_name)
+            }
             Type::Fn { .. } => false,
             Type::Tensor { .. }
             | Type::Int
@@ -5480,8 +5565,55 @@ impl SemanticAnalyzer {
             | Type::String
             | Type::Char
             | Type::Unit
-            | Type::TypeParameter { .. }
             | Type::SelfType => true,
+            Type::TypeParameter { name } => self
+                .get_generic_bounds(name)
+                .map(|bounds| bounds.iter().any(|bound| bound == "Send"))
+                .unwrap_or(false),
+        }
+    }
+
+    fn type_is_sync(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Unknown => true,
+            Type::Struct { name } => {
+                if self.type_name_is_non_sync(name) {
+                    return false;
+                }
+                self.struct_infos
+                    .get(name)
+                    .map(|info| {
+                        info.fields.values().all(|field| {
+                            let field_ty = self.type_annotation_to_type(&Some(field.ty.clone()));
+                            self.type_is_sync(&field_ty)
+                        })
+                    })
+                    .unwrap_or(true)
+            }
+            Type::Array { element_type, .. } => self.type_is_sync(element_type),
+            Type::Tuple { elements } => elements.iter().all(|element| self.type_is_sync(element)),
+            Type::Enum { name } => !self.type_name_is_non_sync(name),
+            Type::Task { output } => self.type_is_send(output),
+            Type::DynTrait {
+                trait_name,
+                auto_traits,
+            } => {
+                (auto_traits.is_empty() || auto_traits.iter().any(|bound| bound == "Sync"))
+                    && !self.type_name_is_non_sync(trait_name)
+            }
+            Type::Fn { .. } => false,
+            Type::Tensor { .. }
+            | Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::String
+            | Type::Char
+            | Type::Unit
+            | Type::SelfType => true,
+            Type::TypeParameter { name } => self
+                .get_generic_bounds(name)
+                .map(|bounds| bounds.iter().any(|bound| bound == "Sync"))
+                .unwrap_or(false),
         }
     }
 
@@ -5513,6 +5645,13 @@ impl SemanticAnalyzer {
                 | "NonSend"
                 | "NotSend"
                 | "LocalHandle"
+        )
+    }
+
+    fn type_name_is_non_sync(&self, name: &str) -> bool {
+        matches!(
+            name,
+            "RefCell" | "Cell" | "UnsafeCell" | "Rc" | "RawPtr" | "LocalOnly" | "LocalHandle"
         )
     }
 
@@ -6189,7 +6328,7 @@ impl SemanticAnalyzer {
                     }
                 }
                 // For dyn Trait: look up the method return type from trait definition
-                if let Type::DynTrait { trait_name } = &obj_type {
+                if let Type::DynTrait { trait_name, .. } = &obj_type {
                     if let Some(trait_methods) = self.traits.get(trait_name.as_str()) {
                         if let Some(sig) = trait_methods.get(method_name.as_str()) {
                             return sig.signature.return_type.clone();
@@ -8454,8 +8593,13 @@ impl SemanticAnalyzer {
                 let mut valid = is_cast_valid(&from_ty, &to_ty);
 
                 // For dyn Trait casts, verify that the concrete type actually implements the trait.
-                if let (Type::Struct { name: struct_name }, Type::DynTrait { trait_name }) =
-                    (&from_ty, &to_ty)
+                if let (
+                    Type::Struct { name: struct_name },
+                    Type::DynTrait {
+                        trait_name,
+                        auto_traits,
+                    },
+                ) = (&from_ty, &to_ty)
                 {
                     if !self
                         .trait_impls
@@ -8469,6 +8613,23 @@ impl SemanticAnalyzer {
                             ),
                             expr.span,
                         );
+                    }
+                    for bound in auto_traits {
+                        if !self.type_satisfies_trait_bound(&from_ty, bound) {
+                            valid = false;
+                            self.error_coded_with_hint(
+                                "E2104",
+                                format!(
+                                    "Cannot cast `{}` to `dyn {} + {}`: type `{}` does not satisfy `{}`",
+                                    struct_name, trait_name, bound, struct_name, bound
+                                ),
+                                expr.span,
+                                format!(
+                                    "Add a formal `{}` implementation/evidence for `{}` before creating this dyn object.",
+                                    bound, struct_name
+                                ),
+                            );
+                        }
                     }
                 }
 
@@ -10345,8 +10506,12 @@ impl SemanticAnalyzer {
                     type_args,
                 }
             }
-            Type::DynTrait { trait_name } => TypeAnnotationKind::DynTrait {
+            Type::DynTrait {
+                trait_name,
+                auto_traits,
+            } => TypeAnnotationKind::DynTrait {
                 trait_name: trait_name.clone(),
+                auto_traits: auto_traits.clone(),
             },
         };
 

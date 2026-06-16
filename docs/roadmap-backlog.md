@@ -3327,7 +3327,7 @@ and concurrent connection counts for async workloads.
 
 ## R-2112 Formal Send/Sync Trait Bounds
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Risk: `medium`
@@ -3358,6 +3358,30 @@ bounds must let users and libraries express the contract directly as
   for missing `Send`/`Sync` evidence.
 - Regression tests cover generic bounds, dyn trait bounds, task boundary
   checks, and backwards-compatible plain `dyn Trait` behavior.
+
+### Completed Notes
+
+- Extended AST, parser, semantic type conversion, LSP/tooling formatters, and
+  midend lowering so `dyn Trait + Send` and `dyn Trait + Send + Sync` are
+  represented end-to-end while plain `dyn Trait` remains valid.
+- `T: Send` and `T: Sync` now participate in generic bound validation as
+  formal auto-trait evidence.
+- Async Send validation no longer treats unconstrained type parameters as
+  implicitly `Send`; plain `dyn Trait` remains backward-compatible with the
+  existing async trait-object model, while `dyn Trait + Send/Sync` carries
+  explicit evidence for APIs that require it.
+- Added semantic `Sync` classification for formal `T: Sync` checks.
+- Added diagnostic `E2104` for missing formal `Send`/`Sync` evidence in
+  generic bounds and `dyn Trait + Send/Sync` casts.
+- Added regression fixtures:
+  `tests\validation\132_formal_send_sync_bounds.spectra`,
+  `tests\errors\formal_send_bound_missing_across_await.spectra`,
+  `tests\errors\formal_task_boundary_missing_send.spectra`,
+  `tests\errors\formal_send_bound_rejects_non_send.spectra`,
+  `tests\errors\formal_sync_bound_rejects_refcell.spectra`, and
+  `tests\errors\dyn_trait_send_bound_missing.spectra`.
+- Added `scripts/validate_r2112_formal_send_sync_bounds.py` and wired it into
+  `run_tests.ps1`.
 
 ---
 

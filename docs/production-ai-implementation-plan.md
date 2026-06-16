@@ -1657,8 +1657,9 @@ The eight phases are summarized below; the detailed items live in
 - `R-2111` Async benchmarks and profiling (complete; `spectralang bench
   --async`, schema `spectra.r2111.async_benchmark.v1`, checked-in baseline,
   and validation gate landed)
-- `R-2112` Formal `Send`/`Sync` trait bounds (`T: Send`, `T: Sync`,
-  `dyn Trait + Send`, and task-boundary evidence)
+- `R-2112` Formal `Send`/`Sync` trait bounds (complete; `T: Send`,
+  `T: Sync`, `dyn Trait + Send/Sync`, auto-trait evidence diagnostics
+  `E2104`, and validation gate landed)
 
 ### Phase 22 — API Library Foundation (`spectra.api`)
 

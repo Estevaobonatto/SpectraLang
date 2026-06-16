@@ -158,6 +158,9 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - async diagnostics baseline: stable `E2101` through `E2120` code range,
   non-`Send` values live across `await`, `RefCell`/interior-mutable values
   across `await`, and `!Send` values crossing spawn-style task boundaries
+- formal async auto-trait bounds: `T: Send`, `T: Sync`,
+  `dyn Trait + Send`, and `dyn Trait + Send + Sync` are represented in
+  parser/AST/semantics/lowering, with `E2104` for missing formal evidence
 - async benchmark baseline: `spectralang bench --async` emits schema
   `spectra.r2111.async_benchmark.v1` JSON for 1k, 10k, and 100k concurrent
   async tasks and is checked against

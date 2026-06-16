@@ -1,0 +1,65 @@
+module formal_send_sync_bounds;
+
+trait Worker {
+    async fn run(&self, input: int) -> int;
+}
+
+struct SendWorker {
+    base: int
+}
+
+impl Worker for SendWorker {
+    async fn run(&self, input: int) -> int {
+        return self.base + input;
+    }
+}
+
+async fn ready(value: int) -> int {
+    return value;
+}
+
+fn keep<T>(value: T) -> int {
+    return 1;
+}
+
+async fn generic_send_value<T: Send>(value: T, score: int) -> int {
+    let carried = value;
+    let waited = await ready(score);
+    return waited + keep(carried);
+}
+
+fn require_sync<T: Sync>(value: T) -> int {
+    return 1;
+}
+
+async fn drive(worker: dyn Worker + Send) -> int {
+    let result = await worker.run(5);
+    return result;
+}
+
+fn inspect(worker: dyn Worker + Send + Sync) -> int {
+    return 1;
+}
+
+fn spawn_task<T: Send>(value: T) -> int {
+    return 1;
+}
+
+async fn spawn_generic<T: Send>(value: T) -> int {
+    return spawn_task(value);
+}
+
+async fn aggregate() -> int {
+    let source = SendWorker { base: 37 };
+    let worker = source as dyn Worker + Send + Sync;
+    let first = await drive(worker);
+    let second = inspect(worker);
+    let third = spawn_task(20);
+    let fourth = require_sync(10);
+    return first + second + third + fourth;
+}
+
+fn main() -> int {
+    let task = aggregate();
+    return block_on(task) - 45;
+}

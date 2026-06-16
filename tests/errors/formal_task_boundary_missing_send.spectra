@@ -1,0 +1,9 @@
+module formal_task_boundary_missing_send;
+
+fn spawn_task<T: Send>(value: T) -> int {
+    return 1;
+}
+
+async fn bad<T>(value: T) -> int {
+    return spawn_task(value);
+}

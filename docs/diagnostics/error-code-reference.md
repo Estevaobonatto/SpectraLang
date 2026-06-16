@@ -63,6 +63,7 @@ the code.
 | `E2101` | semantic | non-`Send` value is live across an `await` | drop or convert the value before `await`, or keep the task on a local executor lane |
 | `E2102` | semantic | `RefCell`/interior-mutable value is held across an `await` | shorten the value lifetime or replace it with an async-safe synchronization primitive |
 | `E2103` | semantic | `!Send` value crosses a spawn/task boundary | use a local task API or pass only `Send` values to spawn-style APIs |
+| `E2104` | semantic | formal `Send`/`Sync` evidence is missing for a generic bound or `dyn Trait + Send/Sync` object | add the required bound/evidence or use a type that satisfies the auto-trait |
 | `E2104` | semantic | non-`Sync` shared state is required by an async API | use synchronized shared state or avoid sharing across executor threads |
 | `E2105` | semantic | `await` operand is not `Task<T>` | await only task values or remove `await` |
 | `E2106` | semantic | `await` is used outside an async semantic context | move the expression into `async fn`, `async {}`, or an async closure |

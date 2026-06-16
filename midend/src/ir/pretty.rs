@@ -452,7 +452,16 @@ fn fmt_type(ty: &Type) -> String {
             }
             format!("Tensor<{}>", parts.join(", "))
         }
-        Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
+        Type::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {}", trait_name)
+            } else {
+                format!("dyn {} + {}", trait_name, auto_traits.join(" + "))
+            }
+        }
     }
 }
 

@@ -1195,6 +1195,19 @@ if ($r2111AsyncBench.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2111_async_bench"; Status = $r2111AsyncBench.Status; Detalhe = $r2111AsyncBench.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.37: R-2112 formal Send/Sync trait bounds
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2112 formal Send/Sync trait bounds ---" -ForegroundColor Yellow
+$r2112FormalSendSync = Invoke-HostCommand -name "validate_r2112_formal_send_sync_bounds" -fileName "python" -arguments @("scripts\validate_r2112_formal_send_sync_bounds.py") -workingDir (Get-Location).Path
+if ($r2112FormalSendSync.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2112_formal_send_sync_bounds"; Status = $r2112FormalSendSync.Status; Detalhe = $r2112FormalSendSync.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

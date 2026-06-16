@@ -210,10 +210,18 @@ Definitions:
 - A task is `Sync` only if its shared state is `Sync`.
 - Non-sendable tasks are allowed, but they are bound to the executor lane where
   they were created.
+- Formal evidence is expressed in the type system through `T: Send`,
+  `T: Sync`, `dyn Trait + Send`, and `dyn Trait + Send + Sync`.
 
 Compiler diagnostics must report the exact value that prevents a task from
 being sendable. The compiler may reject APIs that require `Task<T>: Send` when
 the lowered state frame contains non-sendable values.
+
+R-2112 makes this evidence explicit for generic parameters and dynamic trait
+objects. Unconstrained `T` is not treated as `Send` by async validation.
+Plain `dyn Trait` remains backward-compatible with the existing async
+trait-object model, while `dyn Trait + Send` and `dyn Trait + Sync` carry
+formal evidence for APIs that require explicit auto-trait bounds.
 
 The first production executor may be single-threaded, but the type and
 diagnostic rules must not pretend all tasks are sendable. This prevents a later
@@ -270,6 +278,8 @@ implemented Send/Sync gates are:
 - `E2101`: a non-`Send` value is live across an `await`;
 - `E2102`: a `RefCell`/interior-mutable value is held across an `await`;
 - `E2103`: a `!Send` value crosses a spawn-style task boundary.
+- `E2104`: formal `Send`/`Sync` evidence is missing for a generic bound or a
+  `dyn Trait + Send/Sync` object.
 
 ## Consequences
 

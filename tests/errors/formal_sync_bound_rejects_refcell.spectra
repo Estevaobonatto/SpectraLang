@@ -1,0 +1,14 @@
+module formal_sync_bound_rejects_refcell;
+
+struct RefCell {
+    value: int
+}
+
+fn requires_sync<T: Sync>(value: T) -> int {
+    return 1;
+}
+
+fn main() -> int {
+    let local = RefCell { value: 5 };
+    return requires_sync(local);
+}

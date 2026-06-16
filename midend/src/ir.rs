@@ -339,6 +339,7 @@ pub enum Type {
     /// Fat pointer for dyn Trait objects: (data_ptr: i64, vtable_ptr: i64).
     DynTrait {
         trait_name: String,
+        auto_traits: Vec<String>,
     },
 }
 

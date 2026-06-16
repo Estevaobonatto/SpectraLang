@@ -1809,8 +1809,15 @@ fn format_type_annotation(ty: &spectra_compiler::ast::TypeAnnotation) -> String 
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        spectra_compiler::ast::TypeAnnotationKind::DynTrait { trait_name } => {
-            format!("dyn {}", trait_name)
+        spectra_compiler::ast::TypeAnnotationKind::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {}", trait_name)
+            } else {
+                format!("dyn {} + {}", trait_name, auto_traits.join(" + "))
+            }
         }
     }
 }

@@ -1,0 +1,21 @@
+module dyn_trait_send_bound_missing;
+
+trait Worker {
+    async fn run(&self) -> int;
+}
+
+struct NonSend {
+    value: int
+}
+
+impl Worker for NonSend {
+    async fn run(&self) -> int {
+        return self.value;
+    }
+}
+
+async fn bad() -> int {
+    let local = NonSend { value: 9 };
+    let worker = local as dyn Worker + Send;
+    return await worker.run();
+}

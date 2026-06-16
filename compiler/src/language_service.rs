@@ -188,7 +188,16 @@ pub fn type_to_string(ty: &Type) -> String {
             }
             format!("Tensor<{}>", parts.join(", "))
         }
-        Type::DynTrait { trait_name } => format!("dyn {}", trait_name),
+        Type::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {}", trait_name)
+            } else {
+                format!("dyn {} + {}", trait_name, auto_traits.join(" + "))
+            }
+        }
     }
 }
 
@@ -463,7 +472,16 @@ fn format_type_annotation(annotation: &TypeAnnotation) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        TypeAnnotationKind::DynTrait { trait_name } => format!("dyn {}", trait_name),
+        TypeAnnotationKind::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {}", trait_name)
+            } else {
+                format!("dyn {} + {}", trait_name, auto_traits.join(" + "))
+            }
+        }
     }
 }
 

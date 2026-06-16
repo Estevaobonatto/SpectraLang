@@ -15,9 +15,21 @@ impl Parser {
             self.advance(); // consume 'dyn'
             let (trait_name, end_span) =
                 self.consume_identifier("Expected trait name after 'dyn'")?;
+            let mut auto_traits = Vec::new();
+            let mut final_span = end_span;
+            while self.check_symbol('+') {
+                self.advance();
+                let (bound, bound_span) =
+                    self.consume_identifier("Expected trait bound after '+' in dyn type")?;
+                auto_traits.push(bound);
+                final_span = bound_span;
+            }
             return Ok(TypeAnnotation {
-                kind: TypeAnnotationKind::DynTrait { trait_name },
-                span: span_union(start_span, end_span),
+                kind: TypeAnnotationKind::DynTrait {
+                    trait_name,
+                    auto_traits,
+                },
+                span: span_union(start_span, final_span),
             });
         }
 

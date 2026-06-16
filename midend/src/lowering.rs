@@ -1223,6 +1223,9 @@ impl ASTLowering {
 
     /// Check if a concrete type satisfies a trait bound
     fn type_satisfies_trait(&self, concrete_type: &IRType, trait_name: &str) -> bool {
+        if trait_name == "Send" || trait_name == "Sync" {
+            return self.ir_type_satisfies_auto_trait(concrete_type, trait_name);
+        }
         let type_name = self.ir_type_to_ast_name(concrete_type);
 
         // Check if we have recorded this implementation
@@ -1231,6 +1234,82 @@ impl ASTLowering {
             .get(&key)
             .copied()
             .unwrap_or(false)
+    }
+
+    fn ir_type_satisfies_auto_trait(&self, concrete_type: &IRType, trait_name: &str) -> bool {
+        match concrete_type {
+            IRType::Void
+            | IRType::Int
+            | IRType::Float
+            | IRType::Bool
+            | IRType::String
+            | IRType::Char
+            | IRType::Pointer(_) => true,
+            IRType::Array {
+                element_type: element,
+                ..
+            }
+            | IRType::Task { output: element } => {
+                self.ir_type_satisfies_auto_trait(element, trait_name)
+            }
+            IRType::Tuple { elements } => elements
+                .iter()
+                .all(|element| self.ir_type_satisfies_auto_trait(element, trait_name)),
+            IRType::Struct { name, fields } => {
+                if self.type_name_fails_auto_trait(name, trait_name) {
+                    return false;
+                }
+                fields
+                    .iter()
+                    .all(|(_, field)| self.ir_type_satisfies_auto_trait(field, trait_name))
+            }
+            IRType::Enum { name, variants } => {
+                if self.type_name_fails_auto_trait(name, trait_name) {
+                    return false;
+                }
+                variants.iter().all(|(_, payload)| {
+                    payload
+                        .as_ref()
+                        .map(|types| {
+                            types
+                                .iter()
+                                .all(|ty| self.ir_type_satisfies_auto_trait(ty, trait_name))
+                        })
+                        .unwrap_or(true)
+                })
+            }
+            IRType::Function { .. } => false,
+            IRType::DynTrait {
+                trait_name: dyn_name,
+                auto_traits,
+            } => {
+                auto_traits.iter().any(|bound| bound == trait_name)
+                    && !self.type_name_fails_auto_trait(dyn_name, trait_name)
+            }
+            IRType::Tensor { .. } => true,
+        }
+    }
+
+    fn type_name_fails_auto_trait(&self, name: &str, trait_name: &str) -> bool {
+        match trait_name {
+            "Send" => matches!(
+                name,
+                "RefCell"
+                    | "Cell"
+                    | "UnsafeCell"
+                    | "Rc"
+                    | "RawPtr"
+                    | "LocalOnly"
+                    | "NonSend"
+                    | "NotSend"
+                    | "LocalHandle"
+            ),
+            "Sync" => matches!(
+                name,
+                "RefCell" | "Cell" | "UnsafeCell" | "Rc" | "RawPtr" | "LocalOnly" | "LocalHandle"
+            ),
+            _ => false,
+        }
     }
 
     fn merge_array_element_types(&self, left: &IRType, right: &IRType) -> Option<IRType> {
@@ -2378,7 +2457,7 @@ impl ASTLowering {
                     return descriptor.return_type.clone();
                 }
 
-                if let IRType::DynTrait { trait_name } = self.infer_expr_ir_type(object) {
+                if let IRType::DynTrait { trait_name, .. } = self.infer_expr_ir_type(object) {
                     if let Some((_, return_type)) = self
                         .trait_method_signatures
                         .get(&trait_name)
@@ -6199,7 +6278,7 @@ impl ASTLowering {
 
                 // 1a. If the object is a dyn Trait, dispatch via vtable.
                 let obj_ir_type = self.infer_expr_ir_type(object);
-                if let IRType::DynTrait { trait_name } = &obj_ir_type {
+                if let IRType::DynTrait { trait_name, .. } = &obj_ir_type {
                     return self.lower_dyn_method_call(
                         obj_value,
                         trait_name.clone(),
@@ -6509,7 +6588,7 @@ impl ASTLowering {
         let to_ty = self.lower_type_annotation(target_type);
 
         // Special case: coerce struct to dyn Trait
-        if let IRType::DynTrait { trait_name } = &to_ty.clone() {
+        if let IRType::DynTrait { trait_name, .. } = &to_ty.clone() {
             let operand = self.lower_expression(inner, ir_func);
             return self.lower_coerce_to_dyn(operand, &from_ty, trait_name, ir_func);
         }
@@ -7154,12 +7233,17 @@ impl ASTLowering {
 
                 if name == "Box" {
                     if let Some(TypeAnnotation {
-                        kind: TypeAnnotationKind::DynTrait { trait_name },
+                        kind:
+                            TypeAnnotationKind::DynTrait {
+                                trait_name,
+                                auto_traits,
+                            },
                         ..
                     }) = type_args.first()
                     {
                         return IRType::DynTrait {
                             trait_name: trait_name.clone(),
+                            auto_traits: auto_traits.clone(),
                         };
                     }
                 }
@@ -7222,8 +7306,12 @@ impl ASTLowering {
                     substitutions,
                 )
             }
-            TypeAnnotationKind::DynTrait { trait_name } => IRType::DynTrait {
+            TypeAnnotationKind::DynTrait {
+                trait_name,
+                auto_traits,
+            } => IRType::DynTrait {
                 trait_name: trait_name.clone(),
+                auto_traits: auto_traits.clone(),
             },
         }
     }
@@ -7322,8 +7410,12 @@ impl ASTLowering {
                 layout: layout.clone(),
                 device: device.clone(),
             },
-            ASTType::DynTrait { trait_name } => IRType::DynTrait {
+            ASTType::DynTrait {
+                trait_name,
+                auto_traits,
+            } => IRType::DynTrait {
                 trait_name: trait_name.clone(),
+                auto_traits: auto_traits.clone(),
             },
         }
     }
@@ -7347,7 +7439,17 @@ impl ASTLowering {
                     .collect();
                 format!("{}_{}", name, arg_strs.join("_"))
             }
-            TypeAnnotationKind::DynTrait { trait_name } => format!("dyn_{}", trait_name),
+            TypeAnnotationKind::DynTrait {
+                trait_name,
+                auto_traits,
+            } => format!(
+                "dyn_{}{}",
+                trait_name,
+                auto_traits
+                    .iter()
+                    .map(|bound| format!("_{}", bound))
+                    .collect::<String>()
+            ),
         }
     }
 
@@ -7519,8 +7621,12 @@ impl ASTLowering {
                     type_args: subst_args,
                 }
             }
-            TypeAnnotationKind::DynTrait { trait_name } => TypeAnnotationKind::DynTrait {
+            TypeAnnotationKind::DynTrait {
+                trait_name,
+                auto_traits,
+            } => TypeAnnotationKind::DynTrait {
                 trait_name: trait_name.clone(),
+                auto_traits: auto_traits.clone(),
             },
         };
 
