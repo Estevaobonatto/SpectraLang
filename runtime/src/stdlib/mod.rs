@@ -403,6 +403,21 @@ const ASYNC_SCOPE_CANCEL: &str = "spectra.async.scope.cancel";
 const ASYNC_SCOPE_JOIN: &str = "spectra.async.scope.join";
 const ASYNC_SCOPE_JOINED_COUNT: &str = "spectra.async.scope.joined_count";
 const ASYNC_SCOPE_FAILURES: &str = "spectra.async.scope.failures";
+const ASYNC_STREAM_NEW: &str = "spectra.async.stream.new";
+const ASYNC_STREAM_PUSH: &str = "spectra.async.stream.push";
+const ASYNC_STREAM_DONE: &str = "spectra.async.stream.done";
+const ASYNC_STREAM_NEXT: &str = "spectra.async.stream.next";
+const ASYNC_STREAM_NEXT_STATUS: &str = "spectra.async.stream.next_status";
+const ASYNC_STREAM_CANCEL: &str = "spectra.async.stream.cancel";
+const ASYNC_STREAM_LEN: &str = "spectra.async.stream.len";
+const ASYNC_STREAM_CAPACITY: &str = "spectra.async.stream.capacity";
+const ASYNC_STREAM_MAP: &str = "spectra.async.stream.map";
+const ASYNC_STREAM_FILTER: &str = "spectra.async.stream.filter";
+const ASYNC_STREAM_FOLD: &str = "spectra.async.stream.fold";
+const ASYNC_STREAM_TAKE: &str = "spectra.async.stream.take";
+const ASYNC_STREAM_SKIP: &str = "spectra.async.stream.skip";
+const ASYNC_STREAM_CHUNKS: &str = "spectra.async.stream.chunks";
+const ASYNC_STREAM_FUSE: &str = "spectra.async.stream.fuse";
 
 const ASYNC_REACTOR_BACKEND: &str = "spectra.async.reactor.backend";
 const ASYNC_REACTOR_WAKE: &str = "spectra.async.reactor.wake";
@@ -812,6 +827,21 @@ fn register_async() {
     register_host_function(ASYNC_SCOPE_JOIN, std_async_scope_join);
     register_host_function(ASYNC_SCOPE_JOINED_COUNT, std_async_scope_joined_count);
     register_host_function(ASYNC_SCOPE_FAILURES, std_async_scope_failures);
+    register_host_function(ASYNC_STREAM_NEW, std_async_stream_new);
+    register_host_function(ASYNC_STREAM_PUSH, std_async_stream_push);
+    register_host_function(ASYNC_STREAM_DONE, std_async_stream_done);
+    register_host_function(ASYNC_STREAM_NEXT, std_async_stream_next);
+    register_host_function(ASYNC_STREAM_NEXT_STATUS, std_async_stream_next_status);
+    register_host_function(ASYNC_STREAM_CANCEL, std_async_stream_cancel);
+    register_host_function(ASYNC_STREAM_LEN, std_async_stream_len);
+    register_host_function(ASYNC_STREAM_CAPACITY, std_async_stream_capacity);
+    register_host_function(ASYNC_STREAM_MAP, std_async_stream_map);
+    register_host_function(ASYNC_STREAM_FILTER, std_async_stream_filter);
+    register_host_function(ASYNC_STREAM_FOLD, std_async_stream_fold);
+    register_host_function(ASYNC_STREAM_TAKE, std_async_stream_take);
+    register_host_function(ASYNC_STREAM_SKIP, std_async_stream_skip);
+    register_host_function(ASYNC_STREAM_CHUNKS, std_async_stream_chunks);
+    register_host_function(ASYNC_STREAM_FUSE, std_async_stream_fuse);
     register_host_function(ASYNC_REACTOR_BACKEND, std_async_reactor_backend);
     register_host_function(ASYNC_REACTOR_WAKE, std_async_reactor_wake);
     register_host_function(ASYNC_REACTOR_TIMER, std_async_reactor_timer);
@@ -12545,15 +12575,68 @@ struct AsyncScope {
     failures: SpectraHostValue,
 }
 
+#[derive(Clone, Copy)]
+enum AsyncStreamKind {
+    Source,
+    Map {
+        upstream: SpectraHostValue,
+        op: SpectraHostValue,
+        arg: SpectraHostValue,
+    },
+    Filter {
+        upstream: SpectraHostValue,
+        predicate: SpectraHostValue,
+        arg: SpectraHostValue,
+    },
+    Take {
+        upstream: SpectraHostValue,
+        remaining: SpectraHostValue,
+    },
+    Skip {
+        upstream: SpectraHostValue,
+        remaining: SpectraHostValue,
+    },
+    Chunks {
+        upstream: SpectraHostValue,
+        size: SpectraHostValue,
+    },
+    Fuse {
+        upstream: SpectraHostValue,
+        fused_done: bool,
+    },
+}
+
+struct AsyncStream {
+    kind: AsyncStreamKind,
+    buffer: VecDeque<SpectraHostValue>,
+    capacity: usize,
+    pending_next: VecDeque<SpectraHostValue>,
+    done: bool,
+    cancelled: bool,
+    failed: bool,
+    last_next_status: SpectraHostValue,
+    chunk_items: Vec<SpectraHostValue>,
+}
+
+enum AsyncStreamPull {
+    Pending,
+    Item(SpectraHostValue),
+    Done,
+    Failed,
+    Cancelled,
+}
+
 struct AsyncTaskRegistry {
     next_task: SpectraHostValue,
     next_scope: SpectraHostValue,
     next_cancel_handle: SpectraHostValue,
+    next_stream: SpectraHostValue,
     now_ms: SpectraHostValue,
     next_join_order: SpectraHostValue,
     tasks: HashMap<SpectraHostValue, AsyncTask>,
     scopes: HashMap<SpectraHostValue, AsyncScope>,
     cancel_handles: HashMap<SpectraHostValue, SpectraHostValue>,
+    streams: HashMap<SpectraHostValue, AsyncStream>,
 }
 
 impl AsyncTaskRegistry {
@@ -12562,11 +12645,13 @@ impl AsyncTaskRegistry {
             next_task: 1,
             next_scope: 1,
             next_cancel_handle: 1,
+            next_stream: 1,
             now_ms: 0,
             next_join_order: 1,
             tasks: HashMap::new(),
             scopes: HashMap::new(),
             cancel_handles: HashMap::new(),
+            streams: HashMap::new(),
         }
     }
 
@@ -12581,6 +12666,17 @@ impl AsyncTaskRegistry {
         timeout_inner: Option<SpectraHostValue>,
         deadline_ms: Option<SpectraHostValue>,
     ) -> SpectraHostValue {
+        self.allocate_task_with_completion(value, parent_scope, timeout_inner, deadline_ms, true)
+    }
+
+    fn allocate_task_with_completion(
+        &mut self,
+        value: SpectraHostValue,
+        parent_scope: Option<SpectraHostValue>,
+        timeout_inner: Option<SpectraHostValue>,
+        deadline_ms: Option<SpectraHostValue>,
+        completed: bool,
+    ) -> SpectraHostValue {
         let task_id = self.next_task;
         self.next_task += 1;
         let cancel_handle = self.next_cancel_handle;
@@ -12592,7 +12688,7 @@ impl AsyncTaskRegistry {
                 value,
                 cancelled: false,
                 failed: false,
-                completed: true,
+                completed,
                 parent_scope,
                 cancel_handle,
                 timeout_inner,
@@ -12607,6 +12703,14 @@ impl AsyncTaskRegistry {
         }
         reactor::global().wake_task(task_id);
         task_id
+    }
+
+    fn complete_task(&mut self, task_id: SpectraHostValue, value: SpectraHostValue) -> Option<()> {
+        let task = self.tasks.get_mut(&task_id)?;
+        task.value = value;
+        task.completed = true;
+        reactor::global().wake_task(task_id);
+        Some(())
     }
 
     fn create_scope(&mut self, parent: Option<SpectraHostValue>) -> Option<SpectraHostValue> {
@@ -12758,6 +12862,351 @@ impl AsyncTaskRegistry {
             Some(0)
         }
     }
+
+    fn create_stream(&mut self, kind: AsyncStreamKind, capacity: usize) -> SpectraHostValue {
+        let stream_id = self.next_stream;
+        self.next_stream += 1;
+        self.streams.insert(
+            stream_id,
+            AsyncStream {
+                kind,
+                buffer: VecDeque::new(),
+                capacity,
+                pending_next: VecDeque::new(),
+                done: false,
+                cancelled: false,
+                failed: false,
+                last_next_status: 0,
+                chunk_items: Vec::new(),
+            },
+        );
+        stream_id
+    }
+
+    fn push_stream_value(
+        &mut self,
+        stream_id: SpectraHostValue,
+        value: SpectraHostValue,
+    ) -> Option<SpectraHostValue> {
+        let stream = self.streams.get_mut(&stream_id)?;
+        if stream.cancelled || stream.done || stream.failed {
+            return Some(-1);
+        }
+        if let Some(task_id) = stream.pending_next.pop_front() {
+            stream.last_next_status = 1;
+            let _ = self.complete_task(task_id, value);
+            self.drive_streams();
+            return Some(1);
+        }
+        if stream.buffer.len() >= stream.capacity {
+            return Some(0);
+        }
+        stream.buffer.push_back(value);
+        stream.last_next_status = 1;
+        self.drive_streams();
+        Some(1)
+    }
+
+    fn mark_stream_done(&mut self, stream_id: SpectraHostValue) -> Option<()> {
+        let stream = self.streams.get_mut(&stream_id)?;
+        stream.done = true;
+        stream.last_next_status = 2;
+        self.drive_streams();
+        Some(())
+    }
+
+    fn cancel_stream(&mut self, stream_id: SpectraHostValue) -> Option<()> {
+        let pending = {
+            let stream = self.streams.get_mut(&stream_id)?;
+            stream.cancelled = true;
+            stream.last_next_status = 4;
+            stream.pending_next.drain(..).collect::<Vec<_>>()
+        };
+        for task_id in pending {
+            let _ = self.cancel_task(task_id);
+        }
+        Some(())
+    }
+
+    fn drive_streams(&mut self) {
+        loop {
+            let stream_ids = self.streams.keys().copied().collect::<Vec<_>>();
+            let mut progressed = false;
+            for stream_id in stream_ids {
+                progressed |= self.drive_stream_pending(stream_id);
+            }
+            if !progressed {
+                break;
+            }
+        }
+    }
+
+    fn drive_stream_pending(&mut self, stream_id: SpectraHostValue) -> bool {
+        let mut progressed = false;
+        loop {
+            let Some(task_id) = self
+                .streams
+                .get(&stream_id)
+                .and_then(|stream| stream.pending_next.front().copied())
+            else {
+                break;
+            };
+            match self.pull_stream_value(stream_id) {
+                Some(AsyncStreamPull::Item(value)) => {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        stream.pending_next.pop_front();
+                        stream.last_next_status = 1;
+                    }
+                    let _ = self.complete_task(task_id, value);
+                    progressed = true;
+                }
+                Some(AsyncStreamPull::Done) => {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        stream.pending_next.pop_front();
+                        stream.last_next_status = 2;
+                    }
+                    let _ = self.complete_task(task_id, -1);
+                    progressed = true;
+                }
+                Some(AsyncStreamPull::Failed) => {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        stream.pending_next.pop_front();
+                        stream.last_next_status = 3;
+                    }
+                    if let Some(task) = self.tasks.get_mut(&task_id) {
+                        task.completed = true;
+                        task.failed = true;
+                    }
+                    progressed = true;
+                }
+                Some(AsyncStreamPull::Cancelled) => {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        stream.pending_next.pop_front();
+                        stream.last_next_status = 4;
+                    }
+                    let _ = self.cancel_task(task_id);
+                    progressed = true;
+                }
+                Some(AsyncStreamPull::Pending) | None => break,
+            }
+        }
+        progressed
+    }
+
+    fn pull_stream_value(&mut self, stream_id: SpectraHostValue) -> Option<AsyncStreamPull> {
+        let kind = {
+            let stream = self.streams.get_mut(&stream_id)?;
+            if stream.cancelled {
+                stream.last_next_status = 4;
+                return Some(AsyncStreamPull::Cancelled);
+            }
+            if stream.failed {
+                stream.last_next_status = 3;
+                return Some(AsyncStreamPull::Failed);
+            }
+            if let Some(value) = stream.buffer.pop_front() {
+                stream.last_next_status = 1;
+                return Some(AsyncStreamPull::Item(value));
+            }
+            if stream.done {
+                stream.last_next_status = 2;
+                return Some(AsyncStreamPull::Done);
+            }
+            stream.kind
+        };
+
+        match kind {
+            AsyncStreamKind::Source => {
+                if let Some(stream) = self.streams.get_mut(&stream_id) {
+                    stream.last_next_status = 0;
+                }
+                Some(AsyncStreamPull::Pending)
+            }
+            AsyncStreamKind::Map { upstream, op, arg } => {
+                let pulled = self.pull_stream_value(upstream)?;
+                Some(match pulled {
+                    AsyncStreamPull::Item(value) => {
+                        AsyncStreamPull::Item(map_stream_value(value, op, arg)?)
+                    }
+                    other => other,
+                })
+            }
+            AsyncStreamKind::Filter {
+                upstream,
+                predicate,
+                arg,
+            } => loop {
+                let pulled = self.pull_stream_value(upstream)?;
+                match pulled {
+                    AsyncStreamPull::Item(value) => {
+                        if filter_stream_value(value, predicate, arg)? {
+                            break Some(AsyncStreamPull::Item(value));
+                        }
+                    }
+                    other => break Some(other),
+                }
+            },
+            AsyncStreamKind::Take {
+                upstream,
+                remaining,
+            } => {
+                if remaining <= 0 {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        stream.done = true;
+                        stream.last_next_status = 2;
+                    }
+                    return Some(AsyncStreamPull::Done);
+                }
+                let pulled = self.pull_stream_value(upstream)?;
+                if matches!(pulled, AsyncStreamPull::Item(_)) {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        if let AsyncStreamKind::Take { remaining, .. } = &mut stream.kind {
+                            *remaining -= 1;
+                        }
+                    }
+                }
+                Some(pulled)
+            }
+            AsyncStreamKind::Skip {
+                upstream,
+                remaining: _,
+            } => loop {
+                let current_remaining = match self.streams.get(&stream_id).map(|stream| stream.kind)
+                {
+                    Some(AsyncStreamKind::Skip { remaining, .. }) => remaining,
+                    _ => return None,
+                };
+                if current_remaining <= 0 {
+                    break self.pull_stream_value(upstream);
+                }
+                let pulled = self.pull_stream_value(upstream)?;
+                match pulled {
+                    AsyncStreamPull::Item(_) => {
+                        if let Some(stream) = self.streams.get_mut(&stream_id) {
+                            if let AsyncStreamKind::Skip { remaining, .. } = &mut stream.kind {
+                                *remaining -= 1;
+                            }
+                        }
+                    }
+                    other => break Some(other),
+                }
+            },
+            AsyncStreamKind::Chunks { upstream, size } => {
+                if size <= 0 {
+                    return None;
+                }
+                loop {
+                    let current_len = self
+                        .streams
+                        .get(&stream_id)
+                        .map(|stream| stream.chunk_items.len())
+                        .unwrap_or(0);
+                    if current_len >= size as usize {
+                        let value = self.take_stream_chunk_sum(stream_id)?;
+                        return Some(AsyncStreamPull::Item(value));
+                    }
+                    let pulled = self.pull_stream_value(upstream)?;
+                    match pulled {
+                        AsyncStreamPull::Item(value) => {
+                            if let Some(stream) = self.streams.get_mut(&stream_id) {
+                                stream.chunk_items.push(value);
+                            }
+                        }
+                        AsyncStreamPull::Done => {
+                            if self
+                                .streams
+                                .get(&stream_id)
+                                .map(|stream| !stream.chunk_items.is_empty())
+                                .unwrap_or(false)
+                            {
+                                let value = self.take_stream_chunk_sum(stream_id)?;
+                                return Some(AsyncStreamPull::Item(value));
+                            }
+                            if let Some(stream) = self.streams.get_mut(&stream_id) {
+                                stream.done = true;
+                                stream.last_next_status = 2;
+                            }
+                            return Some(AsyncStreamPull::Done);
+                        }
+                        other => return Some(other),
+                    }
+                }
+            }
+            AsyncStreamKind::Fuse {
+                upstream,
+                fused_done,
+            } => {
+                if fused_done {
+                    return Some(AsyncStreamPull::Done);
+                }
+                let pulled = self.pull_stream_value(upstream)?;
+                if matches!(pulled, AsyncStreamPull::Done) {
+                    if let Some(stream) = self.streams.get_mut(&stream_id) {
+                        stream.done = true;
+                        if let AsyncStreamKind::Fuse { fused_done, .. } = &mut stream.kind {
+                            *fused_done = true;
+                        }
+                    }
+                }
+                Some(pulled)
+            }
+        }
+    }
+
+    fn take_stream_chunk_sum(&mut self, stream_id: SpectraHostValue) -> Option<SpectraHostValue> {
+        let stream = self.streams.get_mut(&stream_id)?;
+        let value = stream.chunk_items.iter().copied().sum();
+        stream.chunk_items.clear();
+        Some(value)
+    }
+}
+
+fn map_stream_value(
+    value: SpectraHostValue,
+    op: SpectraHostValue,
+    arg: SpectraHostValue,
+) -> Option<SpectraHostValue> {
+    match op {
+        0 => Some(value),
+        1 => Some(value.saturating_add(arg)),
+        2 => Some(value.saturating_sub(arg)),
+        3 => Some(value.saturating_mul(arg)),
+        4 if arg != 0 => Some(value / arg),
+        5 => Some(value.saturating_neg()),
+        _ => None,
+    }
+}
+
+fn filter_stream_value(
+    value: SpectraHostValue,
+    predicate: SpectraHostValue,
+    arg: SpectraHostValue,
+) -> Option<bool> {
+    match predicate {
+        0 => Some(value != 0),
+        1 => Some(value == arg),
+        2 => Some(value != arg),
+        3 => Some(value > arg),
+        4 => Some(value >= arg),
+        5 => Some(value < arg),
+        6 => Some(value <= arg),
+        7 if arg != 0 => Some(value % arg == 0),
+        _ => None,
+    }
+}
+
+fn fold_stream_value(
+    accumulator: SpectraHostValue,
+    value: SpectraHostValue,
+    op: SpectraHostValue,
+) -> Option<SpectraHostValue> {
+    match op {
+        0 => Some(accumulator.saturating_add(value)),
+        1 => Some(accumulator.saturating_mul(value)),
+        2 => Some(accumulator.min(value)),
+        3 => Some(accumulator.max(value)),
+        _ => None,
+    }
 }
 
 fn async_task_registry() -> &'static Mutex<AsyncTaskRegistry> {
@@ -12836,7 +13285,9 @@ extern "C" fn std_async_task_result(ctx: *mut SpectraHostCallContext) -> i32 {
 }
 
 fn async_task_join_status(task: &AsyncTask) -> SpectraHostValue {
-    if task.cancelled {
+    if !task.completed {
+        3
+    } else if task.cancelled {
         1
     } else if task.failed {
         2
@@ -13157,6 +13608,361 @@ extern "C" fn std_async_scope_failures(ctx: *mut SpectraHostCallContext) -> i32 
         return HOST_STATUS_NOT_FOUND;
     };
     results[0] = scope.failures;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[0] <= 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    results[0] = registry.create_stream(AsyncStreamKind::Source, args[0] as usize);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_push(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(status) = registry.push_stream_value(args[0], args[1]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = status;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_done(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if registry.mark_stream_done(args[0]).is_none() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_next(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(pulled) = registry.pull_stream_value(args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let (task, status) = match pulled {
+        AsyncStreamPull::Pending => {
+            let task = registry.allocate_task_with_completion(0, None, None, None, false);
+            if let Some(stream) = registry.streams.get_mut(&args[0]) {
+                stream.pending_next.push_back(task);
+            }
+            (task, 0)
+        }
+        AsyncStreamPull::Item(value) => (registry.allocate_task(value, None, None, None), 1),
+        AsyncStreamPull::Done => (registry.allocate_task(-1, None, None, None), 2),
+        AsyncStreamPull::Failed => {
+            let task = registry.allocate_task(-2, None, None, None);
+            if let Some(task_state) = registry.tasks.get_mut(&task) {
+                task_state.failed = true;
+            }
+            (task, 3)
+        }
+        AsyncStreamPull::Cancelled => {
+            let task = registry.allocate_task(-3, None, None, None);
+            let _ = registry.cancel_task(task);
+            (task, 4)
+        }
+    };
+    if let Some(stream) = registry.streams.get_mut(&args[0]) {
+        stream.last_next_status = status;
+    }
+    results[0] = task;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_next_status(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(stream) = registry.streams.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = stream.last_next_status;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if registry.cancel_stream(args[0]).is_none() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(stream) = registry.streams.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = stream.buffer.len() as SpectraHostValue;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_capacity(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(stream) = registry.streams.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = stream.capacity as SpectraHostValue;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_map(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if map_stream_value(1, args[1], args[2]).is_none() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.create_stream(
+        AsyncStreamKind::Map {
+            upstream: args[0],
+            op: args[1],
+            arg: args[2],
+        },
+        1,
+    );
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_filter(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if filter_stream_value(1, args[1], args[2]).is_none() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.create_stream(
+        AsyncStreamKind::Filter {
+            upstream: args[0],
+            predicate: args[1],
+            arg: args[2],
+        },
+        1,
+    );
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_fold(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 3) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if fold_stream_value(args[1], 1, args[2]).is_none() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    let mut accumulator = args[1];
+    loop {
+        match registry.pull_stream_value(args[0]) {
+            Some(AsyncStreamPull::Item(value)) => {
+                let Some(next) = fold_stream_value(accumulator, value, args[2]) else {
+                    return HOST_STATUS_INVALID_ARGUMENT;
+                };
+                accumulator = next;
+            }
+            Some(AsyncStreamPull::Done) => {
+                results[0] = registry.allocate_task(accumulator, None, None, None);
+                return HOST_STATUS_SUCCESS;
+            }
+            Some(AsyncStreamPull::Pending) => {
+                results[0] =
+                    registry.allocate_task_with_completion(accumulator, None, None, None, false);
+                return HOST_STATUS_SUCCESS;
+            }
+            Some(AsyncStreamPull::Cancelled) => {
+                let task = registry.allocate_task(-3, None, None, None);
+                let _ = registry.cancel_task(task);
+                results[0] = task;
+                return HOST_STATUS_SUCCESS;
+            }
+            Some(AsyncStreamPull::Failed) => {
+                let task = registry.allocate_task(-2, None, None, None);
+                if let Some(task_state) = registry.tasks.get_mut(&task) {
+                    task_state.failed = true;
+                }
+                results[0] = task;
+                return HOST_STATUS_SUCCESS;
+            }
+            None => return HOST_STATUS_NOT_FOUND,
+        }
+    }
+}
+
+extern "C" fn std_async_stream_take(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] < 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.create_stream(
+        AsyncStreamKind::Take {
+            upstream: args[0],
+            remaining: args[1],
+        },
+        1,
+    );
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_skip(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] < 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.create_stream(
+        AsyncStreamKind::Skip {
+            upstream: args[0],
+            remaining: args[1],
+        },
+        1,
+    );
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_chunks(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] <= 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.create_stream(
+        AsyncStreamKind::Chunks {
+            upstream: args[0],
+            size: args[1],
+        },
+        1,
+    );
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_stream_fuse(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.streams.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.create_stream(
+        AsyncStreamKind::Fuse {
+            upstream: args[0],
+            fused_done: false,
+        },
+        1,
+    );
     HOST_STATUS_SUCCESS
 }
 
@@ -17004,6 +17810,216 @@ mod tests {
         assert_eq!(
             call_host(ASYNC_TASK_JOIN_ORDER, &[second]),
             (HOST_STATUS_SUCCESS, 4)
+        );
+    }
+
+    #[test]
+    fn async_stream_host_calls_cover_adaptors_backpressure_done_and_cancellation() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let (status, source) = call_host(ASYNC_STREAM_NEW, &[8]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        for value in 1..=5 {
+            assert_eq!(
+                call_host(ASYNC_STREAM_PUSH, &[source, value]),
+                (HOST_STATUS_SUCCESS, 1)
+            );
+        }
+        assert_eq!(
+            call_host(ASYNC_STREAM_DONE, &[source]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, mapped) = call_host(ASYNC_STREAM_MAP, &[source, 1, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, filtered) = call_host(ASYNC_STREAM_FILTER, &[mapped, 3, 12]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, skipped) = call_host(ASYNC_STREAM_SKIP, &[filtered, 1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, taken) = call_host(ASYNC_STREAM_TAKE, &[skipped, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        let (status, first_task) = call_host(ASYNC_STREAM_NEXT, &[taken]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_NEXT_STATUS, &[taken]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[first_task]),
+            (HOST_STATUS_SUCCESS, 14)
+        );
+
+        let (status, second_task) = call_host(ASYNC_STREAM_NEXT, &[taken]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[second_task]),
+            (HOST_STATUS_SUCCESS, 15)
+        );
+
+        let (status, done_task) = call_host(ASYNC_STREAM_NEXT, &[taken]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_NEXT_STATUS, &[taken]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[done_task]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+
+        let (status, chunk_source) = call_host(ASYNC_STREAM_NEW, &[8]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        for value in 1..=5 {
+            assert_eq!(
+                call_host(ASYNC_STREAM_PUSH, &[chunk_source, value]),
+                (HOST_STATUS_SUCCESS, 1)
+            );
+        }
+        assert_eq!(
+            call_host(ASYNC_STREAM_DONE, &[chunk_source]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, chunks) = call_host(ASYNC_STREAM_CHUNKS, &[chunk_source, 2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        for expected in [3, 7, 5] {
+            let (status, task) = call_host(ASYNC_STREAM_NEXT, &[chunks]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            assert_eq!(
+                call_host(ASYNC_TASK_JOIN, &[task]),
+                (HOST_STATUS_SUCCESS, expected)
+            );
+        }
+        let (status, chunk_done) = call_host(ASYNC_STREAM_NEXT, &[chunks]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[chunk_done]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+
+        let (status, fold_source) = call_host(ASYNC_STREAM_NEW, &[4]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        for value in 1..=4 {
+            assert_eq!(
+                call_host(ASYNC_STREAM_PUSH, &[fold_source, value]),
+                (HOST_STATUS_SUCCESS, 1)
+            );
+        }
+        assert_eq!(
+            call_host(ASYNC_STREAM_DONE, &[fold_source]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, fold_task) = call_host(ASYNC_STREAM_FOLD, &[fold_source, 0, 0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[fold_task]),
+            (HOST_STATUS_SUCCESS, 10)
+        );
+
+        let (status, fuse_source) = call_host(ASYNC_STREAM_NEW, &[1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_DONE, &[fuse_source]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, fused) = call_host(ASYNC_STREAM_FUSE, &[fuse_source]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        for _ in 0..2 {
+            let (status, task) = call_host(ASYNC_STREAM_NEXT, &[fused]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            assert_eq!(
+                call_host(ASYNC_TASK_JOIN, &[task]),
+                (HOST_STATUS_SUCCESS, -1)
+            );
+            assert_eq!(
+                call_host(ASYNC_STREAM_NEXT_STATUS, &[fused]),
+                (HOST_STATUS_SUCCESS, 2)
+            );
+        }
+
+        let (status, backpressure) = call_host(ASYNC_STREAM_NEW, &[2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_CAPACITY, &[backpressure]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ASYNC_STREAM_PUSH, &[backpressure, 1]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_STREAM_PUSH, &[backpressure, 2]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_STREAM_PUSH, &[backpressure, 3]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(ASYNC_STREAM_LEN, &[backpressure]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        let (status, consumed) = call_host(ASYNC_STREAM_NEXT, &[backpressure]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[consumed]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_STREAM_PUSH, &[backpressure, 3]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+
+        let (status, fast_consumer) = call_host(ASYNC_STREAM_NEW, &[1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, pending_task) = call_host(ASYNC_STREAM_NEXT, &[fast_consumer]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_NEXT_STATUS, &[fast_consumer]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_POLL, &[pending_task]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(ASYNC_STREAM_PUSH, &[fast_consumer, 44]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_POLL, &[pending_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[pending_task]),
+            (HOST_STATUS_SUCCESS, 44)
+        );
+
+        let (status, cancellable) = call_host(ASYNC_STREAM_NEW, &[1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, waiting) = call_host(ASYNC_STREAM_NEXT, &[cancellable]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_CANCEL, &[cancellable]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[waiting]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (status, cancelled_next) = call_host(ASYNC_STREAM_NEXT, &[cancellable]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_STREAM_NEXT_STATUS, &[cancellable]),
+            (HOST_STATUS_SUCCESS, 4)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[cancelled_next]),
+            (HOST_STATUS_SUCCESS, 1)
         );
     }
 

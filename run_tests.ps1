@@ -1117,6 +1117,19 @@ if ($r2105StructuredConcurrency.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2105_structured_concurrency"; Status = $r2105StructuredConcurrency.Status; Detalhe = $r2105StructuredConcurrency.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.31: R-2106 Stream type and stream adaptors
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2106 Stream type and stream adaptors ---" -ForegroundColor Yellow
+$r2106Streams = Invoke-HostCommand -name "validate_r2106_streams" -fileName "python" -arguments @("scripts\validate_r2106_streams.py") -workingDir (Get-Location).Path
+if ($r2106Streams.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2106_streams"; Status = $r2106Streams.Status; Detalhe = $r2106Streams.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

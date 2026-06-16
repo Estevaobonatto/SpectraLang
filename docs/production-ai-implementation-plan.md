@@ -1635,7 +1635,10 @@ The eight phases are summarized below; the detailed items live in
   `JoinHandle` value/error status, `CancelHandle`, deterministic
   `with_timeout`, parent/child scopes, cascading cancellation, join
   aggregation, and validation gate landed)
-- `R-2106` `Stream<T>` and stream adaptors
+- `R-2106` `Stream<T>` and stream adaptors (complete; runtime-managed stream
+  handles, async `next`, backpressure, deterministic finish, cancellation,
+  `map`/`filter`/`fold`/`take`/`skip`/`chunks`/`fuse`, and validation gate
+  landed)
 - `R-2107` Async stdlib: `fs`, `tcp`, `channel`
 - `R-2108` Async trait objects and `dyn Future`
 - `R-2109` Async test runtime and macros
@@ -1801,7 +1804,7 @@ The eight phases are summarized below; the detailed items live in
 ## Workstream Dependencies
 
 ```
-R-2101 → R-2102 → R-2103 → R-2104 → R-2105 → R-2107
+R-2101 → R-2102 → R-2103 → R-2104 → R-2105 → R-2106 → R-2107
                                               ↓
                               R-2201 → R-2202 → R-2204 → R-2205
                                                           ↓

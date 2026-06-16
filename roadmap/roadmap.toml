@@ -1500,7 +1500,7 @@ title = "Stream Type and Stream Adaptors"
 phase = "phase_21"
 owner = "runtime"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2105"]
 summary = "Add a first-class `Stream<T>` type with map, filter, fold, take, skip, chunks, fuse, and backpressure-aware composition."
@@ -1508,7 +1508,8 @@ acceptance = [
   "the public `Stream<T>` API exposes the documented adaptors",
   "slower consumers do not block faster producers (backpressure)",
   "stream finish is deterministic when the upstream signals `done`",
-  "tests cover happy path, cancellation mid-stream, and consumer-faster-than-producer"
+  "tests cover happy path, cancellation mid-stream, and consumer-faster-than-producer",
+  "`scripts/validate_r2106_streams.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

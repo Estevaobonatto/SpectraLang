@@ -3097,7 +3097,7 @@ cancellation for async tasks.
 
 ## R-2106 Stream Type and Stream Adaptors
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `runtime`
 - Risk: `medium`
@@ -3115,6 +3115,26 @@ Add a first-class `Stream<T>` type with `map`, `filter`, `fold`, `take`,
 - Stream finish is deterministic when the upstream signals `done`.
 - Tests cover happy path, cancellation mid-stream, and
   consumer-faster-than-producer.
+- `scripts\validate_r2106_streams.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed in this pass
+
+- Added runtime-managed `Stream<T>` handles with `next(stream)` returning a
+  task, explicit next-status reporting, finite source streams, producer
+  capacity, non-blocking backpressure status, deterministic `done`, and stream
+  cancellation.
+- Added the documented adaptor host-call surface: `map`, `filter`, `fold`,
+  `take`, `skip`, `chunks`, and `fuse`.
+- Added deterministic runtime coverage for adaptor composition, finite stream
+  finish, fused completion, fold, backpressure, consumer-faster-than-producer
+  pending tasks, and cancellation of a pending consumer.
+- Added `tests/validation/125_async_stream_surface.spectra` and the R-2106
+  validation gate.
+
+### Remaining outside this item
+
+- `R-2107` owns public async filesystem, TCP, UDP, and channel APIs.
 
 ## R-2107 Async Standard Library Surface
 
@@ -5037,7 +5057,7 @@ example gallery, production hardening, and registry release.
 ## Dependency Tree (Critical Path)
 
 ```
-R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2107 (async stdlib)
+R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2106 (streams) → R-2107 (async stdlib)
                                                                                                       ↓
                                                                                           R-2201 (ADR api) → R-2202 (crate) → R-2204 (parser) → R-2205 (server) → R-2211 (router)
                                                                                                                                                   ↓
