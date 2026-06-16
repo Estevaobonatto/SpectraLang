@@ -1631,7 +1631,10 @@ The eight phases are summarized below; the detailed items live in
 - `R-2104` Event loop multiplexer (complete; platform-selected reactor
   boundary, shared task/timer/I/O readiness interface, host-call surface, and
   validation gate landed)
-- `R-2105` Cancellation, timeouts, structured concurrency
+- `R-2105` Cancellation, timeouts, structured concurrency (complete;
+  `JoinHandle` value/error status, `CancelHandle`, deterministic
+  `with_timeout`, parent/child scopes, cascading cancellation, join
+  aggregation, and validation gate landed)
 - `R-2106` `Stream<T>` and stream adaptors
 - `R-2107` Async stdlib: `fs`, `tcp`, `channel`
 - `R-2108` Async trait objects and `dyn Future`

@@ -3051,7 +3051,7 @@ platform-specific backends for `epoll` (Linux), `IOCP` (Windows), and
 
 ## R-2105 Cancellation, Timeouts, and Structured Concurrency
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
@@ -3071,6 +3071,29 @@ cancellation for async tasks.
   error.
 - Deterministic tests cover cascading cancellation, timeout, and join
   ordering.
+- `scripts\validate_r2105_structured_concurrency.py` passes and is wired
+  into `run_tests.ps1`.
+
+### Completed in this pass
+
+- Added deterministic runtime host calls for `JoinHandle` value/error status,
+  `CancelHandle` creation and cancellation, `with_timeout`, logical scheduler
+  time advancement, parent and child scopes, scope attachment/spawn,
+  cascading scope cancellation, scope join status, joined-count reporting,
+  failure aggregation, and stable per-task join ordering.
+- `Task` result and poll host calls now observe cancellation, timeout, and
+  structured failure state before returning a value.
+- Added unit coverage for cascading parent-scope cancellation, nested child
+  scopes, timeout expiry, cancellation handles, structured join failure, and
+  deterministic join ordering.
+- Added `tests/validation/124_async_structured_concurrency_surface.spectra`
+  and the R-2105 validation gate.
+
+### Remaining outside this item
+
+- `R-2106` owns the first-class `Stream<T>` type and stream adaptors.
+- `R-2107` owns public async filesystem, TCP, UDP, and channel APIs built on
+  the structured task/runtime surface.
 
 ## R-2106 Stream Type and Stream Adaptors
 

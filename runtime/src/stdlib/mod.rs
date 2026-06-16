@@ -384,9 +384,25 @@ const CONCURRENT_RESET: &str = "spectra.std.concurrent.reset";
 const ASYNC_TASK_READY: &str = "spectra.async.task.ready";
 const ASYNC_TASK_POLL: &str = "spectra.async.task.poll";
 const ASYNC_TASK_RESULT: &str = "spectra.async.task.result";
+const ASYNC_TASK_JOIN: &str = "spectra.async.task.join";
+const ASYNC_TASK_JOIN_STATUS: &str = "spectra.async.task.join_status";
 const ASYNC_TASK_CANCEL: &str = "spectra.async.task.cancel";
 const ASYNC_TASK_IS_CANCELLED: &str = "spectra.async.task.is_cancelled";
+const ASYNC_TASK_CANCEL_HANDLE: &str = "spectra.async.task.cancel_handle";
+const ASYNC_TASK_WITH_TIMEOUT: &str = "spectra.async.task.with_timeout";
+const ASYNC_TASK_FAIL: &str = "spectra.async.task.fail";
+const ASYNC_TASK_JOIN_ORDER: &str = "spectra.async.task.join_order";
 const ASYNC_TASK_RESET: &str = "spectra.async.task.reset";
+const ASYNC_CANCEL_HANDLE_CANCEL: &str = "spectra.async.cancel_handle.cancel";
+const ASYNC_SCHEDULER_ADVANCE_TIME: &str = "spectra.async.scheduler.advance_time";
+const ASYNC_SCOPE_NEW: &str = "spectra.async.scope.new";
+const ASYNC_SCOPE_CHILD: &str = "spectra.async.scope.child";
+const ASYNC_SCOPE_ATTACH: &str = "spectra.async.scope.attach";
+const ASYNC_SCOPE_SPAWN_READY: &str = "spectra.async.scope.spawn_ready";
+const ASYNC_SCOPE_CANCEL: &str = "spectra.async.scope.cancel";
+const ASYNC_SCOPE_JOIN: &str = "spectra.async.scope.join";
+const ASYNC_SCOPE_JOINED_COUNT: &str = "spectra.async.scope.joined_count";
+const ASYNC_SCOPE_FAILURES: &str = "spectra.async.scope.failures";
 
 const ASYNC_REACTOR_BACKEND: &str = "spectra.async.reactor.backend";
 const ASYNC_REACTOR_WAKE: &str = "spectra.async.reactor.wake";
@@ -774,9 +790,28 @@ fn register_async() {
     register_host_function(ASYNC_TASK_READY, std_async_task_ready);
     register_host_function(ASYNC_TASK_POLL, std_async_task_poll);
     register_host_function(ASYNC_TASK_RESULT, std_async_task_result);
+    register_host_function(ASYNC_TASK_JOIN, std_async_task_join);
+    register_host_function(ASYNC_TASK_JOIN_STATUS, std_async_task_join_status);
     register_host_function(ASYNC_TASK_CANCEL, std_async_task_cancel);
     register_host_function(ASYNC_TASK_IS_CANCELLED, std_async_task_is_cancelled);
+    register_host_function(ASYNC_TASK_CANCEL_HANDLE, std_async_task_cancel_handle);
+    register_host_function(ASYNC_TASK_WITH_TIMEOUT, std_async_task_with_timeout);
+    register_host_function(ASYNC_TASK_FAIL, std_async_task_fail);
+    register_host_function(ASYNC_TASK_JOIN_ORDER, std_async_task_join_order);
     register_host_function(ASYNC_TASK_RESET, std_async_task_reset);
+    register_host_function(ASYNC_CANCEL_HANDLE_CANCEL, std_async_cancel_handle_cancel);
+    register_host_function(
+        ASYNC_SCHEDULER_ADVANCE_TIME,
+        std_async_scheduler_advance_time,
+    );
+    register_host_function(ASYNC_SCOPE_NEW, std_async_scope_new);
+    register_host_function(ASYNC_SCOPE_CHILD, std_async_scope_child);
+    register_host_function(ASYNC_SCOPE_ATTACH, std_async_scope_attach);
+    register_host_function(ASYNC_SCOPE_SPAWN_READY, std_async_scope_spawn_ready);
+    register_host_function(ASYNC_SCOPE_CANCEL, std_async_scope_cancel);
+    register_host_function(ASYNC_SCOPE_JOIN, std_async_scope_join);
+    register_host_function(ASYNC_SCOPE_JOINED_COUNT, std_async_scope_joined_count);
+    register_host_function(ASYNC_SCOPE_FAILURES, std_async_scope_failures);
     register_host_function(ASYNC_REACTOR_BACKEND, std_async_reactor_backend);
     register_host_function(ASYNC_REACTOR_WAKE, std_async_reactor_wake);
     register_host_function(ASYNC_REACTOR_TIMER, std_async_reactor_timer);
@@ -12492,23 +12527,236 @@ fn host_call_void_args<'a>(
 struct AsyncTask {
     value: SpectraHostValue,
     cancelled: bool,
+    failed: bool,
+    completed: bool,
+    parent_scope: Option<SpectraHostValue>,
+    cancel_handle: SpectraHostValue,
+    timeout_inner: Option<SpectraHostValue>,
+    deadline_ms: Option<SpectraHostValue>,
+    join_order: Option<SpectraHostValue>,
+}
+
+struct AsyncScope {
+    _parent: Option<SpectraHostValue>,
+    child_scopes: Vec<SpectraHostValue>,
+    children: Vec<SpectraHostValue>,
+    cancelled: bool,
+    joined_count: SpectraHostValue,
+    failures: SpectraHostValue,
 }
 
 struct AsyncTaskRegistry {
     next_task: SpectraHostValue,
+    next_scope: SpectraHostValue,
+    next_cancel_handle: SpectraHostValue,
+    now_ms: SpectraHostValue,
+    next_join_order: SpectraHostValue,
     tasks: HashMap<SpectraHostValue, AsyncTask>,
+    scopes: HashMap<SpectraHostValue, AsyncScope>,
+    cancel_handles: HashMap<SpectraHostValue, SpectraHostValue>,
 }
 
 impl AsyncTaskRegistry {
     fn new() -> Self {
         Self {
             next_task: 1,
+            next_scope: 1,
+            next_cancel_handle: 1,
+            now_ms: 0,
+            next_join_order: 1,
             tasks: HashMap::new(),
+            scopes: HashMap::new(),
+            cancel_handles: HashMap::new(),
         }
     }
 
     fn clear(&mut self) {
         *self = Self::new();
+    }
+
+    fn allocate_task(
+        &mut self,
+        value: SpectraHostValue,
+        parent_scope: Option<SpectraHostValue>,
+        timeout_inner: Option<SpectraHostValue>,
+        deadline_ms: Option<SpectraHostValue>,
+    ) -> SpectraHostValue {
+        let task_id = self.next_task;
+        self.next_task += 1;
+        let cancel_handle = self.next_cancel_handle;
+        self.next_cancel_handle += 1;
+        self.cancel_handles.insert(cancel_handle, task_id);
+        self.tasks.insert(
+            task_id,
+            AsyncTask {
+                value,
+                cancelled: false,
+                failed: false,
+                completed: true,
+                parent_scope,
+                cancel_handle,
+                timeout_inner,
+                deadline_ms,
+                join_order: None,
+            },
+        );
+        if let Some(scope_id) = parent_scope {
+            if let Some(scope) = self.scopes.get_mut(&scope_id) {
+                scope.children.push(task_id);
+            }
+        }
+        reactor::global().wake_task(task_id);
+        task_id
+    }
+
+    fn create_scope(&mut self, parent: Option<SpectraHostValue>) -> Option<SpectraHostValue> {
+        if let Some(parent_id) = parent {
+            self.scopes.get(&parent_id)?;
+        }
+        let scope_id = self.next_scope;
+        self.next_scope += 1;
+        self.scopes.insert(
+            scope_id,
+            AsyncScope {
+                _parent: parent,
+                child_scopes: Vec::new(),
+                children: Vec::new(),
+                cancelled: false,
+                joined_count: 0,
+                failures: 0,
+            },
+        );
+        if let Some(parent_id) = parent {
+            if let Some(parent_scope) = self.scopes.get_mut(&parent_id) {
+                parent_scope.child_scopes.push(scope_id);
+            }
+        }
+        Some(scope_id)
+    }
+
+    fn attach_task_to_scope(
+        &mut self,
+        scope_id: SpectraHostValue,
+        task_id: SpectraHostValue,
+    ) -> Option<()> {
+        if !self.scopes.contains_key(&scope_id) {
+            return None;
+        }
+        let task = self.tasks.get_mut(&task_id)?;
+        if let Some(old_scope) = task.parent_scope {
+            if let Some(scope) = self.scopes.get_mut(&old_scope) {
+                scope.children.retain(|child| *child != task_id);
+            }
+        }
+        task.parent_scope = Some(scope_id);
+        if let Some(scope) = self.scopes.get_mut(&scope_id) {
+            if !scope.children.contains(&task_id) {
+                scope.children.push(task_id);
+            }
+        }
+        Some(())
+    }
+
+    fn cancel_task(&mut self, task_id: SpectraHostValue) -> Option<()> {
+        let inner = {
+            let task = self.tasks.get_mut(&task_id)?;
+            task.cancelled = true;
+            task.timeout_inner
+        };
+        if let Some(inner) = inner {
+            let _ = self.cancel_task(inner);
+        }
+        reactor::global().wake_task(task_id);
+        Some(())
+    }
+
+    fn cancel_scope(&mut self, scope_id: SpectraHostValue) -> Option<()> {
+        let (children, child_scopes) = {
+            let scope = self.scopes.get_mut(&scope_id)?;
+            scope.cancelled = true;
+            (scope.children.clone(), scope.child_scopes.clone())
+        };
+        for task_id in children {
+            let _ = self.cancel_task(task_id);
+        }
+        for child_scope in child_scopes {
+            let _ = self.cancel_scope(child_scope);
+        }
+        Some(())
+    }
+
+    fn process_due_timeouts(&mut self) {
+        let due_tasks: Vec<_> = self
+            .tasks
+            .iter()
+            .filter_map(|(task_id, task)| {
+                let deadline = task.deadline_ms?;
+                (deadline <= self.now_ms && !task.cancelled).then_some(*task_id)
+            })
+            .collect();
+        for task_id in due_tasks {
+            let _ = self.cancel_task(task_id);
+        }
+    }
+
+    fn join_scope(&mut self, scope_id: SpectraHostValue) -> Option<SpectraHostValue> {
+        self.process_due_timeouts();
+        let (children, child_scopes, scope_cancelled) = {
+            let scope = self.scopes.get(&scope_id)?;
+            (
+                scope.children.clone(),
+                scope.child_scopes.clone(),
+                scope.cancelled,
+            )
+        };
+
+        let mut joined = 0;
+        let mut failures = 0;
+        let mut cancelled = scope_cancelled;
+        for child_scope in child_scopes {
+            let status = self.join_scope(child_scope)?;
+            joined += self
+                .scopes
+                .get(&child_scope)
+                .map(|scope| scope.joined_count)
+                .unwrap_or(0);
+            failures += self
+                .scopes
+                .get(&child_scope)
+                .map(|scope| scope.failures)
+                .unwrap_or(0);
+            if status == 1 {
+                cancelled = true;
+            }
+        }
+
+        for task_id in children {
+            let Some(task) = self.tasks.get_mut(&task_id) else {
+                continue;
+            };
+            if task.join_order.is_none() {
+                task.join_order = Some(self.next_join_order);
+                self.next_join_order += 1;
+            }
+            joined += 1;
+            if task.failed {
+                failures += 1;
+            }
+            if task.cancelled {
+                cancelled = true;
+            }
+        }
+
+        let scope = self.scopes.get_mut(&scope_id)?;
+        scope.joined_count = joined;
+        scope.failures = failures;
+        if failures > 0 {
+            Some(2)
+        } else if cancelled {
+            Some(1)
+        } else {
+            Some(0)
+        }
     }
 }
 
@@ -12545,16 +12793,7 @@ extern "C" fn std_async_task_ready(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let task_id = registry.next_task;
-    registry.next_task += 1;
-    registry.tasks.insert(
-        task_id,
-        AsyncTask {
-            value: args[0],
-            cancelled: false,
-        },
-    );
-    reactor::global().wake_task(task_id);
+    let task_id = registry.allocate_task(args[0], None, None, None);
     results[0] = task_id;
     HOST_STATUS_SUCCESS
 }
@@ -12564,14 +12803,15 @@ extern "C" fn std_async_task_poll(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let registry = match lock_async_task_registry() {
+    let mut registry = match lock_async_task_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };
+    registry.process_due_timeouts();
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
-    results[0] = i64::from(!task.cancelled);
+    results[0] = i64::from(task.completed && !task.cancelled && !task.failed);
     HOST_STATUS_SUCCESS
 }
 
@@ -12580,17 +12820,67 @@ extern "C" fn std_async_task_result(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let registry = match lock_async_task_registry() {
+    let mut registry = match lock_async_task_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };
+    registry.process_due_timeouts();
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
-    if task.cancelled {
+    if task.cancelled || task.failed {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
     results[0] = task.value;
+    HOST_STATUS_SUCCESS
+}
+
+fn async_task_join_status(task: &AsyncTask) -> SpectraHostValue {
+    if task.cancelled {
+        1
+    } else if task.failed {
+        2
+    } else {
+        0
+    }
+}
+
+extern "C" fn std_async_task_join(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.process_due_timeouts();
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = match async_task_join_status(task) {
+        0 => task.value,
+        1 => -1,
+        2 => -2,
+        _ => -3,
+    };
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_join_status(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.process_due_timeouts();
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = async_task_join_status(task);
     HOST_STATUS_SUCCESS
 }
 
@@ -12603,16 +12893,31 @@ extern "C" fn std_async_task_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(task) = registry.tasks.get_mut(&args[0]) else {
+    if registry.cancel_task(args[0]).is_none() {
         return HOST_STATUS_NOT_FOUND;
-    };
-    task.cancelled = true;
-    reactor::global().wake_task(args[0]);
+    }
     results[0] = 1;
     HOST_STATUS_SUCCESS
 }
 
 extern "C" fn std_async_task_is_cancelled(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.process_due_timeouts();
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = i64::from(task.cancelled);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_cancel_handle(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
         Err(status) => return status,
@@ -12624,7 +12929,234 @@ extern "C" fn std_async_task_is_cancelled(ctx: *mut SpectraHostCallContext) -> i
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
-    results[0] = i64::from(task.cancelled);
+    results[0] = task.cancel_handle;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_with_timeout(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[1] < 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(inner) = registry.tasks.get(&args[0]).copied() else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let deadline = registry.now_ms.saturating_add(args[1]);
+    let wrapper = registry.allocate_task(
+        inner.value,
+        inner.parent_scope,
+        Some(args[0]),
+        Some(deadline),
+    );
+    reactor::global().register_timer(wrapper, Duration::from_millis(args[1] as u64));
+    registry.process_due_timeouts();
+    results[0] = wrapper;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_fail(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    task.failed = true;
+    reactor::global().wake_task(args[0]);
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_join_order(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task) = registry.tasks.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = task.join_order.unwrap_or(0);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_cancel_handle_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(task_id) = registry.cancel_handles.get(&args[0]).copied() else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    if registry.cancel_task(task_id).is_none() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scheduler_advance_time(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    if args[0] < 0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.now_ms = registry.now_ms.saturating_add(args[0]);
+    registry.process_due_timeouts();
+    results[0] = registry.now_ms;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (_, results) = match host_call_args(ctx, 0) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(scope) = registry.create_scope(None) else {
+        return HOST_STATUS_INTERNAL_ERROR;
+    };
+    results[0] = scope;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_child(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(scope) = registry.create_scope(Some(args[0])) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = scope;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_attach(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if registry.attach_task_to_scope(args[0], args[1]).is_none() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_spawn_ready(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if !registry.scopes.contains_key(&args[0]) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = registry.allocate_task(args[1], Some(args[0]), None, None);
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    if registry.cancel_scope(args[0]).is_none() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    results[0] = 1;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_join(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(status) = registry.join_scope(args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = status;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_joined_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(scope) = registry.scopes.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = scope.joined_count;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_scope_failures(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let registry = match lock_async_task_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    let Some(scope) = registry.scopes.get(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    results[0] = scope.failures;
     HOST_STATUS_SUCCESS
 }
 
@@ -16321,6 +16853,14 @@ mod tests {
             call_host(ASYNC_TASK_RESULT, &[task]),
             (HOST_STATUS_SUCCESS, 42)
         );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[task]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[task]),
+            (HOST_STATUS_SUCCESS, 42)
+        );
 
         let (status, cancelled_task) = call_host(ASYNC_TASK_READY, &[99]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
@@ -16335,6 +16875,135 @@ mod tests {
         assert_eq!(
             call_host(ASYNC_TASK_RESULT, &[cancelled_task]).0,
             HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[cancelled_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[cancelled_task]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+    }
+
+    #[test]
+    fn async_structured_concurrency_host_calls_cover_cascade_timeout_and_join_order() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let (status, parent_scope) = call_host(ASYNC_SCOPE_NEW, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, child_scope) = call_host(ASYNC_SCOPE_CHILD, &[parent_scope]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, parent_task) = call_host(ASYNC_SCOPE_SPAWN_READY, &[parent_scope, 10]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, child_task) = call_host(ASYNC_SCOPE_SPAWN_READY, &[child_scope, 20]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        assert_eq!(
+            call_host(ASYNC_SCOPE_CANCEL, &[parent_scope]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[parent_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[child_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_SCOPE_JOIN, &[parent_scope]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_SCOPE_JOINED_COUNT, &[parent_scope]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+
+        let (status, task) = call_host(ASYNC_TASK_READY, &[55]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, timed_task) = call_host(ASYNC_TASK_WITH_TIMEOUT, &[task, 5]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[timed_task]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(ASYNC_SCHEDULER_ADVANCE_TIME, &[5]),
+            (HOST_STATUS_SUCCESS, 5)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[timed_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_RESULT, &[timed_task]).0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[timed_task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[timed_task]),
+            (HOST_STATUS_SUCCESS, -1)
+        );
+
+        let (status, scoped_join) = call_host(ASYNC_SCOPE_NEW, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, first) = call_host(ASYNC_SCOPE_SPAWN_READY, &[scoped_join, 100]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, second) = call_host(ASYNC_SCOPE_SPAWN_READY, &[scoped_join, 200]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, handle) = call_host(ASYNC_TASK_CANCEL_HANDLE, &[first]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(
+            call_host(ASYNC_CANCEL_HANDLE_CANCEL, &[handle]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_IS_CANCELLED, &[first]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_FAIL, &[second]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[second]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN, &[second]),
+            (HOST_STATUS_SUCCESS, -2)
+        );
+        assert_eq!(
+            call_host(ASYNC_SCOPE_JOIN, &[scoped_join]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ASYNC_SCOPE_JOINED_COUNT, &[scoped_join]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
+        assert_eq!(
+            call_host(ASYNC_SCOPE_FAILURES, &[scoped_join]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_ORDER, &[first]),
+            (HOST_STATUS_SUCCESS, 3)
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_ORDER, &[second]),
+            (HOST_STATUS_SUCCESS, 4)
         );
     }
 

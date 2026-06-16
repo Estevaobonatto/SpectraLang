@@ -1482,7 +1482,7 @@ title = "Cancellation, Timeouts, and Structured Concurrency"
 phase = "phase_21"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2104"]
 summary = "Add `CancelHandle`, `with_timeout`, scope-based join, and parent-child cancellation for async tasks."
@@ -1490,7 +1490,8 @@ acceptance = [
   "cancelling a parent task cancels every child task in the scope",
   "`with_timeout(duration)` cancels the wrapped future deterministically when the deadline elapses",
   "`JoinHandle<T>` returns the task result or a structured cancellation error",
-  "deterministic tests cover cascading cancellation, timeout, and join ordering"
+  "deterministic tests cover cascading cancellation, timeout, and join ordering",
+  "`scripts/validate_r2105_structured_concurrency.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]
