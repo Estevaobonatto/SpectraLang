@@ -1536,14 +1536,15 @@ title = "Async Trait Objects and dyn Future"
 phase = "phase_21"
 owner = "semantic"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2103"]
 summary = "Support object-safe async trait methods and `Box<dyn Future>`/`Box<dyn Stream>` for dynamic dispatch."
 acceptance = [
   "`dyn Future` and `dyn Stream` compile and dispatch through virtual tables",
   "async methods in traits follow the documented object-safety rules",
-  "non-object-safe async trait methods emit a stable diagnostic with the offending method"
+  "non-object-safe async trait methods emit a stable diagnostic with the offending method",
+  "`scripts/validate_r2108_async_trait_objects.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

@@ -393,7 +393,49 @@ impl ASTLowering {
             const_values: HashMap::new(),
         };
         lowering.register_builtin_generic_enums();
+        lowering.register_builtin_async_traits();
         lowering
+    }
+
+    fn register_builtin_async_traits(&mut self) {
+        self.trait_method_order.insert(
+            "Future".to_string(),
+            vec!["poll".to_string(), "cancel".to_string()],
+        );
+        self.trait_method_order.insert(
+            "Stream".to_string(),
+            vec!["next".to_string(), "cancel".to_string()],
+        );
+        self.trait_method_signatures.insert(
+            "Future".to_string(),
+            HashMap::from([
+                (
+                    "poll".to_string(),
+                    (
+                        Vec::new(),
+                        IRType::Task {
+                            output: Box::new(IRType::Int),
+                        },
+                    ),
+                ),
+                ("cancel".to_string(), (Vec::new(), IRType::Int)),
+            ]),
+        );
+        self.trait_method_signatures.insert(
+            "Stream".to_string(),
+            HashMap::from([
+                (
+                    "next".to_string(),
+                    (
+                        Vec::new(),
+                        IRType::Task {
+                            output: Box::new(IRType::Int),
+                        },
+                    ),
+                ),
+                ("cancel".to_string(), (Vec::new(), IRType::Int)),
+            ]),
+        );
     }
 
     /// Pre-register `Option<T>` and `Result<T, E>` as built-in generic enums so
@@ -872,7 +914,14 @@ impl ASTLowering {
                             .as_ref()
                             .map(|ann| self.lower_type_annotation(ann))
                             .unwrap_or(IRType::Void);
-                        (method.name.clone(), (params, ret))
+                        let return_type = if method.is_async {
+                            IRType::Task {
+                                output: Box::new(ret),
+                            }
+                        } else {
+                            ret
+                        };
+                        (method.name.clone(), (params, return_type))
                     })
                     .collect::<HashMap<_, _>>();
                 self.trait_method_signatures
@@ -7063,6 +7112,18 @@ impl ASTLowering {
                     return IRType::Task {
                         output: Box::new(output),
                     };
+                }
+
+                if name == "Box" {
+                    if let Some(TypeAnnotation {
+                        kind: TypeAnnotationKind::DynTrait { trait_name },
+                        ..
+                    }) = type_args.first()
+                    {
+                        return IRType::DynTrait {
+                            trait_name: trait_name.clone(),
+                        };
+                    }
                 }
 
                 // Resolve to the monomorphized enum type.

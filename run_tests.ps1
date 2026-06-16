@@ -1143,6 +1143,19 @@ if ($r2107AsyncStdlib.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2107_async_stdlib"; Status = $r2107AsyncStdlib.Status; Detalhe = $r2107AsyncStdlib.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.33: R-2108 async trait objects and dyn Future/Stream
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2108 async trait objects and dyn Future/Stream ---" -ForegroundColor Yellow
+$r2108AsyncTraitObjects = Invoke-HostCommand -name "validate_r2108_async_trait_objects" -fileName "python" -arguments @("scripts\validate_r2108_async_trait_objects.py") -workingDir (Get-Location).Path
+if ($r2108AsyncTraitObjects.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2108_async_trait_objects"; Status = $r2108AsyncTraitObjects.Status; Detalhe = $r2108AsyncTraitObjects.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

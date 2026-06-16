@@ -1,0 +1,19 @@
+module async_trait_object_safety;
+
+trait BadFuture {
+    async fn poll() -> int;
+}
+
+struct ReadyFuture {
+    value: int
+}
+
+impl BadFuture for ReadyFuture {
+    async fn poll() -> int {
+        return 1;
+    }
+}
+
+fn main() -> int {
+    return 0;
+}

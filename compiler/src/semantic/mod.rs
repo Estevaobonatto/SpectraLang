@@ -509,8 +509,142 @@ impl SemanticAnalyzer {
             const_values: HashMap::new(),
         };
         analyzer.register_builtin_generic_types();
+        analyzer.register_builtin_async_traits();
         analyzer.seed_builtin_module_namespaces();
         analyzer
+    }
+
+    fn register_builtin_async_traits(&mut self) {
+        let async_task = |output: Type| Type::Task {
+            output: Box::new(output),
+        };
+
+        let future_methods = HashMap::from([
+            (
+                "poll".to_string(),
+                TraitMethodInfo {
+                    signature: FunctionSignature {
+                        params: vec![Type::Unknown],
+                        return_type: async_task(Type::Int),
+                        self_kind: Some(SelfParamKind::Reference { mutable: false }),
+                        is_async: true,
+                    },
+                    has_default: false,
+                    default_body: None,
+                },
+            ),
+            (
+                "cancel".to_string(),
+                TraitMethodInfo {
+                    signature: FunctionSignature {
+                        params: vec![Type::Unknown],
+                        return_type: Type::Int,
+                        self_kind: Some(SelfParamKind::Reference { mutable: false }),
+                        is_async: false,
+                    },
+                    has_default: false,
+                    default_body: None,
+                },
+            ),
+        ]);
+
+        let stream_methods = HashMap::from([
+            (
+                "next".to_string(),
+                TraitMethodInfo {
+                    signature: FunctionSignature {
+                        params: vec![Type::Unknown],
+                        return_type: async_task(Type::Int),
+                        self_kind: Some(SelfParamKind::Reference { mutable: false }),
+                        is_async: true,
+                    },
+                    has_default: false,
+                    default_body: None,
+                },
+            ),
+            (
+                "cancel".to_string(),
+                TraitMethodInfo {
+                    signature: FunctionSignature {
+                        params: vec![Type::Unknown],
+                        return_type: Type::Int,
+                        self_kind: Some(SelfParamKind::Reference { mutable: false }),
+                        is_async: false,
+                    },
+                    has_default: false,
+                    default_body: None,
+                },
+            ),
+        ]);
+
+        self.traits.insert("Future".to_string(), future_methods);
+        self.traits.insert("Stream".to_string(), stream_methods);
+        self.trait_signatures.insert(
+            "Future".to_string(),
+            HashMap::from([
+                (
+                    "poll".to_string(),
+                    TraitMethodSignature {
+                        params: vec![ParameterInfo {
+                            is_self: true,
+                            is_reference: true,
+                            is_mutable: false,
+                            ty: None,
+                        }],
+                        return_type: Some(TypeAnnotationPattern::Simple(vec!["int".to_string()])),
+                        has_default_body: false,
+                        is_async: true,
+                    },
+                ),
+                (
+                    "cancel".to_string(),
+                    TraitMethodSignature {
+                        params: vec![ParameterInfo {
+                            is_self: true,
+                            is_reference: true,
+                            is_mutable: false,
+                            ty: None,
+                        }],
+                        return_type: Some(TypeAnnotationPattern::Simple(vec!["int".to_string()])),
+                        has_default_body: false,
+                        is_async: false,
+                    },
+                ),
+            ]),
+        );
+        self.trait_signatures.insert(
+            "Stream".to_string(),
+            HashMap::from([
+                (
+                    "next".to_string(),
+                    TraitMethodSignature {
+                        params: vec![ParameterInfo {
+                            is_self: true,
+                            is_reference: true,
+                            is_mutable: false,
+                            ty: None,
+                        }],
+                        return_type: Some(TypeAnnotationPattern::Simple(vec!["int".to_string()])),
+                        has_default_body: false,
+                        is_async: true,
+                    },
+                ),
+                (
+                    "cancel".to_string(),
+                    TraitMethodSignature {
+                        params: vec![ParameterInfo {
+                            is_self: true,
+                            is_reference: true,
+                            is_mutable: false,
+                            ty: None,
+                        }],
+                        return_type: Some(TypeAnnotationPattern::Simple(vec!["int".to_string()])),
+                        has_default_body: false,
+                        is_async: false,
+                    },
+                ),
+            ]),
+        );
     }
 
     /// Pre-register built-in generic types (`Option<T>`, `Result<T, E>`) so any
@@ -1394,6 +1528,17 @@ impl SemanticAnalyzer {
                         output: Box::new(output),
                     }
                 }
+                TypeAnnotationKind::Generic { name, type_args } if name == "Box" => {
+                    match type_args.first() {
+                        Some(crate::ast::TypeAnnotation {
+                            kind: TypeAnnotationKind::DynTrait { trait_name },
+                            ..
+                        }) => Type::DynTrait {
+                            trait_name: trait_name.clone(),
+                        },
+                        _ => Type::Unknown,
+                    }
+                }
                 TypeAnnotationKind::Generic { name, type_args }
                     if self.generic_enums.contains_key(name) =>
                 {
@@ -1578,6 +1723,17 @@ impl SemanticAnalyzer {
                     output: Box::new(output),
                 }
             }
+            TypeAnnotationKind::Generic { name, type_args } if name == "Box" => {
+                match type_args.first() {
+                    Some(crate::ast::TypeAnnotation {
+                        kind: TypeAnnotationKind::DynTrait { trait_name },
+                        ..
+                    }) => Type::DynTrait {
+                        trait_name: trait_name.clone(),
+                    },
+                    _ => Type::Unknown,
+                }
+            }
             _ => self.type_annotation_to_type(&Some(ann.clone())),
         }
     }
@@ -1660,6 +1816,81 @@ impl SemanticAnalyzer {
             ty.to_string()
         } else {
             "_".to_string()
+        }
+    }
+
+    fn annotation_mentions_self(annotation: &crate::ast::TypeAnnotation) -> bool {
+        use crate::ast::TypeAnnotationKind;
+
+        match &annotation.kind {
+            TypeAnnotationKind::Simple { segments } => segments.iter().any(|part| part == "Self"),
+            TypeAnnotationKind::Tuple { elements } => {
+                elements.iter().any(Self::annotation_mentions_self)
+            }
+            TypeAnnotationKind::Function {
+                params,
+                return_type,
+            } => {
+                params.iter().any(Self::annotation_mentions_self)
+                    || Self::annotation_mentions_self(return_type)
+            }
+            TypeAnnotationKind::Generic { type_args, .. } => {
+                type_args.iter().any(Self::annotation_mentions_self)
+            }
+            TypeAnnotationKind::DynTrait { .. } => false,
+        }
+    }
+
+    fn validate_async_trait_method_object_safety(
+        &mut self,
+        trait_name: &str,
+        method: &crate::ast::TraitMethod,
+        self_kind: Option<SelfParamKind>,
+    ) {
+        if !method.is_async {
+            return;
+        }
+
+        let mut reason = None;
+        match self_kind {
+            Some(SelfParamKind::Reference { .. }) => {}
+            Some(SelfParamKind::Value) => {
+                reason = Some("uses by-value `self`; use `&self` or `&mut self`");
+            }
+            None => {
+                reason = Some("does not declare a `self` receiver");
+            }
+        }
+
+        if reason.is_none()
+            && method
+                .params
+                .iter()
+                .filter_map(|param| param.type_annotation.as_ref())
+                .any(Self::annotation_mentions_self)
+        {
+            reason = Some("mentions `Self` in a parameter type");
+        }
+
+        if reason.is_none()
+            && method
+                .return_type
+                .as_ref()
+                .is_some_and(Self::annotation_mentions_self)
+        {
+            reason = Some("mentions `Self` in its return type");
+        }
+
+        if let Some(reason) = reason {
+            self.error_coded_with_hint(
+                "E2108",
+                format!(
+                    "Async trait method '{}::{}' is not object-safe: {}",
+                    trait_name, method.name, reason
+                ),
+                method.span,
+                "Object-safe async trait methods must use `&self` or `&mut self` and must not expose `Self` in parameter or return types.",
+            );
         }
     }
 
@@ -4154,6 +4385,7 @@ impl SemanticAnalyzer {
                 self.type_annotation_to_type(&method.return_type),
             );
             let return_pattern = Self::option_annotation_to_pattern(&method.return_type);
+            self.validate_async_trait_method_object_safety(&trait_decl.name, method, self_kind);
 
             let signature = FunctionSignature {
                 params: param_types,

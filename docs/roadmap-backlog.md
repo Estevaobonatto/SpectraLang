@@ -3184,7 +3184,7 @@ through the standard library.
 
 ## R-2108 Async Trait Objects and dyn Future
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Risk: `medium`
@@ -3202,6 +3202,23 @@ Support object-safe async trait methods and `Box<dyn Future>` /
 - Async methods in traits follow the documented object-safety rules.
 - Non-object-safe async trait methods emit a stable diagnostic with the
   offending method.
+- `scripts\validate_r2108_async_trait_objects.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed
+
+- Added built-in `Future` and `Stream` trait signatures to the parser,
+  semantic analyzer, and midend lowering.
+- `Box<dyn Future>` and `Box<dyn Stream>` now lower to the existing
+  `dyn Trait` fat-pointer/vtable representation.
+- Async trait method vtables now preserve `Task<T>` return types, so
+  `await future.poll()` and `await stream.next()` lower through
+  `call_indirect` and async task host calls.
+- Non-object-safe async trait methods emit stable diagnostic `E2108` with
+  the offending method name.
+- Added `tests/validation/129_async_trait_objects_future_stream.spectra`,
+  `tests/errors/async_trait_object_safety.spectra`, and the R-2108
+  validation gate.
 
 ## R-2109 Async Test Runtime and Test Macros
 

@@ -1,0 +1,79 @@
+module async_trait_objects_future_stream;
+
+struct ReadyFuture {
+    value: int
+}
+
+impl Future for ReadyFuture {
+    async fn poll(&self) -> int {
+        return self.value;
+    }
+
+    fn cancel(&self) -> int {
+        return 0;
+    }
+}
+
+struct CounterStream {
+    current: int
+}
+
+impl Stream for CounterStream {
+    async fn next(&self) -> int {
+        return self.current + 1;
+    }
+
+    fn cancel(&self) -> int {
+        return 0;
+    }
+}
+
+trait AsyncWorker {
+    async fn run(&self, input: int) -> int;
+}
+
+struct Worker {
+    base: int
+}
+
+impl AsyncWorker for Worker {
+    async fn run(&self, input: int) -> int {
+        return self.base + input;
+    }
+}
+
+async fn drive_future(future: Box<dyn Future>) -> int {
+    let value = await future.poll();
+    return value;
+}
+
+async fn drive_stream(stream: Box<dyn Stream>) -> int {
+    let value = await stream.next();
+    return value;
+}
+
+async fn drive_worker(worker: dyn AsyncWorker) -> int {
+    let value = await worker.run(5);
+    return value;
+}
+
+async fn aggregate() -> int {
+    let future_source = ReadyFuture { value: 10 };
+    let stream_source = CounterStream { current: 20 };
+    let worker_source = Worker { base: 30 };
+
+    let future: Box<dyn Future> = future_source as dyn Future;
+    let stream: Box<dyn Stream> = stream_source as dyn Stream;
+    let worker = worker_source as dyn AsyncWorker;
+
+    let future_value = await drive_future(future);
+    let stream_value = await drive_stream(stream);
+    let worker_value = await drive_worker(worker);
+
+    return future_value + stream_value + worker_value;
+}
+
+fn main() -> int {
+    let task = aggregate();
+    return 0;
+}

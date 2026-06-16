@@ -30,7 +30,7 @@ impl Parser {
             TokenKind::EndOfFile,
             Span::new(0, 0, Location::new(1, 1), Location::new(1, 1)),
         );
-        Self {
+        let mut parser = Self {
             tokens,
             eof_sentinel,
             position: 0,
@@ -39,7 +39,66 @@ impl Parser {
             // parsing modules that typically have a handful of known traits.
             trait_signatures: HashMap::with_capacity(8),
             async_context_depth: 0,
-        }
+        };
+        parser.register_builtin_async_traits();
+        parser
+    }
+
+    fn register_builtin_async_traits(&mut self) {
+        let self_param = ParameterSignature {
+            is_self: true,
+            is_reference: true,
+            is_mutable: false,
+            ty: None,
+        };
+        let int_return = Some(TypePattern::Simple(vec!["int".to_string()]));
+
+        self.trait_signatures.insert(
+            "Future".to_string(),
+            HashMap::from([
+                (
+                    "poll".to_string(),
+                    TraitMethodSignature {
+                        params: vec![self_param.clone()],
+                        return_type: int_return.clone(),
+                        has_default_body: false,
+                        is_async: true,
+                    },
+                ),
+                (
+                    "cancel".to_string(),
+                    TraitMethodSignature {
+                        params: vec![self_param.clone()],
+                        return_type: int_return.clone(),
+                        has_default_body: false,
+                        is_async: false,
+                    },
+                ),
+            ]),
+        );
+        self.trait_signatures.insert(
+            "Stream".to_string(),
+            HashMap::from([
+                (
+                    "next".to_string(),
+                    TraitMethodSignature {
+                        params: vec![self_param.clone()],
+                        return_type: int_return.clone(),
+                        has_default_body: false,
+                        is_async: true,
+                    },
+                ),
+                (
+                    "cancel".to_string(),
+                    TraitMethodSignature {
+                        params: vec![self_param],
+                        return_type: int_return,
+                        has_default_body: false,
+                        is_async: false,
+                    },
+                ),
+            ]),
+        );
     }
 
     pub fn parse(mut self) -> Result<Module, Vec<ParseError>> {

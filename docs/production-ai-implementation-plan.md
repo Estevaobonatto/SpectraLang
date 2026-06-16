@@ -1643,7 +1643,10 @@ The eight phases are summarized below; the detailed items live in
   filesystem read/write, nonblocking TCP listener/connect/accept/read/write,
   UDP bind/send/recv, bounded async channels, cancellation coverage, and
   validation gate landed)
-- `R-2108` Async trait objects and `dyn Future`
+- `R-2108` Async trait objects and `dyn Future` (complete; built-in
+  `Future`/`Stream` traits, `Box<dyn Future>` / `Box<dyn Stream>` type
+  lowering, async vtable dispatch, object-safety diagnostic `E2108`, and
+  validation gate landed)
 - `R-2109` Async test runtime and macros
 - `R-2110` Async diagnostics and `Send`/`Sync` validation
 - `R-2111` Async benchmarks and profiling
