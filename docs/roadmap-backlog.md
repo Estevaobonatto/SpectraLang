@@ -3393,7 +3393,7 @@ registry as `spectra.api`.
 
 ## R-2201 ADR: API Library Architecture
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Risk: `high`
@@ -3416,11 +3416,36 @@ and the relationship with `std`.
 - The ADR identifies the supported HTTP versions, TLS model, and async
   dependencies.
 
+### Completed Notes
+
+- Added accepted ADR
+  `docs/adr/0011-api-library-architecture.md`.
+- Fixed the public package name as `spectra.api`, the public import path as
+  `std.api.*`, and the host-call prefix as `spectra.api.*`.
+- Fixed the implementation/package layout:
+  `packages/spectra-api`, `packages/spectra-api/spectra.toml`,
+  `packages/spectra-api/src/*.spectra`, `runtime/src/api/`, `docs/api/`,
+  and `examples/api/`.
+- Fixed Phase 22 as HTTP/1.1 first, with HTTP/2 and HTTP/3 deferred to the
+  Phase 24 roadmap items.
+- Accepted `rustls` as the default TLS backend and rejected OpenSSL as the
+  default implementation.
+- Confirmed `spectra.api` uses the Phase 21 async model (`Task<T>`,
+  `Stream<T>`, cancellation, and reactor integration) without exposing a
+  public Tokio runtime dependency.
+- Documented migration rules from any future ad-hoc `std` web modules and
+  clarified that `std.serve` remains a local model-serving harness, not the
+  HTTP API server.
+- Reassigned `R-2202` to owner `web` because it owns public API host-call
+  surface, not generic runtime infrastructure.
+- Added `scripts/validate_r2201_api_adr.py` and wired it into
+  `run_tests.ps1`.
+
 ## R-2202 spectra-api Rust Crate and Host Call Registration
 
 - Status: `not_started`
 - Priority: `P0`
-- Owner: `runtime`
+- Owner: `web`
 - Risk: `high`
 - Dependencies: `R-2201`
 

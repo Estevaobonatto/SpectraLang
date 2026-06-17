@@ -1208,6 +1208,19 @@ if ($r2112FormalSendSync.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2112_formal_send_sync_bounds"; Status = $r2112FormalSendSync.Status; Detalhe = $r2112FormalSendSync.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.38: R-2201 API library architecture ADR
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2201 API library architecture ADR ---" -ForegroundColor Yellow
+$r2201ApiAdr = Invoke-HostCommand -name "validate_r2201_api_adr" -fileName "python" -arguments @("scripts\validate_r2201_api_adr.py") -workingDir (Get-Location).Path
+if ($r2201ApiAdr.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2201_api_adr"; Status = $r2201ApiAdr.Status; Detalhe = $r2201ApiAdr.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -1663,7 +1663,10 @@ The eight phases are summarized below; the detailed items live in
 
 ### Phase 22 — API Library Foundation (`spectra.api`)
 
-- `R-2201` ADR: API Library Architecture
+- `R-2201` ADR: API Library Architecture (complete; accepted ADR
+  `docs/adr/0011-api-library-architecture.md` fixes `spectra.api`,
+  `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
+  HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration
 - `R-2203` `std.api.*` surface in semantic analysis
 - `R-2204` HTTP/1.1 parser

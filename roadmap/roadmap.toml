@@ -1624,7 +1624,7 @@ title = "ADR: API Library Architecture"
 phase = "phase_22"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2107"]
 summary = "Decide the structural model for the new `spectra.api` library: a separate Rust companion crate, a Spectra package, the `std.api.*` binding surface, and the relationship with `std`."
@@ -1632,14 +1632,18 @@ acceptance = [
   "ADR `docs/adr/0011-api-library-architecture.md` is committed and approved",
   "the ADR fixes the crate layout, the package name, the import path, and the public API surface",
   "the ADR documents the migration path from any prior ad-hoc `std` web modules",
-  "the ADR identifies the supported HTTP versions, TLS model, and async dependencies"
+  "the ADR identifies the supported HTTP versions, TLS model, and async dependencies",
+  "the ADR accepts HTTP versions as HTTP/1.1 first with HTTP/2 and HTTP/3 as follow-on roadmap items",
+  "the ADR accepts `rustls` as the default TLS backend",
+  "the ADR binds API async dependencies to the Phase 21 `Task<T>`/`Stream<T>` model",
+  "`scripts/validate_r2201_api_adr.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]
 id = "R-2202"
 title = "spectra-api Rust Crate and Host Call Registration"
 phase = "phase_22"
-owner = "runtime"
+owner = "web"
 priority = "P0"
 status = "not_started"
 risk = "high"
