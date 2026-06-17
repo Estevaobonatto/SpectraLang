@@ -7,4 +7,9 @@ edition = "2021"
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 spectra-runtime = { path = "../../runtime" }
+webpki-roots = "0.26"
+
+[dev-dependencies]
+rcgen = "0.13"

@@ -3698,7 +3698,7 @@ configurable timeouts, and structured responses.
 
 ## R-2207 TLS via rustls (HTTPS Server and Client)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3709,14 +3709,28 @@ configurable timeouts, and structured responses.
 Add HTTPS support using `rustls` for both the server and the client, with
 SNI, configurable certificate chains, and ALPN negotiation.
 
+Implemented in `packages/spectra-api/src/tls.rs` with `TlsServerConfig`,
+`TlsClientConfig`, `HttpsResponse`, `HttpsServerExchange`, and typed
+`TlsErrorKind`/`TlsError` reporting. Server and client configs accept DER
+certificate chains, client configs can use explicit roots or `webpki-roots`,
+SNI is supplied through `ServerName`, and ALPN defaults to `http/1.1` until
+HTTP/2 support lands.
+
 ### Acceptance
 
-- An HTTPS server runs a self-signed certificate in the integration test.
-- An HTTPS client connects to a known external test endpoint and
-  validates the chain.
-- ALPN advertises `http/1.1` (and `h2` when Phase 24 lands it).
+- An HTTPS server runs a self-signed certificate in the integration test
+  through `serve_single_https_request` and `TlsServerConfig`.
+- An HTTPS client connects to a known external test endpoint with
+  `webpki-roots` and validates the chain.
+- ALPN advertises `http/1.1` on client and server configs, and local
+  negotiation selects `http/1.1`.
 - TLS handshake failures are reported as typed errors with the underlying
-  cause.
+  cause via `TlsErrorKind` and `TlsError`.
+- `cargo test -p spectra-api tls --offline` passes.
+- `cargo test -p spectra-api tls::tests::known_external_endpoint_validates_chain --offline -- --ignored`
+  passes.
+- `scripts/validate_r2207_tls_rustls.py` passes and is wired into
+  `run_tests.ps1`.
 
 ## R-2208 std.api.json Encoder and Decoder
 

@@ -1286,6 +1286,19 @@ if ($r2206Http1Client.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2206_http1_client"; Status = $r2206Http1Client.Status; Detalhe = $r2206Http1Client.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.44: R-2207 TLS via rustls
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2207 TLS via rustls ---" -ForegroundColor Yellow
+$r2207TlsRustls = Invoke-HostCommand -name "validate_r2207_tls_rustls" -fileName "python" -arguments @("scripts\validate_r2207_tls_rustls.py") -workingDir (Get-Location).Path
+if ($r2207TlsRustls.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2207_tls_rustls"; Status = $r2207TlsRustls.Status; Detalhe = $r2207TlsRustls.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

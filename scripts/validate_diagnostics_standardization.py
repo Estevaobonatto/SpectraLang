@@ -22,7 +22,7 @@ def count_diagnostic_rows(markdown: str) -> int:
 
 def validate_json(path: Path) -> list[str]:
     errors: list[str] = []
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     if payload.get("version") != 1:
         errors.append("JSON diagnostics version must be 1")
     if "success" not in payload:
@@ -44,7 +44,7 @@ def validate_json(path: Path) -> list[str]:
 
 def validate_sarif(path: Path) -> list[str]:
     errors: list[str] = []
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     if payload.get("version") != "2.1.0":
         errors.append("SARIF version must be 2.1.0")
     runs = payload.get("runs")
