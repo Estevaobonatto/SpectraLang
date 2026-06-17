@@ -210,6 +210,20 @@ fn ast_snapshot(module: &Module) -> String {
     out
 }
 
+fn std_api_public_function_table_snapshot() -> String {
+    let mut out = String::new();
+    for module in spectra_compiler::semantic::builtin_modules::STD_API_MODULE_PATHS {
+        out.push_str(&format!("module {module}\n"));
+    }
+    for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_API_PUBLIC_TYPES {
+        out.push_str(&format!("type {name}: {signature}\n"));
+    }
+    for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_API_PUBLIC_FUNCTIONS {
+        out.push_str(&format!("fn {name}: {signature}\n"));
+    }
+    out
+}
+
 #[test]
 fn ast_snapshot_covers_parser_stage() {
     let source = r#"
@@ -234,6 +248,14 @@ fn ast_snapshot_covers_parser_stage() {
     "#;
     let module = parse(source);
     assert_snapshot("parser_ast.snap", &ast_snapshot(&module));
+}
+
+#[test]
+fn std_api_public_function_table_is_snapshotted() {
+    assert_snapshot(
+        "std_api_public_function_table.snap",
+        &std_api_public_function_table_snapshot(),
+    );
 }
 
 #[test]

@@ -1672,7 +1672,10 @@ The eight phases are summarized below; the detailed items live in
   `spectra.api.*` host calls through the runtime host-call registry, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
-- `R-2203` `std.api.*` surface in semantic analysis
+- `R-2203` `std.api.*` semantic and tooling surface (complete; virtual
+  `std.api.*` modules expose the public API function/type table to semantic
+  analysis, formatter check, LSP completion, and
+  `scripts/validate_r2203_std_api_surface.py`)
 - `R-2204` HTTP/1.1 parser
 - `R-2205` HTTP/1.1 server
 - `R-2206` HTTP/1.1 client

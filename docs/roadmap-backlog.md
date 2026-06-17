@@ -3486,7 +3486,7 @@ that `std.api.*` will dispatch into.
 
 ## R-2203 std.api Surface in Semantic Analysis
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Risk: `high`
@@ -3501,10 +3501,36 @@ signatures, struct types, and trait surface declared by the
 ### Acceptance
 
 - `std.api.*` is visible in the formatter, LSP completion, and
-  `spectralang --list-experimental`.
+  `spectralang --list-experimental` remains free of experimental syntax
+  gates.
 - Type checking resolves qualified `std.api.*` calls without false
   missing-module diagnostics.
 - Snapshot tests cover the public function table.
+- `tests/semantic/std_api_surface.spectra` validates the CLI check and
+  formatter path.
+- `scripts/validate_r2203_std_api_surface.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed
+
+- Added the virtual `std.api` module family in
+  `compiler/src/semantic/builtin_modules.rs`, covering HTTP, server, client,
+  JSON, TLS, routing, and API error surfaces with public function signatures
+  and exported API handle types.
+- Seeded the semantic namespace table for `std.api.*` and `spectra.std.api.*`
+  so qualified calls do not produce false missing-module diagnostics.
+- Added LSP completion items backed by the same public function/type/module
+  table used by semantic analysis.
+- Added `compiler/tests/snapshots/std_api_public_function_table.snap`,
+  `compiler/tests/stage_smoke.rs` semantic coverage, and
+  `tests/semantic/std_api_surface.spectra`.
+- Added `scripts/validate_r2203_std_api_surface.py` and wired it into
+  `run_tests.ps1`.
+
+### Boundary
+
+- `R-2203` does not claim HTTP parser, server/client runtime execution, or
+  request routing execution. Those remain owned by `R-2204+`.
 
 ## R-2204 HTTP/1.1 Parser
 

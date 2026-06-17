@@ -1664,14 +1664,16 @@ title = "std.api Surface in Semantic Analysis"
 phase = "phase_22"
 owner = "semantic"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2202"]
 summary = "Expose `std.api.*` to the semantic analyzer with the public function signatures, struct types, and trait surface declared by the `spectra.api` package."
 acceptance = [
-  "`std.api.*` is visible in the formatter, LSP completion, and `spectralang --list-experimental`",
-  "type checking resolves qualified `std.api.*` calls without false missing-module diagnostics",
-  "snapshot tests cover the public function table"
+  "`std.api.*` is visible in the formatter, LSP completion, and `spectralang --list-experimental` remains free of experimental syntax gates",
+  "type checking resolves qualified std.api.* calls without false missing-module diagnostics",
+  "snapshot tests cover the public function table",
+  "`tests/semantic/std_api_surface.spectra` validates the CLI check and formatter path",
+  "`scripts/validate_r2203_std_api_surface.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

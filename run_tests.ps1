@@ -1234,6 +1234,19 @@ if ($r2202ApiHostcalls.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2202_spectra_api_hostcalls"; Status = $r2202ApiHostcalls.Status; Detalhe = $r2202ApiHostcalls.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.40: R-2203 std.api semantic and tooling surface
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2203 std.api semantic and tooling surface ---" -ForegroundColor Yellow
+$r2203StdApiSurface = Invoke-HostCommand -name "validate_r2203_std_api_surface" -fileName "python" -arguments @("scripts\validate_r2203_std_api_surface.py") -workingDir (Get-Location).Path
+if ($r2203StdApiSurface.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2203_std_api_surface"; Status = $r2203StdApiSurface.Status; Detalhe = $r2203StdApiSurface.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

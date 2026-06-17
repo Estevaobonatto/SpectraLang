@@ -175,6 +175,37 @@ fn unknown_import_alias_member_reports_candidates() {
 }
 
 #[test]
+fn std_api_surface_resolves_qualified_and_aliased_calls() {
+    let source = r#"
+        module api_surface;
+
+        import std.api.http as http;
+        import std.api.json as json;
+        import std.api.tls as tls;
+
+        pub fn main() -> int {
+            let request = http.request_new(1);
+            let method = http.request_method(request);
+            let method_name = std.api.http.method_name(method);
+            let ok = json.validate("{\"ok\": true}");
+            let tls_config = tls.client_config();
+            let tls_mode = tls.config_mode(tls_config);
+            let status_class = std.api.http.status_class(200);
+            return status_class + tls_mode;
+        }
+    "#;
+
+    let mut module = parse_module(source);
+    let mut modules = vec![&mut module];
+
+    let result = analyze_modules(modules.as_mut_slice());
+    assert!(
+        result.is_ok(),
+        "std.api semantic surface should resolve without missing-module diagnostics: {result:?}"
+    );
+}
+
+#[test]
 fn generic_return_type_parameter_matches_declared_type_parameter() {
     let source = r#"
         module smoke;

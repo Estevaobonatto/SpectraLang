@@ -8,6 +8,100 @@ use super::module_registry::{
 };
 use crate::ast::Type;
 
+pub const STD_API_MODULE_PATHS: &[&str] = &[
+    "std.api",
+    "std.api.http",
+    "std.api.server",
+    "std.api.client",
+    "std.api.json",
+    "std.api.tls",
+    "std.api.routing",
+    "std.api.errors",
+];
+
+pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
+    ("std.api.http.Request", "struct Request"),
+    ("std.api.http.Response", "struct Response"),
+    ("std.api.http.Method", "struct Method"),
+    ("std.api.http.Status", "struct Status"),
+    ("std.api.http.Header", "struct Header"),
+    ("std.api.http.Headers", "struct Headers"),
+    ("std.api.http.Cookie", "struct Cookie"),
+    ("std.api.http.Body", "struct Body"),
+    ("std.api.server.Server", "struct Server"),
+    ("std.api.client.Client", "struct Client"),
+    ("std.api.json.JsonValue", "struct JsonValue"),
+    ("std.api.tls.TlsConfig", "struct TlsConfig"),
+    ("std.api.routing.Route", "struct Route"),
+    ("std.api.routing.Router", "struct Router"),
+    ("std.api.errors.ApiError", "struct ApiError"),
+];
+
+pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
+    ("std.api.http.method_name", "fn(int) -> string"),
+    ("std.api.http.method_allows_body", "fn(int) -> bool"),
+    ("std.api.http.method_is_safe", "fn(int) -> bool"),
+    ("std.api.http.status_reason", "fn(int) -> string"),
+    ("std.api.http.status_class", "fn(int) -> int"),
+    ("std.api.http.status_is_success", "fn(int) -> bool"),
+    ("std.api.http.header_name_is_valid", "fn(string) -> bool"),
+    ("std.api.http.header_value_is_valid", "fn(string) -> bool"),
+    ("std.api.http.request", "fn(int, string) -> Request"),
+    ("std.api.http.request_new", "fn(int) -> Request"),
+    ("std.api.http.request_method", "fn(Request) -> int"),
+    ("std.api.http.response", "fn(int) -> Response"),
+    ("std.api.http.response_new", "fn(int) -> Response"),
+    ("std.api.http.response_status", "fn(Response) -> int"),
+    ("std.api.http.header", "fn(string, string) -> Header"),
+    ("std.api.http.status", "fn(int) -> Status"),
+    ("std.api.server.new", "fn() -> Server"),
+    ("std.api.server.serve", "fn(Server, Router) -> task<int>"),
+    ("std.api.server.state", "fn(Server) -> int"),
+    ("std.api.server.shutdown", "fn(Server) -> bool"),
+    ("std.api.client.new", "fn() -> Client"),
+    (
+        "std.api.client.request",
+        "fn(Client, Request) -> task<Response>",
+    ),
+    ("std.api.client.timeout_ms", "fn(Client) -> int"),
+    ("std.api.json.validate", "fn(string) -> bool"),
+    ("std.api.json.kind", "fn(string) -> int"),
+    ("std.api.json.encode", "fn(unknown) -> string"),
+    ("std.api.json.decode", "fn(string) -> JsonValue"),
+    ("std.api.tls.config_new", "fn(int) -> TlsConfig"),
+    ("std.api.tls.config_mode", "fn(TlsConfig) -> int"),
+    (
+        "std.api.tls.server_config",
+        "fn(string, string) -> TlsConfig",
+    ),
+    ("std.api.tls.client_config", "fn() -> TlsConfig"),
+    ("std.api.routing.router", "fn() -> Router"),
+    ("std.api.routing.router_new", "fn() -> Router"),
+    ("std.api.routing.route_count", "fn(Router) -> int"),
+    (
+        "std.api.routing.get",
+        "fn(Router, string, fn(Request) -> Response) -> Router",
+    ),
+    (
+        "std.api.routing.post",
+        "fn(Router, string, fn(Request) -> Response) -> Router",
+    ),
+    (
+        "std.api.routing.put",
+        "fn(Router, string, fn(Request) -> Response) -> Router",
+    ),
+    (
+        "std.api.routing.patch",
+        "fn(Router, string, fn(Request) -> Response) -> Router",
+    ),
+    (
+        "std.api.routing.delete",
+        "fn(Router, string, fn(Request) -> Response) -> Router",
+    ),
+    ("std.api.errors.last_code", "fn() -> int"),
+    ("std.api.errors.last_message", "fn() -> string"),
+];
+
 /// Register all built-in standard library modules in the given registry.
 pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.io".to_string(), make_std_io());
@@ -26,6 +120,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.ml".to_string(), make_std_ml());
     registry.register_module("std.concurrent".to_string(), make_std_concurrent());
     registry.register_module("std.serve".to_string(), make_std_serve());
+    register_std_api_modules(registry, "std.api");
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
@@ -46,6 +141,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.ml".to_string(), make_std_ml());
     registry.register_module("spectra.std.concurrent".to_string(), make_std_concurrent());
     registry.register_module("spectra.std.serve".to_string(), make_std_serve());
+    register_std_api_modules(registry, "spectra.std.api");
 }
 
 fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
@@ -55,6 +151,255 @@ fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
         visibility: ExportVisibility::Public,
         is_async: false,
     }
+}
+
+fn public_type(members: &[&str]) -> ExportedType {
+    ExportedType {
+        members: members.iter().map(|member| (*member).to_string()).collect(),
+        visibility: ExportVisibility::Public,
+        is_enum: false,
+        struct_fields: None,
+        enum_variants: None,
+        enum_struct_variants: None,
+    }
+}
+
+fn api_type(name: &str) -> Type {
+    Type::Struct {
+        name: name.to_string(),
+    }
+}
+
+fn api_task(output: Type) -> Type {
+    Type::Task {
+        output: Box::new(output),
+    }
+}
+
+fn api_handler_type() -> Type {
+    Type::Fn {
+        params: vec![api_type("Request")],
+        return_type: Box::new(api_type("Response")),
+    }
+}
+
+fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
+    registry.register_module(prefix.to_string(), make_std_api_root(prefix));
+    registry.register_module(format!("{prefix}.http"), make_std_api_http(prefix));
+    registry.register_module(format!("{prefix}.server"), make_std_api_server(prefix));
+    registry.register_module(format!("{prefix}.client"), make_std_api_client(prefix));
+    registry.register_module(format!("{prefix}.json"), make_std_api_json(prefix));
+    registry.register_module(format!("{prefix}.tls"), make_std_api_tls(prefix));
+    registry.register_module(format!("{prefix}.routing"), make_std_api_routing(prefix));
+    registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
+}
+
+fn stdlib_segments(prefix: &str) -> Vec<String> {
+    prefix.split('.').map(|part| part.to_string()).collect()
+}
+
+fn api_module(prefix: &str, leaf: Option<&str>) -> ModuleExports {
+    let mut stdlib_path = stdlib_segments(prefix);
+    if let Some(leaf) = leaf {
+        stdlib_path.push(leaf.to_string());
+    }
+    ModuleExports {
+        stdlib_path: Some(stdlib_path),
+        package_name: Some("spectra.api".to_string()),
+        ..Default::default()
+    }
+}
+
+fn make_std_api_root(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, None);
+    for name in [
+        "Request",
+        "Response",
+        "Router",
+        "Server",
+        "Client",
+        "TlsConfig",
+    ] {
+        exports.types.insert(name.to_string(), public_type(&[]));
+    }
+    exports
+}
+
+fn make_std_api_http(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("http"));
+    for (name, members) in [
+        ("Request", &["method", "path", "headers", "body"][..]),
+        ("Response", &["status", "headers", "body"][..]),
+        ("Method", &["code", "name"][..]),
+        ("Status", &["code", "reason"][..]),
+        ("Header", &["name", "value"][..]),
+        ("Headers", &["len"][..]),
+        ("Cookie", &["name", "value"][..]),
+        ("Body", &["len"][..]),
+    ] {
+        exports.types.insert(name.to_string(), public_type(members));
+    }
+
+    let request = api_type("Request");
+    let response = api_type("Response");
+    let header = api_type("Header");
+    let status = api_type("Status");
+    let functions = [
+        ("method_name", vec![Type::Int], Type::String),
+        ("method_allows_body", vec![Type::Int], Type::Bool),
+        ("method_is_safe", vec![Type::Int], Type::Bool),
+        ("status_reason", vec![Type::Int], Type::String),
+        ("status_class", vec![Type::Int], Type::Int),
+        ("status_is_success", vec![Type::Int], Type::Bool),
+        ("header_name_is_valid", vec![Type::String], Type::Bool),
+        ("header_value_is_valid", vec![Type::String], Type::Bool),
+        ("request", vec![Type::Int, Type::String], request.clone()),
+        ("request_new", vec![Type::Int], request.clone()),
+        ("request_method", vec![request.clone()], Type::Int),
+        ("response", vec![Type::Int], response.clone()),
+        ("response_new", vec![Type::Int], response.clone()),
+        ("response_status", vec![response], Type::Int),
+        ("header", vec![Type::String, Type::String], header),
+        ("status", vec![Type::Int], status),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_server(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("server"));
+    exports
+        .types
+        .insert("Server".to_string(), public_type(&["state"]));
+    let server = api_type("Server");
+    let router = api_type("Router");
+    let functions = [
+        ("new", vec![], server.clone()),
+        ("serve", vec![server.clone(), router], api_task(Type::Int)),
+        ("state", vec![server.clone()], Type::Int),
+        ("shutdown", vec![server], Type::Bool),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_client(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("client"));
+    exports
+        .types
+        .insert("Client".to_string(), public_type(&["timeout_ms"]));
+    let client = api_type("Client");
+    let request = api_type("Request");
+    let response = api_type("Response");
+    let functions = [
+        ("new", vec![], client.clone()),
+        ("request", vec![client.clone(), request], api_task(response)),
+        ("timeout_ms", vec![client], Type::Int),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_json(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("json"));
+    exports
+        .types
+        .insert("JsonValue".to_string(), public_type(&["kind"]));
+    let functions = [
+        ("validate", vec![Type::String], Type::Bool),
+        ("kind", vec![Type::String], Type::Int),
+        ("encode", vec![Type::Unknown], Type::String),
+        ("decode", vec![Type::String], api_type("JsonValue")),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_tls(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("tls"));
+    exports
+        .types
+        .insert("TlsConfig".to_string(), public_type(&["mode"]));
+    let tls_config = api_type("TlsConfig");
+    let functions = [
+        ("config_new", vec![Type::Int], tls_config.clone()),
+        ("config_mode", vec![tls_config.clone()], Type::Int),
+        (
+            "server_config",
+            vec![Type::String, Type::String],
+            tls_config.clone(),
+        ),
+        ("client_config", vec![], tls_config),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_routing(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("routing"));
+    exports
+        .types
+        .insert("Route".to_string(), public_type(&["method", "path"]));
+    exports
+        .types
+        .insert("Router".to_string(), public_type(&["route_count"]));
+    let router = api_type("Router");
+    let handler = api_handler_type();
+    let mut functions = vec![
+        ("router", vec![], router.clone()),
+        ("router_new", vec![], router.clone()),
+        ("route_count", vec![router.clone()], Type::Int),
+    ];
+    for name in ["get", "post", "put", "patch", "delete"] {
+        functions.push((
+            name,
+            vec![router.clone(), Type::String, handler.clone()],
+            router.clone(),
+        ));
+    }
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_errors(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("errors"));
+    exports
+        .types
+        .insert("ApiError".to_string(), public_type(&["code", "message"]));
+    let functions = [
+        ("last_code", vec![], Type::Int),
+        ("last_message", vec![], Type::String),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
 }
 
 fn make_std_io() -> ModuleExports {

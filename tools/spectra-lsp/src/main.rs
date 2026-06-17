@@ -796,6 +796,7 @@ impl LanguageServer for Backend {
                 ..Default::default()
             })
             .collect();
+        items.extend(std_api_completion_items());
 
         if let Some(document) = document {
             if let Some(module) = &document.analysis.module {
@@ -1348,6 +1349,41 @@ fn collect_spectra_files(root: &Path, files: &mut Vec<PathBuf>) {
             files.push(path);
         }
     }
+}
+
+fn std_api_completion_items() -> Vec<CompletionItem> {
+    let mut items = Vec::new();
+    items.extend(
+        spectra_compiler::semantic::builtin_modules::STD_API_MODULE_PATHS
+            .iter()
+            .map(|module| CompletionItem {
+                label: (*module).to_string(),
+                kind: Some(CompletionItemKind::MODULE),
+                detail: Some("stable std.api module".to_string()),
+                ..Default::default()
+            }),
+    );
+    items.extend(
+        spectra_compiler::semantic::builtin_modules::STD_API_PUBLIC_TYPES
+            .iter()
+            .map(|(label, detail)| CompletionItem {
+                label: (*label).to_string(),
+                kind: Some(CompletionItemKind::STRUCT),
+                detail: Some((*detail).to_string()),
+                ..Default::default()
+            }),
+    );
+    items.extend(
+        spectra_compiler::semantic::builtin_modules::STD_API_PUBLIC_FUNCTIONS
+            .iter()
+            .map(|(label, detail)| CompletionItem {
+                label: (*label).to_string(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some((*detail).to_string()),
+                ..Default::default()
+            }),
+    );
+    items
 }
 
 fn item_to_completion_items(item: &spectra_compiler::ast::Item) -> Vec<CompletionItem> {
@@ -3550,6 +3586,22 @@ mod tests {
         assert!(!is_valid_rename_identifier("two words"));
         assert!(!is_valid_rename_identifier("fn"));
         assert!(!is_valid_rename_identifier("module"));
+    }
+
+    #[test]
+    fn std_api_completion_items_cover_modules_types_and_functions() {
+        let items = std_api_completion_items();
+        assert!(items.iter().any(|item| {
+            item.label == "std.api.http" && item.kind == Some(CompletionItemKind::MODULE)
+        }));
+        assert!(items.iter().any(|item| {
+            item.label == "std.api.http.Request" && item.kind == Some(CompletionItemKind::STRUCT)
+        }));
+        assert!(items.iter().any(|item| {
+            item.label == "std.api.routing.get"
+                && item.kind == Some(CompletionItemKind::FUNCTION)
+                && item.detail.as_deref().unwrap_or("").contains("fn(Router")
+        }));
     }
 
     #[test]
