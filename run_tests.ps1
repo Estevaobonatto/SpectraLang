@@ -1273,6 +1273,19 @@ if ($r2205Http1Server.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2205_http1_server"; Status = $r2205Http1Server.Status; Detalhe = $r2205Http1Server.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.43: R-2206 HTTP/1.1 client
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2206 HTTP/1.1 client ---" -ForegroundColor Yellow
+$r2206Http1Client = Invoke-HostCommand -name "validate_r2206_http1_client" -fileName "python" -arguments @("scripts\validate_r2206_http1_client.py") -workingDir (Get-Location).Path
+if ($r2206Http1Client.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2206_http1_client"; Status = $r2206Http1Client.Status; Detalhe = $r2206Http1Client.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -1720,15 +1720,17 @@ title = "HTTP/1.1 Client"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2204"]
 summary = "Implement the HTTP/1.1 client: connection pool, redirect handling, configurable timeouts, and structured responses."
 acceptance = [
   "the client supports GET, POST, PUT, PATCH, DELETE, and HEAD with arbitrary bodies",
-  "redirect chains (up to the configured limit) are followed with the right method semantics",
-  "timeouts, connection failures, and protocol errors are reported as typed errors",
-  "tests cover redirect chains, large bodies, and explicit timeout"
+  "Redirect chains (up to the configured limit) are followed with the right method semantics",
+  "Timeouts, connection failures, and protocol errors are reported as typed errors",
+  "tests cover redirect chains, large bodies, and explicit timeout",
+  "`cargo test -p spectra-api` covers `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse`, `ClientError`, redirects, pool reuse, large bodies, and timeout behavior",
+  "`scripts/validate_r2206_http1_client.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

@@ -1682,7 +1682,10 @@ The eight phases are summarized below; the detailed items live in
 - `R-2205` HTTP/1.1 server (complete; nonblocking accept loop,
   per-connection state, response writer, body limits, slowloris/read
   timeouts, cleanup paths, and 10k connection-slot validation landed)
-- `R-2206` HTTP/1.1 client
+- `R-2206` HTTP/1.1 client (complete; `HttpClient` supports pooled plain
+  HTTP connections, GET/POST/PUT/PATCH/DELETE/HEAD, arbitrary bodies,
+  redirect method semantics, configurable timeouts, and typed
+  connection/protocol/timeout errors)
 - `R-2207` TLS via `rustls` (HTTPS server and client)
 - `R-2208` `std.api.json` encoder and decoder
 - `R-2209` JSON derive: `Serialize` and `Deserialize`

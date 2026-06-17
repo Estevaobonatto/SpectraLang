@@ -3642,7 +3642,7 @@ body limits, response writer, and per-connection timeouts.
 
 ## R-2206 HTTP/1.1 Client
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3662,6 +3662,39 @@ configurable timeouts, and structured responses.
 - Timeouts, connection failures, and protocol errors are reported as
   typed errors.
 - Tests cover redirect chains, large bodies, and explicit timeout.
+- `cargo test -p spectra-api` covers `HttpClient`, `ClientConfig`,
+  `ClientRequest`, `ClientResponse`, `ClientError`, redirects, pool reuse,
+  large bodies, and timeout behavior.
+- `scripts/validate_r2206_http1_client.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed
+
+- Added a real HTTP/1.1 client in `packages/spectra-api/src/client.rs` using
+  the `R-2204` parser for structured responses and the Phase 22 server tests
+  for end-to-end validation.
+- Added public client API types: `ClientConfig`, `ClientRequest`,
+  `ClientResponse`, `ClientErrorKind`, `ClientError`, `ClientStats`, and
+  `HttpClient`.
+- Implemented GET, POST, PUT, PATCH, DELETE, HEAD, arbitrary request bodies,
+  connection pooling with idle expiry, configurable timeout, configurable
+  redirect limit, large response bodies, and typed timeout/connection/protocol
+  errors.
+- Implemented redirect handling for 301, 302, 303, 307, and 308, including
+  POST-to-GET conversion for 301/302/303 and method/body preservation for
+  307/308.
+- Preserved existing Phase 22 host calls `spectra.api.client.new` and
+  `spectra.api.client.timeout_ms`.
+- Added crate tests for all public methods, arbitrary bodies, pool reuse,
+  redirect method semantics, redirect limit, large bodies, explicit timeout,
+  connection failure, and protocol error.
+- Added `scripts/validate_r2206_http1_client.py` and wired it into
+  `run_tests.ps1`.
+
+### Boundary
+
+- `R-2206` implements plain HTTP/1.1 over TCP. HTTPS, certificate validation,
+  SNI, and ALPN remain owned by `R-2207`.
 
 ## R-2207 TLS via rustls (HTTPS Server and Client)
 
