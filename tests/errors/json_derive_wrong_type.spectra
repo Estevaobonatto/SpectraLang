@@ -1,0 +1,13 @@
+module json_derive_wrong_type;
+
+#[derive(Serialize, Deserialize)]
+struct Profile {
+    #[json(rename = "user_id")]
+    id: int,
+    name: string,
+}
+
+pub fn main() -> int {
+    let decoded: Profile = Profile::from_json("{\"user_id\":\"bad\",\"name\":\"Ada\"}");
+    return decoded.id;
+}

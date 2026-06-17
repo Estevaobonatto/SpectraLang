@@ -3770,7 +3770,7 @@ decoder.
 
 ## R-2209 JSON Derive: Serialize and Deserialize
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `frontend` / `semantic`
 - Risk: `high`
@@ -3781,12 +3781,32 @@ decoder.
 Add `#[derive(Serialize, Deserialize)]` to the language so structs and
 enums can be encoded/decoded through the JSON runtime.
 
+Implemented across `compiler/src/parser/item.rs`,
+`compiler/src/semantic/mod.rs`, and `midend/src/lowering.rs`. Structs and
+enums now accept `#[derive(Serialize, Deserialize)]`; struct fields support
+`#[json(optional)]` and `#[json(rename = "...")]`; enum variants support
+`#[json(rename = "...")]`; derived structs expose `to_json`,
+`from_json`, and `json_error_field` over the `std.api.json.*` surface.
+String-literal deserialization is semantically validated and reports
+field-specific JSON derive diagnostics.
+The public behavior is documented in `docs/api/std-api-json-derive.md`.
+
 ### Acceptance
 
-- The derive macro generates code that uses `std.api.json.*`.
-- Optional fields and explicit renaming are supported.
-- Invalid input produces a typed error that points to the failing field.
-- Tests cover happy path, missing field, wrong type, and rename.
+- The derive macro generates code that uses `std.api.json.*` through
+  `to_json`, `from_json`, and `json_error_field`.
+- Optional fields and explicit renaming are supported through
+  `#[json(optional)]` and `#[json(rename = "...")]`.
+- Invalid input produces a typed error that points to the failing field with
+  `EJSON003` or `EJSON004`.
+- Tests cover happy path, missing field, wrong type, duplicate rename, and
+  invalid json attribute.
+- `cargo test -p spectra-compiler --offline` passes.
+- `cargo test -p spectra-midend --offline` passes.
+- `spectralang compile tests/validation/133_json_derive_surface.spectra`
+  passes.
+- `scripts/validate_r2209_json_derive.py` passes and is wired into
+  `run_tests.ps1`.
 
 ## R-2210 Request, Response, Header, Cookie, Method, Status Types
 

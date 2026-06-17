@@ -1,0 +1,15 @@
+module json_derive_missing_field;
+
+#[derive(Serialize, Deserialize)]
+struct Profile {
+    #[json(rename = "user_id")]
+    id: int,
+    name: string,
+    #[json(optional)]
+    nickname: string,
+}
+
+pub fn main() -> int {
+    let decoded: Profile = Profile::from_json("{\"user_id\":7}");
+    return decoded.id;
+}

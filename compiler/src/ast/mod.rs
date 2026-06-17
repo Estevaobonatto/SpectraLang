@@ -135,7 +135,14 @@ pub enum Visibility {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
     pub name: String,
+    pub arguments: Vec<AttributeArgument>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttributeArgument {
+    Name(String),
+    KeyValue { key: String, value: String },
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +179,7 @@ pub struct Struct {
     pub name: String,
     pub span: Span,
     pub visibility: Visibility,
+    pub attributes: Vec<Attribute>,
     pub fields: Vec<StructField>,
     pub type_params: Vec<TypeParameter>, // Generic type parameters (e.g., <T, U>)
 }
@@ -180,6 +188,7 @@ pub struct Struct {
 pub struct StructField {
     pub name: String,
     pub span: Span,
+    pub attributes: Vec<Attribute>,
     pub ty: TypeAnnotation,
     /// Visibility of this field. Defaults to `Private` (accessible only within `impl` blocks of the owning type).
     pub visibility: Visibility,
@@ -190,6 +199,7 @@ pub struct Enum {
     pub name: String,
     pub span: Span,
     pub visibility: Visibility,
+    pub attributes: Vec<Attribute>,
     pub variants: Vec<EnumVariant>,
     pub type_params: Vec<TypeParameter>, // Generic type parameters (e.g., <T>)
 }
@@ -198,6 +208,7 @@ pub struct Enum {
 pub struct EnumVariant {
     pub name: String,
     pub span: Span,
+    pub attributes: Vec<Attribute>,
     pub data: Option<Vec<TypeAnnotation>>, // None for unit variants, Some for tuple variants
     /// Struct-style variant fields: `Variant { field: Type }`. When set, `data` is None.
     pub struct_data: Option<Vec<(String, TypeAnnotation)>>,

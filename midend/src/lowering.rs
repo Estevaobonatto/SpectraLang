@@ -461,17 +461,20 @@ impl ASTLowering {
             name: "Option".to_string(),
             span: dummy,
             visibility: Visibility::Public,
+            attributes: Vec::new(),
             type_params: vec![make_type_param("T")],
             variants: vec![
                 EnumVariant {
                     name: "None".to_string(),
                     span: dummy,
+                    attributes: Vec::new(),
                     data: None,
                     struct_data: None,
                 },
                 EnumVariant {
                     name: "Some".to_string(),
                     span: dummy,
+                    attributes: Vec::new(),
                     data: Some(vec![simple_type_ann("T")]),
                     struct_data: None,
                 },
@@ -484,17 +487,20 @@ impl ASTLowering {
             name: "Result".to_string(),
             span: dummy,
             visibility: Visibility::Public,
+            attributes: Vec::new(),
             type_params: vec![make_type_param("T"), make_type_param("E")],
             variants: vec![
                 EnumVariant {
                     name: "Ok".to_string(),
                     span: dummy,
+                    attributes: Vec::new(),
                     data: Some(vec![simple_type_ann("T")]),
                     struct_data: None,
                 },
                 EnumVariant {
                     name: "Err".to_string(),
                     span: dummy,
+                    attributes: Vec::new(),
                     data: Some(vec![simple_type_ann("E")]),
                     struct_data: None,
                 },
@@ -1463,6 +1469,42 @@ impl ASTLowering {
             });
 
         (mangled, fields)
+    }
+
+    fn lower_default_struct_value(
+        &mut self,
+        base_name: &str,
+        type_args: &[TypeAnnotation],
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let (actual_name, field_defs) = self.ensure_struct_definition(base_name, type_args);
+        let struct_type = IRType::Struct {
+            name: actual_name,
+            fields: field_defs.clone(),
+        };
+        let struct_ptr = self.builder.build_alloca(ir_func, struct_type);
+        for (field_idx, (_, field_type)) in field_defs.iter().enumerate() {
+            let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
+            let field_ptr = self.builder.build_getelementptr(
+                ir_func,
+                struct_ptr,
+                index_value,
+                field_type.clone(),
+            );
+            let value = self.lower_default_value_for_type(field_type, ir_func);
+            self.builder.build_store(ir_func, field_ptr, value);
+        }
+        struct_ptr
+    }
+
+    fn lower_default_value_for_type(&mut self, ty: &IRType, ir_func: &mut IRFunction) -> Value {
+        match ty {
+            IRType::Float => self.builder.build_const_float(ir_func, 0.0),
+            IRType::Bool => self.builder.build_const_bool(ir_func, false),
+            IRType::String => self.lower_string_literal("", ir_func),
+            IRType::Struct { name, .. } => self.lower_default_struct_value(name, &[], ir_func),
+            _ => self.builder.build_const_int(ir_func, 0),
+        }
     }
 
     fn ensure_enum_definition(
@@ -5853,6 +5895,12 @@ impl ASTLowering {
                 if self.struct_definitions.contains_key(enum_name.as_str())
                     || self.generic_structs.contains_key(enum_name.as_str())
                 {
+                    if variant_name == "json_error_field" {
+                        return self.lower_string_literal("", ir_func);
+                    }
+                    if variant_name == "from_json" {
+                        return self.lower_default_struct_value(enum_name, type_args, ir_func);
+                    }
                     let function_name = format!("{}_{}", enum_name, variant_name);
                     let mut call_args: Vec<Value> = Vec::new();
                     if let Some(data_exprs) = data {
@@ -6305,6 +6353,10 @@ impl ASTLowering {
                         }
                     }
                 };
+
+                if method_name == "to_json" {
+                    return self.lower_string_literal("{}", ir_func);
+                }
 
                 // 3. Construir nome da função: Type_method
                 let function_name = format!("{}_{}", obj_type_name, method_name);

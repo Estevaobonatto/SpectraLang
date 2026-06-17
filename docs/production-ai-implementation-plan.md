@@ -1694,7 +1694,11 @@ The eight phases are summarized below; the detailed items live in
   `JsonValue`/`JsonNumber` codec handles primitives, null, arrays, maps,
   nested structures, common escapes, RFC 8259 output, typed parse errors with
   byte offsets, and documented `std.api.json.*` host-call compatibility)
-- `R-2209` JSON derive: `Serialize` and `Deserialize`
+- `R-2209` JSON derive: `Serialize` and `Deserialize` (complete;
+  `#[derive(Serialize, Deserialize)]` registers `to_json`, `from_json`, and
+  `json_error_field`, supports `#[json(optional)]` and
+  `#[json(rename = "...")]`, validates JSON string literals against derived
+  schemas, and reports field-specific `EJSON003`/`EJSON004` diagnostics)
 - `R-2210` `Request`, `Response`, `Header`, `Cookie`, `Method`, `Status`
 - `R-2211` Router: path matching, params, wildcards
 - `R-2212` Query string parser and binding

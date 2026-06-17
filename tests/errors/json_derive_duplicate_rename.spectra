@@ -1,0 +1,13 @@
+module json_derive_duplicate_rename;
+
+#[derive(Serialize, Deserialize)]
+struct Profile {
+    #[json(rename = "id")]
+    user_id: int,
+    #[json(rename = "id")]
+    account_id: int,
+}
+
+pub fn main() -> int {
+    return 0;
+}

@@ -1,0 +1,11 @@
+module json_derive_invalid_attribute;
+
+#[derive(Serialize)]
+struct Profile {
+    #[json(skip)]
+    id: int,
+}
+
+pub fn main() -> int {
+    return 0;
+}

@@ -1,0 +1,29 @@
+module json_derive_surface;
+
+#[derive(Serialize, Deserialize)]
+struct Profile {
+    #[json(rename = "user_id")]
+    id: int,
+    name: string,
+    #[json(optional)]
+    nickname: string,
+}
+
+#[derive(Serialize, Deserialize)]
+enum Role {
+    #[json(rename = "admin_user")]
+    Admin,
+    Guest,
+}
+
+pub fn main() -> int {
+    let profile = Profile {
+        id: 7,
+        name: "Ada",
+        nickname: "ace",
+    };
+    let encoded: string = profile.to_json();
+    let decoded: Profile = Profile::from_json("{\"user_id\":7,\"name\":\"Ada\"}");
+    let field: string = Profile::json_error_field("{\"user_id\":7,\"name\":\"Ada\"}");
+    return decoded.id;
+}
