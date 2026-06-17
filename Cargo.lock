@@ -1572,6 +1572,7 @@ version = "0.1.0"
 dependencies = [
  "rcgen",
  "rustls",
+ "serde_json",
  "spectra-runtime",
  "webpki-roots 0.26.11",
 ]

@@ -1759,15 +1759,17 @@ title = "std.api.json Encoder and Decoder"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2202"]
 summary = "Implement a JSON encoder and decoder that handles primitives, arrays, maps, null, nested structures, and common escape sequences for the public API surface."
 acceptance = [
   "round-trip tests cover primitives, nested structures, arrays, maps, and null",
-  "invalid JSON returns a typed parse error with byte offset",
-  "the encoder produces valid RFC 8259 JSON for all supported values",
-  "the surface is exposed through `std.api.json.*` and documented in the book"
+  "invalid JSON returns a typed parse error with byte offset through `JsonParseError`",
+  "the encoder produces valid RFC 8259 JSON for all supported values and rejects non-finite numbers",
+  "the surface is exposed through `std.api.json.*` and documented in `docs/api/std-api-json.md`",
+  "`cargo test -p spectra-api json --offline` passes",
+  "`scripts/validate_r2208_json_codec.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

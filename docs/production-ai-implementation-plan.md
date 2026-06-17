@@ -1690,7 +1690,10 @@ The eight phases are summarized below; the detailed items live in
   `TlsServerConfig`, `TlsClientConfig`, HTTPS round trips, SNI, configurable
   DER certificate roots/chains, WebPKI client roots, ALPN `http/1.1`, and
   typed TLS handshake/certificate errors)
-- `R-2208` `std.api.json` encoder and decoder
+- `R-2208` `std.api.json` encoder and decoder (complete; native
+  `JsonValue`/`JsonNumber` codec handles primitives, null, arrays, maps,
+  nested structures, common escapes, RFC 8259 output, typed parse errors with
+  byte offsets, and documented `std.api.json.*` host-call compatibility)
 - `R-2209` JSON derive: `Serialize` and `Deserialize`
 - `R-2210` `Request`, `Response`, `Header`, `Cookie`, `Method`, `Status`
 - `R-2211` Router: path matching, params, wildcards

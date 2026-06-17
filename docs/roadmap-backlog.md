@@ -3734,7 +3734,7 @@ HTTP/2 support lands.
 
 ## R-2208 std.api.json Encoder and Decoder
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3746,14 +3746,27 @@ Implement a JSON encoder and decoder that handles primitives, arrays,
 maps, null, nested structures, and common escape sequences for the public
 API surface.
 
+Implemented in `packages/spectra-api/src/json.rs` with `JsonValue`,
+`JsonNumber`, `JsonParseError`, and `JsonEncodeError`. The codec uses the
+RFC 8259 parser/encoder backend from `serde_json`, exposes deterministic
+object encoding, computes byte offsets for parse errors, rejects non-finite
+numbers, and keeps the compatibility host calls
+`spectra.api.json.validate` and `spectra.api.json.kind` on the same full
+decoder.
+
 ### Acceptance
 
 - Round-trip tests cover primitives, nested structures, arrays, maps, and
   null.
-- Invalid JSON returns a typed parse error with byte offset.
-- The encoder produces valid RFC 8259 JSON for all supported values.
-- The surface is exposed through `std.api.json.*` and documented in the
-  book.
+- Invalid JSON returns a typed parse error with byte offset through
+  `JsonParseError`.
+- The encoder produces valid RFC 8259 JSON for all supported values and
+  rejects non-finite numbers.
+- The surface is exposed through `std.api.json.*` and documented in
+  `docs/api/std-api-json.md`.
+- `cargo test -p spectra-api json --offline` passes.
+- `scripts/validate_r2208_json_codec.py` passes and is wired into
+  `run_tests.ps1`.
 
 ## R-2209 JSON Derive: Serialize and Deserialize
 
