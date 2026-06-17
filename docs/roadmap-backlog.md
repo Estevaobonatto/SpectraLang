@@ -3443,7 +3443,7 @@ and the relationship with `std`.
 
 ## R-2202 spectra-api Rust Crate and Host Call Registration
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3462,6 +3462,27 @@ that `std.api.*` will dispatch into.
 - Host calls are registered in the runtime host-call registry.
 - The crate has unit tests for the registered host functions.
 - A focused script verifies host call naming and registration count.
+
+### Completed Implementation
+
+- Added the `packages/spectra-api` Rust crate and the `spectra.api` package
+  manifest at `packages/spectra-api/spectra.toml`.
+- Added 28 `spectra.api.*` host calls covering the Phase 22 registration
+  surface for version metadata, HTTP method/status/header helpers, request and
+  response handles, server/client handles, JSON classification, TLS config
+  handles, routing handles, and error metadata.
+- Host calls are registered in the existing runtime host-call registry through
+  `spectra_api::register()`, and the crate exports
+  `spectra_api_register_host_calls` for native integration.
+- Added `runtime/src/api/mod.rs` as the runtime-side namespace contract for the
+  required `spectra.api.*` host calls.
+- Wired `spectra_api::register()` into the CLI runtime setup paths after
+  `spectra_runtime::register_standard_library()`.
+- Added unit coverage in `cargo test -p spectra-api` for host-call uniqueness,
+  registry insertion/idempotence, callable registered functions, handle-backed
+  state, string-based header validation, and runtime missing-call behavior.
+- Added `scripts/validate_r2202_spectra_api_hostcalls.py` and wired it into
+  `run_tests.ps1`.
 
 ## R-2203 std.api Surface in Semantic Analysis
 

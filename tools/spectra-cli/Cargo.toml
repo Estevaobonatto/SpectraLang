@@ -15,6 +15,7 @@ path = "src/main.rs"
 spectra-compiler = { path = "../../compiler" }
 spectra-midend = { path = "../../midend" }
 spectra-backend = { path = "../../backend" }
+spectra-api = { path = "../../packages/spectra-api" }
 spectra-runtime = { path = "../../runtime" }
 toml = "0.8"
 diff = "0.1"

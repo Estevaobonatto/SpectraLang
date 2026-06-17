@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+import re
+import sys
+import tomllib
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_COUNT = 28
+REQUIRED_HOST_CALLS = [
+    "spectra.api.version.major",
+    "spectra.api.version.minor",
+    "spectra.api.version.patch",
+    "spectra.api.http.method_name",
+    "spectra.api.http.method_allows_body",
+    "spectra.api.http.method_is_safe",
+    "spectra.api.http.status_reason",
+    "spectra.api.http.status_class",
+    "spectra.api.http.status_is_success",
+    "spectra.api.http.header_name_is_valid",
+    "spectra.api.http.header_value_is_valid",
+    "spectra.api.http.request_new",
+    "spectra.api.http.request_method",
+    "spectra.api.http.response_new",
+    "spectra.api.http.response_status",
+    "spectra.api.server.new",
+    "spectra.api.server.state",
+    "spectra.api.server.shutdown",
+    "spectra.api.client.new",
+    "spectra.api.client.timeout_ms",
+    "spectra.api.json.validate",
+    "spectra.api.json.kind",
+    "spectra.api.tls.config_new",
+    "spectra.api.tls.config_mode",
+    "spectra.api.routing.router_new",
+    "spectra.api.routing.route_count",
+    "spectra.api.errors.last_code",
+    "spectra.api.errors.last_message",
+]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def fail(message: str) -> None:
+    print(f"R-2202 validation failed: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        fail(message)
+
+
+def parse_toml(path: str):
+    with (ROOT / path).open("rb") as fh:
+        return tomllib.load(fh)
+
+
+def validate_workspace() -> None:
+    workspace = parse_toml("Cargo.toml")
+    members = workspace.get("workspace", {}).get("members", [])
+    require(
+        "packages/spectra-api" in members,
+        "Cargo workspace must include packages/spectra-api",
+    )
+
+    crate = parse_toml("packages/spectra-api/Cargo.toml")
+    require(crate.get("package", {}).get("name") == "spectra-api", "crate name mismatch")
+    deps = crate.get("dependencies", {})
+    require("spectra-runtime" in deps, "spectra-api must link against spectra-runtime")
+
+    manifest = parse_toml("packages/spectra-api/spectra.toml")
+    require(
+        manifest.get("project", {}).get("name") == "spectra.api",
+        "Spectra package name must be spectra.api",
+    )
+    require(
+        manifest.get("project", {}).get("entry") == "src/bindings/mod.spectra",
+        "Spectra package entry must point at bindings/mod.spectra",
+    )
+
+
+def validate_files() -> None:
+    required = [
+        "packages/spectra-api/src/lib.rs",
+        "packages/spectra-api/src/http.rs",
+        "packages/spectra-api/src/server.rs",
+        "packages/spectra-api/src/client.rs",
+        "packages/spectra-api/src/json.rs",
+        "packages/spectra-api/src/tls.rs",
+        "packages/spectra-api/src/routing.rs",
+        "packages/spectra-api/src/errors.rs",
+        "runtime/src/api/mod.rs",
+        "packages/spectra-api/src/bindings/mod.spectra",
+    ]
+    for path in required:
+        require((ROOT / path).exists(), f"missing required file {path}")
+
+
+def validate_host_calls() -> None:
+    lib = read("packages/spectra-api/src/lib.rs")
+    runtime_api = read("runtime/src/api/mod.rs")
+    names = re.findall(r'name:\s*"([^"]+)"', lib)
+    require(len(names) == EXPECTED_COUNT, f"expected {EXPECTED_COUNT} host calls, found {len(names)}")
+    require(len(set(names)) == len(names), "host call names must be unique")
+    require(names == REQUIRED_HOST_CALLS, "host call table does not match the required R-2202 order")
+    for name in names:
+        require(name.startswith("spectra.api."), f"{name} must use spectra.api prefix")
+        require(name in runtime_api, f"{name} missing from runtime/src/api contract")
+    require("pub fn register() -> usize" in lib, "spectra-api must expose register()")
+    require(
+        "register_host_function(spec.name, spec.function)" in lib,
+        "register() must use the runtime host-call registry",
+    )
+    require(
+        "spectra_api_register_host_calls" in lib,
+        "crate must export an FFI registration symbol",
+    )
+    require(
+        f"assert_eq!(HOST_CALLS.len(), {EXPECTED_COUNT})" in lib,
+        "unit tests must assert host-call count",
+    )
+    require(
+        f"assert_eq!(required_host_call_count(), {EXPECTED_COUNT})" in runtime_api,
+        "runtime API contract test must assert host-call count",
+    )
+
+
+def validate_cli_integration() -> None:
+    cargo = read("tools/spectra-cli/Cargo.toml")
+    integration = read("tools/spectra-cli/src/compiler_integration.rs")
+    main = read("tools/spectra-cli/src/main.rs")
+    require("spectra-api" in cargo, "spectra-cli must depend on spectra-api")
+    require(
+        "spectra_api::register();" in integration,
+        "JIT execution path must register spectra-api host calls",
+    )
+    require(
+        "spectra_api::register();" in main,
+        "CLI async benchmark/runtime path must register spectra-api host calls",
+    )
+
+
+def validate_planning() -> None:
+    roadmap = parse_toml("roadmap/roadmap.toml")
+    items = {item["id"]: item for item in roadmap["items"]}
+    r2202 = items.get("R-2202")
+    require(r2202 is not None, "R-2202 missing from roadmap")
+    require(r2202.get("status") == "complete", "R-2202 must be marked complete")
+    require(r2202.get("owner") == "web", "R-2202 owner must remain web")
+    require("R-2201" in r2202.get("dependencies", []), "R-2202 must depend on R-2201")
+    acceptance = "\n".join(r2202.get("acceptance", []))
+    for term in [
+        "packages/spectra-api",
+        "runtime host-call registry",
+        "cargo test -p spectra-api",
+        "scripts/validate_r2202_spectra_api_hostcalls.py",
+        "28",
+    ]:
+        require(term in acceptance, f"R-2202 acceptance must mention {term}")
+
+    backlog = read("docs/roadmap-backlog.md")
+    require("## R-2202 spectra-api Rust Crate and Host Call Registration" in backlog, "backlog R-2202 missing")
+    r2202_block = backlog.split("## R-2202 spectra-api Rust Crate and Host Call Registration", 1)[1].split("## R-2203", 1)[0]
+    for term in [
+        "Status: `complete`",
+        "packages/spectra-api",
+        "28",
+        "spectra_api::register()",
+        "validate_r2202_spectra_api_hostcalls.py",
+    ]:
+        require(term in r2202_block, f"backlog R-2202 block must mention {term}")
+
+    plan = read("docs/production-ai-implementation-plan.md")
+    require(
+        "R-2202` `spectra-api` Rust crate and host call registration (complete;" in plan,
+        "implementation plan must mark R-2202 complete",
+    )
+
+
+def validate_runner() -> None:
+    runner = read("run_tests.ps1")
+    require(
+        "validate_r2202_spectra_api_hostcalls.py" in runner,
+        "run_tests.ps1 must run R-2202 validator",
+    )
+    require(
+        'Teste = "validate_r2202_spectra_api_hostcalls"' in runner,
+        "run_tests.ps1 must record R-2202 result",
+    )
+
+
+def main() -> None:
+    validate_workspace()
+    validate_files()
+    validate_host_calls()
+    validate_cli_integration()
+    validate_planning()
+    validate_runner()
+    print("validated R-2202 spectra-api crate and host-call registration")
+
+
+if __name__ == "__main__":
+    main()

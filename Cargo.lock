@@ -1439,6 +1439,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
+name = "spectra-api"
+version = "0.1.0"
+dependencies = [
+ "spectra-runtime",
+]
+
+[[package]]
 name = "spectra-backend"
 version = "0.1.0"
 dependencies = [
@@ -1461,6 +1468,7 @@ dependencies = [
  "diff",
  "serde",
  "serde_json",
+ "spectra-api",
  "spectra-backend",
  "spectra-compiler",
  "spectra-midend",

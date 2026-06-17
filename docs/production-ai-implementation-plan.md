@@ -1667,7 +1667,11 @@ The eight phases are summarized below; the detailed items live in
   `docs/adr/0011-api-library-architecture.md` fixes `spectra.api`,
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
-- `R-2202` `spectra-api` Rust crate and host call registration
+- `R-2202` `spectra-api` Rust crate and host call registration (complete;
+  `packages/spectra-api` links against `spectra-runtime`, registers 28
+  `spectra.api.*` host calls through the runtime host-call registry, exposes
+  `spectra_api_register_host_calls`, and is validated by
+  `scripts/validate_r2202_spectra_api_hostcalls.py`)
 - `R-2203` `std.api.*` surface in semantic analysis
 - `R-2204` HTTP/1.1 parser
 - `R-2205` HTTP/1.1 server

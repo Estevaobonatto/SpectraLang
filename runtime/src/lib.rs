@@ -5,6 +5,7 @@ use std::time::{Duration, Instant, SystemTime};
 pub mod ffi;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod api;
 pub mod memory;
 pub mod reactor;
 pub mod stdlib;

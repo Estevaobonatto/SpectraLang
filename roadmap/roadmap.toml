@@ -1645,15 +1645,17 @@ title = "spectra-api Rust Crate and Host Call Registration"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2201"]
 summary = "Add a new workspace crate `spectra-api` that hosts the Rust implementation of HTTP parsing, server, client, JSON, TLS, and registers the host calls that `std.api.*` will dispatch into."
 acceptance = [
-  "the new crate compiles in the workspace and links against the existing runtime",
-  "host calls are registered in the runtime host-call registry",
-  "the crate has unit tests for the registered host functions",
-  "a focused script verifies host call naming and registration count"
+  "`packages/spectra-api` compiles in the workspace and links against the existing `spectra-runtime` crate",
+  "28 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
+  "`cargo test -p spectra-api` covers the registered host functions and registry behavior",
+  "`runtime/src/api/mod.rs` records the required host-call namespace contract",
+  "`scripts/validate_r2202_spectra_api_hostcalls.py` verifies host call naming, registration count, CLI integration, package metadata, and planning sync",
+  "`run_tests.ps1` runs the R-2202 validator"
 ]
 
 [[items]]
