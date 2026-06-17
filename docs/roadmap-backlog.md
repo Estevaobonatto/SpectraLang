@@ -3534,7 +3534,7 @@ signatures, struct types, and trait surface declared by the
 
 ## R-2204 HTTP/1.1 Parser
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3554,6 +3554,38 @@ keep-alive.
   directions.
 - Malformed input returns a typed parse error with the offending position.
 - Tests cover representative RFC 7230 samples and known-malformed inputs.
+- `cargo test -p spectra-api` covers `Http1Parser`, `ParsedRequest`,
+  `ParsedResponse`, `HttpBody`, and `ParseError`.
+- `scripts/validate_r2204_http1_parser.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed
+
+- Added a streaming `Http1Parser` in `packages/spectra-api/src/http.rs` with
+  separate request and response modes, incremental buffering, pipelined
+  message consumption, configurable header/body/chunk limits, and
+  keep-alive detection.
+- Added structured HTTP data types: `HttpVersion`, `Header`, `BodyChunk`,
+  `HttpBody`, `ParsedRequest`, `ParsedResponse`, `ParseErrorKind`, and
+  `ParseError`.
+- Added parsing and serialization helpers for complete request/response
+  buffers, including chunked transfer coding with extensions and trailers.
+- Added typed malformed-input handling for invalid start lines, methods,
+  targets, versions, statuses, headers, content lengths, unsupported transfer
+  codings, invalid chunk sizes, invalid chunk terminators, and size-limit
+  violations.
+- Added crate tests for streaming input, pipelined requests, RFC 7230-style
+  response samples, chunked request/response round-trips, keep-alive behavior,
+  malformed headers, malformed chunks, conflicting content lengths, and
+  unsupported transfer encodings.
+- Added `scripts/validate_r2204_http1_parser.py` and wired it into
+  `run_tests.ps1`.
+
+### Boundary
+
+- `R-2204` provides the protocol parser and serializer. Network accept loops,
+  request body limit enforcement at the connection layer, response writers,
+  and server/client timeout behavior remain owned by `R-2205` and `R-2206`.
 
 ## R-2205 HTTP/1.1 Server
 

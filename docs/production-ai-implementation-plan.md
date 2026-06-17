@@ -1676,7 +1676,9 @@ The eight phases are summarized below; the detailed items live in
   `std.api.*` modules expose the public API function/type table to semantic
   analysis, formatter check, LSP completion, and
   `scripts/validate_r2203_std_api_surface.py`)
-- `R-2204` HTTP/1.1 parser
+- `R-2204` HTTP/1.1 parser (complete; `Http1Parser` streams requests and
+  responses, produces structured headers/body chunks, round-trips chunked
+  transfer coding, and reports typed parse errors with byte positions)
 - `R-2205` HTTP/1.1 server
 - `R-2206` HTTP/1.1 client
 - `R-2207` TLS via `rustls` (HTTPS server and client)

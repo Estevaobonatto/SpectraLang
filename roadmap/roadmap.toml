@@ -1682,7 +1682,7 @@ title = "HTTP/1.1 Parser"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2107", "R-2202"]
 summary = "Implement a streaming HTTP/1.1 request and response parser, including request line, status line, headers, chunked transfer encoding, and keep-alive."
@@ -1690,7 +1690,9 @@ acceptance = [
   "the parser produces structured request and response values with headers and body chunks",
   "chunked transfer encoding round-trips through the parser in both directions",
   "malformed input returns a typed parse error with the offending position",
-  "tests cover representative RFC 7230 samples and known-malformed inputs"
+  "tests cover representative RFC 7230 samples and known-malformed inputs",
+  "`cargo test -p spectra-api` covers `Http1Parser`, `ParsedRequest`, `ParsedResponse`, `HttpBody`, and `ParseError`",
+  "`scripts/validate_r2204_http1_parser.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]
