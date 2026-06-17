@@ -1701,15 +1701,17 @@ title = "HTTP/1.1 Server"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2204"]
 summary = "Implement the HTTP/1.1 server: accept loop, connection state, request body limits, response writer, and per-connection timeouts."
 acceptance = [
   "an end-to-end test exercises GET, POST with body, chunked responses, and HEAD",
-  "body size limits and slowloris protections are enforced",
+  "Body size limits and slowloris protections are enforced",
   "the server cleans up connections on timeout, body-limit violation, and parse error",
-  "the server survives 10k concurrent connections on the local test machine"
+  "the server survives 10k concurrent connections on the local test machine",
+  "`cargo test -p spectra-api` covers `HttpServer`, `ServerConfig`, `ServerResponse`, and `ServerStats`",
+  "`scripts/validate_r2205_http1_server.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

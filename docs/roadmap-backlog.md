@@ -3589,7 +3589,7 @@ keep-alive.
 
 ## R-2205 HTTP/1.1 Server
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3609,6 +3609,36 @@ body limits, response writer, and per-connection timeouts.
   parse error.
 - The server survives 10k concurrent connections on the local test
   machine.
+- `cargo test -p spectra-api` covers `HttpServer`, `ServerConfig`,
+  `ServerResponse`, and `ServerStats`.
+- `scripts/validate_r2205_http1_server.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed
+
+- Added a nonblocking HTTP/1.1 server in
+  `packages/spectra-api/src/server.rs` using the `R-2204` parser for request
+  framing and response serialization.
+- Added public server API types: `ServerConfig`, `ServerResponse`,
+  `ServerStats`, `ServerError`, `Handler`, and `HttpServer`.
+- Implemented accept-loop connection state, keep-alive handling, response
+  writing, per-connection read and idle timeouts, configured max body/header
+  limits, configured max connection limits, and cleanup on timeout,
+  body-limit violation, parse error, normal shutdown, and dropped server
+  handles.
+- Preserved the existing Phase 22 host calls `spectra.api.server.new`,
+  `spectra.api.server.state`, and `spectra.api.server.shutdown`.
+- Added crate tests for GET, POST with body, chunked responses, HEAD,
+  body-limit rejection, slowloris timeout, parse-error cleanup, and the 10k
+  connection-slot limiter.
+- Added `scripts/validate_r2205_http1_server.py` and wired it into
+  `run_tests.ps1`.
+
+### Boundary
+
+- `R-2205` owns the server-side accept loop and response path. HTTP client
+  connection pooling, redirects, and client timeout semantics remain owned by
+  `R-2206`.
 
 ## R-2206 HTTP/1.1 Client
 

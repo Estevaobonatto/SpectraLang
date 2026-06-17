@@ -1679,7 +1679,9 @@ The eight phases are summarized below; the detailed items live in
 - `R-2204` HTTP/1.1 parser (complete; `Http1Parser` streams requests and
   responses, produces structured headers/body chunks, round-trips chunked
   transfer coding, and reports typed parse errors with byte positions)
-- `R-2205` HTTP/1.1 server
+- `R-2205` HTTP/1.1 server (complete; nonblocking accept loop,
+  per-connection state, response writer, body limits, slowloris/read
+  timeouts, cleanup paths, and 10k connection-slot validation landed)
 - `R-2206` HTTP/1.1 client
 - `R-2207` TLS via `rustls` (HTTPS server and client)
 - `R-2208` `std.api.json` encoder and decoder
