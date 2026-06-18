@@ -850,6 +850,9 @@ impl ASTLowering {
                     }
                     // generic enum stored for monomorphization
                 } else {
+                    if matches!(enum_def.name.as_str(), "Option" | "Result") {
+                        self.generic_enums.remove(&enum_def.name);
+                    }
                     // Regular enum - process immediately
                     let mut field_names = HashMap::new();
                     let variants: Vec<(String, usize, Option<Vec<IRType>>)> = enum_def
@@ -5131,6 +5134,43 @@ impl ASTLowering {
             .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
     }
 
+    fn lower_value_equality(
+        &mut self,
+        lhs: Value,
+        rhs: Value,
+        lhs_type: &IRType,
+        rhs_type: &IRType,
+        negate: bool,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        if matches!(lhs_type, IRType::String) || matches!(rhs_type, IRType::String) {
+            let lhs = self.lower_value_to_string(lhs, lhs_type.clone(), ir_func);
+            let rhs = self.lower_value_to_string(rhs, rhs_type.clone(), ir_func);
+            let equal = self
+                .builder
+                .build_typed_host_call(
+                    ir_func,
+                    "spectra.std.string.eq".to_string(),
+                    vec![lhs, rhs],
+                    IRType::Bool,
+                    true,
+                )
+                .unwrap_or_else(|| self.builder.build_const_bool(ir_func, false));
+            return if negate {
+                let false_value = self.builder.build_const_bool(ir_func, false);
+                self.builder.build_eq(ir_func, equal, false_value)
+            } else {
+                equal
+            };
+        }
+
+        if negate {
+            self.builder.build_ne(ir_func, lhs, rhs)
+        } else {
+            self.builder.build_eq(ir_func, lhs, rhs)
+        }
+    }
+
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
         match &expr.kind {
             ExpressionKind::NumberLiteral(n) => {
@@ -5225,8 +5265,22 @@ impl ASTLowering {
                     BinaryOperator::Multiply => self.builder.build_mul(ir_func, lhs, rhs),
                     BinaryOperator::Divide => self.builder.build_div(ir_func, lhs, rhs),
                     BinaryOperator::Modulo => self.builder.build_rem(ir_func, lhs, rhs),
-                    BinaryOperator::Equal => self.builder.build_eq(ir_func, lhs, rhs),
-                    BinaryOperator::NotEqual => self.builder.build_ne(ir_func, lhs, rhs),
+                    BinaryOperator::Equal => self.lower_value_equality(
+                        lhs,
+                        rhs,
+                        &left_ir_type,
+                        &right_ir_type,
+                        false,
+                        ir_func,
+                    ),
+                    BinaryOperator::NotEqual => self.lower_value_equality(
+                        lhs,
+                        rhs,
+                        &left_ir_type,
+                        &right_ir_type,
+                        true,
+                        ir_func,
+                    ),
                     BinaryOperator::Less => self.builder.build_lt(ir_func, lhs, rhs),
                     BinaryOperator::LessEqual => self.builder.build_le(ir_func, lhs, rhs),
                     BinaryOperator::Greater => self.builder.build_gt(ir_func, lhs, rhs),
@@ -6813,8 +6867,16 @@ impl ASTLowering {
             }
             Pattern::Literal(expr) => {
                 // Comparar scrutinee com o valor literal
+                let literal_type = self.infer_expr_ir_type(expr);
                 let literal_value = self.lower_expression(expr, ir_func);
-                self.builder.build_eq(ir_func, scrutinee, literal_value)
+                self.lower_value_equality(
+                    scrutinee,
+                    literal_value,
+                    scrutinee_type.unwrap_or(&literal_type),
+                    &literal_type,
+                    false,
+                    ir_func,
+                )
             }
             Pattern::Tuple(elements) => {
                 if let Some(IRType::Tuple {
@@ -8388,6 +8450,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("string", "ends_with") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.ends_with",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("string", "eq") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.eq",
                 return_type: IRType::Bool,
                 returns_value: true,
             }),

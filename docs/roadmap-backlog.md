@@ -2833,7 +2833,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2003 Base Language and std Regression Audit Gate
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2001`, `R-2002`
@@ -2852,11 +2852,11 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `run_tests.ps1` includes the `phase20-base-stabilization` gate before Phase 21 and Phase 22 validators
 - runtime-behavior regressions cannot be hidden by compile-only validation
 
-### Completed So Far
+### Completed
 
 - Added the R-2003 validator and Phase 20 `run_tests.ps1` gate.
 - Added focused `.spectra` regressions for enum tuple `while let`, enum struct `while let`, string pattern matching, nested loop control flow, and tensor materialization/buffer-reuse coverage.
-- Known current failures remain tracked under R-2004 and must not be reported as complete until the runtime-required regressions exit with status 0.
+- Runtime-required regressions are now separated from compile-only validation and execute through `spectralang run`.
 
 ### Validation
 
@@ -2865,7 +2865,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2004 Pattern Control-Flow Lowering Correctness
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `midend`
 - Dependencies: `R-2003`, `R-118`
@@ -2886,12 +2886,19 @@ the next tracked development cycle toward a broader AI/ML platform.
 - break, continue, and return paths remain correct when combined with pattern bindings
 - new and existing pattern-control `.spectra` regressions exit with status 0
 
-### Known Current Failures
+### Completed
 
-- `tests/validation/60_pattern_control_surface.spectra` compiles but exits nonzero when run.
-- `tests/validation/110_match_if_while_let_binding_stress.spectra` compiles but exits nonzero when run.
-- `tests/validation/142_base_pattern_match_string_runtime.spectra` compiles but exits nonzero when run.
-- `tests/validation/140_base_enum_tuple_while_let_runtime.spectra` and `tests/validation/141_base_enum_struct_while_let_runtime.spectra` are distilled runtime guards for this item.
+- Local non-generic enums named `Option` or `Result` now fully shadow the builtin generic definitions during lowering, preventing constructor/pattern tag mismatches.
+- String equality now uses `spectra.std.string.eq` value comparison for `==`, `!=`, and literal patterns instead of pointer equality on separately allocated string literals.
+- `tests/validation/60_pattern_control_surface.spectra`, `tests/validation/110_match_if_while_let_binding_stress.spectra`, and `tests/validation/142_base_pattern_match_string_runtime.spectra` now exit with status 0 through `spectralang run`.
+- `tests/validation/140_base_enum_tuple_while_let_runtime.spectra`, `tests/validation/141_base_enum_struct_while_let_runtime.spectra`, and `tests/validation/143_base_loop_break_continue_runtime.spectra` remain runtime guards for tuple variants, struct variants, nested loops, `break`, and `continue`.
+
+### Validation
+
+- `target\debug\spectralang.exe run tests\validation\60_pattern_control_surface.spectra`
+- `target\debug\spectralang.exe run tests\validation\110_match_if_while_let_binding_stress.spectra`
+- `target\debug\spectralang.exe run tests\validation\142_base_pattern_match_string_runtime.spectra`
+- `python scripts\validate_r2003_base_regression_audit.py --binary target\debug\spectralang.exe`
 
 ## R-2005 Core std/runtime Panic and Host-Status Hardening
 

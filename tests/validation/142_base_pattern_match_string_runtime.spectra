@@ -10,6 +10,14 @@ fn label(value: int) -> string {
 pub fn main() -> int {
     let result = label(10);
 
+    if result != "ok" {
+        return 2;
+    }
+
+    if result == "bad" {
+        return 3;
+    }
+
     match result {
         "ok" => {
             return 0;

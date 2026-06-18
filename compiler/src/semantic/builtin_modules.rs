@@ -2241,6 +2241,11 @@ fn make_std_string() -> ModuleExports {
         "ends_with".to_string(),
         pub_fn(vec![Type::String, Type::String], Type::Bool),
     );
+    // eq(a: string, b: string) -> bool
+    exports.functions.insert(
+        "eq".to_string(),
+        pub_fn(vec![Type::String, Type::String], Type::Bool),
+    );
     // concat(a: string, b: string) -> string
     exports.functions.insert(
         "concat".to_string(),

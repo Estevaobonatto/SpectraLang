@@ -55,6 +55,7 @@ const STR_TO_LOWER: &str = "spectra.std.string.to_lower";
 const STR_TRIM: &str = "spectra.std.string.trim";
 const STR_STARTS_WITH: &str = "spectra.std.string.starts_with";
 const STR_ENDS_WITH: &str = "spectra.std.string.ends_with";
+const STR_EQ: &str = "spectra.std.string.eq";
 const STR_CONCAT: &str = "spectra.std.string.concat";
 const STR_REPEAT: &str = "spectra.std.string.repeat_str";
 const STR_CHAR_AT: &str = "spectra.std.string.char_at";
@@ -10342,6 +10343,7 @@ fn register_string() {
     register_host_function(STR_TRIM, std_string_trim);
     register_host_function(STR_STARTS_WITH, std_string_starts_with);
     register_host_function(STR_ENDS_WITH, std_string_ends_with);
+    register_host_function(STR_EQ, std_string_eq);
     register_host_function(STR_CONCAT, std_string_concat);
     register_host_function(STR_REPEAT, std_string_repeat);
     register_host_function(STR_CHAR_AT, std_string_char_at);
@@ -10596,6 +10598,28 @@ extern "C" fn std_string_ends_with(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
             (Some(s), Some(suffix)) => s.ends_with(suffix.as_str()) as SpectraHostValue,
+            _ => 0,
+        };
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_eq(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let result = match (read_spectra_string(args[0]), read_spectra_string(args[1])) {
+            (Some(left), Some(right)) => (left == right) as SpectraHostValue,
             _ => 0,
         };
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
@@ -16430,6 +16454,28 @@ mod tests {
                 .expect("system time")
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn string_eq_host_function_compares_string_values() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let left = test_string("ok");
+        let same_value = test_string("ok");
+        let different = test_string("error");
+
+        let (status, result) = call_host(STR_EQ, &[left, same_value]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(result, 1);
+
+        let (status, result) = call_host(STR_EQ, &[left, different]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(result, 0);
+
+        let func = lookup_host_function(STR_EQ).expect("string eq not registered");
+        assert_eq!(func(ptr::null_mut()), HOST_STATUS_INVALID_ARGUMENT);
     }
 
     #[test]

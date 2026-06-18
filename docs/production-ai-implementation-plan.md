@@ -1558,15 +1558,22 @@ AI users.
   `spectralang.ai_conformance_report.v1` and conformance version `R-2001/v1`.
 - `run_tests.ps1` includes the `phase20-conformance` release-candidate gate.
 - `R-2002` is complete for release-channel metadata and deprecation policy.
+- `R-2003` is complete for the base-language/std regression audit gate, with
+  compile-only and runtime-required `.spectra` validation separated.
+- `R-2004` is complete for pattern control-flow lowering correctness, including
+  enum payload bindings, user enum shadowing of builtin generic names, string
+  literal pattern matching, and loop control-flow execution through the normal
+  CLI path.
 
 ### Active Pre-API Stabilization
 
-The API platform continuation is paused before `R-2216` while `R-2003`
-through `R-2007` refresh the base language, std/runtime, tensor performance,
-and backend robustness gates. This does not reopen completed AI conformance or
-release-channel evidence, but it prevents later API lifecycle work from being
-reported complete while current base-language runtime regressions or stale
-performance evidence remain unresolved.
+The API platform continuation is paused before `R-2216` while the remaining
+Phase 20 stabilization items `R-2005` through `R-2007` refresh std/runtime
+hardening, tensor performance evidence, and backend robustness gates. This does
+not reopen completed AI conformance, release-channel evidence, or the completed
+`R-2003`/`R-2004` base-language gates, but it prevents later API lifecycle work
+from being reported complete while std/runtime hardening, performance evidence,
+or backend robustness remain unresolved.
 
 ---
 
@@ -1575,9 +1582,11 @@ performance evidence remain unresolved.
 The previous 20 phases focused on making SpectraLang a production-grade
 language and runtime for AI/ML workloads: tensors, autodiff, ONNX, RAG,
 ML serving, and observability for models. Before API lifecycle work resumes at
-`R-2216`, the Phase 20 base stabilization gate must refresh core language
-correctness, std/runtime hardening, tensor/std performance evidence, and
-backend robustness. The next horizon then turns SpectraLang into a
+`R-2216`, the remaining Phase 20 base stabilization gate must refresh
+std/runtime hardening, tensor/std performance evidence, and backend robustness.
+The completed `R-2003`/`R-2004` work already covers the base-language runtime
+regression audit and pattern control-flow lowering correctness. The next
+horizon then turns SpectraLang into a
 production-grade language and runtime for **building the HTTP and event-driven
 services that surround those models** — APIs, gateways, workers, webhooks,
 schedulers, and the operational layer around them.
@@ -1637,7 +1646,9 @@ cases. MySQL and NoSQL options are listed as P1 and P2 follow-on work.
 The eight phases are summarized below; the detailed items live in
 `docs/roadmap-backlog.md` (Phase 21 to Phase 28) and in
 `roadmap/roadmap.toml` (items `R-2101` to `R-2807`). `R-2216` is explicitly
-blocked on the Phase 20 stabilization items `R-2003` through `R-2007`.
+blocked on the Phase 20 stabilization items `R-2003` through `R-2007`; after
+the completion of `R-2003` and `R-2004`, the remaining blockers are `R-2005`,
+`R-2006`, and `R-2007`.
 
 ### Phase 21 — Async Language Core
 
