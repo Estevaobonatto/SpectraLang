@@ -1,0 +1,42 @@
+module std_tensor_materialization_perf_guard;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+
+    let base = tensor.reshape(tensor.arange(1, 17, 1), 4, 4);
+    let transposed = tensor.transpose(base);
+    let flat = tensor.flatten(transposed);
+    let doubled = tensor.add(flat, flat);
+    let activated = tensor.relu(doubled);
+
+    if tensor.len(activated) != 16 {
+        return 1;
+    }
+    if tensor.sum(activated) != 272 {
+        return tensor.sum(activated);
+    }
+    if tensor.stats_kernel_ops() < 2 {
+        return 2;
+    }
+    if tensor.stats_peak_bytes() <= 0 {
+        return 3;
+    }
+
+    tensor.free(activated);
+    tensor.free(doubled);
+    tensor.free(flat);
+    tensor.free(transposed);
+    tensor.free(base);
+
+    let reused = tensor.full(16, 1);
+    if tensor.stats_pool_hits() <= 0 {
+        return 4;
+    }
+    tensor.free(reused);
+
+    tensor.free_all();
+    return 0;
+}

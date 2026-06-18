@@ -2831,6 +2831,126 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `python scripts\validate_r2002_release_channels.py --binary target\debug\spectralang.exe`
 - `.\run_tests.ps1`
 
+## R-2003 Base Language and std Regression Audit Gate
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-2001`, `R-2002`
+
+### Scope
+
+- pre-API stabilization gate
+- explicit compile-only vs execute-and-expect-zero `.spectra` catalog
+- base language, std, tensor, and runtime regression execution
+- `run_tests.ps1` integration before Phase 21/22 continuation
+
+### Acceptance
+
+- compile-only and runtime-required `.spectra` tests are cataloged explicitly
+- `scripts/validate_r2003_base_regression_audit.py` runs runtime-required regressions through `spectralang run`
+- `run_tests.ps1` includes the `phase20-base-stabilization` gate before Phase 21 and Phase 22 validators
+- runtime-behavior regressions cannot be hidden by compile-only validation
+
+### Completed So Far
+
+- Added the R-2003 validator and Phase 20 `run_tests.ps1` gate.
+- Added focused `.spectra` regressions for enum tuple `while let`, enum struct `while let`, string pattern matching, nested loop control flow, and tensor materialization/buffer-reuse coverage.
+- Known current failures remain tracked under R-2004 and must not be reported as complete until the runtime-required regressions exit with status 0.
+
+### Validation
+
+- `python scripts\validate_r2003_base_regression_audit.py --binary target\debug\spectralang.exe`
+- `.\run_tests.ps1`
+
+## R-2004 Pattern Control-Flow Lowering Correctness
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `midend`
+- Dependencies: `R-2003`, `R-118`
+
+### Scope
+
+- `if let`, `while let`, and `match` execution
+- tuple enum variant payload bindings
+- struct enum variant payload bindings
+- string literal pattern matching through runtime execution
+- nested bindings, break/continue, and return paths through normal CLI execution
+
+### Acceptance
+
+- `if let`, `while let`, and `match` execute correctly through `spectralang run`
+- tuple enum variants and struct enum variants bind payloads correctly in nested control-flow contexts
+- string literal patterns compare string values correctly through runtime execution
+- break, continue, and return paths remain correct when combined with pattern bindings
+- new and existing pattern-control `.spectra` regressions exit with status 0
+
+### Known Current Failures
+
+- `tests/validation/60_pattern_control_surface.spectra` compiles but exits nonzero when run.
+- `tests/validation/110_match_if_while_let_binding_stress.spectra` compiles but exits nonzero when run.
+- `tests/validation/142_base_pattern_match_string_runtime.spectra` compiles but exits nonzero when run.
+- `tests/validation/140_base_enum_tuple_while_let_runtime.spectra` and `tests/validation/141_base_enum_struct_while_let_runtime.spectra` are distilled runtime guards for this item.
+
+## R-2005 Core std/runtime Panic and Host-Status Hardening
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-2003`, `R-1203`, `R-1204`
+
+### Scope
+
+- user-triggerable std/runtime invalid input paths
+- stable host status and runtime diagnostics
+- focused `.spectra` and Rust regression tests
+
+### Acceptance
+
+- user-triggerable std/runtime invalid inputs return stable host status values or diagnostics
+- focused `.spectra` and Rust tests cover the hardened std/runtime paths
+- new hardening does not remove or downgrade existing std, tensor, async, or API-facing capabilities
+
+## R-2006 Tensor and std Performance Refresh
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-2003`, `R-1501`, `R-1502`
+
+### Scope
+
+- tensor materialization and view-heavy execution
+- elementwise chains, reductions, matmul, and autodiff
+- buffer reuse, scratch reuse, and allocation metrics
+- release benchmark evidence
+
+### Acceptance
+
+- release benchmark evidence covers tensor materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse
+- threshold changes are backed by checked-in benchmark reports
+- performance work preserves numerical correctness and public std/tensor APIs
+
+## R-2007 Backend and Codegen Robustness Cleanup
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-2003`, `R-1002`
+
+### Scope
+
+- backend/codegen warning cleanup
+- typed errors for reachable IR/block-map failures
+- regression coverage for edge IR produced from valid Spectra source
+
+### Acceptance
+
+- known production warnings in backend/codegen are removed where practical
+- internal unwraps on IR/block maps are replaced with typed errors where user source can reach them
+- regression coverage exercises malformed or edge IR produced from valid source without backend panics
+
 ---
 
 ## Recommended First Execution Slice
@@ -2860,10 +2980,13 @@ This sequence establishes:
 
 # Next Horizon: Native API Platform
 
-The baseline roadmap through Phase 20 is complete. The phases below define a
-new, production-grade workstream that turns SpectraLang into a first-class
-language for **building HTTP and event-driven APIs natively**, without
-sacrificing the AI/ML and tensor story.
+The original AI certification and release-channel baseline through `R-2002`
+is complete. API continuation is now paused behind the Phase 20 base
+stabilization gate (`R-2003` through `R-2007`) so core language correctness,
+std/runtime hardening, and performance evidence are refreshed before `R-2216`.
+The phases below define a new, production-grade workstream that turns
+SpectraLang into a first-class language for **building HTTP and event-driven
+APIs natively**, without sacrificing the AI/ML and tensor story.
 
 The platform is delivered as a separate Spectra package, `spectra.api`,
 published through the existing Phase 9 registry. It is **not** part of `std`
@@ -4073,7 +4196,7 @@ router calls to produce a `Response`.
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
-- Dependencies: `R-2205`, `R-2211`, `R-2215`
+- Dependencies: `R-2003`, `R-2004`, `R-2005`, `R-2006`, `R-2007`, `R-2205`, `R-2211`, `R-2215`
 
 ### Scope
 
@@ -5547,9 +5670,13 @@ example gallery, production hardening, and registry release.
 ## Dependency Tree (Critical Path)
 
 ```
+R-2003 → R-2004/R-2005/R-2006/R-2007 ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+                                                                                                                                              ↓
 R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2106 (streams) → R-2107 (async stdlib)
                                                                                                       ↓
                                                                                           R-2201 (ADR api) → R-2202 (crate) → R-2204 (parser) → R-2205 (server) → R-2211 (router)
+                                                                                                                                              ↓
+                                                                                                                                            R-2216 (lifecycle)
                                                                                                                                                   ↓
                                                                                                                                               R-2301 (middleware) → R-2302..R-2316
                                                                                                                                                   ↓

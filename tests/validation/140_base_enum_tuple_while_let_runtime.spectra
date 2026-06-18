@@ -1,0 +1,37 @@
+module base_enum_tuple_while_let_runtime;
+
+enum Step {
+    Some(int),
+    Done,
+}
+
+fn next(value: int) -> Step {
+    if value > 0 {
+        return Step::Some(value);
+    }
+    return Step::Done;
+}
+
+pub fn main() -> int {
+    let cursor = 4;
+    let total = 0;
+
+    while let Step::Some(value) = next(cursor) {
+        total = total + value;
+        cursor = cursor - 1;
+    }
+
+    if total != 10 {
+        return total;
+    }
+
+    if let Step::Some(last) = next(3) {
+        if last != 3 {
+            return last;
+        }
+    } else {
+        return 90;
+    }
+
+    return 0;
+}

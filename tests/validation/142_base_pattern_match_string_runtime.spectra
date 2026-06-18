@@ -1,0 +1,21 @@
+module base_pattern_match_string_runtime;
+
+fn label(value: int) -> string {
+    return match value {
+        10 => "ok",
+        _ => "bad"
+    };
+}
+
+pub fn main() -> int {
+    let result = label(10);
+
+    match result {
+        "ok" => {
+            return 0;
+        }
+        _ => {
+            return 1;
+        }
+    };
+}

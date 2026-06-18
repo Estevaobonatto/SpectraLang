@@ -1405,6 +1405,89 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-2003"
+title = "Base Language and std Regression Audit Gate"
+phase = "phase_20"
+owner = "tooling"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-2001", "R-2002"]
+summary = "Pause API continuation and add a pre-API stabilization gate that separates compile-only `.spectra` coverage from runtime-required base language and std regressions."
+acceptance = [
+  "compile-only and execute-and-expect-zero `.spectra` tests are cataloged explicitly",
+  "`scripts/validate_r2003_base_regression_audit.py` runs the runtime-required base language and std regressions through `spectralang run`",
+  "`run_tests.ps1` includes the `phase20-base-stabilization` gate before Phase 21 and Phase 22 validators",
+  "runtime-behavior regressions cannot be masked by compile-only validation"
+]
+
+[[items]]
+id = "R-2004"
+title = "Pattern Control-Flow Lowering Correctness"
+phase = "phase_20"
+owner = "midend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2003", "R-118"]
+summary = "Fix base-language lowering/runtime behavior for pattern-driven control flow before continuing API lifecycle work."
+acceptance = [
+  "`if let`, `while let`, and `match` execute correctly through `spectralang run`",
+  "tuple enum variants and struct enum variants bind payloads correctly in nested control-flow contexts",
+  "string literal patterns compare string values correctly through runtime execution",
+  "break, continue, and return paths remain correct when combined with pattern bindings",
+  "new and existing pattern-control `.spectra` regressions exit with status 0"
+]
+
+[[items]]
+id = "R-2005"
+title = "Core std/runtime Panic and Host-Status Hardening"
+phase = "phase_20"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2003", "R-1203", "R-1204"]
+summary = "Audit user-triggerable core std and runtime paths so invalid inputs return stable host status values or diagnostics instead of panicking."
+acceptance = [
+  "user-triggerable std/runtime invalid inputs return stable host status values or diagnostics",
+  "focused `.spectra` and Rust tests cover the hardened std/runtime paths",
+  "new hardening does not remove or downgrade existing std, tensor, async, or API-facing capabilities"
+]
+
+[[items]]
+id = "R-2006"
+title = "Tensor and std Performance Refresh"
+phase = "phase_20"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2003", "R-1501", "R-1502"]
+summary = "Refresh tensor and std performance evidence around materialization, buffer reuse, elementwise chains, reductions, matmul, and autodiff before claiming new production readiness."
+acceptance = [
+  "release benchmark evidence covers tensor materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse",
+  "threshold changes are backed by checked-in benchmark reports",
+  "performance work preserves numerical correctness and public std/tensor APIs"
+]
+
+[[items]]
+id = "R-2007"
+title = "Backend and Codegen Robustness Cleanup"
+phase = "phase_20"
+owner = "backend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2003", "R-1002"]
+summary = "Harden backend/codegen error handling and warning hygiene for valid source edge cases before API work resumes."
+acceptance = [
+  "known production warnings in backend/codegen are removed where practical",
+  "internal unwraps on IR/block maps are replaced with typed errors where user source can reach them",
+  "regression coverage exercises malformed or edge IR produced from valid source without backend panics"
+]
+
+[[items]]
 id = "R-2101"
 title = "ADR: Async/Await Execution Model"
 phase = "phase_21"
@@ -1923,7 +2006,7 @@ owner = "web"
 priority = "P0"
 status = "not_started"
 risk = "high"
-dependencies = ["R-2205", "R-2211", "R-2215"]
+dependencies = ["R-2003", "R-2004", "R-2005", "R-2006", "R-2007", "R-2205", "R-2211", "R-2215"]
 summary = "Wire the server lifecycle: `listen`, `serve`, graceful shutdown on signal, and clean teardown of in-flight requests."
 acceptance = [
   "a server can be started on a configured port and shut down deterministically on SIGINT/SIGTERM",

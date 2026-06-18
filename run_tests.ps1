@@ -6,6 +6,7 @@
 #   tests/errors/       - devem FALHAR na compilacao (erros esperados)
 #   tests/semantic/     - compilados e reportados sem expectativa forcada
 #   tests/cli/          - fixtures para validar comandos do CLI
+#   scripts/validate_r2003_base_regression_audit.py - separa compile-only de runtime-zero
 #   tools/spectra-interop/ - interop Rust/Python/C ABI
 #
 # Requer que o binario ja esteja compilado:
@@ -1052,7 +1053,20 @@ if ($r2002ReleaseChannels.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-release"; Teste = "validate_r2002_release_channels"; Status = $r2002ReleaseChannels.Status; Detalhe = $r2002ReleaseChannels.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.26: R-2101 async/await execution model ADR
+# Grupo 8.26: R-2003 base language and std regression audit
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2003 base language and std regression audit ---" -ForegroundColor Yellow
+$r2003BaseRegression = Invoke-HostCommand -name "validate_r2003_base_regression_audit" -fileName "python" -arguments @("scripts\validate_r2003_base_regression_audit.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2003BaseRegression.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-base-stabilization"; Teste = "validate_r2003_base_regression_audit"; Status = $r2003BaseRegression.Status; Detalhe = $r2003BaseRegression.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.27: R-2101 async/await execution model ADR
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2101 async/await execution model ADR ---" -ForegroundColor Yellow
@@ -1065,7 +1079,7 @@ if ($r2101AsyncAdr.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2101_async_adr"; Status = $r2101AsyncAdr.Status; Detalhe = $r2101AsyncAdr.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.27: R-2102 async frontend surface
+# Grupo 8.28: R-2102 async frontend surface
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2102 async frontend surface ---" -ForegroundColor Yellow
@@ -1078,7 +1092,7 @@ if ($r2102AsyncFrontend.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2102_async_frontend"; Status = $r2102AsyncFrontend.Status; Detalhe = $r2102AsyncFrontend.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.28: R-2103 await expression and async lowering
+# Grupo 8.29: R-2103 await expression and async lowering
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2103 await expression and async lowering ---" -ForegroundColor Yellow
@@ -1091,7 +1105,7 @@ if ($r2103AsyncLowering.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2103_async_lowering"; Status = $r2103AsyncLowering.Status; Detalhe = $r2103AsyncLowering.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.29: R-2104 event loop multiplexer
+# Grupo 8.30: R-2104 event loop multiplexer
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2104 event loop multiplexer ---" -ForegroundColor Yellow
@@ -1104,7 +1118,7 @@ if ($r2104Reactor.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2104_reactor"; Status = $r2104Reactor.Status; Detalhe = $r2104Reactor.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.30: R-2105 cancellation, timeouts, and structured concurrency
+# Grupo 8.31: R-2105 cancellation, timeouts, and structured concurrency
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2105 cancellation, timeouts, and structured concurrency ---" -ForegroundColor Yellow

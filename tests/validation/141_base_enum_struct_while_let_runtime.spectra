@@ -1,0 +1,42 @@
+module base_enum_struct_while_let_runtime;
+
+enum Counter {
+    Running { current: int },
+    Done,
+}
+
+fn next_state(value: int) -> Counter {
+    if value > 0 {
+        return Counter::Running { current: value };
+    }
+    return Counter::Done;
+}
+
+fn drain(start: int) -> int {
+    let cursor = start;
+    let sum = 0;
+
+    while let Counter::Running { current } = next_state(cursor) {
+        sum = sum + current;
+        cursor = cursor - 1;
+    }
+
+    return sum;
+}
+
+pub fn main() -> int {
+    let total = drain(4);
+    if total != 10 {
+        return total;
+    }
+
+    if let Counter::Running { current } = next_state(1) {
+        if current != 1 {
+            return current;
+        }
+    } else {
+        return 91;
+    }
+
+    return 0;
+}
