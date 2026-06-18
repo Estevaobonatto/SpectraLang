@@ -10,7 +10,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::slice;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,6 +28,10 @@ const MATH_POW_F: &str = "spectra.std.math.pow_f";
 const MATH_FLOOR_F: &str = "spectra.std.math.floor_f";
 const MATH_CEIL_F: &str = "spectra.std.math.ceil_f";
 const MATH_ROUND_F: &str = "spectra.std.math.round_f";
+
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|err| err.into_inner())
+}
 
 const IO_PRINT: &str = "spectra.std.io.print";
 const IO_PRINTLN: &str = "spectra.std.io.println";
@@ -1780,9 +1784,7 @@ where
     F: FnOnce(&mut ListRegistry) -> R,
 {
     let registry = list_registry();
-    let mut guard = registry
-        .lock()
-        .expect("collections registry mutex poisoned");
+    let mut guard = lock_unpoisoned(registry);
     action(&mut guard)
 }
 
@@ -2658,9 +2660,7 @@ fn with_tensor_registry<F, R>(action: F) -> R
 where
     F: FnOnce(&mut TensorRegistry) -> R,
 {
-    let mut guard = tensor_registry()
-        .lock()
-        .expect("tensor registry mutex poisoned");
+    let mut guard = lock_unpoisoned(tensor_registry());
     action(&mut guard)
 }
 
@@ -2675,9 +2675,7 @@ fn tensor_strides(shape: &[usize]) -> Vec<usize> {
 }
 
 fn tensor_is_grad_enabled() -> bool {
-    *tensor_grad_enabled()
-        .lock()
-        .expect("tensor grad mode mutex poisoned")
+    *lock_unpoisoned(tensor_grad_enabled())
 }
 
 fn tensor_values_as_f64(tensor: &StdTensor) -> Vec<f64> {
@@ -4990,9 +4988,7 @@ extern "C" fn std_tensor_set_grad_enabled(ctx: *mut SpectraHostCallContext) -> i
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        *tensor_grad_enabled()
-            .lock()
-            .expect("tensor grad mode mutex poisoned") = args[0] != 0;
+        *lock_unpoisoned(tensor_grad_enabled()) = args[0] != 0;
         tensor_optional_result(ctx_ref, 0)
     }
 }
@@ -5158,7 +5154,7 @@ fn with_ml_registry<F, R>(action: F) -> R
 where
     F: FnOnce(&mut MlRegistry) -> R,
 {
-    let mut guard = ml_registry().lock().expect("ml registry mutex poisoned");
+    let mut guard = lock_unpoisoned(ml_registry());
     action(&mut guard)
 }
 
@@ -8430,7 +8426,9 @@ extern "C" fn std_ml_layer_norm(ctx: *mut SpectraHostCallContext) -> i32 {
         {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let dim = *input_shape.last().unwrap();
+        let Some(&dim) = input_shape.last() else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
         if dim == 0 || scale.len() != dim || bias.len() != dim || input.len() % dim != 0 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
@@ -8693,7 +8691,7 @@ extern "C" fn std_ml_logits_sample(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let sample = {
-            let mut state = random_state().lock().expect("random mutex poisoned");
+            let mut state = lock_unpoisoned(random_state());
             random_unit_f64(&mut state)
         };
         let mut cumulative = 0.0;
@@ -9341,7 +9339,7 @@ extern "C" fn std_tensor_seed(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        *random_state().lock().expect("random mutex poisoned") = args[0] as u64;
+        *lock_unpoisoned(random_state()) = args[0] as u64;
         tensor_optional_result(ctx_ref, 0)
     }
 }
@@ -9356,7 +9354,7 @@ extern "C" fn std_tensor_uniform(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let range = (max - min) as u64;
-        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut state = lock_unpoisoned(random_state());
         let data = (0..size as usize)
             .map(|_| min + (lcg_next(&mut state) % range) as i64)
             .collect::<Vec<_>>();
@@ -9382,7 +9380,7 @@ extern "C" fn std_tensor_uniform_f(ctx: *mut SpectraHostCallContext) -> i32 {
         if size <= 0 || !min.is_finite() || !max.is_finite() || min >= max {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut state = lock_unpoisoned(random_state());
         let data = (0..size as usize)
             .map(|_| {
                 let unit = random_unit_f64(&mut state);
@@ -9411,7 +9409,7 @@ extern "C" fn std_tensor_normal_f(ctx: *mut SpectraHostCallContext) -> i32 {
         if size <= 0 || !mean.is_finite() || !stddev.is_finite() || stddev < 0.0 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut state = lock_unpoisoned(random_state());
         let mut data = Vec::with_capacity(size as usize);
         while data.len() < size as usize {
             let u1 = random_unit_f64(&mut state).max(f64::MIN_POSITIVE);
@@ -9438,11 +9436,9 @@ extern "C" fn std_tensor_set_deterministic_mode(ctx: *mut SpectraHostCallContext
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let enabled = args[0] != 0;
-        *tensor_deterministic_mode()
-            .lock()
-            .expect("tensor deterministic mode mutex poisoned") = enabled;
+        *lock_unpoisoned(tensor_deterministic_mode()) = enabled;
         if enabled {
-            *random_state().lock().expect("random mutex poisoned") = 0x5350_4543_5452_4131;
+            *lock_unpoisoned(random_state()) = 0x5350_4543_5452_4131;
         }
         tensor_optional_result(ctx_ref, 0)
     }
@@ -9453,9 +9449,7 @@ extern "C" fn std_tensor_deterministic_mode(ctx: *mut SpectraHostCallContext) ->
         let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let enabled = *tensor_deterministic_mode()
-            .lock()
-            .expect("tensor deterministic mode mutex poisoned");
+        let enabled = *lock_unpoisoned(tensor_deterministic_mode());
         tensor_result(ctx_ref, enabled as SpectraHostValue)
     }
 }
@@ -9493,7 +9487,7 @@ extern "C" fn std_tensor_bernoulli(ctx: *mut SpectraHostCallContext) -> i32 {
         if size <= 0 || !(0.0..=1.0).contains(&p) {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut state = lock_unpoisoned(random_state());
         let data = (0..size as usize)
             .map(|_| {
                 if random_unit_f64(&mut state) < p {
@@ -9548,7 +9542,7 @@ extern "C" fn std_tensor_categorical(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let (weights, total) = probabilities;
-        let mut state = random_state().lock().expect("random mutex poisoned");
+        let mut state = lock_unpoisoned(random_state());
         let mut data = Vec::with_capacity(size as usize);
         for _ in 0..size as usize {
             let mut sample = random_unit_f64(&mut state) * total;
@@ -11187,7 +11181,7 @@ extern "C" fn std_random_seed(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        *random_state().lock().expect("random mutex poisoned") = args[0] as u64;
+        *lock_unpoisoned(random_state()) = args[0] as u64;
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -11216,7 +11210,7 @@ extern "C" fn std_random_int(ctx: *mut SpectraHostCallContext) -> i32 {
             min
         } else {
             let range = (max - min) as u64;
-            let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
+            let rand = lcg_next(&mut *lock_unpoisoned(random_state()));
             min + (rand % range) as i64
         };
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
@@ -11235,7 +11229,7 @@ extern "C" fn std_random_float(ctx: *mut SpectraHostCallContext) -> i32 {
         if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let f = random_unit_f64(&mut *random_state().lock().expect("random mutex poisoned"));
+        let f = random_unit_f64(&mut *lock_unpoisoned(random_state()));
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = f.to_bits() as i64;
     }
@@ -11252,7 +11246,7 @@ extern "C" fn std_random_bool(ctx: *mut SpectraHostCallContext) -> i32 {
         if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let rand = lcg_next(&mut *random_state().lock().expect("random mutex poisoned"));
+        let rand = lcg_next(&mut *lock_unpoisoned(random_state()));
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = (rand & 1) as i64;
     }
@@ -12351,7 +12345,7 @@ where
     F: FnOnce(&mut MapRegistry) -> R,
 {
     let registry = map_registry();
-    let mut guard = registry.lock().expect("map registry mutex poisoned");
+    let mut guard = lock_unpoisoned(registry);
     action(&mut guard)
 }
 
@@ -13416,12 +13410,13 @@ impl AsyncTaskRegistry {
 
                 let mut byte = [0u8; 1];
                 let recv = match self.udp_sockets.get_mut(&socket_id) {
-                    Some(state) if state.closed => Ok((
-                        0,
-                        "127.0.0.1:0"
-                            .parse()
-                            .expect("valid local UDP sentinel address"),
-                    )),
+                    Some(state) if state.closed => match "127.0.0.1:0".parse() {
+                        Ok(addr) => Ok((0, addr)),
+                        Err(_) => {
+                            let _ = self.fail_task(task_id);
+                            continue;
+                        }
+                    },
                     Some(state) => state.socket.recv_from(&mut byte),
                     None => break,
                 };
@@ -14737,7 +14732,10 @@ extern "C" fn std_async_udp_recv(ctx: *mut SpectraHostCallContext) -> i32 {
     };
     let mut byte = [0u8; 1];
     let recv = match registry.udp_sockets.get_mut(&args[0]) {
-        Some(state) if state.closed => Ok((0, "127.0.0.1:0".parse().unwrap())),
+        Some(state) if state.closed => match "127.0.0.1:0".parse() {
+            Ok(addr) => Ok((0, addr)),
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        },
         Some(state) => state.socket.recv_from(&mut byte),
         None => return HOST_STATUS_NOT_FOUND,
     };
@@ -14827,7 +14825,9 @@ extern "C" fn std_async_channel_send(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_SUCCESS;
         }
     }
-    let channel = registry.async_channels.get_mut(&args[0]).unwrap();
+    let Some(channel) = registry.async_channels.get_mut(&args[0]) else {
+        return HOST_STATUS_NOT_FOUND;
+    };
     if channel.queue.len() < channel.capacity {
         channel.queue.push_back(args[1]);
         results[0] = registry.allocate_task(1, None, None, None);
@@ -16419,6 +16419,22 @@ mod tests {
         (status, results[0])
     }
 
+    fn call_host_without_results(name: &str, args: &[SpectraHostValue]) -> i32 {
+        let func = lookup_host_function(name).expect("host function not registered");
+        let mut ctx = SpectraHostCallContext {
+            args: if args.is_empty() {
+                ptr::null()
+            } else {
+                args.as_ptr()
+            },
+            arg_len: args.len(),
+            results: ptr::null_mut(),
+            result_len: 0,
+            invoke_fn: None,
+        };
+        func(&mut ctx)
+    }
+
     fn test_string(value: &str) -> SpectraHostValue {
         unsafe { alloc_spectra_string(value) }
     }
@@ -16476,6 +16492,65 @@ mod tests {
 
         let func = lookup_host_function(STR_EQ).expect("string eq not registered");
         assert_eq!(func(ptr::null_mut()), HOST_STATUS_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn r2005_invalid_host_contexts_return_status_without_panics() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(
+            call_host_without_results(MAP_NEW, &[]),
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host_without_results(TENSOR_ONES, &[4]),
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host_without_results(ASYNC_CHANNEL_NEW, &[1]),
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+
+        let (status, value) = call_host(ASYNC_CHANNEL_SEND, &[999_999, 1]);
+        assert_eq!(status, HOST_STATUS_NOT_FOUND);
+        assert_eq!(value, 0);
+
+        let (status, value) = call_host(TENSOR_GET, &[999_999, 0]);
+        assert_eq!(status, HOST_STATUS_NOT_FOUND);
+        assert_eq!(value, 0);
+    }
+
+    #[test]
+    fn r2005_poisoned_runtime_locks_recover_without_panics() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let _ = std::thread::spawn(|| {
+            let _guard = random_state()
+                .lock()
+                .expect("lock random state for poisoning");
+            panic!("intentional R-2005 random-state poison");
+        })
+        .join();
+        std::panic::set_hook(previous_hook);
+
+        assert_eq!(
+            call_host(TENSOR_SET_DETERMINISTIC_MODE, &[1]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
+            call_host(TENSOR_DETERMINISTIC_MODE, &[]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call_host(TENSOR_SET_DETERMINISTIC_MODE, &[0]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
     }
 
     #[test]

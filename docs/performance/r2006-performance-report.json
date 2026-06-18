@@ -1,0 +1,73 @@
+{
+  "schema": "spectra.r2006.performance_refresh.v1",
+  "profile": "release",
+  "passed": true,
+  "total_elapsed_ns": 12553700,
+  "memory": {
+    "allocations": 831,
+    "peak_bytes": 102784,
+    "reused_buffers": 563,
+    "pool_hits": 563,
+    "pool_misses": 72,
+    "scratch_reuses": 81,
+    "reuse_rate_per_mille": 886,
+    "kernel_ops": 565,
+    "kernel_elements": 3374080
+  },
+  "benchmarks": [
+    {
+      "id": "tensor_materialization_view_chain",
+      "category": "materialization",
+      "iterations": 96,
+      "elapsed_ns": 3599100,
+      "ns_per_iter": 37490,
+      "correctness_passed": true,
+      "detail": "view_chain_sum=524800"
+    },
+    {
+      "id": "tensor_elementwise_chain_add_mul_relu",
+      "category": "elementwise_chains",
+      "iterations": 96,
+      "elapsed_ns": 1713400,
+      "ns_per_iter": 17847,
+      "correctness_passed": true,
+      "detail": "chain_sum=16384"
+    },
+    {
+      "id": "tensor_reduction_sum_f_refresh",
+      "category": "reductions",
+      "iterations": 384,
+      "elapsed_ns": 4879400,
+      "ns_per_iter": 12706,
+      "correctness_passed": true,
+      "detail": "sum_f=12288"
+    },
+    {
+      "id": "tensor_matmul_32x32_refresh",
+      "category": "matmul",
+      "iterations": 80,
+      "elapsed_ns": 1391100,
+      "ns_per_iter": 17388,
+      "correctness_passed": true,
+      "detail": "output_len=1024, p00=349712"
+    },
+    {
+      "id": "tensor_autodiff_square_sum_refresh",
+      "category": "autodiff",
+      "iterations": 48,
+      "elapsed_ns": 462600,
+      "ns_per_iter": 9637,
+      "correctness_passed": true,
+      "detail": "grad_sum=73728"
+    },
+    {
+      "id": "tensor_buffer_reuse_full_refresh",
+      "category": "buffer_reuse",
+      "iterations": 160,
+      "elapsed_ns": 508100,
+      "ns_per_iter": 3175,
+      "correctness_passed": true,
+      "detail": "pool_hits=563, pool_misses=72, reused_buffers=563, reuse_rate_per_mille=886"
+    }
+  ]
+}

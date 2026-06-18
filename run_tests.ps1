@@ -1066,7 +1066,33 @@ if ($r2003BaseRegression.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-base-stabilization"; Teste = "validate_r2003_base_regression_audit"; Status = $r2003BaseRegression.Status; Detalhe = $r2003BaseRegression.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.27: R-2101 async/await execution model ADR
+# Grupo 8.27: R-2005 core std/runtime host-status hardening
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2005 core std/runtime host-status hardening ---" -ForegroundColor Yellow
+$r2005RuntimeHardening = Invoke-HostCommand -name "validate_r2005_runtime_hardening" -fileName "python" -arguments @("scripts\validate_r2005_runtime_hardening.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2005RuntimeHardening.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-runtime-hardening"; Teste = "validate_r2005_runtime_hardening"; Status = $r2005RuntimeHardening.Status; Detalhe = $r2005RuntimeHardening.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.28: R-2006 tensor/std performance refresh
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2006 tensor/std performance refresh ---" -ForegroundColor Yellow
+$r2006PerformanceRefresh = Invoke-HostCommand -name "validate_r2006_performance_refresh" -fileName "python" -arguments @("scripts\validate_r2006_performance_refresh.py") -workingDir (Get-Location).Path
+if ($r2006PerformanceRefresh.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-performance-refresh"; Teste = "validate_r2006_performance_refresh"; Status = $r2006PerformanceRefresh.Status; Detalhe = $r2006PerformanceRefresh.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.29: R-2101 async/await execution model ADR
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2101 async/await execution model ADR ---" -ForegroundColor Yellow

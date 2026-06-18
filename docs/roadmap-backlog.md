@@ -2902,7 +2902,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2005 Core std/runtime Panic and Host-Status Hardening
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Dependencies: `R-2003`, `R-1203`, `R-1204`
@@ -2919,9 +2919,23 @@ the next tracked development cycle toward a broader AI/ML platform.
 - focused `.spectra` and Rust tests cover the hardened std/runtime paths
 - new hardening does not remove or downgrade existing std, tensor, async, or API-facing capabilities
 
+### Completed
+
+- Replaced remaining non-test std/runtime mutex-poison `expect` paths in list, map, tensor, ML, RNG, and deterministic-mode state with recovery through `lock_unpoisoned`.
+- Removed reachable non-test `unwrap` paths in tensor layer normalization shape handling and async UDP/channel paths, returning stable host status or failed task state instead.
+- Added Rust regressions for missing result buffers, invalid tensor/async handles, and poisoned runtime lock recovery without panics.
+- Added `tests/validation/145_runtime_host_status_hardening.spectra` to exercise invalid std paths through normal `spectralang run` without removing existing std/tensor/async capabilities.
+- Added `scripts/validate_r2005_runtime_hardening.py` and wired it into `run_tests.ps1` under `phase20-runtime-hardening`.
+
+### Validation
+
+- `cargo test -p spectra-runtime r2005_ -- --test-threads=1`
+- `target\debug\spectralang.exe run tests\validation\145_runtime_host_status_hardening.spectra`
+- `python scripts\validate_r2005_runtime_hardening.py --binary target\debug\spectralang.exe`
+
 ## R-2006 Tensor and std Performance Refresh
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `numerics`
 - Dependencies: `R-2003`, `R-1501`, `R-1502`
@@ -2938,6 +2952,19 @@ the next tracked development cycle toward a broader AI/ML platform.
 - release benchmark evidence covers tensor materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse
 - threshold changes are backed by checked-in benchmark reports
 - performance work preserves numerical correctness and public std/tensor APIs
+
+### Completed
+
+- Added `runtime/examples/r2006_tensor_performance_refresh.rs`, a release-only benchmark over the public std tensor host-call surface.
+- Covered tensor materialization, elementwise chains, reductions, 32x32 matmul, autodiff backward, and buffer reuse in one versioned benchmark report.
+- Added checked-in performance evidence in `docs/performance/r2006-performance-report.json` and thresholds in `docs/performance/r2006-performance-baseline.json`.
+- Added `docs/performance/r2006-performance-refresh.md` to document the evidence command, guarded categories, and threshold policy.
+- Added `scripts/validate_r2006_performance_refresh.py` and wired it into `run_tests.ps1` under `phase20-performance-refresh`.
+
+### Validation
+
+- `python scripts\validate_r2006_performance_refresh.py`
+- `python scripts\validate_r1501_bench.py`
 
 ## R-2007 Backend and Codegen Robustness Cleanup
 

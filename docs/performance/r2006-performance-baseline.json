@@ -1,0 +1,42 @@
+{
+  "schema": "spectra.r2006.performance_baseline.v1",
+  "updated": "2026-06-18",
+  "profile": "release",
+  "threshold_policy": "Thresholds are release-mode regression guards for shared Windows CI and local development. They are intentionally wider than the checked-in evidence report, and any threshold change must include a refreshed R-2006 report.",
+  "benchmarks": {
+    "tensor_materialization_view_chain": {
+      "category": "materialization",
+      "max_ns_per_iter": 20000000
+    },
+    "tensor_elementwise_chain_add_mul_relu": {
+      "category": "elementwise_chains",
+      "max_ns_per_iter": 25000000
+    },
+    "tensor_reduction_sum_f_refresh": {
+      "category": "reductions",
+      "max_ns_per_iter": 10000000
+    },
+    "tensor_matmul_32x32_refresh": {
+      "category": "matmul",
+      "max_ns_per_iter": 25000000
+    },
+    "tensor_autodiff_square_sum_refresh": {
+      "category": "autodiff",
+      "max_ns_per_iter": 35000000
+    },
+    "tensor_buffer_reuse_full_refresh": {
+      "category": "buffer_reuse",
+      "max_ns_per_iter": 10000000
+    }
+  },
+  "memory_minimums": {
+    "allocations": 1,
+    "peak_bytes": 1,
+    "reused_buffers": 1,
+    "pool_hits": 1,
+    "scratch_reuses": 1,
+    "reuse_rate_per_mille": 1,
+    "kernel_ops": 1,
+    "kernel_elements": 1
+  }
+}

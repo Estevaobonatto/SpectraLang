@@ -1,0 +1,34 @@
+module runtime_host_status_hardening;
+
+import std.fs as fs;
+import std.collections;
+
+pub fn main() -> int {
+    if fs.fs_read("") != "" {
+        return 1;
+    }
+    if fs.fs_exists("") {
+        return 2;
+    }
+
+    if list_get(999999, 0) != -1 {
+        return 3;
+    }
+    if list_pop(999999) != -1 {
+        return 4;
+    }
+    if list_remove_at(999999, 0) != -1 {
+        return 5;
+    }
+
+    let values = list_new();
+    if list_get(values, -1) != -1 {
+        return 6;
+    }
+    if list_get(values, 0) != -1 {
+        return 7;
+    }
+    list_free(values);
+
+    return 0;
+}

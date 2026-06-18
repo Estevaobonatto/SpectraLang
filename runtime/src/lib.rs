@@ -2,10 +2,10 @@ use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
+pub mod api;
 pub mod ffi;
 #[cfg(feature = "gpu")]
 pub mod gpu;
-pub mod api;
 pub mod memory;
 pub mod reactor;
 pub mod stdlib;
