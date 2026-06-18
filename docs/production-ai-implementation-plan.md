@@ -1668,7 +1668,7 @@ The eight phases are summarized below; the detailed items live in
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration (complete;
-  `packages/spectra-api` links against `spectra-runtime`, registers 71
+  `packages/spectra-api` links against `spectra-runtime`, registers 83
   `spectra.api.*` host calls through the runtime host-call registry, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
@@ -1704,7 +1704,10 @@ The eight phases are summarized below; the detailed items live in
   Method/Status constructors, case-insensitive Header/Cookie accessors, native
   validation, midend host-call lowering, and
   `tests/validation/134_http_core_types.spectra`)
-- `R-2211` Router: path matching, params, wildcards
+- `R-2211` Router: path matching, params, wildcards (complete; trie-backed
+  `std.api.routing` handles literals, `{param}`, `*wildcard`, `{id:\d+}`,
+  route conflicts with both paths, `RouteMatch` param extraction, 100k route
+  lookup benchmark coverage, and `tests/validation/135_api_router_matching.spectra`)
 - `R-2212` Query string parser and binding
 - `R-2213` URL-encoded form binding
 - `R-2214` Multipart form and file uploads

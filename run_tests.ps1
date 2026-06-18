@@ -1338,6 +1338,19 @@ if ($r2210HttpCoreTypes.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2210_http_core_types"; Status = $r2210HttpCoreTypes.Status; Detalhe = $r2210HttpCoreTypes.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.48: R-2211 router path matching and wildcards
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2211 router path matching and wildcards ---" -ForegroundColor Yellow
+$r2211RouterMatching = Invoke-HostCommand -name "validate_r2211_router_matching" -fileName "python" -arguments @("scripts\validate_r2211_router_matching.py") -workingDir (Get-Location).Path
+if ($r2211RouterMatching.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2211_router_matching"; Status = $r2211RouterMatching.Status; Detalhe = $r2211RouterMatching.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

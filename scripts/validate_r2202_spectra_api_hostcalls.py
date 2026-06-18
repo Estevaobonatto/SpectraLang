@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 71
+EXPECTED_COUNT = 83
 REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
@@ -78,6 +78,18 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.tls.config_mode",
     "spectra.api.routing.router_new",
     "spectra.api.routing.route_count",
+    "spectra.api.routing.route_id",
+    "spectra.api.routing.route_add",
+    "spectra.api.routing.get",
+    "spectra.api.routing.post",
+    "spectra.api.routing.put",
+    "spectra.api.routing.patch",
+    "spectra.api.routing.delete",
+    "spectra.api.routing.route_match",
+    "spectra.api.routing.match_route_id",
+    "spectra.api.routing.match_param",
+    "spectra.api.routing.match_param_int",
+    "spectra.api.routing.last_conflict",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ]
@@ -201,7 +213,7 @@ def validate_planning() -> None:
         "runtime host-call registry",
         "cargo test -p spectra-api",
         "scripts/validate_r2202_spectra_api_hostcalls.py",
-        "71",
+        "83",
     ]:
         require(term in acceptance, f"R-2202 acceptance must mention {term}")
 
@@ -211,7 +223,7 @@ def validate_planning() -> None:
     for term in [
         "Status: `complete`",
         "packages/spectra-api",
-        "71",
+        "83",
         "spectra_api::register()",
         "validate_r2202_spectra_api_hostcalls.py",
     ]:

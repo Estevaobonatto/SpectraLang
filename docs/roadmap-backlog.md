@@ -3467,7 +3467,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 71 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 83 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -3849,7 +3849,7 @@ Define the core HTTP types in the public `std.api.*` surface: `Request`,
 
 ## R-2211 Router: Path Matching and Wildcards
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3864,10 +3864,33 @@ Implement a router that supports literal paths, path parameters
 
 - The router matches `/users`, `/users/{id}`, `/files/*path`, and
   `/orders/{id:\d+}`.
-- Path parameters are available in the request handler as typed values.
+- Path parameters are available from `RouteMatch` as string and typed integer
+  values before handler dispatch.
 - Route conflicts (e.g. literal vs parameter) are reported with the
   conflicting paths.
 - Tests cover 100k registered routes with sub-millisecond lookup.
+- `tests/validation/135_api_router_matching.spectra` compiles and runs.
+- `cargo test -p spectra-api routing --offline` passes.
+- `cargo test -p spectra-compiler --offline` passes.
+- `cargo test -p spectra-midend --offline` passes.
+- `scripts/validate_r2211_router_matching.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed Implementation Notes
+
+- Replaced the placeholder router store in `packages/spectra-api/src/routing.rs`
+  with a segment trie supporting literal segments, `{param}`, `*wildcard`, and
+  regex-constrained params such as `{id:\d+}`.
+- Added conservative conflict detection for literal/parameter/wildcard overlap,
+  with `last_conflict()` returning both conflicting paths.
+- Added `RouteMatch` handles plus `match_param` and `match_param_int` for
+  parameter extraction before handler dispatch.
+- Added host calls and midend lowering for `std.api.routing.*`, including
+  `route_add`, `route_match`, `match_route_id`, `match_param`,
+  `match_param_int`, and method-specific helpers.
+- Documented the surface in `docs/api/std-api-routing.md`.
+- Added `tests/validation/135_api_router_matching.spectra` and
+  `scripts/validate_r2211_router_matching.py`.
 
 ## R-2212 Query String Parser and Binding
 

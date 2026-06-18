@@ -1,1 +1,23 @@
-// Binding module reserved for R-2203 semantic exposure.
+// Public Spectra surface for Phase 22 router matching.
+//
+// The compiler exposes these declarations as the stable `std.api.routing`
+// built-in module. Native behavior is provided by `spectra.api.routing.*`.
+
+module std.api.routing;
+
+pub struct Route {
+    pub method: int,
+    pub path: string,
+}
+
+pub struct Router {
+    pub route_count: int,
+}
+
+pub struct RouteMatch {
+    pub route_id: int,
+}
+
+// Native function declarations are represented in
+// compiler/src/semantic/builtin_modules.rs until package-level native extern
+// declarations become first-class syntax.

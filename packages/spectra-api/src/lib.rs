@@ -306,6 +306,54 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: routing::route_count,
     },
     HostCallSpec {
+        name: "spectra.api.routing.route_id",
+        function: routing::route_id,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.route_add",
+        function: routing::route_add,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.get",
+        function: routing::get,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.post",
+        function: routing::post,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.put",
+        function: routing::put,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.patch",
+        function: routing::patch,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.delete",
+        function: routing::delete,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.route_match",
+        function: routing::route_match,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.match_route_id",
+        function: routing::match_route_id,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.match_param",
+        function: routing::match_param,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.match_param_int",
+        function: routing::match_param_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.routing.last_conflict",
+        function: routing::last_conflict,
+    },
+    HostCallSpec {
         name: "spectra.api.errors.last_code",
         function: errors::last_code,
     },
@@ -464,7 +512,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 71);
+        assert_eq!(HOST_CALLS.len(), 83);
     }
 
     #[test]

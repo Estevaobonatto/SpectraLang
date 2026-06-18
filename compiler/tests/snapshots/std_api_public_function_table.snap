@@ -20,6 +20,7 @@ type std.api.json.JsonValue: struct JsonValue
 type std.api.tls.TlsConfig: struct TlsConfig
 type std.api.routing.Route: struct Route
 type std.api.routing.Router: struct Router
+type std.api.routing.RouteMatch: struct RouteMatch
 type std.api.errors.ApiError: struct ApiError
 fn std.api.http.method_name: fn(int) -> string
 fn std.api.http.method_allows_body: fn(int) -> bool
@@ -94,10 +95,17 @@ fn std.api.tls.client_config: fn() -> TlsConfig
 fn std.api.routing.router: fn() -> Router
 fn std.api.routing.router_new: fn() -> Router
 fn std.api.routing.route_count: fn(Router) -> int
-fn std.api.routing.get: fn(Router, string, fn(Request) -> Response) -> Router
-fn std.api.routing.post: fn(Router, string, fn(Request) -> Response) -> Router
-fn std.api.routing.put: fn(Router, string, fn(Request) -> Response) -> Router
-fn std.api.routing.patch: fn(Router, string, fn(Request) -> Response) -> Router
-fn std.api.routing.delete: fn(Router, string, fn(Request) -> Response) -> Router
+fn std.api.routing.route_id: fn(Route) -> int
+fn std.api.routing.route_add: fn(Router, int, string) -> Route
+fn std.api.routing.route_match: fn(Router, int, string) -> RouteMatch
+fn std.api.routing.match_route_id: fn(RouteMatch) -> int
+fn std.api.routing.match_param: fn(RouteMatch, string) -> string
+fn std.api.routing.match_param_int: fn(RouteMatch, string) -> int
+fn std.api.routing.last_conflict: fn() -> string
+fn std.api.routing.get: fn(Router, string) -> Route
+fn std.api.routing.post: fn(Router, string) -> Route
+fn std.api.routing.put: fn(Router, string) -> Route
+fn std.api.routing.patch: fn(Router, string) -> Route
+fn std.api.routing.delete: fn(Router, string) -> Route
 fn std.api.errors.last_code: fn() -> int
 fn std.api.errors.last_message: fn() -> string

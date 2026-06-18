@@ -34,6 +34,7 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
     ("std.api.tls.TlsConfig", "struct TlsConfig"),
     ("std.api.routing.Route", "struct Route"),
     ("std.api.routing.Router", "struct Router"),
+    ("std.api.routing.RouteMatch", "struct RouteMatch"),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -126,26 +127,30 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.api.routing.router", "fn() -> Router"),
     ("std.api.routing.router_new", "fn() -> Router"),
     ("std.api.routing.route_count", "fn(Router) -> int"),
+    ("std.api.routing.route_id", "fn(Route) -> int"),
     (
-        "std.api.routing.get",
-        "fn(Router, string, fn(Request) -> Response) -> Router",
+        "std.api.routing.route_add",
+        "fn(Router, int, string) -> Route",
     ),
     (
-        "std.api.routing.post",
-        "fn(Router, string, fn(Request) -> Response) -> Router",
+        "std.api.routing.route_match",
+        "fn(Router, int, string) -> RouteMatch",
+    ),
+    ("std.api.routing.match_route_id", "fn(RouteMatch) -> int"),
+    (
+        "std.api.routing.match_param",
+        "fn(RouteMatch, string) -> string",
     ),
     (
-        "std.api.routing.put",
-        "fn(Router, string, fn(Request) -> Response) -> Router",
+        "std.api.routing.match_param_int",
+        "fn(RouteMatch, string) -> int",
     ),
-    (
-        "std.api.routing.patch",
-        "fn(Router, string, fn(Request) -> Response) -> Router",
-    ),
-    (
-        "std.api.routing.delete",
-        "fn(Router, string, fn(Request) -> Response) -> Router",
-    ),
+    ("std.api.routing.last_conflict", "fn() -> string"),
+    ("std.api.routing.get", "fn(Router, string) -> Route"),
+    ("std.api.routing.post", "fn(Router, string) -> Route"),
+    ("std.api.routing.put", "fn(Router, string) -> Route"),
+    ("std.api.routing.patch", "fn(Router, string) -> Route"),
+    ("std.api.routing.delete", "fn(Router, string) -> Route"),
     ("std.api.errors.last_code", "fn() -> int"),
     ("std.api.errors.last_message", "fn() -> string"),
 ];
@@ -221,13 +226,6 @@ fn api_type(name: &str) -> Type {
 fn api_task(output: Type) -> Type {
     Type::Task {
         output: Box::new(output),
-    }
-}
-
-fn api_handler_type() -> Type {
-    Type::Fn {
-        params: vec![api_type("Request")],
-        return_type: Box::new(api_type("Response")),
     }
 }
 
@@ -463,19 +461,42 @@ fn make_std_api_routing(prefix: &str) -> ModuleExports {
     exports
         .types
         .insert("Router".to_string(), public_type(&["route_count"]));
+    exports
+        .types
+        .insert("RouteMatch".to_string(), public_type(&["route_id"]));
     let router = api_type("Router");
-    let handler = api_handler_type();
+    let route = api_type("Route");
+    let route_match = api_type("RouteMatch");
     let mut functions = vec![
         ("router", vec![], router.clone()),
         ("router_new", vec![], router.clone()),
         ("route_count", vec![router.clone()], Type::Int),
+        ("route_id", vec![route.clone()], Type::Int),
+        (
+            "route_add",
+            vec![router.clone(), Type::Int, Type::String],
+            route.clone(),
+        ),
+        (
+            "route_match",
+            vec![router.clone(), Type::Int, Type::String],
+            route_match.clone(),
+        ),
+        ("match_route_id", vec![route_match.clone()], Type::Int),
+        (
+            "match_param",
+            vec![route_match.clone(), Type::String],
+            Type::String,
+        ),
+        (
+            "match_param_int",
+            vec![route_match, Type::String],
+            Type::Int,
+        ),
+        ("last_conflict", vec![], Type::String),
     ];
     for name in ["get", "post", "put", "patch", "delete"] {
-        functions.push((
-            name,
-            vec![router.clone(), Type::String, handler.clone()],
-            router.clone(),
-        ));
+        functions.push((name, vec![router.clone(), Type::String], route.clone()));
     }
     for (name, params, return_type) in functions {
         exports

@@ -8823,6 +8823,21 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("http", "cookie_name") => Some(host_string("spectra.api.http.cookie_name")),
         ("http", "cookie_value") => Some(host_string("spectra.api.http.cookie_value")),
         ("http", "status") => Some(host_int("spectra.api.http.status")),
+        ("routing", "router") => Some(host_int("spectra.api.routing.router_new")),
+        ("routing", "router_new") => Some(host_int("spectra.api.routing.router_new")),
+        ("routing", "route_count") => Some(host_int("spectra.api.routing.route_count")),
+        ("routing", "route_id") => Some(host_int("spectra.api.routing.route_id")),
+        ("routing", "route_add") => Some(host_int("spectra.api.routing.route_add")),
+        ("routing", "get") => Some(host_int("spectra.api.routing.get")),
+        ("routing", "post") => Some(host_int("spectra.api.routing.post")),
+        ("routing", "put") => Some(host_int("spectra.api.routing.put")),
+        ("routing", "patch") => Some(host_int("spectra.api.routing.patch")),
+        ("routing", "delete") => Some(host_int("spectra.api.routing.delete")),
+        ("routing", "route_match") => Some(host_int("spectra.api.routing.route_match")),
+        ("routing", "match_route_id") => Some(host_int("spectra.api.routing.match_route_id")),
+        ("routing", "match_param") => Some(host_string("spectra.api.routing.match_param")),
+        ("routing", "match_param_int") => Some(host_int("spectra.api.routing.match_param_int")),
+        ("routing", "last_conflict") => Some(host_string("spectra.api.routing.last_conflict")),
         _ => None,
     }
 }
@@ -8830,11 +8845,16 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
 fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
     let name = match segments {
         [name] => name.as_str(),
-        [std, api, module, name] if std == "std" && api == "api" && module == "http" => {
+        [std, api, module, name]
+            if std == "std" && api == "api" && (module == "http" || module == "routing") =>
+        {
             name.as_str()
         }
         [spectra, std, api, module, name]
-            if spectra == "spectra" && std == "std" && api == "api" && module == "http" =>
+            if spectra == "spectra"
+                && std == "std"
+                && api == "api"
+                && (module == "http" || module == "routing") =>
         {
             name.as_str()
         }
@@ -8842,14 +8862,34 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
     };
     matches!(
         name,
-        "Request" | "Response" | "Header" | "Headers" | "Cookie" | "Body" | "Method" | "Status"
+        "Request"
+            | "Response"
+            | "Header"
+            | "Headers"
+            | "Cookie"
+            | "Body"
+            | "Method"
+            | "Status"
+            | "Route"
+            | "Router"
+            | "RouteMatch"
     )
 }
 
 fn is_std_api_handle_type_name(name: &str) -> bool {
     matches!(
         name,
-        "Request" | "Response" | "Header" | "Headers" | "Cookie" | "Body" | "Method" | "Status"
+        "Request"
+            | "Response"
+            | "Header"
+            | "Headers"
+            | "Cookie"
+            | "Body"
+            | "Method"
+            | "Status"
+            | "Route"
+            | "Router"
+            | "RouteMatch"
     )
 }
 

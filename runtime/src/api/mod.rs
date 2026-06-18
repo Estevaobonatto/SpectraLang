@@ -76,6 +76,18 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.tls.config_mode",
     "spectra.api.routing.router_new",
     "spectra.api.routing.route_count",
+    "spectra.api.routing.route_id",
+    "spectra.api.routing.route_add",
+    "spectra.api.routing.get",
+    "spectra.api.routing.post",
+    "spectra.api.routing.put",
+    "spectra.api.routing.patch",
+    "spectra.api.routing.delete",
+    "spectra.api.routing.route_match",
+    "spectra.api.routing.match_route_id",
+    "spectra.api.routing.match_param",
+    "spectra.api.routing.match_param_int",
+    "spectra.api.routing.last_conflict",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ];
@@ -96,6 +108,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 71);
+        assert_eq!(required_host_call_count(), 83);
     }
 }

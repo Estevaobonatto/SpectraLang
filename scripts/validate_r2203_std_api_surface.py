@@ -92,6 +92,13 @@ REQUIRED_FUNCTIONS = [
     "std.api.routing.router",
     "std.api.routing.router_new",
     "std.api.routing.route_count",
+    "std.api.routing.route_id",
+    "std.api.routing.route_add",
+    "std.api.routing.route_match",
+    "std.api.routing.match_route_id",
+    "std.api.routing.match_param",
+    "std.api.routing.match_param_int",
+    "std.api.routing.last_conflict",
     "std.api.routing.get",
     "std.api.routing.post",
     "std.api.routing.put",
@@ -115,6 +122,7 @@ REQUIRED_TYPES = [
     "std.api.tls.TlsConfig",
     "std.api.routing.Route",
     "std.api.routing.Router",
+    "std.api.routing.RouteMatch",
     "std.api.errors.ApiError",
 ]
 

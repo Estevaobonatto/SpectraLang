@@ -1,0 +1,57 @@
+module api_router_matching;
+
+import {
+    method_get,
+    method_post,
+} from std.api.http;
+
+import {
+    Router,
+    Route,
+    RouteMatch,
+    router,
+    route_count,
+    route_id,
+    get,
+    post,
+    route_match,
+    match_route_id,
+    match_param,
+    match_param_int,
+    last_conflict,
+} from std.api.routing;
+
+pub fn main() -> int {
+    let routes: Router = router();
+    let users: Route = get(routes, "/users");
+    let user: Route = post(routes, "/users/{id}");
+    let files: Route = get(routes, "/files/*path");
+    let order: Route = get(routes, "/orders/{id:\\d+}");
+
+    let literal_match: RouteMatch = route_match(routes, method_get(), "/users");
+    let user_match: RouteMatch = route_match(routes, method_post(), "/users/42");
+    let files_match: RouteMatch = route_match(routes, method_get(), "/files/a/b/readme.txt");
+    let order_match: RouteMatch = route_match(routes, method_get(), "/orders/1234");
+    let order_miss: RouteMatch = route_match(routes, method_get(), "/orders/not-digits");
+
+    let literal_id = match_route_id(literal_match);
+    let user_id = match_param_int(user_match, "id");
+    let file_path = match_param(files_match, "path");
+    let order_id = match_param_int(order_match, "id");
+    let miss_id = match_route_id(order_miss);
+
+    let conflict_router: Router = router();
+    let first = get(conflict_router, "/users/{id}");
+    let conflict = get(conflict_router, "/users/me");
+    let conflict_text = last_conflict();
+
+    if route_count(routes) == 4
+        && literal_id == route_id(users)
+        && user_id == 42
+        && order_id == 1234
+        && miss_id == 0
+        && route_id(conflict) == 0 {
+        return 0;
+    }
+    return 1;
+}
