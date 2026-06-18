@@ -5,6 +5,7 @@ module std.api.client
 module std.api.json
 module std.api.tls
 module std.api.routing
+module std.api.query
 module std.api.errors
 type std.api.http.Request: struct Request
 type std.api.http.Response: struct Response
@@ -21,6 +22,9 @@ type std.api.tls.TlsConfig: struct TlsConfig
 type std.api.routing.Route: struct Route
 type std.api.routing.Router: struct Router
 type std.api.routing.RouteMatch: struct RouteMatch
+type std.api.query.Query: struct Query
+type std.api.query.QuerySchema: struct QuerySchema
+type std.api.query.QueryBinding: struct QueryBinding
 type std.api.errors.ApiError: struct ApiError
 fn std.api.http.method_name: fn(int) -> string
 fn std.api.http.method_allows_body: fn(int) -> bool
@@ -107,5 +111,27 @@ fn std.api.routing.post: fn(Router, string) -> Route
 fn std.api.routing.put: fn(Router, string) -> Route
 fn std.api.routing.patch: fn(Router, string) -> Route
 fn std.api.routing.delete: fn(Router, string) -> Route
+fn std.api.query.type_string: fn() -> int
+fn std.api.query.type_int: fn() -> int
+fn std.api.query.type_bool: fn() -> int
+fn std.api.query.parse: fn(string) -> Query
+fn std.api.query.len: fn(Query) -> int
+fn std.api.query.has: fn(Query, string) -> bool
+fn std.api.query.count: fn(Query, string) -> int
+fn std.api.query.first: fn(Query, string) -> string
+fn std.api.query.value: fn(Query, string, int) -> string
+fn std.api.query.int: fn(Query, string, int) -> int
+fn std.api.query.bool: fn(Query, string, int) -> bool
+fn std.api.query.schema: fn() -> QuerySchema
+fn std.api.query.schema_field: fn(QuerySchema, string, int, bool, bool) -> QuerySchema
+fn std.api.query.bind: fn(Query, QuerySchema) -> QueryBinding
+fn std.api.query.binding_ok: fn(QueryBinding) -> bool
+fn std.api.query.binding_error: fn(QueryBinding) -> string
+fn std.api.query.binding_count: fn(QueryBinding, string) -> int
+fn std.api.query.binding_value: fn(QueryBinding, string, int) -> string
+fn std.api.query.binding_int: fn(QueryBinding, string, int) -> int
+fn std.api.query.binding_bool: fn(QueryBinding, string, int) -> bool
+fn std.api.query.error_code: fn() -> int
+fn std.api.query.error_message: fn() -> string
 fn std.api.errors.last_code: fn() -> int
 fn std.api.errors.last_message: fn() -> string

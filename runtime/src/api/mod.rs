@@ -88,6 +88,28 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.routing.match_param",
     "spectra.api.routing.match_param_int",
     "spectra.api.routing.last_conflict",
+    "spectra.api.query.type_string",
+    "spectra.api.query.type_int",
+    "spectra.api.query.type_bool",
+    "spectra.api.query.parse",
+    "spectra.api.query.len",
+    "spectra.api.query.has",
+    "spectra.api.query.count",
+    "spectra.api.query.first",
+    "spectra.api.query.value",
+    "spectra.api.query.int",
+    "spectra.api.query.bool",
+    "spectra.api.query.schema",
+    "spectra.api.query.schema_field",
+    "spectra.api.query.bind",
+    "spectra.api.query.binding_ok",
+    "spectra.api.query.binding_error",
+    "spectra.api.query.binding_count",
+    "spectra.api.query.binding_value",
+    "spectra.api.query.binding_int",
+    "spectra.api.query.binding_bool",
+    "spectra.api.query.error_code",
+    "spectra.api.query.error_message",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ];
@@ -108,6 +130,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 83);
+        assert_eq!(required_host_call_count(), 105);
     }
 }

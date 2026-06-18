@@ -1,0 +1,22 @@
+// Public Spectra surface for Phase 22 query parsing and binding.
+//
+// The compiler exposes these declarations as the stable `std.api.query`
+// built-in module. Native behavior is provided by `spectra.api.query.*`.
+
+module std.api.query;
+
+pub struct Query {
+    pub len: int,
+}
+
+pub struct QuerySchema {
+    pub field_count: int,
+}
+
+pub struct QueryBinding {
+    pub ok: bool,
+}
+
+// Native function declarations are represented in
+// compiler/src/semantic/builtin_modules.rs until package-level native extern
+// declarations become first-class syntax.

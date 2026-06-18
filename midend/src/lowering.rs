@@ -8838,6 +8838,28 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("routing", "match_param") => Some(host_string("spectra.api.routing.match_param")),
         ("routing", "match_param_int") => Some(host_int("spectra.api.routing.match_param_int")),
         ("routing", "last_conflict") => Some(host_string("spectra.api.routing.last_conflict")),
+        ("query", "type_string") => Some(host_int("spectra.api.query.type_string")),
+        ("query", "type_int") => Some(host_int("spectra.api.query.type_int")),
+        ("query", "type_bool") => Some(host_int("spectra.api.query.type_bool")),
+        ("query", "parse") => Some(host_int("spectra.api.query.parse")),
+        ("query", "len") => Some(host_int("spectra.api.query.len")),
+        ("query", "has") => Some(host_bool("spectra.api.query.has")),
+        ("query", "count") => Some(host_int("spectra.api.query.count")),
+        ("query", "first") => Some(host_string("spectra.api.query.first")),
+        ("query", "value") => Some(host_string("spectra.api.query.value")),
+        ("query", "int") => Some(host_int("spectra.api.query.int")),
+        ("query", "bool") => Some(host_bool("spectra.api.query.bool")),
+        ("query", "schema") => Some(host_int("spectra.api.query.schema")),
+        ("query", "schema_field") => Some(host_int("spectra.api.query.schema_field")),
+        ("query", "bind") => Some(host_int("spectra.api.query.bind")),
+        ("query", "binding_ok") => Some(host_bool("spectra.api.query.binding_ok")),
+        ("query", "binding_error") => Some(host_string("spectra.api.query.binding_error")),
+        ("query", "binding_count") => Some(host_int("spectra.api.query.binding_count")),
+        ("query", "binding_value") => Some(host_string("spectra.api.query.binding_value")),
+        ("query", "binding_int") => Some(host_int("spectra.api.query.binding_int")),
+        ("query", "binding_bool") => Some(host_bool("spectra.api.query.binding_bool")),
+        ("query", "error_code") => Some(host_int("spectra.api.query.error_code")),
+        ("query", "error_message") => Some(host_string("spectra.api.query.error_message")),
         _ => None,
     }
 }
@@ -8846,7 +8868,9 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
     let name = match segments {
         [name] => name.as_str(),
         [std, api, module, name]
-            if std == "std" && api == "api" && (module == "http" || module == "routing") =>
+            if std == "std"
+                && api == "api"
+                && (module == "http" || module == "routing" || module == "query") =>
         {
             name.as_str()
         }
@@ -8854,7 +8878,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             if spectra == "spectra"
                 && std == "std"
                 && api == "api"
-                && (module == "http" || module == "routing") =>
+                && (module == "http" || module == "routing" || module == "query") =>
         {
             name.as_str()
         }
@@ -8873,6 +8897,9 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "Route"
             | "Router"
             | "RouteMatch"
+            | "Query"
+            | "QuerySchema"
+            | "QueryBinding"
     )
 }
 
@@ -8890,6 +8917,9 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "Route"
             | "Router"
             | "RouteMatch"
+            | "Query"
+            | "QuerySchema"
+            | "QueryBinding"
     )
 }
 
@@ -8905,6 +8935,14 @@ fn host_float(runtime_name: &'static str) -> HostFunctionDescriptor {
     HostFunctionDescriptor {
         runtime_name,
         return_type: IRType::Float,
+        returns_value: true,
+    }
+}
+
+fn host_bool(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Bool,
         returns_value: true,
     }
 }

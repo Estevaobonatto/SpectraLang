@@ -1,0 +1,118 @@
+module api_query_binding;
+
+import std.string as str;
+
+import {
+    Query,
+    QuerySchema,
+    QueryBinding,
+    type_string,
+    type_int,
+    type_bool,
+    parse,
+    len,
+    has,
+    count,
+    first,
+    value,
+    schema,
+    schema_field,
+    bind,
+    binding_ok,
+    binding_error,
+    binding_count,
+    binding_value,
+    binding_int,
+    binding_bool,
+    error_code,
+    error_message,
+} from std.api.query;
+
+struct SearchQuery {
+    page: int,
+    published_flag: int,
+    tag_count: int,
+}
+
+pub fn main() -> int {
+    let query: Query = parse("/search?page=2&published=true&tag=rust&tag=api&q=hello%20world&plus=a+b");
+
+    if len(query) != 5 {
+        return 10;
+    }
+    if has(query, "page") != true {
+        return 11;
+    }
+    if count(query, "tag") != 2 {
+        return 12;
+    }
+    if str.contains(first(query, "q"), "hello world") != true {
+        return 13;
+    }
+    if str.contains(value(query, "plus", 0), "a+b") != true {
+        return 14;
+    }
+
+    let s0: QuerySchema = schema();
+    let s1: QuerySchema = schema_field(s0, "page", type_int(), true, false);
+    let s2: QuerySchema = schema_field(s1, "published", type_bool(), true, false);
+    let s3: QuerySchema = schema_field(s2, "tag", type_string(), false, true);
+    let binding: QueryBinding = bind(query, s3);
+
+    if binding_ok(binding) != true {
+        return 20;
+    }
+    if binding_count(binding, "tag") != 2 {
+        return 21;
+    }
+    if binding_int(binding, "page", 0) != 2 {
+        return 22;
+    }
+    if binding_bool(binding, "published", 0) != true {
+        return 23;
+    }
+
+    let typed: SearchQuery = SearchQuery {
+        page: binding_int(binding, "page", 0),
+        published_flag: 1,
+        tag_count: binding_count(binding, "tag"),
+    };
+
+    if typed.page != 2 {
+        return 30;
+    }
+    if typed.published_flag != 1 {
+        return 31;
+    }
+    if typed.tag_count != 2 {
+        return 32;
+    }
+    if str.contains(binding_value(binding, "tag", 0), "rust") != true {
+        return 33;
+    }
+    if str.contains(binding_value(binding, "tag", 1), "api") != true {
+        return 34;
+    }
+
+    let malformed: Query = parse("bad=%GG");
+    if len(malformed) != 0 {
+        return 40;
+    }
+    if error_code() == 0 {
+        return 41;
+    }
+    if str.contains(error_message(), "percent") != true {
+        return 42;
+    }
+
+    let wrong: Query = parse("page=two&published=false");
+    let failed: QueryBinding = bind(wrong, s3);
+    if binding_ok(failed) == true {
+        return 50;
+    }
+    if str.contains(binding_error(failed), "expected int") != true {
+        return 51;
+    }
+
+    return 0;
+}

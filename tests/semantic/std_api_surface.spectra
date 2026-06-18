@@ -12,6 +12,7 @@ import {
 import { validate, kind} from std.api.json;
 import { client_config, config_mode} from std.api.tls;
 import { router_new, route_count} from std.api.routing;
+import { parse, len} from std.api.query;
 import { last_code} from std.api.errors;
 
 pub fn main() -> int {
@@ -28,7 +29,9 @@ pub fn main() -> int {
     let tls_mode       = config_mode(tls_config);
     let router         = router_new();
     let routes         = route_count(router);
+    let query          = parse("page=1");
+    let query_len      = len(query);
     let error_code     = last_code();
 
-    return response_class + json_kind + tls_mode + routes + error_code;
+    return response_class + json_kind + tls_mode + routes + query_len + error_code;
 }

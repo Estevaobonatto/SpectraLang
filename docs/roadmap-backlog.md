@@ -3467,7 +3467,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 83 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 105 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -3894,7 +3894,7 @@ Implement a router that supports literal paths, path parameters
 
 ## R-2212 Query String Parser and Binding
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3907,11 +3907,35 @@ keys, arrays, and basic type coercion.
 
 ### Acceptance
 
-- Query strings parse to a structured map and to a typed struct when
-  bound.
-- Repeated keys become arrays; mismatched types produce typed errors.
-- URL decoding and reserved character handling are RFC 3986 compliant.
-- Tests cover simple, repeated, and malformed queries.
+- Query strings parse to a structured map and to a typed struct via
+  `QuerySchema`/`QueryBinding` when bound.
+- Repeated keys become arrays; mismatched types produce typed errors through
+  `binding_error`, `error_code`, and `error_message`.
+- URL decoding and reserved character handling are RFC 3986 compliant,
+  including percent-decoded UTF-8 and literal plus signs.
+- Tests cover simple, repeated, typed struct binding, mismatched, and
+  malformed queries in `tests/validation/136_api_query_binding.spectra`.
+- `cargo test -p spectra-api query --offline`, `cargo test -p spectra-compiler
+  --offline`, and `cargo test -p spectra-midend --offline` pass.
+- `scripts/validate_r2212_query_binding.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed Implementation Notes
+
+- Added `packages/spectra-api/src/query.rs` with an RFC 3986 query parser,
+  percent-decoded UTF-8 validation, structured repeated-key storage, scalar
+  accessors, and schema-driven binding.
+- Added stable `std.api.query` types: `Query`, `QuerySchema`, and
+  `QueryBinding`.
+- Added typed binding functions for string, int, and bool fields, including
+  required-field checks, repeated-scalar rejection, and typed mismatch
+  diagnostics.
+- Registered `spectra.api.query.*` host calls through `packages/spectra-api`,
+  `runtime/src/api/mod.rs`, semantic builtins, midend lowering, and the public
+  API snapshot.
+- Documented the surface in `docs/api/std-api-query.md`.
+- Added `tests/validation/136_api_query_binding.spectra` and
+  `scripts/validate_r2212_query_binding.py`.
 
 ## R-2213 URL-Encoded Form Binding
 

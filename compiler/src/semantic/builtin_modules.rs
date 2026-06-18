@@ -16,6 +16,7 @@ pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api.json",
     "std.api.tls",
     "std.api.routing",
+    "std.api.query",
     "std.api.errors",
 ];
 
@@ -35,6 +36,9 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
     ("std.api.routing.Route", "struct Route"),
     ("std.api.routing.Router", "struct Router"),
     ("std.api.routing.RouteMatch", "struct RouteMatch"),
+    ("std.api.query.Query", "struct Query"),
+    ("std.api.query.QuerySchema", "struct QuerySchema"),
+    ("std.api.query.QueryBinding", "struct QueryBinding"),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -151,6 +155,46 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.api.routing.put", "fn(Router, string) -> Route"),
     ("std.api.routing.patch", "fn(Router, string) -> Route"),
     ("std.api.routing.delete", "fn(Router, string) -> Route"),
+    ("std.api.query.type_string", "fn() -> int"),
+    ("std.api.query.type_int", "fn() -> int"),
+    ("std.api.query.type_bool", "fn() -> int"),
+    ("std.api.query.parse", "fn(string) -> Query"),
+    ("std.api.query.len", "fn(Query) -> int"),
+    ("std.api.query.has", "fn(Query, string) -> bool"),
+    ("std.api.query.count", "fn(Query, string) -> int"),
+    ("std.api.query.first", "fn(Query, string) -> string"),
+    ("std.api.query.value", "fn(Query, string, int) -> string"),
+    ("std.api.query.int", "fn(Query, string, int) -> int"),
+    ("std.api.query.bool", "fn(Query, string, int) -> bool"),
+    ("std.api.query.schema", "fn() -> QuerySchema"),
+    (
+        "std.api.query.schema_field",
+        "fn(QuerySchema, string, int, bool, bool) -> QuerySchema",
+    ),
+    (
+        "std.api.query.bind",
+        "fn(Query, QuerySchema) -> QueryBinding",
+    ),
+    ("std.api.query.binding_ok", "fn(QueryBinding) -> bool"),
+    ("std.api.query.binding_error", "fn(QueryBinding) -> string"),
+    (
+        "std.api.query.binding_count",
+        "fn(QueryBinding, string) -> int",
+    ),
+    (
+        "std.api.query.binding_value",
+        "fn(QueryBinding, string, int) -> string",
+    ),
+    (
+        "std.api.query.binding_int",
+        "fn(QueryBinding, string, int) -> int",
+    ),
+    (
+        "std.api.query.binding_bool",
+        "fn(QueryBinding, string, int) -> bool",
+    ),
+    ("std.api.query.error_code", "fn() -> int"),
+    ("std.api.query.error_message", "fn() -> string"),
     ("std.api.errors.last_code", "fn() -> int"),
     ("std.api.errors.last_message", "fn() -> string"),
 ];
@@ -237,6 +281,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     registry.register_module(format!("{prefix}.json"), make_std_api_json(prefix));
     registry.register_module(format!("{prefix}.tls"), make_std_api_tls(prefix));
     registry.register_module(format!("{prefix}.routing"), make_std_api_routing(prefix));
+    registry.register_module(format!("{prefix}.query"), make_std_api_query(prefix));
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
 }
 
@@ -498,6 +543,90 @@ fn make_std_api_routing(prefix: &str) -> ModuleExports {
     for name in ["get", "post", "put", "patch", "delete"] {
         functions.push((name, vec![router.clone(), Type::String], route.clone()));
     }
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_query(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("query"));
+    exports
+        .types
+        .insert("Query".to_string(), public_type(&["len"]));
+    exports
+        .types
+        .insert("QuerySchema".to_string(), public_type(&["field_count"]));
+    exports
+        .types
+        .insert("QueryBinding".to_string(), public_type(&["ok"]));
+    let query = api_type("Query");
+    let schema = api_type("QuerySchema");
+    let binding = api_type("QueryBinding");
+    let functions = [
+        ("type_string", vec![], Type::Int),
+        ("type_int", vec![], Type::Int),
+        ("type_bool", vec![], Type::Int),
+        ("parse", vec![Type::String], query.clone()),
+        ("len", vec![query.clone()], Type::Int),
+        ("has", vec![query.clone(), Type::String], Type::Bool),
+        ("count", vec![query.clone(), Type::String], Type::Int),
+        ("first", vec![query.clone(), Type::String], Type::String),
+        (
+            "value",
+            vec![query.clone(), Type::String, Type::Int],
+            Type::String,
+        ),
+        (
+            "int",
+            vec![query.clone(), Type::String, Type::Int],
+            Type::Int,
+        ),
+        (
+            "bool",
+            vec![query.clone(), Type::String, Type::Int],
+            Type::Bool,
+        ),
+        ("schema", vec![], schema.clone()),
+        (
+            "schema_field",
+            vec![
+                schema.clone(),
+                Type::String,
+                Type::Int,
+                Type::Bool,
+                Type::Bool,
+            ],
+            schema.clone(),
+        ),
+        ("bind", vec![query, schema], binding.clone()),
+        ("binding_ok", vec![binding.clone()], Type::Bool),
+        ("binding_error", vec![binding.clone()], Type::String),
+        (
+            "binding_count",
+            vec![binding.clone(), Type::String],
+            Type::Int,
+        ),
+        (
+            "binding_value",
+            vec![binding.clone(), Type::String, Type::Int],
+            Type::String,
+        ),
+        (
+            "binding_int",
+            vec![binding.clone(), Type::String, Type::Int],
+            Type::Int,
+        ),
+        (
+            "binding_bool",
+            vec![binding, Type::String, Type::Int],
+            Type::Bool,
+        ),
+        ("error_code", vec![], Type::Int),
+        ("error_message", vec![], Type::String),
+    ];
     for (name, params, return_type) in functions {
         exports
             .functions

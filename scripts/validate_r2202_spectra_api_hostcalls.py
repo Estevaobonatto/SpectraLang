@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 83
+EXPECTED_COUNT = 105
 REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
@@ -90,6 +90,28 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.routing.match_param",
     "spectra.api.routing.match_param_int",
     "spectra.api.routing.last_conflict",
+    "spectra.api.query.type_string",
+    "spectra.api.query.type_int",
+    "spectra.api.query.type_bool",
+    "spectra.api.query.parse",
+    "spectra.api.query.len",
+    "spectra.api.query.has",
+    "spectra.api.query.count",
+    "spectra.api.query.first",
+    "spectra.api.query.value",
+    "spectra.api.query.int",
+    "spectra.api.query.bool",
+    "spectra.api.query.schema",
+    "spectra.api.query.schema_field",
+    "spectra.api.query.bind",
+    "spectra.api.query.binding_ok",
+    "spectra.api.query.binding_error",
+    "spectra.api.query.binding_count",
+    "spectra.api.query.binding_value",
+    "spectra.api.query.binding_int",
+    "spectra.api.query.binding_bool",
+    "spectra.api.query.error_code",
+    "spectra.api.query.error_message",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ]
@@ -147,6 +169,7 @@ def validate_files() -> None:
         "packages/spectra-api/src/json.rs",
         "packages/spectra-api/src/tls.rs",
         "packages/spectra-api/src/routing.rs",
+        "packages/spectra-api/src/query.rs",
         "packages/spectra-api/src/errors.rs",
         "runtime/src/api/mod.rs",
         "packages/spectra-api/src/bindings/mod.spectra",
@@ -213,7 +236,7 @@ def validate_planning() -> None:
         "runtime host-call registry",
         "cargo test -p spectra-api",
         "scripts/validate_r2202_spectra_api_hostcalls.py",
-        "83",
+        "105",
     ]:
         require(term in acceptance, f"R-2202 acceptance must mention {term}")
 
@@ -223,7 +246,7 @@ def validate_planning() -> None:
     for term in [
         "Status: `complete`",
         "packages/spectra-api",
-        "83",
+        "105",
         "spectra_api::register()",
         "validate_r2202_spectra_api_hostcalls.py",
     ]:

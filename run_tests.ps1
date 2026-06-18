@@ -1351,6 +1351,19 @@ if ($r2211RouterMatching.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2211_router_matching"; Status = $r2211RouterMatching.Status; Detalhe = $r2211RouterMatching.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.49: R-2212 query string parser and binding
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2212 query string parser and binding ---" -ForegroundColor Yellow
+$r2212QueryBinding = Invoke-HostCommand -name "validate_r2212_query_binding" -fileName "python" -arguments @("scripts\validate_r2212_query_binding.py") -workingDir (Get-Location).Path
+if ($r2212QueryBinding.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2212_query_binding"; Status = $r2212QueryBinding.Status; Detalhe = $r2212QueryBinding.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

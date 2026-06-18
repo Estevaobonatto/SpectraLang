@@ -540,6 +540,7 @@ impl SemanticAnalyzer {
             "std.api.json",
             "std.api.tls",
             "std.api.routing",
+            "std.api.query",
             "std.api.errors",
             "spectra",
             "spectra.std",
@@ -566,6 +567,7 @@ impl SemanticAnalyzer {
             "spectra.std.api.json",
             "spectra.std.api.tls",
             "spectra.std.api.routing",
+            "spectra.std.api.query",
             "spectra.std.api.errors",
         ];
 
@@ -4424,7 +4426,7 @@ impl SemanticAnalyzer {
                 self.error_with_hint(
                     format!("Unknown standard library module '{}'", module_path),
                     import.span,
-                    "Available stdlib modules include std.io, std.math, std.collections, std.tensor, std.ml, std.concurrent, std.serve, std.api.http, std.api.server, std.api.client, std.api.json, std.api.tls, std.api.routing, std.api.errors",
+                    "Available stdlib modules include std.io, std.math, std.collections, std.tensor, std.ml, std.concurrent, std.serve, std.api.http, std.api.server, std.api.client, std.api.json, std.api.tls, std.api.routing, std.api.query, std.api.errors",
                 );
             }
             // For user modules: silently skip — they may be registered in a

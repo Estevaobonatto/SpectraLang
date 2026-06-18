@@ -13,6 +13,7 @@ pub mod client;
 pub mod errors;
 pub mod http;
 pub mod json;
+pub mod query;
 pub mod routing;
 pub mod server;
 pub mod tls;
@@ -354,6 +355,94 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: routing::last_conflict,
     },
     HostCallSpec {
+        name: "spectra.api.query.type_string",
+        function: query::type_string,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.type_int",
+        function: query::type_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.type_bool",
+        function: query::type_bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.parse",
+        function: query::parse,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.len",
+        function: query::len,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.has",
+        function: query::has,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.count",
+        function: query::count,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.first",
+        function: query::first,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.value",
+        function: query::value,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.int",
+        function: query::int,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.bool",
+        function: query::bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.schema",
+        function: query::schema,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.schema_field",
+        function: query::schema_field,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.bind",
+        function: query::bind,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.binding_ok",
+        function: query::binding_ok,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.binding_error",
+        function: query::binding_error,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.binding_count",
+        function: query::binding_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.binding_value",
+        function: query::binding_value,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.binding_int",
+        function: query::binding_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.binding_bool",
+        function: query::binding_bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.error_code",
+        function: query::error_code,
+    },
+    HostCallSpec {
+        name: "spectra.api.query.error_message",
+        function: query::error_message,
+    },
+    HostCallSpec {
         name: "spectra.api.errors.last_code",
         function: errors::last_code,
     },
@@ -512,7 +601,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 83);
+        assert_eq!(HOST_CALLS.len(), 105);
     }
 
     #[test]
