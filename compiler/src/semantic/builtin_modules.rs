@@ -4,7 +4,8 @@
 // each function lives in the runtime FFI layer (runtime/src/stdlib/mod.rs).
 
 use super::module_registry::{
-    ExportVisibility, ExportedFunction, ExportedType, ModuleExports, ModuleRegistry,
+    ExportVisibility, ExportedFunction, ExportedSelfParamKind, ExportedTrait, ExportedTraitMethod,
+    ExportedType, ModuleExports, ModuleRegistry,
 };
 use crate::ast::Type;
 
@@ -19,6 +20,7 @@ pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api.query",
     "std.api.form",
     "std.api.multipart",
+    "std.api.handler",
     "std.api.errors",
 ];
 
@@ -46,6 +48,12 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
     ("std.api.form.FormBinding", "struct FormBinding"),
     ("std.api.multipart.Multipart", "struct Multipart"),
     ("std.api.multipart.MultipartPart", "struct MultipartPart"),
+    ("std.api.handler.HandlerHandle", "struct HandlerHandle"),
+    (
+        "std.api.handler.AsyncHandlerHandle",
+        "struct AsyncHandlerHandle",
+    ),
+    ("std.api.handler.HandlerError", "struct HandlerError"),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -279,6 +287,50 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ),
     ("std.api.multipart.error_code", "fn() -> int"),
     ("std.api.multipart.error_message", "fn() -> string"),
+    ("std.api.handler.text", "fn(string) -> Response"),
+    ("std.api.handler.json", "fn(string) -> Response"),
+    ("std.api.handler.bytes", "fn(string) -> Response"),
+    ("std.api.handler.status", "fn(int) -> Response"),
+    (
+        "std.api.handler.with_header",
+        "fn(Response, string, string) -> Response",
+    ),
+    ("std.api.handler.into_response", "fn(Response) -> Response"),
+    (
+        "std.api.handler.into_text_response",
+        "fn(string) -> Response",
+    ),
+    (
+        "std.api.handler.into_status_response",
+        "fn(int) -> Response",
+    ),
+    ("std.api.handler.error", "fn(int, string) -> HandlerError"),
+    (
+        "std.api.handler.error_response",
+        "fn(HandlerError) -> Response",
+    ),
+    ("std.api.handler.error_code", "fn(HandlerError) -> int"),
+    (
+        "std.api.handler.error_message",
+        "fn(HandlerError) -> string",
+    ),
+    ("std.api.handler.last_error_message", "fn() -> string"),
+    (
+        "std.api.handler.register_sync",
+        "fn(int, Response) -> HandlerHandle",
+    ),
+    (
+        "std.api.handler.register_async",
+        "fn(int, Response) -> AsyncHandlerHandle",
+    ),
+    (
+        "std.api.handler.dispatch_sync",
+        "fn(HandlerHandle, Request) -> Response",
+    ),
+    (
+        "std.api.handler.dispatch_async",
+        "fn(AsyncHandlerHandle, Request) -> Response",
+    ),
     ("std.api.errors.last_code", "fn() -> int"),
     ("std.api.errors.last_message", "fn() -> string"),
 ];
@@ -334,6 +386,21 @@ fn pub_fn(params: Vec<Type>, return_type: Type) -> ExportedFunction {
     }
 }
 
+fn exported_trait_method(
+    params: Vec<Type>,
+    return_type: Type,
+    self_kind: Option<ExportedSelfParamKind>,
+    is_async: bool,
+) -> ExportedTraitMethod {
+    ExportedTraitMethod {
+        params,
+        return_type,
+        self_kind,
+        is_async,
+        has_default: false,
+    }
+}
+
 fn public_type(members: &[&str]) -> ExportedType {
     ExportedType {
         members: members.iter().map(|member| (*member).to_string()).collect(),
@@ -371,6 +438,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
         format!("{prefix}.multipart"),
         make_std_api_multipart(prefix),
     );
+    registry.register_module(format!("{prefix}.handler"), make_std_api_handler(prefix));
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
 }
 
@@ -854,6 +922,133 @@ fn make_std_api_multipart(prefix: &str) -> ModuleExports {
             .functions
             .insert(name.to_string(), pub_fn(params, return_type));
     }
+    exports
+}
+
+fn make_std_api_handler(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("handler"));
+    exports
+        .types
+        .insert("HandlerHandle".to_string(), public_type(&["route_id"]));
+    exports
+        .types
+        .insert("AsyncHandlerHandle".to_string(), public_type(&["route_id"]));
+    exports.types.insert(
+        "HandlerError".to_string(),
+        public_type(&["status", "message"]),
+    );
+
+    let request = api_type("Request");
+    let response = api_type("Response");
+    let handler_handle = api_type("HandlerHandle");
+    let async_handler_handle = api_type("AsyncHandlerHandle");
+    let handler_error = api_type("HandlerError");
+
+    let functions = [
+        ("text", vec![Type::String], response.clone()),
+        ("json", vec![Type::String], response.clone()),
+        ("bytes", vec![Type::String], response.clone()),
+        ("status", vec![Type::Int], response.clone()),
+        (
+            "with_header",
+            vec![response.clone(), Type::String, Type::String],
+            response.clone(),
+        ),
+        ("into_response", vec![response.clone()], response.clone()),
+        ("into_text_response", vec![Type::String], response.clone()),
+        ("into_status_response", vec![Type::Int], response.clone()),
+        (
+            "error",
+            vec![Type::Int, Type::String],
+            handler_error.clone(),
+        ),
+        (
+            "error_response",
+            vec![handler_error.clone()],
+            response.clone(),
+        ),
+        ("error_code", vec![handler_error.clone()], Type::Int),
+        ("error_message", vec![handler_error], Type::String),
+        ("last_error_message", vec![], Type::String),
+        (
+            "register_sync",
+            vec![Type::Int, response.clone()],
+            handler_handle.clone(),
+        ),
+        (
+            "register_async",
+            vec![Type::Int, response.clone()],
+            async_handler_handle.clone(),
+        ),
+        (
+            "dispatch_sync",
+            vec![handler_handle, request.clone()],
+            response.clone(),
+        ),
+        (
+            "dispatch_async",
+            vec![async_handler_handle, request],
+            response,
+        ),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+
+    exports.traits.insert(
+        "IntoResponse".to_string(),
+        ExportedTrait {
+            visibility: ExportVisibility::Public,
+            methods: [(
+                "into_response".to_string(),
+                exported_trait_method(
+                    vec![Type::Unknown],
+                    api_type("Response"),
+                    Some(ExportedSelfParamKind::Reference { mutable: false }),
+                    false,
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        },
+    );
+    exports.traits.insert(
+        "Handler".to_string(),
+        ExportedTrait {
+            visibility: ExportVisibility::Public,
+            methods: [(
+                "call".to_string(),
+                exported_trait_method(
+                    vec![Type::Unknown, api_type("Request")],
+                    api_type("Response"),
+                    Some(ExportedSelfParamKind::Reference { mutable: false }),
+                    false,
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        },
+    );
+    exports.traits.insert(
+        "AsyncHandler".to_string(),
+        ExportedTrait {
+            visibility: ExportVisibility::Public,
+            methods: [(
+                "call".to_string(),
+                exported_trait_method(
+                    vec![Type::Unknown, api_type("Request")],
+                    api_task(api_type("Response")),
+                    Some(ExportedSelfParamKind::Reference { mutable: false }),
+                    true,
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        },
+    );
+
     exports
 }
 

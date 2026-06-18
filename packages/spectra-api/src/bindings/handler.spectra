@@ -1,0 +1,37 @@
+// Public Spectra surface for Phase 22 API handlers.
+//
+// The compiler exposes these declarations as the stable `std.api.handler`
+// built-in module. Native behavior is provided by `spectra.api.handler.*`.
+
+module std.api.handler;
+
+import { Request, Response} from std.api.http;
+
+pub struct HandlerHandle {
+    pub route_id: int,
+}
+
+pub struct AsyncHandlerHandle {
+    pub route_id: int,
+}
+
+pub struct HandlerError {
+    pub status: int,
+    pub message: string,
+}
+
+pub trait IntoResponse {
+    fn into_response(&self) -> Response;
+}
+
+pub trait Handler {
+    fn call(&self, request: Request) -> Response;
+}
+
+pub trait AsyncHandler {
+    async fn call(&self, request: Request) -> Response;
+}
+
+// Native function declarations are represented in
+// compiler/src/semantic/builtin_modules.rs until package-level native extern
+// declarations become first-class syntax.

@@ -12,6 +12,7 @@ use spectra_runtime::ffi::{
 pub mod client;
 pub mod errors;
 pub mod form;
+pub mod handler;
 pub mod http;
 pub mod json;
 pub mod multipart;
@@ -597,6 +598,74 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: multipart::error_message,
     },
     HostCallSpec {
+        name: "spectra.api.handler.text",
+        function: handler::text,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.json",
+        function: handler::json,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.bytes",
+        function: handler::bytes,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.status",
+        function: handler::status,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.with_header",
+        function: handler::with_header,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.into_response",
+        function: handler::into_response,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.into_text_response",
+        function: handler::into_text_response,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.into_status_response",
+        function: handler::into_status_response,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.error",
+        function: handler::error,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.error_response",
+        function: handler::error_response,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.error_code",
+        function: handler::error_code,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.error_message",
+        function: handler::error_message,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.last_error_message",
+        function: handler::last_error_message,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.register_sync",
+        function: handler::register_sync,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.register_async",
+        function: handler::register_async,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.dispatch_sync",
+        function: handler::dispatch_sync,
+    },
+    HostCallSpec {
+        name: "spectra.api.handler.dispatch_async",
+        function: handler::dispatch_async,
+    },
+    HostCallSpec {
         name: "spectra.api.errors.last_code",
         function: errors::last_code,
     },
@@ -755,7 +824,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 143);
+        assert_eq!(HOST_CALLS.len(), 160);
     }
 
     #[test]

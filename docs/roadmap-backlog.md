@@ -3467,7 +3467,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 143 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 160 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -4027,7 +4027,7 @@ streaming interface, and enforce size and count limits.
 
 ## R-2215 Handler Trait and Response Return
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -4044,6 +4044,28 @@ router calls to produce a `Response`.
 - Handlers can return any value that implements `IntoResponse`.
 - Errors thrown by handlers flow through the unified error middleware.
 - Tests cover both handler shapes and trait object dispatch.
+
+### Completed Implementation Notes
+
+- Added `packages/spectra-api/src/handler.rs` with native Rust
+  `IntoResponse`, `Handler`, and `AsyncHandler` traits.
+- Implemented `IntoResponse` for `Response`, `String`, `&str`, `Vec<u8>`,
+  `()`, `HandlerError`, and `Result<T, HandlerError>` when
+  `T: IntoResponse`.
+- Added stable `std.api.handler` types: `HandlerHandle`,
+  `AsyncHandlerHandle`, and `HandlerError`.
+- Extended the semantic module registry to export builtin traits, allowing
+  `IntoResponse`, `Handler`, and `AsyncHandler` to be imported from
+  `std.api.handler` and implemented by user types.
+- Added response helper host calls for text, JSON, bytes, status-only
+  responses, header decoration, typed handler errors, and deterministic
+  sync/async handler handle dispatch.
+- Registered `spectra.api.handler.*` host calls through `packages/spectra-api`,
+  `runtime/src/api/mod.rs`, semantic builtins, midend lowering, and the public
+  API snapshot.
+- Documented the public surface in `docs/api/std-api-handler.md`.
+- Added `tests/validation/139_api_handler_response_return.spectra` and
+  `scripts/validate_r2215_handler_response.py`.
 
 ## R-2216 Server Lifecycle, Listen, Serve, and Graceful Shutdown
 

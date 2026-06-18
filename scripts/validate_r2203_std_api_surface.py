@@ -19,6 +19,7 @@ REQUIRED_MODULES = [
     "std.api.query",
     "std.api.form",
     "std.api.multipart",
+    "std.api.handler",
     "std.api.errors",
 ]
 REQUIRED_FUNCTIONS = [
@@ -167,6 +168,23 @@ REQUIRED_FUNCTIONS = [
     "std.api.multipart.file_spool_to",
     "std.api.multipart.error_code",
     "std.api.multipart.error_message",
+    "std.api.handler.text",
+    "std.api.handler.json",
+    "std.api.handler.bytes",
+    "std.api.handler.status",
+    "std.api.handler.with_header",
+    "std.api.handler.into_response",
+    "std.api.handler.into_text_response",
+    "std.api.handler.into_status_response",
+    "std.api.handler.error",
+    "std.api.handler.error_response",
+    "std.api.handler.error_code",
+    "std.api.handler.error_message",
+    "std.api.handler.last_error_message",
+    "std.api.handler.register_sync",
+    "std.api.handler.register_async",
+    "std.api.handler.dispatch_sync",
+    "std.api.handler.dispatch_async",
     "std.api.errors.last_code",
     "std.api.errors.last_message",
 ]
@@ -194,6 +212,9 @@ REQUIRED_TYPES = [
     "std.api.form.FormBinding",
     "std.api.multipart.Multipart",
     "std.api.multipart.MultipartPart",
+    "std.api.handler.HandlerHandle",
+    "std.api.handler.AsyncHandlerHandle",
+    "std.api.handler.HandlerError",
     "std.api.errors.ApiError",
 ]
 
@@ -259,6 +280,7 @@ def validate_public_surface() -> None:
         "from std.api.query",
         "std.api.form",
         "std.api.multipart",
+        "std.api.handler",
         "from std.api.errors",
         "request_new",
         "method_name",
@@ -267,9 +289,13 @@ def validate_public_surface() -> None:
         "parse",
         "api_form.len",
         "multipart.part_count",
+        "api_handler.text",
         "last_code",
     ]:
         require(sample_call in fixture, f"{sample_call} missing from semantic fixture")
+
+    for trait_name in ["IntoResponse", "Handler", "AsyncHandler"]:
+        require(trait_name in builtins, f"{trait_name} trait missing from builtin handler surface")
 
     require(
         "STD_API_PUBLIC_FUNCTIONS" in lsp and "std_api_completion_items" in lsp,

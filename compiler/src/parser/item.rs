@@ -951,17 +951,6 @@ impl Parser {
     ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
-        const BUILTIN_OP_TRAITS: &[&str] =
-            &["Add", "Sub", "Mul", "Div", "Rem", "Eq", "Ord", "Drop"];
-        let is_builtin_trait = BUILTIN_OP_TRAITS.contains(&trait_name.as_str());
-        if !self.trait_signatures.contains_key(&trait_name) && !is_builtin_trait {
-            let message = format!(
-                "Trait '{}' must be declared before its implementation",
-                trait_name
-            );
-            self.error_at(&message, start_span);
-        }
-
         let mut implemented_methods: HashSet<String> = HashSet::new();
         let mut methods = Vec::new();
 

@@ -16,8 +16,8 @@ pub mod module_registry;
 
 use builtin_modules::register_builtin_modules;
 use module_registry::{
-    ExportVisibility, ExportedFunction, ExportedMethod, ExportedSelfParamKind, ExportedType,
-    ModuleExports, ModuleRegistry,
+    ExportVisibility, ExportedFunction, ExportedMethod, ExportedSelfParamKind, ExportedTrait,
+    ExportedType, ModuleExports, ModuleRegistry,
 };
 
 #[derive(Debug, Clone)]
@@ -154,6 +154,25 @@ impl From<ExportedSelfParamKind> for SelfParamKind {
         match kind {
             ExportedSelfParamKind::Value => SelfParamKind::Value,
             ExportedSelfParamKind::Reference { mutable } => SelfParamKind::Reference { mutable },
+        }
+    }
+}
+
+impl From<SelfParamKind> for ParameterInfo {
+    fn from(kind: SelfParamKind) -> Self {
+        match kind {
+            SelfParamKind::Value => ParameterInfo {
+                is_self: true,
+                is_reference: false,
+                is_mutable: false,
+                ty: None,
+            },
+            SelfParamKind::Reference { mutable } => ParameterInfo {
+                is_self: true,
+                is_reference: true,
+                is_mutable: mutable,
+                ty: None,
+            },
         }
     }
 }
@@ -543,6 +562,7 @@ impl SemanticAnalyzer {
             "std.api.query",
             "std.api.form",
             "std.api.multipart",
+            "std.api.handler",
             "std.api.errors",
             "spectra",
             "spectra.std",
@@ -572,6 +592,7 @@ impl SemanticAnalyzer {
             "spectra.std.api.query",
             "spectra.std.api.form",
             "spectra.std.api.multipart",
+            "spectra.std.api.handler",
             "spectra.std.api.errors",
         ];
 
@@ -4430,7 +4451,7 @@ impl SemanticAnalyzer {
                 self.error_with_hint(
                     format!("Unknown standard library module '{}'", module_path),
                     import.span,
-                    "Available stdlib modules include std.io, std.math, std.collections, std.tensor, std.ml, std.concurrent, std.serve, std.api.http, std.api.server, std.api.client, std.api.json, std.api.tls, std.api.routing, std.api.query, std.api.form, std.api.multipart, std.api.errors",
+                    "Available stdlib modules include std.io, std.math, std.collections, std.tensor, std.ml, std.concurrent, std.serve, std.api.http, std.api.server, std.api.client, std.api.json, std.api.tls, std.api.routing, std.api.query, std.api.form, std.api.multipart, std.api.handler, std.api.errors",
                 );
             }
             // For user modules: silently skip — they may be registered in a
@@ -4456,6 +4477,7 @@ impl SemanticAnalyzer {
             for name in named {
                 if !exports.functions.contains_key(name.as_str())
                     && !exports.types.contains_key(name.as_str())
+                    && !exports.traits.contains_key(name.as_str())
                 {
                     self.error_with_hint(
                         format!("Module '{}' does not export '{}'", module_path, name),
@@ -4466,6 +4488,7 @@ impl SemanticAnalyzer {
                                 .functions
                                 .keys()
                                 .chain(exports.types.keys())
+                                .chain(exports.traits.keys())
                                 .cloned()
                                 .collect::<Vec<_>>()
                                 .join(", ")
@@ -4488,6 +4511,13 @@ impl SemanticAnalyzer {
                         .filter(|(_, t)| t.visibility == ExportVisibility::Public)
                         .map(|(n, _)| n.clone()),
                 )
+                .chain(
+                    exports
+                        .traits
+                        .iter()
+                        .filter(|(_, t)| t.visibility == ExportVisibility::Public)
+                        .map(|(n, _)| n.clone()),
+                )
                 .collect();
             // Also include Internal symbols when we are in the same package.
             if let Some(pkg) = &exports.package_name {
@@ -4502,8 +4532,14 @@ impl SemanticAnalyzer {
                         .iter()
                         .filter(|(_, t)| t.visibility == ExportVisibility::Internal)
                         .map(|(n, _)| n.clone());
+                    let internal_traits = exports
+                        .traits
+                        .iter()
+                        .filter(|(_, t)| t.visibility == ExportVisibility::Internal)
+                        .map(|(n, _)| n.clone());
                     all_names.extend(internal_fns);
                     all_names.extend(internal_types);
+                    all_names.extend(internal_traits);
                 }
             }
             all_names
@@ -4529,6 +4565,12 @@ impl SemanticAnalyzer {
                 .or_else(|| {
                     exports
                         .types
+                        .get(name.as_str())
+                        .map(|t| t.visibility == ExportVisibility::Internal)
+                })
+                .or_else(|| {
+                    exports
+                        .traits
                         .get(name.as_str())
                         .map(|t| t.visibility == ExportVisibility::Internal)
                 })
@@ -4724,6 +4766,13 @@ impl SemanticAnalyzer {
                     }
                 }
             }
+
+            if let Some(trait_export) = exports.traits.get(name.as_str()) {
+                let local_name = alias
+                    .as_deref()
+                    .map_or_else(|| name.clone(), |a| format!("{}.{}", a, name));
+                self.import_exported_trait(&local_name, trait_export);
+            }
         }
 
         // For user (non-stdlib) modules: reconstruct AST enum/struct definitions
@@ -4801,6 +4850,48 @@ impl SemanticAnalyzer {
         }
 
         aliases
+    }
+
+    fn import_exported_trait(&mut self, local_name: &str, trait_export: &ExportedTrait) {
+        let mut trait_methods = HashMap::new();
+        let mut signature_map = HashMap::new();
+        for (method_name, method_export) in &trait_export.methods {
+            let self_kind = method_export.self_kind.clone().map(SelfParamKind::from);
+            let signature = FunctionSignature {
+                params: method_export.params.clone(),
+                return_type: method_export.return_type.clone(),
+                self_kind,
+                is_async: method_export.is_async,
+            };
+            trait_methods.insert(
+                method_name.clone(),
+                TraitMethodInfo {
+                    signature,
+                    has_default: method_export.has_default,
+                    default_body: None,
+                },
+            );
+
+            let mut params = Vec::new();
+            if let Some(kind) = self_kind {
+                params.push(ParameterInfo::from(kind));
+            }
+            signature_map.insert(
+                method_name.clone(),
+                TraitMethodSignature {
+                    params,
+                    return_type: None,
+                    has_default_body: method_export.has_default,
+                    is_async: method_export.is_async,
+                },
+            );
+        }
+        self.traits
+            .entry(local_name.to_string())
+            .or_insert(trait_methods);
+        self.trait_signatures
+            .entry(local_name.to_string())
+            .or_insert(signature_map);
     }
 
     fn predeclare_trait_impl(&mut self, trait_name: &str, type_name: &str) {

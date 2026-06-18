@@ -15,6 +15,7 @@ import { router_new, route_count} from std.api.routing;
 import { parse, len} from std.api.query;
 import std.api.form as api_form;
 import std.api.multipart as multipart;
+import std.api.handler as api_handler;
 import { last_code} from std.api.errors;
 
 pub fn main() -> int {
@@ -38,7 +39,9 @@ pub fn main() -> int {
     let multipart_body = "--B\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello\r\n--B--\r\n";
     let upload = multipart.parse(multipart_body, "B", 512, 2, 128);
     let upload_parts = multipart.part_count(upload);
+    let handled = api_handler.text("ok");
+    let handled_status = response_status(handled);
     let error_code = last_code();
 
-    return response_class + json_kind + tls_mode + routes + query_len + form_len + upload_parts + error_code;
+    return response_class + json_kind + tls_mode + routes + query_len + form_len + upload_parts + handled_status + error_code;
 }

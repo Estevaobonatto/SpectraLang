@@ -687,6 +687,16 @@ fn store() -> &'static Mutex<HttpStore> {
     STORE.get_or_init(|| Mutex::new(HttpStore::new()))
 }
 
+pub(crate) fn store_response(response: Response) -> SpectraHostValue {
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    store.response_handle(response)
+}
+
+pub(crate) fn clone_response(handle: SpectraHostValue) -> Option<Response> {
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    store.responses.get(&handle).cloned()
+}
+
 pub fn parse_request(bytes: &[u8]) -> Result<ParsedRequest, ParseError> {
     let mut parser = Http1Parser::request();
     parser.push(bytes);

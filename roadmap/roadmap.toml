@@ -1651,7 +1651,7 @@ dependencies = ["R-2201"]
 summary = "Add a new workspace crate `spectra-api` that hosts the Rust implementation of HTTP parsing, server, client, JSON, TLS, and registers the host calls that `std.api.*` will dispatch into."
 acceptance = [
   "`packages/spectra-api` compiles in the workspace and links against the existing `spectra-runtime` crate",
-  "143 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
+  "160 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
   "`cargo test -p spectra-api` covers the registered host functions and registry behavior",
   "`runtime/src/api/mod.rs` records the required host-call namespace contract",
   "`scripts/validate_r2202_spectra_api_hostcalls.py` verifies host call naming, registration count, CLI integration, package metadata, and planning sync",
@@ -1901,15 +1901,18 @@ title = "Handler Trait and Response Return"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2210"]
 summary = "Define the `api.handler` trait that user handlers implement and that the router calls to produce a `Response`."
 acceptance = [
-  "the trait supports `async fn` and synchronous handlers",
-  "handlers can return any value that implements `IntoResponse`",
-  "errors thrown by handlers flow through the unified error middleware",
-  "tests cover both handler shapes and trait object dispatch"
+  "`std.api.handler` exports `Handler`, `AsyncHandler`, and `IntoResponse` traits plus handler/error handle types",
+  "the trait surface supports `async fn` and synchronous handlers over `Request -> Response`",
+  "handlers can return values that implement `IntoResponse`, including native `Response`, text, bytes, unit, handler errors, and `Result<T, HandlerError>` in `spectra-api`",
+  "`HandlerError` flows through `error_response` and `last_error_message` so R-2301/R-2314 unified error middleware can consume typed handler failures",
+  "tests cover synchronous handlers, async handlers, `IntoResponse`, handler handle dispatch, and error-to-response conversion in `tests/validation/139_api_handler_response_return.spectra`",
+  "`cargo test -p spectra-api handler --offline`, `cargo test -p spectra-compiler --offline`, and `cargo test -p spectra-midend --offline` pass",
+  "`scripts/validate_r2215_handler_response.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

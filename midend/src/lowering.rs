@@ -8900,6 +8900,29 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("multipart", "file_spool_to") => Some(host_bool("spectra.api.multipart.file_spool_to")),
         ("multipart", "error_code") => Some(host_int("spectra.api.multipart.error_code")),
         ("multipart", "error_message") => Some(host_string("spectra.api.multipart.error_message")),
+        ("handler", "text") => Some(host_int("spectra.api.handler.text")),
+        ("handler", "json") => Some(host_int("spectra.api.handler.json")),
+        ("handler", "bytes") => Some(host_int("spectra.api.handler.bytes")),
+        ("handler", "status") => Some(host_int("spectra.api.handler.status")),
+        ("handler", "with_header") => Some(host_int("spectra.api.handler.with_header")),
+        ("handler", "into_response") => Some(host_int("spectra.api.handler.into_response")),
+        ("handler", "into_text_response") => {
+            Some(host_int("spectra.api.handler.into_text_response"))
+        }
+        ("handler", "into_status_response") => {
+            Some(host_int("spectra.api.handler.into_status_response"))
+        }
+        ("handler", "error") => Some(host_int("spectra.api.handler.error")),
+        ("handler", "error_response") => Some(host_int("spectra.api.handler.error_response")),
+        ("handler", "error_code") => Some(host_int("spectra.api.handler.error_code")),
+        ("handler", "error_message") => Some(host_string("spectra.api.handler.error_message")),
+        ("handler", "last_error_message") => {
+            Some(host_string("spectra.api.handler.last_error_message"))
+        }
+        ("handler", "register_sync") => Some(host_int("spectra.api.handler.register_sync")),
+        ("handler", "register_async") => Some(host_int("spectra.api.handler.register_async")),
+        ("handler", "dispatch_sync") => Some(host_int("spectra.api.handler.dispatch_sync")),
+        ("handler", "dispatch_async") => Some(host_int("spectra.api.handler.dispatch_async")),
         _ => None,
     }
 }
@@ -8914,7 +8937,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "routing"
                     || module == "query"
                     || module == "form"
-                    || module == "multipart") =>
+                    || module == "multipart"
+                    || module == "handler") =>
         {
             name.as_str()
         }
@@ -8926,7 +8950,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "routing"
                     || module == "query"
                     || module == "form"
-                    || module == "multipart") =>
+                    || module == "multipart"
+                    || module == "handler") =>
         {
             name.as_str()
         }
@@ -8953,6 +8978,9 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "FormBinding"
             | "Multipart"
             | "MultipartPart"
+            | "HandlerHandle"
+            | "AsyncHandlerHandle"
+            | "HandlerError"
     )
 }
 
@@ -8978,6 +9006,9 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "FormBinding"
             | "Multipart"
             | "MultipartPart"
+            | "HandlerHandle"
+            | "AsyncHandlerHandle"
+            | "HandlerError"
     )
 }
 

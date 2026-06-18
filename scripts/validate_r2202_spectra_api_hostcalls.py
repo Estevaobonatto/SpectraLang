@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 143
+EXPECTED_COUNT = 160
 REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
@@ -150,6 +150,23 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.multipart.file_spool_to",
     "spectra.api.multipart.error_code",
     "spectra.api.multipart.error_message",
+    "spectra.api.handler.text",
+    "spectra.api.handler.json",
+    "spectra.api.handler.bytes",
+    "spectra.api.handler.status",
+    "spectra.api.handler.with_header",
+    "spectra.api.handler.into_response",
+    "spectra.api.handler.into_text_response",
+    "spectra.api.handler.into_status_response",
+    "spectra.api.handler.error",
+    "spectra.api.handler.error_response",
+    "spectra.api.handler.error_code",
+    "spectra.api.handler.error_message",
+    "spectra.api.handler.last_error_message",
+    "spectra.api.handler.register_sync",
+    "spectra.api.handler.register_async",
+    "spectra.api.handler.dispatch_sync",
+    "spectra.api.handler.dispatch_async",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ]
@@ -210,6 +227,7 @@ def validate_files() -> None:
         "packages/spectra-api/src/query.rs",
         "packages/spectra-api/src/form.rs",
         "packages/spectra-api/src/multipart.rs",
+        "packages/spectra-api/src/handler.rs",
         "packages/spectra-api/src/errors.rs",
         "runtime/src/api/mod.rs",
         "packages/spectra-api/src/bindings/mod.spectra",

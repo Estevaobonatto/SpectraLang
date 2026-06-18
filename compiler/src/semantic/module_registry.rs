@@ -41,6 +41,23 @@ pub struct ExportedMethod {
     pub is_async: bool,
 }
 
+/// A method exported from a trait declaration.
+#[derive(Debug, Clone)]
+pub struct ExportedTraitMethod {
+    pub params: Vec<Type>,
+    pub return_type: Type,
+    pub self_kind: Option<ExportedSelfParamKind>,
+    pub is_async: bool,
+    pub has_default: bool,
+}
+
+/// A trait exported from a module.
+#[derive(Debug, Clone)]
+pub struct ExportedTrait {
+    pub methods: HashMap<String, ExportedTraitMethod>,
+    pub visibility: ExportVisibility,
+}
+
 /// A type (struct or enum) exported from a module.
 #[derive(Debug, Clone)]
 pub struct ExportedType {
@@ -63,6 +80,7 @@ pub struct ExportedType {
 pub struct ModuleExports {
     pub functions: HashMap<String, ExportedFunction>,
     pub types: HashMap<String, ExportedType>,
+    pub traits: HashMap<String, ExportedTrait>,
     /// Inherent methods exported by type name, then method name.
     pub methods: HashMap<String, HashMap<String, ExportedMethod>>,
     /// Package this module belongs to (from `spectra.toml` `name` field).

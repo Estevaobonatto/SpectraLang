@@ -8,6 +8,7 @@ module std.api.routing
 module std.api.query
 module std.api.form
 module std.api.multipart
+module std.api.handler
 module std.api.errors
 type std.api.http.Request: struct Request
 type std.api.http.Response: struct Response
@@ -32,6 +33,9 @@ type std.api.form.FormSchema: struct FormSchema
 type std.api.form.FormBinding: struct FormBinding
 type std.api.multipart.Multipart: struct Multipart
 type std.api.multipart.MultipartPart: struct MultipartPart
+type std.api.handler.HandlerHandle: struct HandlerHandle
+type std.api.handler.AsyncHandlerHandle: struct AsyncHandlerHandle
+type std.api.handler.HandlerError: struct HandlerError
 type std.api.errors.ApiError: struct ApiError
 fn std.api.http.method_name: fn(int) -> string
 fn std.api.http.method_allows_body: fn(int) -> bool
@@ -178,5 +182,22 @@ fn std.api.multipart.file_read: fn(MultipartPart, int, int) -> string
 fn std.api.multipart.file_spool_to: fn(MultipartPart, string) -> bool
 fn std.api.multipart.error_code: fn() -> int
 fn std.api.multipart.error_message: fn() -> string
+fn std.api.handler.text: fn(string) -> Response
+fn std.api.handler.json: fn(string) -> Response
+fn std.api.handler.bytes: fn(string) -> Response
+fn std.api.handler.status: fn(int) -> Response
+fn std.api.handler.with_header: fn(Response, string, string) -> Response
+fn std.api.handler.into_response: fn(Response) -> Response
+fn std.api.handler.into_text_response: fn(string) -> Response
+fn std.api.handler.into_status_response: fn(int) -> Response
+fn std.api.handler.error: fn(int, string) -> HandlerError
+fn std.api.handler.error_response: fn(HandlerError) -> Response
+fn std.api.handler.error_code: fn(HandlerError) -> int
+fn std.api.handler.error_message: fn(HandlerError) -> string
+fn std.api.handler.last_error_message: fn() -> string
+fn std.api.handler.register_sync: fn(int, Response) -> HandlerHandle
+fn std.api.handler.register_async: fn(int, Response) -> AsyncHandlerHandle
+fn std.api.handler.dispatch_sync: fn(HandlerHandle, Request) -> Response
+fn std.api.handler.dispatch_async: fn(AsyncHandlerHandle, Request) -> Response
 fn std.api.errors.last_code: fn() -> int
 fn std.api.errors.last_message: fn() -> string
