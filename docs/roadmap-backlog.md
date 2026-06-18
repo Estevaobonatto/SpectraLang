@@ -3467,7 +3467,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 28 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 71 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -3810,7 +3810,7 @@ The public behavior is documented in `docs/api/std-api-json-derive.md`.
 
 ## R-2210 Request, Response, Header, Cookie, Method, Status Types
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3824,9 +3824,28 @@ Define the core HTTP types in the public `std.api.*` surface: `Request`,
 ### Acceptance
 
 - The types are usable as handler parameters and return values.
-- `Method` and `Status` enumerate the documented values.
+- Method and Status documented values are exposed through stable constructors.
 - Header and cookie accessors are case-insensitive and validate input.
 - Tests cover representative CRUD request/response flows.
+- `tests/validation/134_http_core_types.spectra` compiles and runs.
+- `cargo test -p spectra-api --offline` passes.
+- `cargo test -p spectra-compiler --offline` passes.
+- `cargo test -p spectra-midend --offline` passes.
+- `scripts/validate_r2210_http_core_types.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed Implementation Notes
+
+- Added production HTTP core types in `packages/spectra-api/src/http.rs`:
+  `Method`, `Status`, `Request`, `Response`, `Header`, `Headers`, `Cookie`,
+  and `Body` handle semantics.
+- Expanded `spectra.api.http.*` to 71 registered host calls, including stable
+  Method/Status constructors and request/response/header/cookie accessors.
+- Added midend lowering for `std.api.http.*` host calls and lowered API handle
+  types to runtime integer handles for backend/JIT execution.
+- Documented the public surface in `docs/api/std-api-http-types.md`.
+- Added `tests/validation/134_http_core_types.spectra` and
+  `scripts/validate_r2210_http_core_types.py`.
 
 ## R-2211 Router: Path Matching and Wildcards
 

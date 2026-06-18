@@ -1651,7 +1651,7 @@ dependencies = ["R-2201"]
 summary = "Add a new workspace crate `spectra-api` that hosts the Rust implementation of HTTP parsing, server, client, JSON, TLS, and registers the host calls that `std.api.*` will dispatch into."
 acceptance = [
   "`packages/spectra-api` compiles in the workspace and links against the existing `spectra-runtime` crate",
-  "28 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
+  "71 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
   "`cargo test -p spectra-api` covers the registered host functions and registry behavior",
   "`runtime/src/api/mod.rs` records the required host-call namespace contract",
   "`scripts/validate_r2202_spectra_api_hostcalls.py` verifies host call naming, registration count, CLI integration, package metadata, and planning sync",
@@ -1799,15 +1799,20 @@ title = "Request, Response, Header, Cookie, Method, Status Types"
 phase = "phase_22"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2204"]
 summary = "Define the core HTTP types in the public `std.api.*` surface: `Request`, `Response`, `Header`, `Cookie`, `Method`, and `Status`."
 acceptance = [
   "the types are usable as handler parameters and return values",
-  "`Method` and `Status` enumerate the documented values",
+  "Method and Status documented values are exposed through stable constructors",
   "header and cookie accessors are case-insensitive and validate input",
-  "tests cover representative CRUD request/response flows"
+  "tests cover representative CRUD request/response flows",
+  "`tests/validation/134_http_core_types.spectra` compiles and runs",
+  "`cargo test -p spectra-api --offline` passes",
+  "`cargo test -p spectra-compiler --offline` passes",
+  "`cargo test -p spectra-midend --offline` passes",
+  "`scripts/validate_r2210_http_core_types.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

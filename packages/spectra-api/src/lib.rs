@@ -54,6 +54,34 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: http::method_is_safe,
     },
     HostCallSpec {
+        name: "spectra.api.http.method_get",
+        function: http::method_get,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.method_head",
+        function: http::method_head,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.method_post",
+        function: http::method_post,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.method_put",
+        function: http::method_put,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.method_patch",
+        function: http::method_patch,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.method_delete",
+        function: http::method_delete,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.method_options",
+        function: http::method_options,
+    },
+    HostCallSpec {
         name: "spectra.api.http.status_reason",
         function: http::status_reason,
     },
@@ -64,6 +92,98 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
     HostCallSpec {
         name: "spectra.api.http.status_is_success",
         function: http::status_is_success,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status",
+        function: http::status,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_continue",
+        function: http::status_continue,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_switching_protocols",
+        function: http::status_switching_protocols,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_ok",
+        function: http::status_ok,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_created",
+        function: http::status_created,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_accepted",
+        function: http::status_accepted,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_no_content",
+        function: http::status_no_content,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_moved_permanently",
+        function: http::status_moved_permanently,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_found",
+        function: http::status_found,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_not_modified",
+        function: http::status_not_modified,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_bad_request",
+        function: http::status_bad_request,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_unauthorized",
+        function: http::status_unauthorized,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_forbidden",
+        function: http::status_forbidden,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_not_found",
+        function: http::status_not_found,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_method_not_allowed",
+        function: http::status_method_not_allowed,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_conflict",
+        function: http::status_conflict,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_unsupported_media_type",
+        function: http::status_unsupported_media_type,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_unprocessable_content",
+        function: http::status_unprocessable_content,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_too_many_requests",
+        function: http::status_too_many_requests,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_internal_server_error",
+        function: http::status_internal_server_error,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_bad_gateway",
+        function: http::status_bad_gateway,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_service_unavailable",
+        function: http::status_service_unavailable,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.status_gateway_timeout",
+        function: http::status_gateway_timeout,
     },
     HostCallSpec {
         name: "spectra.api.http.header_name_is_valid",
@@ -78,16 +198,68 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: http::request_new,
     },
     HostCallSpec {
+        name: "spectra.api.http.request",
+        function: http::request,
+    },
+    HostCallSpec {
         name: "spectra.api.http.request_method",
         function: http::request_method,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.request_path",
+        function: http::request_path,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.request_header",
+        function: http::request_header,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.request_cookie",
+        function: http::request_cookie,
     },
     HostCallSpec {
         name: "spectra.api.http.response_new",
         function: http::response_new,
     },
     HostCallSpec {
+        name: "spectra.api.http.response",
+        function: http::response_new,
+    },
+    HostCallSpec {
         name: "spectra.api.http.response_status",
         function: http::response_status,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.response_header",
+        function: http::response_header,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.response_body_len",
+        function: http::response_body_len,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.header",
+        function: http::header,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.header_name",
+        function: http::header_name,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.header_value",
+        function: http::header_value,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.cookie",
+        function: http::cookie,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.cookie_name",
+        function: http::cookie_name,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.cookie_value",
+        function: http::cookie_value,
     },
     HostCallSpec {
         name: "spectra.api.server.new",
@@ -292,7 +464,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 28);
+        assert_eq!(HOST_CALLS.len(), 71);
     }
 
     #[test]
@@ -314,7 +486,10 @@ mod tests {
         let _guard = test_guard();
         clear_host_functions();
         register();
-        assert_eq!(call("spectra.api.version.major", &[]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(
+            call("spectra.api.version.major", &[]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
         assert_eq!(
             call("spectra.api.http.method_allows_body", &[http::METHOD_POST]),
             (HOST_STATUS_SUCCESS, 1)

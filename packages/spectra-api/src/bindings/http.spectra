@@ -1,1 +1,52 @@
-// Binding module reserved for R-2203 semantic exposure.
+// Public Spectra surface for Phase 22 HTTP core types.
+//
+// The compiler exposes these declarations as the stable `std.api.http`
+// built-in module, and the native implementation is registered under the
+// `spectra.api.http.*` host-call namespace.
+
+module std.api.http;
+
+pub struct Request {
+    pub method: int,
+    pub path: string,
+    pub headers: Headers,
+    pub body: Body,
+}
+
+pub struct Response {
+    pub status: int,
+    pub headers: Headers,
+    pub body: Body,
+}
+
+pub struct Method {
+    pub code: int,
+    pub name: string,
+}
+
+pub struct Status {
+    pub code: int,
+    pub reason: string,
+}
+
+pub struct Header {
+    pub name: string,
+    pub value: string,
+}
+
+pub struct Headers {
+    pub len: int,
+}
+
+pub struct Cookie {
+    pub name: string,
+    pub value: string,
+}
+
+pub struct Body {
+    pub len: int,
+}
+
+// Native function declarations are represented in
+// compiler/src/semantic/builtin_modules.rs until package-level native extern
+// declarations become first-class syntax.

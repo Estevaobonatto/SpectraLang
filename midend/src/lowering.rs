@@ -7171,6 +7171,9 @@ impl ASTLowering {
                 if segments.is_empty() {
                     return IRType::Void;
                 }
+                if is_std_api_handle_type_segments(segments) {
+                    return IRType::Int;
+                }
 
                 // Check if this is a type parameter that needs substitution
                 let type_name = segments[0].as_str();
@@ -7397,7 +7400,9 @@ impl ASTLowering {
                 }
             }
             ASTType::Struct { name } => {
-                if let Some(fields) = self.struct_definitions.get(name) {
+                if is_std_api_handle_type_name(name) {
+                    IRType::Int
+                } else if let Some(fields) = self.struct_definitions.get(name) {
                     IRType::Struct {
                         name: name.clone(),
                         fields: fields.clone(),
@@ -7693,6 +7698,9 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
     match path {
         [] => None,
         [first, ..] if first != "std" => None,
+        [_, api, module, function] if api == "api" => {
+            lookup_std_api_host_function(module, function)
+        }
         [_, module, function] => match (module.as_str(), function.as_str()) {
             ("math", "abs") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.abs",
@@ -8736,6 +8744,113 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
         },
         _ => None,
     }
+}
+
+fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunctionDescriptor> {
+    match (module, function) {
+        ("http", "method_name") => Some(host_string("spectra.api.http.method_name")),
+        ("http", "method_allows_body") => Some(host_int("spectra.api.http.method_allows_body")),
+        ("http", "method_is_safe") => Some(host_int("spectra.api.http.method_is_safe")),
+        ("http", "method_get") => Some(host_int("spectra.api.http.method_get")),
+        ("http", "method_head") => Some(host_int("spectra.api.http.method_head")),
+        ("http", "method_post") => Some(host_int("spectra.api.http.method_post")),
+        ("http", "method_put") => Some(host_int("spectra.api.http.method_put")),
+        ("http", "method_patch") => Some(host_int("spectra.api.http.method_patch")),
+        ("http", "method_delete") => Some(host_int("spectra.api.http.method_delete")),
+        ("http", "method_options") => Some(host_int("spectra.api.http.method_options")),
+        ("http", "status_reason") => Some(host_string("spectra.api.http.status_reason")),
+        ("http", "status_class") => Some(host_int("spectra.api.http.status_class")),
+        ("http", "status_is_success") => Some(host_int("spectra.api.http.status_is_success")),
+        ("http", "status_continue") => Some(host_int("spectra.api.http.status_continue")),
+        ("http", "status_switching_protocols") => {
+            Some(host_int("spectra.api.http.status_switching_protocols"))
+        }
+        ("http", "status_ok") => Some(host_int("spectra.api.http.status_ok")),
+        ("http", "status_created") => Some(host_int("spectra.api.http.status_created")),
+        ("http", "status_accepted") => Some(host_int("spectra.api.http.status_accepted")),
+        ("http", "status_no_content") => Some(host_int("spectra.api.http.status_no_content")),
+        ("http", "status_moved_permanently") => {
+            Some(host_int("spectra.api.http.status_moved_permanently"))
+        }
+        ("http", "status_found") => Some(host_int("spectra.api.http.status_found")),
+        ("http", "status_not_modified") => Some(host_int("spectra.api.http.status_not_modified")),
+        ("http", "status_bad_request") => Some(host_int("spectra.api.http.status_bad_request")),
+        ("http", "status_unauthorized") => Some(host_int("spectra.api.http.status_unauthorized")),
+        ("http", "status_forbidden") => Some(host_int("spectra.api.http.status_forbidden")),
+        ("http", "status_not_found") => Some(host_int("spectra.api.http.status_not_found")),
+        ("http", "status_method_not_allowed") => {
+            Some(host_int("spectra.api.http.status_method_not_allowed"))
+        }
+        ("http", "status_conflict") => Some(host_int("spectra.api.http.status_conflict")),
+        ("http", "status_unsupported_media_type") => {
+            Some(host_int("spectra.api.http.status_unsupported_media_type"))
+        }
+        ("http", "status_unprocessable_content") => {
+            Some(host_int("spectra.api.http.status_unprocessable_content"))
+        }
+        ("http", "status_too_many_requests") => {
+            Some(host_int("spectra.api.http.status_too_many_requests"))
+        }
+        ("http", "status_internal_server_error") => {
+            Some(host_int("spectra.api.http.status_internal_server_error"))
+        }
+        ("http", "status_bad_gateway") => Some(host_int("spectra.api.http.status_bad_gateway")),
+        ("http", "status_service_unavailable") => {
+            Some(host_int("spectra.api.http.status_service_unavailable"))
+        }
+        ("http", "status_gateway_timeout") => {
+            Some(host_int("spectra.api.http.status_gateway_timeout"))
+        }
+        ("http", "header_name_is_valid") => Some(host_int("spectra.api.http.header_name_is_valid")),
+        ("http", "header_value_is_valid") => {
+            Some(host_int("spectra.api.http.header_value_is_valid"))
+        }
+        ("http", "request") => Some(host_int("spectra.api.http.request")),
+        ("http", "request_new") => Some(host_int("spectra.api.http.request_new")),
+        ("http", "request_method") => Some(host_int("spectra.api.http.request_method")),
+        ("http", "request_path") => Some(host_string("spectra.api.http.request_path")),
+        ("http", "request_header") => Some(host_string("spectra.api.http.request_header")),
+        ("http", "request_cookie") => Some(host_string("spectra.api.http.request_cookie")),
+        ("http", "response") => Some(host_int("spectra.api.http.response")),
+        ("http", "response_new") => Some(host_int("spectra.api.http.response_new")),
+        ("http", "response_status") => Some(host_int("spectra.api.http.response_status")),
+        ("http", "response_header") => Some(host_string("spectra.api.http.response_header")),
+        ("http", "response_body_len") => Some(host_int("spectra.api.http.response_body_len")),
+        ("http", "header") => Some(host_int("spectra.api.http.header")),
+        ("http", "header_name") => Some(host_string("spectra.api.http.header_name")),
+        ("http", "header_value") => Some(host_string("spectra.api.http.header_value")),
+        ("http", "cookie") => Some(host_int("spectra.api.http.cookie")),
+        ("http", "cookie_name") => Some(host_string("spectra.api.http.cookie_name")),
+        ("http", "cookie_value") => Some(host_string("spectra.api.http.cookie_value")),
+        ("http", "status") => Some(host_int("spectra.api.http.status")),
+        _ => None,
+    }
+}
+
+fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
+    let name = match segments {
+        [name] => name.as_str(),
+        [std, api, module, name] if std == "std" && api == "api" && module == "http" => {
+            name.as_str()
+        }
+        [spectra, std, api, module, name]
+            if spectra == "spectra" && std == "std" && api == "api" && module == "http" =>
+        {
+            name.as_str()
+        }
+        _ => return false,
+    };
+    matches!(
+        name,
+        "Request" | "Response" | "Header" | "Headers" | "Cookie" | "Body" | "Method" | "Status"
+    )
+}
+
+fn is_std_api_handle_type_name(name: &str) -> bool {
+    matches!(
+        name,
+        "Request" | "Response" | "Header" | "Headers" | "Cookie" | "Body" | "Method" | "Status"
+    )
 }
 
 fn host_int(runtime_name: &'static str) -> HostFunctionDescriptor {

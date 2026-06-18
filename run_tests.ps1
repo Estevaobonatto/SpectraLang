@@ -1325,6 +1325,19 @@ if ($r2209JsonDerive.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2209_json_derive"; Status = $r2209JsonDerive.Status; Detalhe = $r2209JsonDerive.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.47: R-2210 HTTP core types
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2210 HTTP core types ---" -ForegroundColor Yellow
+$r2210HttpCoreTypes = Invoke-HostCommand -name "validate_r2210_http_core_types" -fileName "python" -arguments @("scripts\validate_r2210_http_core_types.py") -workingDir (Get-Location).Path
+if ($r2210HttpCoreTypes.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2210_http_core_types"; Status = $r2210HttpCoreTypes.Status; Detalhe = $r2210HttpCoreTypes.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

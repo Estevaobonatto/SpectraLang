@@ -24,18 +24,57 @@ type std.api.errors.ApiError: struct ApiError
 fn std.api.http.method_name: fn(int) -> string
 fn std.api.http.method_allows_body: fn(int) -> bool
 fn std.api.http.method_is_safe: fn(int) -> bool
+fn std.api.http.method_get: fn() -> int
+fn std.api.http.method_head: fn() -> int
+fn std.api.http.method_post: fn() -> int
+fn std.api.http.method_put: fn() -> int
+fn std.api.http.method_patch: fn() -> int
+fn std.api.http.method_delete: fn() -> int
+fn std.api.http.method_options: fn() -> int
 fn std.api.http.status_reason: fn(int) -> string
 fn std.api.http.status_class: fn(int) -> int
 fn std.api.http.status_is_success: fn(int) -> bool
+fn std.api.http.status_continue: fn() -> int
+fn std.api.http.status_switching_protocols: fn() -> int
+fn std.api.http.status_ok: fn() -> int
+fn std.api.http.status_created: fn() -> int
+fn std.api.http.status_accepted: fn() -> int
+fn std.api.http.status_no_content: fn() -> int
+fn std.api.http.status_moved_permanently: fn() -> int
+fn std.api.http.status_found: fn() -> int
+fn std.api.http.status_not_modified: fn() -> int
+fn std.api.http.status_bad_request: fn() -> int
+fn std.api.http.status_unauthorized: fn() -> int
+fn std.api.http.status_forbidden: fn() -> int
+fn std.api.http.status_not_found: fn() -> int
+fn std.api.http.status_method_not_allowed: fn() -> int
+fn std.api.http.status_conflict: fn() -> int
+fn std.api.http.status_unsupported_media_type: fn() -> int
+fn std.api.http.status_unprocessable_content: fn() -> int
+fn std.api.http.status_too_many_requests: fn() -> int
+fn std.api.http.status_internal_server_error: fn() -> int
+fn std.api.http.status_bad_gateway: fn() -> int
+fn std.api.http.status_service_unavailable: fn() -> int
+fn std.api.http.status_gateway_timeout: fn() -> int
 fn std.api.http.header_name_is_valid: fn(string) -> bool
 fn std.api.http.header_value_is_valid: fn(string) -> bool
 fn std.api.http.request: fn(int, string) -> Request
 fn std.api.http.request_new: fn(int) -> Request
 fn std.api.http.request_method: fn(Request) -> int
+fn std.api.http.request_path: fn(Request) -> string
+fn std.api.http.request_header: fn(Request, string) -> string
+fn std.api.http.request_cookie: fn(Request, string) -> string
 fn std.api.http.response: fn(int) -> Response
 fn std.api.http.response_new: fn(int) -> Response
 fn std.api.http.response_status: fn(Response) -> int
+fn std.api.http.response_header: fn(Response, string) -> string
+fn std.api.http.response_body_len: fn(Response) -> int
 fn std.api.http.header: fn(string, string) -> Header
+fn std.api.http.header_name: fn(Header) -> string
+fn std.api.http.header_value: fn(Header) -> string
+fn std.api.http.cookie: fn(string, string) -> Cookie
+fn std.api.http.cookie_name: fn(Cookie) -> string
+fn std.api.http.cookie_value: fn(Cookie) -> string
 fn std.api.http.status: fn(int) -> Status
 fn std.api.server.new: fn() -> Server
 fn std.api.server.serve: fn(Server, Router) -> task<int>

@@ -14,14 +14,306 @@ pub const METHOD_PATCH: SpectraHostValue = 5;
 pub const METHOD_DELETE: SpectraHostValue = 6;
 pub const METHOD_OPTIONS: SpectraHostValue = 7;
 
-#[derive(Clone, Copy)]
-struct Request {
-    method: SpectraHostValue,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Method {
+    Get,
+    Head,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    Options,
 }
 
-#[derive(Clone, Copy)]
-struct Response {
-    status: SpectraHostValue,
+impl Method {
+    pub fn from_code(code: SpectraHostValue) -> Option<Self> {
+        match code {
+            METHOD_GET => Some(Self::Get),
+            METHOD_HEAD => Some(Self::Head),
+            METHOD_POST => Some(Self::Post),
+            METHOD_PUT => Some(Self::Put),
+            METHOD_PATCH => Some(Self::Patch),
+            METHOD_DELETE => Some(Self::Delete),
+            METHOD_OPTIONS => Some(Self::Options),
+            _ => None,
+        }
+    }
+
+    pub fn code(self) -> SpectraHostValue {
+        match self {
+            Self::Get => METHOD_GET,
+            Self::Head => METHOD_HEAD,
+            Self::Post => METHOD_POST,
+            Self::Put => METHOD_PUT,
+            Self::Patch => METHOD_PATCH,
+            Self::Delete => METHOD_DELETE,
+            Self::Options => METHOD_OPTIONS,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Head => "HEAD",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
+            Self::Delete => "DELETE",
+            Self::Options => "OPTIONS",
+        }
+    }
+
+    pub fn allows_body(self) -> bool {
+        matches!(self, Self::Post | Self::Put | Self::Patch)
+    }
+
+    pub fn is_safe(self) -> bool {
+        matches!(self, Self::Get | Self::Head | Self::Options)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Status {
+    code: u16,
+}
+
+impl Status {
+    pub fn new(code: u16) -> Result<Self, HttpTypeError> {
+        if (100..=599).contains(&code) {
+            Ok(Self { code })
+        } else {
+            Err(HttpTypeError::InvalidStatus(code))
+        }
+    }
+
+    pub fn code(self) -> u16 {
+        self.code
+    }
+
+    pub fn reason(self) -> &'static str {
+        status_reason_phrase(self.code as SpectraHostValue)
+    }
+
+    pub fn class(self) -> u16 {
+        self.code / 100
+    }
+
+    pub fn is_success(self) -> bool {
+        (200..=299).contains(&self.code)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HttpTypeError {
+    InvalidMethod(SpectraHostValue),
+    InvalidStatus(u16),
+    InvalidHeaderName(String),
+    InvalidHeaderValue(String),
+    InvalidCookieName(String),
+    InvalidCookieValue(String),
+    InvalidPath(String),
+}
+
+impl fmt::Display for HttpTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidMethod(code) => write!(f, "invalid HTTP method code {code}"),
+            Self::InvalidStatus(code) => write!(f, "invalid HTTP status code {code}"),
+            Self::InvalidHeaderName(name) => write!(f, "invalid HTTP header name {name:?}"),
+            Self::InvalidHeaderValue(value) => write!(f, "invalid HTTP header value {value:?}"),
+            Self::InvalidCookieName(name) => write!(f, "invalid HTTP cookie name {name:?}"),
+            Self::InvalidCookieValue(value) => write!(f, "invalid HTTP cookie value {value:?}"),
+            Self::InvalidPath(path) => write!(f, "invalid HTTP request path {path:?}"),
+        }
+    }
+}
+
+impl std::error::Error for HttpTypeError {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Header {
+    pub name: String,
+    pub value: String,
+}
+
+impl Header {
+    pub fn new(name: impl Into<String>, value: impl Into<String>) -> Result<Self, HttpTypeError> {
+        let name = name.into();
+        let value = value.into();
+        if !is_valid_header_name(&name) {
+            return Err(HttpTypeError::InvalidHeaderName(name));
+        }
+        if !is_valid_header_value(&value) {
+            return Err(HttpTypeError::InvalidHeaderValue(value));
+        }
+        Ok(Self { name, value })
+    }
+
+    pub fn name_eq(&self, name: &str) -> bool {
+        self.name.eq_ignore_ascii_case(name)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Headers {
+    entries: Vec<Header>,
+}
+
+impl Headers {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_vec(entries: Vec<Header>) -> Self {
+        Self { entries }
+    }
+
+    pub fn insert(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<(), HttpTypeError> {
+        let header = Header::new(name, value)?;
+        if let Some(existing) = self
+            .entries
+            .iter_mut()
+            .find(|existing| existing.name_eq(&header.name))
+        {
+            existing.value = header.value;
+        } else {
+            self.entries.push(header);
+        }
+        Ok(())
+    }
+
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|header| header.name_eq(name))
+            .map(|header| header.value.as_str())
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    pub fn remove(&mut self, name: &str) -> bool {
+        let old_len = self.entries.len();
+        self.entries.retain(|header| !header.name_eq(name));
+        self.entries.len() != old_len
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Header> {
+        self.entries.iter()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cookie {
+    pub name: String,
+    pub value: String,
+}
+
+impl Cookie {
+    pub fn new(name: impl Into<String>, value: impl Into<String>) -> Result<Self, HttpTypeError> {
+        let name = name.into();
+        let value = value.into();
+        if !is_valid_cookie_name(&name) {
+            return Err(HttpTypeError::InvalidCookieName(name));
+        }
+        if !is_valid_cookie_value(&value) {
+            return Err(HttpTypeError::InvalidCookieValue(value));
+        }
+        Ok(Self { name, value })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Request {
+    pub method: Method,
+    pub path: String,
+    pub headers: Headers,
+    pub body: Vec<u8>,
+}
+
+impl Request {
+    pub fn new(method: Method, path: impl Into<String>) -> Result<Self, HttpTypeError> {
+        let path = path.into();
+        if !is_valid_request_path(&path) {
+            return Err(HttpTypeError::InvalidPath(path));
+        }
+        Ok(Self {
+            method,
+            path,
+            headers: Headers::new(),
+            body: Vec::new(),
+        })
+    }
+
+    pub fn with_header(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, HttpTypeError> {
+        self.headers.insert(name, value)?;
+        Ok(self)
+    }
+
+    pub fn with_body(mut self, body: Vec<u8>) -> Self {
+        self.body = body;
+        self
+    }
+
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name)
+    }
+
+    pub fn cookie(&self, name: &str) -> Option<String> {
+        cookie_value_from_header(self.header("cookie")?, name)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Response {
+    pub status: Status,
+    pub headers: Headers,
+    pub body: Vec<u8>,
+}
+
+impl Response {
+    pub fn new(status: Status) -> Self {
+        Self {
+            status,
+            headers: Headers::new(),
+            body: Vec::new(),
+        }
+    }
+
+    pub fn with_header(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, HttpTypeError> {
+        self.headers.insert(name, value)?;
+        Ok(self)
+    }
+
+    pub fn with_body(mut self, body: Vec<u8>) -> Self {
+        self.body = body;
+        self
+    }
+
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,12 +331,6 @@ impl fmt::Display for HttpVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "HTTP/{}.{}", self.major, self.minor)
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Header {
-    pub name: String,
-    pub value: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -345,8 +631,12 @@ enum BodyMeta {
 struct HttpStore {
     next_request: SpectraHostValue,
     next_response: SpectraHostValue,
+    next_header: SpectraHostValue,
+    next_cookie: SpectraHostValue,
     requests: HashMap<SpectraHostValue, Request>,
     responses: HashMap<SpectraHostValue, Response>,
+    headers: HashMap<SpectraHostValue, Header>,
+    cookies: HashMap<SpectraHostValue, Cookie>,
 }
 
 impl HttpStore {
@@ -354,22 +644,40 @@ impl HttpStore {
         Self {
             next_request: 1,
             next_response: 1,
+            next_header: 1,
+            next_cookie: 1,
             requests: HashMap::new(),
             responses: HashMap::new(),
+            headers: HashMap::new(),
+            cookies: HashMap::new(),
         }
     }
 
-    fn request_handle(&mut self, method: SpectraHostValue) -> SpectraHostValue {
+    fn request_handle(&mut self, request: Request) -> SpectraHostValue {
         let handle = self.next_request;
         self.next_request = self.next_request.saturating_add(1).max(1);
-        self.requests.insert(handle, Request { method });
+        self.requests.insert(handle, request);
         handle
     }
 
-    fn response_handle(&mut self, status: SpectraHostValue) -> SpectraHostValue {
+    fn response_handle(&mut self, response: Response) -> SpectraHostValue {
         let handle = self.next_response;
         self.next_response = self.next_response.saturating_add(1).max(1);
-        self.responses.insert(handle, Response { status });
+        self.responses.insert(handle, response);
+        handle
+    }
+
+    fn header_handle(&mut self, header: Header) -> SpectraHostValue {
+        let handle = self.next_header;
+        self.next_header = self.next_header.saturating_add(1).max(1);
+        self.headers.insert(handle, header);
+        handle
+    }
+
+    fn cookie_handle(&mut self, cookie: Cookie) -> SpectraHostValue {
+        let handle = self.next_cookie;
+        self.next_cookie = self.next_cookie.saturating_add(1).max(1);
+        self.cookies.insert(handle, cookie);
         handle
     }
 }
@@ -1034,6 +1342,44 @@ pub extern "C" fn method_is_safe(ctx: *mut SpectraHostCallContext) -> i32 {
     write_result(ctx, safe as SpectraHostValue)
 }
 
+macro_rules! const_host_call {
+    ($name:ident, $value:expr) => {
+        pub extern "C" fn $name(ctx: *mut SpectraHostCallContext) -> i32 {
+            write_result(ctx, $value)
+        }
+    };
+}
+
+const_host_call!(method_get, METHOD_GET);
+const_host_call!(method_head, METHOD_HEAD);
+const_host_call!(method_post, METHOD_POST);
+const_host_call!(method_put, METHOD_PUT);
+const_host_call!(method_patch, METHOD_PATCH);
+const_host_call!(method_delete, METHOD_DELETE);
+const_host_call!(method_options, METHOD_OPTIONS);
+const_host_call!(status_continue, 100);
+const_host_call!(status_switching_protocols, 101);
+const_host_call!(status_ok, 200);
+const_host_call!(status_created, 201);
+const_host_call!(status_accepted, 202);
+const_host_call!(status_no_content, 204);
+const_host_call!(status_moved_permanently, 301);
+const_host_call!(status_found, 302);
+const_host_call!(status_not_modified, 304);
+const_host_call!(status_bad_request, 400);
+const_host_call!(status_unauthorized, 401);
+const_host_call!(status_forbidden, 403);
+const_host_call!(status_not_found, 404);
+const_host_call!(status_method_not_allowed, 405);
+const_host_call!(status_conflict, 409);
+const_host_call!(status_unsupported_media_type, 415);
+const_host_call!(status_unprocessable_content, 422);
+const_host_call!(status_too_many_requests, 429);
+const_host_call!(status_internal_server_error, 500);
+const_host_call!(status_bad_gateway, 502);
+const_host_call!(status_service_unavailable, 503);
+const_host_call!(status_gateway_timeout, 504);
+
 pub extern "C" fn status_reason(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(args) = read_args(ctx, 1) else {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -1061,6 +1407,19 @@ pub extern "C" fn status_is_success(ctx: *mut SpectraHostCallContext) -> i32 {
     write_result(ctx, ((200..=299).contains(&args[0])) as SpectraHostValue)
 }
 
+pub extern "C" fn status(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Ok(code) = u16::try_from(args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    if Status::new(code).is_err() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    write_result(ctx, args[0])
+}
+
 pub extern "C" fn header_name_is_valid(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(args) = read_args(ctx, 1) else {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -1085,11 +1444,31 @@ pub extern "C" fn request_new(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(args) = read_args(ctx, 1) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    if !is_known_method(args[0]) {
+    let Some(method) = Method::from_code(args[0]) else {
         return HOST_STATUS_INVALID_ARGUMENT;
-    }
+    };
+    let Ok(request) = Request::new(method, "/") else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    write_result(ctx, store.request_handle(args[0]))
+    write_result(ctx, store.request_handle(request))
+}
+
+pub extern "C" fn request(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(method) = Method::from_code(args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(path) = read_spectra_string(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Ok(request) = Request::new(method, path) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    write_result(ctx, store.request_handle(request))
 }
 
 pub extern "C" fn request_method(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -1100,18 +1479,66 @@ pub extern "C" fn request_method(ctx: *mut SpectraHostCallContext) -> i32 {
     let Some(request) = store.requests.get(&args[0]) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    write_result(ctx, request.method)
+    write_result(ctx, request.method.code())
+}
+
+pub extern "C" fn request_path(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(request) = store.requests.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, alloc_spectra_string(&request.path))
+}
+
+pub extern "C" fn request_header(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(name) = read_spectra_string(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(request) = store.requests.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(
+        ctx,
+        alloc_spectra_string(request.header(&name).unwrap_or("")),
+    )
+}
+
+pub extern "C" fn request_cookie(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(name) = read_spectra_string(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(request) = store.requests.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(
+        ctx,
+        alloc_spectra_string(&request.cookie(&name).unwrap_or_default()),
+    )
 }
 
 pub extern "C" fn response_new(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(args) = read_args(ctx, 1) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    if !(100..=599).contains(&args[0]) {
+    let Ok(status) = u16::try_from(args[0])
+        .map_err(|_| ())
+        .and_then(|code| Status::new(code).map_err(|_| ()))
+    else {
         return HOST_STATUS_INVALID_ARGUMENT;
-    }
+    };
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    write_result(ctx, store.response_handle(args[0]))
+    write_result(ctx, store.response_handle(Response::new(status)))
 }
 
 pub extern "C" fn response_status(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -1122,33 +1549,115 @@ pub extern "C" fn response_status(ctx: *mut SpectraHostCallContext) -> i32 {
     let Some(response) = store.responses.get(&args[0]) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    write_result(ctx, response.status)
+    write_result(ctx, response.status.code() as SpectraHostValue)
 }
 
-fn is_known_method(method: SpectraHostValue) -> bool {
-    matches!(
-        method,
-        METHOD_GET
-            | METHOD_HEAD
-            | METHOD_POST
-            | METHOD_PUT
-            | METHOD_PATCH
-            | METHOD_DELETE
-            | METHOD_OPTIONS
+pub extern "C" fn response_header(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(name) = read_spectra_string(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(response) = store.responses.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(
+        ctx,
+        alloc_spectra_string(response.header(&name).unwrap_or("")),
     )
 }
 
+pub extern "C" fn response_body_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(response) = store.responses.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, response.body.len() as SpectraHostValue)
+}
+
+pub extern "C" fn header(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let (Some(name), Some(value)) = (read_spectra_string(args[0]), read_spectra_string(args[1]))
+    else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Ok(header) = Header::new(name, value) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    write_result(ctx, store.header_handle(header))
+}
+
+pub extern "C" fn header_name(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(header) = store.headers.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, alloc_spectra_string(&header.name))
+}
+
+pub extern "C" fn header_value(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(header) = store.headers.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, alloc_spectra_string(&header.value))
+}
+
+pub extern "C" fn cookie(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let (Some(name), Some(value)) = (read_spectra_string(args[0]), read_spectra_string(args[1]))
+    else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Ok(cookie) = Cookie::new(name, value) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    write_result(ctx, store.cookie_handle(cookie))
+}
+
+pub extern "C" fn cookie_name(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(cookie) = store.cookies.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, alloc_spectra_string(&cookie.name))
+}
+
+pub extern "C" fn cookie_value(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(cookie) = store.cookies.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, alloc_spectra_string(&cookie.value))
+}
+
 fn method_label(method: SpectraHostValue) -> &'static str {
-    match method {
-        METHOD_GET => "GET",
-        METHOD_HEAD => "HEAD",
-        METHOD_POST => "POST",
-        METHOD_PUT => "PUT",
-        METHOD_PATCH => "PATCH",
-        METHOD_DELETE => "DELETE",
-        METHOD_OPTIONS => "OPTIONS",
-        _ => "UNKNOWN",
-    }
+    Method::from_code(method)
+        .map(Method::as_str)
+        .unwrap_or("UNKNOWN")
 }
 
 fn status_reason_phrase(status: SpectraHostValue) -> &'static str {
@@ -1209,9 +1718,137 @@ fn is_valid_header_value(value: &str) -> bool {
         .all(|b| b == b'\t' || b == b' ' || (0x21..=0x7e).contains(&b) || b >= 0x80)
 }
 
+fn is_valid_cookie_name(name: &str) -> bool {
+    is_valid_header_name(name)
+}
+
+fn is_valid_cookie_value(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|b| b != b';' && b != b',' && b != b'\\' && b != b'"' && b > 0x20 && b < 0x7f)
+}
+
+fn is_valid_request_path(path: &str) -> bool {
+    !path.is_empty() && path.starts_with('/') && !path.bytes().any(|b| b <= b' ' || b == 0x7f)
+}
+
+fn cookie_value_from_header(header: &str, name: &str) -> Option<String> {
+    for pair in header.split(';') {
+        let pair = pair.trim();
+        let Some((candidate, value)) = pair.split_once('=') else {
+            continue;
+        };
+        if candidate.trim().eq_ignore_ascii_case(name) {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn method_and_status_enumerate_documented_http_values() {
+        let methods = [
+            (METHOD_GET, "GET", true, false),
+            (METHOD_HEAD, "HEAD", true, false),
+            (METHOD_POST, "POST", false, true),
+            (METHOD_PUT, "PUT", false, true),
+            (METHOD_PATCH, "PATCH", false, true),
+            (METHOD_DELETE, "DELETE", false, false),
+            (METHOD_OPTIONS, "OPTIONS", true, false),
+        ];
+        for (code, name, safe, body) in methods {
+            let method = Method::from_code(code).expect("documented method");
+            assert_eq!(method.code(), code);
+            assert_eq!(method.as_str(), name);
+            assert_eq!(method.is_safe(), safe);
+            assert_eq!(method.allows_body(), body);
+        }
+        assert!(Method::from_code(99).is_none());
+
+        for (code, reason, class, success) in [
+            (100, "Continue", 1, false),
+            (200, "OK", 2, true),
+            (201, "Created", 2, true),
+            (204, "No Content", 2, true),
+            (301, "Moved Permanently", 3, false),
+            (400, "Bad Request", 4, false),
+            (404, "Not Found", 4, false),
+            (409, "Conflict", 4, false),
+            (422, "Unprocessable Content", 4, false),
+            (429, "Too Many Requests", 4, false),
+            (500, "Internal Server Error", 5, false),
+            (503, "Service Unavailable", 5, false),
+        ] {
+            let status = Status::new(code).expect("documented status");
+            assert_eq!(status.reason(), reason);
+            assert_eq!(status.class(), class);
+            assert_eq!(status.is_success(), success);
+        }
+        assert!(Status::new(99).is_err());
+        assert!(Status::new(600).is_err());
+    }
+
+    #[test]
+    fn headers_and_cookies_are_case_insensitive_and_validate_input() {
+        let mut headers = Headers::new();
+        headers
+            .insert("Content-Type", "application/json")
+            .expect("valid header");
+        assert_eq!(headers.get("content-type"), Some("application/json"));
+        assert!(headers.contains("CONTENT-TYPE"));
+        headers
+            .insert("content-type", "text/plain")
+            .expect("case-insensitive upsert");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.get("CONTENT-TYPE"), Some("text/plain"));
+        assert!(headers.insert("Bad Header", "value").is_err());
+        assert!(headers.insert("X-Good", "bad\rvalue").is_err());
+
+        let cookie = Cookie::new("Session", "abc123").expect("valid cookie");
+        assert_eq!(cookie.name, "Session");
+        assert!(Cookie::new("bad name", "abc").is_err());
+        assert!(Cookie::new("session", "bad;value").is_err());
+        assert_eq!(
+            cookie_value_from_header("SESSION=abc123; theme=dark", "session"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn request_response_types_cover_crud_style_flow() {
+        let create = Request::new(Method::Post, "/users")
+            .expect("request")
+            .with_header("Content-Type", "application/json")
+            .expect("header")
+            .with_header("Cookie", "SESSION=abc123; theme=dark")
+            .expect("cookie header")
+            .with_body(br#"{"name":"Ada"}"#.to_vec());
+        assert_eq!(create.method, Method::Post);
+        assert_eq!(create.path, "/users");
+        assert_eq!(create.header("content-type"), Some("application/json"));
+        assert_eq!(create.cookie("session").as_deref(), Some("abc123"));
+        assert_eq!(create.body, br#"{"name":"Ada"}"#);
+
+        let read = Request::new(Method::Get, "/users/7").expect("read request");
+        let update = Request::new(Method::Put, "/users/7").expect("update request");
+        let delete = Request::new(Method::Delete, "/users/7").expect("delete request");
+        assert!(read.method.is_safe());
+        assert!(update.method.allows_body());
+        assert!(!delete.method.allows_body());
+
+        let response = Response::new(Status::new(201).expect("created"))
+            .with_header("Location", "/users/7")
+            .expect("location")
+            .with_body(br#"{"id":7}"#.to_vec());
+        assert_eq!(response.status.reason(), "Created");
+        assert_eq!(response.header("location"), Some("/users/7"));
+        assert_eq!(response.body.len(), 8);
+    }
 
     #[test]
     fn request_parser_streams_headers_then_body() {
