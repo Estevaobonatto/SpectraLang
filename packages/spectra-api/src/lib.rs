@@ -14,6 +14,7 @@ pub mod errors;
 pub mod form;
 pub mod http;
 pub mod json;
+pub mod multipart;
 pub mod query;
 pub mod routing;
 pub mod server;
@@ -532,6 +533,70 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: form::error_message,
     },
     HostCallSpec {
+        name: "spectra.api.multipart.parse",
+        function: multipart::parse,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part_count",
+        function: multipart::part_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.field_count",
+        function: multipart::field_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.file_count",
+        function: multipart::file_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.text",
+        function: multipart::text,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part",
+        function: multipart::part,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part_name",
+        function: multipart::part_name,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part_filename",
+        function: multipart::part_filename,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part_content_type",
+        function: multipart::part_content_type,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part_size",
+        function: multipart::part_size,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.part_is_file",
+        function: multipart::part_is_file,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.file_path",
+        function: multipart::file_path,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.file_read",
+        function: multipart::file_read,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.file_spool_to",
+        function: multipart::file_spool_to,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.error_code",
+        function: multipart::error_code,
+    },
+    HostCallSpec {
+        name: "spectra.api.multipart.error_message",
+        function: multipart::error_message,
+    },
+    HostCallSpec {
         name: "spectra.api.errors.last_code",
         function: errors::last_code,
     },
@@ -690,7 +755,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 127);
+        assert_eq!(HOST_CALLS.len(), 143);
     }
 
     #[test]

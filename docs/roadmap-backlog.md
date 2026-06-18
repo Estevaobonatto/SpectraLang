@@ -3467,7 +3467,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 127 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 143 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -3987,7 +3987,7 @@ fields, including arrays and nested objects.
 
 ## R-2214 Multipart Form and File Uploads
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `web`
 - Risk: `medium`
@@ -4006,6 +4006,24 @@ streaming interface, and enforce size and count limits.
 - Files are streamed to disk or a sink to avoid loading them entirely in
   memory.
 - Tests cover simple forms, multiple files, and oversize rejection.
+
+### Completed Implementation Notes
+
+- Added `packages/spectra-api/src/multipart.rs` with a
+  `multipart/form-data` parser, boundary validation, part header parsing,
+  `Content-Disposition` extraction, text-field decoding, and typed parse
+  errors.
+- Added stable `std.api.multipart` types: `Multipart` and `MultipartPart`.
+- Added request total-size, per-part size, and part-count limits with typed
+  `error_code()` and `error_message()` reporting.
+- Spools file parts to a managed temporary directory and exposes chunked file
+  reading through `file_read` plus sink copying through `file_spool_to`.
+- Registered `spectra.api.multipart.*` host calls through
+  `packages/spectra-api`, `runtime/src/api/mod.rs`, semantic builtins, midend
+  lowering, and the public API snapshot.
+- Documented the public surface in `docs/api/std-api-multipart.md`.
+- Added `tests/validation/138_api_multipart_uploads.spectra` and
+  `scripts/validate_r2214_multipart_uploads.py`.
 
 ## R-2215 Handler Trait and Response Return
 

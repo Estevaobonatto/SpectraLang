@@ -18,6 +18,7 @@ pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api.routing",
     "std.api.query",
     "std.api.form",
+    "std.api.multipart",
     "std.api.errors",
 ];
 
@@ -43,6 +44,8 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
     ("std.api.form.Form", "struct Form"),
     ("std.api.form.FormSchema", "struct FormSchema"),
     ("std.api.form.FormBinding", "struct FormBinding"),
+    ("std.api.multipart.Multipart", "struct Multipart"),
+    ("std.api.multipart.MultipartPart", "struct MultipartPart"),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -236,6 +239,46 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ),
     ("std.api.form.error_code", "fn() -> int"),
     ("std.api.form.error_message", "fn() -> string"),
+    (
+        "std.api.multipart.parse",
+        "fn(string, string, int, int, int) -> Multipart",
+    ),
+    ("std.api.multipart.part_count", "fn(Multipart) -> int"),
+    ("std.api.multipart.field_count", "fn(Multipart) -> int"),
+    ("std.api.multipart.file_count", "fn(Multipart) -> int"),
+    (
+        "std.api.multipart.text",
+        "fn(Multipart, string, int) -> string",
+    ),
+    (
+        "std.api.multipart.part",
+        "fn(Multipart, int) -> MultipartPart",
+    ),
+    ("std.api.multipart.part_name", "fn(MultipartPart) -> string"),
+    (
+        "std.api.multipart.part_filename",
+        "fn(MultipartPart) -> string",
+    ),
+    (
+        "std.api.multipart.part_content_type",
+        "fn(MultipartPart) -> string",
+    ),
+    ("std.api.multipart.part_size", "fn(MultipartPart) -> int"),
+    (
+        "std.api.multipart.part_is_file",
+        "fn(MultipartPart) -> bool",
+    ),
+    ("std.api.multipart.file_path", "fn(MultipartPart) -> string"),
+    (
+        "std.api.multipart.file_read",
+        "fn(MultipartPart, int, int) -> string",
+    ),
+    (
+        "std.api.multipart.file_spool_to",
+        "fn(MultipartPart, string) -> bool",
+    ),
+    ("std.api.multipart.error_code", "fn() -> int"),
+    ("std.api.multipart.error_message", "fn() -> string"),
     ("std.api.errors.last_code", "fn() -> int"),
     ("std.api.errors.last_message", "fn() -> string"),
 ];
@@ -324,6 +367,10 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     registry.register_module(format!("{prefix}.routing"), make_std_api_routing(prefix));
     registry.register_module(format!("{prefix}.query"), make_std_api_query(prefix));
     registry.register_module(format!("{prefix}.form"), make_std_api_form(prefix));
+    registry.register_module(
+        format!("{prefix}.multipart"),
+        make_std_api_multipart(prefix),
+    );
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
 }
 
@@ -750,6 +797,55 @@ fn make_std_api_form(prefix: &str) -> ModuleExports {
             vec![binding, Type::String, Type::Int],
             Type::Bool,
         ),
+        ("error_code", vec![], Type::Int),
+        ("error_message", vec![], Type::String),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_multipart(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("multipart"));
+    exports
+        .types
+        .insert("Multipart".to_string(), public_type(&["part_count"]));
+    exports.types.insert(
+        "MultipartPart".to_string(),
+        public_type(&["name", "filename", "content_type", "size"]),
+    );
+    let multipart = api_type("Multipart");
+    let part = api_type("MultipartPart");
+    let functions = [
+        (
+            "parse",
+            vec![Type::String, Type::String, Type::Int, Type::Int, Type::Int],
+            multipart.clone(),
+        ),
+        ("part_count", vec![multipart.clone()], Type::Int),
+        ("field_count", vec![multipart.clone()], Type::Int),
+        ("file_count", vec![multipart.clone()], Type::Int),
+        (
+            "text",
+            vec![multipart.clone(), Type::String, Type::Int],
+            Type::String,
+        ),
+        ("part", vec![multipart, Type::Int], part.clone()),
+        ("part_name", vec![part.clone()], Type::String),
+        ("part_filename", vec![part.clone()], Type::String),
+        ("part_content_type", vec![part.clone()], Type::String),
+        ("part_size", vec![part.clone()], Type::Int),
+        ("part_is_file", vec![part.clone()], Type::Bool),
+        ("file_path", vec![part.clone()], Type::String),
+        (
+            "file_read",
+            vec![part.clone(), Type::Int, Type::Int],
+            Type::String,
+        ),
+        ("file_spool_to", vec![part, Type::String], Type::Bool),
         ("error_code", vec![], Type::Int),
         ("error_message", vec![], Type::String),
     ];

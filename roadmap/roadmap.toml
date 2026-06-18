@@ -1651,7 +1651,7 @@ dependencies = ["R-2201"]
 summary = "Add a new workspace crate `spectra-api` that hosts the Rust implementation of HTTP parsing, server, client, JSON, TLS, and registers the host calls that `std.api.*` will dispatch into."
 acceptance = [
   "`packages/spectra-api` compiles in the workspace and links against the existing `spectra-runtime` crate",
-  "127 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
+  "143 `spectra.api.*` host calls are registered through the runtime host-call registry by `spectra_api::register()`",
   "`cargo test -p spectra-api` covers the registered host functions and registry behavior",
   "`runtime/src/api/mod.rs` records the required host-call namespace contract",
   "`scripts/validate_r2202_spectra_api_hostcalls.py` verifies host call naming, registration count, CLI integration, package metadata, and planning sync",
@@ -1882,15 +1882,17 @@ title = "Multipart Form and File Uploads"
 phase = "phase_22"
 owner = "web"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2213"]
 summary = "Parse `multipart/form-data` bodies, expose file uploads through a streaming interface, and enforce size and count limits."
 acceptance = [
-  "the parser exposes text parts, file parts, and stream-friendly file readers",
-  "per-request size limits and per-part count limits are enforced",
-  "files are streamed to disk or a sink to avoid loading them entirely in memory",
-  "tests cover simple forms, multiple files, and oversize rejection"
+  "`std.api.multipart` exposes `Multipart` and `MultipartPart` handles for text parts, file parts, and stream-friendly file readers",
+  "per-request size limits, per-part size limits, and per-part count limits are enforced with typed error metadata",
+  "file parts are spooled to disk and can be copied to an application sink through `file_spool_to` without storing file contents in API handles",
+  "tests cover simple forms, multiple files, malformed input, and oversize rejection in `tests/validation/138_api_multipart_uploads.spectra`",
+  "`cargo test -p spectra-api multipart --offline`, `cargo test -p spectra-compiler --offline`, and `cargo test -p spectra-midend --offline` pass",
+  "`scripts/validate_r2214_multipart_uploads.py` passes and is wired into `run_tests.ps1`"
 ]
 
 [[items]]

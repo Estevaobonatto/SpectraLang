@@ -13,25 +13,32 @@ import { validate, kind} from std.api.json;
 import { client_config, config_mode} from std.api.tls;
 import { router_new, route_count} from std.api.routing;
 import { parse, len} from std.api.query;
+import std.api.form as api_form;
+import std.api.multipart as multipart;
 import { last_code} from std.api.errors;
 
 pub fn main() -> int {
-    let request        = request_new(1);
-    let method         = request_method(request);
-    let method_text    = method_name(method);
-    let allows_body    = method_allows_body(method);
-    let response       = response_new(200);
-    let status_code    = response_status(response);
+    let request = request_new(1);
+    let method = request_method(request);
+    let method_text = method_name(method);
+    let allows_body = method_allows_body(method);
+    let response = response_new(200);
+    let status_code = response_status(response);
     let response_class = status_class(status_code);
-    let payload_ok     = validate("{\"ok\": true}");
-    let json_kind      = kind("{\"ok\": true}");
-    let tls_config     = client_config();
-    let tls_mode       = config_mode(tls_config);
-    let router         = router_new();
-    let routes         = route_count(router);
-    let query          = parse("page=1");
-    let query_len      = len(query);
-    let error_code     = last_code();
+    let payload_ok = validate("{\"ok\": true}");
+    let json_kind = kind("{\"ok\": true}");
+    let tls_config = client_config();
+    let tls_mode = config_mode(tls_config);
+    let router = router_new();
+    let routes = route_count(router);
+    let query = parse("page=1");
+    let query_len = len(query);
+    let form = api_form.parse("name=Ada&tags[]=math&tags[]=api");
+    let form_len = api_form.len(form);
+    let multipart_body = "--B\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello\r\n--B--\r\n";
+    let upload = multipart.parse(multipart_body, "B", 512, 2, 128);
+    let upload_parts = multipart.part_count(upload);
+    let error_code = last_code();
 
-    return response_class + json_kind + tls_mode + routes + query_len + error_code;
+    return response_class + json_kind + tls_mode + routes + query_len + form_len + upload_parts + error_code;
 }

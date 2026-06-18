@@ -8882,6 +8882,24 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("form", "binding_bool") => Some(host_bool("spectra.api.form.binding_bool")),
         ("form", "error_code") => Some(host_int("spectra.api.form.error_code")),
         ("form", "error_message") => Some(host_string("spectra.api.form.error_message")),
+        ("multipart", "parse") => Some(host_int("spectra.api.multipart.parse")),
+        ("multipart", "part_count") => Some(host_int("spectra.api.multipart.part_count")),
+        ("multipart", "field_count") => Some(host_int("spectra.api.multipart.field_count")),
+        ("multipart", "file_count") => Some(host_int("spectra.api.multipart.file_count")),
+        ("multipart", "text") => Some(host_string("spectra.api.multipart.text")),
+        ("multipart", "part") => Some(host_int("spectra.api.multipart.part")),
+        ("multipart", "part_name") => Some(host_string("spectra.api.multipart.part_name")),
+        ("multipart", "part_filename") => Some(host_string("spectra.api.multipart.part_filename")),
+        ("multipart", "part_content_type") => {
+            Some(host_string("spectra.api.multipart.part_content_type"))
+        }
+        ("multipart", "part_size") => Some(host_int("spectra.api.multipart.part_size")),
+        ("multipart", "part_is_file") => Some(host_bool("spectra.api.multipart.part_is_file")),
+        ("multipart", "file_path") => Some(host_string("spectra.api.multipart.file_path")),
+        ("multipart", "file_read") => Some(host_string("spectra.api.multipart.file_read")),
+        ("multipart", "file_spool_to") => Some(host_bool("spectra.api.multipart.file_spool_to")),
+        ("multipart", "error_code") => Some(host_int("spectra.api.multipart.error_code")),
+        ("multipart", "error_message") => Some(host_string("spectra.api.multipart.error_message")),
         _ => None,
     }
 }
@@ -8895,7 +8913,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                 && (module == "http"
                     || module == "routing"
                     || module == "query"
-                    || module == "form") =>
+                    || module == "form"
+                    || module == "multipart") =>
         {
             name.as_str()
         }
@@ -8906,7 +8925,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                 && (module == "http"
                     || module == "routing"
                     || module == "query"
-                    || module == "form") =>
+                    || module == "form"
+                    || module == "multipart") =>
         {
             name.as_str()
         }
@@ -8931,6 +8951,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "Form"
             | "FormSchema"
             | "FormBinding"
+            | "Multipart"
+            | "MultipartPart"
     )
 }
 
@@ -8954,6 +8976,8 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "Form"
             | "FormSchema"
             | "FormBinding"
+            | "Multipart"
+            | "MultipartPart"
     )
 }
 

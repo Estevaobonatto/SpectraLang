@@ -7,6 +7,7 @@ module std.api.tls
 module std.api.routing
 module std.api.query
 module std.api.form
+module std.api.multipart
 module std.api.errors
 type std.api.http.Request: struct Request
 type std.api.http.Response: struct Response
@@ -29,6 +30,8 @@ type std.api.query.QueryBinding: struct QueryBinding
 type std.api.form.Form: struct Form
 type std.api.form.FormSchema: struct FormSchema
 type std.api.form.FormBinding: struct FormBinding
+type std.api.multipart.Multipart: struct Multipart
+type std.api.multipart.MultipartPart: struct MultipartPart
 type std.api.errors.ApiError: struct ApiError
 fn std.api.http.method_name: fn(int) -> string
 fn std.api.http.method_allows_body: fn(int) -> bool
@@ -159,5 +162,21 @@ fn std.api.form.binding_int: fn(FormBinding, string, int) -> int
 fn std.api.form.binding_bool: fn(FormBinding, string, int) -> bool
 fn std.api.form.error_code: fn() -> int
 fn std.api.form.error_message: fn() -> string
+fn std.api.multipart.parse: fn(string, string, int, int, int) -> Multipart
+fn std.api.multipart.part_count: fn(Multipart) -> int
+fn std.api.multipart.field_count: fn(Multipart) -> int
+fn std.api.multipart.file_count: fn(Multipart) -> int
+fn std.api.multipart.text: fn(Multipart, string, int) -> string
+fn std.api.multipart.part: fn(Multipart, int) -> MultipartPart
+fn std.api.multipart.part_name: fn(MultipartPart) -> string
+fn std.api.multipart.part_filename: fn(MultipartPart) -> string
+fn std.api.multipart.part_content_type: fn(MultipartPart) -> string
+fn std.api.multipart.part_size: fn(MultipartPart) -> int
+fn std.api.multipart.part_is_file: fn(MultipartPart) -> bool
+fn std.api.multipart.file_path: fn(MultipartPart) -> string
+fn std.api.multipart.file_read: fn(MultipartPart, int, int) -> string
+fn std.api.multipart.file_spool_to: fn(MultipartPart, string) -> bool
+fn std.api.multipart.error_code: fn() -> int
+fn std.api.multipart.error_message: fn() -> string
 fn std.api.errors.last_code: fn() -> int
 fn std.api.errors.last_message: fn() -> string

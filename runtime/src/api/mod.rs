@@ -132,6 +132,22 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.form.binding_bool",
     "spectra.api.form.error_code",
     "spectra.api.form.error_message",
+    "spectra.api.multipart.parse",
+    "spectra.api.multipart.part_count",
+    "spectra.api.multipart.field_count",
+    "spectra.api.multipart.file_count",
+    "spectra.api.multipart.text",
+    "spectra.api.multipart.part",
+    "spectra.api.multipart.part_name",
+    "spectra.api.multipart.part_filename",
+    "spectra.api.multipart.part_content_type",
+    "spectra.api.multipart.part_size",
+    "spectra.api.multipart.part_is_file",
+    "spectra.api.multipart.file_path",
+    "spectra.api.multipart.file_read",
+    "spectra.api.multipart.file_spool_to",
+    "spectra.api.multipart.error_code",
+    "spectra.api.multipart.error_message",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ];
@@ -152,6 +168,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 127);
+        assert_eq!(required_host_call_count(), 143);
     }
 }
