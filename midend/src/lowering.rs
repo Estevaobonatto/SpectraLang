@@ -8860,6 +8860,28 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("query", "binding_bool") => Some(host_bool("spectra.api.query.binding_bool")),
         ("query", "error_code") => Some(host_int("spectra.api.query.error_code")),
         ("query", "error_message") => Some(host_string("spectra.api.query.error_message")),
+        ("form", "type_string") => Some(host_int("spectra.api.form.type_string")),
+        ("form", "type_int") => Some(host_int("spectra.api.form.type_int")),
+        ("form", "type_bool") => Some(host_int("spectra.api.form.type_bool")),
+        ("form", "parse") => Some(host_int("spectra.api.form.parse")),
+        ("form", "len") => Some(host_int("spectra.api.form.len")),
+        ("form", "has") => Some(host_bool("spectra.api.form.has")),
+        ("form", "count") => Some(host_int("spectra.api.form.count")),
+        ("form", "first") => Some(host_string("spectra.api.form.first")),
+        ("form", "value") => Some(host_string("spectra.api.form.value")),
+        ("form", "int") => Some(host_int("spectra.api.form.int")),
+        ("form", "bool") => Some(host_bool("spectra.api.form.bool")),
+        ("form", "schema") => Some(host_int("spectra.api.form.schema")),
+        ("form", "schema_field") => Some(host_int("spectra.api.form.schema_field")),
+        ("form", "bind") => Some(host_int("spectra.api.form.bind")),
+        ("form", "binding_ok") => Some(host_bool("spectra.api.form.binding_ok")),
+        ("form", "binding_error") => Some(host_string("spectra.api.form.binding_error")),
+        ("form", "binding_count") => Some(host_int("spectra.api.form.binding_count")),
+        ("form", "binding_value") => Some(host_string("spectra.api.form.binding_value")),
+        ("form", "binding_int") => Some(host_int("spectra.api.form.binding_int")),
+        ("form", "binding_bool") => Some(host_bool("spectra.api.form.binding_bool")),
+        ("form", "error_code") => Some(host_int("spectra.api.form.error_code")),
+        ("form", "error_message") => Some(host_string("spectra.api.form.error_message")),
         _ => None,
     }
 }
@@ -8870,7 +8892,10 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
         [std, api, module, name]
             if std == "std"
                 && api == "api"
-                && (module == "http" || module == "routing" || module == "query") =>
+                && (module == "http"
+                    || module == "routing"
+                    || module == "query"
+                    || module == "form") =>
         {
             name.as_str()
         }
@@ -8878,7 +8903,10 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             if spectra == "spectra"
                 && std == "std"
                 && api == "api"
-                && (module == "http" || module == "routing" || module == "query") =>
+                && (module == "http"
+                    || module == "routing"
+                    || module == "query"
+                    || module == "form") =>
         {
             name.as_str()
         }
@@ -8900,6 +8928,9 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "Query"
             | "QuerySchema"
             | "QueryBinding"
+            | "Form"
+            | "FormSchema"
+            | "FormBinding"
     )
 }
 
@@ -8920,6 +8951,9 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "Query"
             | "QuerySchema"
             | "QueryBinding"
+            | "Form"
+            | "FormSchema"
+            | "FormBinding"
     )
 }
 

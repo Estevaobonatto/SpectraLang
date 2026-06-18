@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 105
+EXPECTED_COUNT = 127
 REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
@@ -112,6 +112,28 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.query.binding_bool",
     "spectra.api.query.error_code",
     "spectra.api.query.error_message",
+    "spectra.api.form.type_string",
+    "spectra.api.form.type_int",
+    "spectra.api.form.type_bool",
+    "spectra.api.form.parse",
+    "spectra.api.form.len",
+    "spectra.api.form.has",
+    "spectra.api.form.count",
+    "spectra.api.form.first",
+    "spectra.api.form.value",
+    "spectra.api.form.int",
+    "spectra.api.form.bool",
+    "spectra.api.form.schema",
+    "spectra.api.form.schema_field",
+    "spectra.api.form.bind",
+    "spectra.api.form.binding_ok",
+    "spectra.api.form.binding_error",
+    "spectra.api.form.binding_count",
+    "spectra.api.form.binding_value",
+    "spectra.api.form.binding_int",
+    "spectra.api.form.binding_bool",
+    "spectra.api.form.error_code",
+    "spectra.api.form.error_message",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ]
@@ -170,6 +192,7 @@ def validate_files() -> None:
         "packages/spectra-api/src/tls.rs",
         "packages/spectra-api/src/routing.rs",
         "packages/spectra-api/src/query.rs",
+        "packages/spectra-api/src/form.rs",
         "packages/spectra-api/src/errors.rs",
         "runtime/src/api/mod.rs",
         "packages/spectra-api/src/bindings/mod.spectra",
@@ -236,7 +259,7 @@ def validate_planning() -> None:
         "runtime host-call registry",
         "cargo test -p spectra-api",
         "scripts/validate_r2202_spectra_api_hostcalls.py",
-        "105",
+        str(EXPECTED_COUNT),
     ]:
         require(term in acceptance, f"R-2202 acceptance must mention {term}")
 
@@ -246,7 +269,7 @@ def validate_planning() -> None:
     for term in [
         "Status: `complete`",
         "packages/spectra-api",
-        "105",
+        str(EXPECTED_COUNT),
         "spectra_api::register()",
         "validate_r2202_spectra_api_hostcalls.py",
     ]:

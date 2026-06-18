@@ -1364,6 +1364,19 @@ if ($r2212QueryBinding.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2212_query_binding"; Status = $r2212QueryBinding.Status; Detalhe = $r2212QueryBinding.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.50: R-2213 URL-encoded form binding
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2213 URL-encoded form binding ---" -ForegroundColor Yellow
+$r2213FormBinding = Invoke-HostCommand -name "validate_r2213_form_binding" -fileName "python" -arguments @("scripts\validate_r2213_form_binding.py") -workingDir (Get-Location).Path
+if ($r2213FormBinding.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2213_form_binding"; Status = $r2213FormBinding.Status; Detalhe = $r2213FormBinding.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

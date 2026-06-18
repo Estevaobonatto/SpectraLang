@@ -17,6 +17,7 @@ pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api.tls",
     "std.api.routing",
     "std.api.query",
+    "std.api.form",
     "std.api.errors",
 ];
 
@@ -39,6 +40,9 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
     ("std.api.query.Query", "struct Query"),
     ("std.api.query.QuerySchema", "struct QuerySchema"),
     ("std.api.query.QueryBinding", "struct QueryBinding"),
+    ("std.api.form.Form", "struct Form"),
+    ("std.api.form.FormSchema", "struct FormSchema"),
+    ("std.api.form.FormBinding", "struct FormBinding"),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -195,6 +199,43 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ),
     ("std.api.query.error_code", "fn() -> int"),
     ("std.api.query.error_message", "fn() -> string"),
+    ("std.api.form.type_string", "fn() -> int"),
+    ("std.api.form.type_int", "fn() -> int"),
+    ("std.api.form.type_bool", "fn() -> int"),
+    ("std.api.form.parse", "fn(string) -> Form"),
+    ("std.api.form.len", "fn(Form) -> int"),
+    ("std.api.form.has", "fn(Form, string) -> bool"),
+    ("std.api.form.count", "fn(Form, string) -> int"),
+    ("std.api.form.first", "fn(Form, string) -> string"),
+    ("std.api.form.value", "fn(Form, string, int) -> string"),
+    ("std.api.form.int", "fn(Form, string, int) -> int"),
+    ("std.api.form.bool", "fn(Form, string, int) -> bool"),
+    ("std.api.form.schema", "fn() -> FormSchema"),
+    (
+        "std.api.form.schema_field",
+        "fn(FormSchema, string, int, bool, bool) -> FormSchema",
+    ),
+    ("std.api.form.bind", "fn(Form, FormSchema) -> FormBinding"),
+    ("std.api.form.binding_ok", "fn(FormBinding) -> bool"),
+    ("std.api.form.binding_error", "fn(FormBinding) -> string"),
+    (
+        "std.api.form.binding_count",
+        "fn(FormBinding, string) -> int",
+    ),
+    (
+        "std.api.form.binding_value",
+        "fn(FormBinding, string, int) -> string",
+    ),
+    (
+        "std.api.form.binding_int",
+        "fn(FormBinding, string, int) -> int",
+    ),
+    (
+        "std.api.form.binding_bool",
+        "fn(FormBinding, string, int) -> bool",
+    ),
+    ("std.api.form.error_code", "fn() -> int"),
+    ("std.api.form.error_message", "fn() -> string"),
     ("std.api.errors.last_code", "fn() -> int"),
     ("std.api.errors.last_message", "fn() -> string"),
 ];
@@ -282,6 +323,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     registry.register_module(format!("{prefix}.tls"), make_std_api_tls(prefix));
     registry.register_module(format!("{prefix}.routing"), make_std_api_routing(prefix));
     registry.register_module(format!("{prefix}.query"), make_std_api_query(prefix));
+    registry.register_module(format!("{prefix}.form"), make_std_api_form(prefix));
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
 }
 
@@ -602,6 +644,90 @@ fn make_std_api_query(prefix: &str) -> ModuleExports {
             schema.clone(),
         ),
         ("bind", vec![query, schema], binding.clone()),
+        ("binding_ok", vec![binding.clone()], Type::Bool),
+        ("binding_error", vec![binding.clone()], Type::String),
+        (
+            "binding_count",
+            vec![binding.clone(), Type::String],
+            Type::Int,
+        ),
+        (
+            "binding_value",
+            vec![binding.clone(), Type::String, Type::Int],
+            Type::String,
+        ),
+        (
+            "binding_int",
+            vec![binding.clone(), Type::String, Type::Int],
+            Type::Int,
+        ),
+        (
+            "binding_bool",
+            vec![binding, Type::String, Type::Int],
+            Type::Bool,
+        ),
+        ("error_code", vec![], Type::Int),
+        ("error_message", vec![], Type::String),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+    exports
+}
+
+fn make_std_api_form(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("form"));
+    exports
+        .types
+        .insert("Form".to_string(), public_type(&["len"]));
+    exports
+        .types
+        .insert("FormSchema".to_string(), public_type(&["field_count"]));
+    exports
+        .types
+        .insert("FormBinding".to_string(), public_type(&["ok"]));
+    let form = api_type("Form");
+    let schema = api_type("FormSchema");
+    let binding = api_type("FormBinding");
+    let functions = [
+        ("type_string", vec![], Type::Int),
+        ("type_int", vec![], Type::Int),
+        ("type_bool", vec![], Type::Int),
+        ("parse", vec![Type::String], form.clone()),
+        ("len", vec![form.clone()], Type::Int),
+        ("has", vec![form.clone(), Type::String], Type::Bool),
+        ("count", vec![form.clone(), Type::String], Type::Int),
+        ("first", vec![form.clone(), Type::String], Type::String),
+        (
+            "value",
+            vec![form.clone(), Type::String, Type::Int],
+            Type::String,
+        ),
+        (
+            "int",
+            vec![form.clone(), Type::String, Type::Int],
+            Type::Int,
+        ),
+        (
+            "bool",
+            vec![form.clone(), Type::String, Type::Int],
+            Type::Bool,
+        ),
+        ("schema", vec![], schema.clone()),
+        (
+            "schema_field",
+            vec![
+                schema.clone(),
+                Type::String,
+                Type::Int,
+                Type::Bool,
+                Type::Bool,
+            ],
+            schema.clone(),
+        ),
+        ("bind", vec![form, schema], binding.clone()),
         ("binding_ok", vec![binding.clone()], Type::Bool),
         ("binding_error", vec![binding.clone()], Type::String),
         (

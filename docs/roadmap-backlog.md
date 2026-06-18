@@ -3467,7 +3467,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 105 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 127 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -3939,7 +3939,7 @@ keys, arrays, and basic type coercion.
 
 ## R-2213 URL-Encoded Form Binding
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -3952,10 +3952,38 @@ fields, including arrays and nested objects.
 
 ### Acceptance
 
-- Form bodies parse to a typed struct or to a key-value map.
-- Duplicate keys produce a typed error with the offending field.
+- Form bodies parse to a typed struct via `FormSchema`/`FormBinding` or to a
+  key-value map through `Form` accessors.
+- Duplicate keys produce a typed error with the offending field when the
+  target schema field is scalar.
 - Missing required fields produce a validation error with the field name.
-- Tests cover happy path, malformed input, and field validation failures.
+- Arrays through `[]`, nested objects through bracket notation,
+  percent-decoded UTF-8, and `+` to space decoding are supported.
+- Tests cover happy path, malformed input, duplicate scalar field, missing
+  required field, and field validation failures in
+  `tests/validation/137_api_form_binding.spectra`.
+- `cargo test -p spectra-api form --offline`, `cargo test -p
+  spectra-compiler --offline`, and `cargo test -p spectra-midend --offline`
+  pass.
+- `scripts/validate_r2213_form_binding.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed Implementation Notes
+
+- Added `packages/spectra-api/src/form.rs` with a
+  `application/x-www-form-urlencoded` parser, percent-decoded UTF-8
+  validation, `+` to space decoding, array key normalization through `[]`,
+  and nested object key normalization through bracket notation.
+- Added stable `std.api.form` types: `Form`, `FormSchema`, and
+  `FormBinding`.
+- Added schema-driven typed binding for string, int, and bool fields,
+  including required-field validation, duplicate scalar rejection, and typed
+  mismatch diagnostics.
+- Registered `spectra.api.form.*` host calls through `packages/spectra-api`,
+  `runtime/src/api/mod.rs`, semantic builtins, and midend lowering.
+- Documented the public surface in `docs/api/std-api-form.md`.
+- Added `tests/validation/137_api_form_binding.spectra` and
+  `scripts/validate_r2213_form_binding.py`.
 
 ## R-2214 Multipart Form and File Uploads
 

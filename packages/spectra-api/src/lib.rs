@@ -11,6 +11,7 @@ use spectra_runtime::ffi::{
 
 pub mod client;
 pub mod errors;
+pub mod form;
 pub mod http;
 pub mod json;
 pub mod query;
@@ -443,6 +444,94 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: query::error_message,
     },
     HostCallSpec {
+        name: "spectra.api.form.type_string",
+        function: form::type_string,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.type_int",
+        function: form::type_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.type_bool",
+        function: form::type_bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.parse",
+        function: form::parse,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.len",
+        function: form::len,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.has",
+        function: form::has,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.count",
+        function: form::count,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.first",
+        function: form::first,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.value",
+        function: form::value,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.int",
+        function: form::int,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.bool",
+        function: form::bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.schema",
+        function: form::schema,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.schema_field",
+        function: form::schema_field,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.bind",
+        function: form::bind,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.binding_ok",
+        function: form::binding_ok,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.binding_error",
+        function: form::binding_error,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.binding_count",
+        function: form::binding_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.binding_value",
+        function: form::binding_value,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.binding_int",
+        function: form::binding_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.binding_bool",
+        function: form::binding_bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.error_code",
+        function: form::error_code,
+    },
+    HostCallSpec {
+        name: "spectra.api.form.error_message",
+        function: form::error_message,
+    },
+    HostCallSpec {
         name: "spectra.api.errors.last_code",
         function: errors::last_code,
     },
@@ -601,7 +690,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 105);
+        assert_eq!(HOST_CALLS.len(), 127);
     }
 
     #[test]

@@ -1668,7 +1668,7 @@ The eight phases are summarized below; the detailed items live in
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration (complete;
-  `packages/spectra-api` links against `spectra-runtime`, registers 105
+  `packages/spectra-api` links against `spectra-runtime`, registers 127
   `spectra.api.*` host calls through the runtime host-call registry, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
@@ -1713,7 +1713,11 @@ The eight phases are summarized below; the detailed items live in
   `QuerySchema`/`QueryBinding` for typed struct binding, reports malformed
   percent encodings and type mismatches, and is covered by
   `tests/validation/136_api_query_binding.spectra`)
-- `R-2213` URL-encoded form binding
+- `R-2213` URL-encoded form binding (complete; `std.api.form` parses
+  `application/x-www-form-urlencoded` bodies with percent-decoded UTF-8,
+  `+` to space decoding, `[]` arrays, bracket-notation nested field paths,
+  schema-driven `FormBinding`, duplicate scalar field errors, and missing
+  required field diagnostics)
 - `R-2214` Multipart form and file uploads
 - `R-2215` `api.handler` trait and response return
 - `R-2216` Server lifecycle, listen, serve, graceful shutdown
