@@ -4292,7 +4292,7 @@ and clean teardown of in-flight requests.
 
 ## R-2217 spectra.api Package Published to Local Registry
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Risk: `medium`
@@ -4310,6 +4310,21 @@ clear manifest, dependency declarations, and a deterministic version.
 - `spectralang package build/check/run` work end-to-end on the published
   package.
 - The registry entry includes checksum and source path metadata.
+- `scripts/validate_r2217_spectra_api_registry.py` validates the complete
+  publish/install/build/check/run flow.
+
+### Completed
+
+- Added explicit `spectra.api` release metadata with compatibility
+  `spectralang-0.1`.
+- `spectralang package publish --root packages/spectra-api` writes registry
+  metadata with checksum and `source_path`.
+- `spectralang package add spectra-api` resolves the local registry alias and
+  records the canonical dependency key `"spectra.api"`.
+- `spectralang package build/check/run` works on both the source package and
+  the installed registry package.
+- Added `scripts/validate_r2217_spectra_api_registry.py` and gated it in
+  `run_tests.ps1`.
 
 ## R-2218 API Book Chapter: Hello HTTP
 

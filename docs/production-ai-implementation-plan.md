@@ -1770,7 +1770,11 @@ that Phase 20 prerequisite set is now complete.
   assigned-port reporting, SIGINT/SIGTERM-compatible shutdown signaling,
   lifecycle stats, and graceful drain/cancel policy; covered by
   `tests/validation/147_api_server_lifecycle.spectra`)
-- `R-2217` `spectra.api` package published to local registry
+- `R-2217` `spectra.api` package published to local registry (complete;
+  local registry publish writes checksum and `source_path` metadata,
+  `spectralang package add spectra-api` installs the canonical
+  `"spectra.api"` dependency, and package build/check/run is validated by
+  `scripts/validate_r2217_spectra_api_registry.py`)
 - `R-2218` API book chapter: `Hello HTTP`
 - `R-2219` API example: REST CRUD
 - `R-2220` API conformance suite v0 (HTTP/1.1)

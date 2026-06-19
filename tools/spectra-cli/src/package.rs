@@ -221,6 +221,14 @@ struct RegistryMetadata {
     #[serde(default)]
     migration: Option<String>,
     checksum: String,
+    #[serde(default)]
+    source_path: String,
+}
+
+struct InstalledRegistryPackage {
+    canonical_name: String,
+    version: String,
+    path: PathBuf,
 }
 
 fn default_version() -> String {
@@ -304,11 +312,17 @@ pub fn add_dependency(
 ) -> Result<PathBuf, PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest_path = find_manifest(&root)?;
-    let dependency_path = if let Some(path) = path {
-        relative_or_absolute(&root, path)
+    let (dependency_name, dependency_version, dependency_path) = if let Some(path) = path {
+        let version = version.unwrap_or("0.1.0");
+        (
+            name.to_string(),
+            version.to_string(),
+            relative_or_absolute(&root, path),
+        )
     } else if let Some(registry) = registry {
         let version = version.unwrap_or("0.1.0");
-        install_from_registry(&root, registry, name, version)?
+        let installed = install_from_registry(&root, registry, name, version)?;
+        (installed.canonical_name, installed.version, installed.path)
     } else {
         return Err(PackageError::InvalidManifest {
             path: manifest_path,
@@ -316,11 +330,13 @@ pub fn add_dependency(
         });
     };
 
-    let version = version.unwrap_or("0.1.0");
-    if !is_valid_semver(version) {
+    if !is_valid_semver(&dependency_version) {
         return Err(PackageError::InvalidManifest {
             path: manifest_path.clone(),
-            message: format!("dependency '{}' has invalid semver '{}'", name, version),
+            message: format!(
+                "dependency '{}' has invalid semver '{}'",
+                dependency_name, dependency_version
+            ),
         });
     }
     let mut manifest = fs::read_to_string(&manifest_path).map_err(|error| PackageError::Io {
@@ -333,8 +349,8 @@ pub fn add_dependency(
     }
     manifest.push_str(&format!(
         "{} = {{ version = \"{}\", path = \"{}\" }}\n",
-        name,
-        version,
+        toml_key(&dependency_name),
+        dependency_version,
         dependency_path.to_string_lossy().replace('\\', "/")
     ));
 
@@ -377,6 +393,7 @@ pub fn publish(root: &Path, registry: &Path) -> Result<PathBuf, PackageError> {
         deprecated_since: package.release.deprecated_since.clone(),
         migration: package.release.migration.clone(),
         checksum,
+        source_path: package.root.to_string_lossy().replace('\\', "/"),
     };
     let metadata_text = toml::to_string_pretty(&metadata).map_err(PackageError::Serialize)?;
     let metadata_path = package_dir.join("package.toml");
@@ -608,8 +625,8 @@ fn install_from_registry(
     registry: &Path,
     name: &str,
     version: &str,
-) -> Result<PathBuf, PackageError> {
-    let registry_package = registry.join(name).join(version);
+) -> Result<InstalledRegistryPackage, PackageError> {
+    let registry_package = registry_package_dir(registry, name, version);
     let metadata_path = registry_package.join("package.toml");
     let metadata_text = fs::read_to_string(&metadata_path).map_err(|error| PackageError::Io {
         path: metadata_path.clone(),
@@ -620,6 +637,12 @@ fn install_from_registry(
             path: metadata_path.clone(),
             error,
         })?;
+    if metadata.version != version {
+        return Err(PackageError::Registry(format!(
+            "registry metadata version '{}' does not match requested version '{}'",
+            metadata.version, version
+        )));
+    }
     let payload = registry_package.join("package");
     let checksum = directory_checksum(&payload)?;
     if checksum != metadata.checksum {
@@ -645,7 +668,28 @@ fn install_from_registry(
         error,
     })?;
     copy_package_payload(&payload, &vendor_dir)?;
-    Ok(vendor_dir)
+    Ok(InstalledRegistryPackage {
+        canonical_name: metadata.name,
+        version: metadata.version,
+        path: vendor_dir,
+    })
+}
+
+fn registry_package_dir(registry: &Path, name: &str, version: &str) -> PathBuf {
+    let exact = registry.join(name).join(version);
+    if exact.join("package.toml").is_file() {
+        return exact;
+    }
+
+    if name.contains('-') {
+        let dotted = name.replace('-', ".");
+        let alias = registry.join(dotted).join(version);
+        if alias.join("package.toml").is_file() {
+            return alias;
+        }
+    }
+
+    exact
 }
 
 fn find_manifest(root: &Path) -> Result<PathBuf, PackageError> {
@@ -677,6 +721,17 @@ fn relative_or_absolute(root: &Path, path: &Path) -> PathBuf {
 fn path_source(root: &Path, path: &Path) -> String {
     let relative = pathdiff(path, root).unwrap_or_else(|| path.to_path_buf());
     format!("path+{}", relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn toml_key(name: &str) -> String {
+    if name
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        name.to_string()
+    } else {
+        format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+    }
 }
 
 fn pathdiff(path: &Path, base: &Path) -> Option<PathBuf> {
@@ -838,5 +893,11 @@ mod tests {
         assert!(is_valid_semver("1.2.3-alpha.1"));
         assert!(!is_valid_semver("1.2"));
         assert!(!is_valid_semver("latest"));
+    }
+
+    #[test]
+    fn toml_key_quotes_dotted_package_names() {
+        assert_eq!(toml_key("spectra-api"), "spectra-api");
+        assert_eq!(toml_key("spectra.api"), "\"spectra.api\"");
     }
 }

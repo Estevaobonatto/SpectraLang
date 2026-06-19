@@ -1,1 +1,5 @@
-// Binding root reserved for R-2203 semantic exposure.
+module spectra_api;
+
+pub fn main() -> int {
+    return 0;
+}

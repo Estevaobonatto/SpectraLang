@@ -2023,7 +2023,7 @@ title = "spectra.api Package Published to Local Registry"
 phase = "phase_22"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2203", "R-2216"]
 summary = "Publish the `spectra.api` package to the local Phase 9 registry with a clear manifest, dependency declarations, and a deterministic version."
@@ -2031,7 +2031,8 @@ acceptance = [
   "`spectralang package add spectra-api` resolves from the local registry",
   "the manifest pins compatible Spectra and async runtime versions",
   "`spectralang package build/check/run` work end-to-end on the published package",
-  "the registry entry includes checksum and source path metadata"
+  "the registry entry includes checksum and source path metadata",
+  "`scripts/validate_r2217_spectra_api_registry.py` validates publish, add, build, check, and run"
 ]
 
 [[items]]

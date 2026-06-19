@@ -241,6 +241,17 @@ impl Parser {
                 }
                 self.parse_impl_block()
             }
+            crate::token::TokenKind::Keyword(Keyword::Trait) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on functions, structs, and enums",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                let trait_decl = self.parse_trait_declaration()?;
+                Ok(Item::Trait(trait_decl))
+            }
             crate::token::TokenKind::Keyword(Keyword::Type) => {
                 if !attributes.is_empty() {
                     self.error_at(

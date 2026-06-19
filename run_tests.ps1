@@ -1469,6 +1469,19 @@ if ($r2216ServerLifecycle.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2216_server_lifecycle"; Status = $r2216ServerLifecycle.Status; Detalhe = $r2216ServerLifecycle.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.54: R-2217 spectra.api local registry package
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2217 spectra.api local registry package ---" -ForegroundColor Yellow
+$r2217SpectraApiRegistry = Invoke-HostCommand -name "validate_r2217_spectra_api_registry" -fileName "python" -arguments @("scripts\validate_r2217_spectra_api_registry.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2217SpectraApiRegistry.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2217_spectra_api_registry"; Status = $r2217SpectraApiRegistry.Status; Detalhe = $r2217SpectraApiRegistry.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

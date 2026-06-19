@@ -2811,10 +2811,14 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 PackageCommand::Run => BuildCommand::Run,
                 _ => unreachable!(),
             };
+            let mut options = CompilationOptions::default();
+            if kind == BuildCommand::Run {
+                options.run_jit = true;
+            }
             println!("     Locked {}", lock_path.display());
             execute_plan_with_options(
                 kind,
-                CompilationOptions::default(),
+                options,
                 entries,
                 workspace.root_package_name(),
                 false,

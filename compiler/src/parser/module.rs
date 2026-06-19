@@ -17,13 +17,25 @@ impl Parser {
             }
         };
 
-        let name = match self.consume_identifier("Expected module name") {
+        let mut name = match self.consume_identifier("Expected module name") {
             Ok((name, _)) => name,
             Err(_) => {
                 self.synchronize();
                 return Module::new("error", start_span);
             }
         };
+
+        while self.check_symbol('.') {
+            self.advance();
+            let Ok((segment, _)) =
+                self.consume_identifier("Expected identifier after '.' in module name")
+            else {
+                self.synchronize();
+                return Module::new(name, start_span);
+            };
+            name.push('.');
+            name.push_str(&segment);
+        }
 
         let end_span = match self.consume_symbol(';', "Expected ';' after module name") {
             Ok(span) => span,
