@@ -2041,14 +2041,15 @@ title = "API Book Chapter: Hello HTTP"
 phase = "phase_22"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-2217"]
 summary = "Add a `Hello HTTP` chapter to `docs/book/` that walks through defining a route, returning a typed response, and running the server locally."
 acceptance = [
-  "the chapter is reachable from the book index and from the API reference docs",
+  "the chapter is reachable from the book index and from `docs/api/README.md`",
   "the chapter is validated by the existing `scripts/validate_ai_book.py` style validator",
-  "the example in the chapter runs end-to-end on the local machine"
+  "`examples/api/00_hello_http.spectra` runs end-to-end on the local machine",
+  "`scripts/validate_r2218_hello_http_book.py` validates the chapter, links, example, planning sync, and runner gate"
 ]
 
 [[items]]

@@ -3,6 +3,8 @@
 `std.api.handler` defines the Phase 22 handler contract used by API routes to
 produce `std.api.http.Response` values.
 
+Book walkthrough: [Hello HTTP](../book/09-hello-http.md)
+
 ## Traits
 
 - `IntoResponse`: converts a value into `Response`.

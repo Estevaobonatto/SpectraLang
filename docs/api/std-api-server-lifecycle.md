@@ -2,6 +2,8 @@
 
 Roadmap item: `R-2216 Server Lifecycle, Listen, Serve, and Graceful Shutdown`
 
+Book walkthrough: [Hello HTTP](../book/09-hello-http.md)
+
 `std.api.server` owns the runtime lifecycle for an HTTP server. The public
 surface is intentionally small:
 

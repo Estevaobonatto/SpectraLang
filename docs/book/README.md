@@ -14,6 +14,7 @@ commands so users can follow the docs and reproduce results locally.
 6. [Deployment And Export](06-deployment-export.md)
 7. [Standard Library, Runtime, And Packages](07-stdlib-runtime-packages.md)
 8. [Benchmarks And Comparisons](08-benchmarks-and-comparisons.md)
+9. [Hello HTTP](09-hello-http.md)
 
 ## Verified AI Examples
 
@@ -43,3 +44,15 @@ Run the full repository validation:
 ```
 
 `run_tests.ps1` includes the AI examples as Phase 13 checks.
+
+## Verified API Examples
+
+The first API chapter is validated against a checked-in executable example:
+
+- `examples/api/00_hello_http.spectra`
+
+Run the Hello HTTP example:
+
+```powershell
+.\target\debug\spectralang.exe run examples\api\00_hello_http.spectra
+```

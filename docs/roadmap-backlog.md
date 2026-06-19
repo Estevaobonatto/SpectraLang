@@ -4328,7 +4328,7 @@ clear manifest, dependency declarations, and a deterministic version.
 
 ## R-2218 API Book Chapter: Hello HTTP
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Risk: `low`
@@ -4341,11 +4341,24 @@ route, returning a typed response, and running the server locally.
 
 ### Acceptance
 
-- The chapter is reachable from the book index and from the API reference
-  docs.
+- The chapter is reachable from the book index and from `docs/api/README.md`.
 - The chapter is validated by the existing
   `scripts/validate_ai_book.py`-style validator.
-- The example in the chapter runs end-to-end on the local machine.
+- `examples/api/00_hello_http.spectra` runs end-to-end on the local machine.
+- `scripts/validate_r2218_hello_http_book.py` validates the chapter, links,
+  example, planning sync, and runner gate.
+
+### Completed
+
+- Added `docs/book/09-hello-http.md` with a route, typed `Response`, handler
+  registration, local listener, assigned-port check, and graceful shutdown.
+- Added `docs/api/README.md` and cross-links from the routing, handler, and
+  server lifecycle reference pages.
+- Added executable example `examples/api/00_hello_http.spectra`.
+- Extended `scripts/validate_ai_book.py` to cover the new chapter and API
+  example.
+- Added `scripts/validate_r2218_hello_http_book.py` and gated it in
+  `run_tests.ps1`.
 
 ## R-2219 API Example: REST CRUD
 
@@ -5803,7 +5816,8 @@ R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor)
 - `docs/adr/0011-api-library-architecture.md`
 - `docs/adr/0012-http-server-runtime-architecture.md`
 - `docs/api/` (reference para `spectra.api`)
-- `docs/book/09-building-apis.md`
+- `docs/book/09-hello-http.md`
+- `docs/book/10-building-production-apis.md` (planned by `R-2610`)
 - `examples/api/` (galeria)
 - `scripts/validate_r22XX_*.py` (um validator por fase)
 - `tests/validation/api_*.spectra`

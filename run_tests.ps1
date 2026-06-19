@@ -1482,6 +1482,19 @@ if ($r2217SpectraApiRegistry.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2217_spectra_api_registry"; Status = $r2217SpectraApiRegistry.Status; Detalhe = $r2217SpectraApiRegistry.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.55: R-2218 Hello HTTP book chapter
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2218 Hello HTTP book chapter ---" -ForegroundColor Yellow
+$r2218HelloHttpBook = Invoke-HostCommand -name "validate_r2218_hello_http_book" -fileName "python" -arguments @("scripts\validate_r2218_hello_http_book.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2218HelloHttpBook.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2218_hello_http_book"; Status = $r2218HelloHttpBook.Status; Detalhe = $r2218HelloHttpBook.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -1775,7 +1775,12 @@ that Phase 20 prerequisite set is now complete.
   `spectralang package add spectra-api` installs the canonical
   `"spectra.api"` dependency, and package build/check/run is validated by
   `scripts/validate_r2217_spectra_api_registry.py`)
-- `R-2218` API book chapter: `Hello HTTP`
+- `R-2218` API book chapter: `Hello HTTP` (complete; `docs/book/09-hello-http.md`
+  links from the book index and `docs/api/README.md`, documents route
+  definition, typed `Response` returns, local `serve`, assigned-port checks,
+  and graceful shutdown, and is validated with
+  `examples/api/00_hello_http.spectra` by
+  `scripts/validate_r2218_hello_http_book.py`)
 - `R-2219` API example: REST CRUD
 - `R-2220` API conformance suite v0 (HTTP/1.1)
 

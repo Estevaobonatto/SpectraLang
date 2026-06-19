@@ -3,6 +3,8 @@
 `std.api.routing` is the Phase 22 router surface for matching typed HTTP
 requests before handler dispatch.
 
+Book walkthrough: [Hello HTTP](../book/09-hello-http.md)
+
 ## Types
 
 - `Router`: route table handle.
