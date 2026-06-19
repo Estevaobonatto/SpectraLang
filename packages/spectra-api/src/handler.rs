@@ -217,6 +217,32 @@ fn write_response(
     }
 }
 
+pub(crate) fn response_for_route(route_id: SpectraHostValue) -> Option<Response> {
+    let handler_store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let response = handler_store
+        .handlers
+        .iter()
+        .filter(|(_, entry)| entry.route_id == route_id)
+        .max_by_key(|(handle, _)| *handle)
+        .map(|(_, entry)| entry.response);
+    drop(handler_store);
+    response.and_then(http::clone_response)
+}
+
+#[cfg(test)]
+pub(crate) fn register_sync_response_for_route(
+    route_id: SpectraHostValue,
+    response: Response,
+) -> SpectraHostValue {
+    let response = http::store_response(response);
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    store.handler_handle(HandlerEntry {
+        route_id,
+        response,
+        kind: HandlerKind::Sync,
+    })
+}
+
 pub extern "C" fn text(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(args) = read_args(ctx, 1) else {
         return HOST_STATUS_INVALID_ARGUMENT;

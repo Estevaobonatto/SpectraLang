@@ -3642,7 +3642,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 160 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 165 `spectra.api.*` host calls covering the Phase 22 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -4244,7 +4244,7 @@ router calls to produce a `Response`.
 
 ## R-2216 Server Lifecycle, Listen, Serve, and Graceful Shutdown
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -4257,13 +4257,38 @@ and clean teardown of in-flight requests.
 
 ### Acceptance
 
+- `std.api.server.listen`, `serve`, `local_port`, `state`, `shutdown`,
+  `signal`, and `stats` are wired through semantic builtins, midend lowering,
+  runtime API contracts, and the `spectra-api` host-call table.
 - A server can be started on a configured port and shut down
   deterministically on SIGINT/SIGTERM.
 - In-flight requests are given a configurable drain timeout before forced
-  termination.
-- Resources (sockets, pools, timers) are released on shutdown.
-- Tests cover signal handling, drain, and post-shutdown refusal of new
-  connections.
+  cancellation, with drained and cancelled connections reflected in lifecycle
+  stats.
+- Resources (sockets, listener wakeups, and active connection state) are
+  released on shutdown and post-shutdown active connection count returns to
+  zero.
+- Tests cover host-call listen/serve routing, signal handling, drain,
+  cancellation, and `tests/validation/147_api_server_lifecycle.spectra`.
+- `scripts/validate_r2216_server_lifecycle.py` passes and is wired into
+  `run_tests.ps1`.
+
+### Completed
+
+- Implemented real server lifecycle state in
+  `packages/spectra-api/src/server.rs`, including configured listen ports,
+  `serve`, SIGINT/SIGTERM-compatible `signal`, deterministic `shutdown`,
+  assigned-port reporting, and lifecycle stats.
+- Added graceful shutdown policy: accept stops immediately, in-flight
+  requests drain within the configured grace period, idle keep-alive
+  connections close as drained, and unfinished connections are cancelled
+  after the deadline.
+- Wired `spectra.api.server.listen`, `serve`, `local_port`, `signal`, and
+  `stats` into the host-call registry, runtime contract, midend lowering,
+  semantic builtin surface, and std.api public snapshot.
+- Added `docs/api/std-api-server-lifecycle.md`,
+  `tests/validation/147_api_server_lifecycle.spectra`, and
+  `scripts/validate_r2216_server_lifecycle.py`.
 
 ## R-2217 spectra.api Package Published to Local Registry
 

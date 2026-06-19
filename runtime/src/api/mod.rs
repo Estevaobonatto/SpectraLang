@@ -66,7 +66,12 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.http.cookie_name",
     "spectra.api.http.cookie_value",
     "spectra.api.server.new",
+    "spectra.api.server.listen",
+    "spectra.api.server.serve",
     "spectra.api.server.state",
+    "spectra.api.server.local_port",
+    "spectra.api.server.signal",
+    "spectra.api.server.stats",
     "spectra.api.server.shutdown",
     "spectra.api.client.new",
     "spectra.api.client.timeout_ms",
@@ -185,6 +190,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 160);
+        assert_eq!(required_host_call_count(), 165);
     }
 }

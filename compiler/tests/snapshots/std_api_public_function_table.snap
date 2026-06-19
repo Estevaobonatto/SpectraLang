@@ -93,9 +93,13 @@ fn std.api.http.cookie_name: fn(Cookie) -> string
 fn std.api.http.cookie_value: fn(Cookie) -> string
 fn std.api.http.status: fn(int) -> Status
 fn std.api.server.new: fn() -> Server
+fn std.api.server.listen: fn(Server, int) -> bool
 fn std.api.server.serve: fn(Server, Router) -> task<int>
 fn std.api.server.state: fn(Server) -> int
 fn std.api.server.shutdown: fn(Server) -> bool
+fn std.api.server.local_port: fn(Server) -> int
+fn std.api.server.signal: fn(Server, int) -> bool
+fn std.api.server.stats: fn(Server, int) -> int
 fn std.api.client.new: fn() -> Client
 fn std.api.client.request: fn(Client, Request) -> task<Response>
 fn std.api.client.timeout_ms: fn(Client) -> int

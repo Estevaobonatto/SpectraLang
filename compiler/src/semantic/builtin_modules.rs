@@ -123,9 +123,13 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.api.http.cookie_value", "fn(Cookie) -> string"),
     ("std.api.http.status", "fn(int) -> Status"),
     ("std.api.server.new", "fn() -> Server"),
+    ("std.api.server.listen", "fn(Server, int) -> bool"),
     ("std.api.server.serve", "fn(Server, Router) -> task<int>"),
     ("std.api.server.state", "fn(Server) -> int"),
     ("std.api.server.shutdown", "fn(Server) -> bool"),
+    ("std.api.server.local_port", "fn(Server) -> int"),
+    ("std.api.server.signal", "fn(Server, int) -> bool"),
+    ("std.api.server.stats", "fn(Server, int) -> int"),
     ("std.api.client.new", "fn() -> Client"),
     (
         "std.api.client.request",
@@ -579,9 +583,13 @@ fn make_std_api_server(prefix: &str) -> ModuleExports {
     let router = api_type("Router");
     let functions = [
         ("new", vec![], server.clone()),
+        ("listen", vec![server.clone(), Type::Int], Type::Bool),
         ("serve", vec![server.clone(), router], api_task(Type::Int)),
         ("state", vec![server.clone()], Type::Int),
-        ("shutdown", vec![server], Type::Bool),
+        ("shutdown", vec![server.clone()], Type::Bool),
+        ("local_port", vec![server.clone()], Type::Int),
+        ("signal", vec![server.clone(), Type::Int], Type::Bool),
+        ("stats", vec![server, Type::Int], Type::Int),
     ];
     for (name, params, return_type) in functions {
         exports

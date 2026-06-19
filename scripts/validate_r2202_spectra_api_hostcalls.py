@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 160
+EXPECTED_COUNT = 165
 REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
@@ -68,8 +68,13 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.http.cookie_name",
     "spectra.api.http.cookie_value",
     "spectra.api.server.new",
+    "spectra.api.server.listen",
+    "spectra.api.server.serve",
     "spectra.api.server.state",
     "spectra.api.server.shutdown",
+    "spectra.api.server.local_port",
+    "spectra.api.server.signal",
+    "spectra.api.server.stats",
     "spectra.api.client.new",
     "spectra.api.client.timeout_ms",
     "spectra.api.json.validate",

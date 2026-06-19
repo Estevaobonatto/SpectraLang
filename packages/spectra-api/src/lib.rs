@@ -270,12 +270,32 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: server::server_new,
     },
     HostCallSpec {
+        name: "spectra.api.server.listen",
+        function: server::server_listen,
+    },
+    HostCallSpec {
+        name: "spectra.api.server.serve",
+        function: server::server_serve,
+    },
+    HostCallSpec {
         name: "spectra.api.server.state",
         function: server::server_state,
     },
     HostCallSpec {
         name: "spectra.api.server.shutdown",
         function: server::server_shutdown,
+    },
+    HostCallSpec {
+        name: "spectra.api.server.local_port",
+        function: server::server_local_port,
+    },
+    HostCallSpec {
+        name: "spectra.api.server.signal",
+        function: server::server_signal,
+    },
+    HostCallSpec {
+        name: "spectra.api.server.stats",
+        function: server::server_stats,
     },
     HostCallSpec {
         name: "spectra.api.client.new",
@@ -677,6 +697,7 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
 
 pub fn register() -> usize {
     spectra_runtime::initialize();
+    spectra_runtime::register_standard_library();
     let mut inserted = 0;
     for spec in HOST_CALLS {
         if register_host_function(spec.name, spec.function) {
@@ -793,7 +814,10 @@ mod tests {
         SpectraHostCallContext, HOST_STATUS_NOT_FOUND,
     };
     use std::collections::HashSet;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
     use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::time::Duration;
 
     fn test_guard() -> MutexGuard<'static, ()> {
         static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -824,7 +848,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 160);
+        assert_eq!(HOST_CALLS.len(), 165);
     }
 
     #[test]
@@ -889,6 +913,14 @@ mod tests {
         let (_, server) = call("spectra.api.server.new", &[]);
         assert!(server > 0);
         assert_eq!(
+            call("spectra.api.server.listen", &[server, 0]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call("spectra.api.server.local_port", &[server]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+        assert_eq!(
             call("spectra.api.server.shutdown", &[server]),
             (HOST_STATUS_SUCCESS, 1)
         );
@@ -896,7 +928,89 @@ mod tests {
             call("spectra.api.server.state", &[server]),
             (HOST_STATUS_SUCCESS, server::SERVER_STATE_STOPPED)
         );
+        assert_eq!(
+            call(
+                "spectra.api.server.signal",
+                &[server, server::SERVER_SIGNAL_SIGINT]
+            ),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call("spectra.api.server.stats", &[server, 12]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
         clear_host_functions();
+    }
+
+    #[test]
+    fn r2216_registered_server_lifecycle_serves_router_and_signal_shutdown() {
+        let _guard = test_guard();
+        clear_host_functions();
+        spectra_rt_manual_clear();
+        register();
+
+        let (_, router) = call("spectra.api.routing.router_new", &[]);
+        let route = call(
+            "spectra.api.routing.get",
+            &[router, alloc_spectra_string("/hello")],
+        );
+        assert_eq!(route.0, HOST_STATUS_SUCCESS);
+        assert!(route.1 > 0);
+        let response = call("spectra.api.handler.text", &[alloc_spectra_string("hello")]);
+        assert_eq!(response.0, HOST_STATUS_SUCCESS);
+        assert!(response.1 > 0);
+        let handler = call("spectra.api.handler.register_sync", &[route.1, response.1]);
+        assert_eq!(handler.0, HOST_STATUS_SUCCESS);
+        assert!(handler.1 > 0);
+
+        let (_, server) = call("spectra.api.server.new", &[]);
+        assert_eq!(
+            call("spectra.api.server.listen", &[server, 0]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call("spectra.api.server.serve", &[server, router]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        let (_, port) = call("spectra.api.server.local_port", &[server]);
+        assert!(port > 0);
+
+        let mut stream =
+            TcpStream::connect(("127.0.0.1", port as u16)).expect("connect served host");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set read timeout");
+        stream
+            .write_all(b"GET /hello HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .expect("write request");
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).expect("read response");
+        let parsed = http::parse_response(&raw).expect("parse response");
+        assert_eq!(parsed.status_code, 200);
+        assert_eq!(parsed.body.bytes(), b"hello");
+
+        assert_eq!(
+            call(
+                "spectra.api.server.signal",
+                &[server, server::SERVER_SIGNAL_SIGTERM]
+            ),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call("spectra.api.server.state", &[server]),
+            (HOST_STATUS_SUCCESS, server::SERVER_STATE_STOPPED)
+        );
+        assert_eq!(
+            call("spectra.api.server.stats", &[server, 10]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
+            call("spectra.api.server.stats", &[server, 12]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+
+        clear_host_functions();
+        spectra_rt_manual_clear();
     }
 
     #[test]

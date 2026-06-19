@@ -1704,7 +1704,7 @@ that Phase 20 prerequisite set is now complete.
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration (complete;
-  `packages/spectra-api` links against `spectra-runtime`, registers 160
+  `packages/spectra-api` links against `spectra-runtime`, registers 165
   `spectra.api.*` host calls through the runtime host-call registry, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
@@ -1765,7 +1765,11 @@ that Phase 20 prerequisite set is now complete.
   normalizes text/JSON/bytes/status/error returns, dispatches registered
   handler handles, and is covered by
   `tests/validation/139_api_handler_response_return.spectra`)
-- `R-2216` Server lifecycle, listen, serve, graceful shutdown
+- `R-2216` Server lifecycle, listen, serve, graceful shutdown (complete;
+  `std.api.server` exposes configured listen ports, `serve`, state,
+  assigned-port reporting, SIGINT/SIGTERM-compatible shutdown signaling,
+  lifecycle stats, and graceful drain/cancel policy; covered by
+  `tests/validation/147_api_server_lifecycle.spectra`)
 - `R-2217` `spectra.api` package published to local registry
 - `R-2218` API book chapter: `Hello HTTP`
 - `R-2219` API example: REST CRUD

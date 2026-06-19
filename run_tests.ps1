@@ -15,6 +15,7 @@
 $binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
 $timeoutSeconds = 10
 $hostCommandTimeoutSeconds = 120
+$env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
 $experimentalFlags = @(
     "--enable-experimental", "switch",
     "--enable-experimental", "unless",
@@ -24,7 +25,6 @@ $experimentalFlags = @(
 
 if (-not (Test-Path $binary)) {
     Write-Host "Binario nao encontrado. Compilando..." -ForegroundColor Yellow
-    $env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
     & "C:\Users\estev\.cargo\bin\cargo.exe" build -p spectra-cli 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERRO: Falha ao compilar o compilador." -ForegroundColor Red
@@ -1454,6 +1454,19 @@ if ($r2215HandlerResponse.Status -eq "PASSOU") {
     $totalFailed++
 }
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2215_handler_response"; Status = $r2215HandlerResponse.Status; Detalhe = $r2215HandlerResponse.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.53: R-2216 server lifecycle, listen, serve, and graceful shutdown
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2216 server lifecycle, listen, serve, and graceful shutdown ---" -ForegroundColor Yellow
+$r2216ServerLifecycle = Invoke-HostCommand -name "validate_r2216_server_lifecycle" -fileName "python" -arguments @("scripts\validate_r2216_server_lifecycle.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2216ServerLifecycle.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2216_server_lifecycle"; Status = $r2216ServerLifecycle.Status; Detalhe = $r2216ServerLifecycle.Detail }
 
 # ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke

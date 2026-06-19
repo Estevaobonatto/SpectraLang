@@ -1,10 +1,12 @@
 use crate::http::{
-    BodyChunk, Header, Http1Parser, HttpBody, HttpVersion, ParseErrorKind, ParsedRequest,
-    ParsedResponse, ParserConfig,
+    self, BodyChunk, Header, Http1Parser, HttpBody, HttpVersion, Method, ParseErrorKind,
+    ParsedRequest, ParsedResponse, ParserConfig, Request, Response,
 };
+use crate::{handler, routing};
 use crate::{read_args, write_result};
 use spectra_runtime::ffi::{
-    SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
+    lookup_host_function, SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
+    HOST_STATUS_SUCCESS,
 };
 use std::collections::HashMap;
 use std::fmt;
@@ -18,9 +20,13 @@ use std::time::{Duration, Instant};
 pub const SERVER_STATE_CREATED: SpectraHostValue = 1;
 pub const SERVER_STATE_RUNNING: SpectraHostValue = 2;
 pub const SERVER_STATE_STOPPED: SpectraHostValue = 3;
+pub const SERVER_STATE_STOPPING: SpectraHostValue = 4;
+pub const SERVER_SIGNAL_SIGINT: SpectraHostValue = 2;
+pub const SERVER_SIGNAL_SIGTERM: SpectraHostValue = 15;
 
 const DEFAULT_READ_TIMEOUT_MS: u64 = 5_000;
 const DEFAULT_IDLE_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_SHUTDOWN_GRACE_MS: u64 = 5_000;
 const DEFAULT_MAX_CONNECTIONS: usize = 10_000;
 
 pub type Handler = Arc<dyn Fn(ParsedRequest) -> ServerResponse + Send + Sync + 'static>;
@@ -33,6 +39,7 @@ pub struct ServerConfig {
     pub max_chunk_bytes: usize,
     pub read_timeout: Duration,
     pub idle_timeout: Duration,
+    pub shutdown_grace_period: Duration,
     pub max_connections: usize,
     pub poll_interval: Duration,
 }
@@ -48,6 +55,7 @@ impl Default for ServerConfig {
             max_chunk_bytes: 8 * 1024 * 1024,
             read_timeout: Duration::from_millis(DEFAULT_READ_TIMEOUT_MS),
             idle_timeout: Duration::from_millis(DEFAULT_IDLE_TIMEOUT_MS),
+            shutdown_grace_period: Duration::from_millis(DEFAULT_SHUTDOWN_GRACE_MS),
             max_connections: DEFAULT_MAX_CONNECTIONS,
             poll_interval: Duration::from_millis(1),
         }
@@ -128,6 +136,9 @@ pub struct ServerStats {
     pub timeouts: usize,
     pub parse_errors: usize,
     pub closed_connections: usize,
+    pub drained_connections: usize,
+    pub cancelled_connections: usize,
+    pub shutdown_signals: usize,
     pub peak_connections: usize,
     pub active_connections: usize,
 }
@@ -250,13 +261,28 @@ fn run_accept_loop(
 
     while !shutdown.load(Ordering::SeqCst) {
         accept_ready_connections(&listener, &config, &parser_config, &stats, &mut connections);
-        service_connections(&config, &handler, &stats, &mut connections);
+        service_connections(
+            &config,
+            &handler,
+            &stats,
+            &shutdown,
+            &mut connections,
+            false,
+        );
         thread::sleep(config.poll_interval);
+    }
+
+    let drain_deadline = Instant::now() + config.shutdown_grace_period;
+    while !connections.is_empty() && Instant::now() < drain_deadline {
+        service_connections(&config, &handler, &stats, &shutdown, &mut connections, true);
+        if !connections.is_empty() {
+            thread::sleep(config.poll_interval);
+        }
     }
 
     for connection in connections.drain(..) {
         let _ = connection.stream.shutdown(Shutdown::Both);
-        record_close(&stats);
+        record_cancel(&stats);
     }
 }
 
@@ -300,15 +326,22 @@ fn service_connections(
     config: &ServerConfig,
     handler: &Handler,
     stats: &Arc<Mutex<ServerStats>>,
+    shutdown: &Arc<AtomicBool>,
     connections: &mut Vec<Connection>,
+    draining: bool,
 ) {
     let mut idx = 0usize;
     while idx < connections.len() {
-        let action = service_connection(config, handler, stats, &mut connections[idx]);
+        let action = service_connection(config, handler, stats, &mut connections[idx], draining);
         if action == ConnectionAction::Close {
             let connection = connections.swap_remove(idx);
-            let _ = connection.stream.shutdown(Shutdown::Both);
-            record_close(stats);
+            let graceful = draining || shutdown.load(Ordering::SeqCst);
+            let _ = connection.stream.shutdown(if graceful {
+                Shutdown::Write
+            } else {
+                Shutdown::Both
+            });
+            record_close(stats, graceful);
         } else {
             idx += 1;
         }
@@ -330,6 +363,7 @@ fn service_connection(
     handler: &Handler,
     stats: &Arc<Mutex<ServerStats>>,
     connection: &mut Connection,
+    draining: bool,
 ) -> ConnectionAction {
     if write_pending(connection).is_err() {
         return ConnectionAction::Close;
@@ -412,6 +446,8 @@ fn service_connection(
     }
 
     if connection.close_after_write && !connection.has_pending_write() {
+        ConnectionAction::Close
+    } else if draining && !connection.has_pending_write() && connection.parser.buffered_len() == 0 {
         ConnectionAction::Close
     } else {
         ConnectionAction::Keep
@@ -542,8 +578,18 @@ fn record_timeout(stats: &Arc<Mutex<ServerStats>>) {
     stats.lock().unwrap_or_else(|e| e.into_inner()).timeouts += 1;
 }
 
-fn record_close(stats: &Arc<Mutex<ServerStats>>) {
+fn record_close(stats: &Arc<Mutex<ServerStats>>, drained: bool) {
     let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
+    stats.closed_connections += 1;
+    if drained {
+        stats.drained_connections += 1;
+    }
+    stats.active_connections = stats.active_connections.saturating_sub(1);
+}
+
+fn record_cancel(stats: &Arc<Mutex<ServerStats>>) {
+    let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
+    stats.cancelled_connections += 1;
     stats.closed_connections += 1;
     stats.active_connections = stats.active_connections.saturating_sub(1);
 }
@@ -597,17 +643,39 @@ impl ConnectionLimiter {
     }
 }
 
+struct ServerEntry {
+    state: SpectraHostValue,
+    config: ServerConfig,
+    server: Option<HttpServer>,
+    last_stats: ServerStats,
+}
+
 struct ServerStore {
     next: SpectraHostValue,
-    states: HashMap<SpectraHostValue, SpectraHostValue>,
+    entries: HashMap<SpectraHostValue, ServerEntry>,
 }
 
 impl ServerStore {
     fn new() -> Self {
         Self {
             next: 1,
-            states: HashMap::new(),
+            entries: HashMap::new(),
         }
+    }
+
+    fn server_handle(&mut self) -> SpectraHostValue {
+        let handle = self.next;
+        self.next = self.next.saturating_add(1).max(1);
+        self.entries.insert(
+            handle,
+            ServerEntry {
+                state: SERVER_STATE_CREATED,
+                config: ServerConfig::default(),
+                server: None,
+                last_stats: ServerStats::default(),
+            },
+        );
+        handle
     }
 }
 
@@ -618,10 +686,7 @@ fn store() -> &'static Mutex<ServerStore> {
 
 pub extern "C" fn server_new(ctx: *mut SpectraHostCallContext) -> i32 {
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let handle = store.next;
-    store.next = store.next.saturating_add(1).max(1);
-    store.states.insert(handle, SERVER_STATE_CREATED);
-    write_result(ctx, handle)
+    write_result(ctx, store.server_handle())
 }
 
 pub extern "C" fn server_state(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -629,10 +694,10 @@ pub extern "C" fn server_state(ctx: *mut SpectraHostCallContext) -> i32 {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
     let store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let Some(state) = store.states.get(&args[0]).copied() else {
+    let Some(entry) = store.entries.get(&args[0]) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    write_result(ctx, state)
+    write_result(ctx, entry.state)
 }
 
 pub extern "C" fn server_shutdown(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -640,17 +705,231 @@ pub extern "C" fn server_shutdown(ctx: *mut SpectraHostCallContext) -> i32 {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let Some(state) = store.states.get_mut(&args[0]) else {
+    let Some(entry) = store.entries.get_mut(&args[0]) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    *state = SERVER_STATE_STOPPED;
+    shutdown_entry(ctx, entry, false)
+}
+
+pub extern "C" fn server_listen(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Ok(port) = u16::try_from(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(entry) = store.entries.get_mut(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    if entry.state == SERVER_STATE_RUNNING || entry.state == SERVER_STATE_STOPPING {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    entry.config.bind_addr = SocketAddr::from(([127, 0, 0, 1], port));
     write_result(ctx, 1)
+}
+
+pub extern "C" fn server_serve(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(router) = routing::clone_router(args[1]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let handler = routed_handler(router);
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(entry) = store.entries.get_mut(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    if entry.state == SERVER_STATE_RUNNING || entry.state == SERVER_STATE_STOPPING {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    match HttpServer::start(entry.config.clone(), handler) {
+        Ok(server) => {
+            entry.config.bind_addr = server.local_addr();
+            entry.state = SERVER_STATE_RUNNING;
+            entry.server = Some(server);
+            write_result(ctx, ready_task(1).unwrap_or(1))
+        }
+        Err(_) => {
+            entry.state = SERVER_STATE_STOPPED;
+            write_result(ctx, ready_task(0).unwrap_or(0))
+        }
+    }
+}
+
+pub extern "C" fn server_local_port(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(entry) = store.entries.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    write_result(ctx, entry.config.bind_addr.port() as SpectraHostValue)
+}
+
+pub extern "C" fn server_signal(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    if !matches!(args[1], SERVER_SIGNAL_SIGINT | SERVER_SIGNAL_SIGTERM) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(entry) = store.entries.get_mut(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    shutdown_entry(ctx, entry, true)
+}
+
+pub extern "C" fn server_stats(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(entry) = store.entries.get(&args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let stats = entry
+        .server
+        .as_ref()
+        .map(HttpServer::stats)
+        .unwrap_or_else(|| entry.last_stats.clone());
+    write_result(ctx, stat_value(&stats, args[1]))
+}
+
+fn shutdown_entry(
+    ctx: *mut SpectraHostCallContext,
+    entry: &mut ServerEntry,
+    from_signal: bool,
+) -> i32 {
+    if entry.state == SERVER_STATE_STOPPED {
+        return write_result(ctx, 1);
+    }
+    entry.state = SERVER_STATE_STOPPING;
+    if let Some(mut server) = entry.server.take() {
+        if from_signal {
+            server
+                .stats
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .shutdown_signals += 1;
+        }
+        match server.shutdown() {
+            Ok(stats) => entry.last_stats = stats,
+            Err(_) => return write_result(ctx, 0),
+        }
+    }
+    entry.state = SERVER_STATE_STOPPED;
+    write_result(ctx, 1)
+}
+
+fn routed_handler(router: routing::Router) -> Handler {
+    Arc::new(move |request| {
+        let Some(route_method) = route_method_from_request(&request.method) else {
+            return ServerResponse::text(400, "unsupported method");
+        };
+        let route_match = match router.match_path(route_method, &request.target) {
+            Ok(Some(route_match)) => route_match,
+            Ok(None) => return ServerResponse::text(404, "route not found"),
+            Err(_) => return ServerResponse::text(400, "invalid route path"),
+        };
+        let Some(response) = handler::response_for_route(route_match.route_id) else {
+            return ServerResponse::text(500, "handler not registered");
+        };
+        let _request_handle = request_handle_from_parsed(&request);
+        server_response_from_http(response)
+    })
+}
+
+fn request_handle_from_parsed(request: &ParsedRequest) -> Option<SpectraHostValue> {
+    let method = method_from_request(&request.method)?;
+    let mut typed = Request::new(method, request.target.clone()).ok()?;
+    for header in &request.headers {
+        typed = typed.with_header(&header.name, &header.value).ok()?;
+    }
+    typed = typed.with_body(request.body.bytes());
+    Some(http::store_request(typed))
+}
+
+fn method_from_request(method: &str) -> Option<Method> {
+    match method {
+        "GET" => Some(Method::Get),
+        "HEAD" => Some(Method::Head),
+        "POST" => Some(Method::Post),
+        "PUT" => Some(Method::Put),
+        "PATCH" => Some(Method::Patch),
+        "DELETE" => Some(Method::Delete),
+        "OPTIONS" => Some(Method::Options),
+        _ => None,
+    }
+}
+
+fn route_method_from_request(method: &str) -> Option<routing::RouteMethod> {
+    match method {
+        "GET" => Some(routing::RouteMethod::Get),
+        "HEAD" => Some(routing::RouteMethod::Head),
+        "POST" => Some(routing::RouteMethod::Post),
+        "PUT" => Some(routing::RouteMethod::Put),
+        "PATCH" => Some(routing::RouteMethod::Patch),
+        "DELETE" => Some(routing::RouteMethod::Delete),
+        "OPTIONS" => Some(routing::RouteMethod::Options),
+        _ => None,
+    }
+}
+
+fn server_response_from_http(response: Response) -> ServerResponse {
+    ServerResponse {
+        status_code: response.status.code(),
+        reason: response.status.reason().to_string(),
+        headers: response.headers.iter().cloned().collect(),
+        body: HttpBody::from_bytes(response.body),
+        close: false,
+    }
+}
+
+fn stat_value(stats: &ServerStats, key: SpectraHostValue) -> SpectraHostValue {
+    match key {
+        1 => stats.accepted_connections as SpectraHostValue,
+        2 => stats.completed_requests as SpectraHostValue,
+        3 => stats.rejected_connections as SpectraHostValue,
+        4 => stats.body_limit_violations as SpectraHostValue,
+        5 => stats.timeouts as SpectraHostValue,
+        6 => stats.parse_errors as SpectraHostValue,
+        7 => stats.closed_connections as SpectraHostValue,
+        8 => stats.drained_connections as SpectraHostValue,
+        9 => stats.cancelled_connections as SpectraHostValue,
+        10 => stats.shutdown_signals as SpectraHostValue,
+        11 => stats.peak_connections as SpectraHostValue,
+        12 => stats.active_connections as SpectraHostValue,
+        _ => 0,
+    }
+}
+
+fn ready_task(value: SpectraHostValue) -> Option<SpectraHostValue> {
+    let function = lookup_host_function("spectra.async.task.ready")?;
+    let args = [value];
+    let mut result = [0_i64];
+    let mut ctx = SpectraHostCallContext {
+        args: args.as_ptr(),
+        arg_len: args.len(),
+        results: result.as_mut_ptr(),
+        result_len: result.len(),
+        invoke_fn: None,
+    };
+    if function(&mut ctx as *mut _) == HOST_STATUS_SUCCESS {
+        Some(result[0])
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::http::parse_response;
+    use crate::http::Status;
     use std::io::{Read, Write};
 
     fn start_test_server(config: ServerConfig) -> HttpServer {
@@ -792,6 +1071,126 @@ mod tests {
     }
 
     #[test]
+    fn r2216_serve_routes_to_registered_handler_and_shutdowns_cleanly() {
+        let mut router = routing::Router::default();
+        let route = router
+            .add(routing::RouteMethod::Get, "/hello")
+            .expect("route");
+        let response = Response::new(Status::new(200).expect("status"))
+            .with_header("Content-Type", "text/plain")
+            .expect("header")
+            .with_body(b"hello lifecycle".to_vec());
+        handler::register_sync_response_for_route(route, response);
+
+        let mut server = HttpServer::start(
+            ServerConfig {
+                idle_timeout: Duration::from_millis(50),
+                shutdown_grace_period: Duration::from_millis(200),
+                ..ServerConfig::default()
+            },
+            routed_handler(router),
+        )
+        .expect("server starts");
+        let raw = request(
+            server.local_addr(),
+            b"GET /hello HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        let response = parse_response(&raw).expect("response parses");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body.bytes(), b"hello lifecycle");
+
+        let stats = server.shutdown().expect("shutdown");
+        assert_eq!(stats.completed_requests, 1);
+        assert_eq!(stats.cancelled_connections, 0);
+        assert_eq!(stats.active_connections, 0);
+    }
+
+    #[test]
+    fn r2216_shutdown_drains_in_flight_keep_alive_request() {
+        let handler_entered = Arc::new(AtomicBool::new(false));
+        let handler_entered_for_handler = Arc::clone(&handler_entered);
+        let mut server = HttpServer::start(
+            ServerConfig {
+                idle_timeout: Duration::from_secs(5),
+                shutdown_grace_period: Duration::from_millis(500),
+                poll_interval: Duration::from_millis(1),
+                ..ServerConfig::default()
+            },
+            Arc::new(move |_| {
+                handler_entered_for_handler.store(true, Ordering::SeqCst);
+                thread::sleep(Duration::from_millis(80));
+                ServerResponse::text(200, "drained")
+            }),
+        )
+        .expect("server starts");
+        let mut stream = TcpStream::connect(server.local_addr()).expect("connect");
+        stream
+            .write_all(b"GET /slow HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n")
+            .expect("write request");
+        let client = thread::spawn(move || {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set read timeout");
+            let mut response = Vec::new();
+            let mut buf = [0_u8; 1024];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => response.extend_from_slice(&buf[..n]),
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::ConnectionReset
+                            && !response.is_empty() =>
+                    {
+                        break
+                    }
+                    Err(error) => panic!("read response: {error}"),
+                }
+            }
+            response
+        });
+
+        wait_until(Duration::from_secs(1), || {
+            handler_entered.load(Ordering::SeqCst)
+        });
+        let stats = server.shutdown().expect("shutdown");
+        let raw = client.join().expect("client thread");
+        let response = parse_response(&raw).expect("response parses");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body.bytes(), b"drained");
+        assert_eq!(stats.completed_requests, 1);
+        assert!(stats.drained_connections >= 1, "{stats:?}");
+        assert_eq!(stats.cancelled_connections, 0);
+        assert_eq!(stats.active_connections, 0);
+    }
+
+    #[test]
+    fn r2216_shutdown_cancels_unfinished_connections_after_grace_period() {
+        let mut server = HttpServer::start(
+            ServerConfig {
+                read_timeout: Duration::from_secs(5),
+                idle_timeout: Duration::from_secs(5),
+                shutdown_grace_period: Duration::ZERO,
+                poll_interval: Duration::from_millis(1),
+                ..ServerConfig::default()
+            },
+            Arc::new(|_| ServerResponse::text(200, "unused")),
+        )
+        .expect("server starts");
+        let mut stream = TcpStream::connect(server.local_addr()).expect("connect");
+        stream
+            .write_all(b"GET /unfinished HTTP/1.1\r\nHost")
+            .expect("partial write");
+        wait_until(Duration::from_secs(1), || {
+            server.stats().active_connections == 1
+        });
+
+        let stats = server.shutdown().expect("shutdown");
+        assert_eq!(stats.completed_requests, 0);
+        assert!(stats.cancelled_connections >= 1, "{stats:?}");
+        assert_eq!(stats.active_connections, 0);
+    }
+
+    #[test]
     fn connection_limiter_survives_10k_concurrent_slots_without_threads() {
         let mut limiter = ConnectionLimiter::new(10_000);
         for _ in 0..10_000 {
@@ -804,5 +1203,15 @@ mod tests {
             limiter.close();
         }
         assert_eq!(limiter.active, 0);
+    }
+
+    fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if condition() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
     }
 }

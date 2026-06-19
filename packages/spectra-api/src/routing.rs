@@ -4,6 +4,7 @@ use spectra_runtime::ffi::{
 };
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -126,7 +127,6 @@ struct WildcardEdge {
 
 #[derive(Clone, Debug)]
 pub struct Router {
-    next_route: SpectraHostValue,
     routes: HashMap<SpectraHostValue, Route>,
     root: RouteNode,
 }
@@ -134,7 +134,6 @@ pub struct Router {
 impl Default for Router {
     fn default() -> Self {
         Self {
-            next_route: 1,
             routes: HashMap::new(),
             root: RouteNode::default(),
         }
@@ -150,8 +149,7 @@ impl Router {
         let pattern = pattern.into();
         let segments = parse_pattern(&pattern)?;
         detect_conflict(&self.root, &self.routes, method, &segments, &pattern, 0)?;
-        let id = self.next_route;
-        self.next_route = self.next_route.saturating_add(1).max(1);
+        let id = next_route_id();
         insert_route(&mut self.root, method, &segments, id, 0);
         self.routes.insert(
             id,
@@ -180,6 +178,11 @@ impl Router {
         Ok(match_node(&self.root, method, &segments, 0, &mut params)
             .map(|route_id| RouteMatch { route_id, params }))
     }
+}
+
+fn next_route_id() -> SpectraHostValue {
+    static NEXT_ROUTE_ID: AtomicI64 = AtomicI64::new(1);
+    NEXT_ROUTE_ID.fetch_add(1, Ordering::SeqCst).max(1)
 }
 
 struct RouterStore {
@@ -219,6 +222,11 @@ impl RouterStore {
 fn store() -> &'static Mutex<RouterStore> {
     static STORE: OnceLock<Mutex<RouterStore>> = OnceLock::new();
     STORE.get_or_init(|| Mutex::new(RouterStore::new()))
+}
+
+pub(crate) fn clone_router(handle: SpectraHostValue) -> Option<Router> {
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    store.routers.get(&handle).cloned()
 }
 
 pub fn parse_pattern(pattern: &str) -> Result<Vec<RouteSegment>, RouteError> {

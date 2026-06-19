@@ -8890,6 +8890,14 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("http", "cookie_name") => Some(host_string("spectra.api.http.cookie_name")),
         ("http", "cookie_value") => Some(host_string("spectra.api.http.cookie_value")),
         ("http", "status") => Some(host_int("spectra.api.http.status")),
+        ("server", "new") => Some(host_int("spectra.api.server.new")),
+        ("server", "listen") => Some(host_bool("spectra.api.server.listen")),
+        ("server", "serve") => Some(host_task_int("spectra.api.server.serve")),
+        ("server", "state") => Some(host_int("spectra.api.server.state")),
+        ("server", "shutdown") => Some(host_bool("spectra.api.server.shutdown")),
+        ("server", "local_port") => Some(host_int("spectra.api.server.local_port")),
+        ("server", "signal") => Some(host_bool("spectra.api.server.signal")),
+        ("server", "stats") => Some(host_int("spectra.api.server.stats")),
         ("routing", "router") => Some(host_int("spectra.api.routing.router_new")),
         ("routing", "router_new") => Some(host_int("spectra.api.routing.router_new")),
         ("routing", "route_count") => Some(host_int("spectra.api.routing.route_count")),
@@ -9001,6 +9009,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             if std == "std"
                 && api == "api"
                 && (module == "http"
+                    || module == "server"
                     || module == "routing"
                     || module == "query"
                     || module == "form"
@@ -9014,6 +9023,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                 && std == "std"
                 && api == "api"
                 && (module == "http"
+                    || module == "server"
                     || module == "routing"
                     || module == "query"
                     || module == "form"
@@ -9034,6 +9044,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "Body"
             | "Method"
             | "Status"
+            | "Server"
             | "Route"
             | "Router"
             | "RouteMatch"
@@ -9083,6 +9094,16 @@ fn host_int(runtime_name: &'static str) -> HostFunctionDescriptor {
     HostFunctionDescriptor {
         runtime_name,
         return_type: IRType::Int,
+        returns_value: true,
+    }
+}
+
+fn host_task_int(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Task {
+            output: Box::new(IRType::Int),
+        },
         returns_value: true,
     }
 }
