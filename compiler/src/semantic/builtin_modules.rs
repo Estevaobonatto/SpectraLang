@@ -21,6 +21,7 @@ pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api.form",
     "std.api.multipart",
     "std.api.handler",
+    "std.api.middleware",
     "std.api.errors",
 ];
 
@@ -54,6 +55,22 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
         "struct AsyncHandlerHandle",
     ),
     ("std.api.handler.HandlerError", "struct HandlerError"),
+    (
+        "std.api.middleware.MiddlewareChain",
+        "struct MiddlewareChain",
+    ),
+    (
+        "std.api.middleware.MiddlewareHandle",
+        "struct MiddlewareHandle",
+    ),
+    (
+        "std.api.middleware.AsyncMiddlewareHandle",
+        "struct AsyncMiddlewareHandle",
+    ),
+    (
+        "std.api.middleware.MiddlewareTrace",
+        "struct MiddlewareTrace",
+    ),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -335,6 +352,51 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
         "std.api.handler.dispatch_async",
         "fn(AsyncHandlerHandle, Request) -> Response",
     ),
+    ("std.api.middleware.chain", "fn() -> MiddlewareChain"),
+    ("std.api.middleware.chain_new", "fn() -> MiddlewareChain"),
+    ("std.api.middleware.chain_len", "fn(MiddlewareChain) -> int"),
+    (
+        "std.api.middleware.register_sync",
+        "fn(string, string) -> MiddlewareHandle",
+    ),
+    (
+        "std.api.middleware.register_sync_short_circuit",
+        "fn(string, string, Response) -> MiddlewareHandle",
+    ),
+    (
+        "std.api.middleware.register_async",
+        "fn(string, string) -> AsyncMiddlewareHandle",
+    ),
+    (
+        "std.api.middleware.register_async_short_circuit",
+        "fn(string, string, Response) -> AsyncMiddlewareHandle",
+    ),
+    (
+        "std.api.middleware.use_sync",
+        "fn(MiddlewareChain, MiddlewareHandle) -> MiddlewareChain",
+    ),
+    (
+        "std.api.middleware.use_async",
+        "fn(MiddlewareChain, AsyncMiddlewareHandle) -> MiddlewareChain",
+    ),
+    (
+        "std.api.middleware.execute_sync",
+        "fn(MiddlewareChain, Request, Response) -> Response",
+    ),
+    (
+        "std.api.middleware.execute_async",
+        "fn(MiddlewareChain, Request, Response) -> Response",
+    ),
+    ("std.api.middleware.last_trace", "fn() -> MiddlewareTrace"),
+    ("std.api.middleware.trace_len", "fn(MiddlewareTrace) -> int"),
+    (
+        "std.api.middleware.trace_event",
+        "fn(MiddlewareTrace, int) -> string",
+    ),
+    (
+        "std.api.middleware.trace_short_circuited",
+        "fn(MiddlewareTrace) -> bool",
+    ),
     ("std.api.errors.last_code", "fn() -> int"),
     ("std.api.errors.last_message", "fn() -> string"),
 ];
@@ -443,6 +505,10 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
         make_std_api_multipart(prefix),
     );
     registry.register_module(format!("{prefix}.handler"), make_std_api_handler(prefix));
+    registry.register_module(
+        format!("{prefix}.middleware"),
+        make_std_api_middleware(prefix),
+    );
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
 }
 
@@ -1052,6 +1118,140 @@ fn make_std_api_handler(prefix: &str) -> ModuleExports {
                     true,
                 ),
             )]
+            .into_iter()
+            .collect(),
+        },
+    );
+
+    exports
+}
+
+fn make_std_api_middleware(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("middleware"));
+    exports.types.insert(
+        "MiddlewareChain".to_string(),
+        public_type(&["middleware_count"]),
+    );
+    exports
+        .types
+        .insert("MiddlewareHandle".to_string(), public_type(&["order"]));
+    exports
+        .types
+        .insert("AsyncMiddlewareHandle".to_string(), public_type(&["order"]));
+    exports
+        .types
+        .insert("MiddlewareTrace".to_string(), public_type(&["event_count"]));
+
+    let chain = api_type("MiddlewareChain");
+    let middleware = api_type("MiddlewareHandle");
+    let async_middleware = api_type("AsyncMiddlewareHandle");
+    let trace = api_type("MiddlewareTrace");
+    let request = api_type("Request");
+    let response = api_type("Response");
+
+    let functions = [
+        ("chain", vec![], chain.clone()),
+        ("chain_new", vec![], chain.clone()),
+        ("chain_len", vec![chain.clone()], Type::Int),
+        (
+            "register_sync",
+            vec![Type::String, Type::String],
+            middleware.clone(),
+        ),
+        (
+            "register_sync_short_circuit",
+            vec![Type::String, Type::String, response.clone()],
+            middleware.clone(),
+        ),
+        (
+            "register_async",
+            vec![Type::String, Type::String],
+            async_middleware.clone(),
+        ),
+        (
+            "register_async_short_circuit",
+            vec![Type::String, Type::String, response.clone()],
+            async_middleware.clone(),
+        ),
+        ("use_sync", vec![chain.clone(), middleware], chain.clone()),
+        (
+            "use_async",
+            vec![chain.clone(), async_middleware],
+            chain.clone(),
+        ),
+        (
+            "execute_sync",
+            vec![chain.clone(), request.clone(), response.clone()],
+            response.clone(),
+        ),
+        (
+            "execute_async",
+            vec![chain.clone(), request, response.clone()],
+            response.clone(),
+        ),
+        ("last_trace", vec![], trace.clone()),
+        ("trace_len", vec![trace.clone()], Type::Int),
+        ("trace_event", vec![trace.clone(), Type::Int], Type::String),
+        ("trace_short_circuited", vec![trace], Type::Bool),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
+
+    exports.traits.insert(
+        "Middleware".to_string(),
+        ExportedTrait {
+            visibility: ExportVisibility::Public,
+            methods: [
+                (
+                    "on_request".to_string(),
+                    exported_trait_method(
+                        vec![Type::Unknown, api_type("Request")],
+                        api_type("Request"),
+                        Some(ExportedSelfParamKind::Reference { mutable: false }),
+                        false,
+                    ),
+                ),
+                (
+                    "on_response".to_string(),
+                    exported_trait_method(
+                        vec![Type::Unknown, api_type("Response")],
+                        api_type("Response"),
+                        Some(ExportedSelfParamKind::Reference { mutable: false }),
+                        false,
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    );
+    exports.traits.insert(
+        "AsyncMiddleware".to_string(),
+        ExportedTrait {
+            visibility: ExportVisibility::Public,
+            methods: [
+                (
+                    "on_request".to_string(),
+                    exported_trait_method(
+                        vec![Type::Unknown, api_type("Request")],
+                        api_task(api_type("Request")),
+                        Some(ExportedSelfParamKind::Reference { mutable: false }),
+                        true,
+                    ),
+                ),
+                (
+                    "on_response".to_string(),
+                    exported_trait_method(
+                        vec![Type::Unknown, api_type("Response")],
+                        api_task(api_type("Response")),
+                        Some(ExportedSelfParamKind::Reference { mutable: false }),
+                        true,
+                    ),
+                ),
+            ]
             .into_iter()
             .collect(),
         },

@@ -103,10 +103,10 @@ def validate_implementation() -> None:
         require(name in lib, f"{name} missing from spectra-api host table")
         require(name in runtime, f"{name} missing from runtime API contract")
         require(name in midend, f"{name} missing from midend host lowering")
-    require("assert_eq!(HOST_CALLS.len(), 165)" in lib, "host-call count must be 165")
+    require("assert_eq!(HOST_CALLS.len(), 180)" in lib, "host-call count must be 180")
     require(
-        "assert_eq!(required_host_call_count(), 165)" in runtime,
-        "runtime host-call count must be 165",
+        "assert_eq!(required_host_call_count(), 180)" in runtime,
+        "runtime host-call count must be 180",
     )
 
 

@@ -3642,7 +3642,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 165 `spectra.api.*` host calls covering the Phase 22 registration
+- Added 180 `spectra.api.*` host calls covering the Phase 22 and R-2301 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -4438,7 +4438,7 @@ block with documented behavior.
 
 ## R-2301 Middleware Chain Trait and Deterministic Ordering
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `high`
@@ -4446,10 +4446,20 @@ block with documented behavior.
 
 ### Acceptance
 
+- `std.api.middleware` exposes `Middleware`, `AsyncMiddleware`,
+  `MiddlewareChain`, sync and async middleware handles, and trace inspection
+  through compiler builtins, midend lowering, runtime contracts, and the
+  `spectra-api` host-call table.
 - The middleware trait supports `async fn` and synchronous middleware.
-- Middleware order is deterministic and documented in the book chapter.
-- The response chain runs in reverse order.
-- Tests cover ordering, short-circuit, and post-response hooks.
+- Middleware order is deterministic and documented in
+  `docs/book/10-middleware-chain.md`.
+- The response chain runs in reverse order after normal execution and after
+  short-circuit.
+- Tests cover ordering, short-circuit, and post-response hooks in
+  `packages/spectra-api/src/middleware.rs` and
+  `tests/validation/148_api_middleware_chain.spectra`.
+- `scripts/validate_r2301_middleware_chain.py` passes and is wired into
+  `run_tests.ps1`.
 
 ## R-2302 CORS Middleware (RFC 7231)
 

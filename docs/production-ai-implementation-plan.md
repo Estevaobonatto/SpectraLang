@@ -1704,7 +1704,7 @@ that Phase 20 prerequisite set is now complete.
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration (complete;
-  `packages/spectra-api` links against `spectra-runtime`, registers 165
+  `packages/spectra-api` links against `spectra-runtime`, registers 180
   `spectra.api.*` host calls through the runtime host-call registry, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
@@ -1795,7 +1795,11 @@ that Phase 20 prerequisite set is now complete.
 
 ### Phase 23 — Middleware and Security
 
-- `R-2301` Middleware chain trait and deterministic ordering
+- `R-2301` middleware chain trait and deterministic ordering (complete;
+  `std.api.middleware` exposes sync/async traits, deterministic chain
+  composition, short-circuit handling, reverse response hooks, trace
+  inspection, `docs/book/10-middleware-chain.md`, and
+  `scripts/validate_r2301_middleware_chain.py`)
 - `R-2302` CORS middleware (RFC 7231)
 - `R-2303` Structured logging and request ID tracing
 - `R-2304` Rate limiting (token bucket, sliding window)

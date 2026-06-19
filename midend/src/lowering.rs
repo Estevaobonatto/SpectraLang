@@ -8998,6 +8998,27 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("handler", "register_async") => Some(host_int("spectra.api.handler.register_async")),
         ("handler", "dispatch_sync") => Some(host_int("spectra.api.handler.dispatch_sync")),
         ("handler", "dispatch_async") => Some(host_int("spectra.api.handler.dispatch_async")),
+        ("middleware", "chain") => Some(host_int("spectra.api.middleware.chain")),
+        ("middleware", "chain_new") => Some(host_int("spectra.api.middleware.chain_new")),
+        ("middleware", "chain_len") => Some(host_int("spectra.api.middleware.chain_len")),
+        ("middleware", "register_sync") => Some(host_int("spectra.api.middleware.register_sync")),
+        ("middleware", "register_sync_short_circuit") => Some(host_int(
+            "spectra.api.middleware.register_sync_short_circuit",
+        )),
+        ("middleware", "register_async") => Some(host_int("spectra.api.middleware.register_async")),
+        ("middleware", "register_async_short_circuit") => Some(host_int(
+            "spectra.api.middleware.register_async_short_circuit",
+        )),
+        ("middleware", "use_sync") => Some(host_int("spectra.api.middleware.use_sync")),
+        ("middleware", "use_async") => Some(host_int("spectra.api.middleware.use_async")),
+        ("middleware", "execute_sync") => Some(host_int("spectra.api.middleware.execute_sync")),
+        ("middleware", "execute_async") => Some(host_int("spectra.api.middleware.execute_async")),
+        ("middleware", "last_trace") => Some(host_int("spectra.api.middleware.last_trace")),
+        ("middleware", "trace_len") => Some(host_int("spectra.api.middleware.trace_len")),
+        ("middleware", "trace_event") => Some(host_string("spectra.api.middleware.trace_event")),
+        ("middleware", "trace_short_circuited") => {
+            Some(host_bool("spectra.api.middleware.trace_short_circuited"))
+        }
         _ => None,
     }
 }
@@ -9014,7 +9035,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "query"
                     || module == "form"
                     || module == "multipart"
-                    || module == "handler") =>
+                    || module == "handler"
+                    || module == "middleware") =>
         {
             name.as_str()
         }
@@ -9028,7 +9050,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "query"
                     || module == "form"
                     || module == "multipart"
-                    || module == "handler") =>
+                    || module == "handler"
+                    || module == "middleware") =>
         {
             name.as_str()
         }
@@ -9059,6 +9082,10 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "HandlerHandle"
             | "AsyncHandlerHandle"
             | "HandlerError"
+            | "MiddlewareChain"
+            | "MiddlewareHandle"
+            | "AsyncMiddlewareHandle"
+            | "MiddlewareTrace"
     )
 }
 
@@ -9087,6 +9114,10 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "HandlerHandle"
             | "AsyncHandlerHandle"
             | "HandlerError"
+            | "MiddlewareChain"
+            | "MiddlewareHandle"
+            | "AsyncMiddlewareHandle"
+            | "MiddlewareTrace"
     )
 }
 

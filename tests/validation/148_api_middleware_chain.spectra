@@ -1,0 +1,227 @@
+module api_middleware_chain;
+
+import std.string as str;
+
+import {
+    Request,
+    Response,
+    method_get,
+    request,
+    response_status,
+} from std.api.http;
+
+import {
+    text,
+    status,
+} from std.api.handler;
+
+import {
+    Middleware,
+    AsyncMiddleware,
+    MiddlewareChain,
+    MiddlewareHandle,
+    AsyncMiddlewareHandle,
+    MiddlewareTrace,
+    chain_new,
+    chain_len,
+    register_sync,
+    register_sync_short_circuit,
+    register_async,
+    use_sync,
+    use_async,
+    execute_sync,
+    execute_async,
+    last_trace,
+    trace_len,
+    trace_event,
+    trace_short_circuited,
+} from std.api.middleware;
+
+struct AuditMiddleware {
+    marker: string
+}
+
+impl Middleware for AuditMiddleware {
+    fn on_request( & self, request: Request) -> Request {
+        return request;
+    }
+
+    fn on_response( & self, response: Response) -> Response {
+        return response;
+    }
+}
+
+struct AsyncAuditMiddleware {
+    marker: string
+}
+
+impl AsyncMiddleware for AsyncAuditMiddleware {
+    async fn on_request( & self, request: Request) -> Request {
+        return request;
+    }
+
+    async fn on_response( & self, response: Response) -> Response {
+        return response;
+    }
+}
+
+fn expect_event(trace: MiddlewareTrace, index: int, expected: string, code: int) -> int {
+    if str.contains(trace_event(trace, index), expected) != true {
+        return code;
+    }
+    return 0;
+}
+
+fn exercise_sync(req: Request) -> int {
+    let audit = AuditMiddleware { marker: "typed-sync"};
+    let echoed_request = audit.on_request(req);
+    let echoed_response = audit.on_response(text("typed"));
+    if response_status(echoed_response) != 200 {
+        return 1;
+    }
+
+    let first: MiddlewareHandle  = register_sync("first:request", "first:response");
+    let second: MiddlewareHandle = register_sync("second:request", "second:response");
+    let base: MiddlewareChain    = chain_new();
+    let one: MiddlewareChain     = use_sync(base, first);
+    let chain: MiddlewareChain   = use_sync(one, second);
+    if chain_len(chain) != 2 {
+        return 2;
+    }
+
+    let response: Response = execute_sync(chain, echoed_request, text("terminal"));
+    if response_status(response) != 200 {
+        return 3;
+    }
+
+    let trace: MiddlewareTrace = last_trace();
+    if trace_len(trace) != 4 {
+        return 4;
+    }
+    if expect_event(trace, 0, "first:request", 10) != 0 {
+        return 10;
+    }
+    if expect_event(trace, 1, "second:request", 11) != 0 {
+        return 11;
+    }
+    if expect_event(trace, 2, "second:response", 12) != 0 {
+        return 12;
+    }
+    if expect_event(trace, 3, "first:response", 13) != 0 {
+        return 13;
+    }
+    if trace_short_circuited(trace) != false {
+        return 14;
+    }
+
+    return 0;
+}
+
+fn exercise_short_circuit(req: Request) -> int {
+    let first: MiddlewareHandle = register_sync("first:request", "first:response");
+    let limit: MiddlewareHandle = register_sync_short_circuit(
+        "limit:request",
+        "limit:response",
+        status(429),
+    );
+    let never: MiddlewareHandle = register_sync("never:request", "never:response");
+
+    let base: MiddlewareChain  = chain_new();
+    let one: MiddlewareChain   = use_sync(base, first);
+    let two: MiddlewareChain   = use_sync(one, limit);
+    let chain: MiddlewareChain = use_sync(two, never);
+
+    let response: Response = execute_sync(chain, req, text("terminal"));
+    if response_status(response) != 429 {
+        return 20;
+    }
+
+    let trace: MiddlewareTrace = last_trace();
+    if trace_len(trace) != 4 {
+        return 21;
+    }
+    if expect_event(trace, 0, "first:request", 22) != 0 {
+        return 22;
+    }
+    if expect_event(trace, 1, "limit:request", 23) != 0 {
+        return 23;
+    }
+    if expect_event(trace, 2, "limit:response", 24) != 0 {
+        return 24;
+    }
+    if expect_event(trace, 3, "first:response", 25) != 0 {
+        return 25;
+    }
+    if str.contains(trace_event(trace, 3), "never") == true {
+        return 26;
+    }
+    if trace_short_circuited(trace) != true {
+        return 27;
+    }
+
+    return 0;
+}
+
+async fn exercise_async(req: Request) -> int {
+    let typed = AsyncAuditMiddleware { marker: "typed-async"};
+    let echoed_request = await typed.on_request(req);
+    let echoed_response = await typed.on_response(text("typed"));
+    if response_status(echoed_response) != 200 {
+        return 30;
+    }
+
+    let sync_middleware: MiddlewareHandle = register_sync("sync:request", "sync:response");
+    let async_middleware: AsyncMiddlewareHandle = register_async(
+        "async:request",
+        "async:response",
+    );
+    let base: MiddlewareChain  = chain_new();
+    let one: MiddlewareChain   = use_sync(base, sync_middleware);
+    let chain: MiddlewareChain = use_async(one, async_middleware);
+
+    let response: Response = execute_async(chain, echoed_request, text("terminal"));
+    if response_status(response) != 200 {
+        return 31;
+    }
+
+    let trace: MiddlewareTrace = last_trace();
+    if trace_len(trace) != 4 {
+        return 32;
+    }
+    if expect_event(trace, 0, "sync:request", 33) != 0 {
+        return 33;
+    }
+    if expect_event(trace, 1, "async:request", 34) != 0 {
+        return 34;
+    }
+    if expect_event(trace, 2, "async:response", 35) != 0 {
+        return 35;
+    }
+    if expect_event(trace, 3, "sync:response", 36) != 0 {
+        return 36;
+    }
+
+    return 0;
+}
+
+pub fn main() -> int {
+    let req = request(method_get(), "/middleware");
+
+    let sync_result = exercise_sync(req);
+    if sync_result != 0 {
+        return sync_result;
+    }
+
+    let short_result = exercise_short_circuit(req);
+    if short_result != 0 {
+        return short_result;
+    }
+
+    let async_task = exercise_async(req);
+    let async_result = block_on(async_task);
+    if async_result != 0 {
+        return async_result;
+    }
+
+    return 0;
+}

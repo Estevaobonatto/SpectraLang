@@ -15,6 +15,7 @@ commands so users can follow the docs and reproduce results locally.
 7. [Standard Library, Runtime, And Packages](07-stdlib-runtime-packages.md)
 8. [Benchmarks And Comparisons](08-benchmarks-and-comparisons.md)
 9. [Hello HTTP](09-hello-http.md)
+10. [Middleware Chain](10-middleware-chain.md)
 
 ## Verified AI Examples
 
@@ -50,9 +51,11 @@ Run the full repository validation:
 The first API chapter is validated against a checked-in executable example:
 
 - `examples/api/00_hello_http.spectra`
+- `tests/validation/148_api_middleware_chain.spectra`
 
 Run the Hello HTTP example:
 
 ```powershell
 .\target\debug\spectralang.exe run examples\api\00_hello_http.spectra
+.\target\debug\spectralang.exe run tests\validation\148_api_middleware_chain.spectra
 ```

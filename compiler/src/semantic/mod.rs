@@ -563,6 +563,7 @@ impl SemanticAnalyzer {
             "std.api.form",
             "std.api.multipart",
             "std.api.handler",
+            "std.api.middleware",
             "std.api.errors",
             "spectra",
             "spectra.std",
@@ -593,6 +594,7 @@ impl SemanticAnalyzer {
             "spectra.std.api.form",
             "spectra.std.api.multipart",
             "spectra.std.api.handler",
+            "spectra.std.api.middleware",
             "spectra.std.api.errors",
         ];
 
@@ -4451,7 +4453,7 @@ impl SemanticAnalyzer {
                 self.error_with_hint(
                     format!("Unknown standard library module '{}'", module_path),
                     import.span,
-                    "Available stdlib modules include std.io, std.math, std.collections, std.tensor, std.ml, std.concurrent, std.serve, std.api.http, std.api.server, std.api.client, std.api.json, std.api.tls, std.api.routing, std.api.query, std.api.form, std.api.multipart, std.api.handler, std.api.errors",
+                    "Available stdlib modules include std.io, std.math, std.collections, std.tensor, std.ml, std.concurrent, std.serve, std.api.http, std.api.server, std.api.client, std.api.json, std.api.tls, std.api.routing, std.api.query, std.api.form, std.api.multipart, std.api.handler, std.api.middleware, std.api.errors",
                 );
             }
             // For user modules: silently skip — they may be registered in a

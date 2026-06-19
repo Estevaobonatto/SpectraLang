@@ -16,6 +16,7 @@ pub mod form;
 pub mod handler;
 pub mod http;
 pub mod json;
+pub mod middleware;
 pub mod multipart;
 pub mod query;
 pub mod routing;
@@ -687,6 +688,66 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: handler::dispatch_async,
     },
     HostCallSpec {
+        name: "spectra.api.middleware.chain",
+        function: middleware::chain,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.chain_new",
+        function: middleware::chain_new,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.chain_len",
+        function: middleware::chain_len,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.register_sync",
+        function: middleware::register_sync,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.register_sync_short_circuit",
+        function: middleware::register_sync_short_circuit,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.register_async",
+        function: middleware::register_async,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.register_async_short_circuit",
+        function: middleware::register_async_short_circuit,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.use_sync",
+        function: middleware::use_sync,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.use_async",
+        function: middleware::use_async,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.execute_sync",
+        function: middleware::execute_sync,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.execute_async",
+        function: middleware::execute_async,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.last_trace",
+        function: middleware::last_trace,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.trace_len",
+        function: middleware::trace_len,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.trace_event",
+        function: middleware::trace_event,
+    },
+    HostCallSpec {
+        name: "spectra.api.middleware.trace_short_circuited",
+        function: middleware::trace_short_circuited,
+    },
+    HostCallSpec {
         name: "spectra.api.errors.last_code",
         function: errors::last_code,
     },
@@ -849,7 +910,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 165);
+        assert_eq!(HOST_CALLS.len(), 180);
     }
 
     #[test]

@@ -697,6 +697,11 @@ pub(crate) fn store_request(request: Request) -> SpectraHostValue {
     store.request_handle(request)
 }
 
+pub(crate) fn clone_request(handle: SpectraHostValue) -> Option<Request> {
+    let store = store().lock().unwrap_or_else(|e| e.into_inner());
+    store.requests.get(&handle).cloned()
+}
+
 pub(crate) fn clone_response(handle: SpectraHostValue) -> Option<Response> {
     let store = store().lock().unwrap_or_else(|e| e.into_inner());
     store.responses.get(&handle).cloned()

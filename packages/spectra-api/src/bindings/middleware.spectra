@@ -1,0 +1,38 @@
+// Public Spectra surface for Phase 23 API middleware.
+//
+// The compiler exposes these declarations as the stable `std.api.middleware`
+// built-in module. Native behavior is provided by `spectra.api.middleware.*`.
+
+module std.api.middleware;
+
+import { Request, Response} from std.api.http;
+
+pub struct MiddlewareChain {
+    pub middleware_count: int,
+}
+
+pub struct MiddlewareHandle {
+    pub order: int,
+}
+
+pub struct AsyncMiddlewareHandle {
+    pub order: int,
+}
+
+pub struct MiddlewareTrace {
+    pub event_count: int,
+}
+
+pub trait Middleware {
+    fn on_request(&self, request: Request) -> Request;
+    fn on_response(&self, response: Response) -> Response;
+}
+
+pub trait AsyncMiddleware {
+    async fn on_request(&self, request: Request) -> Request;
+    async fn on_response(&self, response: Response) -> Response;
+}
+
+// Native function declarations are represented in
+// compiler/src/semantic/builtin_modules.rs until package-level native extern
+// declarations become first-class syntax.

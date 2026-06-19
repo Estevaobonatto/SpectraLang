@@ -1521,6 +1521,19 @@ if ($r2220ApiConformanceV0.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2220_api_conformance_v0"; Status = $r2220ApiConformanceV0.Status; Detalhe = $r2220ApiConformanceV0.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.58: R-2301 Middleware chain and deterministic ordering
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2301 Middleware chain and deterministic ordering ---" -ForegroundColor Yellow
+$r2301MiddlewareChain = Invoke-HostCommand -name "validate_r2301_middleware_chain" -fileName "python" -arguments @("scripts\validate_r2301_middleware_chain.py") -workingDir (Get-Location).Path
+if ($r2301MiddlewareChain.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase23-api"; Teste = "validate_r2301_middleware_chain"; Status = $r2301MiddlewareChain.Status; Detalhe = $r2301MiddlewareChain.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -170,6 +170,21 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.handler.register_async",
     "spectra.api.handler.dispatch_sync",
     "spectra.api.handler.dispatch_async",
+    "spectra.api.middleware.chain",
+    "spectra.api.middleware.chain_new",
+    "spectra.api.middleware.chain_len",
+    "spectra.api.middleware.register_sync",
+    "spectra.api.middleware.register_sync_short_circuit",
+    "spectra.api.middleware.register_async",
+    "spectra.api.middleware.register_async_short_circuit",
+    "spectra.api.middleware.use_sync",
+    "spectra.api.middleware.use_async",
+    "spectra.api.middleware.execute_sync",
+    "spectra.api.middleware.execute_async",
+    "spectra.api.middleware.last_trace",
+    "spectra.api.middleware.trace_len",
+    "spectra.api.middleware.trace_event",
+    "spectra.api.middleware.trace_short_circuited",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
 ];
@@ -190,6 +205,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 165);
+        assert_eq!(required_host_call_count(), 180);
     }
 }
