@@ -10,6 +10,7 @@ use spectra_runtime::ffi::{
 };
 
 pub mod client;
+pub mod conformance;
 pub mod errors;
 pub mod form;
 pub mod handler;

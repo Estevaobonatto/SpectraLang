@@ -1786,7 +1786,12 @@ that Phase 20 prerequisite set is now complete.
   handlers, HTTP responses, JSON derive, path params, query strings, form
   binding, local server lifecycle, and CRUD smoke assertions; validated by
   `scripts/validate_r2219_rest_crud_example.py`)
-- `R-2220` API conformance suite v0 (HTTP/1.1)
+- `R-2220` API conformance suite v0 (HTTP/1.1) (complete;
+  `packages/spectra-api/src/conformance.rs` defines 26 executable must-pass
+  cases across HTTP/1.1 parsing/status/header behavior, JSON round-trip/error
+  handling, and basic router matching/conflicts; `conformance_v0` emits the
+  versioned machine-readable report `target/api-conformance-v0.json`, and
+  `scripts/validate_r2220_api_conformance_v0.py` gates Phase 22)
 
 ### Phase 23 — Middleware and Security
 

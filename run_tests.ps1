@@ -1508,6 +1508,19 @@ if ($r2219RestCrudExample.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2219_rest_crud_example"; Status = $r2219RestCrudExample.Status; Detalhe = $r2219RestCrudExample.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.57: R-2220 API conformance suite v0
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2220 API conformance suite v0 ---" -ForegroundColor Yellow
+$r2220ApiConformanceV0 = Invoke-HostCommand -name "validate_r2220_api_conformance_v0" -fileName "python" -arguments @("scripts\validate_r2220_api_conformance_v0.py") -workingDir (Get-Location).Path
+if ($r2220ApiConformanceV0.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2220_api_conformance_v0"; Status = $r2220ApiConformanceV0.Status; Detalhe = $r2220ApiConformanceV0.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

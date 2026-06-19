@@ -14,6 +14,7 @@ Runnable examples:
 
 Reference pages:
 
+- [API conformance v0](api-conformance-v0.md)
 - [HTTP core types](std-api-http-types.md)
 - [JSON codec](std-api-json.md)
 - [JSON derive](std-api-json-derive.md)

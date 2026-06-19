@@ -4396,7 +4396,7 @@ params, query strings, and form binding through `spectra.api`.
 
 ## R-2220 API Conformance Suite v0 (HTTP/1.1)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Risk: `medium`
@@ -4410,10 +4410,23 @@ codes, headers, JSON round-trip, and the basic router.
 ### Acceptance
 
 - `scripts/validate_r2220_api_conformance_v0.py` runs the suite and emits
-  a machine-readable report.
+  a machine-readable report at `target/api-conformance-v0.json`.
 - The suite covers the documented must-pass HTTP/1.1 cases and a JSON
   conformance matrix.
 - The suite gates `run_tests.ps1` for Phase 22.
+
+### Completed
+
+- Added `packages/spectra-api/src/conformance.rs` with the executable v0 suite
+  and 26 named cases across `http1`, `json`, and `routing`.
+- Added `packages/spectra-api/examples/conformance_v0.rs` so tooling can run
+  the same suite and emit a JSON report without duplicating case logic.
+- Added `docs/api/api-conformance-v0.md` documenting the must-pass HTTP/1.1,
+  JSON, and router matrix.
+- Added `scripts/validate_r2220_api_conformance_v0.py`; it runs the focused
+  Rust test, runs the report-emitting example, validates
+  `target/api-conformance-v0.json`, checks planning sync, and is gated by
+  `run_tests.ps1`.
 
 ---
 

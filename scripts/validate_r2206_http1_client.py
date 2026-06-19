@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -35,6 +37,19 @@ def run_command(args: list[str]) -> str:
     if completed.returncode != 0:
         fail(f"command {' '.join(args)} failed:\n{completed.stdout}")
     return completed.stdout
+
+
+def cargo_cmd() -> str:
+    configured = os.environ.get("CARGO")
+    if configured:
+        return configured
+    found = shutil.which("cargo")
+    if found:
+        return found
+    windows_default = Path.home() / ".cargo" / "bin" / "cargo.exe"
+    if windows_default.exists():
+        return str(windows_default)
+    return "cargo"
 
 
 def parse_toml(path: str):
@@ -144,7 +159,7 @@ def validate_runner() -> None:
 
 def main() -> None:
     validate_client_surface()
-    run_command(["cargo", "test", "-q", "-p", "spectra-api"])
+    run_command([cargo_cmd(), "test", "-q", "-p", "spectra-api"])
     validate_planning()
     validate_runner()
     print("validated R-2206 HTTP/1.1 client")
