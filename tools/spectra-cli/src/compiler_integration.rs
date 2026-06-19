@@ -331,7 +331,9 @@ impl BackendDriver for FullPipelineBackend {
         let codegen_duration = codegen_start.elapsed();
 
         if let Err(error) = codegen_result {
-            return Err(vec![CompilerError::Backend(BackendError::new(error))]);
+            return Err(vec![CompilerError::Backend(BackendError::new(
+                error.to_string(),
+            ))]);
         }
 
         Ok(FullPipelineArtifacts {
@@ -380,8 +382,8 @@ impl BackendDriver for FullPipelineBackend {
         // Ensure manual allocations do not leak across invocation boundaries.
         spectra_runtime::ffi::spectra_rt_manual_clear();
 
-        let return_value =
-            return_value.map_err(|err| vec![CompilerError::Backend(BackendError::new(err))])?;
+        let return_value = return_value
+            .map_err(|err| vec![CompilerError::Backend(BackendError::new(err.to_string()))])?;
 
         // Store the program's exit code so the CLI can propagate it.
         let exit_code = return_value.map(|v| v as i32).unwrap_or(0);
@@ -512,6 +514,7 @@ impl SpectraCompiler {
 
         let aot = AotCodeGenerator::new();
         aot.compile_to_object(&report.artifacts.ir_module, &AotOptions::default())
+            .map_err(|err| err.to_string())
     }
 
     /// Compile a source file to a native object file that contains a full
@@ -534,6 +537,7 @@ impl SpectraCompiler {
                 emit_executable: true,
             },
         )
+        .map_err(|err| err.to_string())
     }
 
     fn compile_to_report(
@@ -982,18 +986,6 @@ fn render_lint_warning(diagnostic: &LintDiagnostic, filename: &str, source: &str
         source,
         filename,
     )
-}
-
-fn log_warning(message: &str) {
-    for (index, line) in message.lines().enumerate() {
-        if index == 0 {
-            eprintln!("warning: {}", line);
-        } else if line.is_empty() {
-            eprintln!();
-        } else {
-            eprintln!("         {}", line);
-        }
-    }
 }
 
 fn get_source_line<'a>(source: &'a str, line_number: usize) -> Option<&'a str> {

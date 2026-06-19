@@ -1,0 +1,58 @@
+module backend_codegen_edge_control_flow;
+
+enum Step {
+    Add(int),
+    Skip,
+    Stop
+}
+
+fn classify(index: int) -> Step {
+    switch index {
+        case 1 => {
+            return Step::Add(11);
+        }
+        case 2 => {
+            return Step::Skip;
+        }
+        case 3 => {
+            return Step::Add(13);
+        }
+        else => {
+            return Step::Stop;
+        }
+    }
+}
+
+fn accumulate(limit: int) -> int {
+    let index = 0;
+    let total = 0;
+
+    loop {
+        index = index + 1;
+        if index > limit {
+            break;
+        }
+
+        match classify(index) {
+            Step::Add(value) => {
+                total = total + value;
+            }
+            Step::Skip => {
+                continue;
+            }
+            Step::Stop => {
+                break;
+            }
+        };
+    }
+
+    return total;
+}
+
+pub fn main() -> int {
+    let value = accumulate(5);
+    if value != 24 {
+        return value;
+    }
+    return 0;
+}

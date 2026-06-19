@@ -2968,7 +2968,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2007 Backend and Codegen Robustness Cleanup
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-2003`, `R-1002`
@@ -2984,6 +2984,23 @@ the next tracked development cycle toward a broader AI/ML platform.
 - known production warnings in backend/codegen are removed where practical
 - internal unwraps on IR/block maps are replaced with typed errors where user source can reach them
 - regression coverage exercises malformed or edge IR produced from valid source without backend panics
+
+### Completed
+
+- Added typed backend codegen errors through `BackendCodegenError` and `BackendErrorKind`, covering missing blocks, functions, values, PHI incoming values, unsupported host-call argument types, unsupported execution return types, invalid IR, and Cranelift failures.
+- Replaced reachable JIT/AOT `block_map` unwrap paths with typed `MissingBlock` errors.
+- Converted JIT/AOT PHI, function, value, object-emission, and execution-return failures to typed backend errors while preserving CLI-rendered diagnostics through `Display`.
+- Removed the known production warning for unused backend terminator allocation tracking and the stale CLI warning helper.
+- Added Rust regressions for missing branch targets and missing PHI incoming values in JIT plus missing branch targets in AOT.
+- Added `tests/validation/146_backend_codegen_edge_control_flow.spectra` to exercise valid-source edge control flow through normal `spectralang run`.
+- Added `scripts/validate_r2007_backend_codegen.py` and wired it into `run_tests.ps1` under `phase20-backend-codegen`.
+
+### Validation
+
+- `cargo test -p spectra-backend r2007_ -- --test-threads=1`
+- `RUSTFLAGS=-Dwarnings cargo check -p spectra-backend -p spectra-cli --all-targets`
+- `target\debug\spectralang.exe run tests\validation\146_backend_codegen_edge_control_flow.spectra`
+- `python scripts\validate_r2007_backend_codegen.py --binary target\debug\spectralang.exe`
 
 ---
 
@@ -3015,9 +3032,10 @@ This sequence establishes:
 # Next Horizon: Native API Platform
 
 The original AI certification and release-channel baseline through `R-2002`
-is complete. API continuation is now paused behind the Phase 20 base
-stabilization gate (`R-2003` through `R-2007`) so core language correctness,
-std/runtime hardening, and performance evidence are refreshed before `R-2216`.
+is complete. The Phase 20 base stabilization gate (`R-2003` through `R-2007`)
+is also complete, so core language correctness, std/runtime hardening,
+performance evidence, and backend/codegen robustness have been refreshed before
+`R-2216`.
 The phases below define a new, production-grade workstream that turns
 SpectraLang into a first-class language for **building HTTP and event-driven
 APIs natively**, without sacrificing the AI/ML and tensor story.

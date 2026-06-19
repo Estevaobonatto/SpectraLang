@@ -10,6 +10,8 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
+use crate::error::{BackendCodegenError, BackendResult};
+
 #[derive(Clone, Copy)]
 pub(crate) struct HostNameRecord {
     pub(crate) ptr: u64,
@@ -82,18 +84,17 @@ fn get_phi_args(
     current_block: usize,
     phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
     value_map: &HashMap<usize, Value>,
-) -> Result<Vec<cranelift_codegen::ir::BlockArg>, String> {
+) -> BackendResult<Vec<cranelift_codegen::ir::BlockArg>> {
     let mut args = Vec::new();
     if let Some(phis) = phi_map.get(&target_block) {
         for phi in phis {
-            let incoming_id = phi
-                .incoming
-                .get(&current_block)
-                .ok_or_else(|| format!("PHI missing incoming for block {}", current_block))?;
+            let incoming_id = phi.incoming.get(&current_block).ok_or_else(|| {
+                BackendCodegenError::missing_phi_incoming(current_block, target_block)
+            })?;
             let val = value_map
                 .get(incoming_id)
                 .copied()
-                .ok_or_else(|| format!("Value {} not found", incoming_id))?;
+                .ok_or_else(|| BackendCodegenError::missing_value(*incoming_id))?;
             args.push(val.into());
         }
     }
@@ -207,7 +208,7 @@ impl CodeGenerator {
     }
 
     /// Generate code for an entire module
-    pub fn generate_module(&mut self, ir_module: &IRModule) -> Result<(), String> {
+    pub fn generate_module(&mut self, ir_module: &IRModule) -> BackendResult<()> {
         // First pass: declare all functions
         for func in &ir_module.functions {
             self.declare_function(func)?;
@@ -219,15 +220,15 @@ impl CodeGenerator {
         }
 
         // Finalize all functions
-        self.module
-            .finalize_definitions()
-            .map_err(|e| format!("Failed to finalize definitions: {}", e))?;
+        self.module.finalize_definitions().map_err(|e| {
+            BackendCodegenError::cranelift(format!("Failed to finalize definitions: {}", e))
+        })?;
 
         Ok(())
     }
 
     /// Declare a function signature
-    fn declare_function(&mut self, ir_func: &IRFunction) -> Result<FuncId, String> {
+    fn declare_function(&mut self, ir_func: &IRFunction) -> BackendResult<FuncId> {
         let mut sig = self.module.make_signature();
 
         // Add parameters
@@ -246,7 +247,12 @@ impl CodeGenerator {
         let func_id = self
             .module
             .declare_function(&ir_func.name, Linkage::Export, &sig)
-            .map_err(|e| format!("Failed to declare function '{}': {}", ir_func.name, e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to declare function '{}': {}",
+                    ir_func.name, e
+                ))
+            })?;
 
         self.function_map.insert(ir_func.name.clone(), func_id);
 
@@ -254,11 +260,11 @@ impl CodeGenerator {
     }
 
     /// Define a function body
-    fn define_function(&mut self, ir_func: &IRFunction) -> Result<(), String> {
+    fn define_function(&mut self, ir_func: &IRFunction) -> BackendResult<()> {
         let func_id = *self
             .function_map
             .get(&ir_func.name)
-            .ok_or_else(|| format!("Function '{}' not declared", ir_func.name))?;
+            .ok_or_else(|| BackendCodegenError::missing_function(&ir_func.name))?;
 
         // Clear context
         self.ctx.func.clear();
@@ -336,7 +342,9 @@ impl CodeGenerator {
         // Add block parameters for PHI nodes to Cranelift blocks.
         for ir_block in &ir_func.blocks {
             if let Some(phis) = phi_map.get(&ir_block.id) {
-                let block = *block_map.get(&ir_block.id).unwrap();
+                let block = *block_map
+                    .get(&ir_block.id)
+                    .ok_or_else(|| BackendCodegenError::missing_block(ir_block.id))?;
                 for _ in phis {
                     builder.append_block_param(block, types::I64);
                 }
@@ -383,7 +391,12 @@ impl CodeGenerator {
         // Define function in module
         self.module
             .define_function(func_id, &mut self.ctx)
-            .map_err(|e| format!("Failed to define function '{}': {}", ir_func.name, e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to define function '{}': {}",
+                    ir_func.name, e
+                ))
+            })?;
 
         // Clear context
         self.module.clear_context(&mut self.ctx);
@@ -410,11 +423,11 @@ impl CodeGenerator {
         frame_var: Variable,
         current_block_id: usize,
         phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
-    ) -> Result<(), String> {
+    ) -> BackendResult<()> {
         // Get Cranelift block
         let block = *block_map
             .get(&ir_block.id)
-            .ok_or_else(|| format!("Block {} not found", ir_block.id))?;
+            .ok_or_else(|| BackendCodegenError::missing_block(ir_block.id))?;
 
         // Switch to block
         if builder.current_block() != Some(block) {
@@ -454,7 +467,6 @@ impl CodeGenerator {
                 manual_free_func,
                 manual_frame_exit_func,
                 manual_escape_func,
-                allocation_vars.as_slice(),
                 frame_var,
                 current_block_id,
                 phi_map,
@@ -481,13 +493,13 @@ impl CodeGenerator {
         current_block_id: usize,
         block_map: &HashMap<usize, Block>,
         phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
-    ) -> Result<(), String> {
+    ) -> BackendResult<()> {
         // Helper to get value from map
-        let get_value = |v: &IRValue| -> Result<Value, String> {
+        let get_value = |v: &IRValue| -> BackendResult<Value> {
             value_map
                 .get(&v.id)
                 .copied()
-                .ok_or_else(|| format!("Value {} not found", v.id))
+                .ok_or_else(|| BackendCodegenError::missing_value(v.id))
         };
 
         match &instr.kind {
@@ -658,7 +670,9 @@ impl CodeGenerator {
                         allocation_vars.push(var);
                     }
                 } else {
-                    return Err("runtime allocation did not return a pointer".to_string());
+                    return Err(BackendCodegenError::invalid_ir(
+                        "runtime allocation did not return a pointer",
+                    ));
                 }
             }
 
@@ -712,7 +726,7 @@ impl CodeGenerator {
             } => {
                 let func_id = *function_map
                     .get(function)
-                    .ok_or_else(|| format!("Function '{}' not found", function))?;
+                    .ok_or_else(|| BackendCodegenError::missing_function(function))?;
 
                 let func_ref = module.declare_func_in_func(func_id, builder.func);
 
@@ -774,9 +788,8 @@ impl CodeGenerator {
                                 builder.ins().bitcast(types::I64, MemFlags::new(), value)
                             }
                             other => {
-                                return Err(format!(
-                                    "Unsupported host call argument type {:?}",
-                                    other
+                                return Err(BackendCodegenError::unsupported_host_argument_type(
+                                    other,
                                 ))
                             }
                         };
@@ -900,7 +913,7 @@ impl CodeGenerator {
             InstructionKind::FuncAddr { result, function } => {
                 let func_id = *function_map
                     .get(function)
-                    .ok_or_else(|| format!("Function '{}' not found", function))?;
+                    .ok_or_else(|| BackendCodegenError::missing_function(function))?;
 
                 let func_ref = module.declare_func_in_func(func_id, builder.func);
                 let func_addr = builder
@@ -1050,7 +1063,7 @@ impl CodeGenerator {
             InstructionKind::Phi { result, .. } => {
                 let block = *block_map
                     .get(&current_block_id)
-                    .ok_or_else(|| format!("Block {} not found", current_block_id))?;
+                    .ok_or_else(|| BackendCodegenError::missing_block(current_block_id))?;
                 if let Some(phis) = phi_map.get(&current_block_id) {
                     for (idx, phi) in phis.iter().enumerate() {
                         if phi.result_id == result.id {
@@ -1092,17 +1105,16 @@ impl CodeGenerator {
         manual_free_func: FuncId,
         manual_frame_exit_func: FuncId,
         manual_escape_func: FuncId,
-        allocation_vars: &[Variable],
         frame_var: Variable,
         current_block_id: usize,
         phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
-    ) -> Result<(), String> {
+    ) -> BackendResult<()> {
         // Helper to get value from map
-        let get_value = |v: &IRValue| -> Result<Value, String> {
+        let get_value = |v: &IRValue| -> BackendResult<Value> {
             value_map
                 .get(&v.id)
                 .copied()
-                .ok_or_else(|| format!("Value {} not found", v.id))
+                .ok_or_else(|| BackendCodegenError::missing_value(v.id))
         };
 
         match terminator {
@@ -1155,7 +1167,7 @@ impl CodeGenerator {
             Terminator::Branch { target } => {
                 let target_block = *block_map
                     .get(target)
-                    .ok_or_else(|| format!("Block {} not found", target))?;
+                    .ok_or_else(|| BackendCodegenError::missing_block(*target))?;
                 let phi_args = get_phi_args(*target, current_block_id, phi_map, value_map)?;
                 builder.ins().jump(target_block, &phi_args);
             }
@@ -1168,10 +1180,10 @@ impl CodeGenerator {
                 let cond_val = get_value(condition)?;
                 let true_bb = *block_map
                     .get(true_block)
-                    .ok_or_else(|| format!("Block {} not found", true_block))?;
+                    .ok_or_else(|| BackendCodegenError::missing_block(*true_block))?;
                 let false_bb = *block_map
                     .get(false_block)
-                    .ok_or_else(|| format!("Block {} not found", false_block))?;
+                    .ok_or_else(|| BackendCodegenError::missing_block(*false_block))?;
                 let true_args = get_phi_args(*true_block, current_block_id, phi_map, value_map)?;
                 let false_args = get_phi_args(*false_block, current_block_id, phi_map, value_map)?;
                 builder
@@ -1187,7 +1199,7 @@ impl CodeGenerator {
                 let switch_val = get_value(value)?;
                 let default_bb = *block_map
                     .get(default)
-                    .ok_or_else(|| format!("Block {} not found", default))?;
+                    .ok_or_else(|| BackendCodegenError::missing_block(*default))?;
                 let default_args = get_phi_args(*default, current_block_id, phi_map, value_map)?;
 
                 // Create switch using series of conditional branches.
@@ -1196,7 +1208,7 @@ impl CodeGenerator {
                 for (idx, (case_val, target)) in cases.iter().enumerate() {
                     let target_bb = *block_map
                         .get(target)
-                        .ok_or_else(|| format!("Block {} not found", target))?;
+                        .ok_or_else(|| BackendCodegenError::missing_block(*target))?;
 
                     let case_const = builder.ins().iconst(types::I64, *case_val);
                     let cmp = builder.ins().icmp(IntCC::Equal, switch_val, case_const);
@@ -1227,7 +1239,7 @@ impl CodeGenerator {
     }
 
     /// Convert IR type to Cranelift type
-    pub(crate) fn ir_type_to_cranelift(ty: &IRType) -> Result<types::Type, String> {
+    pub(crate) fn ir_type_to_cranelift(ty: &IRType) -> BackendResult<types::Type> {
         match ty {
             IRType::Void => Ok(types::I8),
             IRType::Bool => Ok(types::I8),
@@ -1298,11 +1310,11 @@ impl CodeGenerator {
     }
 
     /// Get pointer to a compiled function
-    pub fn get_function_ptr(&mut self, name: &str) -> Result<*const u8, String> {
+    pub fn get_function_ptr(&mut self, name: &str) -> BackendResult<*const u8> {
         let func_id = self
             .function_map
             .get(name)
-            .ok_or_else(|| format!("Function '{}' not found", name))?;
+            .ok_or_else(|| BackendCodegenError::missing_function(name))?;
 
         Ok(self.module.get_finalized_function(*func_id))
     }
@@ -1312,7 +1324,7 @@ impl CodeGenerator {
         &mut self,
         name: &str,
         ir_module: &IRModule,
-    ) -> Result<Option<i64>, String> {
+    ) -> BackendResult<Option<i64>> {
         let ptr = self.get_function_ptr(name)?;
 
         let return_type = ir_module
@@ -1334,9 +1346,8 @@ impl CodeGenerator {
                 let func: extern "C" fn() -> i8 = std::mem::transmute(ptr);
                 Ok(Some(func() as i64))
             }
-            other => Err(format!(
-                "Execution for return type {:?} is not yet supported",
-                other
+            other => Err(BackendCodegenError::unsupported_execution_return_type(
+                other,
             )),
         }
     }
@@ -1351,6 +1362,7 @@ impl Default for CodeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BackendErrorKind;
     use spectra_midend::ir::Parameter;
 
     #[test]
@@ -1447,6 +1459,57 @@ mod tests {
 
         let result = codegen.define_function(&func);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn r2007_missing_branch_target_returns_typed_error() {
+        use spectra_midend::ir::Terminator;
+
+        let mut codegen = CodeGenerator::new();
+        let mut func = IRFunction::new("missing_branch_target", vec![], IRType::Void);
+        let entry_block_id = func.add_block("entry");
+        let entry_block = func.get_block_mut(entry_block_id).unwrap();
+        entry_block.set_terminator(Terminator::Branch { target: 999 });
+
+        assert!(codegen.declare_function(&func).is_ok());
+        let err = codegen
+            .define_function(&func)
+            .expect_err("missing target block must be reported, not panic");
+        assert_eq!(err.kind(), &BackendErrorKind::MissingBlock);
+        assert!(err.message().contains("999"));
+    }
+
+    #[test]
+    fn r2007_missing_phi_incoming_returns_typed_error() {
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
+
+        let mut codegen = CodeGenerator::new();
+        let mut func = IRFunction::new("missing_phi_incoming", vec![], IRType::Int);
+        let entry_block_id = func.add_block("entry");
+        let join_block_id = func.add_block("join");
+
+        func.get_block_mut(entry_block_id)
+            .unwrap()
+            .set_terminator(Terminator::Branch {
+                target: join_block_id,
+            });
+
+        let phi_result = Value { id: 0 };
+        let join_block = func.get_block_mut(join_block_id).unwrap();
+        join_block.add_instruction(InstructionKind::Phi {
+            result: phi_result,
+            incoming: vec![(Value { id: 1 }, 123)],
+        });
+        join_block.set_terminator(Terminator::Return {
+            value: Some(phi_result),
+        });
+
+        assert!(codegen.declare_function(&func).is_ok());
+        let err = codegen
+            .define_function(&func)
+            .expect_err("missing phi incoming must be reported, not panic");
+        assert_eq!(err.kind(), &BackendErrorKind::MissingPhiIncoming);
+        assert!(err.message().contains(&join_block_id.to_string()));
     }
 
     #[test]

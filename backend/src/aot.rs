@@ -11,6 +11,7 @@ use spectra_midend::ir::{
 use std::collections::HashMap;
 
 use crate::codegen::{CodeGenerator, HostNameRecord, PhiDescriptor};
+use crate::error::{BackendCodegenError, BackendResult};
 
 /// Options that control AOT code generation.
 #[derive(Debug, Clone, Default)]
@@ -131,7 +132,7 @@ impl AotCodeGenerator {
         mut self,
         ir_module: &IRModule,
         opts: &AotOptions,
-    ) -> Result<Vec<u8>, String> {
+    ) -> BackendResult<Vec<u8>> {
         let rename_main = opts.emit_executable;
 
         // Pre-intern all host-function names as .rodata data sections so that
@@ -155,10 +156,7 @@ impl AotCodeGenerator {
         if opts.emit_executable {
             let has_main = ir_module.functions.iter().any(|f| f.name == "main");
             if !has_main {
-                return Err(
-                    "No 'main' function found; an entry point is required for --emit-exe."
-                        .to_string(),
-                );
+                return Err(BackendCodegenError::missing_function("main"));
             }
             self.generate_exe_entry_point()?;
         }
@@ -168,14 +166,14 @@ impl AotCodeGenerator {
 
         Ok(product
             .emit()
-            .map_err(|e| format!("Object emit error: {}", e))?)
+            .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?)
     }
 
     fn declare_function(
         &mut self,
         ir_func: &IRFunction,
         rename_main: bool,
-    ) -> Result<FuncId, String> {
+    ) -> BackendResult<FuncId> {
         let mut sig = self.module.make_signature();
         for param in &ir_func.params {
             let cl_type = CodeGenerator::ir_type_to_cranelift(&param.ty)?;
@@ -198,18 +196,23 @@ impl AotCodeGenerator {
         let func_id = self
             .module
             .declare_function(exported_name, Linkage::Export, &sig)
-            .map_err(|e| format!("Failed to declare '{}': {}", exported_name, e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to declare '{}': {}",
+                    exported_name, e
+                ))
+            })?;
         // Key by IR name so internal call-site lookups (via `function_map`) work
         // regardless of the exported symbol name.
         self.function_map.insert(ir_func.name.clone(), func_id);
         Ok(func_id)
     }
 
-    fn define_function(&mut self, ir_func: &IRFunction) -> Result<(), String> {
+    fn define_function(&mut self, ir_func: &IRFunction) -> BackendResult<()> {
         let func_id = *self
             .function_map
             .get(&ir_func.name)
-            .ok_or_else(|| format!("Function '{}' not declared", ir_func.name))?;
+            .ok_or_else(|| BackendCodegenError::missing_function(&ir_func.name))?;
 
         self.ctx.func.clear();
         self.ctx.func.signature = self
@@ -276,7 +279,9 @@ impl AotCodeGenerator {
         // Add block parameters for PHI nodes to Cranelift blocks.
         for ir_block in &ir_func.blocks {
             if let Some(phis) = phi_map.get(&ir_block.id) {
-                let block = *block_map.get(&ir_block.id).unwrap();
+                let block = *block_map
+                    .get(&ir_block.id)
+                    .ok_or_else(|| BackendCodegenError::missing_block(ir_block.id))?;
                 for _ in phis {
                     builder.append_block_param(block, types::I64);
                 }
@@ -318,7 +323,12 @@ impl AotCodeGenerator {
 
         self.module
             .define_function(func_id, &mut self.ctx)
-            .map_err(|e| format!("Failed to define '{}': {}", ir_func.name, e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to define '{}': {}",
+                    ir_func.name, e
+                ))
+            })?;
         self.module.clear_context(&mut self.ctx);
 
         Ok(())
@@ -336,7 +346,7 @@ impl AotCodeGenerator {
     ///   1. calls `spectra_rt_startup_with_args(argc, argv)` to initialise the runtime;
     ///   2. calls `spectra_user_main()` (the renamed Spectra `main` function);
     ///   3. returns `0` to the OS.
-    fn generate_exe_entry_point(&mut self) -> Result<(), String> {
+    fn generate_exe_entry_point(&mut self) -> BackendResult<()> {
         // ── declare spectra_rt_startup_with_args import ──────────────────────
         let mut startup_sig = self.module.make_signature();
         startup_sig.params.push(AbiParam::new(types::I32)); // argc: i32
@@ -348,13 +358,18 @@ impl AotCodeGenerator {
                 Linkage::Import,
                 &startup_sig,
             )
-            .map_err(|e| format!("Failed to declare 'spectra_rt_startup_with_args': {}", e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to declare 'spectra_rt_startup_with_args': {}",
+                    e
+                ))
+            })?;
 
         // ── look up spectra_user_main (stored under IR name "main") ──────────
         let user_main_func_id = *self
             .function_map
             .get("main")
-            .ok_or_else(|| "Internal error: 'main' not found in function map.".to_string())?;
+            .ok_or_else(|| BackendCodegenError::missing_function("main"))?;
 
         // ── declare native C main ─────────────────────────────────────────────
         let mut native_main_sig = self.module.make_signature();
@@ -364,7 +379,9 @@ impl AotCodeGenerator {
         let native_main_func_id = self
             .module
             .declare_function("main", Linkage::Export, &native_main_sig)
-            .map_err(|e| format!("Failed to declare native 'main': {}", e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!("Failed to declare native 'main': {}", e))
+            })?;
 
         // ── define the shim body ──────────────────────────────────────────────
         self.ctx.func.clear();
@@ -402,7 +419,12 @@ impl AotCodeGenerator {
         let pause_func_id = self
             .module
             .declare_function("spectra_rt_maybe_pause", Linkage::Import, &pause_sig)
-            .map_err(|e| format!("Failed to declare 'spectra_rt_maybe_pause': {}", e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to declare 'spectra_rt_maybe_pause': {}",
+                    e
+                ))
+            })?;
         let pause_ref = self
             .module
             .declare_func_in_func(pause_func_id, builder.func);
@@ -415,7 +437,12 @@ impl AotCodeGenerator {
 
         self.module
             .define_function(native_main_func_id, &mut self.ctx)
-            .map_err(|e| format!("Failed to define native 'main' shim: {}", e))?;
+            .map_err(|e| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to define native 'main' shim: {}",
+                    e
+                ))
+            })?;
         self.module.clear_context(&mut self.ctx);
 
         Ok(())
@@ -465,5 +492,29 @@ impl AotCodeGenerator {
             data_id: Some(data_id),
         };
         self.host_name_data.insert(name.to_string(), record);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BackendErrorKind;
+    use spectra_midend::ir::{Function as IRFunction, Terminator, Type as IRType};
+
+    #[test]
+    fn r2007_aot_missing_branch_target_returns_typed_error() {
+        let mut module = IRModule::new("r2007_aot_missing_branch_target");
+        let mut func = IRFunction::new("main", vec![], IRType::Void);
+        let entry_block_id = func.add_block("entry");
+        func.get_block_mut(entry_block_id)
+            .unwrap()
+            .set_terminator(Terminator::Branch { target: 42 });
+        module.add_function(func);
+
+        let err = AotCodeGenerator::new()
+            .compile_to_object(&module, &AotOptions::default())
+            .expect_err("AOT missing target block must be reported, not panic");
+        assert_eq!(err.kind(), &BackendErrorKind::MissingBlock);
+        assert!(err.message().contains("42"));
     }
 }

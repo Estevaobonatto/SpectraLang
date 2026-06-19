@@ -1092,7 +1092,20 @@ if ($r2006PerformanceRefresh.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-performance-refresh"; Teste = "validate_r2006_performance_refresh"; Status = $r2006PerformanceRefresh.Status; Detalhe = $r2006PerformanceRefresh.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.29: R-2101 async/await execution model ADR
+# Grupo 8.29: R-2007 backend/codegen robustness
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2007 backend/codegen robustness ---" -ForegroundColor Yellow
+$r2007BackendCodegen = Invoke-HostCommand -name "validate_r2007_backend_codegen" -fileName "python" -arguments @("scripts\validate_r2007_backend_codegen.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2007BackendCodegen.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-backend-codegen"; Teste = "validate_r2007_backend_codegen"; Status = $r2007BackendCodegen.Status; Detalhe = $r2007BackendCodegen.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.30: R-2101 async/await execution model ADR
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2101 async/await execution model ADR ---" -ForegroundColor Yellow
