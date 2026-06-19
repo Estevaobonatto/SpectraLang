@@ -1781,7 +1781,11 @@ that Phase 20 prerequisite set is now complete.
   and graceful shutdown, and is validated with
   `examples/api/00_hello_http.spectra` by
   `scripts/validate_r2218_hello_http_book.py`)
-- `R-2219` API example: REST CRUD
+- `R-2219` API example: REST CRUD (complete;
+  `examples/api/01_rest_crud.spectra` exercises public `std.api.*` routing,
+  handlers, HTTP responses, JSON derive, path params, query strings, form
+  binding, local server lifecycle, and CRUD smoke assertions; validated by
+  `scripts/validate_r2219_rest_crud_example.py`)
 - `R-2220` API conformance suite v0 (HTTP/1.1)
 
 ### Phase 23 — Middleware and Security

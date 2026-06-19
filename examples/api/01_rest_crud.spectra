@@ -1,0 +1,210 @@
+module rest_crud_api;
+
+import std.string as str;
+import std.api.query as query;
+import std.api.form as form;
+
+import {
+    Server,
+    new,
+    listen,
+    serve,
+    shutdown,
+    local_port,
+    state,
+} from std.api.server;
+
+import {
+    Router,
+    Route,
+    RouteMatch,
+    router,
+    get,
+    post,
+    put,
+    delete,
+    route_id,
+    route_match,
+    match_route_id,
+    match_param_int,
+} from std.api.routing;
+
+import {
+    HandlerHandle,
+    json,
+    status,
+    with_header,
+    register_sync,
+    dispatch_sync,
+} from std.api.handler;
+
+import {
+    Request,
+    Response,
+    method_get,
+    method_post,
+    method_put,
+    method_delete,
+    request,
+    response_status,
+    response_header,
+    response_body_len,
+    status_no_content,
+} from std.api.http;
+
+#[derive(Serialize, Deserialize)]
+struct Todo {
+    id: int,
+    title: string,
+    completed: bool,
+}
+
+struct TodoFilter {
+    page: int,
+    completed: bool,
+}
+
+fn json_response(body: string) -> Response {
+    return with_header(json(body), "Content-Type", "application/json");
+}
+
+fn assert_response(response: Response, expected_status: int, expected_content_type: string) -> int {
+    if response_status(response) != expected_status {
+        return 1;
+    }
+    if response_header(response, "content-type") != expected_content_type {
+        return 2;
+    }
+    if response_body_len(response) <= 0 && expected_status != status_no_content() {
+        return 3;
+    }
+    return 0;
+}
+
+pub fn main() -> int {
+    let decoded: Todo = Todo::from_json("{\"id\":1,\"title\":\"Write docs\",\"completed\":false}");
+    let created: Todo = Todo {
+        id: 1,
+        title: "Write docs",
+        completed: false,
+    };
+    if created.id != 1 {
+        return 1;
+    }
+    if created.completed != false {
+        return 2;
+    }
+    let generated_json: string = created.to_json();
+    let created_json: string = "{\"id\":1,\"title\":\"Write docs\",\"completed\":false}";
+
+    let todo_query = query.parse("/todos?page=2&completed=false");
+    let qs0 = query.schema();
+    let qs1 = query.schema_field(qs0, "page", query.type_int(), true, false);
+    let qs2 = query.schema_field(qs1, "completed", query.type_bool(), true, false);
+    let query_binding = query.bind(todo_query, qs2);
+    if query.binding_ok(query_binding) != true {
+        return 4;
+    }
+    let filter: TodoFilter = TodoFilter {
+        page: query.binding_int(query_binding, "page", 0),
+        completed: query.binding_bool(query_binding, "completed", 0),
+    };
+    if filter.page != 2 {
+        return 5;
+    }
+    if filter.completed != false {
+        return 6;
+    }
+
+    let todo_form = form.parse("title=Ship+API&completed=false");
+    let fs0 = form.schema();
+    let fs1 = form.schema_field(fs0, "title", form.type_string(), true, false);
+    let fs2 = form.schema_field(fs1, "completed", form.type_string(), true, false);
+    let form_binding = form.bind(todo_form, fs2);
+    if form.binding_ok(form_binding) != true {
+        return 7;
+    }
+    if str.contains(form.binding_value(form_binding, "title", 0), "Ship API") != true {
+        return 8;
+    }
+
+    let routes: Router = router();
+    let list_route: Route = get(routes, "/todos");
+    let create_route: Route = post(routes, "/todos");
+    let read_route: Route = get(routes, "/todos/{id:\\d+}");
+    let update_route: Route = put(routes, "/todos/{id:\\d+}");
+    let delete_route: Route = delete(routes, "/todos/{id:\\d+}");
+
+    if route_id(list_route) == 0 || route_id(create_route) == 0 {
+        return 9;
+    }
+    if route_id(read_route) == 0 || route_id(update_route) == 0 || route_id(delete_route) == 0 {
+        return 10;
+    }
+
+    let read_match: RouteMatch = route_match(routes, method_get(), "/todos/1");
+    if match_route_id(read_match) != route_id(read_route) {
+        return 11;
+    }
+    if match_param_int(read_match, "id") != 1 {
+        return 12;
+    }
+    let update_match: RouteMatch = route_match(routes, method_put(), "/todos/1");
+    if match_route_id(update_match) != route_id(update_route) {
+        return 13;
+    }
+    let delete_match: RouteMatch = route_match(routes, method_delete(), "/todos/1");
+    if match_route_id(delete_match) != route_id(delete_route) {
+        return 14;
+    }
+
+    let list_response: Response = json_response("[{\"id\":1,\"title\":\"Write docs\",\"completed\":false}]");
+    let create_response: Response = json_response(created_json);
+    let read_response: Response = json_response("{\"id\":1,\"title\":\"Write docs\",\"completed\":false}");
+    let update_response: Response = json_response("{\"id\":1,\"title\":\"Ship API\",\"completed\":false}");
+    let delete_response: Response = status(status_no_content());
+
+    let list_handler: HandlerHandle = register_sync(route_id(list_route), list_response);
+    let create_handler: HandlerHandle = register_sync(route_id(create_route), create_response);
+    let read_handler: HandlerHandle = register_sync(route_id(read_route), read_response);
+    let update_handler: HandlerHandle = register_sync(route_id(update_route), update_response);
+    let delete_handler: HandlerHandle = register_sync(route_id(delete_route), delete_response);
+
+    if assert_response(dispatch_sync(list_handler, request(method_get(), "/todos?page=2&completed=false")), 200, "application/json") != 0 {
+        return 20;
+    }
+    if assert_response(dispatch_sync(create_handler, request(method_post(), "/todos")), 200, "application/json") != 0 {
+        return 21;
+    }
+    if assert_response(dispatch_sync(read_handler, request(method_get(), "/todos/1")), 200, "application/json") != 0 {
+        return 22;
+    }
+    if assert_response(dispatch_sync(update_handler, request(method_put(), "/todos/1")), 200, "application/json") != 0 {
+        return 23;
+    }
+    if response_status(dispatch_sync(delete_handler, request(method_delete(), "/todos/1"))) != status_no_content() {
+        return 24;
+    }
+
+    let server: Server = new();
+    if listen(server, 0) != true {
+        return 30;
+    }
+    if block_on(serve(server, routes)) != 1 {
+        return 31;
+    }
+    if state(server) != 2 {
+        return 32;
+    }
+    if local_port(server) <= 0 {
+        return 33;
+    }
+    if shutdown(server) != true {
+        return 34;
+    }
+    if state(server) != 3 {
+        return 35;
+    }
+
+    return 0;
+}

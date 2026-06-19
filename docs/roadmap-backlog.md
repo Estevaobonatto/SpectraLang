@@ -4362,7 +4362,7 @@ route, returning a typed response, and running the server locally.
 
 ## R-2219 API Example: REST CRUD
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Risk: `low`
@@ -4378,6 +4378,21 @@ params, query strings, and form binding through `spectra.api`.
 - `examples/api/01_rest_crud.spectra` builds and runs.
 - The example uses the public `std.api.*` surface and a real local server.
 - The example includes a smoke test that asserts the CRUD responses.
+- `scripts/validate_r2219_rest_crud_example.py` validates the example, smoke
+  assertions, planning sync, and runner gate.
+
+### Completed
+
+- Added `examples/api/01_rest_crud.spectra`.
+- The example exercises JSON derive (`Serialize`, `Deserialize`, `to_json`,
+  `from_json`), REST routes, path params, query strings, and form binding.
+- The example starts a real local `std.api.server` listener on an assigned
+  port and shuts it down through the public lifecycle API.
+- The smoke path registers GET/POST/PUT/DELETE handlers and asserts the
+  CRUD response status, headers, and body shape through `std.api.handler` and
+  `std.api.http`.
+- Added `scripts/validate_r2219_rest_crud_example.py` and gated it in
+  `run_tests.ps1`.
 
 ## R-2220 API Conformance Suite v0 (HTTP/1.1)
 

@@ -7,6 +7,11 @@ Start with the book chapter:
 
 - [Hello HTTP](../book/09-hello-http.md)
 
+Runnable examples:
+
+- `examples/api/00_hello_http.spectra`
+- `examples/api/01_rest_crud.spectra`
+
 Reference pages:
 
 - [HTTP core types](std-api-http-types.md)

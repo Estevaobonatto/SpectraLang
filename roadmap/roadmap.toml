@@ -2058,14 +2058,15 @@ title = "API Example: REST CRUD"
 phase = "phase_22"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-2217", "R-2209"]
 summary = "Provide a runnable REST CRUD example that exercises routes, JSON, path params, query strings, and form binding through `spectra.api`."
 acceptance = [
   "`examples/api/01_rest_crud.spectra` builds and runs",
   "the example uses the public `std.api.*` surface and a real local server",
-  "the example includes a smoke test that asserts the CRUD responses"
+  "the example includes a smoke test that asserts the CRUD responses",
+  "`scripts/validate_r2219_rest_crud_example.py` validates the example, smoke assertions, planning sync, and runner gate"
 ]
 
 [[items]]

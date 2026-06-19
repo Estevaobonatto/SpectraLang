@@ -1495,6 +1495,19 @@ if ($r2218HelloHttpBook.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2218_hello_http_book"; Status = $r2218HelloHttpBook.Status; Detalhe = $r2218HelloHttpBook.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.56: R-2219 REST CRUD API example
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2219 REST CRUD API example ---" -ForegroundColor Yellow
+$r2219RestCrudExample = Invoke-HostCommand -name "validate_r2219_rest_crud_example" -fileName "python" -arguments @("scripts\validate_r2219_rest_crud_example.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2219RestCrudExample.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase22-api"; Teste = "validate_r2219_rest_crud_example"; Status = $r2219RestCrudExample.Status; Detalhe = $r2219RestCrudExample.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""
