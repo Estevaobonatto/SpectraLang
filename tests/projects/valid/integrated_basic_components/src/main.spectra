@@ -1,0 +1,24 @@
+module main;
+
+import components;
+import traits;
+
+pub fn integrated_basic_components_entry() -> int {
+    let invoice = Invoice { subtotal: 18, tax: 4 };
+    let scored = score_invoice_runtime(invoice);
+    if scored != 22 {
+        return scored;
+    }
+
+    let shifted = apply_adjustment(10, make_shift(3));
+    if shifted != 16 {
+        return shifted;
+    }
+
+    let flow = control_total(4);
+    if flow != 17 {
+        return flow;
+    }
+
+    return 0;
+}

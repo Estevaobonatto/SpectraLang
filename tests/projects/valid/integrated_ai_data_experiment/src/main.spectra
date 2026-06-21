@@ -1,0 +1,8 @@
+module main;
+
+import data_pipeline;
+import experiment;
+
+pub fn integrated_ai_data_experiment_entry() -> int {
+    return run_experiment();
+}

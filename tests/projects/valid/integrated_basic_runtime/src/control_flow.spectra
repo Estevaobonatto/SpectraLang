@@ -1,0 +1,22 @@
+module control_flow;
+
+pub fn branch_loop_total(limit: int) -> int {
+    let cursor = 0;
+    let total = 0;
+
+    do {
+        cursor = cursor + 1;
+        unless cursor == 3 {
+            total = total + cursor;
+        }
+    } while cursor < limit;
+
+    loop {
+        total = total + 1;
+        if total >= 13 {
+            break;
+        }
+    }
+
+    return total;
+}

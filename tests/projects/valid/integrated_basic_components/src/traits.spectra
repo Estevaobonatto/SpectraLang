@@ -1,0 +1,30 @@
+module traits;
+
+import components;
+
+pub trait Score {
+    fn score(&self) -> int;
+}
+
+impl Score for Invoice {
+    fn score(&self) -> int {
+        return self.total();
+    }
+}
+
+pub fn score_invoice<T: Score>(item: T) -> int {
+    return item.score();
+}
+
+pub fn score_invoice_runtime(item: Invoice) -> int {
+    return item.score();
+}
+
+pub fn apply_adjustment(value: int, f: fn(int) -> int) -> int {
+    return f(value);
+}
+
+pub fn make_shift(delta: int) -> fn(int) -> int {
+    let scale = 2;
+    return |value: int| value + delta * scale;
+}

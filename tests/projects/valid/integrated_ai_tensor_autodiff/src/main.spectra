@@ -1,0 +1,8 @@
+module main;
+
+import model;
+import training_step;
+
+pub fn main() -> int {
+    return run_training_step();
+}

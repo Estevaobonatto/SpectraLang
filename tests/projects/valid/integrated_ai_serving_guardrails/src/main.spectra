@@ -1,0 +1,12 @@
+module main;
+
+import guardrails;
+import monitoring;
+
+pub fn main() -> int {
+    let decision = guard_request(45);
+    if decision != 1 {
+        return decision;
+    }
+    return run_monitored_request(20);
+}

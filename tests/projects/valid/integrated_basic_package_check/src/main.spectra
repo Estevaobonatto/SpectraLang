@@ -1,0 +1,19 @@
+module main;
+
+import callbacks;
+import generic_pipeline;
+
+pub fn main() -> int {
+    let sample = Sample { value: 8, weight: 2 };
+    let score = evaluate_sample(sample);
+    if score != 10 {
+        return score;
+    }
+
+    let shifted = run_callback(10, choose_shift(true, 5));
+    if shifted != 15 {
+        return shifted;
+    }
+
+    return 0;
+}

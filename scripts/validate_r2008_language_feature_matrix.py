@@ -16,7 +16,7 @@ REPORT_PATH = ROOT / "target" / "r2008-language-feature-project-matrix" / "repor
 
 EXPECTED_SCHEMA = "spectralang.r2008_language_feature_project_matrix.v1"
 EXPECTED_ROADMAP_ITEM = "R-2008"
-ALLOWED_STATUSES = {"planned"}
+ALLOWED_STATUSES = {"implemented"}
 ALLOWED_OWNERS = {
     "frontend",
     "semantic",
@@ -159,6 +159,9 @@ def validate_matrix(matrix: dict, roadmap_by_id: dict[str, dict]) -> dict:
         project_path = project.get("project_path")
         if isinstance(project_path, str) and not project_path.startswith("tests/projects/valid/integrated_"):
             errors.append(f"{project_id}: project_path must be under tests/projects/valid/integrated_*")
+        project_root = ROOT / project_path if isinstance(project_path, str) else None
+        if project_root is not None and not project_root.is_dir():
+            errors.append(f"{project_id}: project_path does not exist on disk")
 
         entrypoint = project.get("entrypoint")
         if isinstance(entrypoint, str) and not entrypoint.endswith(".spectra"):
@@ -166,21 +169,36 @@ def validate_matrix(matrix: dict, roadmap_by_id: dict[str, dict]) -> dict:
         if isinstance(project_path, str) and isinstance(entrypoint, str) and isinstance(exact_command, str):
             if project_path not in exact_command:
                 errors.append(f"{project_id}: exact_command must reference project_path")
-            if command == "spectralang run" and entrypoint not in exact_command:
-                errors.append(f"{project_id}: run command must reference entrypoint")
+            if command == "spectralang run" and exact_command != f"spectralang run {project_path}":
+                errors.append(f"{project_id}: run command must execute the integrated project directory")
+            if command in {"spectralang package check", "spectralang package test"}:
+                expected = f"{command} --root {project_path}"
+                if exact_command != expected:
+                    errors.append(f"{project_id}: package command must be exactly {expected!r}")
 
         required_files = project.get("required_files")
         if not isinstance(required_files, list) or not required_files or not all(isinstance(value, str) for value in required_files):
             errors.append(f"{project_id}: required_files must be a non-empty string array")
         else:
-            if "Spectra.toml" not in required_files:
-                errors.append(f"{project_id}: required_files must include Spectra.toml")
+            if "spectra.toml" not in required_files:
+                errors.append(f"{project_id}: required_files must include spectra.toml")
             if entrypoint not in required_files:
                 errors.append(f"{project_id}: required_files must include entrypoint {entrypoint!r}")
             if not any(value.endswith(".spectra") for value in required_files):
                 errors.append(f"{project_id}: required_files must include .spectra sources")
             if command == "spectralang package test" and not any(value.startswith("tests/") and value.endswith(".spectra") for value in required_files):
                 errors.append(f"{project_id}: package test projects must include tests/*.spectra")
+            if project_root is not None:
+                for required_file in required_files:
+                    if not (project_root / required_file).is_file():
+                        errors.append(f"{project_id}: required file is missing on disk: {required_file}")
+                src_files = list((project_root / "src").glob("*.spectra")) if (project_root / "src").is_dir() else []
+                if not src_files:
+                    errors.append(f"{project_id}: project must contain src/*.spectra files")
+                if command == "spectralang package test":
+                    test_files = list((project_root / "tests").glob("*.spectra")) if (project_root / "tests").is_dir() else []
+                    if not test_files:
+                        errors.append(f"{project_id}: package test project must contain tests/*.spectra files")
 
         features = project.get("features")
         if not isinstance(features, list) or not features or not all(isinstance(value, str) for value in features):

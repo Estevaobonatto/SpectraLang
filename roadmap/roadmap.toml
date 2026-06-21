@@ -1493,14 +1493,15 @@ title = "Language Feature Project Matrix"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2001", "R-2003"]
-summary = "Define the integrated project matrix that maps basic language features and AI Support features to concrete checked-in `.spectra` validation projects."
+summary = "Define and populate the integrated project matrix that maps basic language features and AI Support features to concrete checked-in `.spectra` validation projects."
 acceptance = [
-  "a checked-in matrix maps modules, functions, structs/classes, traits, generics, closures, control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, and monitoring features to planned `.spectra` projects",
-  "each matrix row identifies the planned project path, required `.spectra` files, entrypoint, exact validation command, expected outcome, owner, and roadmap target",
+  "a checked-in matrix maps modules, functions, structs/classes, traits, generics, closures, control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, and monitoring features to checked-in `.spectra` projects",
+  "each matrix row identifies the project path, required `.spectra` files, entrypoint, exact validation command, expected outcome, owner, and roadmap target",
   "each matrix row declares whether validation must run through `spectralang run`, `spectralang package check`, or `spectralang package test`",
+  "each matrix row's required project files exist under `tests/projects/valid/integrated_*`",
   "coverage gaps become explicit roadmap items before any release candidate is certified"
 ]
 
@@ -1510,12 +1511,12 @@ title = "Basic Components Integration Projects"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2008", "R-2003", "R-2007"]
 summary = "Create complete checked-in `.spectra` projects that use the basic language component surface together through the normal CLI and package paths."
 acceptance = [
-  "multi-file `.spectra` projects under `tests/projects/valid/integrated_*` include `Spectra.toml`, `src/*.spectra`, and package tests where required",
+  "multi-file `.spectra` projects under `tests/projects/valid/integrated_*` include `spectra.toml`, `src/*.spectra`, and package tests where required",
   "projects cover modules, imports, functions, methods, structs/classes, traits, generics, closures, enums, match, loops, error paths, and stdlib composition",
   "projects validate compile, run, and package flows through `spectralang run`, `spectralang package check`, and `spectralang package test` instead of parser-only acceptance",
   "each project asserts runtime output or package-test expectations for constructs that have runtime semantics",
@@ -1528,12 +1529,12 @@ title = "AI Support Integration Projects"
 phase = "phase_20"
 owner = "ml"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2008", "R-2001", "R-2006"]
 summary = "Create complete checked-in `.spectra` projects that exercise AI Support features together with realistic basic-language code."
 acceptance = [
-  "multi-file `.spectra` projects under `tests/projects/valid/integrated_*` include `Spectra.toml`, `src/*.spectra`, fixtures or package tests where required, and deterministic expected outputs",
+  "multi-file `.spectra` projects under `tests/projects/valid/integrated_*` include `spectra.toml`, `src/*.spectra`, fixtures or package tests where required, and deterministic expected outputs",
   "projects cover tensors, autodiff, graph/fusion, data preprocessing, experiment tracking, ONNX import/export, RAG, serving, evaluation, safety, and monitoring where the public surface exists",
   "projects combine AI Support APIs with modules, traits, generics, closures, pattern matching, and stdlib helpers",
   "validation runs through `spectralang run`, `spectralang package check`, or `spectralang package test` and emits reproducible evidence for each project",
@@ -1552,7 +1553,7 @@ dependencies = ["R-2009", "R-2010"]
 summary = "Add a project-level runner that executes the integrated `.spectra` language and AI projects and emits a structured report."
 acceptance = [
   "a validator reads the R-2008 matrix and runs each `.spectra` project through its exact declared command: `spectralang run`, `spectralang package check`, or `spectralang package test`",
-  "the validator verifies required project files exist before execution and fails missing `Spectra.toml`, entrypoint, source, fixture, or package-test files",
+  "the validator verifies required project files exist before execution and fails missing `spectra.toml`, entrypoint, source, fixture, or package-test files",
   "the validator emits JSON with project name, path, entrypoint, command, category, elapsed time, status, failure class, exit code, output tail, and expected outcome",
   "`run_tests.ps1` gates the runner once the integrated projects exist"
 ]

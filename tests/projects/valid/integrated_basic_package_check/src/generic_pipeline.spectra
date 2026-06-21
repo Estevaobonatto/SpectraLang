@@ -1,0 +1,24 @@
+module generic_pipeline;
+
+pub trait Score {
+    fn score(&self) -> int;
+}
+
+pub struct Sample {
+    pub value: int,
+    pub weight: int,
+}
+
+impl Score for Sample {
+    fn score(&self) -> int {
+        return self.value + self.weight;
+    }
+}
+
+pub fn evaluate<T: Score>(item: T) -> int {
+    return item.score();
+}
+
+pub fn evaluate_sample(item: Sample) -> int {
+    return item.score();
+}

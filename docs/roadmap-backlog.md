@@ -3011,10 +3011,10 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- Define a checked-in matrix for integrated `.spectra` validation projects.
+- Define and populate a checked-in matrix for integrated `.spectra` validation projects.
 - Map basic language features and AI Support features to full-pipeline project scenarios.
 - Mark each scenario as `spectralang run`, `spectralang package check`, or `spectralang package test`.
-- Require each scenario to name planned project path, `Spectra.toml`,
+- Require each scenario to name project path, `spectra.toml`,
   `src/*.spectra`, package tests when needed, entrypoint, exact command, and
   expected evidence.
 
@@ -3023,10 +3023,10 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Matrix covers modules, functions, structs/classes, traits, generics, closures,
   control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment,
   ONNX, RAG, serving, evaluation, and monitoring.
-- Every planned project has explicit command, expected outcome, owner, and
+- Every project has explicit command, expected outcome, owner, and
   required feature coverage.
-- Every planned project has explicit `.spectra` project layout requirements,
-  including entrypoint and required source/test files.
+- Every project has explicit `.spectra` project layout requirements,
+  including entrypoint and checked-in required source/test files.
 - Coverage gaps become roadmap items before any release candidate is certified.
 
 ### Completed
@@ -3038,14 +3038,22 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Validator:
   `scripts/validate_r2008_language_feature_matrix.py`.
 - `run_tests.ps1` includes the `phase20-project-matrix` gate.
+- Checked-in integrated project directories:
+  `tests/projects/valid/integrated_basic_components`,
+  `tests/projects/valid/integrated_basic_runtime`,
+  `tests/projects/valid/integrated_basic_package_check`,
+  `tests/projects/valid/integrated_ai_tensor_autodiff`,
+  `tests/projects/valid/integrated_ai_data_experiment`,
+  `tests/projects/valid/integrated_ai_model_ecosystem`, and
+  `tests/projects/valid/integrated_ai_serving_guardrails`.
 
 ### Evidence
 
-- The matrix defines seven planned integrated projects across `R-2009` and
+- The matrix defines seven checked-in integrated projects across `R-2009` and
   `R-2010`.
-- Every project declares owner, planned project path, required command,
+- Every project declares owner, project path, required command,
   expected outcome, roadmap target, and feature coverage.
-- Every project declares `Spectra.toml`, `src/*.spectra`, `tests/*.spectra`
+- Every project declares `spectra.toml`, `src/*.spectra`, `tests/*.spectra`
   when package tests are required, executable entrypoint, and exact command.
 - Coverage includes modules, functions, structs/classes, traits, generics,
   closures, control flow, stdlib, tensors, autodiff, graph/fusion, data,
@@ -3055,7 +3063,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2009 Basic Components Integration Projects
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2008`, `R-2003`, `R-2007`
@@ -3065,7 +3073,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Add multi-file `.spectra` projects under
   `tests/projects/valid/integrated_*` that use core language components
   together, not isolated parser or single-file fragments.
-- Each project must include `Spectra.toml`, `src/main.spectra`,
+- Each project must include `spectra.toml`, `src/main.spectra`,
   feature-specific `src/*.spectra` modules, and `tests/*.spectra` package
   tests for package-test scenarios.
 - Cover modules/imports, functions, methods, structs/classes, traits,
@@ -3079,15 +3087,34 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Tests prove runtime behavior for constructs that have runtime semantics.
 - Package projects pass `spectralang package check` and
   `spectralang package test`; executable projects pass `spectralang run`
-  against `src/main.spectra`.
+  against the integrated project directory.
 - Missing project files, missing package tests, or parser-only coverage fail the
   item.
 - Any discovered implementation defect is fixed with regression coverage or
   tracked as a new roadmap item before the project is treated as passing.
 
+### Completed
+
+- `tests/projects/valid/integrated_basic_components` covers package-test
+  behavior for modules, structs, traits, generics, closures, control flow, and
+  stdlib composition.
+- `tests/projects/valid/integrated_basic_runtime` covers normal CLI runtime
+  execution for modules, methods, structs, enums, loops, `unless`, and
+  `do-while`.
+- `tests/projects/valid/integrated_basic_package_check` covers package-check
+  composition for traits, generics, closures, modules, and callbacks.
+
+### Evidence
+
+- `spectralang package test --root tests/projects/valid/integrated_basic_components`
+  passes.
+- `spectralang run tests/projects/valid/integrated_basic_runtime` passes.
+- `spectralang package check --root tests/projects/valid/integrated_basic_package_check`
+  passes.
+
 ## R-2010 AI Support Integration Projects
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Dependencies: `R-2008`, `R-2001`, `R-2006`
@@ -3097,7 +3124,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Add complete `.spectra` projects under `tests/projects/valid/integrated_*`
   for AI Support features that exercise realistic code paths, not one-off
   examples.
-- Each project must include `Spectra.toml`, `src/main.spectra`,
+- Each project must include `spectra.toml`, `src/main.spectra`,
   feature-specific `src/*.spectra` modules, deterministic fixtures or package
   tests where needed, and expected output/report evidence.
 - Cover tensors, autodiff, graph/fusion, data preprocessing, experiment
@@ -3118,6 +3145,30 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Defects discovered during project execution become fixes with regression
   coverage or new roadmap items with acceptance criteria.
 
+### Completed
+
+- `tests/projects/valid/integrated_ai_tensor_autodiff` covers tensor,
+  autodiff, graph/fusion-style tensor composition, modules, functions, and
+  stdlib calls through `spectralang run`.
+- `tests/projects/valid/integrated_ai_data_experiment` covers data
+  preprocessing, experiment-style metrics, evaluation, monitoring, traits, and
+  package-test execution.
+- `tests/projects/valid/integrated_ai_model_ecosystem` covers ONNX, RAG,
+  serving contract composition, generics, and closures through package check.
+- `tests/projects/valid/integrated_ai_serving_guardrails` covers serving,
+  evaluation, monitoring, guardrail control flow, and stdlib helpers through
+  `spectralang run`.
+
+### Evidence
+
+- `spectralang run tests/projects/valid/integrated_ai_tensor_autodiff` passes.
+- `spectralang package test --root tests/projects/valid/integrated_ai_data_experiment`
+  passes.
+- `spectralang package check --root tests/projects/valid/integrated_ai_model_ecosystem`
+  passes.
+- `spectralang run tests/projects/valid/integrated_ai_serving_guardrails`
+  passes.
+
 ## R-2011 Full Pipeline Project Runner
 
 - Status: `not_started`
@@ -3129,7 +3180,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 - Add a validator that reads the integrated project matrix and runs each
   `.spectra` project through its exact declared command.
-- Before execution, verify each project has the matrix-declared `Spectra.toml`,
+- Before execution, verify each project has the matrix-declared `spectra.toml`,
   entrypoint, source files, package tests, fixtures, and expected-output
   metadata.
 - Support `spectralang run`, `spectralang package check`, and

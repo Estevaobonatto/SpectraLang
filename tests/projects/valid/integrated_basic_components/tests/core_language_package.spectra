@@ -1,0 +1,23 @@
+module core_language_package_tests;
+
+import components;
+import traits;
+
+#[spectra_async_test]
+async fn core_language_package_passes() -> int {
+    let invoice = Invoice { subtotal: 20, tax: 2 };
+    if score_invoice_runtime(invoice) != 22 {
+        return 1;
+    }
+
+    let adjusted = apply_adjustment(5, make_shift(4));
+    if adjusted != 13 {
+        return 2;
+    }
+
+    if control_total(4) != 17 {
+        return 3;
+    }
+
+    return 0;
+}

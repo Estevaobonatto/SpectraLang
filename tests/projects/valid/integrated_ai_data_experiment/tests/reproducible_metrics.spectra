@@ -1,0 +1,8 @@
+module reproducible_metrics_tests;
+
+import experiment;
+
+#[spectra_async_test]
+async fn reproducible_metrics_pass() -> int {
+    return run_experiment();
+}

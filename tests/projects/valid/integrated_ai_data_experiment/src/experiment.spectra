@@ -1,0 +1,49 @@
+module experiment;
+
+import data_pipeline;
+import std.ml as ml;
+import std.string as str;
+import std.tensor as tensor;
+
+pub trait MetricCheck {
+    fn code(&self) -> int;
+}
+
+impl MetricCheck for BatchSummary {
+    fn code(&self) -> int {
+        return self.rows * 10 + self.batches;
+    }
+}
+
+pub fn metric_code<T: MetricCheck>(value: T) -> int {
+    return value.code();
+}
+
+pub fn run_experiment() -> int {
+    tensor.free_all();
+    let summary = build_summary();
+    if metric_code(summary) != 32 {
+        return metric_code(summary);
+    }
+
+    let labels = tensor.arange(0, 3, 1);
+    let predictions = tensor.arange(0, 3, 1);
+    let classification = ml.metrics_classification(labels, predictions);
+    if str.contains(classification, "\"accuracy\":1.000000") {
+        let ok = 1;
+        if ok != 1 {
+            return 2;
+        }
+    } else {
+        return 2;
+    }
+
+    let latencies = tensor.arange(10, 40, 10);
+    let serving = ml.serving_metrics(latencies, 3, 0);
+    if str.contains(serving, "\"throughput_per_second\"") {
+        tensor.free_all();
+        return 0;
+    }
+    tensor.free_all();
+    return 3;
+}

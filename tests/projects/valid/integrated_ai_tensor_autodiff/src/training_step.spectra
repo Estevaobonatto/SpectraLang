@@ -1,0 +1,46 @@
+module training_step;
+
+import model;
+import std.ml as ml;
+import std.tensor as tensor;
+
+pub fn run_training_step() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    if model_feature_count() != 2 {
+        return model_feature_count();
+    }
+    if model_parameter_count() != 2 {
+        return model_parameter_count();
+    }
+
+    let input = tensor.reshape(tensor.full_f(4, 1.0), 4, 1);
+    let weight0 = tensor.full_f(1, 0.5);
+    let weight = tensor.reshape(tensor.requires_grad(weight0, true), 1, 1);
+    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let prediction = ml.linear(input, weight, bias);
+
+    if tensor.len(prediction) != 4 {
+        return tensor.len(prediction);
+    }
+
+    let graph_input = tensor.requires_grad(tensor.full_f(3, 3.0), true);
+    let graph_square = tensor.mul(graph_input, graph_input);
+    let graph_loss = tensor.sum_t(graph_square);
+    tensor.backward(graph_loss);
+    let graph_grad = tensor.grad(graph_input);
+    if tensor.sum_f(graph_grad) as int != 18 {
+        return tensor.sum_f(graph_grad) as int;
+    }
+
+    let loss = tensor.sum_t(prediction);
+    tensor.backward(loss);
+    let grad = tensor.grad(weight0);
+    if tensor.len(grad) != 1 {
+        return tensor.len(grad);
+    }
+
+    tensor.free_all();
+    return 0;
+}

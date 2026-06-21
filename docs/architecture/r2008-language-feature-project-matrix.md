@@ -2,34 +2,34 @@
 
 Source of truth: `docs/architecture/r2008-language-feature-project-matrix.toml`.
 
-This matrix defines the complete project plan for post-baseline integrated
+This matrix defines the checked-in project set for post-baseline integrated
 validation. `R-2009` owns the basic language projects. `R-2010` owns the AI
-Support projects. `R-2011` will execute these entries, and `R-2012` requires
-every real failure found during execution to be fixed or promoted into a new
-roadmap item before certification.
+Support projects. `R-2011` will execute these entries as a single runner, and
+`R-2012` requires every real failure found during execution to be fixed or
+promoted into a new roadmap item before certification.
 
-Each row is a plan for a real checked-in `.spectra` project, not a standalone
-fixture. Package projects must include `Spectra.toml`, `src/*.spectra`, and
-`tests/*.spectra`. Runtime projects must include `Spectra.toml` and an
+Each row is a real checked-in `.spectra` project, not a standalone fixture or
+parser-only sample. Package projects must include `spectra.toml`, `src/*.spectra`, and
+`tests/*.spectra`. Runtime projects must include `spectra.toml` and an
 executable `src/main.spectra`. The runner must execute the exact command stored
 in the matrix and preserve command/output evidence.
 
 | Project | Roadmap | Command | Owner | Feature Coverage |
 |---|---|---|---|---|
-| `basic_components_package` | `R-2009` | `spectralang package test` | `tooling` | modules, functions, structs/classes, traits, generics, closures, control flow, stdlib |
-| `basic_runtime_run` | `R-2009` | `spectralang run` | `tooling` | modules, functions, structs/classes, control flow, stdlib |
-| `basic_package_check` | `R-2009` | `spectralang package check` | `tooling` | modules, traits, generics, closures, stdlib |
-| `ai_tensor_autodiff_run` | `R-2010` | `spectralang run` | `ml` | modules, functions, tensors, autodiff, graph/fusion, stdlib |
-| `ai_data_experiment_package` | `R-2010` | `spectralang package test` | `ml` | modules, traits, tensors, data, experiment, evaluation, monitoring |
-| `ai_model_ecosystem_check` | `R-2010` | `spectralang package check` | `ml` | generics, closures, ONNX, RAG, serving, evaluation, monitoring |
-| `ai_serving_guardrails_run` | `R-2010` | `spectralang run` | `ml` | serving, evaluation, monitoring, control flow, stdlib |
+| `basic_components_package` | `R-2009` | `spectralang package test --root tests/projects/valid/integrated_basic_components` | `tooling` | modules, functions, structs/classes, traits, generics, closures, control flow, stdlib |
+| `basic_runtime_run` | `R-2009` | `spectralang run tests/projects/valid/integrated_basic_runtime` | `tooling` | modules, functions, structs/classes, control flow, stdlib |
+| `basic_package_check` | `R-2009` | `spectralang package check --root tests/projects/valid/integrated_basic_package_check` | `tooling` | modules, traits, generics, closures, stdlib |
+| `ai_tensor_autodiff_run` | `R-2010` | `spectralang run tests/projects/valid/integrated_ai_tensor_autodiff` | `ml` | modules, functions, tensors, autodiff, graph/fusion, stdlib |
+| `ai_data_experiment_package` | `R-2010` | `spectralang package test --root tests/projects/valid/integrated_ai_data_experiment` | `ml` | modules, traits, tensors, data, experiment, evaluation, monitoring |
+| `ai_model_ecosystem_check` | `R-2010` | `spectralang package check --root tests/projects/valid/integrated_ai_model_ecosystem` | `ml` | generics, closures, ONNX, RAG, serving, evaluation, monitoring |
+| `ai_serving_guardrails_run` | `R-2010` | `spectralang run tests/projects/valid/integrated_ai_serving_guardrails` | `ml` | serving, evaluation, monitoring, control flow, stdlib |
 
 ## Project Layout Contract
 
-- Package validation projects: `Spectra.toml`, `src/main.spectra`,
+- Package validation projects: `spectra.toml`, `src/main.spectra`,
   feature-specific `src/*.spectra` modules, and at least one
   `tests/*.spectra` package test.
-- Runtime validation projects: `Spectra.toml`, `src/main.spectra`, and
+- Runtime validation projects: `spectra.toml`, `src/main.spectra`, and
   feature-specific `src/*.spectra` modules imported by the entrypoint.
 - Every project must have an exact command in the matrix and reproducible
   expected output or expected report fields.
@@ -48,6 +48,6 @@ python scripts\validate_r2008_language_feature_matrix.py
 ```
 
 The validator checks that every required feature is covered, every row declares
-one supported CLI/package command, every owner and roadmap item is valid, and
-the follow-on gap items `R-2009` through `R-2013` exist before the release
-candidate gate.
+one supported CLI/package command, every required file exists on disk, every
+owner and roadmap item is valid, and the follow-on gap items `R-2009` through
+`R-2013` exist before the release candidate gate.

@@ -1,0 +1,43 @@
+module components;
+
+pub enum Step {
+    Some(int),
+    Done,
+}
+
+pub struct Invoice {
+    pub subtotal: int,
+    pub tax: int,
+}
+
+impl Invoice {
+    pub fn total(&self) -> int {
+        return self.subtotal + self.tax;
+    }
+}
+
+pub fn next(value: int) -> Step {
+    if value > 0 {
+        return Step::Some(value);
+    }
+    return Step::Done;
+}
+
+pub fn control_total(start: int) -> int {
+    let cursor = start;
+    let sum = 0;
+
+    while let Step::Some(value) = next(cursor) {
+        sum = sum + value;
+        cursor = cursor - 1;
+    }
+
+    match sum {
+        10 => {
+            return sum + 7;
+        }
+        _ => {
+            return sum;
+        }
+    };
+}

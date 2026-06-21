@@ -1,0 +1,40 @@
+module domain;
+
+pub struct Account {
+    pub id: string,
+    pub balance: int,
+}
+
+pub enum AccountStatus {
+    Empty,
+    Low,
+    Funded,
+}
+
+impl Account {
+    pub fn new(id: string, balance: int) -> Account {
+        return Account { id: id, balance: balance };
+    }
+
+    pub fn deposit(&self, amount: int) -> Account {
+        return Account { id: self.id, balance: self.balance + amount };
+    }
+}
+
+pub fn classify(balance: int) -> AccountStatus {
+    if balance == 0 {
+        return AccountStatus::Empty;
+    }
+    if balance < 10 {
+        return AccountStatus::Low;
+    }
+    return AccountStatus::Funded;
+}
+
+pub fn status_code(status: AccountStatus) -> int {
+    return match status {
+        AccountStatus::Empty => 0,
+        AccountStatus::Low => 1,
+        AccountStatus::Funded => 2
+    };
+}

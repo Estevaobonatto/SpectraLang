@@ -1,0 +1,12 @@
+module callbacks;
+
+pub fn run_callback(value: int, f: fn(int) -> int) -> int {
+    return f(value);
+}
+
+pub fn choose_shift(positive: bool, base: int) -> fn(int) -> int {
+    if positive {
+        return |value: int| value + base;
+    }
+    return |value: int| value - base;
+}

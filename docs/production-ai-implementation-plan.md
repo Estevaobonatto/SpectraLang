@@ -1541,7 +1541,7 @@ AI users.
 - `R-2005 Core std/runtime Panic and Host-Status Hardening`: stable host status values and diagnostics for user-triggerable invalid std/runtime inputs.
 - `R-2006 Tensor and std Performance Refresh`: fresh release benchmark evidence for materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse.
 - `R-2007 Backend and Codegen Robustness Cleanup`: warning cleanup and typed backend errors for reachable IR/codegen edge cases.
-- `R-2008 Language Feature Project Matrix`: matrix mapping basic language and AI Support features to concrete `.spectra` project validation scenarios, with planned project paths, entrypoints, required files, exact commands, expected outcomes, and owners.
+- `R-2008 Language Feature Project Matrix`: matrix mapping basic language and AI Support features to concrete checked-in `.spectra` project validation scenarios, with project paths, entrypoints, required files, exact commands, expected outcomes, and owners.
 - `R-2009 Basic Components Integration Projects`: complete checked-in `.spectra` projects for modules, functions, structs/classes, traits, generics, closures, control flow, and stdlib composition.
 - `R-2010 AI Support Integration Projects`: complete checked-in `.spectra` projects for tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, safety, and monitoring.
 - `R-2011 Full Pipeline Project Runner`: project-level runner for the matrix-declared `.spectra` projects via `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
@@ -1553,7 +1553,7 @@ AI users.
 - Release candidates should require a versioned conformance report.
 - Integrated project validation should exercise realistic checked-in multi-file
   `.spectra` package projects, not isolated fixtures or parser-only samples.
-- Each integrated project should include `Spectra.toml`, `src/*.spectra`,
+- Each integrated project should include `spectra.toml`, `src/*.spectra`,
   package tests or deterministic fixtures where required, exact commands, and
   expected output/report evidence.
 - Stable releases should communicate compatibility and deprecation status clearly.
@@ -1587,10 +1587,12 @@ AI users.
 - `R-2007` is complete for backend/codegen robustness, with typed JIT/AOT
   errors, warning cleanup, and valid-source edge control-flow coverage through
   the normal CLI path.
-- `R-2008` is complete for the integrated project matrix, with
+- `R-2008` is complete for the integrated project matrix and checked-in
+  validation project set, with
   `docs/architecture/r2008-language-feature-project-matrix.toml`,
   `docs/architecture/r2008-language-feature-project-matrix.md`,
-  `scripts/validate_r2008_language_feature_matrix.py`, and the
+  `scripts/validate_r2008_language_feature_matrix.py`, seven
+  `tests/projects/valid/integrated_*` project directories, and the
   `phase20-project-matrix` gate in `run_tests.ps1`.
 
 ### Remaining Integrated Project Certification
@@ -1606,7 +1608,7 @@ RAG, serving, evaluation, safety, and monitoring through the normal CLI and
 package paths.
 
 Project implementation must use `tests/projects/valid/integrated_*`
-directories with `Spectra.toml`, `src/main.spectra`, supporting
+directories with `spectra.toml`, `src/main.spectra`, supporting
 `src/*.spectra` modules, and package tests or deterministic fixtures whenever
 the matrix requires them. The runner must reject missing files, missing package
 tests, parser-only substitutions, non-deterministic outputs, and commands that

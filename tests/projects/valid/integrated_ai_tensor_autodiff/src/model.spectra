@@ -1,0 +1,17 @@
+module model;
+
+import std.ml as ml;
+import std.tensor as tensor;
+
+pub fn model_feature_count() -> int {
+    return 2;
+}
+
+pub fn model_parameter_count() -> int {
+    let model_handle = ml.module_new();
+    let weight = tensor.reshape(tensor.full_f(1, 0.5), 1, 1);
+    let bias = tensor.full_f(1, 0.0);
+    ml.module_add_parameter(model_handle, weight);
+    ml.module_add_parameter(model_handle, bias);
+    return ml.module_parameter_count(model_handle);
+}
