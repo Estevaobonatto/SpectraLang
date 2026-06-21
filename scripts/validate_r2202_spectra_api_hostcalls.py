@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 180
+EXPECTED_COUNT = 194
 REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
@@ -55,6 +55,7 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.http.request_method",
     "spectra.api.http.request_path",
     "spectra.api.http.request_header",
+    "spectra.api.http.request_with_header",
     "spectra.api.http.request_cookie",
     "spectra.api.http.response_new",
     "spectra.api.http.response",
@@ -172,6 +173,19 @@ REQUIRED_HOST_CALLS = [
     "spectra.api.handler.register_async",
     "spectra.api.handler.dispatch_sync",
     "spectra.api.handler.dispatch_async",
+    "spectra.api.cors.policy",
+    "spectra.api.cors.permissive",
+    "spectra.api.cors.allow_origin",
+    "spectra.api.cors.allow_method",
+    "spectra.api.cors.allow_header",
+    "spectra.api.cors.expose_header",
+    "spectra.api.cors.allow_credentials",
+    "spectra.api.cors.max_age",
+    "spectra.api.cors.middleware",
+    "spectra.api.cors.is_preflight",
+    "spectra.api.cors.preflight",
+    "spectra.api.cors.apply",
+    "spectra.api.cors.allowed_origin",
     "spectra.api.middleware.chain",
     "spectra.api.middleware.chain_new",
     "spectra.api.middleware.chain_len",
@@ -248,6 +262,7 @@ def validate_files() -> None:
         "packages/spectra-api/src/form.rs",
         "packages/spectra-api/src/multipart.rs",
         "packages/spectra-api/src/handler.rs",
+        "packages/spectra-api/src/cors.rs",
         "packages/spectra-api/src/errors.rs",
         "runtime/src/api/mod.rs",
         "packages/spectra-api/src/bindings/mod.spectra",

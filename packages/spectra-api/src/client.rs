@@ -969,8 +969,14 @@ mod tests {
         let join = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept protocol test");
             stream
-                .write_all(b"not-http\r\n\r\n")
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("set read timeout");
+            let mut request = [0_u8; 512];
+            let _ = stream.read(&mut request);
+            stream
+                .write_all(b"not-http\r\nContent-Length: 0\r\n\r\n")
                 .expect("write invalid");
+            stream.flush().expect("flush invalid response");
         });
         let client = HttpClient::new(ClientConfig::default());
         let err = client

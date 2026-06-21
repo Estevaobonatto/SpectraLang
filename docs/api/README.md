@@ -24,5 +24,6 @@ Reference pages:
 - [URL-encoded forms](std-api-form.md)
 - [Multipart uploads](std-api-multipart.md)
 - [Handlers](std-api-handler.md)
+- [CORS](std-api-cors.md)
 - [Middleware](std-api-middleware.md)
 - [Server lifecycle](std-api-server-lifecycle.md)

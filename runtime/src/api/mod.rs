@@ -53,6 +53,7 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.http.request_method",
     "spectra.api.http.request_path",
     "spectra.api.http.request_header",
+    "spectra.api.http.request_with_header",
     "spectra.api.http.request_cookie",
     "spectra.api.http.response_new",
     "spectra.api.http.response",
@@ -170,6 +171,19 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.handler.register_async",
     "spectra.api.handler.dispatch_sync",
     "spectra.api.handler.dispatch_async",
+    "spectra.api.cors.policy",
+    "spectra.api.cors.permissive",
+    "spectra.api.cors.allow_origin",
+    "spectra.api.cors.allow_method",
+    "spectra.api.cors.allow_header",
+    "spectra.api.cors.expose_header",
+    "spectra.api.cors.allow_credentials",
+    "spectra.api.cors.max_age",
+    "spectra.api.cors.middleware",
+    "spectra.api.cors.is_preflight",
+    "spectra.api.cors.preflight",
+    "spectra.api.cors.apply",
+    "spectra.api.cors.allowed_origin",
     "spectra.api.middleware.chain",
     "spectra.api.middleware.chain_new",
     "spectra.api.middleware.chain_len",
@@ -205,6 +219,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 180);
+        assert_eq!(required_host_call_count(), 194);
     }
 }

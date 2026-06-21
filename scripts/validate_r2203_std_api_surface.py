@@ -20,6 +20,7 @@ REQUIRED_MODULES = [
     "std.api.form",
     "std.api.multipart",
     "std.api.handler",
+    "std.api.cors",
     "std.api.errors",
 ]
 REQUIRED_FUNCTIONS = [
@@ -65,6 +66,7 @@ REQUIRED_FUNCTIONS = [
     "std.api.http.request_method",
     "std.api.http.request_path",
     "std.api.http.request_header",
+    "std.api.http.request_with_header",
     "std.api.http.request_cookie",
     "std.api.http.response",
     "std.api.http.response_new",
@@ -189,6 +191,19 @@ REQUIRED_FUNCTIONS = [
     "std.api.handler.register_async",
     "std.api.handler.dispatch_sync",
     "std.api.handler.dispatch_async",
+    "std.api.cors.policy",
+    "std.api.cors.permissive",
+    "std.api.cors.allow_origin",
+    "std.api.cors.allow_method",
+    "std.api.cors.allow_header",
+    "std.api.cors.expose_header",
+    "std.api.cors.allow_credentials",
+    "std.api.cors.max_age",
+    "std.api.cors.middleware",
+    "std.api.cors.is_preflight",
+    "std.api.cors.preflight",
+    "std.api.cors.apply",
+    "std.api.cors.allowed_origin",
     "std.api.errors.last_code",
     "std.api.errors.last_message",
 ]
@@ -219,6 +234,7 @@ REQUIRED_TYPES = [
     "std.api.handler.HandlerHandle",
     "std.api.handler.AsyncHandlerHandle",
     "std.api.handler.HandlerError",
+    "std.api.cors.CorsPolicy",
     "std.api.errors.ApiError",
 ]
 

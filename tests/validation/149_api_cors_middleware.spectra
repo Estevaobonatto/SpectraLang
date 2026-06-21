@@ -1,0 +1,209 @@
+module api_cors_middleware;
+
+import std.string as str;
+
+import {
+    Request,
+    Response,
+    method_get,
+    method_options,
+    method_post,
+    request,
+    request_with_header,
+    response_status,
+    response_header,
+} from std.api.http;
+
+import {
+    text,
+} from std.api.handler;
+
+import {
+    MiddlewareChain,
+    MiddlewareHandle,
+    MiddlewareTrace,
+    chain_new,
+    use_sync,
+    execute_sync,
+    last_trace,
+    trace_short_circuited,
+} from std.api.middleware;
+
+import {
+    CorsPolicy,
+    policy,
+    permissive,
+    allow_origin,
+    allow_method,
+    allow_header,
+    expose_header,
+    allow_credentials,
+    max_age,
+    middleware,
+    is_preflight,
+    preflight,
+    apply,
+    allowed_origin,
+} from std.api.cors;
+
+fn with_origin(req: Request, origin: string) -> Request {
+    return request_with_header(req, "Origin", origin);
+}
+
+fn preflight_request(origin: string, method: string, headers: string) -> Request {
+    let base = request(method_options(), "/resource");
+    let with_origin_header = request_with_header(base, "Origin", origin);
+    let with_method = request_with_header(
+        with_origin_header,
+        "Access-Control-Request-Method",
+        method,
+    );
+    return request_with_header(
+        with_method,
+        "Access-Control-Request-Headers",
+        headers,
+    );
+}
+
+fn expect_header(response: Response, name: string, expected: string, code: int) -> int {
+    if str.contains(response_header(response, name), expected) != true {
+        return code;
+    }
+    return 0;
+}
+
+fn exercise_permissive() -> int {
+    let req = with_origin(request(method_get(), "/public"), "https://any.example");
+    let response = apply(permissive(), req, text("ok"));
+    if response_status(response) != 200 {
+        return 1;
+    }
+    if expect_header(response, "Access-Control-Allow-Origin", "*", 2) != 0 {
+        return 2;
+    }
+    return 0;
+}
+
+fn exercise_restrictive_preflight() -> int {
+    let base = policy();
+    let with_origin_policy = allow_origin(base, "https://app.example");
+    let with_method = allow_method(with_origin_policy, method_post());
+    let with_auth = allow_header(with_method, "Authorization");
+    let with_content = allow_header(with_auth, "Content-Type");
+    let configured = max_age(with_content, 300);
+
+    let req = preflight_request(
+        "https://app.example",
+        "POST",
+        "Authorization, Content-Type",
+    );
+    if is_preflight(req) != true {
+        return 10;
+    }
+
+    let response = preflight(configured, req);
+    if response_status(response) != 204 {
+        return 11;
+    }
+    if expect_header(response, "Access-Control-Allow-Origin", "https://app.example", 12) != 0 {
+        return 12;
+    }
+    if expect_header(response, "Access-Control-Allow-Methods", "POST", 13) != 0 {
+        return 13;
+    }
+    if expect_header(response, "Access-Control-Allow-Headers", "Authorization", 14) != 0 {
+        return 14;
+    }
+    if expect_header(response, "Access-Control-Allow-Headers", "Content-Type", 15) != 0 {
+        return 15;
+    }
+    if expect_header(response, "Access-Control-Max-Age", "300", 16) != 0 {
+        return 16;
+    }
+
+    let denied = preflight(configured, preflight_request("https://evil.example", "POST", ""));
+    if response_status(denied) != 403 {
+        return 17;
+    }
+    return 0;
+}
+
+fn exercise_credentialed_and_exposed_headers() -> int {
+    let configured = allow_credentials(
+        expose_header(
+            allow_method(
+                allow_origin(policy(), "https://secure.example"),
+                method_get(),
+            ),
+            "X-Total-Count",
+        ),
+        true,
+    );
+    let origin_value = allowed_origin(configured, "https://secure.example");
+    if str.contains(origin_value, "https://secure.example") != true {
+        return 20;
+    }
+
+    let req = with_origin(request(method_get(), "/secure"), "https://secure.example");
+    let response = apply(configured, req, text("secure"));
+    if expect_header(response, "Access-Control-Allow-Origin", "https://secure.example", 21) != 0 {
+        return 21;
+    }
+    if expect_header(response, "Access-Control-Allow-Credentials", "true", 22) != 0 {
+        return 22;
+    }
+    if expect_header(response, "Access-Control-Expose-Headers", "X-Total-Count", 23) != 0 {
+        return 23;
+    }
+    if expect_header(response, "Vary", "Origin", 24) != 0 {
+        return 24;
+    }
+    return 0;
+}
+
+fn exercise_middleware_chain() -> int {
+    let configured = allow_method(
+        allow_origin(policy(), "https://app.example"),
+        method_post(),
+    );
+    let cors: MiddlewareHandle = middleware(configured);
+    let chain: MiddlewareChain = use_sync(chain_new(), cors);
+    let req = preflight_request("https://app.example", "POST", "");
+    let response = execute_sync(chain, req, text("terminal"));
+    if response_status(response) != 204 {
+        return 30;
+    }
+    if expect_header(response, "Access-Control-Allow-Origin", "https://app.example", 31) != 0 {
+        return 31;
+    }
+
+    let trace: MiddlewareTrace = last_trace();
+    if trace_short_circuited(trace) != true {
+        return 32;
+    }
+    return 0;
+}
+
+pub fn main() -> int {
+    let permissive_result = exercise_permissive();
+    if permissive_result != 0 {
+        return permissive_result;
+    }
+
+    let restrictive_result = exercise_restrictive_preflight();
+    if restrictive_result != 0 {
+        return restrictive_result;
+    }
+
+    let credentialed_result = exercise_credentialed_and_exposed_headers();
+    if credentialed_result != 0 {
+        return credentialed_result;
+    }
+
+    let middleware_result = exercise_middleware_chain();
+    if middleware_result != 0 {
+        return middleware_result;
+    }
+
+    return 0;
+}

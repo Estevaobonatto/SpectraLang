@@ -118,10 +118,10 @@ def validate_implementation() -> None:
     ]:
         require(term in builtins, f"builtin middleware surface missing {term}")
     require("std.api.middleware" in semantic, "semantic namespace seed missing std.api.middleware")
-    require("assert_eq!(HOST_CALLS.len(), 180)" in lib, "host-call count must be 180")
+    require("assert_eq!(HOST_CALLS.len(), 194)" in lib, "host-call count must be 194")
     require(
-        "assert_eq!(required_host_call_count(), 180)" in runtime,
-        "runtime host-call count must be 180",
+        "assert_eq!(required_host_call_count(), 194)" in runtime,
+        "runtime host-call count must be 194",
     )
 
 

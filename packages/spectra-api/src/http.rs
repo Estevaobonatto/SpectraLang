@@ -1530,6 +1530,28 @@ pub extern "C" fn request_header(ctx: *mut SpectraHostCallContext) -> i32 {
     )
 }
 
+pub extern "C" fn request_with_header(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = read_args(ctx, 3) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let (Some(name), Some(value)) = (read_spectra_string(args[1]), read_spectra_string(args[2]))
+    else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let request = {
+        let store = store().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(request) = store.requests.get(&args[0]).cloned() else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        request
+    };
+    let Ok(request) = request.with_header(name, value) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    write_result(ctx, store.request_handle(request))
+}
+
 pub extern "C" fn request_cookie(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(args) = read_args(ctx, 2) else {
         return HOST_STATUS_INVALID_ARGUMENT;

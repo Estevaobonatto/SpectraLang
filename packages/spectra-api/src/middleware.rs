@@ -39,6 +39,7 @@ impl MiddlewareTrace {
 #[derive(Clone, Debug, Default)]
 pub struct MiddlewareContext {
     trace: MiddlewareTrace,
+    cors_origin: Option<String>,
 }
 
 impl MiddlewareContext {
@@ -48,6 +49,14 @@ impl MiddlewareContext {
 
     pub fn trace_mut(&mut self) -> &mut MiddlewareTrace {
         &mut self.trace
+    }
+
+    pub fn set_cors_origin(&mut self, origin: impl Into<String>) {
+        self.cors_origin = Some(origin.into());
+    }
+
+    pub fn cors_origin(&self) -> Option<&str> {
+        self.cors_origin.as_deref()
     }
 }
 
@@ -223,7 +232,7 @@ impl MiddlewareChain {
 }
 
 #[derive(Clone, Debug)]
-struct RecordedMiddleware {
+pub(crate) struct RecordedMiddleware {
     before_marker: String,
     after_marker: String,
     short_circuit_response: Option<SpectraHostValue>,
@@ -281,10 +290,10 @@ enum StoredMiddlewareKind {
     Async,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct StoredMiddleware {
     kind: StoredMiddlewareKind,
-    recorded: RecordedMiddleware,
+    entry: MiddlewareEntry,
 }
 
 struct MiddlewareStore {
@@ -355,22 +364,49 @@ fn build_chain(
             .get(&handle)
             .cloned()
             .ok_or_else(|| HandlerError::new(500, "middleware handle not found"))?;
-        match middleware.kind {
-            StoredMiddlewareKind::Sync => {
-                chain = chain.use_sync(middleware.recorded);
+        match (middleware.kind, middleware.entry) {
+            (StoredMiddlewareKind::Sync, MiddlewareEntry::Sync(middleware)) => {
+                chain.entries.push(MiddlewareEntry::Sync(middleware));
             }
-            StoredMiddlewareKind::Async if allow_async => {
-                chain = chain.use_async(middleware.recorded);
+            (StoredMiddlewareKind::Async, MiddlewareEntry::Async(middleware)) if allow_async => {
+                chain.entries.push(MiddlewareEntry::Async(middleware));
             }
-            StoredMiddlewareKind::Async => {
+            (StoredMiddlewareKind::Async, _) => {
                 return Err(HandlerError::new(
                     500,
                     "async middleware requires execute_async",
                 ));
             }
+            _ => return Err(HandlerError::new(500, "middleware kind mismatch")),
         }
     }
     Ok(chain)
+}
+
+pub(crate) fn register_sync_middleware<M>(middleware: M) -> SpectraHostValue
+where
+    M: Middleware,
+{
+    store()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert_middleware(StoredMiddleware {
+            kind: StoredMiddlewareKind::Sync,
+            entry: MiddlewareEntry::Sync(Arc::new(middleware)),
+        })
+}
+
+pub(crate) fn register_async_middleware<M>(middleware: M) -> SpectraHostValue
+where
+    M: AsyncMiddleware,
+{
+    store()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert_middleware(StoredMiddleware {
+            kind: StoredMiddlewareKind::Async,
+            entry: MiddlewareEntry::Async(Arc::new(middleware)),
+        })
 }
 
 fn write_response_and_trace(
@@ -428,8 +464,10 @@ fn register_recorded(ctx: *mut SpectraHostCallContext, kind: StoredMiddlewareKin
         after_marker,
         short_circuit_response: None,
     };
-    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let handle = store.insert_middleware(StoredMiddleware { kind, recorded });
+    let handle = match kind {
+        StoredMiddlewareKind::Sync => register_sync_middleware(recorded),
+        StoredMiddlewareKind::Async => register_async_middleware(recorded),
+    };
     write_result(ctx, handle)
 }
 
@@ -450,8 +488,10 @@ fn register_short_circuit(ctx: *mut SpectraHostCallContext, kind: StoredMiddlewa
         after_marker,
         short_circuit_response: Some(args[2]),
     };
-    let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let handle = store.insert_middleware(StoredMiddleware { kind, recorded });
+    let handle = match kind {
+        StoredMiddlewareKind::Sync => register_sync_middleware(recorded),
+        StoredMiddlewareKind::Async => register_async_middleware(recorded),
+    };
     write_result(ctx, handle)
 }
 

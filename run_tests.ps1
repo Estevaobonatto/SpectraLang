@@ -1534,6 +1534,19 @@ if ($r2301MiddlewareChain.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase23-api"; Teste = "validate_r2301_middleware_chain"; Status = $r2301MiddlewareChain.Status; Detalhe = $r2301MiddlewareChain.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.59: R-2302 CORS middleware
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2302 CORS middleware ---" -ForegroundColor Yellow
+$r2302CorsMiddleware = Invoke-HostCommand -name "validate_r2302_cors_middleware" -fileName "python" -arguments @("scripts\validate_r2302_cors_middleware.py") -workingDir (Get-Location).Path
+if ($r2302CorsMiddleware.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase23-api"; Teste = "validate_r2302_cors_middleware"; Status = $r2302CorsMiddleware.Status; Detalhe = $r2302CorsMiddleware.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 9: Phase 12 security evidence and stress/soak smoke
 # ---------------------------------------------------------------------------
 Write-Host ""

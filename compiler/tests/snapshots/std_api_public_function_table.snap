@@ -9,6 +9,7 @@ module std.api.query
 module std.api.form
 module std.api.multipart
 module std.api.handler
+module std.api.cors
 module std.api.middleware
 module std.api.errors
 type std.api.http.Request: struct Request
@@ -41,6 +42,7 @@ type std.api.middleware.MiddlewareChain: struct MiddlewareChain
 type std.api.middleware.MiddlewareHandle: struct MiddlewareHandle
 type std.api.middleware.AsyncMiddlewareHandle: struct AsyncMiddlewareHandle
 type std.api.middleware.MiddlewareTrace: struct MiddlewareTrace
+type std.api.cors.CorsPolicy: struct CorsPolicy
 type std.api.errors.ApiError: struct ApiError
 fn std.api.http.method_name: fn(int) -> string
 fn std.api.http.method_allows_body: fn(int) -> bool
@@ -84,6 +86,7 @@ fn std.api.http.request_new: fn(int) -> Request
 fn std.api.http.request_method: fn(Request) -> int
 fn std.api.http.request_path: fn(Request) -> string
 fn std.api.http.request_header: fn(Request, string) -> string
+fn std.api.http.request_with_header: fn(Request, string, string) -> Request
 fn std.api.http.request_cookie: fn(Request, string) -> string
 fn std.api.http.response: fn(int) -> Response
 fn std.api.http.response_new: fn(int) -> Response
@@ -208,6 +211,19 @@ fn std.api.handler.register_sync: fn(int, Response) -> HandlerHandle
 fn std.api.handler.register_async: fn(int, Response) -> AsyncHandlerHandle
 fn std.api.handler.dispatch_sync: fn(HandlerHandle, Request) -> Response
 fn std.api.handler.dispatch_async: fn(AsyncHandlerHandle, Request) -> Response
+fn std.api.cors.policy: fn() -> CorsPolicy
+fn std.api.cors.permissive: fn() -> CorsPolicy
+fn std.api.cors.allow_origin: fn(CorsPolicy, string) -> CorsPolicy
+fn std.api.cors.allow_method: fn(CorsPolicy, int) -> CorsPolicy
+fn std.api.cors.allow_header: fn(CorsPolicy, string) -> CorsPolicy
+fn std.api.cors.expose_header: fn(CorsPolicy, string) -> CorsPolicy
+fn std.api.cors.allow_credentials: fn(CorsPolicy, bool) -> CorsPolicy
+fn std.api.cors.max_age: fn(CorsPolicy, int) -> CorsPolicy
+fn std.api.cors.middleware: fn(CorsPolicy) -> MiddlewareHandle
+fn std.api.cors.is_preflight: fn(Request) -> bool
+fn std.api.cors.preflight: fn(CorsPolicy, Request) -> Response
+fn std.api.cors.apply: fn(CorsPolicy, Request, Response) -> Response
+fn std.api.cors.allowed_origin: fn(CorsPolicy, string) -> string
 fn std.api.middleware.chain: fn() -> MiddlewareChain
 fn std.api.middleware.chain_new: fn() -> MiddlewareChain
 fn std.api.middleware.chain_len: fn(MiddlewareChain) -> int

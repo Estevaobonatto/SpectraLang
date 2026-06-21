@@ -11,6 +11,7 @@ use spectra_runtime::ffi::{
 
 pub mod client;
 pub mod conformance;
+pub mod cors;
 pub mod errors;
 pub mod form;
 pub mod handler;
@@ -218,6 +219,10 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
     HostCallSpec {
         name: "spectra.api.http.request_header",
         function: http::request_header,
+    },
+    HostCallSpec {
+        name: "spectra.api.http.request_with_header",
+        function: http::request_with_header,
     },
     HostCallSpec {
         name: "spectra.api.http.request_cookie",
@@ -688,6 +693,58 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         function: handler::dispatch_async,
     },
     HostCallSpec {
+        name: "spectra.api.cors.policy",
+        function: cors::policy,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.permissive",
+        function: cors::permissive,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.allow_origin",
+        function: cors::allow_origin,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.allow_method",
+        function: cors::allow_method,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.allow_header",
+        function: cors::allow_header,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.expose_header",
+        function: cors::expose_header,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.allow_credentials",
+        function: cors::allow_credentials,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.max_age",
+        function: cors::max_age,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.middleware",
+        function: cors::middleware,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.is_preflight",
+        function: cors::is_preflight,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.preflight",
+        function: cors::preflight,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.apply",
+        function: cors::apply,
+    },
+    HostCallSpec {
+        name: "spectra.api.cors.allowed_origin",
+        function: cors::allowed_origin,
+    },
+    HostCallSpec {
         name: "spectra.api.middleware.chain",
         function: middleware::chain,
     },
@@ -910,7 +967,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 180);
+        assert_eq!(HOST_CALLS.len(), 194);
     }
 
     #[test]

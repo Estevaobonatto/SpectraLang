@@ -8877,6 +8877,9 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("http", "request_method") => Some(host_int("spectra.api.http.request_method")),
         ("http", "request_path") => Some(host_string("spectra.api.http.request_path")),
         ("http", "request_header") => Some(host_string("spectra.api.http.request_header")),
+        ("http", "request_with_header") => {
+            Some(host_int("spectra.api.http.request_with_header"))
+        }
         ("http", "request_cookie") => Some(host_string("spectra.api.http.request_cookie")),
         ("http", "response") => Some(host_int("spectra.api.http.response")),
         ("http", "response_new") => Some(host_int("spectra.api.http.response_new")),
@@ -9019,6 +9022,19 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("middleware", "trace_short_circuited") => {
             Some(host_bool("spectra.api.middleware.trace_short_circuited"))
         }
+        ("cors", "policy") => Some(host_int("spectra.api.cors.policy")),
+        ("cors", "permissive") => Some(host_int("spectra.api.cors.permissive")),
+        ("cors", "allow_origin") => Some(host_int("spectra.api.cors.allow_origin")),
+        ("cors", "allow_method") => Some(host_int("spectra.api.cors.allow_method")),
+        ("cors", "allow_header") => Some(host_int("spectra.api.cors.allow_header")),
+        ("cors", "expose_header") => Some(host_int("spectra.api.cors.expose_header")),
+        ("cors", "allow_credentials") => Some(host_int("spectra.api.cors.allow_credentials")),
+        ("cors", "max_age") => Some(host_int("spectra.api.cors.max_age")),
+        ("cors", "middleware") => Some(host_int("spectra.api.cors.middleware")),
+        ("cors", "is_preflight") => Some(host_bool("spectra.api.cors.is_preflight")),
+        ("cors", "preflight") => Some(host_int("spectra.api.cors.preflight")),
+        ("cors", "apply") => Some(host_int("spectra.api.cors.apply")),
+        ("cors", "allowed_origin") => Some(host_string("spectra.api.cors.allowed_origin")),
         _ => None,
     }
 }
@@ -9036,6 +9052,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "form"
                     || module == "multipart"
                     || module == "handler"
+                    || module == "cors"
                     || module == "middleware") =>
         {
             name.as_str()
@@ -9051,6 +9068,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "form"
                     || module == "multipart"
                     || module == "handler"
+                    || module == "cors"
                     || module == "middleware") =>
         {
             name.as_str()
@@ -9086,6 +9104,7 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "MiddlewareHandle"
             | "AsyncMiddlewareHandle"
             | "MiddlewareTrace"
+            | "CorsPolicy"
     )
 }
 
@@ -9118,6 +9137,7 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "MiddlewareHandle"
             | "AsyncMiddlewareHandle"
             | "MiddlewareTrace"
+            | "CorsPolicy"
     )
 }
 

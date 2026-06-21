@@ -3642,7 +3642,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 180 `spectra.api.*` host calls covering the Phase 22 and R-2301 registration
+- Added 194 `spectra.api.*` host calls covering the Phase 22, R-2301, and R-2302 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -4463,7 +4463,7 @@ block with documented behavior.
 
 ## R-2302 CORS Middleware (RFC 7231)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `medium`
@@ -4478,6 +4478,26 @@ block with documented behavior.
 - Non-preflight requests receive the correct `Access-Control-Allow-Origin`
   header.
 - Tests cover permissive, restrictive, and credentialed configurations.
+
+### Completed Scope
+
+- Added `packages/spectra-api/src/cors.rs` with immutable `CorsPolicy`
+  builders, permissive and deny-by-default policies, preflight evaluation,
+  actual-response header application, credentialed origin echoing, exposed
+  headers, max-age, and denied-preflight `403` behavior.
+- Exposed `std.api.cors` through host calls, compiler builtins, midend
+  lowering, package bindings, runtime host-call contracts, and the public API
+  reference docs.
+- Added `std.api.http.request_with_header` so Spectra code and validation
+  fixtures can model incoming request headers needed by CORS and later
+  middleware.
+- Integrated CORS as a real `MiddlewareHandle` that short-circuits preflight
+  requests and applies actual-response headers during middleware unwind.
+- Added `tests/validation/149_api_cors_middleware.spectra` covering
+  permissive, restrictive preflight, credentialed, exposed-header, and
+  middleware-chain behavior.
+- Added `scripts/validate_r2302_cors_middleware.py` and wired it into
+  `run_tests.ps1`.
 
 ## R-2303 Structured Logging and Request ID Tracing
 

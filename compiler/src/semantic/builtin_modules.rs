@@ -21,6 +21,7 @@ pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api.form",
     "std.api.multipart",
     "std.api.handler",
+    "std.api.cors",
     "std.api.middleware",
     "std.api.errors",
 ];
@@ -71,6 +72,7 @@ pub const STD_API_PUBLIC_TYPES: &[(&str, &str)] = &[
         "std.api.middleware.MiddlewareTrace",
         "struct MiddlewareTrace",
     ),
+    ("std.api.cors.CorsPolicy", "struct CorsPolicy"),
     ("std.api.errors.ApiError", "struct ApiError"),
 ];
 
@@ -119,6 +121,10 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     (
         "std.api.http.request_header",
         "fn(Request, string) -> string",
+    ),
+    (
+        "std.api.http.request_with_header",
+        "fn(Request, string, string) -> Request",
     ),
     (
         "std.api.http.request_cookie",
@@ -352,6 +358,46 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
         "std.api.handler.dispatch_async",
         "fn(AsyncHandlerHandle, Request) -> Response",
     ),
+    ("std.api.cors.policy", "fn() -> CorsPolicy"),
+    ("std.api.cors.permissive", "fn() -> CorsPolicy"),
+    (
+        "std.api.cors.allow_origin",
+        "fn(CorsPolicy, string) -> CorsPolicy",
+    ),
+    (
+        "std.api.cors.allow_method",
+        "fn(CorsPolicy, int) -> CorsPolicy",
+    ),
+    (
+        "std.api.cors.allow_header",
+        "fn(CorsPolicy, string) -> CorsPolicy",
+    ),
+    (
+        "std.api.cors.expose_header",
+        "fn(CorsPolicy, string) -> CorsPolicy",
+    ),
+    (
+        "std.api.cors.allow_credentials",
+        "fn(CorsPolicy, bool) -> CorsPolicy",
+    ),
+    ("std.api.cors.max_age", "fn(CorsPolicy, int) -> CorsPolicy"),
+    (
+        "std.api.cors.middleware",
+        "fn(CorsPolicy) -> MiddlewareHandle",
+    ),
+    ("std.api.cors.is_preflight", "fn(Request) -> bool"),
+    (
+        "std.api.cors.preflight",
+        "fn(CorsPolicy, Request) -> Response",
+    ),
+    (
+        "std.api.cors.apply",
+        "fn(CorsPolicy, Request, Response) -> Response",
+    ),
+    (
+        "std.api.cors.allowed_origin",
+        "fn(CorsPolicy, string) -> string",
+    ),
     ("std.api.middleware.chain", "fn() -> MiddlewareChain"),
     ("std.api.middleware.chain_new", "fn() -> MiddlewareChain"),
     ("std.api.middleware.chain_len", "fn(MiddlewareChain) -> int"),
@@ -505,6 +551,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
         make_std_api_multipart(prefix),
     );
     registry.register_module(format!("{prefix}.handler"), make_std_api_handler(prefix));
+    registry.register_module(format!("{prefix}.cors"), make_std_api_cors(prefix));
     registry.register_module(
         format!("{prefix}.middleware"),
         make_std_api_middleware(prefix),
@@ -609,6 +656,11 @@ fn make_std_api_http(prefix: &str) -> ModuleExports {
             "request_header",
             vec![request.clone(), Type::String],
             Type::String,
+        ),
+        (
+            "request_with_header",
+            vec![request.clone(), Type::String, Type::String],
+            request.clone(),
         ),
         (
             "request_cookie",
@@ -1256,6 +1308,68 @@ fn make_std_api_middleware(prefix: &str) -> ModuleExports {
             .collect(),
         },
     );
+
+    exports
+}
+
+fn make_std_api_cors(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("cors"));
+    exports
+        .types
+        .insert("CorsPolicy".to_string(), public_type(&["origin_count"]));
+
+    let policy = api_type("CorsPolicy");
+    let request = api_type("Request");
+    let response = api_type("Response");
+    let middleware = api_type("MiddlewareHandle");
+    let functions = [
+        ("policy", vec![], policy.clone()),
+        ("permissive", vec![], policy.clone()),
+        (
+            "allow_origin",
+            vec![policy.clone(), Type::String],
+            policy.clone(),
+        ),
+        (
+            "allow_method",
+            vec![policy.clone(), Type::Int],
+            policy.clone(),
+        ),
+        (
+            "allow_header",
+            vec![policy.clone(), Type::String],
+            policy.clone(),
+        ),
+        (
+            "expose_header",
+            vec![policy.clone(), Type::String],
+            policy.clone(),
+        ),
+        (
+            "allow_credentials",
+            vec![policy.clone(), Type::Bool],
+            policy.clone(),
+        ),
+        ("max_age", vec![policy.clone(), Type::Int], policy.clone()),
+        ("middleware", vec![policy.clone()], middleware),
+        ("is_preflight", vec![request.clone()], Type::Bool),
+        (
+            "preflight",
+            vec![policy.clone(), request.clone()],
+            response.clone(),
+        ),
+        (
+            "apply",
+            vec![policy.clone(), request, response.clone()],
+            response,
+        ),
+        ("allowed_origin", vec![policy, Type::String], Type::String),
+    ];
+    for (name, params, return_type) in functions {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, return_type));
+    }
 
     exports
 }

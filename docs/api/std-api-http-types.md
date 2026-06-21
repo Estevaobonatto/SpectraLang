@@ -80,6 +80,10 @@ Use `status_reason(status)`, `status_class(status)`, and
 - `request_path(request)` returns the request path.
 - `request_header(request, name)` returns the first case-insensitive header
   match or an empty string.
+- `request_with_header(request, name, value)` returns a new request handle with
+  the header inserted or replaced. It is used by CORS, middleware, and
+  validation fixtures that need to model incoming HTTP headers from Spectra
+  code.
 - `request_cookie(request, name)` reads a case-insensitive cookie from the
   `Cookie` header or returns an empty string.
 - `response(status)` and `response_new(status)` construct a response handle.
