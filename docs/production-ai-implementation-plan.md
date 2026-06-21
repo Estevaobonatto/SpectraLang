@@ -1599,6 +1599,11 @@ AI users.
   `scripts/validate_r2008_language_feature_matrix.py`, eight
   `tests/projects/valid/integrated_*` project directories, and the
   `phase20-project-matrix` gate in `run_tests.ps1`.
+- `R-2011` is complete for the integrated project runner, with
+  `scripts/validate_r2011_integrated_project_runner.py`,
+  `docs/architecture/r2011-integrated-project-runner.md`, JSON evidence under
+  `target/r2011-integrated-project-runner/report.json`, and the
+  `phase20-integrated-project-runner` gate in `run_tests.ps1`.
 - `R-2014` is complete for the first integrated-project defect found after the
   matrix landed: imported struct-style enum payload metadata is preserved for
   midend lowering, undefined IR operands are rejected before backend codegen,
@@ -1607,15 +1612,16 @@ AI users.
 
 ### Remaining Integrated Project Certification
 
-`R-2009` through `R-2014` continue the post-baseline certification track focused
+`R-2012` and `R-2013` continue the post-baseline certification track focused
 on complete checked-in `.spectra` projects that combine the basic language
 surface with AI Support features. This track does not reopen the completed
 `R-2003` through `R-2007` pre-API stabilization evidence or the completed
-`R-2008` project matrix. It adds stronger release-candidate proof that real
-Spectra projects can compose modules, traits, generics, closures, control flow,
-stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model interop,
-RAG, serving, evaluation, safety, and monitoring through the normal CLI and
-package paths.
+`R-2008` project matrix, the completed `R-2009`/`R-2010` integrated projects,
+or the completed `R-2011` runner. It adds stronger release-candidate proof that
+real Spectra projects can compose modules, traits, generics, closures, control
+flow, stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model
+interop, RAG, serving, evaluation, safety, and monitoring through the normal
+CLI and package paths.
 
 Project implementation must use `tests/projects/valid/integrated_*`
 directories with `spectra.toml`, `src/main.spectra`, supporting

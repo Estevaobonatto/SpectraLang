@@ -3046,10 +3046,12 @@ the next tracked development cycle toward a broader AI/ML platform.
   `tests/projects/valid/integrated_ai_data_experiment`,
   `tests/projects/valid/integrated_ai_model_ecosystem`, and
   `tests/projects/valid/integrated_ai_serving_guardrails`.
+- Additional checked-in integrated project:
+  `tests/projects/valid/integrated_basic_deep_components`.
 
 ### Evidence
 
-- The matrix defines seven checked-in integrated projects across `R-2009` and
+- The matrix defines eight checked-in integrated projects across `R-2009` and
   `R-2010`.
 - Every project declares owner, project path, required command,
   expected outcome, roadmap target, and feature coverage.
@@ -3103,6 +3105,10 @@ the next tracked development cycle toward a broader AI/ML platform.
   `do-while`.
 - `tests/projects/valid/integrated_basic_package_check` covers package-check
   composition for traits, generics, closures, modules, and callbacks.
+- `tests/projects/valid/integrated_basic_deep_components` covers package-test
+  composition for multi-module structs, methods, struct-style enum payload
+  imports, match bindings, traits, `while let`, `unless`, and mutable loop
+  state.
 
 ### Evidence
 
@@ -3110,6 +3116,8 @@ the next tracked development cycle toward a broader AI/ML platform.
   passes.
 - `spectralang run tests/projects/valid/integrated_basic_runtime` passes.
 - `spectralang package check --root tests/projects/valid/integrated_basic_package_check`
+  passes.
+- `spectralang package test --root tests/projects/valid/integrated_basic_deep_components`
   passes.
 
 ## R-2010 AI Support Integration Projects
@@ -3171,7 +3179,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2011 Full Pipeline Project Runner
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2009`, `R-2010`
@@ -3186,6 +3194,8 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Support `spectralang run`, `spectralang package check`, and
   `spectralang package test`.
 - Emit machine-readable JSON suitable for release evidence and failure triage.
+- Wire the runner into `run_tests.ps1` as
+  `validate_r2011_integrated_project_runner`.
 
 ### Acceptance
 
@@ -3195,6 +3205,24 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Failure classes distinguish compile, semantic, lowering, backend, runtime,
   package, missing-file, fixture, expectation, and timeout failures.
 - `run_tests.ps1` gates the runner once the integrated projects exist.
+
+### Completed
+
+- Validator:
+  `scripts/validate_r2011_integrated_project_runner.py`.
+- Report path:
+  `target/r2011-integrated-project-runner/report.json`.
+- Architecture note:
+  `docs/architecture/r2011-integrated-project-runner.md`.
+- `run_tests.ps1` includes the `phase20-integrated-project-runner` gate.
+
+### Evidence
+
+- `python scripts\validate_r2011_integrated_project_runner.py --binary target\debug\spectralang.exe`
+  passes.
+- The generated report records eight matrix projects, exact matrix commands,
+  concrete executed commands, elapsed time, exit code, status, failure class,
+  expected outcome, and output tail.
 
 ## R-2012 Failure-To-Roadmap Triage Gate
 

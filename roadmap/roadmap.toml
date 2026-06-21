@@ -1547,15 +1547,16 @@ title = "Full Pipeline Project Runner"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2009", "R-2010"]
-summary = "Add a project-level runner that executes the integrated `.spectra` language and AI projects and emits a structured report."
+summary = "Add a project-level runner that executes the integrated `.spectra` language and AI projects from the R-2008 matrix and emits a structured JSON report."
 acceptance = [
   "a validator reads the R-2008 matrix and runs each `.spectra` project through its exact declared command: `spectralang run`, `spectralang package check`, or `spectralang package test`",
   "the validator verifies required project files exist before execution and fails missing `spectra.toml`, entrypoint, source, fixture, or package-test files",
   "the validator emits JSON with project name, path, entrypoint, command, category, elapsed time, status, failure class, exit code, output tail, and expected outcome",
-  "`run_tests.ps1` gates the runner once the integrated projects exist"
+  "`run_tests.ps1` gates the runner once the integrated projects exist",
+  "`python scripts\\validate_r2011_integrated_project_runner.py --binary target\\debug\\spectralang.exe` passes and writes `target\\r2011-integrated-project-runner\\report.json`"
 ]
 
 [[items]]
