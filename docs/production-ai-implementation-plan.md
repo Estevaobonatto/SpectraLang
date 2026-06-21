@@ -1584,13 +1584,19 @@ AI users.
 - `R-2007` is complete for backend/codegen robustness, with typed JIT/AOT
   errors, warning cleanup, and valid-source edge control-flow coverage through
   the normal CLI path.
+- `R-2008` is complete for the integrated project matrix, with
+  `docs/architecture/r2008-language-feature-project-matrix.toml`,
+  `docs/architecture/r2008-language-feature-project-matrix.md`,
+  `scripts/validate_r2008_language_feature_matrix.py`, and the
+  `phase20-project-matrix` gate in `run_tests.ps1`.
 
 ### Remaining Integrated Project Certification
 
-`R-2008` through `R-2013` add a post-baseline certification track focused on
+`R-2009` through `R-2013` continue the post-baseline certification track focused on
 complete projects that combine the basic language surface with AI Support
 features. This track does not reopen the completed `R-2003` through `R-2007`
-pre-API stabilization evidence. It adds stronger release-candidate proof that
+pre-API stabilization evidence or the completed `R-2008` project matrix. It
+adds stronger release-candidate proof that
 real Spectra projects can compose modules, traits, generics, closures, control
 flow, stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model
 interop, RAG, serving, evaluation, safety, and monitoring through the normal CLI

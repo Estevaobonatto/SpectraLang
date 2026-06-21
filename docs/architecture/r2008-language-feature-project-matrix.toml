@@ -1,0 +1,174 @@
+schema = "spectralang.r2008_language_feature_project_matrix.v1"
+roadmap_item = "R-2008"
+version = 1
+status = "complete"
+summary = "Integrated project validation matrix for basic language components and AI Support features."
+
+required_features = [
+  "modules",
+  "functions",
+  "structs_classes",
+  "traits",
+  "generics",
+  "closures",
+  "control_flow",
+  "stdlib",
+  "tensors",
+  "autodiff",
+  "graph_fusion",
+  "data",
+  "experiment",
+  "onnx",
+  "rag",
+  "serving",
+  "evaluation",
+  "monitoring",
+]
+
+allowed_commands = [
+  "spectralang run",
+  "spectralang package check",
+  "spectralang package test",
+]
+
+gap_roadmap_items = [
+  "R-2009",
+  "R-2010",
+  "R-2011",
+  "R-2012",
+  "R-2013",
+]
+
+[[projects]]
+id = "basic_components_package"
+title = "Basic Components Package Test"
+category = "basic_components"
+roadmap_item = "R-2009"
+owner = "tooling"
+command = "spectralang package test"
+project_path = "tests/projects/valid/integrated_basic_components"
+status = "planned"
+expected_outcome = "Package tests assert behavior across modules, imports, functions, methods, structs/classes, traits, generics, closures, enums, match, loops, error paths, and stdlib composition."
+features = [
+  "modules",
+  "functions",
+  "structs_classes",
+  "traits",
+  "generics",
+  "closures",
+  "control_flow",
+  "stdlib",
+]
+
+[[projects]]
+id = "basic_runtime_run"
+title = "Basic Runtime CLI Execution"
+category = "basic_components"
+roadmap_item = "R-2009"
+owner = "tooling"
+command = "spectralang run"
+project_path = "tests/projects/valid/integrated_basic_runtime"
+status = "planned"
+expected_outcome = "CLI execution proves runtime behavior for core constructs with observable output and no parser-only acceptance."
+features = [
+  "modules",
+  "functions",
+  "structs_classes",
+  "control_flow",
+  "stdlib",
+]
+
+[[projects]]
+id = "basic_package_check"
+title = "Basic Components Package Check"
+category = "basic_components"
+roadmap_item = "R-2009"
+owner = "tooling"
+command = "spectralang package check"
+project_path = "tests/projects/valid/integrated_basic_package_check"
+status = "planned"
+expected_outcome = "Package check validates static composition for modules, traits, generics, closures, and stdlib helpers before execution tests run."
+features = [
+  "modules",
+  "traits",
+  "generics",
+  "closures",
+  "stdlib",
+]
+
+[[projects]]
+id = "ai_tensor_autodiff_run"
+title = "AI Tensor Autodiff CLI Execution"
+category = "ai_support"
+roadmap_item = "R-2010"
+owner = "ml"
+command = "spectralang run"
+project_path = "tests/projects/valid/integrated_ai_tensor_autodiff"
+status = "planned"
+expected_outcome = "CLI execution proves tensor, autodiff, graph/fusion, and stdlib composition with deterministic model-step output."
+features = [
+  "modules",
+  "functions",
+  "tensors",
+  "autodiff",
+  "graph_fusion",
+  "stdlib",
+]
+
+[[projects]]
+id = "ai_data_experiment_package"
+title = "AI Data Experiment Package Test"
+category = "ai_support"
+roadmap_item = "R-2010"
+owner = "ml"
+command = "spectralang package test"
+project_path = "tests/projects/valid/integrated_ai_data_experiment"
+status = "planned"
+expected_outcome = "Package tests validate data preprocessing, experiment tracking, tensor metrics, evaluation summaries, and monitoring hooks."
+features = [
+  "modules",
+  "traits",
+  "tensors",
+  "data",
+  "experiment",
+  "evaluation",
+  "monitoring",
+]
+
+[[projects]]
+id = "ai_model_ecosystem_check"
+title = "AI Model Ecosystem Package Check"
+category = "ai_support"
+roadmap_item = "R-2010"
+owner = "ml"
+command = "spectralang package check"
+project_path = "tests/projects/valid/integrated_ai_model_ecosystem"
+status = "planned"
+expected_outcome = "Package check validates type-level composition for ONNX, RAG, serving, evaluation, monitoring, generics, and closures."
+features = [
+  "generics",
+  "closures",
+  "onnx",
+  "rag",
+  "serving",
+  "evaluation",
+  "monitoring",
+]
+
+[[projects]]
+id = "ai_serving_guardrails_run"
+title = "AI Serving Guardrails CLI Execution"
+category = "ai_support"
+roadmap_item = "R-2010"
+owner = "ml"
+command = "spectralang run"
+project_path = "tests/projects/valid/integrated_ai_serving_guardrails"
+status = "planned"
+expected_outcome = "CLI execution proves serving, evaluation, monitoring, control-flow guardrails, and stdlib helpers compose in a runnable scenario."
+features = [
+  "serving",
+  "evaluation",
+  "monitoring",
+  "control_flow",
+  "stdlib",
+]

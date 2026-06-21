@@ -3004,7 +3004,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2008 Language Feature Project Matrix
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2001`, `R-2003`
@@ -3023,6 +3023,28 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Every planned project has explicit command, expected outcome, owner, and
   required feature coverage.
 - Coverage gaps become roadmap items before any release candidate is certified.
+
+### Completed
+
+- Checked-in source matrix:
+  `docs/architecture/r2008-language-feature-project-matrix.toml`.
+- Human-readable matrix summary:
+  `docs/architecture/r2008-language-feature-project-matrix.md`.
+- Validator:
+  `scripts/validate_r2008_language_feature_matrix.py`.
+- `run_tests.ps1` includes the `phase20-project-matrix` gate.
+
+### Evidence
+
+- The matrix defines seven planned integrated projects across `R-2009` and
+  `R-2010`.
+- Every project declares owner, planned project path, required command,
+  expected outcome, roadmap target, and feature coverage.
+- Coverage includes modules, functions, structs/classes, traits, generics,
+  closures, control flow, stdlib, tensors, autodiff, graph/fusion, data,
+  experiment, ONNX, RAG, serving, evaluation, and monitoring.
+- Follow-on gap handling is explicit through `R-2009`, `R-2010`, `R-2011`,
+  `R-2012`, and `R-2013`.
 
 ## R-2009 Basic Components Integration Projects
 

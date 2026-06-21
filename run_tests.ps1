@@ -1105,7 +1105,20 @@ if ($r2007BackendCodegen.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-backend-codegen"; Teste = "validate_r2007_backend_codegen"; Status = $r2007BackendCodegen.Status; Detalhe = $r2007BackendCodegen.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.30: R-2101 async/await execution model ADR
+# Grupo 8.30: R-2008 language feature project matrix
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2008 language feature project matrix ---" -ForegroundColor Yellow
+$r2008LanguageFeatureMatrix = Invoke-HostCommand -name "validate_r2008_language_feature_matrix" -fileName "python" -arguments @("scripts\validate_r2008_language_feature_matrix.py") -workingDir (Get-Location).Path
+if ($r2008LanguageFeatureMatrix.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-project-matrix"; Teste = "validate_r2008_language_feature_matrix"; Status = $r2008LanguageFeatureMatrix.Status; Detalhe = $r2008LanguageFeatureMatrix.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.31: R-2101 async/await execution model ADR
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2101 async/await execution model ADR ---" -ForegroundColor Yellow
