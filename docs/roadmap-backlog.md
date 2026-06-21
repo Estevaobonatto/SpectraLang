@@ -3011,9 +3011,12 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- Define a checked-in matrix for integrated validation projects.
+- Define a checked-in matrix for integrated `.spectra` validation projects.
 - Map basic language features and AI Support features to full-pipeline project scenarios.
 - Mark each scenario as `spectralang run`, `spectralang package check`, or `spectralang package test`.
+- Require each scenario to name planned project path, `Spectra.toml`,
+  `src/*.spectra`, package tests when needed, entrypoint, exact command, and
+  expected evidence.
 
 ### Acceptance
 
@@ -3022,6 +3025,8 @@ the next tracked development cycle toward a broader AI/ML platform.
   ONNX, RAG, serving, evaluation, and monitoring.
 - Every planned project has explicit command, expected outcome, owner, and
   required feature coverage.
+- Every planned project has explicit `.spectra` project layout requirements,
+  including entrypoint and required source/test files.
 - Coverage gaps become roadmap items before any release candidate is certified.
 
 ### Completed
@@ -3040,6 +3045,8 @@ the next tracked development cycle toward a broader AI/ML platform.
   `R-2010`.
 - Every project declares owner, planned project path, required command,
   expected outcome, roadmap target, and feature coverage.
+- Every project declares `Spectra.toml`, `src/*.spectra`, `tests/*.spectra`
+  when package tests are required, executable entrypoint, and exact command.
 - Coverage includes modules, functions, structs/classes, traits, generics,
   closures, control flow, stdlib, tensors, autodiff, graph/fusion, data,
   experiment, ONNX, RAG, serving, evaluation, and monitoring.
@@ -3055,16 +3062,26 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- Add multi-file Spectra projects that use core language components together,
-  not isolated parser or single-file fragments.
+- Add multi-file `.spectra` projects under
+  `tests/projects/valid/integrated_*` that use core language components
+  together, not isolated parser or single-file fragments.
+- Each project must include `Spectra.toml`, `src/main.spectra`,
+  feature-specific `src/*.spectra` modules, and `tests/*.spectra` package
+  tests for package-test scenarios.
 - Cover modules/imports, functions, methods, structs/classes, traits,
   generics, closures, enums, match, loops, error paths, and stdlib composition.
 - Validate compile, run, and package flows through the normal CLI path.
 
 ### Acceptance
 
-- Basic component projects build and run with reproducible commands.
+- Basic component projects build and run with reproducible exact commands from
+  the R-2008 matrix.
 - Tests prove runtime behavior for constructs that have runtime semantics.
+- Package projects pass `spectralang package check` and
+  `spectralang package test`; executable projects pass `spectralang run`
+  against `src/main.spectra`.
+- Missing project files, missing package tests, or parser-only coverage fail the
+  item.
 - Any discovered implementation defect is fixed with regression coverage or
   tracked as a new roadmap item before the project is treated as passing.
 
@@ -3077,8 +3094,12 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- Add complete Spectra projects for AI Support features that exercise realistic
-  code paths, not only one-off examples.
+- Add complete `.spectra` projects under `tests/projects/valid/integrated_*`
+  for AI Support features that exercise realistic code paths, not one-off
+  examples.
+- Each project must include `Spectra.toml`, `src/main.spectra`,
+  feature-specific `src/*.spectra` modules, deterministic fixtures or package
+  tests where needed, and expected output/report evidence.
 - Cover tensors, autodiff, graph/fusion, data preprocessing, experiment
   tracking, ONNX import/export, RAG, serving, evaluation, safety, and monitoring
   where the public surface exists.
@@ -3087,9 +3108,13 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Acceptance
 
-- AI Support projects run through the normal CLI or package path.
+- AI Support projects run through the normal CLI or package path using exact
+  commands from the R-2008 matrix.
 - Each project emits reproducible evidence for its command, category, and
   expected behavior.
+- Any AI Support surface that cannot yet be represented by a runnable
+  `.spectra` project becomes an explicit roadmap gap before release
+  certification.
 - Defects discovered during project execution become fixes with regression
   coverage or new roadmap items with acceptance criteria.
 
@@ -3103,17 +3128,21 @@ the next tracked development cycle toward a broader AI/ML platform.
 ### Scope
 
 - Add a validator that reads the integrated project matrix and runs each
-  project through its declared command.
+  `.spectra` project through its exact declared command.
+- Before execution, verify each project has the matrix-declared `Spectra.toml`,
+  entrypoint, source files, package tests, fixtures, and expected-output
+  metadata.
 - Support `spectralang run`, `spectralang package check`, and
   `spectralang package test`.
 - Emit machine-readable JSON suitable for release evidence and failure triage.
 
 ### Acceptance
 
-- Runner report includes project name, command, category, elapsed time, status,
-  failure class, exit code, and output tail.
+- Runner report includes project name, project path, entrypoint, command,
+  category, elapsed time, status, failure class, exit code, expected outcome,
+  and output tail.
 - Failure classes distinguish compile, semantic, lowering, backend, runtime,
-  package, and timeout failures.
+  package, missing-file, fixture, expectation, and timeout failures.
 - `run_tests.ps1` gates the runner once the integrated projects exist.
 
 ## R-2012 Failure-To-Roadmap Triage Gate
@@ -3125,15 +3154,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- Require every real implementation failure found by integrated project
+- Require every real implementation failure found by integrated `.spectra` project
   validation to be fixed or tracked.
 - Add roadmap/backlog items for unfixed failures with owner, phase,
-  dependencies, risk, and acceptance criteria.
+  dependencies, risk, reproduction command, affected project path, and
+  acceptance criteria.
 - Prevent silent exception lists from replacing production completion criteria.
 
 ### Acceptance
 
 - Every unfixed failure in the runner report maps to a roadmap item.
+- Missing `.spectra` project files, missing package tests, non-deterministic
+  output, and parser-only substitutions are treated as triage failures.
 - Agents do not mark `R-2009`, `R-2010`, `R-2011`, or `R-2013` complete while
   untracked failures remain.
 - Triage notes preserve enough command/output context for the next agent to
@@ -3148,17 +3180,18 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- Add integrated project validation to release-candidate certification.
+- Add integrated `.spectra` project validation to release-candidate certification.
 - Require zero failures across basic component and AI Support integrated
   projects.
-- Store the matrix version and runner report path as release evidence.
+- Store the matrix version, exact commands, project paths, and runner report
+  path as release evidence.
 
 ### Acceptance
 
 - Release-candidate certification includes the integrated project runner report
   alongside R-2001 conformance.
-- Basic component and AI Support integrated projects pass with zero untracked
-  failures.
+- Basic component and AI Support integrated `.spectra` projects pass with zero
+  untracked failures through normal CLI/package paths.
 - The release report lists any newly-created follow-up roadmap items.
 
 ---

@@ -1541,18 +1541,21 @@ AI users.
 - `R-2005 Core std/runtime Panic and Host-Status Hardening`: stable host status values and diagnostics for user-triggerable invalid std/runtime inputs.
 - `R-2006 Tensor and std Performance Refresh`: fresh release benchmark evidence for materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse.
 - `R-2007 Backend and Codegen Robustness Cleanup`: warning cleanup and typed backend errors for reachable IR/codegen edge cases.
-- `R-2008 Language Feature Project Matrix`: matrix mapping basic language and AI Support features to full-pipeline project validation scenarios.
-- `R-2009 Basic Components Integration Projects`: complete Spectra projects for modules, functions, structs/classes, traits, generics, closures, control flow, and stdlib composition.
-- `R-2010 AI Support Integration Projects`: complete Spectra projects for tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, safety, and monitoring.
-- `R-2011 Full Pipeline Project Runner`: project-level runner for `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
-- `R-2012 Failure-To-Roadmap Triage Gate`: every unfixed integrated-project failure becomes a roadmap item with owner, phase, dependencies, risk, and acceptance criteria.
-- `R-2013 Release Candidate Integrated Project Gate`: final gate requiring zero untracked failures across integrated basic-language and AI Support projects.
+- `R-2008 Language Feature Project Matrix`: matrix mapping basic language and AI Support features to concrete `.spectra` project validation scenarios, with planned project paths, entrypoints, required files, exact commands, expected outcomes, and owners.
+- `R-2009 Basic Components Integration Projects`: complete checked-in `.spectra` projects for modules, functions, structs/classes, traits, generics, closures, control flow, and stdlib composition.
+- `R-2010 AI Support Integration Projects`: complete checked-in `.spectra` projects for tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, safety, and monitoring.
+- `R-2011 Full Pipeline Project Runner`: project-level runner for the matrix-declared `.spectra` projects via `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
+- `R-2012 Failure-To-Roadmap Triage Gate`: every unfixed integrated `.spectra` project failure becomes a roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria.
+- `R-2013 Release Candidate Integrated Project Gate`: final gate requiring zero untracked failures across integrated basic-language and AI Support `.spectra` projects.
 
 ### Acceptance Direction
 
 - Release candidates should require a versioned conformance report.
-- Integrated project validation should exercise realistic multi-file and package
-  projects, not only isolated `.spectra` fixtures.
+- Integrated project validation should exercise realistic checked-in multi-file
+  `.spectra` package projects, not isolated fixtures or parser-only samples.
+- Each integrated project should include `Spectra.toml`, `src/*.spectra`,
+  package tests or deterministic fixtures where required, exact commands, and
+  expected output/report evidence.
 - Stable releases should communicate compatibility and deprecation status clearly.
 - Certification should fail when required conformance tests or integrated
   project gates fail.
@@ -1592,15 +1595,22 @@ AI users.
 
 ### Remaining Integrated Project Certification
 
-`R-2009` through `R-2013` continue the post-baseline certification track focused on
-complete projects that combine the basic language surface with AI Support
-features. This track does not reopen the completed `R-2003` through `R-2007`
-pre-API stabilization evidence or the completed `R-2008` project matrix. It
-adds stronger release-candidate proof that
-real Spectra projects can compose modules, traits, generics, closures, control
-flow, stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model
-interop, RAG, serving, evaluation, safety, and monitoring through the normal CLI
-and package paths.
+`R-2009` through `R-2013` continue the post-baseline certification track focused
+on complete checked-in `.spectra` projects that combine the basic language
+surface with AI Support features. This track does not reopen the completed
+`R-2003` through `R-2007` pre-API stabilization evidence or the completed
+`R-2008` project matrix. It adds stronger release-candidate proof that real
+Spectra projects can compose modules, traits, generics, closures, control flow,
+stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model interop,
+RAG, serving, evaluation, safety, and monitoring through the normal CLI and
+package paths.
+
+Project implementation must use `tests/projects/valid/integrated_*`
+directories with `Spectra.toml`, `src/main.spectra`, supporting
+`src/*.spectra` modules, and package tests or deterministic fixtures whenever
+the matrix requires them. The runner must reject missing files, missing package
+tests, parser-only substitutions, non-deterministic outputs, and commands that
+do not match the R-2008 matrix.
 
 When execution of this track finds a real compiler, runtime, package, or AI
 Support defect, the defect must either be fixed in the same change with

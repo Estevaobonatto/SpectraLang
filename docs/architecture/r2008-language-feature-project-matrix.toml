@@ -3,6 +3,13 @@ roadmap_item = "R-2008"
 version = 1
 status = "complete"
 summary = "Integrated project validation matrix for basic language components and AI Support features."
+project_contract = [
+  "each planned project is a checked-in .spectra project under tests/projects/valid/integrated_*",
+  "each project contains Spectra.toml plus src/*.spectra and tests/*.spectra files when package validation is required",
+  "runtime scenarios use src/main.spectra as the executable entrypoint",
+  "package scenarios use package-level tests instead of isolated parser fixtures",
+  "runner evidence records the exact command, expected output, and failure classification",
+]
 
 required_features = [
   "modules",
@@ -46,7 +53,16 @@ category = "basic_components"
 roadmap_item = "R-2009"
 owner = "tooling"
 command = "spectralang package test"
+exact_command = "spectralang package test tests/projects/valid/integrated_basic_components"
 project_path = "tests/projects/valid/integrated_basic_components"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/components.spectra",
+  "src/traits.spectra",
+  "tests/core_language_package.spectra",
+]
 status = "planned"
 expected_outcome = "Package tests assert behavior across modules, imports, functions, methods, structs/classes, traits, generics, closures, enums, match, loops, error paths, and stdlib composition."
 features = [
@@ -67,7 +83,15 @@ category = "basic_components"
 roadmap_item = "R-2009"
 owner = "tooling"
 command = "spectralang run"
+exact_command = "spectralang run tests/projects/valid/integrated_basic_runtime/src/main.spectra"
 project_path = "tests/projects/valid/integrated_basic_runtime"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/domain.spectra",
+  "src/control_flow.spectra",
+]
 status = "planned"
 expected_outcome = "CLI execution proves runtime behavior for core constructs with observable output and no parser-only acceptance."
 features = [
@@ -85,7 +109,15 @@ category = "basic_components"
 roadmap_item = "R-2009"
 owner = "tooling"
 command = "spectralang package check"
+exact_command = "spectralang package check tests/projects/valid/integrated_basic_package_check"
 project_path = "tests/projects/valid/integrated_basic_package_check"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/generic_pipeline.spectra",
+  "src/callbacks.spectra",
+]
 status = "planned"
 expected_outcome = "Package check validates static composition for modules, traits, generics, closures, and stdlib helpers before execution tests run."
 features = [
@@ -103,7 +135,15 @@ category = "ai_support"
 roadmap_item = "R-2010"
 owner = "ml"
 command = "spectralang run"
+exact_command = "spectralang run tests/projects/valid/integrated_ai_tensor_autodiff/src/main.spectra"
 project_path = "tests/projects/valid/integrated_ai_tensor_autodiff"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/model.spectra",
+  "src/training_step.spectra",
+]
 status = "planned"
 expected_outcome = "CLI execution proves tensor, autodiff, graph/fusion, and stdlib composition with deterministic model-step output."
 features = [
@@ -122,7 +162,16 @@ category = "ai_support"
 roadmap_item = "R-2010"
 owner = "ml"
 command = "spectralang package test"
+exact_command = "spectralang package test tests/projects/valid/integrated_ai_data_experiment"
 project_path = "tests/projects/valid/integrated_ai_data_experiment"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/data_pipeline.spectra",
+  "src/experiment.spectra",
+  "tests/reproducible_metrics.spectra",
+]
 status = "planned"
 expected_outcome = "Package tests validate data preprocessing, experiment tracking, tensor metrics, evaluation summaries, and monitoring hooks."
 features = [
@@ -142,7 +191,16 @@ category = "ai_support"
 roadmap_item = "R-2010"
 owner = "ml"
 command = "spectralang package check"
+exact_command = "spectralang package check tests/projects/valid/integrated_ai_model_ecosystem"
 project_path = "tests/projects/valid/integrated_ai_model_ecosystem"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/onnx_boundary.spectra",
+  "src/rag_pipeline.spectra",
+  "src/serving_contract.spectra",
+]
 status = "planned"
 expected_outcome = "Package check validates type-level composition for ONNX, RAG, serving, evaluation, monitoring, generics, and closures."
 features = [
@@ -162,7 +220,15 @@ category = "ai_support"
 roadmap_item = "R-2010"
 owner = "ml"
 command = "spectralang run"
+exact_command = "spectralang run tests/projects/valid/integrated_ai_serving_guardrails/src/main.spectra"
 project_path = "tests/projects/valid/integrated_ai_serving_guardrails"
+entrypoint = "src/main.spectra"
+required_files = [
+  "Spectra.toml",
+  "src/main.spectra",
+  "src/guardrails.spectra",
+  "src/monitoring.spectra",
+]
 status = "planned"
 expected_outcome = "CLI execution proves serving, evaluation, monitoring, control-flow guardrails, and stdlib helpers compose in a runnable scenario."
 features = [

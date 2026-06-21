@@ -1493,13 +1493,14 @@ title = "Language Feature Project Matrix"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "complete"
+status = "in_progress"
 risk = "medium"
 dependencies = ["R-2001", "R-2003"]
-summary = "Define the integrated project matrix that maps basic language features and AI Support features to full-pipeline Spectra projects."
+summary = "Define the integrated project matrix that maps basic language features and AI Support features to concrete checked-in `.spectra` validation projects."
 acceptance = [
-  "a checked-in matrix maps modules, functions, structs/classes, traits, generics, closures, control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, and monitoring features to planned projects",
-  "each matrix row identifies whether validation must run through `spectralang run`, `spectralang package check`, or `spectralang package test`",
+  "a checked-in matrix maps modules, functions, structs/classes, traits, generics, closures, control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, and monitoring features to planned `.spectra` projects",
+  "each matrix row identifies the planned project path, required `.spectra` files, entrypoint, exact validation command, expected outcome, owner, and roadmap target",
+  "each matrix row declares whether validation must run through `spectralang run`, `spectralang package check`, or `spectralang package test`",
   "coverage gaps become explicit roadmap items before any release candidate is certified"
 ]
 
@@ -1512,10 +1513,12 @@ priority = "P0"
 status = "not_started"
 risk = "high"
 dependencies = ["R-2008", "R-2003", "R-2007"]
-summary = "Create complete test projects that use the basic language component surface together through the normal CLI path."
+summary = "Create complete checked-in `.spectra` projects that use the basic language component surface together through the normal CLI and package paths."
 acceptance = [
-  "multi-file projects cover modules, imports, functions, methods, structs/classes, traits, generics, closures, enums, match, loops, error paths, and stdlib composition",
-  "projects validate compile, run, and package flows instead of parser-only acceptance",
+  "multi-file `.spectra` projects under `tests/projects/valid/integrated_*` include `Spectra.toml`, `src/*.spectra`, and package tests where required",
+  "projects cover modules, imports, functions, methods, structs/classes, traits, generics, closures, enums, match, loops, error paths, and stdlib composition",
+  "projects validate compile, run, and package flows through `spectralang run`, `spectralang package check`, and `spectralang package test` instead of parser-only acceptance",
+  "each project asserts runtime output or package-test expectations for constructs that have runtime semantics",
   "failures discovered while building or running the projects are routed to new roadmap items unless fixed in the same change with regression coverage"
 ]
 
@@ -1528,11 +1531,13 @@ priority = "P0"
 status = "not_started"
 risk = "high"
 dependencies = ["R-2008", "R-2001", "R-2006"]
-summary = "Create complete test projects that exercise AI Support features together with realistic basic-language code."
+summary = "Create complete checked-in `.spectra` projects that exercise AI Support features together with realistic basic-language code."
 acceptance = [
+  "multi-file `.spectra` projects under `tests/projects/valid/integrated_*` include `Spectra.toml`, `src/*.spectra`, fixtures or package tests where required, and deterministic expected outputs",
   "projects cover tensors, autodiff, graph/fusion, data preprocessing, experiment tracking, ONNX import/export, RAG, serving, evaluation, safety, and monitoring where the public surface exists",
   "projects combine AI Support APIs with modules, traits, generics, closures, pattern matching, and stdlib helpers",
-  "validation runs through the normal CLI or package path and emits reproducible evidence for each project"
+  "validation runs through `spectralang run`, `spectralang package check`, or `spectralang package test` and emits reproducible evidence for each project",
+  "any AI surface that cannot be represented by a runnable `.spectra` project is tracked as a coverage gap with a new roadmap item before release certification"
 ]
 
 [[items]]
@@ -1544,10 +1549,11 @@ priority = "P0"
 status = "not_started"
 risk = "medium"
 dependencies = ["R-2009", "R-2010"]
-summary = "Add a project-level runner that executes integrated language and AI projects and emits a structured report."
+summary = "Add a project-level runner that executes the integrated `.spectra` language and AI projects and emits a structured report."
 acceptance = [
-  "a validator runs each integrated project through its declared command: `spectralang run`, `spectralang package check`, or `spectralang package test`",
-  "the validator emits JSON with project name, command, category, elapsed time, status, failure class, exit code, and output tail",
+  "a validator reads the R-2008 matrix and runs each `.spectra` project through its exact declared command: `spectralang run`, `spectralang package check`, or `spectralang package test`",
+  "the validator verifies required project files exist before execution and fails missing `Spectra.toml`, entrypoint, source, fixture, or package-test files",
+  "the validator emits JSON with project name, path, entrypoint, command, category, elapsed time, status, failure class, exit code, output tail, and expected outcome",
   "`run_tests.ps1` gates the runner once the integrated projects exist"
 ]
 
@@ -1562,8 +1568,8 @@ risk = "medium"
 dependencies = ["R-2011"]
 summary = "Require every real implementation failure found by integrated project validation to be fixed or tracked as a new roadmap item."
 acceptance = [
-  "the project runner report distinguishes compile, semantic, lowering, backend, runtime, package, and timeout failures",
-  "every unfixed failure in a report maps to a new roadmap item with owner, phase, dependencies, risk, and acceptance criteria",
+  "the project runner report distinguishes compile, semantic, lowering, backend, runtime, package, fixture, missing-file, and timeout failures",
+  "every unfixed `.spectra` project failure in a report maps to a new roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria",
   "agents may not mark R-2009, R-2010, R-2011, or R-2013 complete while untracked failures remain"
 ]
 
@@ -1576,11 +1582,11 @@ priority = "P0"
 status = "not_started"
 risk = "high"
 dependencies = ["R-2011", "R-2012", "R-2001", "R-2003"]
-summary = "Require zero failures in the integrated language and AI project suite before certifying a production release candidate."
+summary = "Require zero failures in the integrated `.spectra` language and AI project suite before certifying a production release candidate."
 acceptance = [
   "release-candidate certification includes the integrated project runner report alongside R-2001 conformance",
-  "all basic component and AI Support integrated projects pass with zero untracked failures",
-  "the release report records the project matrix version, runner report path, and any newly-created follow-up roadmap items"
+  "all basic component and AI Support `.spectra` projects pass with zero untracked failures through the normal CLI/package paths",
+  "the release report records the project matrix version, runner report path, exact commands, project paths, and any newly-created follow-up roadmap items"
 ]
 
 [[items]]

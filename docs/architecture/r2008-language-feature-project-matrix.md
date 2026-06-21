@@ -8,6 +8,12 @@ Support projects. `R-2011` will execute these entries, and `R-2012` requires
 every real failure found during execution to be fixed or promoted into a new
 roadmap item before certification.
 
+Each row is a plan for a real checked-in `.spectra` project, not a standalone
+fixture. Package projects must include `Spectra.toml`, `src/*.spectra`, and
+`tests/*.spectra`. Runtime projects must include `Spectra.toml` and an
+executable `src/main.spectra`. The runner must execute the exact command stored
+in the matrix and preserve command/output evidence.
+
 | Project | Roadmap | Command | Owner | Feature Coverage |
 |---|---|---|---|---|
 | `basic_components_package` | `R-2009` | `spectralang package test` | `tooling` | modules, functions, structs/classes, traits, generics, closures, control flow, stdlib |
@@ -17,6 +23,19 @@ roadmap item before certification.
 | `ai_data_experiment_package` | `R-2010` | `spectralang package test` | `ml` | modules, traits, tensors, data, experiment, evaluation, monitoring |
 | `ai_model_ecosystem_check` | `R-2010` | `spectralang package check` | `ml` | generics, closures, ONNX, RAG, serving, evaluation, monitoring |
 | `ai_serving_guardrails_run` | `R-2010` | `spectralang run` | `ml` | serving, evaluation, monitoring, control flow, stdlib |
+
+## Project Layout Contract
+
+- Package validation projects: `Spectra.toml`, `src/main.spectra`,
+  feature-specific `src/*.spectra` modules, and at least one
+  `tests/*.spectra` package test.
+- Runtime validation projects: `Spectra.toml`, `src/main.spectra`, and
+  feature-specific `src/*.spectra` modules imported by the entrypoint.
+- Every project must have an exact command in the matrix and reproducible
+  expected output or expected report fields.
+- Any discovered compiler, semantic, lowering, backend, runtime, package, or
+  timeout defect must be fixed with regression coverage or promoted into a new
+  roadmap item before certification.
 
 Required coverage: modules, functions, structs/classes, traits, generics,
 closures, control flow, stdlib, tensors, autodiff, graph/fusion, data,

@@ -115,7 +115,18 @@ def validate_matrix(matrix: dict, roadmap_by_id: dict[str, dict]) -> dict:
             errors.append(f"{project_id}: field 'id' must be a non-empty string")
         project_ids.append(project_id)
 
-        for field in ("title", "category", "roadmap_item", "owner", "command", "project_path", "status", "expected_outcome"):
+        for field in (
+            "title",
+            "category",
+            "roadmap_item",
+            "owner",
+            "command",
+            "exact_command",
+            "project_path",
+            "entrypoint",
+            "status",
+            "expected_outcome",
+        ):
             assert_non_empty_string(project_id, project, field, errors)
 
         owner = project.get("owner")
@@ -132,6 +143,11 @@ def validate_matrix(matrix: dict, roadmap_by_id: dict[str, dict]) -> dict:
             if command not in allowed_commands:
                 errors.append(f"{project_id}: command {command!r} is not declared in allowed_commands")
 
+        exact_command = project.get("exact_command")
+        if isinstance(command, str) and isinstance(exact_command, str):
+            if not exact_command.startswith(command):
+                errors.append(f"{project_id}: exact_command must start with command {command!r}")
+
         roadmap_item = project.get("roadmap_item")
         if isinstance(roadmap_item, str):
             roadmap_counter[roadmap_item] += 1
@@ -143,6 +159,28 @@ def validate_matrix(matrix: dict, roadmap_by_id: dict[str, dict]) -> dict:
         project_path = project.get("project_path")
         if isinstance(project_path, str) and not project_path.startswith("tests/projects/valid/integrated_"):
             errors.append(f"{project_id}: project_path must be under tests/projects/valid/integrated_*")
+
+        entrypoint = project.get("entrypoint")
+        if isinstance(entrypoint, str) and not entrypoint.endswith(".spectra"):
+            errors.append(f"{project_id}: entrypoint must be a .spectra file")
+        if isinstance(project_path, str) and isinstance(entrypoint, str) and isinstance(exact_command, str):
+            if project_path not in exact_command:
+                errors.append(f"{project_id}: exact_command must reference project_path")
+            if command == "spectralang run" and entrypoint not in exact_command:
+                errors.append(f"{project_id}: run command must reference entrypoint")
+
+        required_files = project.get("required_files")
+        if not isinstance(required_files, list) or not required_files or not all(isinstance(value, str) for value in required_files):
+            errors.append(f"{project_id}: required_files must be a non-empty string array")
+        else:
+            if "Spectra.toml" not in required_files:
+                errors.append(f"{project_id}: required_files must include Spectra.toml")
+            if entrypoint not in required_files:
+                errors.append(f"{project_id}: required_files must include entrypoint {entrypoint!r}")
+            if not any(value.endswith(".spectra") for value in required_files):
+                errors.append(f"{project_id}: required_files must include .spectra sources")
+            if command == "spectralang package test" and not any(value.startswith("tests/") and value.endswith(".spectra") for value in required_files):
+                errors.append(f"{project_id}: package test projects must include tests/*.spectra")
 
         features = project.get("features")
         if not isinstance(features, list) or not features or not all(isinstance(value, str) for value in features):
