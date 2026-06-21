@@ -1545,7 +1545,7 @@ AI users.
 - `R-2009 Basic Components Integration Projects`: complete checked-in `.spectra` projects for modules, functions, structs/classes, traits, generics, closures, control flow, and stdlib composition.
 - `R-2010 AI Support Integration Projects`: complete checked-in `.spectra` projects for tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, safety, and monitoring.
 - `R-2011 Full Pipeline Project Runner`: project-level runner for the matrix-declared `.spectra` projects via `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
-- `R-2012 Failure-To-Roadmap Triage Gate`: every unfixed integrated `.spectra` project failure becomes a roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria.
+- `R-2012 Failure-To-Roadmap Triage Gate`: completed gate where every unfixed integrated `.spectra` project failure must become a roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria.
 - `R-2013 Release Candidate Integrated Project Gate`: final gate requiring zero untracked failures across integrated basic-language and AI Support `.spectra` projects.
 - `R-2014 Multi-Module Aggregate and Trait Codegen Recovery`: completed
   correction for a valid multi-module `.spectra` package that previously
@@ -1604,6 +1604,11 @@ AI users.
   `docs/architecture/r2011-integrated-project-runner.md`, JSON evidence under
   `target/r2011-integrated-project-runner/report.json`, and the
   `phase20-integrated-project-runner` gate in `run_tests.ps1`.
+- `R-2012` is complete for the failure-to-roadmap triage gate, with
+  `scripts/validate_r2012_failure_triage.py`,
+  `docs/architecture/r2012-failure-to-roadmap-triage.md`, JSON evidence under
+  `target/r2012-failure-triage/report.json`, and the
+  `phase20-failure-triage` gate in `run_tests.ps1`.
 - `R-2014` is complete for the first integrated-project defect found after the
   matrix landed: imported struct-style enum payload metadata is preserved for
   midend lowering, undefined IR operands are rejected before backend codegen,
@@ -1612,16 +1617,16 @@ AI users.
 
 ### Remaining Integrated Project Certification
 
-`R-2012` and `R-2013` continue the post-baseline certification track focused
+`R-2013` continues the post-baseline certification track focused
 on complete checked-in `.spectra` projects that combine the basic language
 surface with AI Support features. This track does not reopen the completed
 `R-2003` through `R-2007` pre-API stabilization evidence or the completed
 `R-2008` project matrix, the completed `R-2009`/`R-2010` integrated projects,
-or the completed `R-2011` runner. It adds stronger release-candidate proof that
-real Spectra projects can compose modules, traits, generics, closures, control
-flow, stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model
-interop, RAG, serving, evaluation, safety, and monitoring through the normal
-CLI and package paths.
+the completed `R-2011` runner, or the completed `R-2012` triage gate. It adds
+stronger release-candidate proof that real Spectra projects can compose
+modules, traits, generics, closures, control flow, stdlib helpers, tensors,
+autodiff, graph/fusion, data pipelines, model interop, RAG, serving,
+evaluation, safety, and monitoring through the normal CLI and package paths.
 
 Project implementation must use `tests/projects/valid/integrated_*`
 directories with `spectra.toml`, `src/main.spectra`, supporting

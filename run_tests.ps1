@@ -1131,7 +1131,20 @@ if ($r2011IntegratedProjectRunner.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-integrated-project-runner"; Teste = "validate_r2011_integrated_project_runner"; Status = $r2011IntegratedProjectRunner.Status; Detalhe = $r2011IntegratedProjectRunner.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.32: R-2101 async/await execution model ADR
+# Grupo 8.32: R-2012 failure-to-roadmap triage
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2012 failure-to-roadmap triage ---" -ForegroundColor Yellow
+$r2012FailureTriage = Invoke-HostCommand -name "validate_r2012_failure_triage" -fileName "python" -arguments @("scripts\validate_r2012_failure_triage.py", "--runner-report", "target\r2011-integrated-project-runner\report.json", "--report", "target\r2012-failure-triage\report.json") -workingDir (Get-Location).Path
+if ($r2012FailureTriage.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-failure-triage"; Teste = "validate_r2012_failure_triage"; Status = $r2012FailureTriage.Status; Detalhe = $r2012FailureTriage.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.33: R-2101 async/await execution model ADR
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2101 async/await execution model ADR ---" -ForegroundColor Yellow

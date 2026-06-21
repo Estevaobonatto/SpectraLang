@@ -1565,14 +1565,15 @@ title = "Failure-To-Roadmap Triage Gate"
 phase = "phase_20"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2011"]
-summary = "Require every real implementation failure found by integrated project validation to be fixed or tracked as a new roadmap item."
+summary = "Require every real implementation failure found by integrated project validation to be fixed or tracked as a new roadmap item, validated from the R-2011 runner report."
 acceptance = [
   "the project runner report distinguishes compile, semantic, lowering, backend, runtime, package, fixture, missing-file, and timeout failures",
   "every unfixed `.spectra` project failure in a report maps to a new roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria",
-  "agents may not mark R-2009, R-2010, R-2011, or R-2013 complete while untracked failures remain"
+  "agents may not mark R-2009, R-2010, R-2011, or R-2013 complete while untracked failures remain",
+  "`python scripts\\validate_r2012_failure_triage.py --runner-report target\\r2011-integrated-project-runner\\report.json` passes and writes `target\\r2012-failure-triage\\report.json`"
 ]
 
 [[items]]

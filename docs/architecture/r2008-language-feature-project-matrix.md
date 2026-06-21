@@ -4,7 +4,7 @@ Source of truth: `docs/architecture/r2008-language-feature-project-matrix.toml`.
 
 This matrix defines the checked-in project set for post-baseline integrated
 validation. `R-2009` owns the basic language projects. `R-2010` owns the AI
-Support projects. `R-2011` will execute these entries as a single runner, and
+Support projects. `R-2011` executes these entries as a single runner, and
 `R-2012` requires every real failure found during execution to be fixed or
 promoted into a new roadmap item before certification.
 

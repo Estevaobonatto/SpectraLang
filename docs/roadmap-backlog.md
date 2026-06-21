@@ -3226,7 +3226,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-2012 Failure-To-Roadmap Triage Gate
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Dependencies: `R-2011`
@@ -3239,6 +3239,8 @@ the next tracked development cycle toward a broader AI/ML platform.
   dependencies, risk, reproduction command, affected project path, and
   acceptance criteria.
 - Prevent silent exception lists from replacing production completion criteria.
+- Validate the R-2011 JSON report and fail the gate when any failed project is
+  not mapped to a complete roadmap/backlog item.
 
 ### Acceptance
 
@@ -3249,6 +3251,27 @@ the next tracked development cycle toward a broader AI/ML platform.
   untracked failures remain.
 - Triage notes preserve enough command/output context for the next agent to
   reproduce the failure.
+
+### Completed
+
+- Validator:
+  `scripts/validate_r2012_failure_triage.py`.
+- Report path:
+  `target/r2012-failure-triage/report.json`.
+- Architecture note:
+  `docs/architecture/r2012-failure-to-roadmap-triage.md`.
+- `run_tests.ps1` includes the `phase20-failure-triage` gate.
+
+### Evidence
+
+- `python scripts\validate_r2012_failure_triage.py --runner-report target\r2011-integrated-project-runner\report.json`
+  passes.
+- Current R-2011 report has zero failed projects, so zero untracked failures
+  remain.
+- If a future runner report contains failures, the validator requires a roadmap
+  item outside `R-2008` through `R-2013` with owner, phase, dependencies, risk,
+  affected project path, exact command, failure class, project id, and
+  acceptance criteria, plus matching backlog text.
 
 ## R-2013 Release Candidate Integrated Project Gate
 
