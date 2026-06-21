@@ -73,6 +73,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - exact semver version validation
   - local path dependencies
   - local filesystem registry publish/install with checksum validation
+  - Git-backed package dependencies with catalog discovery, one-command add, commit-pinned lockfile entries, SHA-256 payload checksums, and normal package imports
 - Phase 10 tooling baseline:
   - LSP hover, go-to-definition, references, rename, completion, diagnostics, formatting, inlay hints, quick fixes, and semantic tokens
   - `spectralang bench` with JSON timing reports
@@ -195,7 +196,7 @@ CLI compatibility contract:
 - production tensor syntax and static shape types
 - native CUDA/ROCm/Metal/DirectML/Vulkan backends beyond the current optional `wgpu` baseline
 - `.npz`, safetensors, checkpoints, and ONNX import/export beyond the current `.npy` baseline
-- network package registry protocol, authentication, provenance signatures, and semver range solving beyond exact local versions
+- central hosted package registry protocol, authentication, provenance signatures, remote catalog sync, `--locked` enforcement, and semver range solving beyond exact/catalog versions
 - async test macros beyond the `R-2103`/`R-2104`/`R-2105`/`R-2106`/
   `R-2107`/`R-2108` async runtime baseline
 

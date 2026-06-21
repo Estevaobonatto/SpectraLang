@@ -924,6 +924,12 @@ Provide a real production ecosystem.
 - Exact semver versions are validated for manifests and dependencies.
 - Local path dependencies and workspace members are resolved through `tools/spectra-cli/src/package.rs`.
 - Normal project compilation includes package dependency sources when a manifest contains multi-package dependency metadata.
+- Git-backed package sources are now supported through catalog or direct Git metadata:
+  - `spectralang package add <name>` resolves a configured package catalog and installs the newest matching package version.
+  - `spectralang package add <name> --git <url> --tag <tag>` installs directly from a public Git repository.
+  - `spectra.lock` version 2 records source kind, Git URL/ref, resolved commit SHA, SHA-256 checksum, manifest hash, and dependency graph metadata.
+  - `spectralang package search/info/versions/tree/register/publish-metadata/fetch` covers package discovery, developer registration metadata, dependency graph inspection, and cached fetch validation.
+  - `scripts/validate_r914_package_catalog_git.py` validates a deterministic local Git catalog flow with transitive dependencies and normal Spectra imports.
 
 ## 9.2 Registry
 
@@ -944,7 +950,7 @@ Provide a real production ecosystem.
 - The completed Phase 9 baseline is a local filesystem registry.
 - `spectralang package publish --registry <path>` copies a package payload into the registry and writes checksum metadata.
 - `spectralang package add <name> --registry <path> --version <version>` verifies the checksum before installing into `.spectra/packages`.
-- Network registries, authentication, provenance signatures, and semver range solving are future hardening work and are not claimed as part of this baseline.
+- Central hosted registries, authentication, provenance signatures, remote catalog synchronization, `--locked` enforcement, and full compatibility-gate resolution remain future hardening work tracked by `R-911`, `R-912`, and `R-913`.
 
 ---
 

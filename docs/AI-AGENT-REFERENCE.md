@@ -2368,7 +2368,8 @@ For the full interop contract, see `docs/interop.md`.
 
 ## 28. Package Manager Baseline
 
-SpectraLang supports a Phase 9 package manager and local registry baseline.
+SpectraLang supports a Phase 9 package manager, local registry baseline, and
+Git-backed package catalog flow.
 
 Core commands:
 
@@ -2381,6 +2382,9 @@ spectralang package test --root .
 spectralang package bench --root .
 spectralang package doc --root .
 spectralang package add core --root . --path ../core --version 0.1.0
+spectralang package search math --root .
+spectralang package add gitmath --root .
+spectralang package register --root . --git https://github.com/org/gitmath.git --tag v1.2.3 --catalog ./catalog
 spectralang package update --root .
 ```
 

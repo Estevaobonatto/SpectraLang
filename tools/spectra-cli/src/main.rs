@@ -923,6 +923,14 @@ where
     let mut version: Option<String> = None;
     let mut path: Option<PathBuf> = None;
     let mut registry: Option<PathBuf> = None;
+    let mut git: Option<String> = None;
+    let mut tag: Option<String> = None;
+    let mut rev: Option<String> = None;
+    let mut branch: Option<String> = None;
+    let mut catalog: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut offline = false;
+    let mut extra_positionals: Vec<String> = Vec::new();
     let mut test_filter: Option<String> = None;
     let mut test_list = false;
     let mut test_json = false;
@@ -953,6 +961,45 @@ where
                         usage_error("Missing path after '--registry'.")
                     })?));
             }
+            "--git" => {
+                git = Some(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing URL after '--git'."))?,
+                );
+            }
+            "--tag" => {
+                tag = Some(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing value after '--tag'."))?,
+                );
+            }
+            "--rev" => {
+                rev = Some(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing value after '--rev'."))?,
+                );
+            }
+            "--branch" => {
+                branch = Some(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing value after '--branch'."))?,
+                );
+            }
+            "--catalog" => {
+                catalog = Some(PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing path after '--catalog'."))?,
+                ));
+            }
+            "--out" => {
+                out = Some(PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| usage_error("Missing path after '--out'."))?,
+                ));
+            }
+            "--offline" => {
+                offline = true;
+            }
             "--filter" if subcommand == "test" => {
                 test_filter = Some(
                     args.next()
@@ -969,6 +1016,10 @@ where
                 return Err(usage_error(&format!("Unknown package option: {}", flag)));
             }
             value => {
+                if subcommand == "catalog" && name.is_some() {
+                    extra_positionals.push(value.to_string());
+                    continue;
+                }
                 if name.is_some() {
                     return Err(usage_error(
                         "Multiple package names supplied. Provide exactly one name.",
@@ -992,11 +1043,71 @@ where
         "bench" => PackageCommand::Bench,
         "doc" => PackageCommand::Doc,
         "update" => PackageCommand::Update,
+        "fetch" => PackageCommand::Fetch { offline },
+        "search" => PackageCommand::Search {
+            query: name.ok_or_else(|| usage_error("package search requires a query."))?,
+            catalog,
+        },
+        "info" => PackageCommand::Info {
+            name: name.ok_or_else(|| usage_error("package info requires a package name."))?,
+            catalog,
+        },
+        "versions" => PackageCommand::Versions {
+            name: name.ok_or_else(|| usage_error("package versions requires a package name."))?,
+            catalog,
+        },
+        "tree" => PackageCommand::Tree,
         "add" => PackageCommand::Add {
             name: name.ok_or_else(|| usage_error("package add requires a package name."))?,
             version,
             path,
             registry,
+            git,
+            tag,
+            rev,
+            branch,
+            catalog,
+        },
+        "register" => PackageCommand::Register {
+            git: git.ok_or_else(|| usage_error("package register requires --git <url>."))?,
+            tag,
+            rev,
+            branch,
+            catalog: catalog
+                .ok_or_else(|| usage_error("package register requires --catalog <path>."))?,
+        },
+        "publish-metadata" => PackageCommand::PublishMetadata {
+            out: out.ok_or_else(|| usage_error("package publish-metadata requires --out <path>."))?,
+            git,
+            tag,
+            rev,
+            branch,
+        },
+        "catalog" => match name.as_deref() {
+            Some("add") => PackageCommand::Catalog(package::CatalogCommand::Add {
+                name: extra_positionals
+                    .get(0)
+                    .cloned()
+                    .ok_or_else(|| usage_error("package catalog add requires a catalog name."))?,
+                source: extra_positionals
+                    .get(1)
+                    .cloned()
+                    .ok_or_else(|| usage_error("package catalog add requires a source path."))?,
+            }),
+            Some("list") | None => PackageCommand::Catalog(package::CatalogCommand::List),
+            Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync),
+            Some("remove") => PackageCommand::Catalog(package::CatalogCommand::Remove {
+                name: extra_positionals
+                    .get(0)
+                    .cloned()
+                    .ok_or_else(|| usage_error("package catalog remove requires a catalog name."))?,
+            }),
+            Some(other) => {
+                return Err(usage_error(&format!(
+                    "Unknown package catalog action '{}'.",
+                    other
+                )));
+            }
         },
         "publish" => PackageCommand::Publish {
             registry: registry
@@ -2863,11 +2974,54 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             println!("     Written docs {}", docs_path.display());
             Ok(())
         }
+        PackageCommand::Fetch { offline } => {
+            let lock_path = package::fetch(&invocation.root, offline)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Fetched {}", lock_path.display());
+            Ok(())
+        }
+        PackageCommand::Search { query, catalog } => {
+            let rows = package::search(&invocation.root, &query, catalog.as_deref())
+                .map_err(|error| CliError::io(error.to_string()))?;
+            for row in rows {
+                println!("{}", row);
+            }
+            Ok(())
+        }
+        PackageCommand::Info { name, catalog } => {
+            let rows = package::info(&invocation.root, &name, catalog.as_deref())
+                .map_err(|error| CliError::io(error.to_string()))?;
+            for row in rows {
+                println!("{}", row);
+            }
+            Ok(())
+        }
+        PackageCommand::Versions { name, catalog } => {
+            let rows = package::versions(&invocation.root, &name, catalog.as_deref())
+                .map_err(|error| CliError::io(error.to_string()))?;
+            for row in rows {
+                println!("{}", row);
+            }
+            Ok(())
+        }
+        PackageCommand::Tree => {
+            let rows = package::dependency_tree(&invocation.root)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            for row in rows {
+                println!("{}", row);
+            }
+            Ok(())
+        }
         PackageCommand::Add {
             name,
             version,
             path,
             registry,
+            git,
+            tag,
+            rev,
+            branch,
+            catalog,
         } => {
             let lock_path = package::add_dependency(
                 &invocation.root,
@@ -2875,12 +3029,56 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 version.as_deref(),
                 path.as_deref(),
                 registry.as_deref(),
+                git.as_deref(),
+                tag.as_deref(),
+                rev.as_deref(),
+                branch.as_deref(),
+                catalog.as_deref(),
             )
             .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Added {}", name);
             println!("     Locked {}", lock_path.display());
             Ok(())
         }
+        PackageCommand::Register {
+            git,
+            tag,
+            rev,
+            branch,
+            catalog,
+        } => {
+            let path = package::register(
+                &invocation.root,
+                &catalog,
+                &git,
+                tag.as_deref(),
+                rev.as_deref(),
+                branch.as_deref(),
+            )
+            .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Registered {}", path.display());
+            Ok(())
+        }
+        PackageCommand::PublishMetadata {
+            out,
+            git,
+            tag,
+            rev,
+            branch,
+        } => {
+            let path = package::write_metadata(
+                &invocation.root,
+                &out,
+                git.as_deref(),
+                tag.as_deref(),
+                rev.as_deref(),
+                branch.as_deref(),
+            )
+            .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Written metadata {}", path.display());
+            Ok(())
+        }
+        PackageCommand::Catalog(command) => execute_package_catalog_command(&invocation.root, command),
         PackageCommand::Publish { registry } => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
@@ -2888,6 +3086,57 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             let package_path = package::publish(&invocation.root, &registry)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Published {}", package_path.display());
+            Ok(())
+        }
+    }
+}
+
+fn execute_package_catalog_command(
+    root: &Path,
+    command: package::CatalogCommand,
+) -> CliResult<()> {
+    let catalog_config = root.join(".spectra").join("catalogs").join("catalogs.toml");
+    match command {
+        package::CatalogCommand::Add { name, source } => {
+            if let Some(parent) = catalog_config.parent() {
+                fs::create_dir_all(parent).map_err(|error| CliError::io(error.to_string()))?;
+            }
+            let mut text = if catalog_config.is_file() {
+                fs::read_to_string(&catalog_config).map_err(|error| CliError::io(error.to_string()))?
+            } else {
+                String::from("# Spectra package catalogs\n")
+            };
+            text.push_str(&format!("{} = \"{}\"\n", name, source.replace('\\', "\\\\")));
+            fs::write(&catalog_config, text).map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Added catalog {} -> {}", name, source);
+            Ok(())
+        }
+        package::CatalogCommand::List | package::CatalogCommand::Sync => {
+            if catalog_config.is_file() {
+                let text = fs::read_to_string(&catalog_config)
+                    .map_err(|error| CliError::io(error.to_string()))?;
+                print!("{}", text);
+            }
+            if matches!(command, package::CatalogCommand::Sync) {
+                println!("     Synced local catalog cache");
+            }
+            Ok(())
+        }
+        package::CatalogCommand::Remove { name } => {
+            if !catalog_config.is_file() {
+                return Ok(());
+            }
+            let text =
+                fs::read_to_string(&catalog_config).map_err(|error| CliError::io(error.to_string()))?;
+            let prefix = format!("{} =", name);
+            let filtered = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with(&prefix))
+                .collect::<Vec<_>>()
+                .join("\n");
+            fs::write(&catalog_config, format!("{}\n", filtered))
+                .map_err(|error| CliError::io(error.to_string()))?;
+            println!("     Removed catalog {}", name);
             Ok(())
         }
     }
@@ -3558,7 +3807,15 @@ fn print_package_help() {
     println!("    test       Resolve, lock, list/filter, and run #[spectra_async_test] tests");
     println!("    bench      Resolve, lock, and check with pipeline timings");
     println!("    doc        Generate package documentation into target/spectra-docs");
-    println!("    add        Add a path or registry dependency and refresh spectra.lock");
+    println!("    add        Add a path, registry, Git, or catalog dependency and refresh spectra.lock");
+    println!("    fetch      Download/cache dependencies and refresh spectra.lock");
+    println!("    search     Search configured package catalogs");
+    println!("    info       Show catalog metadata for a package");
+    println!("    versions   List catalog versions for a package");
+    println!("    tree       Print resolved dependency tree");
+    println!("    register   Register current package metadata in a catalog");
+    println!("    publish-metadata  Write package catalog metadata");
+    println!("    catalog    Manage local catalog references");
     println!("    update     Refresh spectra.lock from current manifests");
     println!("    publish    Publish the root package into a local registry directory");
     println!();
@@ -3567,6 +3824,13 @@ fn print_package_help() {
     println!("    --path <path>          Local dependency path for 'add'");
     println!("    --version <version>    Dependency version for 'add'");
     println!("    --registry <path>      Local registry path for 'add' or 'publish'");
+    println!("    --git <url>            Git package source for 'add' or 'register'");
+    println!("    --tag <tag>            Git tag for package source");
+    println!("    --rev <sha>            Git commit/revision for package source");
+    println!("    --branch <name>        Git branch for package source");
+    println!("    --catalog <path>       Catalog index/directory for search/add/register");
+    println!("    --out <path>           Output path for 'publish-metadata'");
+    println!("    --offline              Use cached Git packages only for 'fetch'");
     println!("    --list                 List async tests for 'test'");
     println!("    --filter <text>        Run or list async tests whose name/path contains text");
     println!("    --json                 Emit JSON report for 'test'");
@@ -3576,6 +3840,10 @@ fn print_package_help() {
     println!("    spectralang package build --root examples/workspace");
     println!("    spectralang package test --root . --filter api");
     println!("    spectralang package add math --path ../math --version 0.1.0");
+    println!("    spectralang package search api");
+    println!("    spectralang package add spectra.api");
+    println!("    spectralang package add math --git https://github.com/org/math.git --tag v1.2.3");
+    println!("    spectralang package register --root . --git https://github.com/org/math.git --tag v1.2.3 --catalog ./catalog");
     println!("    spectralang package publish --root packages/math --registry .spectra-registry");
     println!("    spectralang package add math --version 0.1.0 --registry .spectra-registry");
 }

@@ -1,11 +1,16 @@
 use crate::discovery;
 use crate::release_channel::ReleaseMetadata;
+use semver::Version;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use toml_edit::{value, DocumentMut, Item, Table};
 
 const MANIFEST_NAMES: &[&str] = &["spectra.toml", "Spectra.toml"];
 const LOCKFILE_NAME: &str = "spectra.lock";
@@ -24,11 +29,55 @@ pub enum PackageCommand {
         version: Option<String>,
         path: Option<PathBuf>,
         registry: Option<PathBuf>,
+        git: Option<String>,
+        tag: Option<String>,
+        rev: Option<String>,
+        branch: Option<String>,
+        catalog: Option<PathBuf>,
     },
     Update,
+    Fetch {
+        offline: bool,
+    },
+    Search {
+        query: String,
+        catalog: Option<PathBuf>,
+    },
+    Info {
+        name: String,
+        catalog: Option<PathBuf>,
+    },
+    Versions {
+        name: String,
+        catalog: Option<PathBuf>,
+    },
+    Tree,
+    Register {
+        git: String,
+        tag: Option<String>,
+        rev: Option<String>,
+        branch: Option<String>,
+        catalog: PathBuf,
+    },
+    PublishMetadata {
+        out: PathBuf,
+        git: Option<String>,
+        tag: Option<String>,
+        rev: Option<String>,
+        branch: Option<String>,
+    },
+    Catalog(CatalogCommand),
     Publish {
         registry: PathBuf,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum CatalogCommand {
+    Add { name: String, source: String },
+    List,
+    Sync,
+    Remove { name: String },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -83,6 +132,8 @@ pub struct ResolvedPackage {
     pub entry: Option<PathBuf>,
     pub dependencies: BTreeMap<String, ResolvedDependency>,
     pub manifest_hash: String,
+    pub source: PackageSource,
+    pub checksum: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -90,6 +141,22 @@ pub struct ResolvedDependency {
     pub name: String,
     pub version: String,
     pub path: PathBuf,
+    pub source: PackageSource,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum PackageSource {
+    Path {
+        path: PathBuf,
+    },
+    Registry {
+        path: PathBuf,
+    },
+    Git {
+        url: String,
+        requested: String,
+        resolved: String,
+    },
 }
 
 #[derive(Debug)]
@@ -101,6 +168,10 @@ pub enum PackageError {
     Parse {
         path: PathBuf,
         error: toml::de::Error,
+    },
+    EditParse {
+        path: PathBuf,
+        message: String,
     },
     Serialize(toml::ser::Error),
     MissingManifest(PathBuf),
@@ -121,6 +192,9 @@ impl fmt::Display for PackageError {
             }
             PackageError::Parse { path, error } => {
                 write!(f, "failed to parse '{}': {}", path.display(), error)
+            }
+            PackageError::EditParse { path, message } => {
+                write!(f, "failed to edit '{}': {}", path.display(), message)
             }
             PackageError::Serialize(error) => write!(f, "failed to serialize lockfile: {}", error),
             PackageError::MissingManifest(path) => {
@@ -152,6 +226,8 @@ struct Manifest {
     #[serde(default)]
     workspace: WorkspaceSection,
     #[serde(default)]
+    package: PackageSection,
+    #[serde(default)]
     dependencies: BTreeMap<String, DependencySpec>,
 }
 
@@ -171,6 +247,12 @@ struct WorkspaceSection {
     members: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct PackageSection {
+    #[serde(default)]
+    catalogs: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
 enum DependencySpec {
@@ -178,6 +260,12 @@ enum DependencySpec {
     Detailed {
         version: Option<String>,
         path: Option<String>,
+        registry: Option<String>,
+        git: Option<String>,
+        tag: Option<String>,
+        rev: Option<String>,
+        branch: Option<String>,
+        checksum: Option<String>,
     },
 }
 
@@ -197,6 +285,11 @@ struct LockPackage {
     deprecated_since: Option<String>,
     migration: Option<String>,
     source: String,
+    source_kind: String,
+    checksum: String,
+    git_url: Option<String>,
+    git_ref: Option<String>,
+    resolved_rev: Option<String>,
     manifest_hash: String,
     dependencies: Vec<LockDependency>,
 }
@@ -206,6 +299,7 @@ struct LockDependency {
     name: String,
     version: String,
     source: String,
+    source_kind: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -225,6 +319,49 @@ struct RegistryMetadata {
     source_path: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CatalogIndex {
+    #[serde(default = "catalog_schema")]
+    schema: String,
+    #[serde(default)]
+    packages: Vec<CatalogPackage>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CatalogPackage {
+    name: String,
+    version: String,
+    git: String,
+    #[serde(default)]
+    tag: Option<String>,
+    #[serde(default)]
+    rev: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    checksum: Option<String>,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    keywords: Vec<String>,
+    #[serde(default)]
+    compatibility: String,
+    #[serde(default)]
+    license: String,
+    #[serde(default)]
+    modules: Vec<String>,
+    #[serde(default)]
+    owner: String,
+}
+
+struct InstalledGitPackage {
+    name: String,
+    version: String,
+    path: PathBuf,
+    resolved: String,
+    checksum: String,
+}
+
 struct InstalledRegistryPackage {
     canonical_name: String,
     version: String,
@@ -233,6 +370,10 @@ struct InstalledRegistryPackage {
 
 fn default_version() -> String {
     "0.1.0".to_string()
+}
+
+fn catalog_schema() -> String {
+    "spectra-package-catalog-v1".to_string()
 }
 
 pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
@@ -252,7 +393,16 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
     let mut ordered = Vec::new();
 
     for package_root in package_roots {
-        collect_package(&package_root, &mut visited, &mut by_name, &mut ordered)?;
+        collect_package(
+            &root,
+            &package_root,
+            PackageSource::Path {
+                path: package_root.clone(),
+            },
+            &mut visited,
+            &mut by_name,
+            &mut ordered,
+        )?;
     }
 
     let packages = topo_sort(ordered)?;
@@ -265,7 +415,7 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
 
 pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError> {
     let lockfile = Lockfile {
-        version: 1,
+        version: 2,
         root: workspace
             .root_package_name()
             .unwrap_or_else(|| "workspace".to_string()),
@@ -280,6 +430,11 @@ pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageE
                 deprecated_since: package.release.deprecated_since.clone(),
                 migration: package.release.migration.clone(),
                 source: path_source(&workspace.root, &package.root),
+                source_kind: package.source.kind().to_string(),
+                checksum: package.checksum.clone(),
+                git_url: package.source.git_url(),
+                git_ref: package.source.git_ref(),
+                resolved_rev: package.source.git_resolved(),
                 manifest_hash: package.manifest_hash.clone(),
                 dependencies: package
                     .dependencies
@@ -288,6 +443,7 @@ pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageE
                         name: dep.name.clone(),
                         version: dep.version.clone(),
                         source: path_source(&workspace.root, &dep.path),
+                        source_kind: dep.source.kind().to_string(),
                     })
                     .collect(),
             })
@@ -303,31 +459,116 @@ pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageE
     Ok(path)
 }
 
+impl PackageSource {
+    fn kind(&self) -> &'static str {
+        match self {
+            PackageSource::Path { .. } => "path",
+            PackageSource::Registry { .. } => "registry",
+            PackageSource::Git { .. } => "git",
+        }
+    }
+
+    fn git_url(&self) -> Option<String> {
+        match self {
+            PackageSource::Git { url, .. } => Some(url.clone()),
+            _ => None,
+        }
+    }
+
+    fn git_ref(&self) -> Option<String> {
+        match self {
+            PackageSource::Git { requested, .. } => Some(requested.clone()),
+            _ => None,
+        }
+    }
+
+    fn git_resolved(&self) -> Option<String> {
+        match self {
+            PackageSource::Git { resolved, .. } => Some(resolved.clone()),
+            _ => None,
+        }
+    }
+}
+
 pub fn add_dependency(
     root: &Path,
     name: &str,
     version: Option<&str>,
     path: Option<&Path>,
     registry: Option<&Path>,
+    git: Option<&str>,
+    tag: Option<&str>,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    catalog: Option<&Path>,
 ) -> Result<PathBuf, PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest_path = find_manifest(&root)?;
-    let (dependency_name, dependency_version, dependency_path) = if let Some(path) = path {
+    let parsed = parse_package_request(name, version)?;
+    let (dependency_name, dependency_version, _dependency_path, dependency_source) = if let Some(path) = path {
         let version = version.unwrap_or("0.1.0");
         (
-            name.to_string(),
+            parsed.name,
             version.to_string(),
             relative_or_absolute(&root, path),
+            DependencyManifestSource::Path(relative_or_absolute(&root, path)),
         )
     } else if let Some(registry) = registry {
-        let version = version.unwrap_or("0.1.0");
-        let installed = install_from_registry(&root, registry, name, version)?;
-        (installed.canonical_name, installed.version, installed.path)
+        let version = parsed.version.as_deref().unwrap_or("0.1.0");
+        let installed = install_from_registry(&root, registry, &parsed.name, version)?;
+        (
+            installed.canonical_name,
+            installed.version,
+            installed.path.clone(),
+            DependencyManifestSource::Path(relative_or_absolute(&root, &installed.path)),
+        )
+    } else if let Some(git) = git {
+        let installed = install_from_git(
+            &root,
+            &parsed.name,
+            parsed.version.as_deref(),
+            git,
+            tag,
+            rev,
+            branch,
+            false,
+        )?;
+        (
+            installed.name,
+            installed.version,
+            installed.path.clone(),
+            DependencyManifestSource::Git {
+                git: git.to_string(),
+                tag: tag.map(str::to_string),
+                rev: rev.map(str::to_string),
+                branch: branch.map(str::to_string),
+                checksum: Some(installed.checksum),
+            },
+        )
     } else {
-        return Err(PackageError::InvalidManifest {
-            path: manifest_path,
-            message: "package add requires --path or --registry".to_string(),
-        });
+        let entry = resolve_catalog_entry(&root, &parsed.name, parsed.version.as_deref(), catalog)?;
+        let installed = install_from_git(
+            &root,
+            &entry.name,
+            Some(&entry.version),
+            &entry.git,
+            entry.tag.as_deref(),
+            entry.rev.as_deref(),
+            entry.branch.as_deref(),
+            false,
+        )?;
+        (
+            installed.name,
+            installed.version,
+            installed.path.clone(),
+            DependencyManifestSource::Git {
+                git: entry.git,
+                tag: entry.tag,
+                rev: entry.rev,
+                branch: entry.branch,
+                checksum: Some(installed.checksum),
+            },
+        )
     };
 
     if !is_valid_semver(&dependency_version) {
@@ -339,28 +580,104 @@ pub fn add_dependency(
             ),
         });
     }
-    let mut manifest = fs::read_to_string(&manifest_path).map_err(|error| PackageError::Io {
-        path: manifest_path.clone(),
-        error,
-    })?;
-
-    if !manifest.contains("[dependencies]") {
-        manifest.push_str("\n[dependencies]\n");
-    }
-    manifest.push_str(&format!(
-        "{} = {{ version = \"{}\", path = \"{}\" }}\n",
-        toml_key(&dependency_name),
-        dependency_version,
-        dependency_path.to_string_lossy().replace('\\', "/")
-    ));
-
-    fs::write(&manifest_path, manifest).map_err(|error| PackageError::Io {
-        path: manifest_path.clone(),
-        error,
-    })?;
+    write_dependency_to_manifest(
+        &manifest_path,
+        &dependency_name,
+        &dependency_version,
+        &dependency_source,
+    )?;
 
     let workspace = resolve(&root)?;
     write_lockfile(&workspace)
+}
+
+#[derive(Clone, Debug)]
+struct PackageRequest {
+    name: String,
+    version: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+enum DependencyManifestSource {
+    Path(PathBuf),
+    Git {
+        git: String,
+        tag: Option<String>,
+        rev: Option<String>,
+        branch: Option<String>,
+        checksum: Option<String>,
+    },
+}
+
+fn parse_package_request(name: &str, version: Option<&str>) -> Result<PackageRequest, PackageError> {
+    if let Some((left, right)) = name.rsplit_once('@') {
+        if !left.is_empty() && !right.is_empty() {
+            return Ok(PackageRequest {
+                name: left.to_string(),
+                version: Some(right.to_string()),
+            });
+        }
+    }
+    Ok(PackageRequest {
+        name: name.to_string(),
+        version: version.map(str::to_string),
+    })
+}
+
+fn write_dependency_to_manifest(
+    manifest_path: &Path,
+    dependency_name: &str,
+    dependency_version: &str,
+    source: &DependencyManifestSource,
+) -> Result<(), PackageError> {
+    let text = fs::read_to_string(manifest_path).map_err(|error| PackageError::Io {
+        path: manifest_path.to_path_buf(),
+        error,
+    })?;
+    let mut doc = text
+        .parse::<DocumentMut>()
+        .map_err(|error| PackageError::EditParse {
+            path: manifest_path.to_path_buf(),
+            message: error.to_string(),
+        })?;
+
+    if !doc.as_table().contains_key("dependencies") {
+        doc["dependencies"] = Item::Table(Table::new());
+    }
+
+    let mut table = Table::new();
+    table["version"] = value(dependency_version);
+    match source {
+        DependencyManifestSource::Path(path) => {
+            table["path"] = value(path.to_string_lossy().replace('\\', "/"));
+        }
+        DependencyManifestSource::Git {
+            git,
+            tag,
+            rev,
+            branch,
+            checksum,
+        } => {
+            table["git"] = value(git.as_str());
+            if let Some(tag) = tag {
+                table["tag"] = value(tag.as_str());
+            }
+            if let Some(rev) = rev {
+                table["rev"] = value(rev.as_str());
+            }
+            if let Some(branch) = branch {
+                table["branch"] = value(branch.as_str());
+            }
+            if let Some(checksum) = checksum {
+                table["checksum"] = value(checksum.as_str());
+            }
+        }
+    }
+    doc["dependencies"][dependency_name] = Item::Table(table);
+    fs::write(manifest_path, doc.to_string()).map_err(|error| PackageError::Io {
+        path: manifest_path.to_path_buf(),
+        error,
+    })
 }
 
 pub fn publish(root: &Path, registry: &Path) -> Result<PathBuf, PackageError> {
@@ -457,12 +774,15 @@ struct LoadedPackage {
     src_dirs: Vec<PathBuf>,
     entry: Option<PathBuf>,
     workspace_members: Vec<String>,
+    package_catalogs: BTreeMap<String, String>,
     dependency_specs: BTreeMap<String, DependencySpec>,
     manifest_hash: String,
 }
 
 fn collect_package(
+    workspace_root: &Path,
     root: &Path,
+    source: PackageSource,
     visited: &mut HashSet<PathBuf>,
     by_name: &mut BTreeMap<String, PathBuf>,
     ordered: &mut Vec<ResolvedPackage>,
@@ -480,21 +800,73 @@ fn collect_package(
 
     let mut dependencies = BTreeMap::new();
     for (dep_name, spec) in &loaded.dependency_specs {
-        let dep_root = match spec {
+        let (dep_root, dep_source, expected_checksum) = match spec {
             DependencySpec::Detailed {
                 path: Some(path), ..
-            } => canonicalize_existing(&root.join(path))?,
-            DependencySpec::Version(_) | DependencySpec::Detailed { path: None, .. } => {
+            } => {
+                let dep_root = canonicalize_existing(&root.join(path))?;
+                (
+                    dep_root.clone(),
+                    PackageSource::Path { path: dep_root },
+                    None,
+                )
+            }
+            DependencySpec::Detailed {
+                registry: Some(path),
+                version,
+                checksum,
+                ..
+            } => {
+                let version = version.as_deref().unwrap_or("0.1.0");
+                let installed = install_from_registry(workspace_root, &root.join(path), dep_name, version)?;
+                (
+                    installed.path.clone(),
+                    PackageSource::Registry {
+                        path: installed.path,
+                    },
+                    checksum.clone(),
+                )
+            }
+            DependencySpec::Detailed {
+                git: Some(git),
+                version,
+                tag,
+                rev,
+                branch,
+                checksum,
+                ..
+            } => {
+                let installed = install_from_git(
+                    workspace_root,
+                    dep_name,
+                    version.as_deref(),
+                    git,
+                    tag.as_deref(),
+                    rev.as_deref(),
+                    branch.as_deref(),
+                    false,
+                )?;
+                (
+                    installed.path.clone(),
+                    PackageSource::Git {
+                        url: git.clone(),
+                        requested: git_requested_ref(tag.as_deref(), rev.as_deref(), branch.as_deref()),
+                        resolved: installed.resolved,
+                    },
+                    checksum.clone().or(Some(installed.checksum)),
+                )
+            }
+            DependencySpec::Version(_) | DependencySpec::Detailed { path: None, git: None, registry: None, .. } => {
                 return Err(PackageError::InvalidManifest {
                     path: loaded.manifest.clone(),
                     message: format!(
-                        "dependency '{}' must declare a local path for the Phase 9 MVP",
+                        "dependency '{}' must declare a local path, registry path, or git source",
                         dep_name
                     ),
                 });
             }
         };
-        collect_package(&dep_root, visited, by_name, ordered)?;
+        collect_package(workspace_root, &dep_root, dep_source.clone(), visited, by_name, ordered)?;
         let dep_manifest = load_package(&find_manifest(&dep_root)?)?;
         let version = match spec {
             DependencySpec::Version(version) => version.clone(),
@@ -514,9 +886,23 @@ fn collect_package(
                 name: dep_name.clone(),
                 version,
                 path: dep_root,
+                source: dep_source,
             },
         );
+        if let Some(expected) = expected_checksum {
+            let actual = directory_checksum(&dependencies[dep_name].path)?;
+            if actual != expected {
+                return Err(PackageError::Registry(format!(
+                    "checksum mismatch for dependency '{}'",
+                    dep_name
+                )));
+            }
+        }
     }
+    let checksum = match &source {
+        PackageSource::Path { .. } => loaded.manifest_hash.clone(),
+        PackageSource::Registry { .. } | PackageSource::Git { .. } => directory_checksum(&loaded.root)?,
+    };
 
     ordered.push(ResolvedPackage {
         name: loaded.name,
@@ -528,6 +914,8 @@ fn collect_package(
         entry: loaded.entry,
         dependencies,
         manifest_hash: loaded.manifest_hash,
+        source,
+        checksum,
     });
 
     Ok(())
@@ -615,6 +1003,7 @@ fn load_package(manifest_path: &Path) -> Result<LoadedPackage, PackageError> {
         src_dirs,
         entry: manifest.project.entry.map(|entry| PathBuf::from(entry)),
         workspace_members: manifest.workspace.members,
+        package_catalogs: manifest.package.catalogs,
         dependency_specs: manifest.dependencies,
         manifest_hash: stable_hash_hex(text.as_bytes()),
     })
@@ -675,6 +1064,468 @@ fn install_from_registry(
     })
 }
 
+fn install_from_git(
+    workspace_root: &Path,
+    name: &str,
+    requested_version: Option<&str>,
+    git: &str,
+    tag: Option<&str>,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    offline: bool,
+) -> Result<InstalledGitPackage, PackageError> {
+    let cache_root = workspace_root.join(".spectra").join("git");
+    let clone_dir = cache_root.join(sanitize_package_component(name));
+    if !clone_dir.join(".git").is_dir() {
+        if offline {
+            return Err(PackageError::Registry(format!(
+                "package '{}' is not in git cache and --offline was used",
+                name
+            )));
+        }
+        fs::create_dir_all(&cache_root).map_err(|error| PackageError::Io {
+            path: cache_root.clone(),
+            error,
+        })?;
+        let clone_target = git_path_arg(&clone_dir);
+        run_git(&["clone", "--quiet", git, clone_target.as_str()], workspace_root)?;
+    } else if !offline {
+        run_git(&["fetch", "--quiet", "--tags", "--force"], &clone_dir)?;
+    }
+
+    if let Some(rev) = rev {
+        run_git(&["checkout", "--quiet", rev], &clone_dir)?;
+    } else if let Some(tag) = tag {
+        run_git(&["checkout", "--quiet", tag], &clone_dir)?;
+    } else if let Some(branch) = branch {
+        run_git(&["checkout", "--quiet", branch], &clone_dir)?;
+    }
+
+    let resolved = git_output(&["rev-parse", "HEAD"], &clone_dir)?;
+    let manifest_path = find_manifest(&clone_dir)?;
+    let loaded = load_package(&manifest_path)?;
+    let version = requested_version
+        .map(str::to_string)
+        .unwrap_or_else(|| loaded.version.clone());
+    if loaded.name != name {
+        return Err(PackageError::Registry(format!(
+            "git package manifest name '{}' does not match requested '{}'",
+            loaded.name, name
+        )));
+    }
+    if loaded.version != version {
+        return Err(PackageError::Registry(format!(
+            "git package '{}' version '{}' does not match requested '{}'",
+            name, loaded.version, version
+        )));
+    }
+
+    let vendor_dir = workspace_root
+        .join(".spectra")
+        .join("packages")
+        .join(format!("{}-{}", sanitize_package_component(name), version));
+    if vendor_dir.exists() {
+        fs::remove_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
+            path: vendor_dir.clone(),
+            error,
+        })?;
+    }
+    fs::create_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
+        path: vendor_dir.clone(),
+        error,
+    })?;
+    copy_package_payload(&clone_dir, &vendor_dir)?;
+    let checksum = directory_checksum(&vendor_dir)?;
+    Ok(InstalledGitPackage {
+        name: loaded.name,
+        version,
+        path: vendor_dir,
+        resolved,
+        checksum,
+    })
+}
+
+fn git_path_arg(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    text.strip_prefix("//?/").unwrap_or(&text).to_string()
+}
+
+fn run_git(args: &[&str], cwd: &Path) -> Result<(), PackageError> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| PackageError::Registry(format!("failed to launch git: {}", error)))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(PackageError::Registry(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
+}
+
+fn git_output(args: &[&str], cwd: &Path) -> Result<String, PackageError> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| PackageError::Registry(format!("failed to launch git: {}", error)))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(PackageError::Registry(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
+}
+
+fn git_requested_ref(tag: Option<&str>, rev: Option<&str>, branch: Option<&str>) -> String {
+    if let Some(rev) = rev {
+        format!("rev:{}", rev)
+    } else if let Some(tag) = tag {
+        format!("tag:{}", tag)
+    } else if let Some(branch) = branch {
+        format!("branch:{}", branch)
+    } else {
+        "HEAD".to_string()
+    }
+}
+
+fn sanitize_package_component(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn catalog_paths(root: &Path, explicit: Option<&Path>) -> Result<Vec<PathBuf>, PackageError> {
+    if let Some(explicit) = explicit {
+        return Ok(vec![catalog_index_path(explicit)]);
+    }
+    let mut paths = Vec::new();
+    let manifest = find_manifest(root).ok();
+    if let Some(manifest_path) = manifest {
+        let loaded = load_package(&manifest_path)?;
+        for value in loaded.package_catalogs.values() {
+            paths.push(catalog_index_path(&root.join(value)));
+        }
+    }
+    paths.push(root.join(".spectra").join("catalogs").join("package.index.toml"));
+    if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
+        paths.push(
+            PathBuf::from(home)
+                .join(".spectra")
+                .join("catalogs")
+                .join("spectralang-official")
+                .join("package.index.toml"),
+        );
+    }
+    Ok(paths)
+}
+
+fn catalog_index_path(path: &Path) -> PathBuf {
+    if path.is_dir() || path.extension().is_none() {
+        path.join("package.index.toml")
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn load_catalogs(root: &Path, explicit: Option<&Path>) -> Result<Vec<CatalogPackage>, PackageError> {
+    let mut packages = Vec::new();
+    for path in catalog_paths(root, explicit)? {
+        if !path.is_file() {
+            continue;
+        }
+        let text = fs::read_to_string(&path).map_err(|error| PackageError::Io {
+            path: path.clone(),
+            error,
+        })?;
+        let catalog: CatalogIndex = toml::from_str(&text).map_err(|error| PackageError::Parse {
+            path,
+            error,
+        })?;
+        packages.extend(catalog.packages);
+    }
+    Ok(packages)
+}
+
+fn resolve_catalog_entry(
+    root: &Path,
+    name: &str,
+    version: Option<&str>,
+    explicit: Option<&Path>,
+) -> Result<CatalogPackage, PackageError> {
+    let packages = load_catalogs(root, explicit)?;
+    let mut matches = packages
+        .into_iter()
+        .filter(|package| package.name == name)
+        .collect::<Vec<_>>();
+    if let Some(version) = version {
+        matches.retain(|package| package.version == version);
+    }
+    if matches.is_empty() {
+        return Err(PackageError::MissingPackage(name.to_string()));
+    }
+    matches.sort_by(|left, right| compare_versions(&left.version, &right.version));
+    Ok(matches.pop().expect("non-empty catalog matches"))
+}
+
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    match (Version::parse(left), Version::parse(right)) {
+        (Ok(left), Ok(right)) => left.cmp(&right),
+        _ => left.cmp(right),
+    }
+}
+
+pub fn search(root: &Path, query: &str, catalog: Option<&Path>) -> Result<Vec<String>, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let query = query.to_ascii_lowercase();
+    let mut rows = Vec::new();
+    for package in load_catalogs(&root, catalog)? {
+        let haystack = format!(
+            "{} {} {} {}",
+            package.name,
+            package.description,
+            package.keywords.join(" "),
+            package.owner
+        )
+        .to_ascii_lowercase();
+        if haystack.contains(&query) {
+            rows.push(format!(
+                "{} {} {}",
+                package.name, package.version, package.description
+            ));
+        }
+    }
+    rows.sort();
+    rows.dedup();
+    Ok(rows)
+}
+
+pub fn info(root: &Path, name: &str, catalog: Option<&Path>) -> Result<Vec<String>, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let packages = load_catalogs(&root, catalog)?
+        .into_iter()
+        .filter(|package| package.name == name)
+        .collect::<Vec<_>>();
+    if packages.is_empty() {
+        return Err(PackageError::MissingPackage(name.to_string()));
+    }
+    let mut rows = Vec::new();
+    for package in packages {
+        rows.push(format!(
+            "{} {}\ngit: {}\nref: {}\ncompatibility: {}\nlicense: {}\nkeywords: {}\nmodules: {}",
+            package.name,
+            package.version,
+            package.git,
+            git_requested_ref(package.tag.as_deref(), package.rev.as_deref(), package.branch.as_deref()),
+            package.compatibility,
+            package.license,
+            package.keywords.join(", "),
+            package.modules.join(", ")
+        ));
+    }
+    Ok(rows)
+}
+
+pub fn versions(root: &Path, name: &str, catalog: Option<&Path>) -> Result<Vec<String>, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let mut rows = load_catalogs(&root, catalog)?
+        .into_iter()
+        .filter(|package| package.name == name)
+        .map(|package| package.version)
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| compare_versions(left, right));
+    rows.dedup();
+    if rows.is_empty() {
+        return Err(PackageError::MissingPackage(name.to_string()));
+    }
+    Ok(rows)
+}
+
+pub fn write_metadata(
+    root: &Path,
+    out: &Path,
+    git: Option<&str>,
+    tag: Option<&str>,
+    rev: Option<&str>,
+    branch: Option<&str>,
+) -> Result<PathBuf, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let manifest = load_package(&find_manifest(&root)?)?;
+    let entry = CatalogPackage {
+        name: manifest.name,
+        version: manifest.version,
+        git: git.unwrap_or("").to_string(),
+        tag: tag.map(str::to_string),
+        rev: rev.map(str::to_string),
+        branch: branch.map(str::to_string),
+        checksum: Some(directory_checksum(&root)?),
+        description: String::new(),
+        keywords: Vec::new(),
+        compatibility: manifest.release.compatibility,
+        license: String::new(),
+        modules: exported_modules(&manifest.src_dirs)?,
+        owner: String::new(),
+    };
+    let index = CatalogIndex {
+        schema: catalog_schema(),
+        packages: vec![entry],
+    };
+    let text = toml::to_string_pretty(&index).map_err(PackageError::Serialize)?;
+    let path = out.to_path_buf();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    fs::write(&path, text).map_err(|error| PackageError::Io {
+        path: path.clone(),
+        error,
+    })?;
+    Ok(path)
+}
+
+pub fn register(
+    root: &Path,
+    catalog: &Path,
+    git: &str,
+    tag: Option<&str>,
+    rev: Option<&str>,
+    branch: Option<&str>,
+) -> Result<PathBuf, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let manifest = load_package(&find_manifest(&root)?)?;
+    let catalog_path = catalog_index_path(catalog);
+    let mut index = if catalog_path.is_file() {
+        let text = fs::read_to_string(&catalog_path).map_err(|error| PackageError::Io {
+            path: catalog_path.clone(),
+            error,
+        })?;
+        toml::from_str::<CatalogIndex>(&text).map_err(|error| PackageError::Parse {
+            path: catalog_path.clone(),
+            error,
+        })?
+    } else {
+        CatalogIndex {
+            schema: catalog_schema(),
+            packages: Vec::new(),
+        }
+    };
+    index
+        .packages
+        .retain(|pkg| !(pkg.name == manifest.name && pkg.version == manifest.version));
+    index.packages.push(CatalogPackage {
+        name: manifest.name,
+        version: manifest.version,
+        git: git.to_string(),
+        tag: tag.map(str::to_string),
+        rev: rev.map(str::to_string),
+        branch: branch.map(str::to_string),
+        checksum: Some(directory_checksum(&root)?),
+        description: String::new(),
+        keywords: Vec::new(),
+        compatibility: manifest.release.compatibility,
+        license: String::new(),
+        modules: exported_modules(&manifest.src_dirs)?,
+        owner: String::new(),
+    });
+    index.packages.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| compare_versions(&left.version, &right.version))
+    });
+    if let Some(parent) = catalog_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    let text = toml::to_string_pretty(&index).map_err(PackageError::Serialize)?;
+    fs::write(&catalog_path, text).map_err(|error| PackageError::Io {
+        path: catalog_path.clone(),
+        error,
+    })?;
+    Ok(catalog_path)
+}
+
+fn exported_modules(src_dirs: &[PathBuf]) -> Result<Vec<String>, PackageError> {
+    let mut modules = Vec::new();
+    for src in src_dirs {
+        if !src.is_dir() {
+            continue;
+        }
+        for source in discovery::discover_sources(&[src.clone()]) {
+            let text = fs::read_to_string(&source).map_err(|error| PackageError::Io {
+                path: source.clone(),
+                error,
+            })?;
+            for line in text.lines() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix("module ") {
+                    let module = rest.trim_end_matches(';').trim();
+                    if !module.is_empty() {
+                        modules.push(module.to_string());
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    modules.sort();
+    modules.dedup();
+    Ok(modules)
+}
+
+pub fn fetch(root: &Path, offline: bool) -> Result<PathBuf, PackageError> {
+    let workspace = resolve(root)?;
+    if offline {
+        for package in &workspace.packages {
+            if matches!(package.source, PackageSource::Git { .. }) && !package.root.is_dir() {
+                return Err(PackageError::Registry(format!(
+                    "package '{}' missing from offline cache",
+                    package.name
+                )));
+            }
+        }
+    }
+    write_lockfile(&workspace)
+}
+
+pub fn dependency_tree(root: &Path) -> Result<Vec<String>, PackageError> {
+    let workspace = resolve(root)?;
+    let mut rows = Vec::new();
+    for package in workspace.packages {
+        if package.dependencies.is_empty() {
+            rows.push(format!("{} {} ({})", package.name, package.version, package.source.kind()));
+        } else {
+            for dep in package.dependencies.values() {
+                rows.push(format!(
+                    "{} {} -> {} {} ({})",
+                    package.name,
+                    package.version,
+                    dep.name,
+                    dep.version,
+                    dep.source.kind()
+                ));
+            }
+        }
+    }
+    Ok(rows)
+}
+
 fn registry_package_dir(registry: &Path, name: &str, version: &str) -> PathBuf {
     let exact = registry.join(name).join(version);
     if exact.join("package.toml").is_file() {
@@ -723,6 +1574,7 @@ fn path_source(root: &Path, path: &Path) -> String {
     format!("path+{}", relative.to_string_lossy().replace('\\', "/"))
 }
 
+#[cfg(test)]
 fn toml_key(name: &str) -> String {
     if name
         .chars()
@@ -767,7 +1619,7 @@ fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
         let path = entry.path();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
-        if matches!(name_text.as_ref(), "target" | ".git" | ".spectra") {
+        if matches!(name_text.as_ref(), "target" | ".git" | ".spectra" | LOCKFILE_NAME) {
             continue;
         }
         let dest = to.join(&name);
@@ -816,6 +1668,11 @@ fn collect_files(
             error,
         })?;
         let path = entry.path();
+        let name = entry.file_name();
+        let name_text = name.to_string_lossy();
+        if matches!(name_text.as_ref(), "target" | ".git" | ".spectra") {
+            continue;
+        }
         if path.is_dir() {
             collect_files(root, &path, out)?;
         } else if path.is_file() {
@@ -827,12 +1684,9 @@ fn collect_files(
 }
 
 fn stable_hash_hex(bytes: &[u8]) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{:016x}", hash)
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 fn is_valid_semver(version: &str) -> bool {

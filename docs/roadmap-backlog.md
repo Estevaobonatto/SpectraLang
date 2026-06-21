@@ -1797,7 +1797,226 @@ to an integer-typed local and then compared/returned through invalid IR.
 
 ### Future hardening
 
-- Network registry protocol, authentication, provenance signatures, semver range solving, and private registry policy remain future work beyond the completed local registry MVP.
+- Central hosted registry protocol, authentication, provenance signatures, full semver range solving, remote catalog sync, and private registry policy remain future work beyond the completed local registry and Git catalog flows.
+
+## R-903 Git Package Source
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-901`, `R-902`
+
+### Acceptance
+
+- `spectralang package add <name> --git <url> --tag <tag>` downloads and installs the package.
+- Git packages are cached under `.spectra/git` and installed under `.spectra/packages`.
+- The resolved commit SHA is recorded in `spectra.lock`.
+
+### Completed
+
+- Added Git-backed package install using the `git` CLI, with tag/rev/branch support.
+- Added deterministic vendor payload copying and commit pinning.
+
+## R-904 Lockfile v2 for Git Sources
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-903`
+
+### Acceptance
+
+- `spectra.lock` version is 2 for package resolution.
+- Git package entries include `source_kind`, `git_url`, `git_ref`, `resolved_rev`, and SHA-256 checksum.
+- Local path and local registry package flows remain compatible.
+
+## R-905 Package Resolver and Version Policy
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `high`
+- Dependencies: `R-904`
+
+### Acceptance
+
+- Catalog lookups choose the highest compatible semver version by default.
+- Duplicate package names and dependency cycles fail with package-aware diagnostics.
+- Release compatibility is checked before a package is accepted.
+
+### Completed so far
+
+- Catalog lookup resolves the newest matching semver package.
+- Existing duplicate-package and cyclic-dependency guards still apply.
+
+### Remaining before completion
+
+- Enforce compatibility metadata as a hard resolver gate.
+- Improve duplicate-module diagnostics with package origin.
+
+## R-906 Package Import Integration
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `semantic`
+- Risk: `high`
+- Dependencies: `R-903`, `R-905`
+
+### Acceptance
+
+- `import package.module` works after `spectralang package add package`.
+- Missing package modules report the package name and source path.
+- Duplicate modules across packages fail before lowering.
+
+### Completed so far
+
+- Installed Git package source roots are included in normal package check/run/test/doc flows.
+- `scripts/validate_r914_package_catalog_git.py` validates named imports from installed package modules.
+
+### Remaining before completion
+
+- Preserve package origin in semantic module diagnostics.
+- Add duplicate module detection that reports both package names.
+
+## R-907 One-Command Package Add
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-905`
+
+### Acceptance
+
+- `spectralang package add <name>` resolves from configured package catalogs.
+- `spectralang package add <name>@<version>` pins the requested version.
+- The manifest records the Git source and checksum and `spectra.lock` is refreshed.
+
+## R-908 Package Catalog Index
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `medium`
+- Dependencies: `R-903`
+
+### Acceptance
+
+- Catalog files use schema `spectra-package-catalog-v1`.
+- Catalog entries include name, version, Git URL, ref metadata, checksum, compatibility, keywords, license, owner, and exported modules.
+- Project manifests can configure catalogs under `[package.catalogs]`.
+
+## R-909 Package Search and Metadata CLI
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `low`
+- Dependencies: `R-908`
+
+### Acceptance
+
+- `spectralang package search <term>` searches package name, description, keywords, and owner.
+- `spectralang package info <name>` prints Git/ref/compatibility/module metadata.
+- `spectralang package versions <name>` lists catalog versions.
+
+## R-910 Package Registration CLI
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `medium`
+- Dependencies: `R-908`
+
+### Acceptance
+
+- `spectralang package register --root . --git <url> --tag <tag> --catalog <path>` writes a catalog entry.
+- `spectralang package publish-metadata --root . --out <path>` writes standalone catalog metadata.
+- Registered metadata includes exported modules discovered from package sources.
+
+## R-911 Catalog Sync and Cache Management
+
+- Status: `in_progress`
+- Priority: `P1`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-908`
+
+### Acceptance
+
+- `spectralang package catalog add/list/sync/remove` manages catalog references.
+- Catalog search works from a local cached index.
+- Remote Git-hosted catalog sync is deterministic and validated.
+
+### Completed so far
+
+- Added local `package catalog add/list/sync/remove` command plumbing.
+
+### Remaining before completion
+
+- Implement real remote Git-hosted catalog sync and cache refresh.
+
+## R-912 Package Security and Integrity
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Risk: `high`
+- Dependencies: `R-904`, `R-908`
+
+### Acceptance
+
+- Package payloads use SHA-256 checksums.
+- Checksum mismatches fail before compile.
+- Cache writes are atomic and path traversal is rejected.
+- Optional host allowlists and lockfile tamper checks are documented and tested.
+
+### Completed so far
+
+- Replaced the package payload hash with SHA-256.
+- Git dependency manifests record checksums and resolution fails on checksum mismatch.
+
+### Remaining before completion
+
+- Add atomic cache writes, host allowlist policy, and explicit lockfile tamper mode.
+
+## R-913 Offline and Reproducible Package Builds
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-904`, `R-912`
+
+### Acceptance
+
+- `spectralang package fetch --offline` validates cached Git packages.
+- `--locked` fails when manifest and lockfile diverge.
+- CI can restore package caches and build without network access.
+
+### Completed so far
+
+- Added `spectralang package fetch --offline` over cached package state.
+
+### Remaining before completion
+
+- Add `--locked` enforcement and documented CI cache restore flow.
+
+## R-914 Package Catalog and Git Certification
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-903`, `R-904`, `R-907`, `R-908`, `R-909`, `R-910`
+
+### Acceptance
+
+- `scripts/validate_r914_package_catalog_git.py` creates catalog and Git fixtures.
+- The validator covers register, search, info, versions, one-command add, transitive Git dependency resolution, normal imports, check/run/test/doc, tree, offline fetch, and checksum failure.
+- `run_tests.ps1` runs the validator.
 
 ---
 

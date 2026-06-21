@@ -14,7 +14,7 @@
 
 $binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
 $timeoutSeconds = 10
-$hostCommandTimeoutSeconds = 120
+$hostCommandTimeoutSeconds = 300
 $env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
 $experimentalFlags = @(
     "--enable-experimental", "switch",
@@ -475,6 +475,7 @@ $packageConsumerRoot = Join-Path $env:TEMP "spectra_pkg_consumer_test_$PID"
 if (Test-Path $packageRegistryRoot) {
     Remove-Item -LiteralPath $packageRegistryRoot -Recurse -Force
 }
+
 if (Test-Path $packageConsumerRoot) {
     Remove-Item -LiteralPath $packageConsumerRoot -Recurse -Force
 }
@@ -603,6 +604,17 @@ function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$argumen
     Write-Host "     $err" -ForegroundColor DarkRed
     return [PSCustomObject]@{ Status = "FALHOU"; Detail = $err }
 }
+
+Write-Host ""
+Write-Host "--- R-914 package catalog Git flow ---" -ForegroundColor Yellow
+Write-Host "  validate_r914_package_catalog_git" -NoNewline
+$r914PackageCatalogGit = Invoke-HostCommand -name "validate_r914_package_catalog_git" -fileName "python" -arguments @("scripts\validate_r914_package_catalog_git.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r914PackageCatalogGit.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "package"; Teste = "validate_r914_package_catalog_git"; Status = $r914PackageCatalogGit.Status; Detalhe = $r914PackageCatalogGit.Detail }
 
 $cargoPath = (Get-Command cargo -ErrorAction SilentlyContinue).Source
 if (-not $cargoPath) {

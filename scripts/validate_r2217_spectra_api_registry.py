@@ -92,7 +92,7 @@ def validate_static_files() -> None:
         "source_path",
         "registry_package_dir",
         "name.replace('-', \".\")",
-        "toml_key(&dependency_name)",
+        "doc[\"dependencies\"][dependency_name]",
         "canonical_name: metadata.name",
     ]:
         require(term in package_rs, f"package CLI missing {term}")
@@ -166,7 +166,7 @@ def validate_registry_flow(binary: Path) -> None:
         ]
     )
     consumer_manifest = consumer.joinpath("spectra.toml").read_text(encoding="utf-8")
-    require('"spectra.api" = {' in consumer_manifest, "consumer manifest must use canonical package key")
+    require('[dependencies."spectra.api"]' in consumer_manifest, "consumer manifest must use canonical package key")
     lock_text = consumer.joinpath("spectra.lock").read_text(encoding="utf-8")
     require('name = "spectra.api"' in lock_text, "consumer lockfile missing spectra.api")
     require('compatibility = "spectralang-0.1"' in lock_text, "lockfile missing compatibility")

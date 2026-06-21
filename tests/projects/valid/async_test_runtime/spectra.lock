@@ -1,4 +1,4 @@
-version = 1
+version = 2
 root = "async_test_runtime"
 
 [[packages]]
@@ -7,5 +7,7 @@ version = "0.1.0"
 channel = "nightly"
 compatibility = "spectralang-0.1"
 source = "path+"
-manifest_hash = "e6400d049d10d432"
+source_kind = "path"
+checksum = "4301f6f32523e5b833c679265ed7502772d1987a4a8da639bdbf39ab7c29e32d"
+manifest_hash = "4301f6f32523e5b833c679265ed7502772d1987a4a8da639bdbf39ab7c29e32d"
 dependencies = []

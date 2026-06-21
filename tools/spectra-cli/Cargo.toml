@@ -18,6 +18,9 @@ spectra-backend = { path = "../../backend" }
 spectra-api = { path = "../../packages/spectra-api" }
 spectra-runtime = { path = "../../runtime" }
 toml = "0.8"
+toml_edit = "0.22"
 diff = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
+sha2 = "0.10"

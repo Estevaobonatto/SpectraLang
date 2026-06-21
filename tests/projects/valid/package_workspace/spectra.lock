@@ -1,4 +1,4 @@
-version = 1
+version = 2
 root = "package_workspace_app"
 
 [[packages]]
@@ -7,7 +7,9 @@ version = "0.1.0"
 channel = "nightly"
 compatibility = "spectralang-0.1"
 source = "path+packages/core"
-manifest_hash = "149c33177a163956"
+source_kind = "path"
+checksum = "a30ee90580a3eea86ce6e447f06c24d73a6ca3b49878df1228c88cf687e7490c"
+manifest_hash = "a30ee90580a3eea86ce6e447f06c24d73a6ca3b49878df1228c88cf687e7490c"
 dependencies = []
 
 [[packages]]
@@ -16,9 +18,12 @@ version = "0.1.0"
 channel = "nightly"
 compatibility = "spectralang-0.1"
 source = "path+"
-manifest_hash = "da4a2a6542231929"
+source_kind = "path"
+checksum = "ac64e6080b989ef86298117de035a0db99306dbb570414dfcc96b428b19fea4a"
+manifest_hash = "ac64e6080b989ef86298117de035a0db99306dbb570414dfcc96b428b19fea4a"
 
 [[packages.dependencies]]
 name = "core"
 version = "0.1.0"
 source = "path+packages/core"
+source_kind = "path"

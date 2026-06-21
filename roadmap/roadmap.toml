@@ -915,6 +915,199 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-903"
+title = "Git Package Source"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-901", "R-902"]
+summary = "Allow packages to be consumed directly from public Git repositories, with tag/rev/branch selection and commit pinning in the lockfile."
+acceptance = [
+  "`spectralang package add <name> --git <url> --tag <tag>` downloads and installs the package",
+  "Git packages are cached under `.spectra/git` and installed under `.spectra/packages`",
+  "the resolved commit SHA is recorded in `spectra.lock`"
+]
+
+[[items]]
+id = "R-904"
+title = "Lockfile v2 for Git Sources"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-903"]
+summary = "Extend `spectra.lock` with source kind, Git URL/ref, resolved commit, package checksum, manifest hash, and dependency graph metadata."
+acceptance = [
+  "`spectra.lock` version is 2 for package resolution",
+  "Git package entries include `source_kind`, `git_url`, `git_ref`, `resolved_rev`, and SHA-256 checksum",
+  "local path and local registry package flows remain compatible"
+]
+
+[[items]]
+id = "R-905"
+title = "Package Resolver and Version Policy"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-904"]
+summary = "Resolve catalog and Git package versions deterministically, including exact semver, latest compatible catalog version, cycles, duplicates, and compatibility metadata."
+acceptance = [
+  "catalog lookups choose the highest compatible semver version by default",
+  "duplicate package names and dependency cycles fail with package-aware diagnostics",
+  "release compatibility is checked before a package is accepted"
+]
+
+[[items]]
+id = "R-906"
+title = "Package Import Integration"
+phase = "phase_9"
+owner = "semantic"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-903", "R-905"]
+summary = "Make installed package modules available through normal Spectra imports while preserving package origin in diagnostics and module resolution."
+acceptance = [
+  "`import package.module` works after `spectralang package add package`",
+  "missing package modules report the package name and source path",
+  "duplicate modules across packages fail before lowering"
+]
+
+[[items]]
+id = "R-907"
+title = "One-Command Package Add"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-905"]
+summary = "Allow users to install a package from a configured catalog with `spectralang package add <name>`."
+acceptance = [
+  "`spectralang package add <name>` resolves from configured package catalogs",
+  "`spectralang package add <name>@<version>` pins the requested version",
+  "the manifest records the Git source and checksum and `spectra.lock` is refreshed"
+]
+
+[[items]]
+id = "R-908"
+title = "Package Catalog Index"
+phase = "phase_9"
+owner = "ecosystem"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-903"]
+summary = "Define a versioned catalog index that lets package authors register Git-backed packages with metadata for search and install."
+acceptance = [
+  "catalog files use schema `spectra-package-catalog-v1`",
+  "catalog entries include name, version, Git URL, ref metadata, checksum, compatibility, keywords, license, owner, and exported modules",
+  "project manifests can configure catalogs under `[package.catalogs]`"
+]
+
+[[items]]
+id = "R-909"
+title = "Package Search and Metadata CLI"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "low"
+dependencies = ["R-908"]
+summary = "Provide package discovery commands over configured catalogs."
+acceptance = [
+  "`spectralang package search <term>` searches package name, description, keywords, and owner",
+  "`spectralang package info <name>` prints Git/ref/compatibility/module metadata",
+  "`spectralang package versions <name>` lists catalog versions"
+]
+
+[[items]]
+id = "R-910"
+title = "Package Registration CLI"
+phase = "phase_9"
+owner = "ecosystem"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-908"]
+summary = "Allow package developers to generate or append catalog metadata for their package."
+acceptance = [
+  "`spectralang package register --root . --git <url> --tag <tag> --catalog <path>` writes a catalog entry",
+  "`spectralang package publish-metadata --root . --out <path>` writes standalone catalog metadata",
+  "registered metadata includes exported modules discovered from package sources"
+]
+
+[[items]]
+id = "R-911"
+title = "Catalog Sync and Cache Management"
+phase = "phase_9"
+owner = "tooling"
+priority = "P1"
+status = "in_progress"
+risk = "medium"
+dependencies = ["R-908"]
+summary = "Manage local catalog references and cache synchronization for offline-friendly package discovery."
+acceptance = [
+  "`spectralang package catalog add/list/sync/remove` manages catalog references",
+  "catalog search works from a local cached index",
+  "remote Git-hosted catalog sync is deterministic and validated"
+]
+
+[[items]]
+id = "R-912"
+title = "Package Security and Integrity"
+phase = "phase_9"
+owner = "ecosystem"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-904", "R-908"]
+summary = "Harden package downloads, cache writes, checksums, path handling, and lockfile tamper detection."
+acceptance = [
+  "package payloads use SHA-256 checksums",
+  "checksum mismatches fail before compile",
+  "cache writes are atomic and path traversal is rejected",
+  "optional host allowlists and lockfile tamper checks are documented and tested"
+]
+
+[[items]]
+id = "R-913"
+title = "Offline and Reproducible Package Builds"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "in_progress"
+risk = "medium"
+dependencies = ["R-904", "R-912"]
+summary = "Support deterministic offline and CI package workflows."
+acceptance = [
+  "`spectralang package fetch --offline` validates cached Git packages",
+  "`--locked` fails when manifest and lockfile diverge",
+  "CI can restore package caches and build without network access"
+]
+
+[[items]]
+id = "R-914"
+title = "Package Catalog and Git Certification"
+phase = "phase_9"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-903", "R-904", "R-907", "R-908", "R-909", "R-910"]
+summary = "Certify the catalog-backed Git package flow with deterministic local Git fixtures and normal Spectra package commands."
+acceptance = [
+  "`scripts/validate_r914_package_catalog_git.py` creates catalog and Git fixtures",
+  "the validator covers register, search, info, versions, one-command add, transitive Git dependency resolution, normal imports, check/run/test/doc, tree, offline fetch, and checksum failure",
+  "`run_tests.ps1` runs the validator"
+]
+
+[[items]]
 id = "R-1001"
 title = "LSP Completion"
 phase = "phase_10"

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -39,8 +41,21 @@ class Gate:
     timeout_seconds: int
 
 
+def cargo_cmd() -> str:
+    configured = os.environ.get("CARGO")
+    if configured:
+        return configured
+    found = shutil.which("cargo")
+    if found:
+        return found
+    windows_default = Path.home() / ".cargo" / "bin" / "cargo.exe"
+    if windows_default.exists():
+        return str(windows_default)
+    return "cargo"
+
+
 def cargo_cli(*args: str) -> list[str]:
-    return ["cargo", "run", "-q", "-p", "spectra-cli", "--", *args]
+    return [cargo_cmd(), "run", "-q", "-p", "spectra-cli", "--", *args]
 
 
 def python_script(script: str, *args: str) -> list[str]:
@@ -48,9 +63,9 @@ def python_script(script: str, *args: str) -> list[str]:
 
 
 GATES = [
-    Gate("compiler", "compiler_unit_tests", ["cargo", "test", "-q", "-p", "spectra-compiler"], 120),
-    Gate("compiler", "midend_unit_tests", ["cargo", "test", "-q", "-p", "spectra-midend"], 120),
-    Gate("runtime", "runtime_unit_tests", ["cargo", "test", "-q", "-p", "spectra-runtime"], 120),
+    Gate("compiler", "compiler_unit_tests", [cargo_cmd(), "test", "-q", "-p", "spectra-compiler"], 120),
+    Gate("compiler", "midend_unit_tests", [cargo_cmd(), "test", "-q", "-p", "spectra-midend"], 120),
+    Gate("runtime", "runtime_unit_tests", [cargo_cmd(), "test", "-q", "-p", "spectra-runtime"], 120),
     Gate("runtime", "cli_runtime_smoke", cargo_cli("run", "tests/validation/01_basic_syntax.spectra"), 30),
     Gate("tensors", "tensor_core_surface", cargo_cli("run", "tests/validation/66_tensor_core_surface.spectra"), 30),
     Gate("tensors", "tensor_float_surface", cargo_cli("run", "tests/validation/67_tensor_float_surface.spectra"), 30),
@@ -58,9 +73,9 @@ GATES = [
     Gate("tensors", "numerical_correctness", python_script("scripts/validate_r1503_correctness.py"), 120),
     Gate("autodiff", "autodiff_surface", cargo_cli("run", "tests/validation/71_tensor_phase5_autodiff.spectra"), 30),
     Gate("autodiff", "diff_block_gradient_coverage", cargo_cli("run", "tests/validation/82_diff_block_gradient_coverage.spectra"), 30),
-    Gate("graph", "tensor_graph_ir_and_optimization", ["cargo", "test", "-q", "-p", "spectra-midend", "tensor_graph"], 120),
-    Gate("interop", "interop_unit_tests", ["cargo", "test", "-q", "-p", "spectra-interop"], 120),
-    Gate("interop", "lsp_unit_tests", ["cargo", "test", "-q", "-p", "spectra-lsp"], 120),
+    Gate("graph", "tensor_graph_ir_and_optimization", [cargo_cmd(), "test", "-q", "-p", "spectra-midend", "tensor_graph"], 120),
+    Gate("interop", "interop_unit_tests", [cargo_cmd(), "test", "-q", "-p", "spectra-interop"], 120),
+    Gate("interop", "lsp_unit_tests", [cargo_cmd(), "test", "-q", "-p", "spectra-lsp"], 120),
     Gate("package", "package_workspace_check", cargo_cli("package", "check", "--root", "tests/projects/valid/package_workspace"), 60),
     Gate("package", "package_workspace_doc", cargo_cli("package", "doc", "--root", "tests/projects/valid/package_workspace"), 60),
     Gate("serving", "serving_foundations", cargo_cli("run", "tests/validation/78_serving_foundations.spectra"), 30),
@@ -92,10 +107,14 @@ def command_text(command: list[str]) -> str:
 def run_gate(gate: Gate) -> dict[str, Any]:
     print(f"[R-2001] {gate.category}/{gate.name}: {command_text(gate.command)}")
     start = time.perf_counter()
+    env = os.environ.copy()
+    cargo_dir = str(Path(cargo_cmd()).parent)
+    env["PATH"] = cargo_dir + os.pathsep + env.get("PATH", "")
     try:
         completed = subprocess.run(
             gate.command,
             cwd=ROOT,
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

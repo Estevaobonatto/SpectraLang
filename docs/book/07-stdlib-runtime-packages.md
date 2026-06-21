@@ -70,11 +70,13 @@ The Phase 9 production baseline provides:
 .\target\debug\spectralang.exe package test
 .\target\debug\spectralang.exe package bench
 .\target\debug\spectralang.exe package doc
+.\target\debug\spectralang.exe package search math
+.\target\debug\spectralang.exe package add gitmath
 ```
 
-Use exact local versions and checked-in `spectra.lock` for reproducible AI
-projects. Network registry protocol and authentication are intentionally outside
-the current production baseline.
+Use exact versions, catalog-backed Git packages, and checked-in `spectra.lock`
+for reproducible AI projects. Central hosted registry authentication and
+provenance signing remain future hardening work.
 
 ## Full Validation
 
