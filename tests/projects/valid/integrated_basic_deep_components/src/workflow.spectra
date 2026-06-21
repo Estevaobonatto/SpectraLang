@@ -1,0 +1,25 @@
+module workflow;
+
+import control;
+import ledger;
+import rules;
+
+pub fn run_workflow() -> int {
+    let invoice = Invoice::new("inv-42", 30, 12);
+    let score = state_score(classify(invoice));
+    if score != 18 {
+        return score;
+    }
+
+    let charge = apply_charge(FixedCharge { base: 18, fee: 4 });
+    if charge != 22 {
+        return charge;
+    }
+
+    let flow = sum_window(5);
+    if flow != 13 {
+        return flow;
+    }
+
+    return 0;
+}

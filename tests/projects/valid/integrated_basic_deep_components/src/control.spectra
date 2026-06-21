@@ -1,0 +1,27 @@
+module control;
+
+pub enum Step {
+    More(int),
+    Done,
+}
+
+pub fn next(value: int) -> Step {
+    if value > 0 {
+        return Step::More(value);
+    }
+    return Step::Done;
+}
+
+pub fn sum_window(start: int) -> int {
+    let cursor = start;
+    let sum = 0;
+
+    while let Step::More(value) = next(cursor) {
+        unless value == 2 {
+            sum = sum + value;
+        }
+        cursor = cursor - 1;
+    }
+
+    return sum;
+}

@@ -1,0 +1,5 @@
+[project]
+name = "integrated_basic_deep_components"
+version = "0.1.0"
+entry = "src/workflow.spectra"
+src_dirs = ["src"]

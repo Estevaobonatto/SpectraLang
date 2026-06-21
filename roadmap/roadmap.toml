@@ -1582,12 +1582,31 @@ owner = "tooling"
 priority = "P0"
 status = "not_started"
 risk = "high"
-dependencies = ["R-2011", "R-2012", "R-2001", "R-2003"]
+dependencies = ["R-2011", "R-2012", "R-2014", "R-2001", "R-2003"]
 summary = "Require zero failures in the integrated `.spectra` language and AI project suite before certifying a production release candidate."
 acceptance = [
   "release-candidate certification includes the integrated project runner report alongside R-2001 conformance",
   "all basic component and AI Support `.spectra` projects pass with zero untracked failures through the normal CLI/package paths",
   "the release report records the project matrix version, runner report path, exact commands, project paths, and any newly-created follow-up roadmap items"
+]
+
+[[items]]
+id = "R-2014"
+title = "Multi-Module Aggregate and Trait Codegen Recovery"
+phase = "phase_20"
+owner = "backend"
+priority = "P0"
+risk = "high"
+status = "complete"
+dependencies = ["R-111", "R-2009", "R-2011"]
+summary = "Fixed package pipeline codegen for a valid multi-module project by preserving imported struct-style enum payload metadata and rejecting undefined IR operands before backend generation."
+acceptance = [
+  "`C:\\Users\\estev\\.cargo\\bin\\cargo.exe run -p spectra-cli -- package check --root tests\\projects\\valid\\integrated_basic_deep_components` exits with status 0",
+  "`C:\\Users\\estev\\.cargo\\bin\\cargo.exe run -p spectra-cli -- package test --root tests\\projects\\valid\\integrated_basic_deep_components` exits with status 0",
+  "the former known-failure project is promoted into `tests/projects/valid/integrated_basic_deep_components` and registered in the R-2008 integrated matrix",
+  "IR verification reports an undefined value diagnostic before backend codegen if a future invalid IR value is encountered",
+  "regression coverage preserves cross-module struct construction, enum tuple and struct payload matching, trait-method dispatch, `while let`, `unless`, and mutable loop state",
+  "`scripts/validate_r2008_language_feature_matrix.py` passes after the project is promoted"
 ]
 
 [[items]]

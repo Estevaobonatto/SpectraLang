@@ -1,0 +1,34 @@
+module ledger;
+
+pub struct Invoice {
+    pub id: string,
+    pub subtotal: int,
+    pub paid: int,
+}
+
+pub enum PaymentState {
+    Empty,
+    Partial { due: int },
+    Closed(int),
+}
+
+impl Invoice {
+    pub fn new(id: string, subtotal: int, paid: int) -> Invoice {
+        return Invoice { id: id, subtotal: subtotal, paid: paid };
+    }
+
+    pub fn due(&self) -> int {
+        return self.subtotal - self.paid;
+    }
+}
+
+pub fn classify(invoice: Invoice) -> PaymentState {
+    let due = invoice.due();
+    if due == invoice.subtotal {
+        return PaymentState::Empty;
+    }
+    if due > 0 {
+        return PaymentState::Partial { due: due };
+    }
+    return PaymentState::Closed(invoice.subtotal);
+}

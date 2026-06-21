@@ -289,10 +289,9 @@ fn http1_request_get_minimal() -> Result<(), String> {
     ensure(request.version == HttpVersion::HTTP_11, "version mismatch")?;
     ensure(request.keep_alive, "HTTP/1.1 request should keep alive")?;
     ensure(
-        request
-            .headers
-            .iter()
-            .any(|header| header.name.eq_ignore_ascii_case("host") && header.value == "example.com"),
+        request.headers.iter().any(|header| {
+            header.name.eq_ignore_ascii_case("host") && header.value == "example.com"
+        }),
         "Host header missing",
     )
 }
@@ -322,14 +321,20 @@ fn http1_request_pipelined_streaming() -> Result<(), String> {
     ensure(first.target == "/one", "first target mismatch")?;
     ensure(second.target == "/two", "second target mismatch")?;
     ensure(!second.keep_alive, "Connection: close not honored")?;
-    ensure(parser.buffered_len() == 0, "pipelined buffer not fully consumed")
+    ensure(
+        parser.buffered_len() == 0,
+        "pipelined buffer not fully consumed",
+    )
 }
 
 fn http1_request_chunked_round_trip() -> Result<(), String> {
     let raw = b"POST /upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n4;sig=a\r\nWiki\r\n5\r\npedia\r\n0\r\nDigest: sha-256=abc\r\n\r\n";
     let request = parse_request(raw).map_err(|error| error.to_string())?;
     ensure(request.body.chunked, "request body not marked chunked")?;
-    ensure(request.body.bytes() == b"Wikipedia", "chunked bytes mismatch")?;
+    ensure(
+        request.body.bytes() == b"Wikipedia",
+        "chunked bytes mismatch",
+    )?;
     ensure(
         request.body.trailers
             == vec![Header {
@@ -338,7 +343,10 @@ fn http1_request_chunked_round_trip() -> Result<(), String> {
             }],
         "trailer mismatch",
     )?;
-    ensure(serialize_request(&request) == raw, "chunked request did not round-trip")
+    ensure(
+        serialize_request(&request) == raw,
+        "chunked request did not round-trip",
+    )
 }
 
 fn http1_response_rfc7230_sample() -> Result<(), String> {
@@ -356,17 +364,22 @@ fn http1_response_chunked_round_trip() -> Result<(), String> {
     let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7\r\nMozilla\r\n9\r\nDeveloper\r\n0\r\n\r\n";
     let response = parse_response(raw).map_err(|error| error.to_string())?;
     ensure(response.body.chunked, "response body not marked chunked")?;
-    ensure(response.body.bytes() == b"MozillaDeveloper", "chunked response bytes mismatch")?;
-    ensure(serialize_response(&response) == raw, "chunked response did not round-trip")
+    ensure(
+        response.body.bytes() == b"MozillaDeveloper",
+        "chunked response bytes mismatch",
+    )?;
+    ensure(
+        serialize_response(&response) == raw,
+        "chunked response did not round-trip",
+    )
 }
 
 fn http1_connection_http10_keep_alive() -> Result<(), String> {
     let closed = parse_request(b"GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
         .map_err(|error| error.to_string())?;
-    let kept = parse_request(
-        b"GET / HTTP/1.0\r\nHost: example.com\r\nConnection: keep-alive\r\n\r\n",
-    )
-    .map_err(|error| error.to_string())?;
+    let kept =
+        parse_request(b"GET / HTTP/1.0\r\nHost: example.com\r\nConnection: keep-alive\r\n\r\n")
+            .map_err(|error| error.to_string())?;
     ensure(!closed.keep_alive, "HTTP/1.0 should close by default")?;
     ensure(kept.keep_alive, "HTTP/1.0 keep-alive header not honored")
 }
@@ -374,8 +387,14 @@ fn http1_connection_http10_keep_alive() -> Result<(), String> {
 fn http1_error_malformed_header_position() -> Result<(), String> {
     let err = parse_request(b"GET / HTTP/1.1\r\nBad Header: value\r\n\r\n")
         .expect_err("invalid header must fail");
-    ensure(err.kind == ParseErrorKind::InvalidHeader, "wrong parse error kind")?;
-    ensure(err.position == "GET / HTTP/1.1\r\n".len(), "wrong error position")
+    ensure(
+        err.kind == ParseErrorKind::InvalidHeader,
+        "wrong parse error kind",
+    )?;
+    ensure(
+        err.position == "GET / HTTP/1.1\r\n".len(),
+        "wrong error position",
+    )
 }
 
 fn http1_error_invalid_chunk_size() -> Result<(), String> {
@@ -383,7 +402,10 @@ fn http1_error_invalid_chunk_size() -> Result<(), String> {
         b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nZ\r\nbad\r\n0\r\n\r\n",
     )
     .expect_err("invalid chunk size must fail");
-    ensure(err.kind == ParseErrorKind::InvalidChunkSize, "wrong chunk error kind")
+    ensure(
+        err.kind == ParseErrorKind::InvalidChunkSize,
+        "wrong chunk error kind",
+    )
 }
 
 fn http1_error_unsupported_transfer_encoding() -> Result<(), String> {
@@ -396,9 +418,8 @@ fn http1_error_unsupported_transfer_encoding() -> Result<(), String> {
 }
 
 fn http1_error_conflicting_content_length() -> Result<(), String> {
-    let err =
-        parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nx")
-            .expect_err("conflicting content length must fail");
+    let err = parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nx")
+        .expect_err("conflicting content length must fail");
     ensure(
         err.kind == ParseErrorKind::BodyLengthMismatch,
         "wrong content-length error kind",
@@ -416,8 +437,14 @@ fn http1_types_method_status_matrix() -> Result<(), String> {
         (Method::Options, "OPTIONS", true, false),
     ];
     for (method, label, safe, body) in methods {
-        ensure(method.as_str() == label, format!("method label mismatch for {label}"))?;
-        ensure(method.is_safe() == safe, format!("safe mismatch for {label}"))?;
+        ensure(
+            method.as_str() == label,
+            format!("method label mismatch for {label}"),
+        )?;
+        ensure(
+            method.is_safe() == safe,
+            format!("safe mismatch for {label}"),
+        )?;
         ensure(
             method.allows_body() == body,
             format!("body allowance mismatch for {label}"),
@@ -438,8 +465,14 @@ fn http1_types_method_status_matrix() -> Result<(), String> {
         (503, "Service Unavailable", 5, false),
     ] {
         let status = Status::new(code).map_err(|error| error.to_string())?;
-        ensure(status.reason() == reason, format!("reason mismatch for {code}"))?;
-        ensure(status.class() == class, format!("class mismatch for {code}"))?;
+        ensure(
+            status.reason() == reason,
+            format!("reason mismatch for {code}"),
+        )?;
+        ensure(
+            status.class() == class,
+            format!("class mismatch for {code}"),
+        )?;
         ensure(
             status.is_success() == success,
             format!("success mismatch for {code}"),
@@ -450,9 +483,18 @@ fn http1_types_method_status_matrix() -> Result<(), String> {
 }
 
 fn http1_types_header_validation() -> Result<(), String> {
-    ensure(Header::new("Content-Type", "application/json").is_ok(), "valid header rejected")?;
-    ensure(Header::new("Bad Header", "value").is_err(), "bad header name accepted")?;
-    ensure(Header::new("X-Good", "bad\rvalue").is_err(), "bad header value accepted")
+    ensure(
+        Header::new("Content-Type", "application/json").is_ok(),
+        "valid header rejected",
+    )?;
+    ensure(
+        Header::new("Bad Header", "value").is_err(),
+        "bad header name accepted",
+    )?;
+    ensure(
+        Header::new("X-Good", "bad\rvalue").is_err(),
+        "bad header value accepted",
+    )
 }
 
 fn json_kind_matrix() -> Result<(), String> {
@@ -464,7 +506,10 @@ fn json_kind_matrix() -> Result<(), String> {
         ("[1,2,3]", JSON_KIND_ARRAY),
         (r#"{"ok":true}"#, JSON_KIND_OBJECT),
     ] {
-        ensure(json_kind_of(text) == kind, format!("kind mismatch for {text}"))?;
+        ensure(
+            json_kind_of(text) == kind,
+            format!("kind mismatch for {text}"),
+        )?;
     }
     Ok(())
 }
@@ -506,7 +551,10 @@ fn json_escape_unicode() -> Result<(), String> {
 fn json_error_invalid_syntax_offset() -> Result<(), String> {
     let err = parse_json("{\n  \"ok\": true,\n  bad\n}").expect_err("invalid JSON must fail");
     ensure(err.line == 3, "wrong JSON error line")?;
-    ensure(err.offset >= "{\n  \"ok\": true,\n  ".len(), "wrong JSON error offset")
+    ensure(
+        err.offset >= "{\n  \"ok\": true,\n  ".len(),
+        "wrong JSON error offset",
+    )
 }
 
 fn json_encode_non_finite_rejected() -> Result<(), String> {
@@ -529,7 +577,9 @@ fn json_number_exponent_round_trip() -> Result<(), String> {
 
 fn routing_literal_match() -> Result<(), String> {
     let mut router = Router::default();
-    let route = router.add(RouteMethod::Get, "/users").map_err(|error| error.to_string())?;
+    let route = router
+        .add(RouteMethod::Get, "/users")
+        .map_err(|error| error.to_string())?;
     let matched = router
         .match_path(RouteMethod::Get, "/users")
         .map_err(|error| error.to_string())?
@@ -592,7 +642,9 @@ fn routing_regex_constraint() -> Result<(), String> {
 
 fn routing_method_separation() -> Result<(), String> {
     let mut router = Router::default();
-    let get = router.add(RouteMethod::Get, "/todos").map_err(|error| error.to_string())?;
+    let get = router
+        .add(RouteMethod::Get, "/todos")
+        .map_err(|error| error.to_string())?;
     let post = router
         .add(RouteMethod::Post, "/todos")
         .map_err(|error| error.to_string())?;
@@ -622,7 +674,9 @@ fn routing_conflict_overlap() -> Result<(), String> {
 fn routing_invalid_path() -> Result<(), String> {
     let router = Router::default();
     ensure(
-        router.match_path(RouteMethod::Get, "no-leading-slash").is_err(),
+        router
+            .match_path(RouteMethod::Get, "no-leading-slash")
+            .is_err(),
         "invalid path accepted",
     )
 }

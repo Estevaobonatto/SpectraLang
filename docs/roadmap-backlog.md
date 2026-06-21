@@ -3227,7 +3227,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Status: `not_started`
 - Priority: `P0`
 - Owner: `tooling`
-- Dependencies: `R-2011`, `R-2012`, `R-2001`, `R-2003`
+- Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2001`, `R-2003`
 
 ### Scope
 
@@ -3244,6 +3244,56 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Basic component and AI Support integrated `.spectra` projects pass with zero
   untracked failures through normal CLI/package paths.
 - The release report lists any newly-created follow-up roadmap items.
+
+## R-2014 Multi-Module Aggregate and Trait Codegen Recovery
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-111`, `R-2009`, `R-2011`
+
+### Scope
+
+- Fixed package pipeline codegen for a valid multi-module `.spectra` package
+  that combines cross-module struct construction, enum tuple and struct payload
+  variants, trait-method dispatch, `match`, `while let`, `unless`, and mutable
+  loop state.
+- Preserved imported struct-style enum payload metadata when reconstructing
+  imported enum AST definitions for the midend.
+- Added IR verification for undefined operands so invalid IR is reported before
+  backend generation instead of falling into Cranelift cleanup panic paths.
+- Promoted the reproduction project into
+  `tests/projects/valid/integrated_basic_deep_components` and registered it in
+  the R-2008 matrix.
+
+### Reproduction
+
+```powershell
+C:\Users\estev\.cargo\bin\cargo.exe run -p spectra-cli -- package check --root tests\projects\valid\integrated_basic_deep_components
+```
+
+Original observed failure:
+
+```text
+error[codegen]: Value 13 not found during backend code generation
+```
+
+Root cause: imported struct-style enum variants were reconstructed with
+`struct_data: None`, so `PaymentState::Partial { due } => due` lowered to a
+store from undefined `%v13`. The fix preserves `enum_struct_variants` through
+semantic import reconstruction and adds verifier coverage for undefined IR
+operands.
+
+### Acceptance
+
+- The promoted project package check exits with status `0`.
+- The promoted project package test exits with status `0`.
+- Regression coverage preserves cross-module struct construction, enum tuple
+  and struct payload matching, trait-method dispatch, `while let`, `unless`,
+  and mutable loop state.
+- IR verification emits a typed undefined-value diagnostic before backend
+  codegen if a future invalid IR value is encountered.
+- `scripts/validate_r2008_language_feature_matrix.py` passes after promotion.
 
 ---
 

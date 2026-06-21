@@ -1547,6 +1547,11 @@ AI users.
 - `R-2011 Full Pipeline Project Runner`: project-level runner for the matrix-declared `.spectra` projects via `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
 - `R-2012 Failure-To-Roadmap Triage Gate`: every unfixed integrated `.spectra` project failure becomes a roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria.
 - `R-2013 Release Candidate Integrated Project Gate`: final gate requiring zero untracked failures across integrated basic-language and AI Support `.spectra` projects.
+- `R-2014 Multi-Module Aggregate and Trait Codegen Recovery`: completed
+  correction for a valid multi-module `.spectra` package that previously
+  failed codegen with `Value 13 not found` while combining cross-module
+  structs, enum payloads, trait dispatch, `match`, `while let`, `unless`, and
+  mutable loop state.
 
 ### Acceptance Direction
 
@@ -1591,13 +1596,18 @@ AI users.
   validation project set, with
   `docs/architecture/r2008-language-feature-project-matrix.toml`,
   `docs/architecture/r2008-language-feature-project-matrix.md`,
-  `scripts/validate_r2008_language_feature_matrix.py`, seven
+  `scripts/validate_r2008_language_feature_matrix.py`, eight
   `tests/projects/valid/integrated_*` project directories, and the
   `phase20-project-matrix` gate in `run_tests.ps1`.
+- `R-2014` is complete for the first integrated-project defect found after the
+  matrix landed: imported struct-style enum payload metadata is preserved for
+  midend lowering, undefined IR operands are rejected before backend codegen,
+  and the former known-failure package is now
+  `tests/projects/valid/integrated_basic_deep_components`.
 
 ### Remaining Integrated Project Certification
 
-`R-2009` through `R-2013` continue the post-baseline certification track focused
+`R-2009` through `R-2014` continue the post-baseline certification track focused
 on complete checked-in `.spectra` projects that combine the basic language
 surface with AI Support features. This track does not reopen the completed
 `R-2003` through `R-2007` pre-API stabilization evidence or the completed
@@ -1617,7 +1627,8 @@ do not match the R-2008 matrix.
 When execution of this track finds a real compiler, runtime, package, or AI
 Support defect, the defect must either be fixed in the same change with
 regression coverage or added as a new roadmap/backlog item beyond `R-2008`
-through `R-2013`.
+through `R-2013`. The first such tracked defect, `R-2014`, has been fixed and
+promoted into `tests/projects/valid/integrated_basic_deep_components`.
 
 ### Completed Pre-API Stabilization
 
@@ -2022,7 +2033,7 @@ way it applies to the AI/ML work.
 - Strategic direction: this chapter.
 - Executable backlog: `docs/roadmap-backlog.md`, Phase 21 to Phase 28.
 - Machine-readable tracker: `roadmap/roadmap.toml`, post-baseline integrated
-  validation items `R-2008` to `R-2013` and API platform items `R-2101` to
+  validation items `R-2008` to `R-2014` and API platform items `R-2101` to
   `R-2807`.
 - Feature maturity classification: `docs/language-feature-maturity.md`
   (to be updated when each phase begins implementation).

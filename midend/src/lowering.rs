@@ -2768,19 +2768,20 @@ impl ASTLowering {
                 struct_data,
                 ..
             } => {
-                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> =
-                    if let Some(patterns) = data {
-                        patterns.iter().collect()
-                    } else if let Some(named_patterns) = struct_data {
-                        self.reorder_named_variant_patterns(
-                            scrutinee_enum.unwrap_or(enum_name),
-                            variant_name,
-                            named_patterns,
-                        )
-                        .unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    };
+                let ordered_patterns: Vec<&spectra_compiler::ast::Pattern> = if let Some(patterns) =
+                    data
+                {
+                    patterns.iter().collect()
+                } else if let Some(named_patterns) = struct_data {
+                    self.reorder_named_variant_patterns(
+                        scrutinee_enum.unwrap_or(enum_name),
+                        variant_name,
+                        named_patterns,
+                    )
+                    .unwrap_or_else(|| named_patterns.iter().map(|(_, pattern)| pattern).collect())
+                } else {
+                    Vec::new()
+                };
 
                 if ordered_patterns.is_empty() {
                     return;
@@ -5587,14 +5588,14 @@ impl ASTLowering {
                     if phi_inputs.len() >= 2 {
                         self.builder.build_phi(ir_func, phi_inputs)
                     } else {
-                        ir_func.next_value()
+                        self.builder.build_const_int(ir_func, 0)
                     }
                 } else {
                     // Merge block is unreachable (all branches return/tail-call);
                     // seal it with Unreachable so the IR verifier is happy.
                     self.builder.set_current_block(merge_bb);
                     self.builder.build_unreachable(ir_func);
-                    ir_func.next_value()
+                    self.builder.build_const_int(ir_func, 0)
                 }
             }
             ExpressionKind::Unless {
@@ -5687,13 +5688,13 @@ impl ASTLowering {
                         )
                     } else {
                         // No value produced (void)
-                        ir_func.next_value()
+                        self.builder.build_const_int(ir_func, 0)
                     }
                 } else {
                     // Both branches have terminators (returns), merge block is unreachable.
                     self.builder.set_current_block(unless_merge_bb);
                     self.builder.build_unreachable(ir_func);
-                    ir_func.next_value()
+                    self.builder.build_const_int(ir_func, 0)
                 }
             }
             ExpressionKind::Grouping(inner) => self.lower_expression(inner, ir_func),
@@ -8877,9 +8878,7 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("http", "request_method") => Some(host_int("spectra.api.http.request_method")),
         ("http", "request_path") => Some(host_string("spectra.api.http.request_path")),
         ("http", "request_header") => Some(host_string("spectra.api.http.request_header")),
-        ("http", "request_with_header") => {
-            Some(host_int("spectra.api.http.request_with_header"))
-        }
+        ("http", "request_with_header") => Some(host_int("spectra.api.http.request_with_header")),
         ("http", "request_cookie") => Some(host_string("spectra.api.http.request_cookie")),
         ("http", "response") => Some(host_int("spectra.api.http.response")),
         ("http", "response_new") => Some(host_int("spectra.api.http.response_new")),

@@ -1,0 +1,30 @@
+module rules;
+
+import ledger;
+
+pub trait ChargeRule {
+    fn charge(&self) -> int;
+}
+
+pub struct FixedCharge {
+    pub base: int,
+    pub fee: int,
+}
+
+impl ChargeRule for FixedCharge {
+    fn charge(&self) -> int {
+        return self.base + self.fee;
+    }
+}
+
+pub fn apply_charge(rule: FixedCharge) -> int {
+    return rule.charge();
+}
+
+pub fn state_score(state: PaymentState) -> int {
+    return match state {
+        PaymentState::Empty => 0,
+        PaymentState::Partial { due } => due,
+        PaymentState::Closed(total) => total
+    };
+}

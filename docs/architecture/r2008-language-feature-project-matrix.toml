@@ -129,6 +129,35 @@ features = [
 ]
 
 [[projects]]
+id = "basic_deep_components_package"
+title = "Deep Multi-Module Components Package Test"
+category = "basic_components"
+roadmap_item = "R-2009"
+owner = "tooling"
+command = "spectralang package test"
+exact_command = "spectralang package test --root tests/projects/valid/integrated_basic_deep_components"
+project_path = "tests/projects/valid/integrated_basic_deep_components"
+entrypoint = "src/workflow.spectra"
+required_files = [
+  "spectra.toml",
+  "src/ledger.spectra",
+  "src/rules.spectra",
+  "src/control.spectra",
+  "src/workflow.spectra",
+  "tests/deep_components_package.spectra",
+]
+status = "implemented"
+expected_outcome = "Package tests validate cross-module struct methods, struct-style enum payload imports, match bindings, traits, unless, while-let, and multi-file JIT codegen without orphan IR values."
+features = [
+  "modules",
+  "functions",
+  "structs_classes",
+  "traits",
+  "control_flow",
+  "stdlib",
+]
+
+[[projects]]
 id = "ai_tensor_autodiff_run"
 title = "AI Tensor Autodiff CLI Execution"
 category = "ai_support"

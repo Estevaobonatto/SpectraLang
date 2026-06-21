@@ -4798,17 +4798,26 @@ impl SemanticAnalyzer {
                             .members
                             .iter()
                             .map(|vname| {
-                                let data = type_export
-                                    .enum_variants
+                                let struct_data = type_export
+                                    .enum_struct_variants
                                     .as_ref()
                                     .and_then(|m| m.get(vname))
-                                    .and_then(|p| p.clone());
+                                    .cloned();
+                                let data = if struct_data.is_none() {
+                                    type_export
+                                        .enum_variants
+                                        .as_ref()
+                                        .and_then(|m| m.get(vname))
+                                        .and_then(|p| p.clone())
+                                } else {
+                                    None
+                                };
                                 crate::ast::EnumVariant {
                                     name: vname.clone(),
                                     span: dummy_span,
                                     attributes: Vec::new(),
                                     data,
-                                    struct_data: None,
+                                    struct_data,
                                 }
                             })
                             .collect();

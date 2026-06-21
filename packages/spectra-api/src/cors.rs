@@ -75,7 +75,10 @@ impl CorsPolicy {
     pub fn allow_header(mut self, header: impl Into<String>) -> Result<Self, HandlerError> {
         let header = header.into();
         if header.trim().is_empty() {
-            return Err(HandlerError::new(400, "CORS allowed header cannot be empty"));
+            return Err(HandlerError::new(
+                400,
+                "CORS allowed header cannot be empty",
+            ));
         }
         if !self
             .allowed_headers
@@ -90,7 +93,10 @@ impl CorsPolicy {
     pub fn expose_header(mut self, header: impl Into<String>) -> Result<Self, HandlerError> {
         let header = header.into();
         if header.trim().is_empty() {
-            return Err(HandlerError::new(400, "CORS exposed header cannot be empty"));
+            return Err(HandlerError::new(
+                400,
+                "CORS exposed header cannot be empty",
+            ));
         }
         if !self
             .exposed_headers
@@ -135,7 +141,10 @@ impl CorsPolicy {
         let mut response = Response::new(Status::new(204).expect("valid CORS status"));
         response = self.apply_origin(response, origin)?;
         response = response
-            .with_header(HEADER_ALLOW_METHODS, self.allow_methods_value(requested_method))
+            .with_header(
+                HEADER_ALLOW_METHODS,
+                self.allow_methods_value(requested_method),
+            )
             .map_err(to_handler_error)?;
         if let Some(value) = self.allow_headers_value(request.header(HEADER_REQUEST_HEADERS)) {
             response = response
@@ -177,7 +186,10 @@ impl CorsPolicy {
         response = self.apply_origin(response, origin)?;
         if !self.exposed_headers.is_empty() {
             response = response
-                .with_header(HEADER_EXPOSE_HEADERS, join_header_values(&self.exposed_headers))
+                .with_header(
+                    HEADER_EXPOSE_HEADERS,
+                    join_header_values(&self.exposed_headers),
+                )
                 .map_err(to_handler_error)?;
         }
         if self.allow_credentials {
@@ -188,11 +200,7 @@ impl CorsPolicy {
         Ok(response)
     }
 
-    fn apply_origin(
-        &self,
-        response: Response,
-        origin: &str,
-    ) -> Result<Response, HandlerError> {
+    fn apply_origin(&self, response: Response, origin: &str) -> Result<Response, HandlerError> {
         let Some(value) = self.allowed_origin_value(origin) else {
             return Ok(response);
         };
@@ -490,7 +498,10 @@ pub extern "C" fn middleware(ctx: *mut SpectraHostCallContext) -> i32 {
     let Ok(policy) = read_policy(args[0]) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
-    write_result(ctx, middleware::register_sync_middleware(CorsMiddleware { policy }))
+    write_result(
+        ctx,
+        middleware::register_sync_middleware(CorsMiddleware { policy }),
+    )
 }
 
 pub extern "C" fn is_preflight(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -599,7 +610,10 @@ mod tests {
     fn credentialed_policy_echoes_origin_and_varies() {
         let policy = CorsPolicy::permissive().allow_credentials(true);
         let response = policy
-            .apply_actual_response(&request(Method::Get), Response::new(Status::new(200).unwrap()))
+            .apply_actual_response(
+                &request(Method::Get),
+                Response::new(Status::new(200).unwrap()),
+            )
             .expect("actual response");
 
         assert_eq!(
@@ -614,7 +628,10 @@ mod tests {
     fn denied_origin_leaves_actual_response_unmodified_and_preflight_forbidden() {
         let policy = CorsPolicy::new().allow_origin("https://other.example");
         let response = policy
-            .apply_actual_response(&request(Method::Get), Response::new(Status::new(200).unwrap()))
+            .apply_actual_response(
+                &request(Method::Get),
+                Response::new(Status::new(200).unwrap()),
+            )
             .expect("actual response");
         assert_eq!(response.header(HEADER_ALLOW_ORIGIN), None);
 

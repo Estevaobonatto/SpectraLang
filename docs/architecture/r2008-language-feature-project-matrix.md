@@ -19,6 +19,7 @@ in the matrix and preserve command/output evidence.
 | `basic_components_package` | `R-2009` | `spectralang package test --root tests/projects/valid/integrated_basic_components` | `tooling` | modules, functions, structs/classes, traits, generics, closures, control flow, stdlib |
 | `basic_runtime_run` | `R-2009` | `spectralang run tests/projects/valid/integrated_basic_runtime` | `tooling` | modules, functions, structs/classes, control flow, stdlib |
 | `basic_package_check` | `R-2009` | `spectralang package check --root tests/projects/valid/integrated_basic_package_check` | `tooling` | modules, traits, generics, closures, stdlib |
+| `basic_deep_components_package` | `R-2009` | `spectralang package test --root tests/projects/valid/integrated_basic_deep_components` | `tooling` | modules, functions, structs/classes, traits, control flow, stdlib |
 | `ai_tensor_autodiff_run` | `R-2010` | `spectralang run tests/projects/valid/integrated_ai_tensor_autodiff` | `ml` | modules, functions, tensors, autodiff, graph/fusion, stdlib |
 | `ai_data_experiment_package` | `R-2010` | `spectralang package test --root tests/projects/valid/integrated_ai_data_experiment` | `ml` | modules, traits, tensors, data, experiment, evaluation, monitoring |
 | `ai_model_ecosystem_check` | `R-2010` | `spectralang package check --root tests/projects/valid/integrated_ai_model_ecosystem` | `ml` | generics, closures, ONNX, RAG, serving, evaluation, monitoring |
