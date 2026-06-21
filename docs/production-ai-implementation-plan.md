@@ -1541,12 +1541,23 @@ AI users.
 - `R-2005 Core std/runtime Panic and Host-Status Hardening`: stable host status values and diagnostics for user-triggerable invalid std/runtime inputs.
 - `R-2006 Tensor and std Performance Refresh`: fresh release benchmark evidence for materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse.
 - `R-2007 Backend and Codegen Robustness Cleanup`: warning cleanup and typed backend errors for reachable IR/codegen edge cases.
+- `R-2008 Language Feature Project Matrix`: matrix mapping basic language and AI Support features to full-pipeline project validation scenarios.
+- `R-2009 Basic Components Integration Projects`: complete Spectra projects for modules, functions, structs/classes, traits, generics, closures, control flow, and stdlib composition.
+- `R-2010 AI Support Integration Projects`: complete Spectra projects for tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, safety, and monitoring.
+- `R-2011 Full Pipeline Project Runner`: project-level runner for `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
+- `R-2012 Failure-To-Roadmap Triage Gate`: every unfixed integrated-project failure becomes a roadmap item with owner, phase, dependencies, risk, and acceptance criteria.
+- `R-2013 Release Candidate Integrated Project Gate`: final gate requiring zero untracked failures across integrated basic-language and AI Support projects.
 
 ### Acceptance Direction
 
 - Release candidates should require a versioned conformance report.
+- Integrated project validation should exercise realistic multi-file and package
+  projects, not only isolated `.spectra` fixtures.
 - Stable releases should communicate compatibility and deprecation status clearly.
-- Certification should fail when required conformance tests fail.
+- Certification should fail when required conformance tests or integrated
+  project gates fail.
+- Any real implementation defect found by integrated validation should be fixed
+  with regression coverage or tracked as a new roadmap item before certification.
 
 ### Completed So Far
 
@@ -1573,6 +1584,22 @@ AI users.
 - `R-2007` is complete for backend/codegen robustness, with typed JIT/AOT
   errors, warning cleanup, and valid-source edge control-flow coverage through
   the normal CLI path.
+
+### Remaining Integrated Project Certification
+
+`R-2008` through `R-2013` add a post-baseline certification track focused on
+complete projects that combine the basic language surface with AI Support
+features. This track does not reopen the completed `R-2003` through `R-2007`
+pre-API stabilization evidence. It adds stronger release-candidate proof that
+real Spectra projects can compose modules, traits, generics, closures, control
+flow, stdlib helpers, tensors, autodiff, graph/fusion, data pipelines, model
+interop, RAG, serving, evaluation, safety, and monitoring through the normal CLI
+and package paths.
+
+When execution of this track finds a real compiler, runtime, package, or AI
+Support defect, the defect must either be fixed in the same change with
+regression coverage or added as a new roadmap/backlog item beyond `R-2008`
+through `R-2013`.
 
 ### Completed Pre-API Stabilization
 
@@ -1976,7 +2003,8 @@ way it applies to the AI/ML work.
 
 - Strategic direction: this chapter.
 - Executable backlog: `docs/roadmap-backlog.md`, Phase 21 to Phase 28.
-- Machine-readable tracker: `roadmap/roadmap.toml`, items `R-2101` to
+- Machine-readable tracker: `roadmap/roadmap.toml`, post-baseline integrated
+  validation items `R-2008` to `R-2013` and API platform items `R-2101` to
   `R-2807`.
 - Feature maturity classification: `docs/language-feature-maturity.md`
   (to be updated when each phase begins implementation).

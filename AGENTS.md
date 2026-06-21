@@ -1,5 +1,7 @@
 # AGENTS.md
 
+SEMPRE USAR SKILL CAVEMAN E SUAS VARIANTES
+
 ## Purpose
 
 This file defines repository-specific instructions for coding agents working in SpectraLang.
@@ -243,6 +245,23 @@ Current production baseline:
   until a future gated feature is added and documented.
 - `spectralang --list-experimental` must report no active syntax gates unless
   the maturity policy and roadmap are updated in the same change.
+
+### Integrated Project Failure Triage Rule
+
+When executing the Phase 20 integrated language and AI Support validation track
+(`R-2008` through `R-2013`), agents must not ignore real implementation
+failures found in complete projects.
+
+Required behavior:
+
+- if the failure is fixed in the same change, add regression coverage and record
+  validation evidence
+- if the failure is not fixed in the same change, add a new roadmap/backlog item
+  beyond `R-2008` through `R-2013`
+- the new item must include owner, phase, dependencies, risk, acceptance
+  criteria, and the reproducing project or command
+- do not mark the integrated project gate complete while untracked failures
+  remain
 
 ---
 

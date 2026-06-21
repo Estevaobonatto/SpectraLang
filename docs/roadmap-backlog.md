@@ -3002,6 +3002,143 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `target\debug\spectralang.exe run tests\validation\146_backend_codegen_edge_control_flow.spectra`
 - `python scripts\validate_r2007_backend_codegen.py --binary target\debug\spectralang.exe`
 
+## R-2008 Language Feature Project Matrix
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-2001`, `R-2003`
+
+### Scope
+
+- Define a checked-in matrix for integrated validation projects.
+- Map basic language features and AI Support features to full-pipeline project scenarios.
+- Mark each scenario as `spectralang run`, `spectralang package check`, or `spectralang package test`.
+
+### Acceptance
+
+- Matrix covers modules, functions, structs/classes, traits, generics, closures,
+  control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment,
+  ONNX, RAG, serving, evaluation, and monitoring.
+- Every planned project has explicit command, expected outcome, owner, and
+  required feature coverage.
+- Coverage gaps become roadmap items before any release candidate is certified.
+
+## R-2009 Basic Components Integration Projects
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-2008`, `R-2003`, `R-2007`
+
+### Scope
+
+- Add multi-file Spectra projects that use core language components together,
+  not isolated parser or single-file fragments.
+- Cover modules/imports, functions, methods, structs/classes, traits,
+  generics, closures, enums, match, loops, error paths, and stdlib composition.
+- Validate compile, run, and package flows through the normal CLI path.
+
+### Acceptance
+
+- Basic component projects build and run with reproducible commands.
+- Tests prove runtime behavior for constructs that have runtime semantics.
+- Any discovered implementation defect is fixed with regression coverage or
+  tracked as a new roadmap item before the project is treated as passing.
+
+## R-2010 AI Support Integration Projects
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Dependencies: `R-2008`, `R-2001`, `R-2006`
+
+### Scope
+
+- Add complete Spectra projects for AI Support features that exercise realistic
+  code paths, not only one-off examples.
+- Cover tensors, autodiff, graph/fusion, data preprocessing, experiment
+  tracking, ONNX import/export, RAG, serving, evaluation, safety, and monitoring
+  where the public surface exists.
+- Combine AI APIs with modules, traits, generics, closures, pattern matching,
+  and stdlib helpers.
+
+### Acceptance
+
+- AI Support projects run through the normal CLI or package path.
+- Each project emits reproducible evidence for its command, category, and
+  expected behavior.
+- Defects discovered during project execution become fixes with regression
+  coverage or new roadmap items with acceptance criteria.
+
+## R-2011 Full Pipeline Project Runner
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-2009`, `R-2010`
+
+### Scope
+
+- Add a validator that reads the integrated project matrix and runs each
+  project through its declared command.
+- Support `spectralang run`, `spectralang package check`, and
+  `spectralang package test`.
+- Emit machine-readable JSON suitable for release evidence and failure triage.
+
+### Acceptance
+
+- Runner report includes project name, command, category, elapsed time, status,
+  failure class, exit code, and output tail.
+- Failure classes distinguish compile, semantic, lowering, backend, runtime,
+  package, and timeout failures.
+- `run_tests.ps1` gates the runner once the integrated projects exist.
+
+## R-2012 Failure-To-Roadmap Triage Gate
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ecosystem`
+- Dependencies: `R-2011`
+
+### Scope
+
+- Require every real implementation failure found by integrated project
+  validation to be fixed or tracked.
+- Add roadmap/backlog items for unfixed failures with owner, phase,
+  dependencies, risk, and acceptance criteria.
+- Prevent silent exception lists from replacing production completion criteria.
+
+### Acceptance
+
+- Every unfixed failure in the runner report maps to a roadmap item.
+- Agents do not mark `R-2009`, `R-2010`, `R-2011`, or `R-2013` complete while
+  untracked failures remain.
+- Triage notes preserve enough command/output context for the next agent to
+  reproduce the failure.
+
+## R-2013 Release Candidate Integrated Project Gate
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-2011`, `R-2012`, `R-2001`, `R-2003`
+
+### Scope
+
+- Add integrated project validation to release-candidate certification.
+- Require zero failures across basic component and AI Support integrated
+  projects.
+- Store the matrix version and runner report path as release evidence.
+
+### Acceptance
+
+- Release-candidate certification includes the integrated project runner report
+  alongside R-2001 conformance.
+- Basic component and AI Support integrated projects pass with zero untracked
+  failures.
+- The release report lists any newly-created follow-up roadmap items.
+
 ---
 
 ## Recommended First Execution Slice
@@ -3035,7 +3172,10 @@ The original AI certification and release-channel baseline through `R-2002`
 is complete. The Phase 20 base stabilization gate (`R-2003` through `R-2007`)
 is also complete, so core language correctness, std/runtime hardening,
 performance evidence, and backend/codegen robustness have been refreshed before
-`R-2216`.
+`R-2216`. The additional Phase 20 items `R-2008` through `R-2013` define a
+post-baseline integrated project validation track for basic language components
+and AI Support; they do not reopen the completed `R-2003` through `R-2007`
+pre-API stabilization evidence.
 The phases below define a new, production-grade workstream that turns
 SpectraLang into a first-class language for **building HTTP and event-driven
 APIs natively**, without sacrificing the AI/ML and tensor story.
@@ -5833,7 +5973,7 @@ example gallery, production hardening, and registry release.
 ## Dependency Tree (Critical Path)
 
 ```
-R-2003 → R-2004/R-2005/R-2006/R-2007 ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+R-2003 → R-2004/R-2005/R-2006/R-2007 → R-2008 → R-2009/R-2010 → R-2011 → R-2012 → R-2013 ───────────────────────────────────────────────┐
                                                                                                                                               ↓
 R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2106 (streams) → R-2107 (async stdlib)
                                                                                                       ↓
@@ -5852,15 +5992,16 @@ R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor)
 
 | Phase | Items | Priority Mix |
 |---|---|---|
-| 21 — Async Language Core | 11 | 6 P0, 4 P1, 1 P2 |
-| 22 — API Library Foundation | 20 | 14 P0, 1 P1, 5 ecosystem |
-| 23 — Middleware and Security | 18 | 9 P0, 6 P1, 3 P2 |
-| 24 — Advanced API Features | 21 | 6 P0, 13 P1, 2 P2/P3 |
-| 25 — Persistence and Database | 14 | 9 P0, 5 P1 |
-| 26 — API Tooling and DX | 15 | 8 P0, 6 P1, 1 P2 |
-| 27 — Observability and API Ops | 8 | 5 P0, 3 P1 |
+| 20 — Production Certification | 13 | 12 P0, 1 P1 |
+| 21 — Async Language Core | 12 | 7 P0, 4 P1, 1 P2 |
+| 22 — API Library Foundation | 20 | 19 P0, 1 P1 |
+| 23 — Middleware and Security | 18 | 10 P0, 7 P1, 1 P2 |
+| 24 — Advanced API Features | 21 | 8 P0, 9 P1, 3 P2, 1 P3 |
+| 25 — Persistence and Database | 14 | 10 P0, 4 P1 |
+| 26 — API Tooling and DX | 15 | 10 P0, 4 P1, 1 P2 |
+| 27 — Observability and API Ops | 8 | 4 P0, 4 P1 |
 | 28 — API Conformance and Release | 7 | 5 P0, 2 P1/P2 |
-| **Total** | **114** | — |
+| **Total** | **128** | — |
 
 ## New Files To Be Added by the Workstream
 

@@ -1,6 +1,6 @@
 version = 1
 title = "SpectraLang Production AI Roadmap"
-updated_at = "2026-06-12"
+updated_at = "2026-06-21"
 status_scale = ["not_started", "in_progress", "blocked", "complete"]
 priority_scale = ["P0", "P1", "P2", "P3"]
 
@@ -1485,6 +1485,102 @@ acceptance = [
   "known production warnings in backend/codegen are removed where practical",
   "internal unwraps on IR/block maps are replaced with typed errors where user source can reach them",
   "regression coverage exercises malformed or edge IR produced from valid source without backend panics"
+]
+
+[[items]]
+id = "R-2008"
+title = "Language Feature Project Matrix"
+phase = "phase_20"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2001", "R-2003"]
+summary = "Define the integrated project matrix that maps basic language features and AI Support features to full-pipeline Spectra projects."
+acceptance = [
+  "a checked-in matrix maps modules, functions, structs/classes, traits, generics, closures, control flow, stdlib, tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, and monitoring features to planned projects",
+  "each matrix row identifies whether validation must run through `spectralang run`, `spectralang package check`, or `spectralang package test`",
+  "coverage gaps become explicit roadmap items before any release candidate is certified"
+]
+
+[[items]]
+id = "R-2009"
+title = "Basic Components Integration Projects"
+phase = "phase_20"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2008", "R-2003", "R-2007"]
+summary = "Create complete test projects that use the basic language component surface together through the normal CLI path."
+acceptance = [
+  "multi-file projects cover modules, imports, functions, methods, structs/classes, traits, generics, closures, enums, match, loops, error paths, and stdlib composition",
+  "projects validate compile, run, and package flows instead of parser-only acceptance",
+  "failures discovered while building or running the projects are routed to new roadmap items unless fixed in the same change with regression coverage"
+]
+
+[[items]]
+id = "R-2010"
+title = "AI Support Integration Projects"
+phase = "phase_20"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2008", "R-2001", "R-2006"]
+summary = "Create complete test projects that exercise AI Support features together with realistic basic-language code."
+acceptance = [
+  "projects cover tensors, autodiff, graph/fusion, data preprocessing, experiment tracking, ONNX import/export, RAG, serving, evaluation, safety, and monitoring where the public surface exists",
+  "projects combine AI Support APIs with modules, traits, generics, closures, pattern matching, and stdlib helpers",
+  "validation runs through the normal CLI or package path and emits reproducible evidence for each project"
+]
+
+[[items]]
+id = "R-2011"
+title = "Full Pipeline Project Runner"
+phase = "phase_20"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2009", "R-2010"]
+summary = "Add a project-level runner that executes integrated language and AI projects and emits a structured report."
+acceptance = [
+  "a validator runs each integrated project through its declared command: `spectralang run`, `spectralang package check`, or `spectralang package test`",
+  "the validator emits JSON with project name, command, category, elapsed time, status, failure class, exit code, and output tail",
+  "`run_tests.ps1` gates the runner once the integrated projects exist"
+]
+
+[[items]]
+id = "R-2012"
+title = "Failure-To-Roadmap Triage Gate"
+phase = "phase_20"
+owner = "ecosystem"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-2011"]
+summary = "Require every real implementation failure found by integrated project validation to be fixed or tracked as a new roadmap item."
+acceptance = [
+  "the project runner report distinguishes compile, semantic, lowering, backend, runtime, package, and timeout failures",
+  "every unfixed failure in a report maps to a new roadmap item with owner, phase, dependencies, risk, and acceptance criteria",
+  "agents may not mark R-2009, R-2010, R-2011, or R-2013 complete while untracked failures remain"
+]
+
+[[items]]
+id = "R-2013"
+title = "Release Candidate Integrated Project Gate"
+phase = "phase_20"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2011", "R-2012", "R-2001", "R-2003"]
+summary = "Require zero failures in the integrated language and AI project suite before certifying a production release candidate."
+acceptance = [
+  "release-candidate certification includes the integrated project runner report alongside R-2001 conformance",
+  "all basic component and AI Support integrated projects pass with zero untracked failures",
+  "the release report records the project matrix version, runner report path, and any newly-created follow-up roadmap items"
 ]
 
 [[items]]
