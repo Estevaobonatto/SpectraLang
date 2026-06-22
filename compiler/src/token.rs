@@ -73,7 +73,6 @@ pub enum Keyword {
 impl Keyword {
     pub fn from_identifier(identifier: &str) -> Option<Self> {
         match identifier {
-
             // Module system
             "module" => Some(Self::Module),
             "import" => Some(Self::Import),

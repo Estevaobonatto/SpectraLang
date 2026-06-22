@@ -1,0 +1,10 @@
+module contador;
+import { println } from std.io;
+pub fn main() -> int {
+    let count = 0;
+    for i in 0..1000000000 {
+        count = count + 1;
+    }
+    println(f"{count}");
+    return 0;
+}

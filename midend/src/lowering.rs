@@ -143,6 +143,13 @@ struct ArrayInfo {
     size: usize,
 }
 
+#[derive(Clone, Copy)]
+struct RangeInfo {
+    start: Value,
+    end: Value,
+    inclusive: bool,
+}
+
 #[derive(Clone)]
 struct ClosureCapture {
     name: String,
@@ -188,6 +195,49 @@ impl ArrayScopeStack {
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
                 return Some(info);
+            }
+        }
+        None
+    }
+
+    fn clear(&mut self) {
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
+    }
+}
+
+#[derive(Clone)]
+struct RangeScopeStack {
+    scopes: Vec<HashMap<String, RangeInfo>>,
+}
+
+impl RangeScopeStack {
+    fn new() -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+    }
+
+    fn insert(&mut self, name: String, info: RangeInfo) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, info);
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<RangeInfo> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(*info);
             }
         }
         None
@@ -299,6 +349,8 @@ pub struct ASTLowering {
     alloca_map: HashMap<String, Value>,
     /// Maps array names to metadata for lowering (scoped)
     array_map: ArrayScopeStack,
+    /// Maps range variables to lowered bounds when known in the current function.
+    range_map: RangeScopeStack,
     /// Maps struct names to their field definitions
     struct_definitions: HashMap<String, Vec<(String, IRType)>>,
     /// Maps struct variable names to (pointer, struct_name) for field access (scoped)
@@ -365,6 +417,7 @@ impl ASTLowering {
             variable_types: TypeScopeStack::new(),
             alloca_map: HashMap::new(),
             array_map: ArrayScopeStack::new(),
+            range_map: RangeScopeStack::new(),
             struct_definitions: HashMap::new(),
             struct_var_map: StructScopeStack::new(),
             enum_definitions: HashMap::new(),
@@ -2914,6 +2967,7 @@ impl ASTLowering {
         self.variable_types.clear();
         self.alloca_map.clear();
         self.array_map.clear();
+        self.range_map.clear();
         self.struct_var_map.clear();
         for (idx, param) in params.iter().enumerate() {
             let value = Value { id: idx };
@@ -3094,6 +3148,7 @@ impl ASTLowering {
         self.variable_types.clear();
         self.alloca_map.clear();
         self.array_map.clear();
+        self.range_map.clear();
         self.struct_var_map.clear();
 
         for (idx, param) in params.iter().enumerate() {
@@ -3275,6 +3330,7 @@ impl ASTLowering {
         self.variable_types.clear();
         self.alloca_map = HashMap::new();
         self.array_map.clear();
+        self.range_map.clear();
         self.struct_var_map.clear();
 
         let mut lambda_func = IRFunction::new(&name, ir_params.clone(), return_type.clone());
@@ -3872,6 +3928,7 @@ impl ASTLowering {
             self.value_map.push_scope();
             self.variable_types.push_scope();
             self.array_map.push_scope();
+            self.range_map.push_scope();
             self.struct_var_map.push_scope();
         }
 
@@ -3886,6 +3943,7 @@ impl ASTLowering {
             if self.current_block_is_terminated(ir_func) {
                 self.struct_var_map.pop_scope();
                 self.array_map.pop_scope();
+                self.range_map.pop_scope();
                 self.variable_types.pop_scope();
                 self.value_map.pop_scope();
                 return;
@@ -3915,6 +3973,7 @@ impl ASTLowering {
 
             self.struct_var_map.pop_scope();
             self.array_map.pop_scope();
+            self.range_map.pop_scope();
             self.variable_types.pop_scope();
             self.value_map.pop_scope();
         }
@@ -3999,6 +4058,7 @@ impl ASTLowering {
         self.value_map.push_scope();
         self.variable_types.push_scope();
         self.array_map.push_scope();
+        self.range_map.push_scope();
         self.struct_var_map.push_scope();
 
         // Lower all statements and extract the value of the last expression.
@@ -4032,6 +4092,7 @@ impl ASTLowering {
 
         self.struct_var_map.pop_scope();
         self.array_map.pop_scope();
+        self.range_map.pop_scope();
         self.variable_types.pop_scope();
         self.value_map.pop_scope();
 
@@ -4157,6 +4218,82 @@ impl ASTLowering {
         }
     }
 
+    fn lower_counted_range_for_loop(
+        &mut self,
+        for_stmt: &spectra_compiler::ast::ForLoop,
+        start_val: Value,
+        end_val: Value,
+        inclusive: bool,
+        ir_func: &mut IRFunction,
+    ) {
+        let header_block = ir_func.add_block("range.header");
+        let body_block = ir_func.add_block("range.body");
+        let increment_block = ir_func.add_block("range.increment");
+        let exit_block = ir_func.add_block("range.exit");
+
+        let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
+        self.builder.build_store(ir_func, index_alloca, start_val);
+
+        let end_alloca = self.builder.build_alloca(ir_func, IRType::Int);
+        self.builder.build_store(ir_func, end_alloca, end_val);
+
+        self.builder.build_branch(ir_func, header_block);
+
+        self.builder.set_current_block(header_block);
+        let current_index = self.builder.build_load(ir_func, index_alloca);
+        let current_end = self.builder.build_load(ir_func, end_alloca);
+        let condition = if inclusive {
+            self.builder.build_le(ir_func, current_index, current_end)
+        } else {
+            self.builder.build_lt(ir_func, current_index, current_end)
+        };
+        self.builder
+            .build_cond_branch(ir_func, condition, body_block, exit_block);
+
+        self.builder.set_current_block(body_block);
+        self.loop_stack.push(LoopContext {
+            header_block: increment_block,
+            exit_block,
+        });
+
+        self.value_map.push_scope();
+        self.variable_types.push_scope();
+        self.array_map.push_scope();
+        self.range_map.push_scope();
+        self.struct_var_map.push_scope();
+
+        let body_index = self.builder.build_load(ir_func, index_alloca);
+        self.value_map.insert(for_stmt.iterator.clone(), body_index);
+        self.variable_types
+            .insert(for_stmt.iterator.clone(), IRType::Int);
+
+        self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
+
+        if let Some(current_block) = self.builder.get_current_block() {
+            if let Some(block) = ir_func.get_block_mut(current_block) {
+                if block.terminator.is_none() {
+                    self.builder.build_branch(ir_func, increment_block);
+                }
+            }
+        }
+
+        self.struct_var_map.pop_scope();
+        self.range_map.pop_scope();
+        self.array_map.pop_scope();
+        self.variable_types.pop_scope();
+        self.value_map.pop_scope();
+        self.loop_stack.pop();
+
+        self.builder.set_current_block(increment_block);
+        let step_index = self.builder.build_load(ir_func, index_alloca);
+        let one = self.builder.build_const_int(ir_func, 1);
+        let next_index = self.builder.build_add(ir_func, step_index, one);
+        self.builder.build_store(ir_func, index_alloca, next_index);
+        self.builder.build_branch(ir_func, header_block);
+
+        self.builder.set_current_block(exit_block);
+    }
+
     fn lower_range_for_loop(
         &mut self,
         for_stmt: &spectra_compiler::ast::ForLoop,
@@ -4199,6 +4336,7 @@ impl ASTLowering {
         self.value_map.push_scope();
         self.variable_types.push_scope();
         self.array_map.push_scope();
+        self.range_map.push_scope();
         self.struct_var_map.push_scope();
 
         let body_index = self.builder.build_load(ir_func, index_alloca);
@@ -4227,6 +4365,137 @@ impl ASTLowering {
         }
 
         self.struct_var_map.pop_scope();
+        self.array_map.pop_scope();
+        self.range_map.pop_scope();
+        self.variable_types.pop_scope();
+        self.value_map.pop_scope();
+        self.loop_stack.pop();
+
+        self.builder.set_current_block(increment_block);
+        let step_index = self.builder.build_load(ir_func, index_alloca);
+        let one = self.builder.build_const_int(ir_func, 1);
+        let next_index = self.builder.build_add(ir_func, step_index, one);
+        self.builder.build_store(ir_func, index_alloca, next_index);
+        self.builder.build_branch(ir_func, header_block);
+
+        self.builder.set_current_block(exit_block);
+    }
+
+    fn lower_range_expression(
+        &mut self,
+        start: &Expression,
+        end: &Expression,
+        inclusive: bool,
+        ir_func: &mut IRFunction,
+    ) -> (Value, RangeInfo) {
+        let start_val = self.lower_expression(start, ir_func);
+        let end_val = self.lower_expression(end, ir_func);
+        let inclusive_val = self.builder.build_const_int(ir_func, inclusive as i64);
+        let handle = self
+            .builder
+            .build_typed_host_call(
+                ir_func,
+                "spectra.std.range.create".to_string(),
+                vec![start_val, end_val, inclusive_val],
+                IRType::Range,
+                true,
+            )
+            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+        (
+            handle,
+            RangeInfo {
+                start: start_val,
+                end: end_val,
+                inclusive,
+            },
+        )
+    }
+
+    fn lower_non_range_for_loop(
+        &mut self,
+        for_stmt: &spectra_compiler::ast::ForLoop,
+        ir_func: &mut IRFunction,
+    ) {
+        let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
+        let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
+
+        let (element_type, length) = match iterable_type {
+            IRType::Array { element_type, size } => (*element_type, size),
+            IRType::Range => {
+                self.lower_range_for_loop(for_stmt, iterable_value, ir_func);
+                return;
+            }
+            other => {
+                self.error(format!(
+                    "for-loop lowering currently supports arrays and ranges only, found {:?}",
+                    other
+                ));
+                (IRType::Int, 0)
+            }
+        };
+
+        let header_block = ir_func.add_block("for.header");
+        let body_block = ir_func.add_block("for.body");
+        let increment_block = ir_func.add_block("for.increment");
+        let exit_block = ir_func.add_block("for.exit");
+
+        let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
+        let zero = self.builder.build_const_int(ir_func, 0);
+        self.builder.build_store(ir_func, index_alloca, zero);
+        self.builder.build_branch(ir_func, header_block);
+
+        self.builder.set_current_block(header_block);
+        let current_index = self.builder.build_load(ir_func, index_alloca);
+        let length_const = self.builder.build_const_int(ir_func, length as i64);
+        let condition = self.builder.build_lt(ir_func, current_index, length_const);
+        self.builder
+            .build_cond_branch(ir_func, condition, body_block, exit_block);
+
+        self.builder.set_current_block(body_block);
+        self.loop_stack.push(LoopContext {
+            header_block: increment_block,
+            exit_block,
+        });
+
+        self.value_map.push_scope();
+        self.variable_types.push_scope();
+        self.array_map.push_scope();
+        self.range_map.push_scope();
+        self.struct_var_map.push_scope();
+
+        let body_index = self.builder.build_load(ir_func, index_alloca);
+        let element_ptr = self.builder.build_getelementptr(
+            ir_func,
+            iterable_value,
+            body_index,
+            element_type.clone(),
+        );
+        let element_value =
+            self.builder
+                .build_load_typed(ir_func, element_ptr, element_type.clone());
+
+        self.value_map
+            .insert(for_stmt.iterator.clone(), element_value);
+        self.variable_types
+            .insert(for_stmt.iterator.clone(), element_type.clone());
+
+        if let IRType::Struct { name, .. } = &element_type {
+            self.struct_var_map
+                .insert(for_stmt.iterator.clone(), (element_value, name.clone()));
+        }
+
+        self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
+
+        if let Some(current_block) = self.builder.get_current_block() {
+            if let Some(block) = ir_func.get_block_mut(current_block) {
+                if block.terminator.is_none() {
+                    self.builder.build_branch(ir_func, increment_block);
+                }
+            }
+        }
+
+        self.struct_var_map.pop_scope();
+        self.range_map.pop_scope();
         self.array_map.pop_scope();
         self.variable_types.pop_scope();
         self.value_map.pop_scope();
@@ -4281,6 +4550,7 @@ impl ASTLowering {
                     });
                     let saved_expected_annotation = self.current_expected_annotation.clone();
                     self.current_expected_annotation = let_stmt.ty.clone();
+                    let mut lowered_range_info = None;
                     let value = if let Some(IRType::Tensor { dtype, rank, .. }) =
                         annotated_tensor_type.as_ref()
                     {
@@ -4291,6 +4561,16 @@ impl ASTLowering {
                         } else {
                             self.lower_expression(value_expr, ir_func)
                         }
+                    } else if let ExpressionKind::Range {
+                        start,
+                        end,
+                        inclusive,
+                    } = &value_expr.kind
+                    {
+                        let (value, info) =
+                            self.lower_range_expression(start, end, *inclusive, ir_func);
+                        lowered_range_info = Some(info);
+                        value
                     } else {
                         self.lower_expression(value_expr, ir_func)
                     };
@@ -4344,6 +4624,12 @@ impl ASTLowering {
                                         size,
                                     },
                                 );
+                            }
+                            self.value_map.insert(name.clone(), value);
+                        }
+                        ExpressionKind::Range { .. } => {
+                            if let Some(info) = lowered_range_info {
+                                self.range_map.insert(name.clone(), info);
                             }
                             self.value_map.insert(name.clone(), value);
                         }
@@ -4600,115 +4886,32 @@ impl ASTLowering {
                 self.builder.set_current_block(exit_block);
             }
             StatementKind::For(for_stmt) => {
-                // Check if iterable is a range expression — handle as an integer range loop
-                // rather than loading array elements.
-                if let ExpressionKind::Range { .. } = &for_stmt.iterable.kind {
-                    let range_value = self.lower_expression(&for_stmt.iterable, ir_func);
-                    self.lower_range_for_loop(for_stmt, range_value, ir_func);
-                } else {
-                    // Lower iterable expression once to avoid recomputation
-                    let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
-                    let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
-
-                    let (element_type, length) = match iterable_type {
-                        IRType::Array { element_type, size } => (*element_type, size),
-                        IRType::Range => {
-                            self.lower_range_for_loop(for_stmt, iterable_value, ir_func);
-                            return;
-                        }
-                        other => {
-                            self.error(format!(
-                                "for-loop lowering currently supports arrays only, found {:?}",
-                                other
-                            ));
-                            (IRType::Int, 0)
-                        }
-                    };
-
-                    let header_block = ir_func.add_block("for.header");
-                    let body_block = ir_func.add_block("for.body");
-                    let increment_block = ir_func.add_block("for.increment");
-                    let exit_block = ir_func.add_block("for.exit");
-
-                    // Allocate and initialise loop index
-                    let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
-                    let zero = self.builder.build_const_int(ir_func, 0);
-                    self.builder.build_store(ir_func, index_alloca, zero);
-
-                    // Jump to header to evaluate guard
-                    self.builder.build_branch(ir_func, header_block);
-
-                    // Header: check index < length
-                    self.builder.set_current_block(header_block);
-                    let current_index = self.builder.build_load(ir_func, index_alloca);
-                    let length_const = self.builder.build_const_int(ir_func, length as i64);
-                    let condition = self.builder.build_lt(ir_func, current_index, length_const);
-                    self.builder
-                        .build_cond_branch(ir_func, condition, body_block, exit_block);
-
-                    // Body block
-                    self.builder.set_current_block(body_block);
-                    self.loop_stack.push(LoopContext {
-                        header_block: increment_block,
-                        exit_block,
-                    });
-
-                    // Scoped bindings for iterator variable
-                    self.value_map.push_scope();
-                    self.variable_types.push_scope();
-                    self.array_map.push_scope();
-                    self.struct_var_map.push_scope();
-
-                    let body_index = self.builder.build_load(ir_func, index_alloca);
-                    let element_ptr = self.builder.build_getelementptr(
-                        ir_func,
-                        iterable_value,
-                        body_index,
-                        element_type.clone(),
+                if let ExpressionKind::Range {
+                    start,
+                    end,
+                    inclusive,
+                } = &for_stmt.iterable.kind
+                {
+                    let start_val = self.lower_expression(start, ir_func);
+                    let end_val = self.lower_expression(end, ir_func);
+                    self.lower_counted_range_for_loop(
+                        for_stmt, start_val, end_val, *inclusive, ir_func,
                     );
-                    let element_value =
-                        self.builder
-                            .build_load_typed(ir_func, element_ptr, element_type.clone());
-
-                    // Bind iterator variable in current scope
-                    self.value_map
-                        .insert(for_stmt.iterator.clone(), element_value);
-                    self.variable_types
-                        .insert(for_stmt.iterator.clone(), element_type.clone());
-
-                    if let IRType::Struct { name, .. } = &element_type {
-                        self.struct_var_map
-                            .insert(for_stmt.iterator.clone(), (element_value, name.clone()));
+                } else if let ExpressionKind::Identifier(name) = &for_stmt.iterable.kind {
+                    if let Some(info) = self.range_map.get(name) {
+                        self.lower_counted_range_for_loop(
+                            for_stmt,
+                            info.start,
+                            info.end,
+                            info.inclusive,
+                            ir_func,
+                        );
+                    } else {
+                        self.lower_non_range_for_loop(for_stmt, ir_func);
                     }
-
-                    self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
-
-                    // Determine if body naturally falls through
-                    if let Some(current_block) = self.builder.get_current_block() {
-                        if let Some(block) = ir_func.get_block_mut(current_block) {
-                            if block.terminator.is_none() {
-                                self.builder.build_branch(ir_func, increment_block);
-                            }
-                        }
-                    }
-
-                    self.struct_var_map.pop_scope();
-                    self.array_map.pop_scope();
-                    self.variable_types.pop_scope();
-                    self.value_map.pop_scope();
-                    self.loop_stack.pop();
-
-                    // Increment block
-                    self.builder.set_current_block(increment_block);
-                    let step_index = self.builder.build_load(ir_func, index_alloca);
-                    let one = self.builder.build_const_int(ir_func, 1);
-                    let next_index = self.builder.build_add(ir_func, step_index, one);
-                    self.builder.build_store(ir_func, index_alloca, next_index);
-                    self.builder.build_branch(ir_func, header_block);
-
-                    // Exit block becomes current for following statements
-                    self.builder.set_current_block(exit_block);
-                } // end else (array-based for)
+                } else {
+                    self.lower_non_range_for_loop(for_stmt, ir_func);
+                }
             }
             StatementKind::Loop(loop_stmt) => {
                 let body_block = ir_func.add_block("loop.body");
@@ -4873,6 +5076,7 @@ impl ASTLowering {
                 self.value_map.push_scope();
                 self.variable_types.push_scope();
                 self.array_map.push_scope();
+                self.range_map.push_scope();
                 self.struct_var_map.push_scope();
 
                 self.lower_pattern_bindings(
@@ -4887,6 +5091,7 @@ impl ASTLowering {
 
                 self.struct_var_map.pop_scope();
                 self.array_map.pop_scope();
+                self.range_map.pop_scope();
                 self.variable_types.pop_scope();
                 self.value_map.pop_scope();
 
@@ -4961,6 +5166,7 @@ impl ASTLowering {
                 self.value_map.push_scope();
                 self.variable_types.push_scope();
                 self.array_map.push_scope();
+                self.range_map.push_scope();
                 self.struct_var_map.push_scope();
 
                 // Bind pattern variables (e.g. `n` in `while let Option::Some(n) = ...`)
@@ -4976,6 +5182,7 @@ impl ASTLowering {
 
                 self.struct_var_map.pop_scope();
                 self.array_map.pop_scope();
+                self.range_map.pop_scope();
                 self.variable_types.pop_scope();
                 self.value_map.pop_scope();
 
@@ -6325,6 +6532,7 @@ impl ASTLowering {
                     self.value_map.push_scope();
                     self.variable_types.push_scope();
                     self.array_map.push_scope();
+                    self.range_map.push_scope();
                     self.struct_var_map.push_scope();
 
                     self.lower_pattern_bindings(
@@ -6369,6 +6577,7 @@ impl ASTLowering {
 
                     self.struct_var_map.pop_scope();
                     self.array_map.pop_scope();
+                    self.range_map.pop_scope();
                     self.variable_types.pop_scope();
                     self.value_map.pop_scope();
                 }
@@ -6605,18 +6814,8 @@ impl ASTLowering {
                 end,
                 inclusive,
             } => {
-                let start_val = self.lower_expression(start, ir_func);
-                let end_val = self.lower_expression(end, ir_func);
-                let inclusive_val = self.builder.build_const_int(ir_func, (*inclusive) as i64);
-                self.builder
-                    .build_typed_host_call(
-                        ir_func,
-                        "spectra.std.range.create".to_string(),
-                        vec![start_val, end_val, inclusive_val],
-                        IRType::Range,
-                        true,
-                    )
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+                self.lower_range_expression(start, end, *inclusive, ir_func)
+                    .0
             }
             ExpressionKind::Lambda { params, body, .. } => {
                 // Lower as a top-level IR function with a generated unique name.

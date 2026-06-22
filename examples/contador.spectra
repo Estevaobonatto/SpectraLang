@@ -1,0 +1,16 @@
+module contador;
+
+import { println } from std.io;
+import { monotonic_millis } from std.time;
+    
+pub fn main() -> int {
+    let count = 0;
+    let inicio = monotonic_millis();
+    for i in 0..1000000000 {
+        count = count + 1;
+    }
+    let fim = monotonic_millis();
+    println(f"{count}");
+    println(f"Tempo: {fim - inicio}ms");
+    return 0;
+}

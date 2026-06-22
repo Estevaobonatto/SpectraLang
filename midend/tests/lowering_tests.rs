@@ -296,7 +296,7 @@ fn test_lower_loop_infinite() {
 }
 
 #[test]
-fn test_lower_stored_range_for_loop_uses_range_host_calls() {
+fn test_lower_stored_range_for_loop_uses_counted_loop() {
     let module = make_module(
         "test",
         vec![make_function(
@@ -338,8 +338,52 @@ fn test_lower_stored_range_for_loop_uses_range_host_calls() {
         .collect();
 
     assert!(hosts.contains(&"spectra.std.range.create"));
-    assert!(hosts.contains(&"spectra.std.range.len"));
-    assert!(hosts.contains(&"spectra.std.range.at"));
+    assert!(!hosts.contains(&"spectra.std.range.len"));
+    assert!(!hosts.contains(&"spectra.std.range.at"));
+}
+
+#[test]
+fn test_lower_literal_range_for_loop_uses_counted_loop() {
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![Statement {
+                span: s(),
+                kind: StatementKind::For(ForLoop {
+                    iterator: "i".to_string(),
+                    iterable: range_expr(int_lit(0), int_lit(100), false),
+                    body: Block {
+                        span: s(),
+                        statements: vec![Statement {
+                            span: s(),
+                            kind: StatementKind::Break,
+                        }],
+                    },
+                    span: s(),
+                }),
+            }],
+        )],
+    );
+
+    let mut lowering = ASTLowering::new();
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
+    let func = &ir_module.functions[0];
+    let hosts: Vec<&str> = func
+        .blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .filter_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall { host, .. } => Some(host.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(!hosts.contains(&"spectra.std.range.create"));
+    assert!(!hosts.contains(&"spectra.std.range.len"));
+    assert!(!hosts.contains(&"spectra.std.range.at"));
 }
 
 #[test]
