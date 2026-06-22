@@ -13441,6 +13441,23 @@ impl AsyncTaskRegistry {
         }
     }
 
+    fn drive_pending_io_for_task(&mut self, task_id: SpectraHostValue) {
+        for _ in 0..16 {
+            let pending = self
+                .tasks
+                .get(&task_id)
+                .map(|task| !task.completed && !task.cancelled && !task.failed)
+                .unwrap_or(false);
+            if !pending {
+                break;
+            }
+            self.drive_tcp_accepts();
+            self.drive_tcp_reads();
+            self.drive_udp_recvs();
+            std::thread::yield_now();
+        }
+    }
+
     fn drive_async_channel(&mut self, channel_id: SpectraHostValue) -> Option<()> {
         loop {
             let recv_task = {
@@ -13675,6 +13692,7 @@ extern "C" fn std_async_task_poll(ctx: *mut SpectraHostCallContext) -> i32 {
         Err(status) => return status,
     };
     registry.process_due_timeouts();
+    registry.drive_pending_io_for_task(args[0]);
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
@@ -13692,6 +13710,7 @@ extern "C" fn std_async_task_result(ctx: *mut SpectraHostCallContext) -> i32 {
         Err(status) => return status,
     };
     registry.process_due_timeouts();
+    registry.drive_pending_io_for_task(args[0]);
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
@@ -13724,6 +13743,7 @@ extern "C" fn std_async_task_join(ctx: *mut SpectraHostCallContext) -> i32 {
         Err(status) => return status,
     };
     registry.process_due_timeouts();
+    registry.drive_pending_io_for_task(args[0]);
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
@@ -13746,6 +13766,7 @@ extern "C" fn std_async_task_join_status(ctx: *mut SpectraHostCallContext) -> i3
         Err(status) => return status,
     };
     registry.process_due_timeouts();
+    registry.drive_pending_io_for_task(args[0]);
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
