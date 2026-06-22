@@ -23,6 +23,11 @@ Production releases require the environment variable
 `SPECTRA_RELEASE_SIGNING_KEY`. The local `--allow-dev-key` flag is only for
 validation tests and must not be used in release workflows.
 
+The GitHub release workflow runs a signing-key preflight before version bumps,
+tags, builds, or release asset publication. Automatic `push` runs skip the
+production release when the secret is not configured; manual
+`workflow_dispatch` runs fail fast until the secret is configured.
+
 Example:
 
 ```powershell

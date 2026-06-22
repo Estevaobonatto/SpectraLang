@@ -19,11 +19,38 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  release-preflight:
+    name: Release Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      can_release: ${{ steps.signing.outputs.can_release }}
+
+    steps:
+      - name: Check release signing key
+        id: signing
+        env:
+          SPECTRA_RELEASE_SIGNING_KEY: ${{ secrets.SPECTRA_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -n "${SPECTRA_RELEASE_SIGNING_KEY}" ]; then
+            echo "can_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "can_release=false" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "SPECTRA_RELEASE_SIGNING_KEY secret is required for production release signing." >&2
+            exit 1
+          fi
+
+          echo "SPECTRA_RELEASE_SIGNING_KEY secret is not configured; skipping automatic production release."
+
   # ---------------------------------------------------------------------------
   # Phase 0: Determine version (from input or Cargo.toml) and create git tag
   # ---------------------------------------------------------------------------
   determine-version:
     name: Determine Version & Create Tag
+    needs: release-preflight
+    if: needs.release-preflight.outputs.can_release == 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.VERSION }}

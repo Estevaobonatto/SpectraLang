@@ -144,6 +144,7 @@ struct ReactorState {
     task_wakeups: u64,
     timer_events: u64,
     io_events: u64,
+    generation: u64,
 }
 
 #[derive(Debug)]
@@ -182,6 +183,28 @@ impl ReactorCore {
         if let Some(os) = &self.os {
             let _ = os.waker.wake();
         }
+    }
+
+    fn push_event_for_generation(&self, generation: u64, event: ReactorEvent) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.generation != generation {
+                return;
+            }
+            match event.kind {
+                EventKind::TaskWake => state.task_wakeups += 1,
+                EventKind::Timer => state.timer_events += 1,
+                EventKind::Io => state.io_events += 1,
+            }
+            state.queue.push_back(event);
+            self.ready.notify_one();
+        }
+        if let Some(os) = &self.os {
+            let _ = os.waker.wake();
+        }
+    }
+
+    fn generation(&self) -> u64 {
+        self.state.lock().map(|state| state.generation).unwrap_or(0)
     }
 
     fn pop_event(&self, timeout: Option<Duration>) -> Option<ReactorEvent> {
@@ -279,13 +302,14 @@ impl Reactor {
 
     pub fn register_timer(&self, token: i64, delay: Duration) {
         let core = Arc::clone(&self.core);
+        let generation = core.generation();
         thread::spawn(move || {
             let deadline = Instant::now() + delay;
             let now = Instant::now();
             if deadline > now {
                 thread::sleep(deadline - now);
             }
-            core.push_event(ReactorEvent::timer(token));
+            core.push_event_for_generation(generation, ReactorEvent::timer(token));
         });
     }
 
@@ -349,7 +373,9 @@ impl Reactor {
 
     pub fn reset(&self) {
         if let Ok(mut state) = self.core.state.lock() {
+            let generation = state.generation.wrapping_add(1);
             *state = ReactorState::default();
+            state.generation = generation;
             self.core.ready.notify_all();
         }
     }
