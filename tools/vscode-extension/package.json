@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "spectra-vscode-extension",
   "displayName": "SpectraLang",
   "description": "VS Code support for SpectraLang with diagnostics, formatting, hover, completion, and go-to-definition via LSP.",

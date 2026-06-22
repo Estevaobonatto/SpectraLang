@@ -70,12 +70,32 @@ jobs:
       - name: Resolve and bump version
         id: ver
         run: |
-          CURRENT=$(grep '^version' tools/spectra-cli/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          # Lê a versão SOMENTE do bloco [package] (evita pegar dependências)
+          CURRENT=$(awk '
+            /^\[package\]/ { in_pkg=1; next }
+            /^\[/ { in_pkg=0 }
+            in_pkg && /^version[[:space:]]*=/ {
+              sub(/^version[[:space:]]*=[[:space:]]*"/, "")
+              sub(/".*$/, "")
+              print
+              exit
+            }
+          ' tools/spectra-cli/Cargo.toml)
+
+          if [ -z "${CURRENT}" ]; then
+            echo "::error::Não foi possível ler a versão de tools/spectra-cli/Cargo.toml" >&2
+            exit 1
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ inputs.version }}"
           else
-            VERSION="${CURRENT}"
+            # Bump automático de patch no push: x.y.Z -> x.y.(Z+1)
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT}"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
           fi
+
           echo "CURRENT=${CURRENT}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Bumped: ${CURRENT} -> ${VERSION}"
@@ -84,11 +104,65 @@ jobs:
         run: |
           CURRENT="${{ steps.ver.outputs.CURRENT }}"
           VERSION="${{ steps.ver.outputs.VERSION }}"
-          # Update spectra-cli Cargo.toml
-          sed -i "s/^version = \"${CURRENT}\"/version = \"${VERSION}\"/" tools/spectra-cli/Cargo.toml
-          # Update VS Code extension package.json
-          sed -i "s/\"version\": \"${CURRENT}\"/\"version\": \"${VERSION}\"/" tools/vscode-extension/package.json
-          echo "Updated version to ${VERSION} in Cargo.toml and package.json"
+
+          python3 <<'PY'
+          import re
+
+          current = "${CURRENT}"
+          version = "${VERSION}"
+          cargo_path = "tools/spectra-cli/Cargo.toml"
+          pkg_path = "tools/vscode-extension/package.json"
+
+          # --- Cargo.toml: altera APENAS a linha version dentro do bloco [package]
+          # utf-8-sig tolera BOM se existir; gravamos sem BOM.
+          with open(cargo_path, "r", encoding="utf-8-sig") as f:
+              lines = f.readlines()
+
+          in_package = False
+          cargo_changed = False
+          for i, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped == "[package]":
+                  in_package = True
+                  continue
+              if in_package and stripped.startswith("["):
+                  in_package = False
+                  continue
+              if in_package and re.match(r'^version\s*=\s*"' + re.escape(current) + r'"', stripped):
+                  lines[i] = line.replace(f'version = "{current}"', f'version = "{version}"', 1)
+                  cargo_changed = True
+                  break
+
+          if not cargo_changed:
+              print(f"::error::Não encontrou version = '{current}' no bloco [package] de {cargo_path}")
+              raise SystemExit(1)
+
+          with open(cargo_path, "w", encoding="utf-8", newline="") as f:
+              f.writelines(lines)
+
+          # --- package.json: altera APENAS a primeira ocorrência de "version": "<current>"
+          # (que é o campo top-level, pois vem antes de qualquer dependência aninhada).
+          with open(pkg_path, "r", encoding="utf-8-sig") as f:
+              pkg_lines = f.readlines()
+
+          pkg_changed = False
+          pkg_pattern = re.compile(r'^(\s*"version"\s*:\s*")' + re.escape(current) + r'("\s*,?\s*)$')
+          for i, line in enumerate(pkg_lines):
+              m = pkg_pattern.match(line.rstrip("\r\n"))
+              if m:
+                  pkg_lines[i] = m.group(1) + version + m.group(2) + line[len(line.rstrip("\r\n")):]
+                  pkg_changed = True
+                  break
+
+          if not pkg_changed:
+              print(f"::error::Não encontrou 'version': '{current}' em {pkg_path}")
+              raise SystemExit(1)
+
+          with open(pkg_path, "w", encoding="utf-8", newline="") as f:
+              f.writelines(pkg_lines)
+
+          print(f"Updated version to {version} in {cargo_path} and {pkg_path}")
+          PY
 
       - name: Commit and push version bump
         run: |
