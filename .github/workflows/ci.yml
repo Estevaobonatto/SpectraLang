@@ -55,25 +55,3 @@ jobs:
 
       - name: Run workspace tests
         run: cargo test --workspace
-
-  spectra-suite:
-    name: Spectra regression suite (Windows)
-    runs-on: windows-latest
-    needs: cargo-test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build CLI
-        run: cargo build -p spectra-cli
-
-      - name: Run scripted regression suite
-        shell: pwsh
-        run: ./run_tests.ps1

@@ -17,6 +17,7 @@ export class SpectraFormatter implements vscode.DocumentFormattingEditProvider {
       return [];
     }
 
+    
     const fullRange = new vscode.Range(
       0,
       0,
