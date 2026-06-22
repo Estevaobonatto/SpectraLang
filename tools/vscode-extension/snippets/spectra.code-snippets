@@ -6,7 +6,7 @@
       "",
       "${0}"
     ],
-    "description": "Declarar um modulo Spectra"
+    "description": "Declare a Spectra module"
   },
   "Module with main": {
     "prefix": "newfile",
@@ -17,7 +17,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Novo arquivo Spectra com modulo e main"
+    "description": "New Spectra file with module and main"
   },
   "Main Function": {
     "prefix": "main",
@@ -26,7 +26,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar a funcao principal publica"
+    "description": "Create the public main function"
   },
   "Function": {
     "prefix": "fn",
@@ -35,7 +35,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar uma funcao com parametros e retorno"
+    "description": "Create a function with parameters and a return type"
   },
   "Public Function": {
     "prefix": "pubfn",
@@ -44,7 +44,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar uma funcao publica"
+    "description": "Create a public function"
   },
   "Struct": {
     "prefix": "struct",
@@ -53,7 +53,7 @@
       "    ${2:field}: ${3:int},",
       "}"
     ],
-    "description": "Declarar uma struct"
+    "description": "Declare a struct"
   },
   "Struct with impl": {
     "prefix": "structimpl",
@@ -72,7 +72,7 @@
       "    }",
       "}"
     ],
-    "description": "Declarar uma struct com bloco impl"
+    "description": "Declare a struct with an impl block"
   },
   "Enum": {
     "prefix": "enum",
@@ -81,7 +81,7 @@
       "    ${2:Variant},",
       "}"
     ],
-    "description": "Declarar um enum"
+    "description": "Declare an enum"
   },
   "Enum with data": {
     "prefix": "enumdata",
@@ -91,7 +91,7 @@
       "    ${4:None},",
       "}"
     ],
-    "description": "Declarar um enum com variante de dados"
+    "description": "Declare an enum with a data variant"
   },
   "Impl Block": {
     "prefix": "impl",
@@ -102,7 +102,7 @@
       "    }",
       "}"
     ],
-    "description": "Criar um bloco impl com metodo"
+    "description": "Create an impl block with a method"
   },
   "If Let": {
     "prefix": "iflet",
@@ -111,7 +111,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar um bloco if let para desempacotar enum"
+    "description": "Create an if let block to unpack an enum"
   },
   "If Let with Else": {
     "prefix": "ifletelse",
@@ -122,7 +122,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar um bloco if let com else"
+    "description": "Create an if let block with else"
   },
   "While Let": {
     "prefix": "whilelet",
@@ -131,7 +131,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar um loop while let"
+    "description": "Create a while let loop"
   },
   "While Loop": {
     "prefix": "while",
@@ -140,7 +140,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar um loop while"
+    "description": "Create a while loop"
   },
   "Counter Loop": {
     "prefix": "for",
@@ -151,7 +151,7 @@
       "    ${1:i} = ${1:i} + 1;",
       "}"
     ],
-    "description": "Loop contador com while (equivalente ao for classico)"
+    "description": "Counter loop with while (classic for equivalent)"
   },
   "Do While": {
     "prefix": "dowhile",
@@ -160,7 +160,7 @@
       "    ${0}",
       "} while ${1:condition};"
     ],
-    "description": "Criar um loop do-while"
+    "description": "Create a do-while loop"
   },
   "Infinite Loop": {
     "prefix": "loop",
@@ -172,7 +172,7 @@
       "    }",
       "}"
     ],
-    "description": "Criar um loop infinito com break"
+    "description": "Create an infinite loop with break"
   },
   "Match": {
     "prefix": "match",
@@ -182,7 +182,7 @@
       "    _ => ${0},",
       "}"
     ],
-    "description": "Criar uma expressao match com wildcard"
+    "description": "Create a match expression with wildcard"
   },
   "Match Enum": {
     "prefix": "matchenum",
@@ -192,42 +192,42 @@
       "    ${2:Enum}::${5:VariantB} => ${0},",
       "}"
     ],
-    "description": "Criar um match exaustivo sobre enum"
+    "description": "Create an exhaustive match over an enum"
   },
   "Let Binding": {
     "prefix": "let",
     "body": [
       "let ${1:name} = ${0};"
     ],
-    "description": "Declarar uma variavel"
+    "description": "Declare a variable"
   },
   "Import Named": {
     "prefix": "import",
     "body": [
       "import { ${1:fn_name} } from ${2:std.io};"
     ],
-    "description": "Importar funcoes especificas de um modulo"
+    "description": "Import specific functions from a module"
   },
   "Import Alias": {
     "prefix": "importas",
     "body": [
       "import ${1:std.math} as ${2:math};"
     ],
-    "description": "Importar um modulo com alias"
+    "description": "Import a module with an alias"
   },
   "Return": {
     "prefix": "return",
     "body": [
       "return ${0};"
     ],
-    "description": "Retornar um valor"
+    "description": "Return a value"
   },
   "Print Line": {
     "prefix": "println",
     "body": [
       "println(${0});"
     ],
-    "description": "Imprimir linha (requer import std.io)"
+    "description": "Print a line (requires import std.io)"
   },
   "Async Function": {
     "prefix": "asyncfn",
@@ -236,7 +236,7 @@
       "    ${0}",
       "}"
     ],
-    "description": "Criar uma funcao async"
+    "description": "Create an async function"
   },
   "Async Block": {
     "prefix": "asyncblock",
@@ -245,14 +245,14 @@
       "    ${0}",
       "};"
     ],
-    "description": "Criar um bloco async"
+    "description": "Create an async block"
   },
   "Await Task": {
     "prefix": "await",
     "body": [
       "let ${1:value} = await ${2:task};"
     ],
-    "description": "Aguardar um Task<T> dentro de contexto async"
+    "description": "Await a Task<T> inside an async context"
   },
   "API Handler": {
     "prefix": "apihandler",
@@ -261,7 +261,7 @@
       "    return std.api.handler.json(\"${2:{}}\");",
       "}"
     ],
-    "description": "Criar handler spectra.api sincrono"
+    "description": "Create a synchronous spectra.api handler"
   },
   "API Async Handler": {
     "prefix": "apiasynchandler",
@@ -270,7 +270,7 @@
       "    return std.api.handler.json(\"${2:{}}\");",
       "}"
     ],
-    "description": "Criar handler spectra.api async"
+    "description": "Create an async spectra.api handler"
   },
   "API Router GET": {
     "prefix": "apiroute",
@@ -279,7 +279,7 @@
       "let ${2:route} = std.api.routing.get(${1:router}, \"${3:/health}\");",
       "${0}"
     ],
-    "description": "Criar router spectra.api com rota GET"
+    "description": "Create a spectra.api router with a GET route"
   },
   "API CORS Policy": {
     "prefix": "apicors",
@@ -288,7 +288,7 @@
       "let ${2:cors} = std.api.cors.middleware(${1:policy});",
       "${0}"
     ],
-    "description": "Criar policy CORS e middleware spectra.api"
+    "description": "Create a CORS policy and spectra.api middleware"
   },
   "API Middleware Chain": {
     "prefix": "apimiddleware",
@@ -298,20 +298,20 @@
       "let ${4:response} = std.api.middleware.execute_sync(${2:next}, ${5:request}, ${6:response});",
       "${0}"
     ],
-    "description": "Criar chain de middleware spectra.api"
+    "description": "Create a spectra.api middleware chain"
   },
   "API JSON Response": {
     "prefix": "apijson",
     "body": [
       "return std.api.handler.json(\"${1:{}}\");"
     ],
-    "description": "Retornar Response JSON via spectra.api"
+    "description": "Return a JSON Response through spectra.api"
   },
   "F-String": {
     "prefix": "fstr",
     "body": [
       "f\"${0}\""
     ],
-    "description": "Criar uma f-string com interpolacao"
+    "description": "Create an f-string with interpolation"
   }
 }

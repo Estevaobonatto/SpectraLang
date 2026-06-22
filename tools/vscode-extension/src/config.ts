@@ -88,7 +88,7 @@ export function getCliPath(): string {
 
   const executable = getExecutableName('spectra-cli');
 
-  // Prioridade 1: bundled dentro da extensão (server/<platform>-<arch>/spectra-cli)
+  // Priority 1: bundled inside the extension (server/<platform>-<arch>/spectra-cli)
   if (_extensionPath) {
     const platformDir = getPlatformDir();
     const bundledCandidates = [
@@ -104,7 +104,7 @@ export function getCliPath(): string {
     }
   }
 
-  // Prioridade 2: binário no workspace (target/debug ou target/release)
+  // Priority 2: workspace binary (target/debug or target/release)
   const workspaceCandidates = (vscode.workspace.workspaceFolders ?? []).flatMap((folder) => [
     path.resolve(folder.uri.fsPath, 'target', 'debug', executable),
     path.resolve(folder.uri.fsPath, 'target', 'release', executable),
@@ -114,7 +114,7 @@ export function getCliPath(): string {
     return workspaceBinary;
   }
 
-  // Fallback: espera que esteja no PATH
+  // Fallback: expect it to be on PATH.
   return executable;
 }
 

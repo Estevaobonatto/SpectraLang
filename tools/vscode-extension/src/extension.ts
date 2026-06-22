@@ -28,11 +28,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   outputChannel = vscode.window.createOutputChannel('Spectra');
   context.subscriptions.push(outputChannel);
 
-  // Propagar extensionPath para o módulo config para que getCliPath() encontre o
-  // binário bundled em server/spectra-cli.exe mesmo sem ele estar no PATH.
+  // Propagate extensionPath to config so getCliPath() can find the bundled
+  // binary in server/spectra-cli.exe even when it is not on PATH.
   setExtensionPath(context.extensionPath);
 
-  // Registrar todos os comandos primeiro — independem do LSP estar disponível.
+  // Register all commands first; they do not depend on LSP availability.
   registerCommands(context);
   registerFormatOnSaveHook(context);
 
@@ -44,12 +44,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  // Link provider: torna "  --> arquivo.spectra:linha:col" clicável no terminal.
+  // Link provider: makes "  --> file.spectra:line:col" clickable in the terminal.
   context.subscriptions.push(
     vscode.window.registerTerminalLinkProvider(new SpectraTerminalLinkProvider())
   );
 
-  // Limpar referência ao terminal quando o usuário o fechar manualmente.
+  // Clear the terminal reference when the user closes it manually.
   context.subscriptions.push(
     vscode.window.onDidCloseTerminal((t) => {
       if (t === spectraRunTerminal) {
@@ -58,31 +58,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  // Iniciar LSP de forma não-bloqueante: falha não impede os comandos CLI.
+  // Start LSP without blocking CLI commands if startup fails.
   try {
     client = await startClient(context, outputChannel);
   } catch {
-    // Erros já foram logados e notificados dentro de startClient.
-    // A extensão continua funcionando sem LSP (comandos CLI disponíveis).
+    // Errors were already logged and reported inside startClient.
+    // The extension keeps working without LSP (CLI commands remain available).
   }
 }
 
 function registerCommands(context: vscode.ExtensionContext): void {
-  // NOTA: RUN_DIAGNOSTICS_COMMAND e LINT_WORKSPACE_COMMAND NÃO são registrados
-  // aqui. Eles são anunciados em execute_command_provider no servidor LSP e o
-  // ExecuteCommandFeature do vscode-languageclient os registra automaticamente
-  // ao inicializar o cliente. Registrá-los manualmente causaria conflito
+  // NOTE: RUN_DIAGNOSTICS_COMMAND and LINT_WORKSPACE_COMMAND are NOT registered
+  // here. They are advertised by execute_command_provider in the LSP server and
+  // vscode-languageclient registers them automatically when the client starts.
+  // Registering them manually would cause a conflict:
   // "command already exists".
 
   context.subscriptions.push(
     vscode.commands.registerCommand(COMPILE_CURRENT_FILE_COMMAND, async () => {
-      await executeCliCommandForActiveDocument('compile', 'Compilar arquivo atual');
+      await executeCliCommandForActiveDocument('compile', 'Compile current file');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(CHECK_CURRENT_FILE_COMMAND, async () => {
-      await executeCliCommandForActiveDocument('check', 'Validar arquivo atual');
+      await executeCliCommandForActiveDocument('check', 'Check current file');
     })
   );
 
@@ -132,7 +132,7 @@ async function startClient(
   const usesPathLookup = serverPath === 'spectra-lsp';
 
   if (!usesPathLookup && !fs.existsSync(serverPath)) {
-    const message = `Spectra language server não encontrado em ${serverPath}. Reinstale a extensão com o instalador do repositório ou configure spectra.serverPath.`;
+    const message = `Spectra language server not found at ${serverPath}. Reinstall the extension with the repository installer or configure spectra.serverPath.`;
     output.appendLine(message);
     throw new Error(message);
   }
@@ -176,9 +176,9 @@ async function startClient(
     await nextClient.start();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    output.appendLine(`Falha ao iniciar spectra-lsp: ${detail}`);
+    output.appendLine(`Failed to start spectra-lsp: ${detail}`);
     void vscode.window.showWarningMessage(
-      'Spectra: servidor de linguagem não pôde ser iniciado. Funcionalidades LSP (hover, go-to-definition) unavailable. Configure spectra.serverPath se necessário.'
+      'Spectra: language server could not be started. LSP features (hover, go-to-definition) are unavailable. Configure spectra.serverPath if needed.'
     );
     throw error;
   }
@@ -272,23 +272,23 @@ async function executeCliCommandForActiveDocument(
     }
 
     vscode.window.showErrorMessage(
-      `Spectra '${command}' terminou com código ${result.exitCode}. Veja o canal de saída Spectra.`
+      `Spectra '${command}' exited with code ${result.exitCode}. See the Spectra output channel.`
     );
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     outputChannel?.appendLine(detail);
     vscode.window.showErrorMessage(
-      `Falha ao executar 'spectra ${command}': ${detail}`
+      `Failed to run 'spectra ${command}': ${detail}`
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Terminal integrado para execução interativa
+// Integrated terminal for interactive execution
 // ---------------------------------------------------------------------------
 
 function getOrCreateSpectraRunTerminal(cliPath: string, cwd?: string): vscode.Terminal {
-  // Reutiliza terminal existente se ainda estiver aberto.
+  // Reuse the existing terminal if it is still open.
   if (spectraRunTerminal && vscode.window.terminals.includes(spectraRunTerminal)) {
     return spectraRunTerminal;
   }
@@ -307,15 +307,15 @@ function runFileInTerminal(filePath: string, cliPath: string, cwd?: string): voi
   const terminal = getOrCreateSpectraRunTerminal(cliPath, cwd);
   const quotedCli = `"${cliPath}"`;
   const quotedFile = `"${filePath}"`;
-  // PowerShell exige o operador de invocação & antes de um executável entre aspas.
-  // Em bash/zsh a string entre aspas já funciona como comando diretamente.
+  // PowerShell requires the invocation operator & before a quoted executable.
+  // In bash/zsh, the quoted string already works as a command.
   const callPrefix = process.platform === 'win32' ? '& ' : '';
   terminal.show(true);
   terminal.sendText(`${callPrefix}${quotedCli} run ${quotedFile}`);
 }
 
 // ---------------------------------------------------------------------------
-// Terminal link provider — torna "  --> arquivo.spectra:linha:col" clicável
+// Terminal link provider: makes "  --> file.spectra:line:col" clickable.
 // ---------------------------------------------------------------------------
 
 interface SpectraTerminalLink extends vscode.TerminalLink {
@@ -325,7 +325,7 @@ interface SpectraTerminalLink extends vscode.TerminalLink {
 }
 
 class SpectraTerminalLinkProvider implements vscode.TerminalLinkProvider<SpectraTerminalLink> {
-  // Padrão: "  --> /caminho/arquivo.spectra:42:5" (com ou sem espaços antes)
+  // Pattern: "  --> /path/file.spectra:42:5" (with or without leading spaces)
   private static readonly LINK_PATTERN = /--> (.+?\.spectra):([0-9]+):([0-9]+)/;
 
   provideTerminalLinks(context: vscode.TerminalLinkContext): SpectraTerminalLink[] {
@@ -341,7 +341,7 @@ class SpectraTerminalLinkProvider implements vscode.TerminalLinkProvider<Spectra
       {
         startIndex,
         length: fullMatch.length,
-        tooltip: `Abrir ${filePath}:${lineStr}:${colStr}`,
+        tooltip: `Open ${filePath}:${lineStr}:${colStr}`,
         filePath,
         line: parseInt(lineStr, 10),
         column: parseInt(colStr, 10),
@@ -368,13 +368,13 @@ class SpectraTerminalLinkProvider implements vscode.TerminalLinkProvider<Spectra
 async function getActiveSpectraDocumentForCommand(): Promise<vscode.TextDocument | undefined> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'spectra') {
-    vscode.window.showInformationMessage('Abra um arquivo Spectra para usar os comandos do compilador.');
+    vscode.window.showInformationMessage('Open a Spectra file to use compiler commands.');
     return undefined;
   }
 
   const document = editor.document;
   if (document.isUntitled) {
-    vscode.window.showInformationMessage('Salve o arquivo Spectra antes de usar os comandos do compilador.');
+    vscode.window.showInformationMessage('Save the Spectra file before using compiler commands.');
     return undefined;
   }
 
@@ -383,12 +383,12 @@ async function getActiveSpectraDocumentForCommand(): Promise<vscode.TextDocument
   }
 
   const choice = await vscode.window.showWarningMessage(
-    'Salve as alterações antes de executar o compilador Spectra.',
-    'Salvar e Continuar',
-    'Cancelar'
+    'Save changes before running the Spectra compiler.',
+    'Save and Continue',
+    'Cancel'
   );
 
-  if (choice !== 'Salvar e Continuar') {
+  if (choice !== 'Save and Continue') {
     return undefined;
   }
 
@@ -399,16 +399,16 @@ async function getActiveSpectraDocumentForCommand(): Promise<vscode.TextDocument
 function successMessageForCliCommand(command: 'compile' | 'check' | 'run'): string {
   switch (command) {
     case 'compile':
-      return 'Arquivo Spectra compilado com sucesso.';
+      return 'Spectra file compiled successfully.';
     case 'check':
-      return 'Validação do arquivo Spectra concluída sem erros.';
+      return 'Spectra file check completed without errors.';
     case 'run':
-      return 'Execução do arquivo Spectra concluída com sucesso.';
+      return 'Spectra file execution completed successfully.';
   }
 }
 
 // ---------------------------------------------------------------------------
-// Quick Pick: ações do compilador
+// Quick Pick: compiler actions
 // ---------------------------------------------------------------------------
 
 interface CompilerActionItem extends vscode.QuickPickItem {
@@ -421,9 +421,9 @@ async function showCompilerActionsQuickPick(): Promise<void> {
 
   const items: CompilerActionItem[] = [
     {
-      label: '$(play) Executar arquivo atual',
+      label: '$(play) Run current file',
       description: 'spectra run',
-      detail: 'Compila e executa o arquivo .spectra ativo no terminal integrado',
+      detail: 'Compiles and runs the active .spectra file in the integrated terminal',
       action: async () => {
         const document = await getActiveSpectraDocumentForCommand();
         if (!document) {
@@ -435,47 +435,47 @@ async function showCompilerActionsQuickPick(): Promise<void> {
       },
     },
     {
-      label: '$(check) Validar arquivo atual',
+      label: '$(check) Check current file',
       description: 'spectra check',
-      detail: 'Verifica tipos e erros sem compilar',
-      action: () => executeCliCommandForActiveDocument('check', 'Validar arquivo atual'),
+      detail: 'Checks types and errors without compiling',
+      action: () => executeCliCommandForActiveDocument('check', 'Check current file'),
     },
     {
-      label: '$(tools) Compilar arquivo atual',
+      label: '$(tools) Compile current file',
       description: 'spectra compile',
-      detail: 'Compila o arquivo .spectra ativo',
-      action: () => executeCliCommandForActiveDocument('compile', 'Compilar arquivo atual'),
+      detail: 'Compiles the active .spectra file',
+      action: () => executeCliCommandForActiveDocument('compile', 'Compile current file'),
     },
     {
       label: '$(warning) Lint workspace',
       description: 'spectra lint',
-      detail: 'Executa lint em todos os arquivos da workspace',
+      detail: 'Runs lint across all workspace files',
       action: async () => {
         await vscode.commands.executeCommand(LINT_WORKSPACE_COMMAND);
       },
     },
     {
-      label: '$(file-code) Formatar documento',
+      label: '$(file-code) Format document',
       description: 'spectra fmt',
-      detail: 'Formata o arquivo .spectra ativo',
+      detail: 'Formats the active .spectra file',
       action: async () => {
         if (!editor || editor.document.languageId !== 'spectra') {
-          vscode.window.showInformationMessage('Abra um arquivo Spectra para formatar.');
+          vscode.window.showInformationMessage('Open a Spectra file to format.');
           return;
         }
         await vscode.commands.executeCommand('editor.action.formatDocument');
       },
     },
     {
-      label: '$(add) Novo Projeto',
+      label: '$(add) New Project',
       description: 'spectra new',
-      detail: 'Cria um novo projeto Spectra em uma pasta',
+      detail: 'Creates a new Spectra project in a folder',
       action: () => createNewProject(),
     },
     {
-      label: '$(globe) Ações de API',
+      label: '$(globe) API Actions',
       description: 'spectra.api',
-      detail: 'Insere handlers, rotas, CORS e middleware suportados pela superfície atual',
+      detail: 'Inserts handlers, routes, CORS, and middleware supported by the current surface',
       action: () => showApiActionsQuickPick(),
     },
   ];
@@ -488,8 +488,8 @@ async function showCompilerActionsQuickPick(): Promise<void> {
                                !item.description?.startsWith('spectra fmt'));
 
   const selected = await vscode.window.showQuickPick(filteredItems, {
-    title: 'Spectra: Ações do Compilador',
-    placeHolder: 'Escolha uma ação para executar',
+    title: 'Spectra: Compiler Actions',
+    placeHolder: 'Choose an action to run',
     matchOnDescription: true,
     matchOnDetail: true,
   });
@@ -500,7 +500,7 @@ async function showCompilerActionsQuickPick(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Quick Pick: ações API suportadas hoje
+// Quick Pick: API actions supported today
 // ---------------------------------------------------------------------------
 
 async function showApiActionsQuickPick(): Promise<void> {
@@ -509,9 +509,9 @@ async function showApiActionsQuickPick(): Promise<void> {
 
   const items: CompilerActionItem[] = [
     {
-      label: '$(symbol-method) Inserir handler síncrono',
+      label: '$(symbol-method) Insert sync handler',
       description: 'std.api.handler',
-      detail: 'Cria função que recebe Request e retorna Response',
+      detail: 'Creates a function that receives Request and returns Response',
       action: () => insertSpectraSnippet([
         'pub fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {',
         '    return std.api.handler.json("${2:{}}");',
@@ -519,9 +519,9 @@ async function showApiActionsQuickPick(): Promise<void> {
       ]),
     },
     {
-      label: '$(sync) Inserir handler async',
+      label: '$(sync) Insert async handler',
       description: 'async fn handler',
-      detail: 'Cria handler async retornando Task<Response>',
+      detail: 'Creates an async handler returning Task<Response>',
       action: () => insertSpectraSnippet([
         'pub async fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {',
         '    return std.api.handler.json("${2:{}}");',
@@ -529,9 +529,9 @@ async function showApiActionsQuickPick(): Promise<void> {
       ]),
     },
     {
-      label: '$(git-branch) Inserir router REST',
+      label: '$(git-branch) Insert REST router',
       description: 'std.api.routing',
-      detail: 'Cria router com rota GET básica',
+      detail: 'Creates a router with a basic GET route',
       action: () => insertSpectraSnippet([
         'let ${1:router} = std.api.routing.router();',
         'let ${2:route} = std.api.routing.get(${1:router}, "${3:/health}");',
@@ -539,9 +539,9 @@ async function showApiActionsQuickPick(): Promise<void> {
       ]),
     },
     {
-      label: '$(shield) Inserir CORS permissivo',
+      label: '$(shield) Insert permissive CORS',
       description: 'std.api.cors',
-      detail: 'Cria policy CORS e middleware',
+      detail: 'Creates a CORS policy and middleware',
       action: () => insertSpectraSnippet([
         'let ${1:policy} = std.api.cors.permissive();',
         'let ${2:cors} = std.api.cors.middleware(${1:policy});',
@@ -549,9 +549,9 @@ async function showApiActionsQuickPick(): Promise<void> {
       ]),
     },
     {
-      label: '$(layers) Inserir middleware chain',
+      label: '$(layers) Insert middleware chain',
       description: 'std.api.middleware',
-      detail: 'Cria chain e executa middleware síncrono',
+      detail: 'Creates a chain and executes sync middleware',
       action: () => insertSpectraSnippet([
         'let ${1:chain} = std.api.middleware.chain();',
         'let ${2:next} = std.api.middleware.use_sync(${1:chain}, ${3:middleware});',
@@ -560,21 +560,21 @@ async function showApiActionsQuickPick(): Promise<void> {
       ]),
     },
     {
-      label: '$(check) Validar arquivo atual',
+      label: '$(check) Check current file',
       description: 'spectra check',
-      detail: 'Executa o checker existente no arquivo .spectra ativo',
-      action: () => executeCliCommandForActiveDocument('check', 'Validar arquivo atual'),
+      detail: 'Runs the existing checker on the active .spectra file',
+      action: () => executeCliCommandForActiveDocument('check', 'Check current file'),
     },
     {
-      label: '$(tools) Compilar arquivo atual',
+      label: '$(tools) Compile current file',
       description: 'spectra compile',
-      detail: 'Executa o compilador existente no arquivo .spectra ativo',
-      action: () => executeCliCommandForActiveDocument('compile', 'Compilar arquivo atual'),
+      detail: 'Runs the existing compiler on the active .spectra file',
+      action: () => executeCliCommandForActiveDocument('compile', 'Compile current file'),
     },
     {
-      label: '$(file-directory) Abrir bindings spectra.api',
+      label: '$(file-directory) Open spectra.api bindings',
       description: 'packages/spectra-api',
-      detail: 'Abre os bindings locais quando o workspace é o repositório SpectraLang',
+      detail: 'Opens local bindings when the workspace is the SpectraLang repository',
       action: () => openSpectraApiBindings(),
     },
   ];
@@ -584,8 +584,8 @@ async function showApiActionsQuickPick(): Promise<void> {
     : items.filter((item) => item.description === 'packages/spectra-api');
 
   const selected = await vscode.window.showQuickPick(filteredItems, {
-    title: 'Spectra: Ações API',
-    placeHolder: 'Escolha uma ação suportada pela superfície atual',
+    title: 'Spectra: API Actions',
+    placeHolder: 'Choose an action supported by the current surface',
     matchOnDescription: true,
     matchOnDetail: true,
   });
@@ -598,7 +598,7 @@ async function showApiActionsQuickPick(): Promise<void> {
 async function insertSpectraSnippet(lines: string[]): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'spectra') {
-    vscode.window.showInformationMessage('Abra um arquivo Spectra para inserir snippets de API.');
+    vscode.window.showInformationMessage('Open a Spectra file to insert API snippets.');
     return;
   }
 
@@ -619,25 +619,25 @@ async function openSpectraApiBindings(): Promise<void> {
   }
 
   vscode.window.showInformationMessage(
-    'Bindings spectra.api não encontrados neste workspace.'
+    'spectra.api bindings were not found in this workspace.'
   );
 }
 
 // ---------------------------------------------------------------------------
-// Novo Projeto
+// New Project
 // ---------------------------------------------------------------------------
 
 async function createNewProject(): Promise<void> {
   const projectName = await vscode.window.showInputBox({
-    title: 'Novo Projeto Spectra',
-    prompt: 'Nome do projeto',
-    placeHolder: 'meu-projeto',
+    title: 'New Spectra Project',
+    prompt: 'Project name',
+    placeHolder: 'my-project',
     validateInput: (value) => {
       if (!value.trim()) {
-        return 'O nome do projeto não pode estar vazio.';
+        return 'Project name cannot be empty.';
       }
       if (!/^[a-zA-Z0-9_-]+$/.test(value.trim())) {
-        return 'Use apenas letras, números, hífens e underscores.';
+        return 'Use only letters, numbers, hyphens, and underscores.';
       }
       return undefined;
     },
@@ -651,8 +651,8 @@ async function createNewProject(): Promise<void> {
     canSelectFiles: false,
     canSelectFolders: true,
     canSelectMany: false,
-    openLabel: 'Criar projeto aqui',
-    title: 'Escolha onde criar o projeto',
+    openLabel: 'Create project here',
+    title: 'Choose where to create the project',
   });
 
   if (!folderUris || folderUris.length === 0) {
@@ -671,7 +671,7 @@ async function createNewProject(): Promise<void> {
     const result = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Spectra: Criando projeto '${projectName}'`,
+        title: `Spectra: Creating project '${projectName}'`,
         cancellable: false,
       },
       async () => runSpectraCli(args, { cliPath, cwd: parentFolder })
@@ -689,17 +689,17 @@ async function createNewProject(): Promise<void> {
 
     if (result.exitCode !== 0) {
       vscode.window.showErrorMessage(
-        `Falha ao criar o projeto '${projectName}' (código ${result.exitCode}). Veja o canal de saída Spectra.`
+        `Failed to create project '${projectName}' (code ${result.exitCode}). See the Spectra output channel.`
       );
       return;
     }
 
     const openChoice = await vscode.window.showInformationMessage(
-      `Projeto '${projectName}' criado com sucesso em ${projectPath}.`,
-      'Abrir Pasta'
+      `Project '${projectName}' created successfully at ${projectPath}.`,
+      'Open Folder'
     );
 
-    if (openChoice === 'Abrir Pasta') {
+    if (openChoice === 'Open Folder') {
       await vscode.commands.executeCommand(
         'vscode.openFolder',
         vscode.Uri.file(projectPath),
@@ -709,6 +709,6 @@ async function createNewProject(): Promise<void> {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     outputChannel?.appendLine(detail);
-    vscode.window.showErrorMessage(`Falha ao executar 'spectra new': ${detail}`);
+    vscode.window.showErrorMessage(`Failed to run 'spectra new': ${detail}`);
   }
 }
