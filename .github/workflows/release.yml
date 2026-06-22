@@ -70,35 +70,49 @@ jobs:
       - name: Resolve and bump version
         id: ver
         run: |
-          # Lê a versão SOMENTE do bloco [package] (evita pegar dependências)
-          CURRENT=$(awk '
-            /^\[package\]/ { in_pkg=1; next }
-            /^\[/ { in_pkg=0 }
-            in_pkg && /^version[[:space:]]*=/ {
-              sub(/^version[[:space:]]*=[[:space:]]*"/, "")
-              sub(/".*$/, "")
-              print
-              exit
-            }
-          ' tools/spectra-cli/Cargo.toml)
+          python3 <<'PY'
+          import os
+          import re
 
-          if [ -z "${CURRENT}" ]; then
-            echo "::error::Não foi possível ler a versão de tools/spectra-cli/Cargo.toml" >&2
-            exit 1
-          fi
+          cargo_path = "tools/spectra-cli/Cargo.toml"
+          target_version = os.environ.get("TARGET_VERSION", "")
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            # Bump automático de patch no push: x.y.Z -> x.y.(Z+1)
-            IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT}"
-            PATCH=$((PATCH + 1))
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          fi
+          with open(cargo_path, "r", encoding="utf-8-sig") as f:
+              lines = f.readlines()
 
-          echo "CURRENT=${CURRENT}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Bumped: ${CURRENT} -> ${VERSION}"
+          in_package = False
+          current = None
+          for line in lines:
+              stripped = line.strip()
+              if stripped == "[package]":
+                  in_package = True
+                  continue
+              if in_package and stripped.startswith("["):
+                  in_package = False
+                  continue
+              m = re.match(r'^version\s*=\s*"([^"]+)"', stripped)
+              if in_package and m:
+                  current = m.group(1)
+                  break
+
+          if not current:
+              print(f"::error::Não foi possível ler a versão de {cargo_path}")
+              raise SystemExit(1)
+
+          if target_version:
+              version = target_version
+          else:
+              major, minor, patch = current.split(".")
+              version = f"{major}.{minor}.{int(patch) + 1}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"CURRENT={current}\n")
+              f.write(f"VERSION={version}\n")
+
+          print(f"Bumped: {current} -> {version}")
+          PY
+        env:
+          TARGET_VERSION: ${{ inputs.version }}
 
       - name: Update version in Cargo.toml and package.json
         run: |
