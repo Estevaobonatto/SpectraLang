@@ -6060,10 +6060,10 @@ can adopt.
 
 ## R-2611 LSP: Routes, Handlers, and Types
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
-- Risk: `medium`
+- Risk: `low`
 - Dependencies: `R-2211`, `R-1001`
 
 ### Acceptance
@@ -6073,6 +6073,18 @@ can adopt.
 - Go-to-definition resolves handler symbols across modules.
 - Hover shows the route path, method, and constraints.
 - Tests assert completion and hover in a multi-file API project.
+
+### Completed
+
+- `tools/spectra-lsp` now completes the current async keyword surface,
+  `std.api` modules, API public types/functions, and detected route labels.
+- API hover shows `std.api.*` signatures plus route method/path metadata for
+  routing helpers.
+- Async handler definition keys support workspace reference/go-to-definition
+  matching across cached files.
+- `cargo test -p spectra-lsp` covers async keywords, CORS/middleware
+  completion, route completion, route hover, and multi-file async handler
+  definition lookup.
 
 ## R-2612 spectralang api lint
 
@@ -6107,7 +6119,7 @@ can adopt.
 
 ## R-2614 VS Code Plugin Updates for spectra.api
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `tooling`
 - Risk: `low`
@@ -6119,6 +6131,22 @@ can adopt.
 - The plugin exposes a `Run API` task that starts
   `spectralang api dev`.
 - The plugin shows the OpenAPI document in a side panel.
+
+### Completed so far
+
+- TextMate grammar recognizes `async`/`await`, `Task`, `Stream`, `std.api.*`,
+  `spectra.api`, routing helpers, handlers, CORS, and middleware names.
+- Snippets cover async functions/blocks, `await`, API handlers, router setup,
+  CORS policy, middleware chains, and JSON responses.
+- The extension exposes `Spectra: API Actions...` for supported local actions:
+  inserting API snippets, running existing `spectra check`/`spectra compile`,
+  and opening local `spectra.api` bindings.
+
+### Remaining before completion
+
+- Add `Run API` only after `R-2602` implements `spectralang api dev`.
+- Add the OpenAPI side panel only after `R-2605` implements
+  `spectralang api doc` / OpenAPI serving.
 
 ## R-2615 Project Templates: REST, GraphQL, gRPC, Microservice
 

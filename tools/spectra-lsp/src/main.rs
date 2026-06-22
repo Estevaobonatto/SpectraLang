@@ -19,10 +19,11 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 const COMMAND_RUN_DIAGNOSTICS: &str = "spectra.diagnostics.run";
 const COMMAND_LINT_WORKSPACE: &str = "spectra.lintWorkspace";
 const KEYWORDS: &[&str] = &[
-    "module", "fn", "let", "return", "if", "elif", "elseif", "else", "match", "switch", "case",
-    "while", "do", "for", "in", "of", "loop", "break", "continue", "struct", "enum", "impl",
-    "trait", "import", "pub", "internal", "const", "static", "type", "as", "dyn", "true", "false",
-    "self",
+    "module", "import", "export", "fn", "async", "await", "struct", "enum", "impl", "class",
+    "trait", "let", "pub", "internal", "mut", "Self", "self", "match", "switch", "case", "cond",
+    "if", "else", "elif", "elseif", "unless", "while", "do", "for", "foreach", "in", "of",
+    "repeat", "until", "loop", "return", "break", "continue", "yield", "goto", "true", "false",
+    "type", "const", "static", "as", "dyn",
 ];
 
 #[derive(Debug, Clone)]
@@ -273,6 +274,15 @@ impl LanguageServer for Backend {
 
         let line = text_position.position.line as usize + 1;
         let column = text_position.position.character as usize + 1;
+
+        if let Some(module) = &document.analysis.module {
+            if let Some(call_site) = find_call_site(module, line, column) {
+                if let Some(api_hover) = api_call_hover(&document, &call_site) {
+                    return Ok(Some(api_hover));
+                }
+            }
+        }
+
         let Some(symbol) = document.analysis.symbol_at(line, column) else {
             return Ok(None);
         };
@@ -320,17 +330,30 @@ impl LanguageServer for Backend {
 
         let line = text_position.position.line as usize + 1;
         let column = text_position.position.character as usize + 1;
-        let Some(symbol) = document.analysis.symbol_at(line, column) else {
-            return Ok(None);
-        };
-        let Some(definition) = symbol.definition else {
-            return Ok(None);
-        };
+        let symbol = document.analysis.symbol_at(line, column);
+        if let Some(definition) = symbol.as_ref().and_then(|symbol| symbol.definition.clone()) {
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri: text_position.text_document.uri,
+                range: span_to_range(definition.span),
+            })));
+        }
 
-        Ok(Some(GotoDefinitionResponse::Scalar(Location {
-            uri: text_position.text_document.uri,
-            range: span_to_range(definition.span),
-        })))
+        let Some(identifier) = identifier_at_position(&document.text, text_position.position)
+        else {
+            return Ok(None);
+        };
+        if !is_valid_rename_identifier(&identifier) {
+            return Ok(None);
+        }
+
+        self.ensure_workspace_cache().await;
+        let cache = self.state.workspace_cache.read().await;
+        let mut locations = workspace_definition_locations(&cache, &identifier);
+        locations.retain(|location| location.uri != text_position.text_document.uri);
+        Ok(locations
+            .into_iter()
+            .next()
+            .map(GotoDefinitionResponse::Scalar))
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
@@ -803,6 +826,7 @@ impl LanguageServer for Backend {
                 for item in &module.items {
                     items.extend(item_to_completion_items(item));
                 }
+                items.extend(route_completion_items(module));
             }
         }
 
@@ -1384,6 +1408,650 @@ fn std_api_completion_items() -> Vec<CompletionItem> {
             }),
     );
     items
+}
+
+fn route_completion_items(module: &spectra_compiler::ast::Module) -> Vec<CompletionItem> {
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    for route in collect_api_routes(module) {
+        let label = route.label();
+        if !seen.insert(label.clone()) {
+            continue;
+        }
+        items.push(CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::REFERENCE),
+            detail: Some("spectra.api route".to_string()),
+            documentation: Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: route.markdown(),
+            })),
+            ..Default::default()
+        });
+    }
+    items
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ApiRouteInfo {
+    helper: String,
+    method: String,
+    path: String,
+}
+
+impl ApiRouteInfo {
+    fn label(&self) -> String {
+        format!("{} {}", self.method, self.path)
+    }
+
+    fn markdown(&self) -> String {
+        format!(
+            "```spectra\nstd.api.routing.{}(...)\n```\n\nRoute: `{}`\n\nMethod: `{}`\n\nPath: `{}`",
+            self.helper,
+            self.label(),
+            self.method,
+            self.path
+        )
+    }
+}
+
+fn collect_api_routes(module: &spectra_compiler::ast::Module) -> Vec<ApiRouteInfo> {
+    let mut routes = Vec::new();
+    for item in &module.items {
+        match item {
+            spectra_compiler::ast::Item::Function(function) => {
+                collect_api_routes_from_block(&function.body, &mut routes);
+            }
+            spectra_compiler::ast::Item::Impl(impl_block) => {
+                for method in &impl_block.methods {
+                    collect_api_routes_from_block(&method.body, &mut routes);
+                }
+            }
+            spectra_compiler::ast::Item::Trait(trait_def) => {
+                for method in &trait_def.methods {
+                    if let Some(body) = &method.body {
+                        collect_api_routes_from_block(body, &mut routes);
+                    }
+                }
+            }
+            spectra_compiler::ast::Item::TraitImpl(trait_impl) => {
+                for method in &trait_impl.methods {
+                    collect_api_routes_from_block(&method.body, &mut routes);
+                }
+            }
+            spectra_compiler::ast::Item::Import(_)
+            | spectra_compiler::ast::Item::Struct(_)
+            | spectra_compiler::ast::Item::Enum(_)
+            | spectra_compiler::ast::Item::TypeAlias(_)
+            | spectra_compiler::ast::Item::Const(_)
+            | spectra_compiler::ast::Item::Static(_) => {}
+        }
+    }
+    routes
+}
+
+fn collect_api_routes_from_block(
+    block: &spectra_compiler::ast::Block,
+    routes: &mut Vec<ApiRouteInfo>,
+) {
+    for statement in &block.statements {
+        collect_api_routes_from_statement(statement, routes);
+    }
+}
+
+fn collect_api_routes_from_statement(
+    statement: &spectra_compiler::ast::Statement,
+    routes: &mut Vec<ApiRouteInfo>,
+) {
+    match &statement.kind {
+        spectra_compiler::ast::StatementKind::Let(let_stmt) => {
+            if let Some(value) = &let_stmt.value {
+                collect_api_routes_from_expression(value, routes);
+            }
+        }
+        spectra_compiler::ast::StatementKind::Assignment(assign_stmt) => {
+            collect_api_routes_from_expression(&assign_stmt.value, routes);
+            match &assign_stmt.target {
+                spectra_compiler::ast::LValue::IndexAccess { array, index } => {
+                    collect_api_routes_from_expression(array, routes);
+                    collect_api_routes_from_expression(index, routes);
+                }
+                spectra_compiler::ast::LValue::FieldAccess { object, .. } => {
+                    collect_api_routes_from_expression(object, routes);
+                }
+                spectra_compiler::ast::LValue::Identifier(_) => {}
+            }
+        }
+        spectra_compiler::ast::StatementKind::Return(ret_stmt) => {
+            if let Some(value) = &ret_stmt.value {
+                collect_api_routes_from_expression(value, routes);
+            }
+        }
+        spectra_compiler::ast::StatementKind::Expression(expr) => {
+            collect_api_routes_from_expression(expr, routes);
+        }
+        spectra_compiler::ast::StatementKind::While(loop_stmt) => {
+            collect_api_routes_from_expression(&loop_stmt.condition, routes);
+            collect_api_routes_from_block(&loop_stmt.body, routes);
+        }
+        spectra_compiler::ast::StatementKind::DoWhile(loop_stmt) => {
+            collect_api_routes_from_block(&loop_stmt.body, routes);
+            collect_api_routes_from_expression(&loop_stmt.condition, routes);
+        }
+        spectra_compiler::ast::StatementKind::For(loop_stmt) => {
+            collect_api_routes_from_expression(&loop_stmt.iterable, routes);
+            collect_api_routes_from_block(&loop_stmt.body, routes);
+        }
+        spectra_compiler::ast::StatementKind::Loop(loop_stmt) => {
+            collect_api_routes_from_block(&loop_stmt.body, routes);
+        }
+        spectra_compiler::ast::StatementKind::Switch(switch_stmt) => {
+            collect_api_routes_from_expression(&switch_stmt.value, routes);
+            for case in &switch_stmt.cases {
+                collect_api_routes_from_expression(&case.pattern, routes);
+                collect_api_routes_from_block(&case.body, routes);
+            }
+            if let Some(default) = &switch_stmt.default {
+                collect_api_routes_from_block(default, routes);
+            }
+        }
+        spectra_compiler::ast::StatementKind::IfLet(if_let_stmt) => {
+            collect_api_routes_from_expression(&if_let_stmt.value, routes);
+            collect_api_routes_from_block(&if_let_stmt.then_block, routes);
+            if let Some(else_block) = &if_let_stmt.else_block {
+                collect_api_routes_from_block(else_block, routes);
+            }
+        }
+        spectra_compiler::ast::StatementKind::WhileLet(while_let_stmt) => {
+            collect_api_routes_from_expression(&while_let_stmt.value, routes);
+            collect_api_routes_from_block(&while_let_stmt.body, routes);
+        }
+        spectra_compiler::ast::StatementKind::Break
+        | spectra_compiler::ast::StatementKind::Continue => {}
+    }
+}
+
+fn collect_api_routes_from_expression(
+    expr: &spectra_compiler::ast::Expression,
+    routes: &mut Vec<ApiRouteInfo>,
+) {
+    if let Some(route) = api_route_from_expression(expr) {
+        routes.push(route);
+    }
+
+    match &expr.kind {
+        spectra_compiler::ast::ExpressionKind::Call { callee, arguments } => {
+            collect_api_routes_from_expression(callee, routes);
+            for arg in arguments {
+                collect_api_routes_from_expression(arg, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::MethodCall {
+            object, arguments, ..
+        } => {
+            collect_api_routes_from_expression(object, routes);
+            for arg in arguments {
+                collect_api_routes_from_expression(arg, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Binary { left, right, .. } => {
+            collect_api_routes_from_expression(left, routes);
+            collect_api_routes_from_expression(right, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::Unary { operand, .. }
+        | spectra_compiler::ast::ExpressionKind::Try(operand)
+        | spectra_compiler::ast::ExpressionKind::Await(operand)
+        | spectra_compiler::ast::ExpressionKind::Grouping(operand) => {
+            collect_api_routes_from_expression(operand, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::Range { start, end, .. }
+        | spectra_compiler::ast::ExpressionKind::IndexAccess {
+            array: start,
+            index: end,
+        } => {
+            collect_api_routes_from_expression(start, routes);
+            collect_api_routes_from_expression(end, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::If {
+            condition,
+            then_block,
+            elif_blocks,
+            else_block,
+        } => {
+            collect_api_routes_from_expression(condition, routes);
+            collect_api_routes_from_block(then_block, routes);
+            for (elif_expr, elif_block) in elif_blocks {
+                collect_api_routes_from_expression(elif_expr, routes);
+                collect_api_routes_from_block(elif_block, routes);
+            }
+            if let Some(else_block) = else_block {
+                collect_api_routes_from_block(else_block, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Unless {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            collect_api_routes_from_expression(condition, routes);
+            collect_api_routes_from_block(then_block, routes);
+            if let Some(else_block) = else_block {
+                collect_api_routes_from_block(else_block, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::ArrayLiteral { elements }
+        | spectra_compiler::ast::ExpressionKind::TupleLiteral { elements } => {
+            for element in elements {
+                collect_api_routes_from_expression(element, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_api_routes_from_expression(value, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::FieldAccess { object, .. } => {
+            collect_api_routes_from_expression(object, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::EnumVariant {
+            data, struct_data, ..
+        } => {
+            if let Some(data) = data {
+                for value in data {
+                    collect_api_routes_from_expression(value, routes);
+                }
+            }
+            if let Some(struct_data) = struct_data {
+                for (_, value) in struct_data {
+                    collect_api_routes_from_expression(value, routes);
+                }
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Match { scrutinee, arms } => {
+            collect_api_routes_from_expression(scrutinee, routes);
+            for arm in arms {
+                collect_api_routes_from_expression(&arm.body, routes);
+            }
+        }
+        spectra_compiler::ast::ExpressionKind::Lambda { body, .. } => {
+            collect_api_routes_from_expression(body, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::Block(block)
+        | spectra_compiler::ast::ExpressionKind::DifferentiableBlock(block)
+        | spectra_compiler::ast::ExpressionKind::AsyncBlock(block) => {
+            collect_api_routes_from_block(block, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::Cast { expr, .. } => {
+            collect_api_routes_from_expression(expr, routes);
+        }
+        spectra_compiler::ast::ExpressionKind::Identifier(_)
+        | spectra_compiler::ast::ExpressionKind::NumberLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::StringLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::BoolLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::CharLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::FString(_)
+        | spectra_compiler::ast::ExpressionKind::TupleAccess { .. } => {}
+    }
+}
+
+fn api_route_from_expression(expr: &spectra_compiler::ast::Expression) -> Option<ApiRouteInfo> {
+    let (path, arguments) = match &expr.kind {
+        spectra_compiler::ast::ExpressionKind::Call { callee, arguments } => {
+            (expression_path(callee)?, arguments.as_slice())
+        }
+        spectra_compiler::ast::ExpressionKind::MethodCall {
+            object,
+            method_name,
+            arguments,
+            ..
+        } => (
+            format!("{}.{}", expression_path(object)?, method_name),
+            arguments.as_slice(),
+        ),
+        _ => return None,
+    };
+    let helper = path.strip_prefix("std.api.routing.")?;
+    let method = match helper {
+        "get" | "post" | "put" | "patch" | "delete" | "options" => helper.to_ascii_uppercase(),
+        "route_add" => route_add_method(arguments.get(1))?,
+        _ => return None,
+    };
+    let path_arg_index = if helper == "route_add" { 2 } else { 1 };
+    let route_path = string_literal_value(arguments.get(path_arg_index)?)?;
+    Some(ApiRouteInfo {
+        helper: helper.to_string(),
+        method,
+        path: route_path,
+    })
+}
+
+fn route_add_method(expr: Option<&spectra_compiler::ast::Expression>) -> Option<String> {
+    match expr?.kind {
+        spectra_compiler::ast::ExpressionKind::NumberLiteral(ref value) => match value.as_str() {
+            "1" => Some("GET".to_string()),
+            "2" => Some("HEAD".to_string()),
+            "3" => Some("POST".to_string()),
+            "4" => Some("PUT".to_string()),
+            "5" => Some("PATCH".to_string()),
+            "6" => Some("DELETE".to_string()),
+            "7" => Some("OPTIONS".to_string()),
+            _ => Some(format!("METHOD {}", value)),
+        },
+        _ => Some("METHOD".to_string()),
+    }
+}
+
+fn string_literal_value(expr: &spectra_compiler::ast::Expression) -> Option<String> {
+    match &expr.kind {
+        spectra_compiler::ast::ExpressionKind::StringLiteral(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn expression_path(expr: &spectra_compiler::ast::Expression) -> Option<String> {
+    match &expr.kind {
+        spectra_compiler::ast::ExpressionKind::Identifier(name) => Some(name.clone()),
+        spectra_compiler::ast::ExpressionKind::FieldAccess { object, field } => {
+            Some(format!("{}.{}", expression_path(object)?, field))
+        }
+        _ => None,
+    }
+}
+
+fn api_call_hover(document: &DocumentState, call_site: &CallSite) -> Option<Hover> {
+    let call_expr = expression_at_span(document.analysis.module.as_ref()?, call_site.span)?;
+    let path = match &call_expr.kind {
+        spectra_compiler::ast::ExpressionKind::Call { callee, .. } => expression_path(callee)?,
+        spectra_compiler::ast::ExpressionKind::MethodCall {
+            object,
+            method_name,
+            ..
+        } => format!("{}.{}", expression_path(object)?, method_name),
+        _ => return None,
+    };
+    if !path.starts_with("std.api.") {
+        return None;
+    }
+    let signature = spectra_compiler::semantic::builtin_modules::STD_API_PUBLIC_FUNCTIONS
+        .iter()
+        .find_map(|(name, signature)| (*name == path).then_some(*signature))?;
+    let mut value = format!(
+        "```spectra\n{}: {}\n```\n\nModule: `{}`\n\nReturn: `{}`",
+        path,
+        signature,
+        path.rsplit_once('.')
+            .map(|(module, _)| module)
+            .unwrap_or("std.api"),
+        signature_return_type(signature).unwrap_or("unknown")
+    );
+    if let Some(route) = api_route_from_expression(call_expr) {
+        value.push_str(&format!(
+            "\n\nRoute: `{}`\n\nMethod: `{}`\n\nPath: `{}`",
+            route.label(),
+            route.method,
+            route.path
+        ));
+    }
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: Some(span_to_range(call_site.span)),
+    })
+}
+
+fn signature_return_type(signature: &str) -> Option<&str> {
+    signature.rsplit_once("->").map(|(_, ty)| ty.trim())
+}
+
+fn expression_at_span(
+    module: &spectra_compiler::ast::Module,
+    target: Span,
+) -> Option<&spectra_compiler::ast::Expression> {
+    for item in &module.items {
+        let found = match item {
+            spectra_compiler::ast::Item::Function(function) => {
+                expression_at_span_in_block(&function.body, target)
+            }
+            spectra_compiler::ast::Item::Impl(impl_block) => impl_block
+                .methods
+                .iter()
+                .find_map(|method| expression_at_span_in_block(&method.body, target)),
+            spectra_compiler::ast::Item::Trait(trait_def) => {
+                trait_def.methods.iter().find_map(|method| {
+                    method
+                        .body
+                        .as_ref()
+                        .and_then(|body| expression_at_span_in_block(body, target))
+                })
+            }
+            spectra_compiler::ast::Item::TraitImpl(trait_impl) => trait_impl
+                .methods
+                .iter()
+                .find_map(|method| expression_at_span_in_block(&method.body, target)),
+            spectra_compiler::ast::Item::Import(_)
+            | spectra_compiler::ast::Item::Struct(_)
+            | spectra_compiler::ast::Item::Enum(_)
+            | spectra_compiler::ast::Item::TypeAlias(_)
+            | spectra_compiler::ast::Item::Const(_)
+            | spectra_compiler::ast::Item::Static(_) => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+fn expression_at_span_in_block(
+    block: &spectra_compiler::ast::Block,
+    target: Span,
+) -> Option<&spectra_compiler::ast::Expression> {
+    block
+        .statements
+        .iter()
+        .find_map(|statement| expression_at_span_in_statement(statement, target))
+}
+
+fn expression_at_span_in_statement(
+    statement: &spectra_compiler::ast::Statement,
+    target: Span,
+) -> Option<&spectra_compiler::ast::Expression> {
+    match &statement.kind {
+        spectra_compiler::ast::StatementKind::Let(let_stmt) => let_stmt
+            .value
+            .as_ref()
+            .and_then(|value| expression_at_span_in_expression(value, target)),
+        spectra_compiler::ast::StatementKind::Assignment(assign_stmt) => {
+            expression_at_span_in_expression(&assign_stmt.value, target).or_else(|| {
+                match &assign_stmt.target {
+                    spectra_compiler::ast::LValue::IndexAccess { array, index } => {
+                        expression_at_span_in_expression(array, target)
+                            .or_else(|| expression_at_span_in_expression(index, target))
+                    }
+                    spectra_compiler::ast::LValue::FieldAccess { object, .. } => {
+                        expression_at_span_in_expression(object, target)
+                    }
+                    spectra_compiler::ast::LValue::Identifier(_) => None,
+                }
+            })
+        }
+        spectra_compiler::ast::StatementKind::Return(ret_stmt) => ret_stmt
+            .value
+            .as_ref()
+            .and_then(|value| expression_at_span_in_expression(value, target)),
+        spectra_compiler::ast::StatementKind::Expression(expr) => {
+            expression_at_span_in_expression(expr, target)
+        }
+        spectra_compiler::ast::StatementKind::While(loop_stmt) => {
+            expression_at_span_in_expression(&loop_stmt.condition, target)
+                .or_else(|| expression_at_span_in_block(&loop_stmt.body, target))
+        }
+        spectra_compiler::ast::StatementKind::DoWhile(loop_stmt) => {
+            expression_at_span_in_block(&loop_stmt.body, target)
+                .or_else(|| expression_at_span_in_expression(&loop_stmt.condition, target))
+        }
+        spectra_compiler::ast::StatementKind::For(loop_stmt) => {
+            expression_at_span_in_expression(&loop_stmt.iterable, target)
+                .or_else(|| expression_at_span_in_block(&loop_stmt.body, target))
+        }
+        spectra_compiler::ast::StatementKind::Loop(loop_stmt) => {
+            expression_at_span_in_block(&loop_stmt.body, target)
+        }
+        spectra_compiler::ast::StatementKind::Switch(switch_stmt) => {
+            expression_at_span_in_expression(&switch_stmt.value, target)
+                .or_else(|| {
+                    switch_stmt.cases.iter().find_map(|case| {
+                        expression_at_span_in_expression(&case.pattern, target)
+                            .or_else(|| expression_at_span_in_block(&case.body, target))
+                    })
+                })
+                .or_else(|| {
+                    switch_stmt
+                        .default
+                        .as_ref()
+                        .and_then(|block| expression_at_span_in_block(block, target))
+                })
+        }
+        spectra_compiler::ast::StatementKind::IfLet(if_let_stmt) => {
+            expression_at_span_in_expression(&if_let_stmt.value, target)
+                .or_else(|| expression_at_span_in_block(&if_let_stmt.then_block, target))
+                .or_else(|| {
+                    if_let_stmt
+                        .else_block
+                        .as_ref()
+                        .and_then(|block| expression_at_span_in_block(block, target))
+                })
+        }
+        spectra_compiler::ast::StatementKind::WhileLet(while_let_stmt) => {
+            expression_at_span_in_expression(&while_let_stmt.value, target)
+                .or_else(|| expression_at_span_in_block(&while_let_stmt.body, target))
+        }
+        spectra_compiler::ast::StatementKind::Break
+        | spectra_compiler::ast::StatementKind::Continue => None,
+    }
+}
+
+fn expression_at_span_in_expression(
+    expr: &spectra_compiler::ast::Expression,
+    target: Span,
+) -> Option<&spectra_compiler::ast::Expression> {
+    if expr.span == target {
+        return Some(expr);
+    }
+
+    match &expr.kind {
+        spectra_compiler::ast::ExpressionKind::Call { callee, arguments } => {
+            expression_at_span_in_expression(callee, target).or_else(|| {
+                arguments
+                    .iter()
+                    .find_map(|arg| expression_at_span_in_expression(arg, target))
+            })
+        }
+        spectra_compiler::ast::ExpressionKind::MethodCall {
+            object, arguments, ..
+        } => expression_at_span_in_expression(object, target).or_else(|| {
+            arguments
+                .iter()
+                .find_map(|arg| expression_at_span_in_expression(arg, target))
+        }),
+        spectra_compiler::ast::ExpressionKind::Binary { left, right, .. } => {
+            expression_at_span_in_expression(left, target)
+                .or_else(|| expression_at_span_in_expression(right, target))
+        }
+        spectra_compiler::ast::ExpressionKind::Unary { operand, .. }
+        | spectra_compiler::ast::ExpressionKind::Try(operand)
+        | spectra_compiler::ast::ExpressionKind::Await(operand)
+        | spectra_compiler::ast::ExpressionKind::Grouping(operand) => {
+            expression_at_span_in_expression(operand, target)
+        }
+        spectra_compiler::ast::ExpressionKind::Range { start, end, .. }
+        | spectra_compiler::ast::ExpressionKind::IndexAccess {
+            array: start,
+            index: end,
+        } => expression_at_span_in_expression(start, target)
+            .or_else(|| expression_at_span_in_expression(end, target)),
+        spectra_compiler::ast::ExpressionKind::If {
+            condition,
+            then_block,
+            elif_blocks,
+            else_block,
+        } => expression_at_span_in_expression(condition, target)
+            .or_else(|| expression_at_span_in_block(then_block, target))
+            .or_else(|| {
+                elif_blocks.iter().find_map(|(elif_expr, elif_block)| {
+                    expression_at_span_in_expression(elif_expr, target)
+                        .or_else(|| expression_at_span_in_block(elif_block, target))
+                })
+            })
+            .or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|block| expression_at_span_in_block(block, target))
+            }),
+        spectra_compiler::ast::ExpressionKind::Unless {
+            condition,
+            then_block,
+            else_block,
+        } => expression_at_span_in_expression(condition, target)
+            .or_else(|| expression_at_span_in_block(then_block, target))
+            .or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|block| expression_at_span_in_block(block, target))
+            }),
+        spectra_compiler::ast::ExpressionKind::ArrayLiteral { elements }
+        | spectra_compiler::ast::ExpressionKind::TupleLiteral { elements } => elements
+            .iter()
+            .find_map(|element| expression_at_span_in_expression(element, target)),
+        spectra_compiler::ast::ExpressionKind::StructLiteral { fields, .. } => fields
+            .iter()
+            .find_map(|(_, value)| expression_at_span_in_expression(value, target)),
+        spectra_compiler::ast::ExpressionKind::FieldAccess { object, .. } => {
+            expression_at_span_in_expression(object, target)
+        }
+        spectra_compiler::ast::ExpressionKind::EnumVariant {
+            data, struct_data, ..
+        } => data
+            .as_ref()
+            .and_then(|values| {
+                values
+                    .iter()
+                    .find_map(|value| expression_at_span_in_expression(value, target))
+            })
+            .or_else(|| {
+                struct_data.as_ref().and_then(|values| {
+                    values
+                        .iter()
+                        .find_map(|(_, value)| expression_at_span_in_expression(value, target))
+                })
+            }),
+        spectra_compiler::ast::ExpressionKind::Match { scrutinee, arms } => {
+            expression_at_span_in_expression(scrutinee, target).or_else(|| {
+                arms.iter()
+                    .find_map(|arm| expression_at_span_in_expression(&arm.body, target))
+            })
+        }
+        spectra_compiler::ast::ExpressionKind::Lambda { body, .. } => {
+            expression_at_span_in_expression(body, target)
+        }
+        spectra_compiler::ast::ExpressionKind::Block(block)
+        | spectra_compiler::ast::ExpressionKind::DifferentiableBlock(block)
+        | spectra_compiler::ast::ExpressionKind::AsyncBlock(block) => {
+            expression_at_span_in_block(block, target)
+        }
+        spectra_compiler::ast::ExpressionKind::Cast { expr, .. } => {
+            expression_at_span_in_expression(expr, target)
+        }
+        spectra_compiler::ast::ExpressionKind::Identifier(_)
+        | spectra_compiler::ast::ExpressionKind::NumberLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::StringLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::BoolLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::CharLiteral(_)
+        | spectra_compiler::ast::ExpressionKind::FString(_)
+        | spectra_compiler::ast::ExpressionKind::TupleAccess { .. } => None,
+    }
 }
 
 fn item_to_completion_items(item: &spectra_compiler::ast::Item) -> Vec<CompletionItem> {
@@ -2390,6 +3058,9 @@ fn reference_key_for_resolved_symbol(
 
 fn definition_key(label: &str) -> String {
     let trimmed = label.trim();
+    if let Some(rest) = trimmed.strip_prefix("async fn ") {
+        return rest.split('(').next().unwrap_or(rest).trim().to_string();
+    }
     if let Some(rest) = trimmed.strip_prefix("fn ") {
         return rest.split('(').next().unwrap_or(rest).trim().to_string();
     }
@@ -2788,6 +3459,36 @@ fn workspace_symbol_information(uri: &Url, symbol: &CachedWorkspaceSymbol) -> Sy
         },
         container_name: symbol.container_name.clone(),
     }
+}
+
+fn workspace_definition_locations(
+    cache: &HashMap<Url, WorkspaceCacheEntry>,
+    identifier: &str,
+) -> Vec<Location> {
+    let mut locations = Vec::new();
+    let mut seen = HashSet::new();
+    for (uri, entry) in cache {
+        for symbol in &entry.symbols {
+            if symbol.name != identifier {
+                continue;
+            }
+            let location = Location {
+                uri: uri.clone(),
+                range: span_to_range(symbol.span),
+            };
+            if seen.insert(location_key(&location)) {
+                locations.push(location);
+            }
+        }
+    }
+    locations.sort_by_key(|location| {
+        (
+            location.uri.to_string(),
+            location.range.start.line,
+            location.range.start.character,
+        )
+    });
+    locations
 }
 
 fn semantic_tokens_for_document(
@@ -3602,6 +4303,123 @@ mod tests {
                 && item.kind == Some(CompletionItemKind::FUNCTION)
                 && item.detail.as_deref().unwrap_or("").contains("fn(Router")
         }));
+        assert!(items.iter().any(|item| {
+            item.label == "std.api.cors.middleware"
+                && item.kind == Some(CompletionItemKind::FUNCTION)
+        }));
+        assert!(items.iter().any(|item| {
+            item.label == "std.api.middleware.execute_async"
+                && item.kind == Some(CompletionItemKind::FUNCTION)
+        }));
+    }
+
+    #[test]
+    fn keyword_completion_items_cover_current_language_surface() {
+        for keyword in [
+            "async", "await", "export", "mut", "unless", "foreach", "repeat", "until", "yield",
+            "goto",
+        ] {
+            assert!(KEYWORDS.contains(&keyword), "missing keyword {keyword}");
+        }
+    }
+
+    #[test]
+    fn route_completion_items_cover_detected_api_routes() {
+        let source = r#"
+module api_routes;
+
+pub fn build() {
+    let router = std.api.routing.router();
+    let users = std.api.routing.get(router, "/users");
+    let created = std.api.routing.post(router, "/users");
+}
+"#;
+        let document = analyzed_document(source);
+        let module = document.analysis.module.as_ref().expect("parsed module");
+        let items = route_completion_items(module);
+
+        assert!(items.iter().any(|item| {
+            item.label == "GET /users" && item.kind == Some(CompletionItemKind::REFERENCE)
+        }));
+        assert!(items.iter().any(|item| {
+            item.label == "POST /users" && item.kind == Some(CompletionItemKind::REFERENCE)
+        }));
+    }
+
+    #[test]
+    fn api_route_hover_shows_signature_method_and_path() {
+        let source = r#"
+module api_routes;
+
+pub fn build() {
+    let router = std.api.routing.router();
+    let users = std.api.routing.get(router, "/users");
+}
+"#;
+        let document = analyzed_document(source);
+        let module = document.analysis.module.as_ref().expect("parsed module");
+        let call_site = find_call_site(module, 6, 35).expect("route call site");
+        let hover = api_call_hover(&document, &call_site).expect("api hover");
+        let HoverContents::Markup(markup) = hover.contents else {
+            panic!("expected markup hover");
+        };
+
+        assert!(markup.value.contains("std.api.routing.get"));
+        assert!(markup.value.contains("Route: `GET /users`"));
+        assert!(markup.value.contains("Return: `Route`"));
+    }
+
+    #[test]
+    fn async_handler_definition_keys_support_workspace_references() {
+        assert_eq!(
+            definition_key("async fn handle(request: Request) -> Response"),
+            "handle"
+        );
+        assert_eq!(
+            definition_key("async fn Api::handle(&self, request: Request) -> Response"),
+            "Api::handle"
+        );
+    }
+
+    #[test]
+    fn workspace_definition_locations_resolve_async_handler_across_files() {
+        let handler_source = r#"
+module handlers;
+
+pub async fn handle(request: std.api.http.Request) -> std.api.http.Response {
+    return std.api.handler.json("{}");
+}
+"#;
+        let handler_analysis = analyzed_document(handler_source);
+        let handler_module = handler_analysis
+            .analysis
+            .module
+            .as_ref()
+            .expect("handler module");
+        let handler_uri = Url::parse("file:///workspace/handlers.spectra").unwrap();
+        let route_uri = Url::parse("file:///workspace/routes.spectra").unwrap();
+        let mut cache = HashMap::new();
+        cache.insert(
+            handler_uri.clone(),
+            WorkspaceCacheEntry {
+                symbols: workspace_symbol_entries_for_module(handler_source, handler_module),
+                references: Vec::new(),
+                modified: None,
+            },
+        );
+        cache.insert(
+            route_uri,
+            WorkspaceCacheEntry {
+                symbols: Vec::new(),
+                references: Vec::new(),
+                modified: None,
+            },
+        );
+
+        let locations = workspace_definition_locations(&cache, "handle");
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].uri, handler_uri);
+        assert_eq!(locations[0].range.start.line, 3);
     }
 
     #[test]

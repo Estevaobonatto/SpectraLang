@@ -76,6 +76,10 @@
         "title": "Spectra: Compiler Actions..."
       },
       {
+        "command": "spectra.apiActions",
+        "title": "Spectra: API Actions..."
+      },
+      {
         "command": "spectra.newProject",
         "title": "Spectra: New Project"
       }
@@ -103,6 +107,10 @@
         },
         {
           "command": "spectra.compilerActions",
+          "when": "editorLangId == spectra"
+        },
+        {
+          "command": "spectra.apiActions",
           "when": "editorLangId == spectra"
         },
         {

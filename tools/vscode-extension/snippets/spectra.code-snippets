@@ -229,6 +229,84 @@
     ],
     "description": "Imprimir linha (requer import std.io)"
   },
+  "Async Function": {
+    "prefix": "asyncfn",
+    "body": [
+      "pub async fn ${1:name}(${2:param}: ${3:int}) -> ${4:int} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Criar uma funcao async"
+  },
+  "Async Block": {
+    "prefix": "asyncblock",
+    "body": [
+      "let ${1:task} = async {",
+      "    ${0}",
+      "};"
+    ],
+    "description": "Criar um bloco async"
+  },
+  "Await Task": {
+    "prefix": "await",
+    "body": [
+      "let ${1:value} = await ${2:task};"
+    ],
+    "description": "Aguardar um Task<T> dentro de contexto async"
+  },
+  "API Handler": {
+    "prefix": "apihandler",
+    "body": [
+      "pub fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {",
+      "    return std.api.handler.json(\"${2:{}}\");",
+      "}"
+    ],
+    "description": "Criar handler spectra.api sincrono"
+  },
+  "API Async Handler": {
+    "prefix": "apiasynchandler",
+    "body": [
+      "pub async fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {",
+      "    return std.api.handler.json(\"${2:{}}\");",
+      "}"
+    ],
+    "description": "Criar handler spectra.api async"
+  },
+  "API Router GET": {
+    "prefix": "apiroute",
+    "body": [
+      "let ${1:router} = std.api.routing.router();",
+      "let ${2:route} = std.api.routing.get(${1:router}, \"${3:/health}\");",
+      "${0}"
+    ],
+    "description": "Criar router spectra.api com rota GET"
+  },
+  "API CORS Policy": {
+    "prefix": "apicors",
+    "body": [
+      "let ${1:policy} = std.api.cors.permissive();",
+      "let ${2:cors} = std.api.cors.middleware(${1:policy});",
+      "${0}"
+    ],
+    "description": "Criar policy CORS e middleware spectra.api"
+  },
+  "API Middleware Chain": {
+    "prefix": "apimiddleware",
+    "body": [
+      "let ${1:chain} = std.api.middleware.chain();",
+      "let ${2:next} = std.api.middleware.use_sync(${1:chain}, ${3:middleware});",
+      "let ${4:response} = std.api.middleware.execute_sync(${2:next}, ${5:request}, ${6:response});",
+      "${0}"
+    ],
+    "description": "Criar chain de middleware spectra.api"
+  },
+  "API JSON Response": {
+    "prefix": "apijson",
+    "body": [
+      "return std.api.handler.json(\"${1:{}}\");"
+    ],
+    "description": "Retornar Response JSON via spectra.api"
+  },
   "F-String": {
     "prefix": "fstr",
     "body": [

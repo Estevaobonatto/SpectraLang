@@ -7,6 +7,7 @@
     { "include": "#strings" },
     { "include": "#characters" },
     { "include": "#numbers" },
+    { "include": "#std_api" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#operators" }
@@ -65,6 +66,7 @@
                 { "include": "#strings" },
                 { "include": "#characters" },
                 { "include": "#numbers" },
+                { "include": "#std_api" },
                 { "include": "#keywords" },
                 { "include": "#types" },
                 { "include": "#operators" }
@@ -175,11 +177,11 @@
       "patterns": [
         {
           "name": "keyword.control.spectra",
-          "match": "\\b(?:if|elif|elseif|else|unless|match|switch|case|cond|while|do|for|foreach|in|of|repeat|until|loop|return|break|continue|yield|goto|let)\\b"
+          "match": "\\b(?:if|elif|elseif|else|unless|match|switch|case|cond|while|do|for|foreach|in|of|repeat|until|loop|return|break|continue|yield|goto|let|await)\\b"
         },
         {
           "name": "keyword.declaration.spectra",
-          "match": "\\b(?:module|import|export|fn|struct|enum|impl|class|trait)\\b"
+          "match": "\\b(?:module|import|export|fn|async|struct|enum|impl|class|trait)\\b"
         },
         {
           "name": "storage.modifier.spectra",
@@ -195,11 +197,35 @@
       "patterns": [
         {
           "name": "support.type.primitive.spectra",
-          "match": "\\b(?:int|float|double|bool|string|char|void|unit)\\b"
+          "match": "\\b(?:int|float|double|bool|string|char|void|unit|Task|Stream)\\b"
         },
         {
           "name": "entity.name.type.spectra",
           "match": "\\b[A-Z][A-Za-z0-9_]*(?:<[A-Za-z0-9_,: <>]+>)?\\b"
+        }
+      ]
+    },
+    "std_api": {
+      "patterns": [
+        {
+          "name": "support.namespace.std-api.spectra",
+          "match": "\\b(?:std\\.api|spectra\\.api|spectra\\.std\\.api)(?:\\.(?:http|server|client|json|tls|routing|query|form|multipart|handler|cors|middleware|errors))?\\b"
+        },
+        {
+          "name": "support.function.std-api.routing.spectra",
+          "match": "\\b(?:get|post|put|patch|delete|options|route_add|route_match|match_param|match_query)\\b"
+        },
+        {
+          "name": "support.function.std-api.handler.spectra",
+          "match": "\\b(?:text|json|bytes|status|with_header|into_response|register_sync|register_async|dispatch_sync|dispatch_async)\\b"
+        },
+        {
+          "name": "support.function.std-api.cors.spectra",
+          "match": "\\b(?:policy|permissive|allow_origin|allow_method|allow_header|expose_header|allow_credentials|max_age|middleware|is_preflight|preflight|apply|allowed_origin)\\b"
+        },
+        {
+          "name": "support.function.std-api.middleware.spectra",
+          "match": "\\b(?:chain|chain_new|chain_len|register_sync_short_circuit|register_async_short_circuit|use_sync|use_async|execute_sync|execute_async|last_trace|trace_len|trace_event|trace_short_circuited)\\b"
         }
       ]
     }

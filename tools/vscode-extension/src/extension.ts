@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import {
   Executable,
   LanguageClient,
@@ -16,6 +17,7 @@ const COMPILE_CURRENT_FILE_COMMAND = 'spectra.compileCurrentFile';
 const CHECK_CURRENT_FILE_COMMAND = 'spectra.checkCurrentFile';
 const RUN_CURRENT_FILE_COMMAND = 'spectra.runCurrentFile';
 const COMPILER_ACTIONS_COMMAND = 'spectra.compilerActions';
+const API_ACTIONS_COMMAND = 'spectra.apiActions';
 const NEW_PROJECT_COMMAND = 'spectra.newProject';
 
 let client: LanguageClient | undefined;
@@ -99,6 +101,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(COMPILER_ACTIONS_COMMAND, async () => {
       await showCompilerActionsQuickPick();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(API_ACTIONS_COMMAND, async () => {
+      await showApiActionsQuickPick();
     })
   );
 
@@ -464,6 +472,12 @@ async function showCompilerActionsQuickPick(): Promise<void> {
       detail: 'Cria um novo projeto Spectra em uma pasta',
       action: () => createNewProject(),
     },
+    {
+      label: '$(globe) Ações de API',
+      description: 'spectra.api',
+      detail: 'Insere handlers, rotas, CORS e middleware suportados pela superfície atual',
+      action: () => showApiActionsQuickPick(),
+    },
   ];
 
   const filteredItems = hasSpectraFile
@@ -483,6 +497,130 @@ async function showCompilerActionsQuickPick(): Promise<void> {
   if (selected) {
     await selected.action();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Quick Pick: ações API suportadas hoje
+// ---------------------------------------------------------------------------
+
+async function showApiActionsQuickPick(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  const hasSpectraFile = editor?.document.languageId === 'spectra';
+
+  const items: CompilerActionItem[] = [
+    {
+      label: '$(symbol-method) Inserir handler síncrono',
+      description: 'std.api.handler',
+      detail: 'Cria função que recebe Request e retorna Response',
+      action: () => insertSpectraSnippet([
+        'pub fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {',
+        '    return std.api.handler.json("${2:{}}");',
+        '}',
+      ]),
+    },
+    {
+      label: '$(sync) Inserir handler async',
+      description: 'async fn handler',
+      detail: 'Cria handler async retornando Task<Response>',
+      action: () => insertSpectraSnippet([
+        'pub async fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {',
+        '    return std.api.handler.json("${2:{}}");',
+        '}',
+      ]),
+    },
+    {
+      label: '$(git-branch) Inserir router REST',
+      description: 'std.api.routing',
+      detail: 'Cria router com rota GET básica',
+      action: () => insertSpectraSnippet([
+        'let ${1:router} = std.api.routing.router();',
+        'let ${2:route} = std.api.routing.get(${1:router}, "${3:/health}");',
+        '${0}',
+      ]),
+    },
+    {
+      label: '$(shield) Inserir CORS permissivo',
+      description: 'std.api.cors',
+      detail: 'Cria policy CORS e middleware',
+      action: () => insertSpectraSnippet([
+        'let ${1:policy} = std.api.cors.permissive();',
+        'let ${2:cors} = std.api.cors.middleware(${1:policy});',
+        '${0}',
+      ]),
+    },
+    {
+      label: '$(layers) Inserir middleware chain',
+      description: 'std.api.middleware',
+      detail: 'Cria chain e executa middleware síncrono',
+      action: () => insertSpectraSnippet([
+        'let ${1:chain} = std.api.middleware.chain();',
+        'let ${2:next} = std.api.middleware.use_sync(${1:chain}, ${3:middleware});',
+        'let ${4:response} = std.api.middleware.execute_sync(${2:next}, ${5:request}, ${6:response});',
+        '${0}',
+      ]),
+    },
+    {
+      label: '$(check) Validar arquivo atual',
+      description: 'spectra check',
+      detail: 'Executa o checker existente no arquivo .spectra ativo',
+      action: () => executeCliCommandForActiveDocument('check', 'Validar arquivo atual'),
+    },
+    {
+      label: '$(tools) Compilar arquivo atual',
+      description: 'spectra compile',
+      detail: 'Executa o compilador existente no arquivo .spectra ativo',
+      action: () => executeCliCommandForActiveDocument('compile', 'Compilar arquivo atual'),
+    },
+    {
+      label: '$(file-directory) Abrir bindings spectra.api',
+      description: 'packages/spectra-api',
+      detail: 'Abre os bindings locais quando o workspace é o repositório SpectraLang',
+      action: () => openSpectraApiBindings(),
+    },
+  ];
+
+  const filteredItems = hasSpectraFile
+    ? items
+    : items.filter((item) => item.description === 'packages/spectra-api');
+
+  const selected = await vscode.window.showQuickPick(filteredItems, {
+    title: 'Spectra: Ações API',
+    placeHolder: 'Escolha uma ação suportada pela superfície atual',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
+
+  if (selected) {
+    await selected.action();
+  }
+}
+
+async function insertSpectraSnippet(lines: string[]): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== 'spectra') {
+    vscode.window.showInformationMessage('Abra um arquivo Spectra para inserir snippets de API.');
+    return;
+  }
+
+  await editor.insertSnippet(new vscode.SnippetString(lines.join('\n')));
+}
+
+async function openSpectraApiBindings(): Promise<void> {
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    const bindingsPath = path.join(folder.uri.fsPath, 'packages', 'spectra-api', 'src', 'bindings');
+    if (!fs.existsSync(bindingsPath)) {
+      continue;
+    }
+    const doc = await vscode.workspace.openTextDocument(
+      path.join(bindingsPath, 'http.spectra')
+    );
+    await vscode.window.showTextDocument(doc);
+    return;
+  }
+
+  vscode.window.showInformationMessage(
+    'Bindings spectra.api não encontrados neste workspace.'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +660,7 @@ async function createNewProject(): Promise<void> {
   }
 
   const parentFolder = folderUris[0].fsPath;
-  const projectPath = require('path').join(parentFolder, projectName.trim());
+  const projectPath = path.join(parentFolder, projectName.trim());
   const cliPath = getCliPath();
   const args = ['new', projectPath];
 
