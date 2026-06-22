@@ -153,25 +153,20 @@ jobs:
               f.writelines(lines)
 
           # --- package.json: altera APENAS a primeira ocorrência de "version": "<current>"
-          # (que é o campo top-level, pois vem antes de qualquer dependência aninhada).
+          # Substituição textual literal preserva formatação, BOM e quebras de linha.
           with open(pkg_path, "r", encoding="utf-8-sig") as f:
-              pkg_lines = f.readlines()
+              pkg_content = f.read()
 
-          pkg_changed = False
-          pkg_pattern = re.compile(r'^(\s*"version"\s*:\s*")' + re.escape(current) + r'("\s*,?\s*)$')
-          for i, line in enumerate(pkg_lines):
-              m = pkg_pattern.match(line.rstrip("\r\n"))
-              if m:
-                  pkg_lines[i] = m.group(1) + version + m.group(2) + line[len(line.rstrip("\r\n")):]
-                  pkg_changed = True
-                  break
-
-          if not pkg_changed:
-              print(f"::error::Não encontrou 'version': '{current}' em {pkg_path}")
+          old_pkg = f'"version": "{current}"'
+          new_pkg = f'"version": "{version}"'
+          if old_pkg not in pkg_content:
+              print(f"::error::Não encontrou '{old_pkg}' em {pkg_path}")
               raise SystemExit(1)
 
+          pkg_content = pkg_content.replace(old_pkg, new_pkg, 1)
+
           with open(pkg_path, "w", encoding="utf-8", newline="") as f:
-              f.writelines(pkg_lines)
+              f.write(pkg_content)
 
           print(f"Updated version to {version} in {cargo_path} and {pkg_path}")
           PY
