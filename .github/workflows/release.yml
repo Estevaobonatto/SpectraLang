@@ -525,7 +525,13 @@ jobs:
             --out release-evidence \
             --version "${{ needs.determine-version.outputs.version }}"
           python scripts/release_security.py verify --evidence release-evidence
-          cp release-evidence/* release-assets/
+
+      - name: Upload release security evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-security-evidence-${{ needs.determine-version.outputs.version }}
+          path: release-evidence/
+          retention-days: 30
 
       - name: Create or update GitHub Release
         env:

@@ -2204,7 +2204,8 @@ to an integer-typed local and then compared/returned through invalid IR.
   SHA-256 checksums, HMAC signatures, provenance, and CycloneDX-compatible SBOM.
 - Updated `.github/workflows/release.yml` to require
   `SPECTRA_RELEASE_SIGNING_KEY`, generate evidence, verify it, and publish the
-  evidence with release assets.
+  evidence as a workflow artifact while keeping public release assets focused on
+  installable packages and binaries.
 - Updated `.github/workflows/ci.yml` with `cargo audit` and high-severity
   `npm audit` dependency scanning.
 - Added local validation coverage through `run_tests.ps1`.

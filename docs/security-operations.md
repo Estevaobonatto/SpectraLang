@@ -61,7 +61,9 @@ CI includes a dependency scan job:
 - `npm audit --audit-level=high` for the VS Code extension.
 
 The release workflow also generates and verifies signed release evidence before
-creating or updating the GitHub Release.
+creating or updating the GitHub Release. The evidence is uploaded as a workflow
+artifact named `release-security-evidence-<version>` so the public release asset
+list remains focused on installable packages and binaries.
 
 ## Stress and Soak Testing
 
