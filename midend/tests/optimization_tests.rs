@@ -480,16 +480,17 @@ fn test_function_inlining_remaps_parameters() {
     );
 
     assert!(
-        main.blocks.iter().flat_map(|block| block.instructions.iter()).any(
-            |instruction| matches!(
+        main.blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .any(|instruction| matches!(
                 instruction.kind,
                 InstructionKind::Add {
                     lhs: Value { id: 0 },
                     rhs: Value { id: 1 },
                     ..
                 }
-            )
-        ),
+            )),
         "callee parameters must be remapped to call-site arguments"
     );
 }

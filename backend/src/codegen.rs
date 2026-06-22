@@ -65,10 +65,6 @@ pub struct CodeGenerator {
     manual_escape_func: FuncId,
     /// Import for invoking host functions by name
     host_invoke_func: FuncId,
-    /// Import for the fast std.string.len path
-    string_len_func: FuncId,
-    /// Import for the fast std.string.char_at path
-    string_char_at_func: FuncId,
     /// Cached host name pointers and backing storage
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
@@ -135,14 +131,6 @@ impl CodeGenerator {
             "spectra_rt_host_invoke",
             spectra_runtime::ffi::spectra_rt_host_invoke as *const u8,
         );
-        builder.symbol(
-            "spectra_rt_string_len",
-            spectra_runtime::ffi::spectra_rt_string_len as *const u8,
-        );
-        builder.symbol(
-            "spectra_rt_string_char_at",
-            spectra_runtime::ffi::spectra_rt_string_char_at as *const u8,
-        );
 
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
@@ -203,25 +191,6 @@ impl CodeGenerator {
             .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare runtime host invoke import");
 
-        let mut string_len_sig = module.make_signature();
-        string_len_sig.params.push(AbiParam::new(types::I64));
-        string_len_sig.returns.push(AbiParam::new(types::I64));
-        let string_len_func = module
-            .declare_function("spectra_rt_string_len", Linkage::Import, &string_len_sig)
-            .expect("Failed to declare runtime string len import");
-
-        let mut string_char_at_sig = module.make_signature();
-        string_char_at_sig.params.push(AbiParam::new(types::I64));
-        string_char_at_sig.params.push(AbiParam::new(types::I64));
-        string_char_at_sig.returns.push(AbiParam::new(types::I64));
-        let string_char_at_func = module
-            .declare_function(
-                "spectra_rt_string_char_at",
-                Linkage::Import,
-                &string_char_at_sig,
-            )
-            .expect("Failed to declare runtime string char_at import");
-
         Self {
             module,
             ctx,
@@ -233,8 +202,6 @@ impl CodeGenerator {
             manual_frame_exit_func,
             manual_escape_func,
             host_invoke_func,
-            string_len_func,
-            string_char_at_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -330,6 +297,7 @@ impl CodeGenerator {
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
+        let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = Self::collect_stack_allocas(ir_func);
         // In cranelift 0.130+, declare_var(Type) -> Variable (no manual index tracking needed)
         let frame_var = builder.declare_var(types::I64);
@@ -398,13 +366,12 @@ impl CodeGenerator {
                 self.manual_frame_exit_func,
                 self.manual_escape_func,
                 self.host_invoke_func,
-                self.string_len_func,
-                self.string_char_at_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
+                &mut stack_array_lengths,
                 &stack_allocas,
                 frame_var,
                 ir_block.id,
@@ -540,13 +507,12 @@ impl CodeGenerator {
         manual_frame_exit_func: FuncId,
         manual_escape_func: FuncId,
         host_invoke_func: FuncId,
-        string_len_func: FuncId,
-        string_char_at_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
         allocation_vars: &mut Vec<Variable>,
+        stack_array_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         frame_var: Variable,
         current_block_id: usize,
@@ -573,12 +539,11 @@ impl CodeGenerator {
                 manual_alloc_func,
                 manual_free_func,
                 host_invoke_func,
-                string_len_func,
-                string_char_at_func,
                 builder,
                 instr,
                 value_map,
                 allocation_vars,
+                stack_array_lengths,
                 stack_allocas,
                 track_allocations,
                 ir_block.id,
@@ -616,12 +581,11 @@ impl CodeGenerator {
         manual_alloc_func: FuncId,
         manual_free_func: FuncId,
         host_invoke_func: FuncId,
-        string_len_func: FuncId,
-        string_char_at_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
         allocation_vars: &mut Vec<Variable>,
+        stack_array_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         track_allocations: bool,
         current_block_id: usize,
@@ -799,6 +763,11 @@ impl CodeGenerator {
                         ));
                     let ptr = builder.ins().stack_addr(types::I64, slot, 0);
                     value_map.insert(result.id, ptr);
+                    if let IRType::Array { element_type, size } = ty {
+                        if matches!(**element_type, IRType::Int | IRType::Char) {
+                            stack_array_lengths.insert(result.id, *size as i64);
+                        }
+                    }
                     return Ok(());
                 }
 
@@ -896,10 +865,9 @@ impl CodeGenerator {
             } => {
                 if host == "spectra.std.string.len" && args.len() == 1 {
                     let ptr = get_value(&args[0])?;
-                    let func_ref = module.declare_func_in_func(string_len_func, builder.func);
-                    let call = builder.ins().call(func_ref, &[ptr]);
                     if let Some(result_value) = result {
-                        value_map.insert(result_value.id, builder.inst_results(call)[0]);
+                        let value = Self::emit_string_len_inline(builder, ptr);
+                        value_map.insert(result_value.id, value);
                     }
                     return Ok(());
                 }
@@ -907,10 +875,13 @@ impl CodeGenerator {
                 if host == "spectra.std.string.char_at" && args.len() == 2 {
                     let ptr = get_value(&args[0])?;
                     let index = get_value(&args[1])?;
-                    let func_ref = module.declare_func_in_func(string_char_at_func, builder.func);
-                    let call = builder.ins().call(func_ref, &[ptr, index]);
                     if let Some(result_value) = result {
-                        value_map.insert(result_value.id, builder.inst_results(call)[0]);
+                        let value = if let Some(length) = stack_array_lengths.get(&args[0].id) {
+                            Self::emit_stack_string_char_at_inline(builder, ptr, index, *length)
+                        } else {
+                            Self::emit_string_char_at_inline(builder, ptr, index)
+                        };
+                        value_map.insert(result_value.id, value);
                     }
                     return Ok(());
                 }
@@ -1260,6 +1231,163 @@ impl CodeGenerator {
         }
 
         Ok(())
+    }
+
+    fn emit_string_char_at_inline(
+        builder: &mut FunctionBuilder,
+        ptr: Value,
+        index: Value,
+    ) -> Value {
+        let cursor_var = builder.declare_var(types::I64);
+        let result_var = builder.declare_var(types::I64);
+        let zero = builder.ins().iconst(types::I64, 0);
+        let missing = builder.ins().iconst(types::I64, -1);
+        builder.def_var(cursor_var, zero);
+        builder.def_var(result_var, missing);
+
+        let null_check_block = builder.create_block();
+        let loop_block = builder.create_block();
+        let target_check_block = builder.create_block();
+        let found_block = builder.create_block();
+        let advance_block = builder.create_block();
+        let done_block = builder.create_block();
+
+        let negative = builder.ins().icmp(IntCC::SignedLessThan, index, zero);
+        builder
+            .ins()
+            .brif(negative, done_block, &[], null_check_block, &[]);
+
+        builder.switch_to_block(null_check_block);
+        let is_null = builder.ins().icmp(IntCC::Equal, ptr, zero);
+        builder
+            .ins()
+            .brif(is_null, done_block, &[], loop_block, &[]);
+        builder.seal_block(null_check_block);
+
+        builder.switch_to_block(loop_block);
+        let cursor = builder.use_var(cursor_var);
+        let offset = builder.ins().imul_imm(cursor, 8);
+        let addr = builder.ins().iadd(ptr, offset);
+        let slot = builder.ins().load(types::I64, MemFlags::new(), addr, 0);
+        let is_terminator = builder.ins().icmp(IntCC::Equal, slot, zero);
+        builder
+            .ins()
+            .brif(is_terminator, done_block, &[], target_check_block, &[]);
+
+        builder.switch_to_block(target_check_block);
+        let is_target = builder.ins().icmp(IntCC::Equal, cursor, index);
+        builder
+            .ins()
+            .brif(is_target, found_block, &[], advance_block, &[]);
+        builder.seal_block(target_check_block);
+
+        builder.switch_to_block(found_block);
+        let byte = builder.ins().band_imm(slot, 0xff);
+        builder.def_var(result_var, byte);
+        builder.ins().jump(done_block, &[]);
+        builder.seal_block(found_block);
+
+        builder.switch_to_block(advance_block);
+        let next = builder.ins().iadd_imm(cursor, 1);
+        builder.def_var(cursor_var, next);
+        builder.ins().jump(loop_block, &[]);
+        builder.seal_block(advance_block);
+        builder.seal_block(loop_block);
+
+        builder.switch_to_block(done_block);
+        builder.seal_block(done_block);
+        builder.use_var(result_var)
+    }
+
+    fn emit_stack_string_char_at_inline(
+        builder: &mut FunctionBuilder,
+        ptr: Value,
+        index: Value,
+        allocation_len: i64,
+    ) -> Value {
+        let result_var = builder.declare_var(types::I64);
+        let zero = builder.ins().iconst(types::I64, 0);
+        let missing = builder.ins().iconst(types::I64, -1);
+        builder.def_var(result_var, missing);
+
+        let bounds_block = builder.create_block();
+        let load_block = builder.create_block();
+        let value_block = builder.create_block();
+        let done_block = builder.create_block();
+
+        let negative = builder.ins().icmp(IntCC::SignedLessThan, index, zero);
+        builder
+            .ins()
+            .brif(negative, done_block, &[], bounds_block, &[]);
+
+        builder.switch_to_block(bounds_block);
+        let max_valid_index = builder
+            .ins()
+            .iconst(types::I64, allocation_len.saturating_sub(1));
+        let out_of_bounds =
+            builder
+                .ins()
+                .icmp(IntCC::SignedGreaterThanOrEqual, index, max_valid_index);
+        builder
+            .ins()
+            .brif(out_of_bounds, done_block, &[], load_block, &[]);
+        builder.seal_block(bounds_block);
+
+        builder.switch_to_block(load_block);
+        let offset = builder.ins().imul_imm(index, 8);
+        let addr = builder.ins().iadd(ptr, offset);
+        let slot = builder.ins().load(types::I64, MemFlags::new(), addr, 0);
+        let is_terminator = builder.ins().icmp(IntCC::Equal, slot, zero);
+        builder
+            .ins()
+            .brif(is_terminator, done_block, &[], value_block, &[]);
+        builder.seal_block(load_block);
+
+        builder.switch_to_block(value_block);
+        let byte = builder.ins().band_imm(slot, 0xff);
+        builder.def_var(result_var, byte);
+        builder.ins().jump(done_block, &[]);
+        builder.seal_block(value_block);
+
+        builder.switch_to_block(done_block);
+        builder.seal_block(done_block);
+        builder.use_var(result_var)
+    }
+
+    fn emit_string_len_inline(builder: &mut FunctionBuilder, ptr: Value) -> Value {
+        let count_var = builder.declare_var(types::I64);
+        let zero = builder.ins().iconst(types::I64, 0);
+        builder.def_var(count_var, zero);
+
+        let loop_block = builder.create_block();
+        let advance_block = builder.create_block();
+        let done_block = builder.create_block();
+
+        let is_null = builder.ins().icmp(IntCC::Equal, ptr, zero);
+        builder
+            .ins()
+            .brif(is_null, done_block, &[], loop_block, &[]);
+
+        builder.switch_to_block(loop_block);
+        let count = builder.use_var(count_var);
+        let offset = builder.ins().imul_imm(count, 8);
+        let addr = builder.ins().iadd(ptr, offset);
+        let slot = builder.ins().load(types::I64, MemFlags::new(), addr, 0);
+        let is_terminator = builder.ins().icmp(IntCC::Equal, slot, zero);
+        builder
+            .ins()
+            .brif(is_terminator, done_block, &[], advance_block, &[]);
+
+        builder.switch_to_block(advance_block);
+        let next = builder.ins().iadd_imm(count, 1);
+        builder.def_var(count_var, next);
+        builder.ins().jump(loop_block, &[]);
+        builder.seal_block(advance_block);
+        builder.seal_block(loop_block);
+
+        builder.switch_to_block(done_block);
+        builder.seal_block(done_block);
+        builder.use_var(count_var)
     }
 
     /// Generate terminator instruction

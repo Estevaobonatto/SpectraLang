@@ -102,9 +102,9 @@ fn is_inline_candidate(function: &Function, call_graph: &HashMap<String, HashSet
         for instruction in &block.instructions {
             match &instruction.kind {
                 InstructionKind::Alloca { .. }
+                | InstructionKind::HostCall { .. }
                 | InstructionKind::Call { .. }
                 | InstructionKind::CallIndirect { .. }
-                | InstructionKind::HostCall { .. }
                 | InstructionKind::FuncAddr { .. }
                 | InstructionKind::AsyncSuspend { .. }
                 | InstructionKind::AsyncResume { .. }
@@ -423,6 +423,17 @@ fn remap_instruction(kind: &InstructionKind, values: &HashMap<usize, Value>) -> 
             operand: map_value(*operand, values),
             from_ty: from_ty.clone(),
             to_ty: to_ty.clone(),
+        },
+        InstructionKind::HostCall {
+            result,
+            host,
+            args,
+            result_type,
+        } => InstructionKind::HostCall {
+            result: result.map(|value| map_value(value, values)),
+            host: host.clone(),
+            args: args.iter().map(|arg| map_value(*arg, values)).collect(),
+            result_type: result_type.clone(),
         },
         other => other.clone(),
     }

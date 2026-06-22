@@ -37,8 +37,6 @@ pub struct AotCodeGenerator {
     manual_frame_exit_func: FuncId,
     manual_escape_func: FuncId,
     host_invoke_func: FuncId,
-    string_len_func: FuncId,
-    string_char_at_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -112,25 +110,6 @@ impl AotCodeGenerator {
             .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare host-invoke import");
 
-        let mut string_len_sig = module.make_signature();
-        string_len_sig.params.push(AbiParam::new(types::I64));
-        string_len_sig.returns.push(AbiParam::new(types::I64));
-        let string_len_func = module
-            .declare_function("spectra_rt_string_len", Linkage::Import, &string_len_sig)
-            .expect("Failed to declare string-len import");
-
-        let mut string_char_at_sig = module.make_signature();
-        string_char_at_sig.params.push(AbiParam::new(types::I64));
-        string_char_at_sig.params.push(AbiParam::new(types::I64));
-        string_char_at_sig.returns.push(AbiParam::new(types::I64));
-        let string_char_at_func = module
-            .declare_function(
-                "spectra_rt_string_char_at",
-                Linkage::Import,
-                &string_char_at_sig,
-            )
-            .expect("Failed to declare string-char-at import");
-
         Self {
             module,
             ctx,
@@ -142,8 +121,6 @@ impl AotCodeGenerator {
             manual_frame_exit_func,
             manual_escape_func,
             host_invoke_func,
-            string_len_func,
-            string_char_at_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -261,6 +238,7 @@ impl AotCodeGenerator {
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
+        let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
         let frame_var = builder.declare_var(types::I64);
         builder.def_var(frame_var, frame_token);
@@ -324,13 +302,12 @@ impl AotCodeGenerator {
                 self.manual_frame_exit_func,
                 self.manual_escape_func,
                 self.host_invoke_func,
-                self.string_len_func,
-                self.string_char_at_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
+                &mut stack_array_lengths,
                 &stack_allocas,
                 frame_var,
                 ir_block.id,
