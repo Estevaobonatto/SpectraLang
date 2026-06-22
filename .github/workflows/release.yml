@@ -116,14 +116,12 @@ jobs:
 
       - name: Update version in Cargo.toml and package.json
         run: |
-          CURRENT="${{ steps.ver.outputs.CURRENT }}"
-          VERSION="${{ steps.ver.outputs.VERSION }}"
-
           python3 <<'PY'
+          import os
           import re
 
-          current = "${CURRENT}"
-          version = "${VERSION}"
+          current = os.environ["CURRENT_VERSION"]
+          version = os.environ["NEW_VERSION"]
           cargo_path = "tools/spectra-cli/Cargo.toml"
           pkg_path = "tools/vscode-extension/package.json"
 
@@ -177,6 +175,9 @@ jobs:
 
           print(f"Updated version to {version} in {cargo_path} and {pkg_path}")
           PY
+        env:
+          CURRENT_VERSION: ${{ steps.ver.outputs.CURRENT }}
+          NEW_VERSION: ${{ steps.ver.outputs.VERSION }}
 
       - name: Commit and push version bump
         run: |
