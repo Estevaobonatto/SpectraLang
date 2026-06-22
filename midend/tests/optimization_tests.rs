@@ -2,6 +2,7 @@
 use spectra_midend::ir::*;
 use spectra_midend::passes::constant_folding;
 use spectra_midend::passes::dead_code_elimination;
+use spectra_midend::passes::function_inlining;
 
 #[test]
 fn test_constant_folding_add() {
@@ -378,4 +379,117 @@ fn test_dead_code_elimination_preserves_cast_operands() {
         InstructionKind::ConstInt { value: 65, .. }
     ));
     assert!(matches!(instructions[1].kind, InstructionKind::Cast { .. }));
+}
+
+#[test]
+fn test_function_inlining_remaps_parameters() {
+    let mut module = Module {
+        name: "test".to_string(),
+        functions: vec![
+            Function {
+                name: "add_pair".to_string(),
+                params: vec![
+                    Parameter {
+                        id: 0,
+                        name: "lhs".to_string(),
+                        ty: Type::Int,
+                    },
+                    Parameter {
+                        id: 1,
+                        name: "rhs".to_string(),
+                        ty: Type::Int,
+                    },
+                ],
+                return_type: Type::Int,
+                next_value_id: 3,
+                next_block_id: 1,
+                blocks: vec![BasicBlock {
+                    id: 0,
+                    label: "entry".to_string(),
+                    instructions: vec![Instruction {
+                        id: 0,
+                        kind: InstructionKind::Add {
+                            result: Value { id: 2 },
+                            lhs: Value { id: 0 },
+                            rhs: Value { id: 1 },
+                        },
+                    }],
+                    terminator: Some(Terminator::Return {
+                        value: Some(Value { id: 2 }),
+                    }),
+                }],
+            },
+            Function {
+                name: "main".to_string(),
+                params: vec![],
+                return_type: Type::Int,
+                next_value_id: 3,
+                next_block_id: 1,
+                blocks: vec![BasicBlock {
+                    id: 0,
+                    label: "entry".to_string(),
+                    instructions: vec![
+                        Instruction {
+                            id: 0,
+                            kind: InstructionKind::ConstInt {
+                                result: Value { id: 0 },
+                                value: 20,
+                            },
+                        },
+                        Instruction {
+                            id: 1,
+                            kind: InstructionKind::ConstInt {
+                                result: Value { id: 1 },
+                                value: 22,
+                            },
+                        },
+                        Instruction {
+                            id: 2,
+                            kind: InstructionKind::Call {
+                                result: Some(Value { id: 2 }),
+                                function: "add_pair".to_string(),
+                                args: vec![Value { id: 0 }, Value { id: 1 }],
+                            },
+                        },
+                    ],
+                    terminator: Some(Terminator::Return {
+                        value: Some(Value { id: 2 }),
+                    }),
+                }],
+            },
+        ],
+        globals: vec![],
+        vtables: vec![],
+    };
+
+    let modified = function_inlining::run(&mut module);
+    assert!(modified, "parameterized helper should inline");
+
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+
+    assert!(
+        main.blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .all(|instruction| !matches!(instruction.kind, InstructionKind::Call { .. })),
+        "inlined main must not retain the helper call"
+    );
+
+    assert!(
+        main.blocks.iter().flat_map(|block| block.instructions.iter()).any(
+            |instruction| matches!(
+                instruction.kind,
+                InstructionKind::Add {
+                    lhs: Value { id: 0 },
+                    rhs: Value { id: 1 },
+                    ..
+                }
+            )
+        ),
+        "callee parameters must be remapped to call-site arguments"
+    );
 }

@@ -65,6 +65,10 @@ pub struct CodeGenerator {
     manual_escape_func: FuncId,
     /// Import for invoking host functions by name
     host_invoke_func: FuncId,
+    /// Import for the fast std.string.len path
+    string_len_func: FuncId,
+    /// Import for the fast std.string.char_at path
+    string_char_at_func: FuncId,
     /// Cached host name pointers and backing storage
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
@@ -131,6 +135,14 @@ impl CodeGenerator {
             "spectra_rt_host_invoke",
             spectra_runtime::ffi::spectra_rt_host_invoke as *const u8,
         );
+        builder.symbol(
+            "spectra_rt_string_len",
+            spectra_runtime::ffi::spectra_rt_string_len as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_string_char_at",
+            spectra_runtime::ffi::spectra_rt_string_char_at as *const u8,
+        );
 
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
@@ -191,6 +203,25 @@ impl CodeGenerator {
             .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare runtime host invoke import");
 
+        let mut string_len_sig = module.make_signature();
+        string_len_sig.params.push(AbiParam::new(types::I64));
+        string_len_sig.returns.push(AbiParam::new(types::I64));
+        let string_len_func = module
+            .declare_function("spectra_rt_string_len", Linkage::Import, &string_len_sig)
+            .expect("Failed to declare runtime string len import");
+
+        let mut string_char_at_sig = module.make_signature();
+        string_char_at_sig.params.push(AbiParam::new(types::I64));
+        string_char_at_sig.params.push(AbiParam::new(types::I64));
+        string_char_at_sig.returns.push(AbiParam::new(types::I64));
+        let string_char_at_func = module
+            .declare_function(
+                "spectra_rt_string_char_at",
+                Linkage::Import,
+                &string_char_at_sig,
+            )
+            .expect("Failed to declare runtime string char_at import");
+
         Self {
             module,
             ctx,
@@ -202,6 +233,8 @@ impl CodeGenerator {
             manual_frame_exit_func,
             manual_escape_func,
             host_invoke_func,
+            string_len_func,
+            string_char_at_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -365,6 +398,8 @@ impl CodeGenerator {
                 self.manual_frame_exit_func,
                 self.manual_escape_func,
                 self.host_invoke_func,
+                self.string_len_func,
+                self.string_char_at_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
@@ -505,6 +540,8 @@ impl CodeGenerator {
         manual_frame_exit_func: FuncId,
         manual_escape_func: FuncId,
         host_invoke_func: FuncId,
+        string_len_func: FuncId,
+        string_char_at_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
@@ -536,6 +573,8 @@ impl CodeGenerator {
                 manual_alloc_func,
                 manual_free_func,
                 host_invoke_func,
+                string_len_func,
+                string_char_at_func,
                 builder,
                 instr,
                 value_map,
@@ -577,6 +616,8 @@ impl CodeGenerator {
         manual_alloc_func: FuncId,
         manual_free_func: FuncId,
         host_invoke_func: FuncId,
+        string_len_func: FuncId,
+        string_char_at_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
@@ -853,6 +894,27 @@ impl CodeGenerator {
                 args,
                 result_type,
             } => {
+                if host == "spectra.std.string.len" && args.len() == 1 {
+                    let ptr = get_value(&args[0])?;
+                    let func_ref = module.declare_func_in_func(string_len_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[ptr]);
+                    if let Some(result_value) = result {
+                        value_map.insert(result_value.id, builder.inst_results(call)[0]);
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.string.char_at" && args.len() == 2 {
+                    let ptr = get_value(&args[0])?;
+                    let index = get_value(&args[1])?;
+                    let func_ref = module.declare_func_in_func(string_char_at_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[ptr, index]);
+                    if let Some(result_value) = result {
+                        value_map.insert(result_value.id, builder.inst_results(call)[0]);
+                    }
+                    return Ok(());
+                }
+
                 let record = intern_host_name(host_name_data, host_name_storage, host);
                 let name_ptr = if let Some(data_id) = record.data_id {
                     // AOT mode: the name lives in a .rodata section; get its address

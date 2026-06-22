@@ -80,7 +80,7 @@ fn collect_candidates(
 }
 
 fn is_inline_candidate(function: &Function, call_graph: &HashMap<String, HashSet<String>>) -> bool {
-    if function.name == "main" || !function.params.is_empty() {
+    if function.name == "main" || function.params.len() > 8 {
         return false;
     }
     if !matches!(function.return_type, Type::Int | Type::Bool | Type::Void) {
@@ -153,8 +153,10 @@ fn find_inline_call(
                 result: _,
             } = &instruction.kind
             {
-                if args.is_empty() && candidates.contains_key(function) {
-                    return Some((block_index, instruction_index, function.clone()));
+                if let Some(candidate) = candidates.get(function) {
+                    if candidate.function.params.len() == args.len() {
+                        return Some((block_index, instruction_index, function.clone()));
+                    }
                 }
             }
         }
@@ -169,10 +171,12 @@ fn inline_call(
     candidate: &InlineCandidate,
 ) {
     let call_instruction = caller.blocks[block_index].instructions[instruction_index].clone();
-    let (call_result, callee_name) = match &call_instruction.kind {
+    let (call_result, callee_name, call_args) = match &call_instruction.kind {
         InstructionKind::Call {
-            result, function, ..
-        } => (*result, function.clone()),
+            result,
+            function,
+            args,
+        } => (*result, function.clone(), args.clone()),
         _ => unreachable!("inline_call called for non-call"),
     };
 
@@ -187,6 +191,9 @@ fn inline_call(
     }
 
     let mut value_map = HashMap::new();
+    for (param, arg) in candidate.function.params.iter().zip(call_args.iter()) {
+        value_map.insert(param.id, *arg);
+    }
     for block in &candidate.function.blocks {
         for instruction in &block.instructions {
             if let Some(value) = instruction_result(&instruction.kind) {

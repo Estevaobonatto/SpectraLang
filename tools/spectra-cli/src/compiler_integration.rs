@@ -266,7 +266,7 @@ impl BackendDriver for FullPipelineBackend {
                 });
             }
 
-            if options.opt_level >= 3 {
+            if options.opt_level >= 2 {
                 let mut inline = FunctionInlining::new();
                 let pass_start = Instant::now();
                 let modified = inline.run(&mut ir_module);

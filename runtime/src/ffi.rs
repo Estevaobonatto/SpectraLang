@@ -373,6 +373,62 @@ pub extern "C" fn spectra_rt_manual_alloc(size: usize) -> *mut u8 {
     ptr
 }
 
+const SPECTRA_STRING_SCAN_LIMIT: usize = 16 * 1024 * 1024;
+
+/// Fast ABI entry for `std.string.len`.
+///
+/// Spectra strings are null-terminated buffers with one byte per i64 slot.
+/// This keeps the hot path out of the generic host-call dispatcher while
+/// preserving the same null handling as the stdlib host function.
+#[no_mangle]
+pub extern "C" fn spectra_rt_string_len(ptr_val: SpectraHostValue) -> SpectraHostValue {
+    if ptr_val == 0 {
+        return 0;
+    }
+
+    let raw = ptr_val as *const i64;
+    for offset in 0..SPECTRA_STRING_SCAN_LIMIT {
+        let slot = unsafe { *raw.add(offset) };
+        if slot == 0 {
+            return offset as SpectraHostValue;
+        }
+    }
+
+    0
+}
+
+/// Fast ABI entry for `std.string.char_at`.
+///
+/// Returns -1 for null strings, negative indexes, and indexes at or after the
+/// null terminator, matching the public stdlib contract.
+#[no_mangle]
+pub extern "C" fn spectra_rt_string_char_at(
+    ptr_val: SpectraHostValue,
+    index: SpectraHostValue,
+) -> SpectraHostValue {
+    if ptr_val == 0 || index < 0 {
+        return -1;
+    }
+
+    let target = index as usize;
+    if target >= SPECTRA_STRING_SCAN_LIMIT {
+        return -1;
+    }
+
+    let raw = ptr_val as *const i64;
+    for offset in 0..=target {
+        let slot = unsafe { *raw.add(offset) };
+        if slot == 0 {
+            return -1;
+        }
+        if offset == target {
+            return (slot as u8) as SpectraHostValue;
+        }
+    }
+
+    -1
+}
+
 /// Releases a manual allocation previously returned by `spectra_rt_manual_alloc`.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {
@@ -766,6 +822,32 @@ mod tests {
         let after_reuse = manual_stats().manual;
         assert_eq!(after_reuse.allocations, baseline.allocations);
         assert_eq!(after_reuse.bytes, baseline.bytes);
+
+        spectra_rt_manual_clear();
+    }
+
+    #[test]
+    fn string_fast_abi_matches_std_contract() {
+        let _lock = test_guard();
+        spectra_rt_manual_clear();
+
+        let raw = spectra_rt_manual_alloc(4 * std::mem::size_of::<i64>()) as *mut i64;
+        assert!(!raw.is_null());
+        unsafe {
+            *raw.add(0) = b'a' as i64;
+            *raw.add(1) = b'b' as i64;
+            *raw.add(2) = b'c' as i64;
+            *raw.add(3) = 0;
+        }
+
+        let ptr = raw as SpectraHostValue;
+        assert_eq!(spectra_rt_string_len(ptr), 3);
+        assert_eq!(spectra_rt_string_char_at(ptr, 0), b'a' as i64);
+        assert_eq!(spectra_rt_string_char_at(ptr, 2), b'c' as i64);
+        assert_eq!(spectra_rt_string_char_at(ptr, 3), -1);
+        assert_eq!(spectra_rt_string_char_at(ptr, -1), -1);
+        assert_eq!(spectra_rt_string_len(0), 0);
+        assert_eq!(spectra_rt_string_char_at(0, 0), -1);
 
         spectra_rt_manual_clear();
     }
