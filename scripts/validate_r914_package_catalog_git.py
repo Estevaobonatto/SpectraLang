@@ -161,7 +161,45 @@ def validate(binary: Path) -> None:
     require(index_path.is_file(), "catalog index missing")
     index = tomllib.loads(index_path.read_text(encoding="utf-8"))
     require(index["packages"][0]["name"] == "gitmath", "registered package name wrong")
+    require(len(index["packages"][0]["resolved_rev"]) >= 40, "catalog missing resolved commit sha")
+    require(len(index["packages"][0]["checksum"]) == 64, "catalog checksum must be SHA-256")
     require("gitmath.core" in index["packages"][0]["modules"], "catalog missing exported module")
+
+    branch_register = run(
+        [
+            str(binary),
+            "package",
+            "register",
+            "--root",
+            str(math_repo),
+            "--git",
+            math_repo.as_posix(),
+            "--branch",
+            "main",
+            "--catalog",
+            str(catalog),
+        ],
+        check=False,
+    )
+    require("branch refs are mutable" in branch_register, "branch-only catalog publish was accepted")
+
+    conflicting_register = run(
+        [
+            str(binary),
+            "package",
+            "register",
+            "--root",
+            str(math_repo),
+            "--git",
+            base_repo.as_posix(),
+            "--tag",
+            "v1.2.3",
+            "--catalog",
+            str(catalog),
+        ],
+        check=False,
+    )
+    require("refusing to overwrite existing catalog entry" in conflicting_register, "conflicting same-version catalog overwrite was accepted")
 
     search = run([str(binary), "package", "search", "math", "--root", str(consumer)])
     require("gitmath 1.2.3" in search, "search did not find gitmath")

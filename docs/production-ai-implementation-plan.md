@@ -950,7 +950,8 @@ Provide a real production ecosystem.
 - The completed Phase 9 baseline is a local filesystem registry.
 - `spectralang package publish --registry <path>` copies a package payload into the registry and writes checksum metadata.
 - `spectralang package add <name> --registry <path> --version <version>` verifies the checksum before installing into `.spectra/packages`.
-- Central hosted registries, authentication, provenance signatures, remote catalog synchronization, `--locked` enforcement, and full compatibility-gate resolution remain future hardening work tracked by `R-911`, `R-912`, and `R-913`.
+- Git catalog publication requires immutable tag/rev refs, records resolved commit SHA, validates catalog metadata, and rejects conflicting same-version source changes.
+- Central hosted registries, authentication, provenance signatures, remote catalog synchronization, host allowlist policy, atomic cache writes, `--locked` enforcement, and full compatibility-gate resolution remain future hardening work tracked by `R-911`, `R-912`, and `R-913`.
 
 ---
 

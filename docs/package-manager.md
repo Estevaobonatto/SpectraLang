@@ -3,6 +3,9 @@
 This document describes the Phase 9 package manager, local registry baseline,
 and Git-backed package catalog flow.
 
+For a package-author focused walkthrough, see
+[`docs/package-author-tutorial.md`](package-author-tutorial.md).
+
 ## Manifest
 
 Spectra packages use `spectra.toml`:
@@ -149,6 +152,7 @@ name = "gitmath"
 version = "1.2.3"
 git = "https://github.com/org/gitmath.git"
 tag = "v1.2.3"
+resolved_rev = "<commit-sha>"
 checksum = "<sha256>"
 description = "Math helpers"
 keywords = ["math"]
@@ -166,6 +170,20 @@ Git repo, checks out the selected ref, copies the package payload into
 
 Default tests use local Git fixtures so package validation never depends on a
 public network by default.
+
+Catalog publication is intentionally stricter than direct `--git` installs:
+
+- `package register` and `package publish-metadata` require exactly one
+  immutable ref, `--tag` or `--rev`; branch-only catalog entries are rejected,
+  and `--rev` must be a commit SHA.
+- The selected tag/rev must resolve to the package root `HEAD`, and the resolved
+  commit SHA is recorded as `resolved_rev`.
+- Re-registering the same package version is idempotent only when source URL,
+  ref, resolved commit, checksum, exported modules, and compatibility match.
+  Changing any of those fields requires a new package version.
+- Published metadata validates package/module names, checksum shape, Git ref
+  text, namespace ownership for exported modules, and control characters before
+  writing the catalog file.
 
 ## Workspace Builds
 

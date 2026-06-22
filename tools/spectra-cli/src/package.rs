@@ -339,6 +339,8 @@ struct CatalogPackage {
     #[serde(default)]
     branch: Option<String>,
     #[serde(default)]
+    resolved_rev: Option<String>,
+    #[serde(default)]
     checksum: Option<String>,
     #[serde(default)]
     description: String,
@@ -505,71 +507,73 @@ pub fn add_dependency(
     let root = canonicalize_existing(root)?;
     let manifest_path = find_manifest(&root)?;
     let parsed = parse_package_request(name, version)?;
-    let (dependency_name, dependency_version, _dependency_path, dependency_source) = if let Some(path) = path {
-        let version = version.unwrap_or("0.1.0");
-        (
-            parsed.name,
-            version.to_string(),
-            relative_or_absolute(&root, path),
-            DependencyManifestSource::Path(relative_or_absolute(&root, path)),
-        )
-    } else if let Some(registry) = registry {
-        let version = parsed.version.as_deref().unwrap_or("0.1.0");
-        let installed = install_from_registry(&root, registry, &parsed.name, version)?;
-        (
-            installed.canonical_name,
-            installed.version,
-            installed.path.clone(),
-            DependencyManifestSource::Path(relative_or_absolute(&root, &installed.path)),
-        )
-    } else if let Some(git) = git {
-        let installed = install_from_git(
-            &root,
-            &parsed.name,
-            parsed.version.as_deref(),
-            git,
-            tag,
-            rev,
-            branch,
-            false,
-        )?;
-        (
-            installed.name,
-            installed.version,
-            installed.path.clone(),
-            DependencyManifestSource::Git {
-                git: git.to_string(),
-                tag: tag.map(str::to_string),
-                rev: rev.map(str::to_string),
-                branch: branch.map(str::to_string),
-                checksum: Some(installed.checksum),
-            },
-        )
-    } else {
-        let entry = resolve_catalog_entry(&root, &parsed.name, parsed.version.as_deref(), catalog)?;
-        let installed = install_from_git(
-            &root,
-            &entry.name,
-            Some(&entry.version),
-            &entry.git,
-            entry.tag.as_deref(),
-            entry.rev.as_deref(),
-            entry.branch.as_deref(),
-            false,
-        )?;
-        (
-            installed.name,
-            installed.version,
-            installed.path.clone(),
-            DependencyManifestSource::Git {
-                git: entry.git,
-                tag: entry.tag,
-                rev: entry.rev,
-                branch: entry.branch,
-                checksum: Some(installed.checksum),
-            },
-        )
-    };
+    let (dependency_name, dependency_version, _dependency_path, dependency_source) =
+        if let Some(path) = path {
+            let version = version.unwrap_or("0.1.0");
+            (
+                parsed.name,
+                version.to_string(),
+                relative_or_absolute(&root, path),
+                DependencyManifestSource::Path(relative_or_absolute(&root, path)),
+            )
+        } else if let Some(registry) = registry {
+            let version = parsed.version.as_deref().unwrap_or("0.1.0");
+            let installed = install_from_registry(&root, registry, &parsed.name, version)?;
+            (
+                installed.canonical_name,
+                installed.version,
+                installed.path.clone(),
+                DependencyManifestSource::Path(relative_or_absolute(&root, &installed.path)),
+            )
+        } else if let Some(git) = git {
+            let installed = install_from_git(
+                &root,
+                &parsed.name,
+                parsed.version.as_deref(),
+                git,
+                tag,
+                rev,
+                branch,
+                false,
+            )?;
+            (
+                installed.name,
+                installed.version,
+                installed.path.clone(),
+                DependencyManifestSource::Git {
+                    git: git.to_string(),
+                    tag: tag.map(str::to_string),
+                    rev: rev.map(str::to_string),
+                    branch: branch.map(str::to_string),
+                    checksum: Some(installed.checksum),
+                },
+            )
+        } else {
+            let entry =
+                resolve_catalog_entry(&root, &parsed.name, parsed.version.as_deref(), catalog)?;
+            let installed = install_from_git(
+                &root,
+                &entry.name,
+                Some(&entry.version),
+                &entry.git,
+                entry.tag.as_deref(),
+                entry.rev.as_deref(),
+                entry.branch.as_deref(),
+                false,
+            )?;
+            (
+                installed.name,
+                installed.version,
+                installed.path.clone(),
+                DependencyManifestSource::Git {
+                    git: entry.git,
+                    tag: entry.tag,
+                    rev: entry.rev,
+                    branch: entry.branch,
+                    checksum: Some(installed.checksum),
+                },
+            )
+        };
 
     if !is_valid_semver(&dependency_version) {
         return Err(PackageError::InvalidManifest {
@@ -609,7 +613,10 @@ enum DependencyManifestSource {
     },
 }
 
-fn parse_package_request(name: &str, version: Option<&str>) -> Result<PackageRequest, PackageError> {
+fn parse_package_request(
+    name: &str,
+    version: Option<&str>,
+) -> Result<PackageRequest, PackageError> {
     if let Some((left, right)) = name.rsplit_once('@') {
         if !left.is_empty() && !right.is_empty() {
             return Ok(PackageRequest {
@@ -818,7 +825,8 @@ fn collect_package(
                 ..
             } => {
                 let version = version.as_deref().unwrap_or("0.1.0");
-                let installed = install_from_registry(workspace_root, &root.join(path), dep_name, version)?;
+                let installed =
+                    install_from_registry(workspace_root, &root.join(path), dep_name, version)?;
                 (
                     installed.path.clone(),
                     PackageSource::Registry {
@@ -850,13 +858,23 @@ fn collect_package(
                     installed.path.clone(),
                     PackageSource::Git {
                         url: git.clone(),
-                        requested: git_requested_ref(tag.as_deref(), rev.as_deref(), branch.as_deref()),
+                        requested: git_requested_ref(
+                            tag.as_deref(),
+                            rev.as_deref(),
+                            branch.as_deref(),
+                        ),
                         resolved: installed.resolved,
                     },
                     checksum.clone().or(Some(installed.checksum)),
                 )
             }
-            DependencySpec::Version(_) | DependencySpec::Detailed { path: None, git: None, registry: None, .. } => {
+            DependencySpec::Version(_)
+            | DependencySpec::Detailed {
+                path: None,
+                git: None,
+                registry: None,
+                ..
+            } => {
                 return Err(PackageError::InvalidManifest {
                     path: loaded.manifest.clone(),
                     message: format!(
@@ -866,7 +884,14 @@ fn collect_package(
                 });
             }
         };
-        collect_package(workspace_root, &dep_root, dep_source.clone(), visited, by_name, ordered)?;
+        collect_package(
+            workspace_root,
+            &dep_root,
+            dep_source.clone(),
+            visited,
+            by_name,
+            ordered,
+        )?;
         let dep_manifest = load_package(&find_manifest(&dep_root)?)?;
         let version = match spec {
             DependencySpec::Version(version) => version.clone(),
@@ -901,7 +926,9 @@ fn collect_package(
     }
     let checksum = match &source {
         PackageSource::Path { .. } => loaded.manifest_hash.clone(),
-        PackageSource::Registry { .. } | PackageSource::Git { .. } => directory_checksum(&loaded.root)?,
+        PackageSource::Registry { .. } | PackageSource::Git { .. } => {
+            directory_checksum(&loaded.root)?
+        }
     };
 
     ordered.push(ResolvedPackage {
@@ -1088,7 +1115,10 @@ fn install_from_git(
             error,
         })?;
         let clone_target = git_path_arg(&clone_dir);
-        run_git(&["clone", "--quiet", git, clone_target.as_str()], workspace_root)?;
+        run_git(
+            &["clone", "--quiet", git, clone_target.as_str()],
+            workspace_root,
+        )?;
     } else if !offline {
         run_git(&["fetch", "--quiet", "--tags", "--force"], &clone_dir)?;
     }
@@ -1196,6 +1226,244 @@ fn git_requested_ref(tag: Option<&str>, rev: Option<&str>, branch: Option<&str>)
     }
 }
 
+fn ensure_catalog_publication_ref(
+    tag: Option<&str>,
+    rev: Option<&str>,
+    branch: Option<&str>,
+) -> Result<(), PackageError> {
+    let ref_count = [tag, rev, branch]
+        .iter()
+        .filter(|value| value.is_some())
+        .count();
+    if ref_count != 1 {
+        return Err(PackageError::Registry(
+            "catalog publication requires exactly one of --tag or --rev; branch-only refs are not accepted"
+                .to_string(),
+        ));
+    }
+    if branch.is_some() {
+        return Err(PackageError::Registry(
+            "catalog publication requires --tag or --rev; branch refs are mutable".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_catalog_publication_rev(
+    root: &Path,
+    tag: Option<&str>,
+    rev: Option<&str>,
+) -> Result<String, PackageError> {
+    let requested = tag.or(rev).ok_or_else(|| {
+        PackageError::Registry("catalog publication requires --tag or --rev".to_string())
+    })?;
+    let resolved = git_output(&["rev-parse", &format!("{}^{{commit}}", requested)], root)?;
+    let head = git_output(&["rev-parse", "HEAD"], root)?;
+    if resolved != head {
+        return Err(PackageError::Registry(format!(
+            "catalog ref '{}' resolves to {}, but package root is checked out at {}",
+            requested, resolved, head
+        )));
+    }
+    Ok(resolved)
+}
+
+fn validate_catalog_package(package: &CatalogPackage, publication: bool) -> Result<(), String> {
+    if !is_valid_package_name(&package.name) {
+        return Err(format!("package name '{}' is invalid", package.name));
+    }
+    if !is_valid_semver(&package.version) {
+        return Err(format!(
+            "package '{}' has invalid semver '{}'",
+            package.name, package.version
+        ));
+    }
+    validate_clean_text("git", &package.git)?;
+    if package.git.trim().is_empty() {
+        return Err(format!("package '{}' has empty git URL", package.name));
+    }
+    if !is_allowed_git_locator(&package.git) {
+        return Err(format!(
+            "package '{}' uses unsupported git locator '{}'",
+            package.name, package.git
+        ));
+    }
+
+    let ref_count = [&package.tag, &package.rev, &package.branch]
+        .iter()
+        .filter(|value| value.is_some())
+        .count();
+    if ref_count > 1 {
+        return Err(format!(
+            "package '{}' declares more than one git ref",
+            package.name
+        ));
+    }
+    if publication && package.tag.is_none() && package.rev.is_none() {
+        return Err(format!(
+            "package '{}' must publish with immutable tag or rev",
+            package.name
+        ));
+    }
+    if publication && package.branch.is_some() {
+        return Err(format!(
+            "package '{}' cannot publish mutable branch refs",
+            package.name
+        ));
+    }
+    if let Some(tag) = &package.tag {
+        validate_clean_text("tag", tag)?;
+        let plain = package.version.as_str();
+        let prefixed = format!("v{}", package.version);
+        if publication && tag != plain && tag != &prefixed {
+            return Err(format!(
+                "package '{}' tag '{}' must match version '{}' or 'v{}'",
+                package.name, tag, package.version, package.version
+            ));
+        }
+    }
+    if let Some(rev) = &package.rev {
+        validate_git_ref_text("rev", rev)?;
+        if publication && !is_hex_sha(rev, 7) {
+            return Err(format!(
+                "package '{}' publication rev must be a commit SHA",
+                package.name
+            ));
+        }
+    }
+    if let Some(branch) = &package.branch {
+        validate_git_ref_text("branch", branch)?;
+    }
+    if let Some(resolved) = &package.resolved_rev {
+        if !is_hex_sha(resolved, 40) {
+            return Err(format!(
+                "package '{}' resolved_rev must be a commit SHA",
+                package.name
+            ));
+        }
+    } else if publication {
+        return Err(format!(
+            "package '{}' publication metadata missing resolved_rev",
+            package.name
+        ));
+    }
+    if let Some(checksum) = &package.checksum {
+        if !is_hex_sha(checksum, 64) {
+            return Err(format!(
+                "package '{}' checksum must be a SHA-256 hex digest",
+                package.name
+            ));
+        }
+    } else if publication {
+        return Err(format!(
+            "package '{}' metadata missing checksum",
+            package.name
+        ));
+    }
+
+    validate_clean_text("description", &package.description)?;
+    validate_clean_text("compatibility", &package.compatibility)?;
+    validate_clean_text("license", &package.license)?;
+    validate_clean_text("owner", &package.owner)?;
+    for keyword in &package.keywords {
+        validate_clean_text("keyword", keyword)?;
+    }
+    if publication && package.modules.is_empty() {
+        return Err(format!(
+            "package '{}' must export at least one module",
+            package.name
+        ));
+    }
+    for module in &package.modules {
+        if !is_valid_package_name(module) {
+            return Err(format!(
+                "package '{}' exports invalid module '{}'",
+                package.name, module
+            ));
+        }
+        if module != &package.name && !module.starts_with(&format!("{}.", package.name)) {
+            return Err(format!(
+                "package '{}' exports module '{}' outside its namespace",
+                package.name, module
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_clean_text(field: &str, value: &str) -> Result<(), String> {
+    if value.chars().any(|ch| ch.is_control()) {
+        Err(format!("{} contains control characters", field))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_git_ref_text(field: &str, value: &str) -> Result<(), String> {
+    validate_clean_text(field, value)?;
+    if value.is_empty()
+        || value.starts_with('-')
+        || value.contains("..")
+        || value.contains("@{")
+        || value.ends_with(".lock")
+        || value.ends_with('/')
+        || value
+            .chars()
+            .any(|ch| matches!(ch, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+    {
+        Err(format!("{} '{}' is not a safe git ref", field, value))
+    } else {
+        Ok(())
+    }
+}
+
+fn is_allowed_git_locator(value: &str) -> bool {
+    let lowered = value.to_ascii_lowercase();
+    if lowered.starts_with("https://")
+        || lowered.starts_with("ssh://")
+        || (value.starts_with("git@") && value.contains(':'))
+    {
+        return true;
+    }
+    if Path::new(value)
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    Path::new(value).is_absolute()
+        || value.starts_with("./")
+        || value.starts_with(".\\")
+        || value.contains('/')
+        || value.contains('\\')
+}
+
+fn is_hex_sha(value: &str, min_len: usize) -> bool {
+    value.len() >= min_len && value.len() <= 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn is_valid_package_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.split('.').all(|part| {
+            let mut chars = part.chars();
+            matches!(chars.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_')
+                && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        })
+}
+
+fn catalog_entries_match(left: &CatalogPackage, right: &CatalogPackage) -> bool {
+    left.git == right.git
+        && left.tag == right.tag
+        && left.rev == right.rev
+        && left.branch == right.branch
+        && (left.resolved_rev == right.resolved_rev
+            || left.resolved_rev.is_none()
+            || right.resolved_rev.is_none())
+        && left.checksum == right.checksum
+        && left.modules == right.modules
+        && left.compatibility == right.compatibility
+}
+
 fn sanitize_package_component(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -1220,7 +1488,11 @@ fn catalog_paths(root: &Path, explicit: Option<&Path>) -> Result<Vec<PathBuf>, P
             paths.push(catalog_index_path(&root.join(value)));
         }
     }
-    paths.push(root.join(".spectra").join("catalogs").join("package.index.toml"));
+    paths.push(
+        root.join(".spectra")
+            .join("catalogs")
+            .join("package.index.toml"),
+    );
     if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
         paths.push(
             PathBuf::from(home)
@@ -1241,7 +1513,10 @@ fn catalog_index_path(path: &Path) -> PathBuf {
     }
 }
 
-fn load_catalogs(root: &Path, explicit: Option<&Path>) -> Result<Vec<CatalogPackage>, PackageError> {
+fn load_catalogs(
+    root: &Path,
+    explicit: Option<&Path>,
+) -> Result<Vec<CatalogPackage>, PackageError> {
     let mut packages = Vec::new();
     for path in catalog_paths(root, explicit)? {
         if !path.is_file() {
@@ -1252,9 +1527,18 @@ fn load_catalogs(root: &Path, explicit: Option<&Path>) -> Result<Vec<CatalogPack
             error,
         })?;
         let catalog: CatalogIndex = toml::from_str(&text).map_err(|error| PackageError::Parse {
-            path,
+            path: path.clone(),
             error,
         })?;
+        for package in &catalog.packages {
+            validate_catalog_package(package, false).map_err(|message| {
+                PackageError::Registry(format!(
+                    "catalog '{}' rejected: {}",
+                    path.display(),
+                    message
+                ))
+            })?;
+        }
         packages.extend(catalog.packages);
     }
     Ok(packages)
@@ -1288,7 +1572,11 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
     }
 }
 
-pub fn search(root: &Path, query: &str, catalog: Option<&Path>) -> Result<Vec<String>, PackageError> {
+pub fn search(
+    root: &Path,
+    query: &str,
+    catalog: Option<&Path>,
+) -> Result<Vec<String>, PackageError> {
     let root = canonicalize_existing(root)?;
     let query = query.to_ascii_lowercase();
     let mut rows = Vec::new();
@@ -1325,11 +1613,12 @@ pub fn info(root: &Path, name: &str, catalog: Option<&Path>) -> Result<Vec<Strin
     let mut rows = Vec::new();
     for package in packages {
         rows.push(format!(
-            "{} {}\ngit: {}\nref: {}\ncompatibility: {}\nlicense: {}\nkeywords: {}\nmodules: {}",
+            "{} {}\ngit: {}\nref: {}\nresolved: {}\ncompatibility: {}\nlicense: {}\nkeywords: {}\nmodules: {}",
             package.name,
             package.version,
             package.git,
             git_requested_ref(package.tag.as_deref(), package.rev.as_deref(), package.branch.as_deref()),
+            package.resolved_rev.as_deref().unwrap_or("<unresolved>"),
             package.compatibility,
             package.license,
             package.keywords.join(", "),
@@ -1339,7 +1628,11 @@ pub fn info(root: &Path, name: &str, catalog: Option<&Path>) -> Result<Vec<Strin
     Ok(rows)
 }
 
-pub fn versions(root: &Path, name: &str, catalog: Option<&Path>) -> Result<Vec<String>, PackageError> {
+pub fn versions(
+    root: &Path,
+    name: &str,
+    catalog: Option<&Path>,
+) -> Result<Vec<String>, PackageError> {
     let root = canonicalize_existing(root)?;
     let mut rows = load_catalogs(&root, catalog)?
         .into_iter()
@@ -1364,13 +1657,22 @@ pub fn write_metadata(
 ) -> Result<PathBuf, PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest = load_package(&find_manifest(&root)?)?;
+    ensure_catalog_publication_ref(tag, rev, branch)?;
+    let resolved_rev = resolve_catalog_publication_rev(&root, tag, rev)?;
     let entry = CatalogPackage {
-        name: manifest.name,
-        version: manifest.version,
-        git: git.unwrap_or("").to_string(),
+        name: manifest.name.clone(),
+        version: manifest.version.clone(),
+        git: git
+            .ok_or_else(|| {
+                PackageError::Registry(
+                    "publish-metadata requires --git for catalog publication".to_string(),
+                )
+            })?
+            .to_string(),
         tag: tag.map(str::to_string),
         rev: rev.map(str::to_string),
         branch: branch.map(str::to_string),
+        resolved_rev: Some(resolved_rev),
         checksum: Some(directory_checksum(&root)?),
         description: String::new(),
         keywords: Vec::new(),
@@ -1379,6 +1681,9 @@ pub fn write_metadata(
         modules: exported_modules(&manifest.src_dirs)?,
         owner: String::new(),
     };
+    validate_catalog_package(&entry, true).map_err(|message| {
+        PackageError::Registry(format!("refusing to publish package metadata: {}", message))
+    })?;
     let index = CatalogIndex {
         schema: catalog_schema(),
         packages: vec![entry],
@@ -1408,6 +1713,8 @@ pub fn register(
 ) -> Result<PathBuf, PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest = load_package(&find_manifest(&root)?)?;
+    ensure_catalog_publication_ref(tag, rev, branch)?;
+    let resolved_rev = resolve_catalog_publication_rev(&root, tag, rev)?;
     let catalog_path = catalog_index_path(catalog);
     let mut index = if catalog_path.is_file() {
         let text = fs::read_to_string(&catalog_path).map_err(|error| PackageError::Io {
@@ -1424,16 +1731,23 @@ pub fn register(
             packages: Vec::new(),
         }
     };
-    index
-        .packages
-        .retain(|pkg| !(pkg.name == manifest.name && pkg.version == manifest.version));
-    index.packages.push(CatalogPackage {
-        name: manifest.name,
-        version: manifest.version,
+    for package in &index.packages {
+        validate_catalog_package(package, false).map_err(|message| {
+            PackageError::Registry(format!(
+                "catalog '{}' rejected: {}",
+                catalog_path.display(),
+                message
+            ))
+        })?;
+    }
+    let entry = CatalogPackage {
+        name: manifest.name.clone(),
+        version: manifest.version.clone(),
         git: git.to_string(),
         tag: tag.map(str::to_string),
         rev: rev.map(str::to_string),
         branch: branch.map(str::to_string),
+        resolved_rev: Some(resolved_rev),
         checksum: Some(directory_checksum(&root)?),
         description: String::new(),
         keywords: Vec::new(),
@@ -1441,7 +1755,25 @@ pub fn register(
         license: String::new(),
         modules: exported_modules(&manifest.src_dirs)?,
         owner: String::new(),
-    });
+    };
+    validate_catalog_package(&entry, true).map_err(|message| {
+        PackageError::Registry(format!("refusing to register package: {}", message))
+    })?;
+    for existing in &index.packages {
+        if existing.name == entry.name
+            && existing.version == entry.version
+            && !catalog_entries_match(existing, &entry)
+        {
+            return Err(PackageError::Registry(format!(
+                "refusing to overwrite existing catalog entry '{} {}' with different source metadata",
+                entry.name, entry.version
+            )));
+        }
+    }
+    index
+        .packages
+        .retain(|pkg| !(pkg.name == entry.name && pkg.version == entry.version));
+    index.packages.push(entry);
     index.packages.sort_by(|left, right| {
         left.name
             .cmp(&right.name)
@@ -1509,7 +1841,12 @@ pub fn dependency_tree(root: &Path) -> Result<Vec<String>, PackageError> {
     let mut rows = Vec::new();
     for package in workspace.packages {
         if package.dependencies.is_empty() {
-            rows.push(format!("{} {} ({})", package.name, package.version, package.source.kind()));
+            rows.push(format!(
+                "{} {} ({})",
+                package.name,
+                package.version,
+                package.source.kind()
+            ));
         } else {
             for dep in package.dependencies.values() {
                 rows.push(format!(
@@ -1619,7 +1956,10 @@ fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
         let path = entry.path();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
-        if matches!(name_text.as_ref(), "target" | ".git" | ".spectra" | LOCKFILE_NAME) {
+        if matches!(
+            name_text.as_ref(),
+            "target" | ".git" | ".spectra" | LOCKFILE_NAME
+        ) {
             continue;
         }
         let dest = to.join(&name);

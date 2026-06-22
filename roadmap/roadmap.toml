@@ -1072,6 +1072,7 @@ acceptance = [
   "package payloads use SHA-256 checksums",
   "checksum mismatches fail before compile",
   "cache writes are atomic and path traversal is rejected",
+  "catalog publication rejects mutable branch-only refs and conflicting same-version source metadata",
   "optional host allowlists and lockfile tamper checks are documented and tested"
 ]
 

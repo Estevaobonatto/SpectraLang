@@ -1971,12 +1971,16 @@ to an integer-typed local and then compared/returned through invalid IR.
 - Package payloads use SHA-256 checksums.
 - Checksum mismatches fail before compile.
 - Cache writes are atomic and path traversal is rejected.
+- Catalog publication rejects mutable branch-only refs and conflicting same-version source metadata.
 - Optional host allowlists and lockfile tamper checks are documented and tested.
 
 ### Completed so far
 
 - Replaced the package payload hash with SHA-256.
 - Git dependency manifests record checksums and resolution fails on checksum mismatch.
+- Catalog registration and metadata publishing now require immutable tag/rev refs,
+  record resolved commit SHA, validate catalog entry shape, and refuse unsafe
+  same-version overwrites.
 
 ### Remaining before completion
 

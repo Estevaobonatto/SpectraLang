@@ -986,10 +986,10 @@ where
                 );
             }
             "--catalog" => {
-                catalog = Some(PathBuf::from(
-                    args.next()
-                        .ok_or_else(|| usage_error("Missing path after '--catalog'."))?,
-                ));
+                catalog =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        usage_error("Missing path after '--catalog'.")
+                    })?));
             }
             "--out" => {
                 out = Some(PathBuf::from(
@@ -1077,38 +1077,38 @@ where
                 .ok_or_else(|| usage_error("package register requires --catalog <path>."))?,
         },
         "publish-metadata" => PackageCommand::PublishMetadata {
-            out: out.ok_or_else(|| usage_error("package publish-metadata requires --out <path>."))?,
+            out: out
+                .ok_or_else(|| usage_error("package publish-metadata requires --out <path>."))?,
             git,
             tag,
             rev,
             branch,
         },
-        "catalog" => match name.as_deref() {
-            Some("add") => PackageCommand::Catalog(package::CatalogCommand::Add {
-                name: extra_positionals
-                    .get(0)
-                    .cloned()
-                    .ok_or_else(|| usage_error("package catalog add requires a catalog name."))?,
-                source: extra_positionals
-                    .get(1)
-                    .cloned()
-                    .ok_or_else(|| usage_error("package catalog add requires a source path."))?,
-            }),
-            Some("list") | None => PackageCommand::Catalog(package::CatalogCommand::List),
-            Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync),
-            Some("remove") => PackageCommand::Catalog(package::CatalogCommand::Remove {
-                name: extra_positionals
-                    .get(0)
-                    .cloned()
-                    .ok_or_else(|| usage_error("package catalog remove requires a catalog name."))?,
-            }),
-            Some(other) => {
-                return Err(usage_error(&format!(
-                    "Unknown package catalog action '{}'.",
-                    other
-                )));
+        "catalog" => {
+            match name.as_deref() {
+                Some("add") => PackageCommand::Catalog(package::CatalogCommand::Add {
+                    name: extra_positionals.get(0).cloned().ok_or_else(|| {
+                        usage_error("package catalog add requires a catalog name.")
+                    })?,
+                    source: extra_positionals.get(1).cloned().ok_or_else(|| {
+                        usage_error("package catalog add requires a source path.")
+                    })?,
+                }),
+                Some("list") | None => PackageCommand::Catalog(package::CatalogCommand::List),
+                Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync),
+                Some("remove") => PackageCommand::Catalog(package::CatalogCommand::Remove {
+                    name: extra_positionals.get(0).cloned().ok_or_else(|| {
+                        usage_error("package catalog remove requires a catalog name.")
+                    })?,
+                }),
+                Some(other) => {
+                    return Err(usage_error(&format!(
+                        "Unknown package catalog action '{}'.",
+                        other
+                    )));
+                }
             }
-        },
+        }
         "publish" => PackageCommand::Publish {
             registry: registry
                 .ok_or_else(|| usage_error("package publish requires --registry <path>."))?,
@@ -3078,7 +3078,9 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             println!("     Written metadata {}", path.display());
             Ok(())
         }
-        PackageCommand::Catalog(command) => execute_package_catalog_command(&invocation.root, command),
+        PackageCommand::Catalog(command) => {
+            execute_package_catalog_command(&invocation.root, command)
+        }
         PackageCommand::Publish { registry } => {
             let workspace = package::resolve(&invocation.root)
                 .map_err(|error| CliError::io(error.to_string()))?;
@@ -3091,10 +3093,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
     }
 }
 
-fn execute_package_catalog_command(
-    root: &Path,
-    command: package::CatalogCommand,
-) -> CliResult<()> {
+fn execute_package_catalog_command(root: &Path, command: package::CatalogCommand) -> CliResult<()> {
     let catalog_config = root.join(".spectra").join("catalogs").join("catalogs.toml");
     match command {
         package::CatalogCommand::Add { name, source } => {
@@ -3102,11 +3101,16 @@ fn execute_package_catalog_command(
                 fs::create_dir_all(parent).map_err(|error| CliError::io(error.to_string()))?;
             }
             let mut text = if catalog_config.is_file() {
-                fs::read_to_string(&catalog_config).map_err(|error| CliError::io(error.to_string()))?
+                fs::read_to_string(&catalog_config)
+                    .map_err(|error| CliError::io(error.to_string()))?
             } else {
                 String::from("# Spectra package catalogs\n")
             };
-            text.push_str(&format!("{} = \"{}\"\n", name, source.replace('\\', "\\\\")));
+            text.push_str(&format!(
+                "{} = \"{}\"\n",
+                name,
+                source.replace('\\', "\\\\")
+            ));
             fs::write(&catalog_config, text).map_err(|error| CliError::io(error.to_string()))?;
             println!("     Added catalog {} -> {}", name, source);
             Ok(())
@@ -3126,8 +3130,8 @@ fn execute_package_catalog_command(
             if !catalog_config.is_file() {
                 return Ok(());
             }
-            let text =
-                fs::read_to_string(&catalog_config).map_err(|error| CliError::io(error.to_string()))?;
+            let text = fs::read_to_string(&catalog_config)
+                .map_err(|error| CliError::io(error.to_string()))?;
             let prefix = format!("{} =", name);
             let filtered = text
                 .lines()
@@ -3807,7 +3811,9 @@ fn print_package_help() {
     println!("    test       Resolve, lock, list/filter, and run #[spectra_async_test] tests");
     println!("    bench      Resolve, lock, and check with pipeline timings");
     println!("    doc        Generate package documentation into target/spectra-docs");
-    println!("    add        Add a path, registry, Git, or catalog dependency and refresh spectra.lock");
+    println!(
+        "    add        Add a path, registry, Git, or catalog dependency and refresh spectra.lock"
+    );
     println!("    fetch      Download/cache dependencies and refresh spectra.lock");
     println!("    search     Search configured package catalogs");
     println!("    info       Show catalog metadata for a package");
