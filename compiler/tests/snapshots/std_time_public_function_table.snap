@@ -1,0 +1,27 @@
+module std.time
+type std.time.Duration: struct Duration
+type std.time.Instant: struct Instant
+type std.time.UtcDateTime: struct UtcDateTime
+fn std.time.time_now_millis: fn() -> int
+fn std.time.time_now_secs: fn() -> int
+fn std.time.sleep_ms: fn(int) -> unit
+fn std.time.monotonic_millis: fn() -> int
+fn std.time.monotonic_nanos: fn() -> int
+fn std.time.duration_ms: fn(int) -> Duration
+fn std.time.duration_secs: fn(int) -> Duration
+fn std.time.duration_millis: fn(Duration) -> int
+fn std.time.duration_secs_value: fn(Duration) -> int
+fn std.time.duration_add: fn(Duration, Duration) -> Duration
+fn std.time.duration_sub: fn(Duration, Duration) -> Duration
+fn std.time.instant_now: fn() -> Instant
+fn std.time.instant_elapsed_ms: fn(Instant) -> int
+fn std.time.instant_add: fn(Instant, Duration) -> Instant
+fn std.time.instant_has_elapsed: fn(Instant) -> bool
+fn std.time.sleep: fn(Duration) -> unit
+fn std.time.unix_to_utc: fn(int) -> UtcDateTime
+fn std.time.utc_year: fn(UtcDateTime) -> int
+fn std.time.utc_month: fn(UtcDateTime) -> int
+fn std.time.utc_day: fn(UtcDateTime) -> int
+fn std.time.utc_hour: fn(UtcDateTime) -> int
+fn std.time.utc_minute: fn(UtcDateTime) -> int
+fn std.time.utc_second: fn(UtcDateTime) -> int

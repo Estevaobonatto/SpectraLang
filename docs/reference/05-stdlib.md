@@ -1399,6 +1399,84 @@ std.time.sleep_ms(1000);    // Pausa 1 segundo / Pause 1 second
 println("Pronto!");
 ```
 
+### Tipos / Types
+
+`std.time` tambem expoe handles opacos de tempo gerenciados pelo runtime:
+
+- `Duration`: intervalo nao negativo.
+- `Instant`: ponto monotonicamente medido pelo runtime.
+- `UtcDateTime`: data/hora UTC decomposta.
+
+### Clock monotônico / Monotonic clock
+
+#### `monotonic_millis() -> int`
+
+**PT-BR:** Retorna milissegundos desde a inicializacao do runtime usando clock monotônico.
+**EN-US:** Returns milliseconds since runtime start using a monotonic clock.
+
+#### `monotonic_nanos() -> int`
+
+**PT-BR:** Retorna nanossegundos desde a inicializacao do runtime usando clock monotônico.
+**EN-US:** Returns nanoseconds since runtime start using a monotonic clock.
+
+### Duração / Duration
+
+#### `duration_ms(ms: int) -> Duration`
+
+Cria uma duração em milissegundos. Valores negativos falham em runtime.
+
+#### `duration_secs(secs: int) -> Duration`
+
+Cria uma duração em segundos. Valores negativos falham em runtime.
+
+#### `duration_millis(duration: Duration) -> int`
+
+Retorna a duração em milissegundos.
+
+#### `duration_secs_value(duration: Duration) -> int`
+
+Retorna a duração em segundos inteiros. O nome evita overload com `duration_secs(secs)`.
+
+#### `duration_add(lhs: Duration, rhs: Duration) -> Duration`
+
+Soma durações com checagem de overflow.
+
+#### `duration_sub(lhs: Duration, rhs: Duration) -> Duration`
+
+Subtrai durações. Falha se `rhs` for maior que `lhs`.
+
+#### `sleep(duration: Duration) -> unit`
+
+Pausa usando `Duration`. Sleeps excessivamente longos são rejeitados pelo runtime.
+
+### Instantes / Instants
+
+#### `instant_now() -> Instant`
+
+Captura o instante monotônico atual.
+
+#### `instant_elapsed_ms(instant: Instant) -> int`
+
+Retorna os milissegundos decorridos desde `instant`.
+
+#### `instant_add(instant: Instant, duration: Duration) -> Instant`
+
+Retorna um novo instante deslocado por `duration`.
+
+#### `instant_has_elapsed(instant: Instant) -> bool`
+
+Retorna `true` quando o instante já chegou.
+
+### UTC
+
+#### `unix_to_utc(secs: int) -> UtcDateTime`
+
+Converte segundos Unix para data/hora UTC usando calendario civil deterministico no runtime.
+
+#### `utc_year(dt)`, `utc_month(dt)`, `utc_day(dt)`, `utc_hour(dt)`, `utc_minute(dt)`, `utc_second(dt)`
+
+Extraem campos de `UtcDateTime`.
+
 ### Exemplo: Benchmark Simples
 
 ```spectra

@@ -1091,6 +1091,19 @@ if ($r2005RuntimeHardening.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-runtime-hardening"; Teste = "validate_r2005_runtime_hardening"; Status = $r2005RuntimeHardening.Status; Detalhe = $r2005RuntimeHardening.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27b: R-2015 std.time production surface
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2015 std.time production surface ---" -ForegroundColor Yellow
+$r2015StdTime = Invoke-HostCommand -name "validate_r2015_std_time" -fileName "python" -arguments @("scripts\validate_r2015_std_time.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2015StdTime.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase20-std-time"; Teste = "validate_r2015_std_time"; Status = $r2015StdTime.Status; Detalhe = $r2015StdTime.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""

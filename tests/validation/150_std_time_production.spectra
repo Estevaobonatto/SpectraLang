@@ -1,0 +1,97 @@
+module std_time_production;
+
+import std.time;
+
+fn fail(code: int) -> int {
+    return code;
+}
+
+fn check_epoch() -> int {
+    let dt = unix_to_utc(0);
+    if utc_year(dt) != 1970 {
+        return fail(10);
+    }
+    if utc_month(dt) != 1 {
+        return fail(11);
+    }
+    if utc_day(dt) != 1 {
+        return fail(12);
+    }
+    if utc_hour(dt) != 0 {
+        return fail(13);
+    }
+    if utc_minute(dt) != 0 {
+        return fail(14);
+    }
+    if utc_second(dt) != 0 {
+        return fail(15);
+    }
+    return 0;
+}
+
+fn check_leap_day() -> int {
+    let dt = unix_to_utc(1582934400);
+    if utc_year(dt) != 2020 {
+        return fail(20);
+    }
+    if utc_month(dt) != 2 {
+        return fail(21);
+    }
+    if utc_day(dt) != 29 {
+        return fail(22);
+    }
+    return 0;
+}
+
+pub fn main() -> int {
+    let wall_secs = time_now_secs();
+    let wall_ms = time_now_millis();
+    if wall_secs <= 0 {
+        return fail(1);
+    }
+    if wall_ms <= wall_secs {
+        return fail(2);
+    }
+
+    let before = monotonic_millis();
+    let instant = instant_now();
+    let five = duration_ms(5);
+    let one_sec = duration_secs(1);
+    let combined = duration_add(five, one_sec);
+    if duration_millis(combined) != 1005 {
+        return fail(3);
+    }
+    if duration_secs_value(combined) != 1 {
+        return fail(4);
+    }
+    let back = duration_sub(combined, one_sec);
+    if duration_millis(back) != 5 {
+        return fail(5);
+    }
+
+    sleep(duration_ms(1));
+    sleep_ms(1);
+    let after = monotonic_millis();
+    if after < before {
+        return fail(6);
+    }
+    if instant_elapsed_ms(instant) < 1 {
+        return fail(7);
+    }
+    let deadline = instant_add(instant, duration_ms(1));
+    if instant_has_elapsed(deadline) {
+        let ok = 0;
+    } else {
+        return fail(8);
+    }
+
+    let epoch = check_epoch();
+    if epoch != 0 {
+        return epoch;
+    }
+    let leap = check_leap_day();
+    if leap != 0 {
+        return leap;
+    }
+    return 0;
+}

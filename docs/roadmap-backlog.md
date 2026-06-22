@@ -3502,7 +3502,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Status: `not_started`
 - Priority: `P0`
 - Owner: `tooling`
-- Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2001`, `R-2003`
+- Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2015`, `R-2001`, `R-2003`
 
 ### Scope
 
@@ -3569,6 +3569,55 @@ operands.
 - IR verification emits a typed undefined-value diagnostic before backend
   codegen if a future invalid IR value is encountered.
 - `scripts/validate_r2008_language_feature_matrix.py` passes after promotion.
+
+## R-2015 std.time Production Time Surface
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2003`, `R-2005`
+
+### Scope
+
+- Promote `std.time` from three wall-clock/sleep host calls to a production
+  time surface.
+- Preserve `time_now_millis`, `time_now_secs`, and `sleep_ms`.
+- Add runtime-managed `Duration`, `Instant`, and `UtcDateTime` handles.
+- Add monotonic clock, checked duration arithmetic, monotonic deadlines,
+  checked duration sleep, and deterministic Unix-to-UTC conversion.
+
+### Acceptance
+
+- `std.time` exposes monotonic clock functions and public `Duration`,
+  `Instant`, and `UtcDateTime` types through compiler builtins.
+- Invalid time handles, negative durations, underflow, overflow, and excessive
+  duration sleeps return stable host status values instead of panicking.
+- `tests/validation/150_std_time_production.spectra` validates wall clock,
+  monotonic clock, sleep, duration arithmetic, instant deadlines, and UTC
+  calendar boundaries through normal `spectralang run`.
+- `compiler/tests/snapshots/std_time_public_function_table.snap` records the
+  public `std.time` type/function table.
+- `scripts/validate_r2015_std_time.py` passes and is wired into
+  `run_tests.ps1` under `phase20-std-time`.
+
+### Completed
+
+- Runtime implementation: `runtime/src/stdlib/mod.rs`.
+- Compiler surface: `compiler/src/semantic/builtin_modules.rs`.
+- Lowering surface: `midend/src/lowering.rs`.
+- Public docs: `docs/reference/05-stdlib.md`,
+  `docs/AI-AGENT-REFERENCE.md`, and `docs/runtime/standard-library.md`.
+- The seconds accessor is named `duration_secs_value(duration)` because the
+  compiler's builtin function table does not support overloads for both
+  `duration_secs(secs)` and `duration_secs(duration)`.
+
+### Validation
+
+- `cargo test -p spectra-runtime std_time -- --test-threads=1`
+- `cargo test -p spectra-compiler std_time`
+- `target\debug\spectralang.exe run tests\validation\150_std_time_production.spectra`
+- `python scripts\validate_r2015_std_time.py --binary target\debug\spectralang.exe`
 
 ---
 

@@ -1762,6 +1762,21 @@ import std.time;
 | `time_now_millis` | `() -> int` | Milliseconds since Unix epoch (-1 on error) |
 | `time_now_secs` | `() -> int` | Seconds since Unix epoch (-1 on error) |
 | `sleep_ms` | `(ms: int) -> unit` | Sleep for ms milliseconds |
+| `monotonic_millis` | `() -> int` | Monotonic milliseconds since runtime start |
+| `monotonic_nanos` | `() -> int` | Monotonic nanoseconds since runtime start |
+| `duration_ms` | `(ms: int) -> Duration` | Create an opaque duration handle |
+| `duration_secs` | `(secs: int) -> Duration` | Create an opaque duration handle |
+| `duration_millis` | `(duration: Duration) -> int` | Read a duration in milliseconds |
+| `duration_secs_value` | `(duration: Duration) -> int` | Read a duration in whole seconds |
+| `duration_add` | `(lhs: Duration, rhs: Duration) -> Duration` | Checked duration addition |
+| `duration_sub` | `(lhs: Duration, rhs: Duration) -> Duration` | Checked duration subtraction |
+| `instant_now` | `() -> Instant` | Capture a monotonic instant |
+| `instant_elapsed_ms` | `(instant: Instant) -> int` | Milliseconds elapsed since instant |
+| `instant_add` | `(instant: Instant, duration: Duration) -> Instant` | Create a deadline instant |
+| `instant_has_elapsed` | `(instant: Instant) -> bool` | Check whether a deadline passed |
+| `sleep` | `(duration: Duration) -> unit` | Sleep for a checked duration |
+| `unix_to_utc` | `(secs: int) -> UtcDateTime` | Convert Unix seconds to UTC |
+| `utc_year/month/day/hour/minute/second` | `(dt: UtcDateTime) -> int` | Extract UTC fields |
 
 ```spectra
 import std.time;
@@ -1769,6 +1784,13 @@ import std.time;
 let start = time_now_millis();
 sleep_ms(100);
 let elapsed = time_now_millis() - start;
+
+let deadline = instant_add(instant_now(), duration_ms(10));
+sleep(duration_ms(10));
+let done = instant_has_elapsed(deadline);
+
+let epoch = unix_to_utc(0);
+let year = utc_year(epoch); // 1970
 ```
 
 ---

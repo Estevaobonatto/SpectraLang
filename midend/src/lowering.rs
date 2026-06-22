@@ -8642,6 +8642,106 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Void,
                 returns_value: false,
             }),
+            ("time", "monotonic_millis") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.monotonic_millis",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "monotonic_nanos") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.monotonic_nanos",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "duration_ms") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.duration_ms",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "duration_secs") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.duration_secs",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "duration_millis") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.duration_millis",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "duration_secs_value") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.duration_secs_value",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "duration_add") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.duration_add",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "duration_sub") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.duration_sub",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "instant_now") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.instant_now",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "instant_elapsed_ms") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.instant_elapsed_ms",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "instant_add") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.instant_add",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "instant_has_elapsed") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.instant_has_elapsed",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("time", "sleep") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.sleep",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("time", "unix_to_utc") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.unix_to_utc",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "utc_year") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.utc_year",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "utc_month") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.utc_month",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "utc_day") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.utc_day",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "utc_hour") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.utc_hour",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "utc_minute") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.utc_minute",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("time", "utc_second") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.time.utc_second",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
             // ── std.random ────────────────────────────────────────────────
             ("random", "random_seed") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.random.random_seed",

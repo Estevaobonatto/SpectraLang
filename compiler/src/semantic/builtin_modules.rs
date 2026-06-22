@@ -447,6 +447,38 @@ pub const STD_API_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.api.errors.last_message", "fn() -> string"),
 ];
 
+pub const STD_TIME_PUBLIC_TYPES: &[(&str, &str)] = &[
+    ("std.time.Duration", "struct Duration"),
+    ("std.time.Instant", "struct Instant"),
+    ("std.time.UtcDateTime", "struct UtcDateTime"),
+];
+
+pub const STD_TIME_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
+    ("std.time.time_now_millis", "fn() -> int"),
+    ("std.time.time_now_secs", "fn() -> int"),
+    ("std.time.sleep_ms", "fn(int) -> unit"),
+    ("std.time.monotonic_millis", "fn() -> int"),
+    ("std.time.monotonic_nanos", "fn() -> int"),
+    ("std.time.duration_ms", "fn(int) -> Duration"),
+    ("std.time.duration_secs", "fn(int) -> Duration"),
+    ("std.time.duration_millis", "fn(Duration) -> int"),
+    ("std.time.duration_secs_value", "fn(Duration) -> int"),
+    ("std.time.duration_add", "fn(Duration, Duration) -> Duration"),
+    ("std.time.duration_sub", "fn(Duration, Duration) -> Duration"),
+    ("std.time.instant_now", "fn() -> Instant"),
+    ("std.time.instant_elapsed_ms", "fn(Instant) -> int"),
+    ("std.time.instant_add", "fn(Instant, Duration) -> Instant"),
+    ("std.time.instant_has_elapsed", "fn(Instant) -> bool"),
+    ("std.time.sleep", "fn(Duration) -> unit"),
+    ("std.time.unix_to_utc", "fn(int) -> UtcDateTime"),
+    ("std.time.utc_year", "fn(UtcDateTime) -> int"),
+    ("std.time.utc_month", "fn(UtcDateTime) -> int"),
+    ("std.time.utc_day", "fn(UtcDateTime) -> int"),
+    ("std.time.utc_hour", "fn(UtcDateTime) -> int"),
+    ("std.time.utc_minute", "fn(UtcDateTime) -> int"),
+    ("std.time.utc_second", "fn(UtcDateTime) -> int"),
+];
+
 /// Register all built-in standard library modules in the given registry.
 pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.io".to_string(), make_std_io());
@@ -2928,6 +2960,20 @@ fn make_std_time() -> ModuleExports {
         ..Default::default()
     };
 
+    for name in ["Duration", "Instant", "UtcDateTime"] {
+        exports.types.insert(name.to_string(), public_type(&[]));
+    }
+
+    let duration = Type::Struct {
+        name: "Duration".to_string(),
+    };
+    let instant = Type::Struct {
+        name: "Instant".to_string(),
+    };
+    let utc = Type::Struct {
+        name: "UtcDateTime".to_string(),
+    };
+
     // time_now_millis() -> int  (milliseconds since Unix epoch; -1 on error)
     exports
         .functions
@@ -2940,6 +2986,67 @@ fn make_std_time() -> ModuleExports {
     exports
         .functions
         .insert("sleep_ms".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+    exports
+        .functions
+        .insert("monotonic_millis".to_string(), pub_fn(vec![], Type::Int));
+    exports
+        .functions
+        .insert("monotonic_nanos".to_string(), pub_fn(vec![], Type::Int));
+    exports
+        .functions
+        .insert("duration_ms".to_string(), pub_fn(vec![Type::Int], duration.clone()));
+    exports
+        .functions
+        .insert("duration_secs".to_string(), pub_fn(vec![Type::Int], duration.clone()));
+    exports.functions.insert(
+        "duration_millis".to_string(),
+        pub_fn(vec![duration.clone()], Type::Int),
+    );
+    exports.functions.insert(
+        "duration_secs_value".to_string(),
+        pub_fn(vec![duration.clone()], Type::Int),
+    );
+    exports.functions.insert(
+        "duration_add".to_string(),
+        pub_fn(vec![duration.clone(), duration.clone()], duration.clone()),
+    );
+    exports.functions.insert(
+        "duration_sub".to_string(),
+        pub_fn(vec![duration.clone(), duration.clone()], duration.clone()),
+    );
+    exports
+        .functions
+        .insert("instant_now".to_string(), pub_fn(vec![], instant.clone()));
+    exports.functions.insert(
+        "instant_elapsed_ms".to_string(),
+        pub_fn(vec![instant.clone()], Type::Int),
+    );
+    exports.functions.insert(
+        "instant_add".to_string(),
+        pub_fn(vec![instant.clone(), duration.clone()], instant.clone()),
+    );
+    exports.functions.insert(
+        "instant_has_elapsed".to_string(),
+        pub_fn(vec![instant.clone()], Type::Bool),
+    );
+    exports
+        .functions
+        .insert("sleep".to_string(), pub_fn(vec![duration], Type::Unit));
+    exports
+        .functions
+        .insert("unix_to_utc".to_string(), pub_fn(vec![Type::Int], utc.clone()));
+    for field in [
+        "utc_year",
+        "utc_month",
+        "utc_day",
+        "utc_hour",
+        "utc_minute",
+        "utc_second",
+    ] {
+        exports
+            .functions
+            .insert(field.to_string(), pub_fn(vec![utc.clone()], Type::Int));
+    }
 
     exports
 }

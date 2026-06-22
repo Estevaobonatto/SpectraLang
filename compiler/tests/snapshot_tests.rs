@@ -224,6 +224,19 @@ fn std_api_public_function_table_snapshot() -> String {
     out
 }
 
+fn std_time_public_function_table_snapshot() -> String {
+    let mut out = String::new();
+    out.push_str("module std.time\n");
+    for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_TIME_PUBLIC_TYPES {
+        out.push_str(&format!("type {name}: {signature}\n"));
+    }
+    for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_TIME_PUBLIC_FUNCTIONS
+    {
+        out.push_str(&format!("fn {name}: {signature}\n"));
+    }
+    out
+}
+
 #[test]
 fn ast_snapshot_covers_parser_stage() {
     let source = r#"
@@ -255,6 +268,14 @@ fn std_api_public_function_table_is_snapshotted() {
     assert_snapshot(
         "std_api_public_function_table.snap",
         &std_api_public_function_table_snapshot(),
+    );
+}
+
+#[test]
+fn std_time_public_function_table_is_snapshotted() {
+    assert_snapshot(
+        "std_time_public_function_table.snap",
+        &std_time_public_function_table_snapshot(),
     );
 }
 

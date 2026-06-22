@@ -40,6 +40,26 @@ terminates.
 | `spectra.std.collections.list_free` | Drops the list allocation associated with the handle. | `handle` | `0` when `results` provided |
 | `spectra.std.collections.list_free_all` | Drops every list managed by the runtime. | *(none)* | number of freed lists |
 
+## time namespace
+
+Spectra exposes wall-clock timestamps plus runtime-managed opaque handles for production time
+operations. `Duration`, `Instant`, and `UtcDateTime` are represented as integer handles in the host
+ABI; invalid handles return `HOST_STATUS_INVALID_ARGUMENT`.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.time.time_now_millis` / `time_now_secs` | Unix wall-clock timestamp from `SystemTime`. | none | milliseconds or seconds since Unix epoch |
+| `spectra.std.time.sleep_ms` | Backwards-compatible blocking sleep in milliseconds. | `ms` | `0` when a result slot is provided |
+| `spectra.std.time.monotonic_millis` / `monotonic_nanos` | Monotonic elapsed time since runtime start. | none | elapsed milliseconds or nanoseconds |
+| `spectra.std.time.duration_ms` / `duration_secs` | Create a non-negative duration handle. | milliseconds or seconds | duration handle |
+| `spectra.std.time.duration_millis` / `duration_secs_value` | Read a duration handle. | duration handle | milliseconds or whole seconds |
+| `spectra.std.time.duration_add` / `duration_sub` | Checked duration arithmetic. | duration handles | duration handle |
+| `spectra.std.time.instant_now` / `instant_elapsed_ms` | Capture a monotonic instant and inspect elapsed time. | none or instant handle | instant handle or elapsed milliseconds |
+| `spectra.std.time.instant_add` / `instant_has_elapsed` | Create and inspect monotonic deadlines. | instant and duration handles | instant handle or bool |
+| `spectra.std.time.sleep` | Blocking sleep for a checked duration; excessive sleeps are rejected. | duration handle | none |
+| `spectra.std.time.unix_to_utc` | Convert Unix seconds to UTC using deterministic civil-calendar arithmetic. | seconds | UTC datetime handle |
+| `spectra.std.time.utc_year` / `utc_month` / `utc_day` / `utc_hour` / `utc_minute` / `utc_second` | Extract UTC datetime fields. | UTC datetime handle | integer field |
+
 ## tensor namespace
 
 Spectra exposes tensor operations through runtime-managed opaque handles. The alpha tensor runtime

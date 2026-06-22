@@ -1778,7 +1778,7 @@ owner = "tooling"
 priority = "P0"
 status = "not_started"
 risk = "high"
-dependencies = ["R-2011", "R-2012", "R-2014", "R-2001", "R-2003"]
+dependencies = ["R-2011", "R-2012", "R-2014", "R-2015", "R-2001", "R-2003"]
 summary = "Require zero failures in the integrated `.spectra` language and AI project suite before certifying a production release candidate."
 acceptance = [
   "release-candidate certification includes the integrated project runner report alongside R-2001 conformance",
@@ -1803,6 +1803,24 @@ acceptance = [
   "IR verification reports an undefined value diagnostic before backend codegen if a future invalid IR value is encountered",
   "regression coverage preserves cross-module struct construction, enum tuple and struct payload matching, trait-method dispatch, `while let`, `unless`, and mutable loop state",
   "`scripts/validate_r2008_language_feature_matrix.py` passes after the project is promoted"
+]
+
+[[items]]
+id = "R-2015"
+title = "std.time Production Time Surface"
+phase = "phase_20"
+owner = "runtime"
+priority = "P0"
+risk = "high"
+status = "complete"
+dependencies = ["R-2003", "R-2005"]
+summary = "Promote `std.time` from a narrow wall-clock/sleep surface to production monotonic time, duration, instant, and UTC calendar host calls with executable validation."
+acceptance = [
+  "`std.time` exposes monotonic clock functions and public `Duration`, `Instant`, and `UtcDateTime` types through compiler builtins",
+  "invalid time handles, negative durations, underflow, overflow, and excessive duration sleeps return stable host status values instead of panicking",
+  "`tests/validation/150_std_time_production.spectra` validates wall clock, monotonic clock, sleep, duration arithmetic, instant deadlines, and UTC calendar boundaries through normal `spectralang run`",
+  "`compiler/tests/snapshots/std_time_public_function_table.snap` records the public `std.time` type/function table",
+  "`scripts/validate_r2015_std_time.py` passes and is wired into `run_tests.ps1` under `phase20-std-time`",
 ]
 
 [[items]]
