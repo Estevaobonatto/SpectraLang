@@ -1,0 +1,51 @@
+module algorithms_pattern_state_machine;
+
+enum Visit {
+    Node { value: int, next: int },
+    Done,
+}
+
+fn next_collatz(value: int) -> Visit {
+    if value <= 1 {
+        return Visit::Done;
+    }
+    if value % 2 == 0 {
+        return Visit::Node { value: value, next: value / 2 };
+    }
+    return Visit::Node { value: value, next: value * 3 + 1 };
+}
+
+fn collatz_signature(start: int) -> int {
+    let current = start;
+    let steps = 0;
+    let total = 0;
+
+    while let Visit::Node { value, next } = next_collatz(current) {
+        total = total + value;
+        current = next;
+        steps = steps + 1;
+        if steps > 20 {
+            return -1;
+        }
+    }
+
+    return steps * 1000 + total;
+}
+
+fn classify(signature: int) -> int {
+    return match signature {
+        16287 => 1,
+        _ => 0
+    };
+}
+
+pub fn main() -> int {
+    let signature = collatz_signature(7);
+    if signature != 16287 {
+        return signature;
+    }
+    if classify(signature) != 1 {
+        return 2;
+    }
+    return 0;
+}

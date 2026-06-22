@@ -1,0 +1,108 @@
+module leetcode_grid_graphs;
+
+fn index_of(row: int, col: int) -> int {
+    return row * 5 + col;
+}
+
+fn flood(start_row: int, start_col: int, grid: [int], visited: [int]) -> int {
+    let stack_rows = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let stack_cols = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let top = 0;
+    let size = 0;
+
+    stack_rows[top] = start_row;
+    stack_cols[top] = start_col;
+    top = top + 1;
+    visited[index_of(start_row, start_col)] = 1;
+
+    while top > 0 {
+        top = top - 1;
+        let row = stack_rows[top];
+        let col = stack_cols[top];
+        size = size + 1;
+
+        if row > 0 {
+            let next = index_of(row - 1, col);
+            if grid[next] == 1 && visited[next] == 0 {
+                visited[next] = 1;
+                stack_rows[top] = row - 1;
+                stack_cols[top] = col;
+                top = top + 1;
+            }
+        }
+        if row < 4 {
+            let next = index_of(row + 1, col);
+            if grid[next] == 1 && visited[next] == 0 {
+                visited[next] = 1;
+                stack_rows[top] = row + 1;
+                stack_cols[top] = col;
+                top = top + 1;
+            }
+        }
+        if col > 0 {
+            let next = index_of(row, col - 1);
+            if grid[next] == 1 && visited[next] == 0 {
+                visited[next] = 1;
+                stack_rows[top] = row;
+                stack_cols[top] = col - 1;
+                top = top + 1;
+            }
+        }
+        if col < 4 {
+            let next = index_of(row, col + 1);
+            if grid[next] == 1 && visited[next] == 0 {
+                visited[next] = 1;
+                stack_rows[top] = row;
+                stack_cols[top] = col + 1;
+                top = top + 1;
+            }
+        }
+    }
+
+    return size;
+}
+
+fn island_signature() -> int {
+    let grid = [
+        1, 1, 0, 0, 0,
+        1, 0, 0, 1, 1,
+        0, 0, 1, 0, 0,
+        1, 1, 0, 0, 1,
+        0, 1, 0, 1, 1
+    ];
+    let visited = [
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0
+    ];
+    let islands = 0;
+    let largest = 0;
+    let row = 0;
+
+    while row < 5 {
+        let col = 0;
+        while col < 5 {
+            let idx = index_of(row, col);
+            if grid[idx] == 1 && visited[idx] == 0 {
+                let size = flood(row, col, grid, visited);
+                islands = islands + 1;
+                if size > largest {
+                    largest = size;
+                }
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    return islands * 100 + largest;
+}
+
+pub fn main() -> int {
+    if island_signature() != 503 {
+        return 1;
+    }
+    return 0;
+}

@@ -238,6 +238,7 @@ impl AotCodeGenerator {
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
+        let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
         let frame_var = builder.declare_var(types::I64);
         builder.def_var(frame_var, frame_token);
 
@@ -305,6 +306,7 @@ impl AotCodeGenerator {
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
+                &stack_allocas,
                 frame_var,
                 ir_block.id,
                 &phi_map,

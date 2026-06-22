@@ -8,7 +8,7 @@ use spectra_midend::ir::{
     BasicBlock as IRBasicBlock, Function as IRFunction, Instruction, InstructionKind,
     Module as IRModule, Terminator, Type as IRType, Value as IRValue,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::{BackendCodegenError, BackendResult};
 
@@ -297,6 +297,7 @@ impl CodeGenerator {
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
+        let stack_allocas = Self::collect_stack_allocas(ir_func);
         // In cranelift 0.130+, declare_var(Type) -> Variable (no manual index tracking needed)
         let frame_var = builder.declare_var(types::I64);
         builder.def_var(frame_var, frame_token);
@@ -369,6 +370,7 @@ impl CodeGenerator {
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
+                &stack_allocas,
                 frame_var,
                 ir_block.id,
                 &phi_map,
@@ -404,6 +406,94 @@ impl CodeGenerator {
         Ok(())
     }
 
+    pub(crate) fn collect_stack_allocas(ir_func: &IRFunction) -> HashSet<usize> {
+        let mut stack_allocas = HashSet::new();
+        let mut alloca_types = HashMap::new();
+        let mut derived_from_alloca = HashMap::new();
+
+        for block in &ir_func.blocks {
+            for instruction in &block.instructions {
+                if let InstructionKind::Alloca { result, ty } = &instruction.kind {
+                    if Self::is_stack_alloca_type(ty) {
+                        stack_allocas.insert(result.id);
+                        alloca_types.insert(result.id, ty.clone());
+                        derived_from_alloca.insert(result.id, result.id);
+                    }
+                }
+            }
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for block in &ir_func.blocks {
+                for instruction in &block.instructions {
+                    if let InstructionKind::GetElementPtr { result, ptr, .. } = &instruction.kind {
+                        if let Some(root) = derived_from_alloca.get(&ptr.id).copied() {
+                            if derived_from_alloca.insert(result.id, root).is_none() {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for block in &ir_func.blocks {
+            if let Some(Terminator::Return { value: Some(value) }) = &block.terminator {
+                if let Some(root) = derived_from_alloca.get(&value.id) {
+                    stack_allocas.remove(root);
+                }
+            }
+
+            for instruction in &block.instructions {
+                match &instruction.kind {
+                    InstructionKind::Store { value, .. } => {
+                        if let Some(root) = derived_from_alloca.get(&value.id) {
+                            stack_allocas.remove(root);
+                        }
+                    }
+                    InstructionKind::HostCall { args, .. }
+                    | InstructionKind::CallIndirect { args, .. } => {
+                        for arg in args {
+                            if let Some(root) = derived_from_alloca.get(&arg.id) {
+                                stack_allocas.remove(root);
+                            }
+                        }
+                    }
+                    InstructionKind::AsyncReady {
+                        value: Some(value), ..
+                    } => {
+                        if let Some(root) = derived_from_alloca.get(&value.id) {
+                            stack_allocas.remove(root);
+                        }
+                    }
+                    InstructionKind::MakeDynFatPtr { data_ptr, .. } => {
+                        if let Some(root) = derived_from_alloca.get(&data_ptr.id) {
+                            stack_allocas.remove(root);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        stack_allocas
+            .into_iter()
+            .filter(|id| alloca_types.contains_key(id))
+            .collect()
+    }
+
+    fn is_stack_alloca_type(ty: &IRType) -> bool {
+        match ty {
+            IRType::Int | IRType::Float | IRType::Bool | IRType::Char => true,
+            IRType::Array { element_type, size } => {
+                *size <= 4096 && Self::is_stack_alloca_type(element_type)
+            }
+            _ => false,
+        }
+    }
+
     /// Generate code for a basic block
     pub(crate) fn generate_block<M: Module>(
         module: &mut M,
@@ -420,6 +510,7 @@ impl CodeGenerator {
         value_map: &mut HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
         allocation_vars: &mut Vec<Variable>,
+        stack_allocas: &HashSet<usize>,
         frame_var: Variable,
         current_block_id: usize,
         phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
@@ -449,6 +540,7 @@ impl CodeGenerator {
                 instr,
                 value_map,
                 allocation_vars,
+                stack_allocas,
                 track_allocations,
                 ir_block.id,
                 block_map,
@@ -489,6 +581,7 @@ impl CodeGenerator {
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
         allocation_vars: &mut Vec<Variable>,
+        stack_allocas: &HashSet<usize>,
         track_allocations: bool,
         current_block_id: usize,
         block_map: &HashMap<usize, Block>,
@@ -656,6 +749,18 @@ impl CodeGenerator {
             // Memory operations
             InstructionKind::Alloca { result, ty } => {
                 let size_bytes = Self::type_size_bytes(ty) as i64;
+                if stack_allocas.contains(&result.id) {
+                    let slot =
+                        builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            size_bytes as u32,
+                            0,
+                        ));
+                    let ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                    value_map.insert(result.id, ptr);
+                    return Ok(());
+                }
+
                 let size_value = builder.ins().iconst(types::I64, size_bytes);
                 let func_ref = module.declare_func_in_func(manual_alloc_func, builder.func);
                 let call = builder.ins().call(func_ref, &[size_value]);
@@ -1371,6 +1476,103 @@ mod tests {
     fn test_codegen_creation() {
         let codegen = CodeGenerator::new();
         assert!(codegen.function_map.is_empty());
+    }
+
+    #[test]
+    fn local_scalar_array_allocas_use_native_stack_when_not_escaping() {
+        let function = IRFunction {
+            name: "stackable".to_string(),
+            params: vec![],
+            return_type: IRType::Int,
+            next_value_id: 5,
+            next_block_id: 1,
+            blocks: vec![IRBasicBlock {
+                id: 0,
+                label: "entry".to_string(),
+                instructions: vec![
+                    Instruction {
+                        id: 0,
+                        kind: InstructionKind::Alloca {
+                            result: IRValue { id: 0 },
+                            ty: IRType::Array {
+                                element_type: Box::new(IRType::Int),
+                                size: 4,
+                            },
+                        },
+                    },
+                    Instruction {
+                        id: 1,
+                        kind: InstructionKind::ConstInt {
+                            result: IRValue { id: 1 },
+                            value: 0,
+                        },
+                    },
+                    Instruction {
+                        id: 2,
+                        kind: InstructionKind::GetElementPtr {
+                            result: IRValue { id: 2 },
+                            ptr: IRValue { id: 0 },
+                            index: IRValue { id: 1 },
+                            element_type: IRType::Int,
+                        },
+                    },
+                    Instruction {
+                        id: 3,
+                        kind: InstructionKind::ConstInt {
+                            result: IRValue { id: 3 },
+                            value: 42,
+                        },
+                    },
+                    Instruction {
+                        id: 4,
+                        kind: InstructionKind::Store {
+                            ptr: IRValue { id: 2 },
+                            value: IRValue { id: 3 },
+                        },
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: Some(IRValue { id: 3 }),
+                }),
+            }],
+        };
+
+        let stack_allocas = CodeGenerator::collect_stack_allocas(&function);
+        assert!(stack_allocas.contains(&0));
+    }
+
+    #[test]
+    fn escaping_alloca_stays_on_manual_runtime_heap() {
+        let function = IRFunction {
+            name: "escaping".to_string(),
+            params: vec![],
+            return_type: IRType::Array {
+                element_type: Box::new(IRType::Int),
+                size: 4,
+            },
+            next_value_id: 1,
+            next_block_id: 1,
+            blocks: vec![IRBasicBlock {
+                id: 0,
+                label: "entry".to_string(),
+                instructions: vec![Instruction {
+                    id: 0,
+                    kind: InstructionKind::Alloca {
+                        result: IRValue { id: 0 },
+                        ty: IRType::Array {
+                            element_type: Box::new(IRType::Int),
+                            size: 4,
+                        },
+                    },
+                }],
+                terminator: Some(Terminator::Return {
+                    value: Some(IRValue { id: 0 }),
+                }),
+            }],
+        };
+
+        let stack_allocas = CodeGenerator::collect_stack_allocas(&function);
+        assert!(!stack_allocas.contains(&0));
     }
 
     #[test]

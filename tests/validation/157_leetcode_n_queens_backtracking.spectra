@@ -1,0 +1,71 @@
+module leetcode_n_queens_backtracking;
+
+fn abs_i(value: int) -> int {
+    if value < 0 {
+        return 0 - value;
+    }
+    return value;
+}
+
+fn safe_pair(row_a: int, col_a: int, row_b: int, col_b: int) -> bool {
+    if col_a == col_b {
+        return false;
+    }
+    if abs_i(col_a - col_b) == abs_i(row_a - row_b) {
+        return false;
+    }
+    return true;
+}
+
+fn is_solution(q0: int, q1: int, q2: int, q3: int) -> bool {
+    if !safe_pair(0, q0, 1, q1) {
+        return false;
+    }
+    if !safe_pair(0, q0, 2, q2) {
+        return false;
+    }
+    if !safe_pair(0, q0, 3, q3) {
+        return false;
+    }
+    if !safe_pair(1, q1, 2, q2) {
+        return false;
+    }
+    if !safe_pair(1, q1, 3, q3) {
+        return false;
+    }
+    if !safe_pair(2, q2, 3, q3) {
+        return false;
+    }
+    return true;
+}
+
+fn total_n_queens_4() -> int {
+    let count = 0;
+    let q0 = 0;
+    while q0 < 4 {
+        let q1 = 0;
+        while q1 < 4 {
+            let q2 = 0;
+            while q2 < 4 {
+                let q3 = 0;
+                while q3 < 4 {
+                    if is_solution(q0, q1, q2, q3) {
+                        count = count + 1;
+                    }
+                    q3 = q3 + 1;
+                }
+                q2 = q2 + 1;
+            }
+            q1 = q1 + 1;
+        }
+        q0 = q0 + 1;
+    }
+    return count;
+}
+
+pub fn main() -> int {
+    if total_n_queens_4() != 2 {
+        return 1;
+    }
+    return 0;
+}

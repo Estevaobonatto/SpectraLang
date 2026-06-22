@@ -1,0 +1,102 @@
+module leetcode_string_algorithms;
+
+import std.string as str;
+
+fn is_palindrome_ascii(text: string) -> bool {
+    let left = 0;
+    let right = str.len(text) - 1;
+
+    while left < right {
+        if str.char_at(text, left) != str.char_at(text, right) {
+            return false;
+        }
+        left = left + 1;
+        right = right - 1;
+    }
+
+    return true;
+}
+
+fn roman_value(code: int) -> int {
+    if code == 73 {
+        return 1;
+    }
+    if code == 86 {
+        return 5;
+    }
+    if code == 88 {
+        return 10;
+    }
+    if code == 76 {
+        return 50;
+    }
+    if code == 67 {
+        return 100;
+    }
+    if code == 68 {
+        return 500;
+    }
+    if code == 77 {
+        return 1000;
+    }
+    return 0;
+}
+
+fn roman_to_int(text: string) -> int {
+    let total = 0;
+    let index = 0;
+    let n = str.len(text);
+
+    while index < n {
+        let current = roman_value(str.char_at(text, index));
+        let next = 0;
+        if index + 1 < n {
+            next = roman_value(str.char_at(text, index + 1));
+        }
+        if current < next {
+            total = total - current;
+        } else {
+            total = total + current;
+        }
+        index = index + 1;
+    }
+
+    return total;
+}
+
+fn longest_common_prefix_len(a: string, b: string, c: string) -> int {
+    let n = str.len(a);
+    let index = 0;
+
+    while index < n {
+        let code = str.char_at(a, index);
+        if index >= str.len(b) || index >= str.len(c) {
+            return index;
+        }
+        if str.char_at(b, index) != code || str.char_at(c, index) != code {
+            return index;
+        }
+        index = index + 1;
+    }
+
+    return n;
+}
+
+pub fn main() -> int {
+    if !is_palindrome_ascii("racecar") {
+        return 1;
+    }
+    if is_palindrome_ascii("spectra") {
+        return 2;
+    }
+    if roman_to_int("MCMXCIV") != 1994 {
+        return 3;
+    }
+    if longest_common_prefix_len("flower", "flow", "flight") != 2 {
+        return 4;
+    }
+    if str.index_of("sliding-window", "window") != 8 {
+        return 5;
+    }
+    return 0;
+}

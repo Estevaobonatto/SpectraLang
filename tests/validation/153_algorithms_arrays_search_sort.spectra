@@ -1,0 +1,59 @@
+module algorithms_arrays_search_sort;
+
+fn sorted_weighted_checksum() -> int {
+    let values = [9, 1, 5, 3, 7, 2];
+    let outer = 0;
+
+    while outer < 6 {
+        let inner = 0;
+        while inner < 5 {
+            if values[inner] > values[inner + 1] {
+                let tmp = values[inner];
+                values[inner] = values[inner + 1];
+                values[inner + 1] = tmp;
+            }
+            inner = inner + 1;
+        }
+        outer = outer + 1;
+    }
+
+    let checksum = 0;
+    let index = 0;
+    while index < 6 {
+        checksum = checksum + values[index] * (index + 1);
+        index = index + 1;
+    }
+
+    return checksum;
+}
+
+fn binary_search_seven() -> int {
+    let values = [1, 2, 3, 5, 7, 9];
+    let low = 0;
+    let high = 5;
+    let found = -1;
+
+    while low <= high {
+        let mid = (low + high) / 2;
+        if values[mid] == 7 {
+            found = mid;
+            break;
+        } elif values[mid] < 7 {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    return found;
+}
+
+pub fn main() -> int {
+    if sorted_weighted_checksum() != 123 {
+        return 1;
+    }
+    if binary_search_seven() != 4 {
+        return 2;
+    }
+    return 0;
+}

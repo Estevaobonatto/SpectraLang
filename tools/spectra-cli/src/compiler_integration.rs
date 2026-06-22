@@ -16,7 +16,8 @@ use spectra_midend::{
     lowering::ASTLowering,
     passes::{
         constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
-        validation::LoopStructureValidation, verification::verify_module, Pass,
+        function_inlining::FunctionInlining, validation::LoopStructureValidation,
+        verification::verify_module, Pass,
     },
 };
 
@@ -260,6 +261,17 @@ impl BackendDriver for FullPipelineBackend {
                 let modified = cf.run(&mut ir_module);
                 pass_reports.push(PassReport {
                     name: "Constant Folding",
+                    duration: pass_start.elapsed(),
+                    modified,
+                });
+            }
+
+            if options.opt_level >= 3 {
+                let mut inline = FunctionInlining::new();
+                let pass_start = Instant::now();
+                let modified = inline.run(&mut ir_module);
+                pass_reports.push(PassReport {
+                    name: "Function Inlining",
                     duration: pass_start.elapsed(),
                     modified,
                 });

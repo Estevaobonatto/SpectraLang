@@ -1,0 +1,73 @@
+module leetcode_edit_distance_knapsack;
+
+fn min3(a: int, b: int, c: int) -> int {
+    let best = a;
+    if b < best {
+        best = b;
+    }
+    if c < best {
+        best = c;
+    }
+    return best;
+}
+
+fn edit_distance_horse_ros() -> int {
+    let prev = [0, 1, 2, 3];
+    let curr = [0, 0, 0, 0];
+    let word1 = [104, 111, 114, 115, 101];
+    let word2 = [114, 111, 115];
+    let i = 1;
+
+    while i <= 5 {
+        curr[0] = i;
+        let j = 1;
+        while j <= 3 {
+            if word1[i - 1] == word2[j - 1] {
+                curr[j] = prev[j - 1];
+            } else {
+                curr[j] = min3(prev[j], curr[j - 1], prev[j - 1]) + 1;
+            }
+            j = j + 1;
+        }
+
+        let k = 0;
+        while k <= 3 {
+            prev[k] = curr[k];
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+
+    return prev[3];
+}
+
+fn knapsack_01() -> int {
+    let weights = [2, 3, 4, 5];
+    let values = [3, 4, 5, 8];
+    let dp = [0, 0, 0, 0, 0, 0];
+    let item = 0;
+
+    while item < 4 {
+        let cap = 5;
+        while cap >= weights[item] {
+            let candidate = dp[cap - weights[item]] + values[item];
+            if candidate > dp[cap] {
+                dp[cap] = candidate;
+            }
+            cap = cap - 1;
+        }
+        item = item + 1;
+    }
+
+    return dp[5];
+}
+
+pub fn main() -> int {
+    if edit_distance_horse_ros() != 3 {
+        return 1;
+    }
+    if knapsack_01() != 8 {
+        return 2;
+    }
+    return 0;
+}

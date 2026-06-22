@@ -1,0 +1,37 @@
+module leetcode_tree_traversal;
+
+fn traversal_signature() -> int {
+    let values = [5, 3, 8, 2, 4, 7, 9];
+    let left = [1, 3, 5, -1, -1, -1, -1];
+    let right = [2, 4, 6, -1, -1, -1, -1];
+    let stack = [0, 0, 0, 0, 0, 0, 0];
+    let top = 0;
+    let current = 0;
+    let sum = 0;
+    let weighted = 0;
+    let order = 1;
+
+    while current != -1 || top > 0 {
+        while current != -1 {
+            stack[top] = current;
+            top = top + 1;
+            current = left[current];
+        }
+
+        top = top - 1;
+        current = stack[top];
+        sum = sum + values[current];
+        weighted = weighted + values[current] * order;
+        order = order + 1;
+        current = right[current];
+    }
+
+    return sum * 1000 + weighted;
+}
+
+pub fn main() -> int {
+    if traversal_signature() != 38186 {
+        return 1;
+    }
+    return 0;
+}
