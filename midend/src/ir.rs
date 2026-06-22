@@ -328,6 +328,8 @@ pub enum Type {
     Task {
         output: Box<Type>,
     },
+    /// Opaque integer range handle.
+    Range,
     /// Runtime tensor handle carrying compiler-visible dtype/rank/shape/layout/device metadata.
     Tensor {
         dtype: Box<Type>,

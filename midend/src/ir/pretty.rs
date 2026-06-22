@@ -423,6 +423,7 @@ fn fmt_type(ty: &Type) -> String {
             format!("fn({}) -> {}", params, fmt_type(return_type))
         }
         Type::Task { output } => format!("Task<{}>", fmt_type(output)),
+        Type::Range => "Range".to_string(),
         Type::Tensor {
             dtype,
             rank,

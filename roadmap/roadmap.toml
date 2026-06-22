@@ -1,6 +1,6 @@
 version = 1
 title = "SpectraLang Production AI Roadmap"
-updated_at = "2026-06-21"
+updated_at = "2026-06-22"
 status_scale = ["not_started", "in_progress", "blocked", "complete"]
 priority_scale = ["P0", "P1", "P2", "P3"]
 
@@ -153,6 +153,16 @@ goal = "Deliver OpenTelemetry tracing, Prometheus metrics, audit logs, health ch
 id = "phase_28"
 name = "API Conformance and Release"
 goal = "Certify `spectra.api` v1.0: conformance suite, interop tests, full example gallery, production hardening, and registry release."
+
+[[phases]]
+id = "phase_29"
+name = "Production Reality Gap Closure"
+goal = "Convert explicitly partial, alpha, placeholder, or sidecar-only core/runtime/toolchain surfaces into production implementations with executable evidence."
+
+[[phases]]
+id = "phase_30"
+name = "Production ML Systems Gap Closure"
+goal = "Replace local or simulated ML-system baselines with real networked serving, distributed training, artifact, and compiler-native production paths."
 
 [[items]]
 id = "R-001"
@@ -3810,5 +3820,142 @@ acceptance = [
   "the guide lists the differences between the previous surface and the v1 `spectra.api` surface",
   "the guide includes step-by-step migration recipes for the most common patterns",
   "the guide is published in the documentation site and referenced from the changelog"
+]
+
+[[items]]
+id = "R-2901"
+title = "Exact-Width Numeric Runtime Semantics"
+phase = "phase_29"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-201", "R-2007"]
+summary = "Replace alpha numeric aliases with real exact-width storage, casts, overflow policy, ABI behavior, and executable runtime/backend evidence."
+acceptance = [
+  "`i8`, `i16`, `i32`, `i64`, unsigned integer widths, `f32`, and `f64` have documented storage and ABI semantics instead of alias-only behavior",
+  "checked, wrapping, and invalid narrowing behavior is explicit and covered by diagnostics or runtime errors",
+  "compiler, midend, backend, and runtime tests cover casts, arithmetic boundaries, overflow, host-call ABI crossing, and struct/array storage",
+  "docs no longer describe exact-width numeric support as alpha or future work"
+]
+
+[[items]]
+id = "R-2902"
+title = "Range and Iterator Production Semantics"
+phase = "phase_29"
+owner = "midend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-2003", "R-2007"]
+summary = "Replace the range-expression placeholder lowering with first-class range values and iterator semantics outside `for` loop special cases."
+acceptance = [
+  "range expressions lower to a real typed Range handle outside `for` loops, not the start-bound placeholder",
+  "`spectra.std.range.create`, `spectra.std.range.len`, `spectra.std.range.at`, and `spectra.std.range.eq` are backed by runtime handle validation and return `HOST_STATUS_INVALID_ARGUMENT` for invalid handles, indexes, flags, or overflow",
+  "`tests/validation/151_range_production.spectra` validates stored ranges, function parameters, `for` iteration, exclusive ranges, inclusive ranges, empty descending ranges, dynamic bounds, and value equality through normal `spectralang run`",
+  "`compiler/tests/snapshots/std_range_public_function_table.snap` records the public `std.range` type/function table",
+  "`scripts/validate_r2902_range_production.py` passes and is wired into `run_tests.ps1` under `phase29-range-production`"
+]
+
+[[items]]
+id = "R-2903"
+title = "Native Debug Info Emission"
+phase = "phase_29"
+owner = "backend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1002", "R-2007"]
+summary = "Move debugging beyond source-map sidecars by emitting native DWARF/PDB line, function, and local-variable information for compiled artifacts."
+acceptance = [
+  "debug builds emit platform-appropriate DWARF or PDB information for functions, line tables, and local variables",
+  "a debugger smoke test can set a source breakpoint and inspect a local variable in a compiled Spectra program",
+  "sidecar source maps remain supported but are documented as supplementary, not the only production debug path",
+  "CI or a gated validator records debug-info evidence without requiring an interactive debugger by default"
+]
+
+[[items]]
+id = "R-2904"
+title = "First-Class Tensor IR and Device Lowering"
+phase = "phase_29"
+owner = "midend"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1601", "R-1602", "R-1603", "R-2006"]
+summary = "Replace tensor host-call-only lowering with explicit tensor IR, layout metadata, fusion/legalization hooks, and device-lowering validation."
+acceptance = [
+  "tensor operations lower to typed tensor IR nodes with shape, dtype, layout, and device metadata",
+  "host calls remain an execution backend but are no longer the only compiler representation for tensor operations",
+  "fusion, memory-planning, and device-lowering passes have validation tests and golden IR snapshots",
+  "CPU and at least one accelerator or graph-lowering path share the same tensor IR contract"
+]
+
+[[items]]
+id = "R-3001"
+title = "Networked ML Serving Runtime"
+phase = "phase_30"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-2216", "R-2401", "R-2419", "R-2701"]
+summary = "Turn local `std.serve` model serving into a real networked serving runtime integrated with async I/O, observability, and `spectra.api`."
+acceptance = [
+  "model serving exposes a real HTTP or gRPC endpoint with request parsing, response serialization, lifecycle, and graceful shutdown",
+  "serving supports bounded concurrency, back-pressure, timeout handling, and structured errors",
+  "serving emits traces and metrics through the API observability surface",
+  "an executable fixture serves a model from a fresh process and validates inference over the network"
+]
+
+[[items]]
+id = "R-3002"
+title = "Distributed Training Real Transport"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1703", "R-2107", "R-2701"]
+summary = "Replace deterministic single-process simulated workers with real multi-process or networked distributed training transport."
+acceptance = [
+  "distributed training can launch at least two worker processes that communicate over a real transport",
+  "gradient exchange supports deterministic all-reduce or parameter-server semantics with failure reporting",
+  "dataset sharding, worker identity, retry policy, and rendezvous configuration are documented",
+  "tests cover successful training, worker failure, timeout, and metric emission"
+]
+
+[[items]]
+id = "R-3003"
+title = "Production Model Artifact Formats"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-801", "R-1702", "R-1801"]
+summary = "Add production model and tensor artifact formats beyond the narrow NPY/ONNX baseline, including safe checkpoint metadata and validation."
+acceptance = [
+  "Spectra can read and write at least one safe checkpoint format and one multi-array tensor archive format",
+  "artifact metadata records dtype, shape, layout, model version, checksum, and compatibility constraints",
+  "load rejects corrupt, incompatible, or unsafe artifacts with stable diagnostics",
+  "round-trip fixtures validate save/load across CLI, runtime, and documentation examples"
+]
+
+[[items]]
+id = "R-3004"
+title = "Compiler-Native Autodiff Lowering"
+phase = "phase_30"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-501", "R-2904"]
+summary = "Move autodiff beyond runtime host-call composition by adding compiler-visible gradient IR, differentiation rules, and validation for model code."
+acceptance = [
+  "autodiff produces compiler-visible gradient IR for supported tensor operations",
+  "gradient rules are registered, versioned, and validated for scalar, vector, matrix, and broadcasted tensor cases",
+  "unsupported operations fail during semantic or midend validation with stable diagnostics",
+  "training fixtures compare compiler-native gradients against finite-difference or reference gradients"
 ]
 

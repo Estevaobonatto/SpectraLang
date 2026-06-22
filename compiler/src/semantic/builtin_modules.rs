@@ -463,8 +463,14 @@ pub const STD_TIME_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.time.duration_secs", "fn(int) -> Duration"),
     ("std.time.duration_millis", "fn(Duration) -> int"),
     ("std.time.duration_secs_value", "fn(Duration) -> int"),
-    ("std.time.duration_add", "fn(Duration, Duration) -> Duration"),
-    ("std.time.duration_sub", "fn(Duration, Duration) -> Duration"),
+    (
+        "std.time.duration_add",
+        "fn(Duration, Duration) -> Duration",
+    ),
+    (
+        "std.time.duration_sub",
+        "fn(Duration, Duration) -> Duration",
+    ),
     ("std.time.instant_now", "fn() -> Instant"),
     ("std.time.instant_elapsed_ms", "fn(Instant) -> int"),
     ("std.time.instant_add", "fn(Instant, Duration) -> Instant"),
@@ -477,6 +483,18 @@ pub const STD_TIME_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.time.utc_hour", "fn(UtcDateTime) -> int"),
     ("std.time.utc_minute", "fn(UtcDateTime) -> int"),
     ("std.time.utc_second", "fn(UtcDateTime) -> int"),
+];
+
+pub const STD_RANGE_PUBLIC_TYPES: &[(&str, &str)] = &[("std.range.Range", "struct Range")];
+
+pub const STD_RANGE_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
+    ("std.range.create", "fn(int, int, bool) -> Range"),
+    ("std.range.len", "fn(Range) -> int"),
+    ("std.range.at", "fn(Range, int) -> int"),
+    ("std.range.eq", "fn(Range, Range) -> bool"),
+    ("std.range.start", "fn(Range) -> int"),
+    ("std.range.end", "fn(Range) -> int"),
+    ("std.range.is_inclusive", "fn(Range) -> bool"),
 ];
 
 /// Register all built-in standard library modules in the given registry.
@@ -493,6 +511,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.result".to_string(), make_std_result());
     registry.register_module("std.char".to_string(), make_std_char());
     registry.register_module("std.time".to_string(), make_std_time());
+    registry.register_module("std.range".to_string(), make_std_range());
     registry.register_module("std.tensor".to_string(), make_std_tensor());
     registry.register_module("std.ml".to_string(), make_std_ml());
     registry.register_module("std.concurrent".to_string(), make_std_concurrent());
@@ -514,6 +533,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("spectra.std.result".to_string(), make_std_result());
     registry.register_module("spectra.std.char".to_string(), make_std_char());
     registry.register_module("spectra.std.time".to_string(), make_std_time());
+    registry.register_module("spectra.std.range".to_string(), make_std_range());
     registry.register_module("spectra.std.tensor".to_string(), make_std_tensor());
     registry.register_module("spectra.std.ml".to_string(), make_std_ml());
     registry.register_module("spectra.std.concurrent".to_string(), make_std_concurrent());
@@ -619,6 +639,44 @@ fn make_std_api_root(prefix: &str) -> ModuleExports {
     ] {
         exports.types.insert(name.to_string(), public_type(&[]));
     }
+    exports
+}
+
+fn make_std_range() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "range".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    exports.types.insert("Range".to_string(), public_type(&[]));
+
+    let range = Type::Range;
+    exports.functions.insert(
+        "create".to_string(),
+        pub_fn(vec![Type::Int, Type::Int, Type::Bool], range.clone()),
+    );
+    exports
+        .functions
+        .insert("len".to_string(), pub_fn(vec![range.clone()], Type::Int));
+    exports.functions.insert(
+        "at".to_string(),
+        pub_fn(vec![range.clone(), Type::Int], Type::Int),
+    );
+    exports.functions.insert(
+        "eq".to_string(),
+        pub_fn(vec![range.clone(), range.clone()], Type::Bool),
+    );
+    exports
+        .functions
+        .insert("start".to_string(), pub_fn(vec![range.clone()], Type::Int));
+    exports
+        .functions
+        .insert("end".to_string(), pub_fn(vec![range.clone()], Type::Int));
+    exports
+        .functions
+        .insert("is_inclusive".to_string(), pub_fn(vec![range], Type::Bool));
+
     exports
 }
 
@@ -2992,12 +3050,14 @@ fn make_std_time() -> ModuleExports {
     exports
         .functions
         .insert("monotonic_nanos".to_string(), pub_fn(vec![], Type::Int));
-    exports
-        .functions
-        .insert("duration_ms".to_string(), pub_fn(vec![Type::Int], duration.clone()));
-    exports
-        .functions
-        .insert("duration_secs".to_string(), pub_fn(vec![Type::Int], duration.clone()));
+    exports.functions.insert(
+        "duration_ms".to_string(),
+        pub_fn(vec![Type::Int], duration.clone()),
+    );
+    exports.functions.insert(
+        "duration_secs".to_string(),
+        pub_fn(vec![Type::Int], duration.clone()),
+    );
     exports.functions.insert(
         "duration_millis".to_string(),
         pub_fn(vec![duration.clone()], Type::Int),
@@ -3032,9 +3092,10 @@ fn make_std_time() -> ModuleExports {
     exports
         .functions
         .insert("sleep".to_string(), pub_fn(vec![duration], Type::Unit));
-    exports
-        .functions
-        .insert("unix_to_utc".to_string(), pub_fn(vec![Type::Int], utc.clone()));
+    exports.functions.insert(
+        "unix_to_utc".to_string(),
+        pub_fn(vec![Type::Int], utc.clone()),
+    );
     for field in [
         "utc_year",
         "utc_month",

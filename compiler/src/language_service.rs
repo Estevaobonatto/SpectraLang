@@ -159,6 +159,7 @@ pub fn type_to_string(ty: &Type) -> String {
             type_to_string(return_type)
         ),
         Type::Task { output } => format!("Task<{}>", type_to_string(output)),
+        Type::Range => "Range".to_string(),
         Type::Tensor {
             dtype,
             rank,

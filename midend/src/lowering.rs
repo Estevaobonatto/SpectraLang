@@ -1224,6 +1224,7 @@ impl ASTLowering {
             IRType::Bool => "bool".to_string(),
             IRType::String => "string".to_string(),
             IRType::Char => "char".to_string(),
+            IRType::Range => "Range".to_string(),
             IRType::Struct { name, .. } => name.clone(),
             IRType::Pointer(inner) => format!("ptr<{}>", self.ir_type_to_ast_name(inner)),
             _ => "unknown".to_string(),
@@ -1253,6 +1254,7 @@ impl ASTLowering {
             | IRType::Bool
             | IRType::String
             | IRType::Char
+            | IRType::Range
             | IRType::Pointer(_) => true,
             IRType::Array {
                 element_type: element,
@@ -2678,10 +2680,7 @@ impl ASTLowering {
                     _ => IRType::Int,
                 }
             }
-            ExpressionKind::Range { .. } => IRType::Array {
-                element_type: Box::new(IRType::Int),
-                size: 0,
-            },
+            ExpressionKind::Range { .. } => IRType::Range,
             ExpressionKind::Block(block) => block
                 .statements
                 .last()
@@ -4158,6 +4157,91 @@ impl ASTLowering {
         }
     }
 
+    fn lower_range_for_loop(
+        &mut self,
+        for_stmt: &spectra_compiler::ast::ForLoop,
+        range_value: Value,
+        ir_func: &mut IRFunction,
+    ) {
+        let range_len = self
+            .builder
+            .build_typed_host_call(
+                ir_func,
+                "spectra.std.range.len".to_string(),
+                vec![range_value],
+                IRType::Int,
+                true,
+            )
+            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+
+        let header_block = ir_func.add_block("range.header");
+        let body_block = ir_func.add_block("range.body");
+        let increment_block = ir_func.add_block("range.increment");
+        let exit_block = ir_func.add_block("range.exit");
+
+        let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
+        let zero = self.builder.build_const_int(ir_func, 0);
+        self.builder.build_store(ir_func, index_alloca, zero);
+        self.builder.build_branch(ir_func, header_block);
+
+        self.builder.set_current_block(header_block);
+        let current_index = self.builder.build_load(ir_func, index_alloca);
+        let condition = self.builder.build_lt(ir_func, current_index, range_len);
+        self.builder
+            .build_cond_branch(ir_func, condition, body_block, exit_block);
+
+        self.builder.set_current_block(body_block);
+        self.loop_stack.push(LoopContext {
+            header_block: increment_block,
+            exit_block,
+        });
+
+        self.value_map.push_scope();
+        self.variable_types.push_scope();
+        self.array_map.push_scope();
+        self.struct_var_map.push_scope();
+
+        let body_index = self.builder.build_load(ir_func, index_alloca);
+        let item = self
+            .builder
+            .build_typed_host_call(
+                ir_func,
+                "spectra.std.range.at".to_string(),
+                vec![range_value, body_index],
+                IRType::Int,
+                true,
+            )
+            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+        self.value_map.insert(for_stmt.iterator.clone(), item);
+        self.variable_types
+            .insert(for_stmt.iterator.clone(), IRType::Int);
+
+        self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
+
+        if let Some(current_block) = self.builder.get_current_block() {
+            if let Some(block) = ir_func.get_block_mut(current_block) {
+                if block.terminator.is_none() {
+                    self.builder.build_branch(ir_func, increment_block);
+                }
+            }
+        }
+
+        self.struct_var_map.pop_scope();
+        self.array_map.pop_scope();
+        self.variable_types.pop_scope();
+        self.value_map.pop_scope();
+        self.loop_stack.pop();
+
+        self.builder.set_current_block(increment_block);
+        let step_index = self.builder.build_load(ir_func, index_alloca);
+        let one = self.builder.build_const_int(ir_func, 1);
+        let next_index = self.builder.build_add(ir_func, step_index, one);
+        self.builder.build_store(ir_func, index_alloca, next_index);
+        self.builder.build_branch(ir_func, header_block);
+
+        self.builder.set_current_block(exit_block);
+    }
+
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
         match &stmt.kind {
             StatementKind::Let(let_stmt) => {
@@ -4518,85 +4602,9 @@ impl ASTLowering {
             StatementKind::For(for_stmt) => {
                 // Check if iterable is a range expression — handle as an integer range loop
                 // rather than loading array elements.
-                if let ExpressionKind::Range {
-                    start,
-                    end,
-                    inclusive,
-                } = &for_stmt.iterable.kind
-                {
-                    let start_val = self.lower_expression(start, ir_func);
-                    let end_val = self.lower_expression(end, ir_func);
-                    let is_inclusive = *inclusive;
-
-                    let header_block = ir_func.add_block("range.header");
-                    let body_block = ir_func.add_block("range.body");
-                    let increment_block = ir_func.add_block("range.increment");
-                    let exit_block = ir_func.add_block("range.exit");
-
-                    // Allocate and initialise loop index to start
-                    let index_alloca = self.builder.build_alloca(ir_func, IRType::Int);
-                    self.builder.build_store(ir_func, index_alloca, start_val);
-
-                    // Load end_val into an alloca so it remains stable across iterations
-                    let end_alloca = self.builder.build_alloca(ir_func, IRType::Int);
-                    self.builder.build_store(ir_func, end_alloca, end_val);
-
-                    self.builder.build_branch(ir_func, header_block);
-
-                    // Header: check index < end (exclusive) or index <= end (inclusive)
-                    self.builder.set_current_block(header_block);
-                    let current_index = self.builder.build_load(ir_func, index_alloca);
-                    let current_end = self.builder.build_load(ir_func, end_alloca);
-                    let condition = if is_inclusive {
-                        self.builder.build_le(ir_func, current_index, current_end)
-                    } else {
-                        self.builder.build_lt(ir_func, current_index, current_end)
-                    };
-                    self.builder
-                        .build_cond_branch(ir_func, condition, body_block, exit_block);
-
-                    // Body block
-                    self.builder.set_current_block(body_block);
-                    self.loop_stack.push(LoopContext {
-                        header_block: increment_block,
-                        exit_block,
-                    });
-
-                    self.value_map.push_scope();
-                    self.variable_types.push_scope();
-                    self.array_map.push_scope();
-                    self.struct_var_map.push_scope();
-
-                    let body_index = self.builder.build_load(ir_func, index_alloca);
-                    self.value_map.insert(for_stmt.iterator.clone(), body_index);
-                    self.variable_types
-                        .insert(for_stmt.iterator.clone(), IRType::Int);
-
-                    self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
-
-                    if let Some(current_block) = self.builder.get_current_block() {
-                        if let Some(block) = ir_func.get_block_mut(current_block) {
-                            if block.terminator.is_none() {
-                                self.builder.build_branch(ir_func, increment_block);
-                            }
-                        }
-                    }
-
-                    self.struct_var_map.pop_scope();
-                    self.array_map.pop_scope();
-                    self.variable_types.pop_scope();
-                    self.value_map.pop_scope();
-                    self.loop_stack.pop();
-
-                    // Increment block: index += 1
-                    self.builder.set_current_block(increment_block);
-                    let step_index = self.builder.build_load(ir_func, index_alloca);
-                    let one = self.builder.build_const_int(ir_func, 1);
-                    let next_index = self.builder.build_add(ir_func, step_index, one);
-                    self.builder.build_store(ir_func, index_alloca, next_index);
-                    self.builder.build_branch(ir_func, header_block);
-
-                    self.builder.set_current_block(exit_block);
+                if let ExpressionKind::Range { .. } = &for_stmt.iterable.kind {
+                    let range_value = self.lower_expression(&for_stmt.iterable, ir_func);
+                    self.lower_range_for_loop(for_stmt, range_value, ir_func);
                 } else {
                     // Lower iterable expression once to avoid recomputation
                     let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
@@ -4604,6 +4612,10 @@ impl ASTLowering {
 
                     let (element_type, length) = match iterable_type {
                         IRType::Array { element_type, size } => (*element_type, size),
+                        IRType::Range => {
+                            self.lower_range_for_loop(for_stmt, iterable_value, ir_func);
+                            return;
+                        }
                         other => {
                             self.error(format!(
                                 "for-loop lowering currently supports arrays only, found {:?}",
@@ -5152,6 +5164,25 @@ impl ASTLowering {
                 .build_typed_host_call(
                     ir_func,
                     "spectra.std.string.eq".to_string(),
+                    vec![lhs, rhs],
+                    IRType::Bool,
+                    true,
+                )
+                .unwrap_or_else(|| self.builder.build_const_bool(ir_func, false));
+            return if negate {
+                let false_value = self.builder.build_const_bool(ir_func, false);
+                self.builder.build_eq(ir_func, equal, false_value)
+            } else {
+                equal
+            };
+        }
+
+        if matches!(lhs_type, IRType::Range) && matches!(rhs_type, IRType::Range) {
+            let equal = self
+                .builder
+                .build_typed_host_call(
+                    ir_func,
+                    "spectra.std.range.eq".to_string(),
                     vec![lhs, rhs],
                     IRType::Bool,
                     true,
@@ -6569,12 +6600,23 @@ impl ASTLowering {
                     )
                     .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
-            ExpressionKind::Range { start, end, .. } => {
-                // Range expressions used outside of for-loops (e.g., stored in a variable)
-                // Lower both bounds; return the start value as a placeholder.
-                // Range-based for-loops are handled specially in lower_statement.
-                let _end_val = self.lower_expression(end, ir_func);
-                self.lower_expression(start, ir_func)
+            ExpressionKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let start_val = self.lower_expression(start, ir_func);
+                let end_val = self.lower_expression(end, ir_func);
+                let inclusive_val = self.builder.build_const_int(ir_func, (*inclusive) as i64);
+                self.builder
+                    .build_typed_host_call(
+                        ir_func,
+                        "spectra.std.range.create".to_string(),
+                        vec![start_val, end_val, inclusive_val],
+                        IRType::Range,
+                        true,
+                    )
+                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
             ExpressionKind::Lambda { params, body, .. } => {
                 // Lower as a top-level IR function with a generated unique name.
@@ -7251,6 +7293,7 @@ impl ASTLowering {
                     "bool" => IRType::Bool,
                     "string" => IRType::String,
                     "char" => IRType::Char,
+                    "Range" => IRType::Range,
                     _ => {
                         // Check if this is a struct type
                         if let Some(fields) = self.struct_definitions.get(type_name) {
@@ -7517,6 +7560,7 @@ impl ASTLowering {
             ASTType::Task { output } => IRType::Task {
                 output: Box::new(self.lower_type(output)),
             },
+            ASTType::Range => IRType::Range,
             ASTType::Tensor {
                 dtype,
                 rank,
@@ -8623,6 +8667,26 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("char", "is_alphanumeric") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.char.is_alphanumeric",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            // ── std.range ─────────────────────────────────────────────────
+            ("range", "create") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.range.create",
+                return_type: IRType::Range,
+                returns_value: true,
+            }),
+            ("range", "len") => Some(host_int("spectra.std.range.len")),
+            ("range", "at") => Some(host_int("spectra.std.range.at")),
+            ("range", "eq") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.range.eq",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("range", "start") => Some(host_int("spectra.std.range.start")),
+            ("range", "end") => Some(host_int("spectra.std.range.end")),
+            ("range", "is_inclusive") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.range.is_inclusive",
                 return_type: IRType::Bool,
                 returns_value: true,
             }),

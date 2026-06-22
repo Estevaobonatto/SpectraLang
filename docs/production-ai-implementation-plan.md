@@ -1722,13 +1722,16 @@ or message broker (Redis), and migrations. The driver selection keeps the
 core surface small while still addressing the dominant production use
 cases. MySQL and NoSQL options are listed as P1 and P2 follow-on work.
 
-## Phases 21 to 28
+## Phases 21 to 30
 
-The eight phases are summarized below; the detailed items live in
-`docs/roadmap-backlog.md` (Phase 21 to Phase 28) and in
-`roadmap/roadmap.toml` (items `R-2101` to `R-2807`). `R-2216` is explicitly
+The ten phases are summarized below; the detailed items live in
+`docs/roadmap-backlog.md` (Phase 21 to Phase 30) and in
+`roadmap/roadmap.toml` (items `R-2101` to `R-3004`). `R-2216` is explicitly
 blocked on the Phase 20 stabilization items `R-2003` through `R-2007`, and
-that Phase 20 prerequisite set is now complete.
+that Phase 20 prerequisite set is now complete. Phase 29 and Phase 30 exist
+to track surfaces that are already visible but still documented or
+implemented as alpha, placeholder, sidecar-only, local-only, or simulated
+baselines.
 
 ### Phase 21 — Async Language Core
 
@@ -1977,6 +1980,28 @@ that Phase 20 prerequisite set is now complete.
 - `R-2806` `spectra.api` v1.0 registry release
 - `R-2807` Migration guide: from ad-hoc `std` web to `spectra.api`
 
+### Phase 29 — Production Reality Gap Closure
+
+This phase closes visible production gaps found during the standard-library
+and runtime audit. It is for existing surfaces that are not fake enough to
+delete, but not real enough to certify.
+
+- `R-2901` Exact-width numeric runtime semantics
+- `R-2902` Range and iterator production semantics (complete; range syntax now lowers to typed runtime handles, stored/passed ranges iterate through `spectra.std.range.len`/`at`, and the validator is gated)
+- `R-2903` Native debug info emission
+- `R-2904` First-class tensor IR and device lowering
+
+### Phase 30 — Production ML Systems Gap Closure
+
+This phase converts local or simulated ML-system baselines into real
+production paths. It follows the API/runtime observability work where
+networking, lifecycle, and operations are prerequisites.
+
+- `R-3001` Networked ML serving runtime
+- `R-3002` Distributed training real transport
+- `R-3003` Production model artifact formats
+- `R-3004` Compiler-native autodiff lowering
+
 ## Architectural Principles for the API Platform
 
 1. **Async by default, sync where it makes sense.** Handlers can be
@@ -2021,6 +2046,12 @@ R-2101 → R-2102 → R-2103 → R-2104 → R-2105 → R-2106 → R-2107
                                           R-2411 → R-2412 → R-2501 → R-2505
                                                                           ↓
                                                               R-2701 → R-2801 → R-2806
+
+R-2013/R-2015 → R-2901/R-2902/R-2903/R-2904
+R-2216/R-2401/R-2419/R-2701 → R-3001
+R-1703/R-2107/R-2701 → R-3002
+R-801/R-1702/R-1801 → R-3003
+R-501/R-2904 → R-3004
 ```
 
 ## New Owner Groups
@@ -2044,15 +2075,17 @@ way it applies to the AI/ML work.
 | Connection pool semantics differ across drivers | 25 | Define the pool trait first; drivers implement it |
 | OpenAPI generator scope creep | 24 | Lock the supported subset in the ADR before generating |
 | Production hardening (R-2805) depends on real deployments | 28 | Run on a representative staging workload before cutting v1.0 |
+| Existing alpha/placeholder surfaces are mistaken for production-ready features | 29 | Keep R-2901 to R-2904 visible and `not_started` until code, docs, and executable gates prove the real behavior |
+| Local or simulated ML systems are marketed as distributed or networked production systems | 30 | Require network-process fixtures, observability, artifact validation, and failure tests before completion |
 | `Send`/`Sync` ergonomics | 21 | Document the rules in the language reference and enforce them with stable diagnostics |
 
 ## Cross-Reference
 
 - Strategic direction: this chapter.
-- Executable backlog: `docs/roadmap-backlog.md`, Phase 21 to Phase 28.
+- Executable backlog: `docs/roadmap-backlog.md`, Phase 21 to Phase 30.
 - Machine-readable tracker: `roadmap/roadmap.toml`, post-baseline integrated
-  validation items `R-2008` to `R-2014` and API platform items `R-2101` to
-  `R-2807`.
+  validation items `R-2008` to `R-2015`, API platform items `R-2101` to
+  `R-2807`, and production gap-closure items `R-2901` to `R-3004`.
 - Feature maturity classification: `docs/language-feature-maturity.md`
   (to be updated when each phase begins implementation).
 - Conformance: `R-2801` is the final API conformance gate; release

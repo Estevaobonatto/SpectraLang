@@ -60,6 +60,23 @@ ABI; invalid handles return `HOST_STATUS_INVALID_ARGUMENT`.
 | `spectra.std.time.unix_to_utc` | Convert Unix seconds to UTC using deterministic civil-calendar arithmetic. | seconds | UTC datetime handle |
 | `spectra.std.time.utc_year` / `utc_month` / `utc_day` / `utc_hour` / `utc_minute` / `utc_second` | Extract UTC datetime fields. | UTC datetime handle | integer field |
 
+## range namespace
+
+Spectra ranges are runtime-managed opaque handles. The `start..end` and `start..=end` syntax lowers
+to `spectra.std.range.create`, including when the range is stored, passed to a function, compared, or
+iterated later. Descending ranges such as `5..2` are valid empty ranges. Invalid handles, negative
+indexes, out-of-bounds indexes, invalid inclusive flags, and length overflow return
+`HOST_STATUS_INVALID_ARGUMENT`.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.range.create` | Allocate a range handle. | `start`, `end`, `inclusive` (`0` or `1`) | range handle |
+| `spectra.std.range.len` | Return the number of values produced by the range. | range handle | length |
+| `spectra.std.range.at` | Return the value at a zero-based range index. | range handle, index | integer value |
+| `spectra.std.range.eq` | Compare start, end, and inclusive flag by value. | two range handles | bool |
+| `spectra.std.range.start` / `end` | Inspect original bounds. | range handle | bound |
+| `spectra.std.range.is_inclusive` | Inspect whether the range came from `..=`. | range handle | bool |
+
 ## tensor namespace
 
 Spectra exposes tensor operations through runtime-managed opaque handles. The alpha tensor runtime

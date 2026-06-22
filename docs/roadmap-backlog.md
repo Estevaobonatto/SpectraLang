@@ -6469,6 +6469,229 @@ example gallery, production hardening, and registry release.
 
 ---
 
+# Phase 29: Production Reality Gap Closure
+
+Audit scope: core/runtime/toolchain surfaces that already exist but are
+explicitly partial, alpha, placeholder-backed, or sidecar-only. These
+items must stay `not_started` until the real implementation and validation
+exist; they are not cosmetic documentation fixes.
+
+## R-2901 Exact-Width Numeric Runtime Semantics
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-201`, `R-2007`
+
+### Scope
+
+- Replace alias-only exact-width numeric behavior with real storage,
+  casting, overflow, ABI, and aggregate-layout semantics.
+- Close the production gap currently documented for scientific numeric
+  aliases.
+
+### Acceptance
+
+- `i8`, `i16`, `i32`, `i64`, unsigned integer widths, `f32`, and `f64`
+  have documented storage and ABI semantics instead of alias-only
+  behavior.
+- Checked, wrapping, and invalid narrowing behavior is explicit and
+  covered by diagnostics or runtime errors.
+- Compiler, midend, backend, and runtime tests cover casts, arithmetic
+  boundaries, overflow, host-call ABI crossing, and struct/array storage.
+- Docs no longer describe exact-width numeric support as alpha or future
+  work.
+
+## R-2902 Range and Iterator Production Semantics
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `R-2003`, `R-2007`
+
+### Scope
+
+- Replace range-expression placeholder lowering with real `Range` handles
+  outside `for` loop special cases.
+- Define runtime behavior for exclusive, inclusive, empty descending, and
+  invalid range handle/index cases.
+
+### Acceptance
+
+- Range expressions lower to a real typed `Range` handle outside `for`
+  loops, not the start-bound placeholder.
+- `spectra.std.range.create`, `spectra.std.range.len`,
+  `spectra.std.range.at`, and `spectra.std.range.eq` are backed by
+  runtime handle validation and return `HOST_STATUS_INVALID_ARGUMENT`
+  for invalid handles, indexes, flags, or overflow.
+- `tests/validation/151_range_production.spectra` validates stored
+  ranges, function parameters, `for` iteration, exclusive ranges,
+  inclusive ranges, empty descending ranges, dynamic bounds, and value
+  equality through normal `spectralang run`.
+- `compiler/tests/snapshots/std_range_public_function_table.snap`
+  records the public `std.range` type/function table.
+- `scripts/validate_r2902_range_production.py` passes and is wired into
+  `run_tests.ps1` under `phase29-range-production`.
+
+## R-2903 Native Debug Info Emission
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Risk: `high`
+- Dependencies: `R-1002`, `R-2007`
+
+### Scope
+
+- Move debugging beyond source-map sidecars by emitting native debug info
+  for compiled artifacts.
+- Keep sidecars as useful metadata, not the only production debugging
+  path.
+
+### Acceptance
+
+- Debug builds emit platform-appropriate DWARF or PDB information for
+  functions, line tables, and local variables.
+- A debugger smoke test can set a source breakpoint and inspect a local
+  variable in a compiled Spectra program.
+- Sidecar source maps remain supported but are documented as
+  supplementary, not the only production debug path.
+- CI or a gated validator records debug-info evidence without requiring
+  an interactive debugger by default.
+
+## R-2904 First-Class Tensor IR and Device Lowering
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `R-1601`, `R-1602`, `R-1603`, `R-2006`
+
+### Scope
+
+- Replace tensor host-call-only lowering with explicit tensor IR, layout
+  metadata, fusion/legalization hooks, and device-lowering validation.
+- Keep host calls as one execution backend, not the compiler's only tensor
+  representation.
+
+### Acceptance
+
+- Tensor operations lower to typed tensor IR nodes with shape, dtype,
+  layout, and device metadata.
+- Host calls remain an execution backend but are no longer the only
+  compiler representation for tensor operations.
+- Fusion, memory-planning, and device-lowering passes have validation
+  tests and golden IR snapshots.
+- CPU and at least one accelerator or graph-lowering path share the same
+  tensor IR contract.
+
+# Phase 30: Production ML Systems Gap Closure
+
+Audit scope: ML/runtime features that work as local baselines or
+simulations, but still lack the network, artifact, distributed, or
+compiler-native production path required before they can be marketed as
+production-complete.
+
+## R-3001 Networked ML Serving Runtime
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Risk: `high`
+- Dependencies: `R-2216`, `R-2401`, `R-2419`, `R-2701`
+
+### Scope
+
+- Turn local `std.serve` model serving into a real networked serving
+  runtime integrated with async I/O, observability, and `spectra.api`.
+
+### Acceptance
+
+- Model serving exposes a real HTTP or gRPC endpoint with request
+  parsing, response serialization, lifecycle, and graceful shutdown.
+- Serving supports bounded concurrency, back-pressure, timeout handling,
+  and structured errors.
+- Serving emits traces and metrics through the API observability surface.
+- An executable fixture serves a model from a fresh process and validates
+  inference over the network.
+
+## R-3002 Distributed Training Real Transport
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Risk: `high`
+- Dependencies: `R-1703`, `R-2107`, `R-2701`
+
+### Scope
+
+- Replace deterministic single-process simulated workers with real
+  multi-process or networked distributed training transport.
+
+### Acceptance
+
+- Distributed training can launch at least two worker processes that
+  communicate over a real transport.
+- Gradient exchange supports deterministic all-reduce or
+  parameter-server semantics with failure reporting.
+- Dataset sharding, worker identity, retry policy, and rendezvous
+  configuration are documented.
+- Tests cover successful training, worker failure, timeout, and metric
+  emission.
+
+## R-3003 Production Model Artifact Formats
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `ml`
+- Risk: `medium`
+- Dependencies: `R-801`, `R-1702`, `R-1801`
+
+### Scope
+
+- Add production model and tensor artifact formats beyond the narrow
+  NPY/ONNX baseline, including safe checkpoint metadata and validation.
+
+### Acceptance
+
+- Spectra can read and write at least one safe checkpoint format and one
+  multi-array tensor archive format.
+- Artifact metadata records dtype, shape, layout, model version,
+  checksum, and compatibility constraints.
+- Load rejects corrupt, incompatible, or unsafe artifacts with stable
+  diagnostics.
+- Round-trip fixtures validate save/load across CLI, runtime, and
+  documentation examples.
+
+## R-3004 Compiler-Native Autodiff Lowering
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Risk: `high`
+- Dependencies: `R-501`, `R-2904`
+
+### Scope
+
+- Move autodiff beyond runtime host-call composition by adding
+  compiler-visible gradient IR, differentiation rules, and validation for
+  model code.
+
+### Acceptance
+
+- Autodiff produces compiler-visible gradient IR for supported tensor
+  operations.
+- Gradient rules are registered, versioned, and validated for scalar,
+  vector, matrix, and broadcasted tensor cases.
+- Unsupported operations fail during semantic or midend validation with
+  stable diagnostics.
+- Training fixtures compare compiler-native gradients against
+  finite-difference or reference gradients.
+
+---
+
 # API Platform Quick-Reference
 
 ## Owner Groups (additions)
@@ -6494,13 +6717,19 @@ R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor)
                                                                                                                                               R-2501 (pool) → R-2505 (postgres)
                                                                                                                                                   ↓
                                                                                                                                               R-2801 (conformance) → R-2806 (release)
+
+R-2013/R-2015 → R-2901/R-2902/R-2903/R-2904
+R-2216/R-2401/R-2419/R-2701 → R-3001
+R-1703/R-2107/R-2701 → R-3002
+R-801/R-1702/R-1801 → R-3003
+R-501/R-2904 → R-3004
 ```
 
 ## Item Count by Phase
 
 | Phase | Items | Priority Mix |
 |---|---|---|
-| 20 — Production Certification | 13 | 12 P0, 1 P1 |
+| 20 — Production Certification | 15 | 14 P0, 1 P1 |
 | 21 — Async Language Core | 12 | 7 P0, 4 P1, 1 P2 |
 | 22 — API Library Foundation | 20 | 19 P0, 1 P1 |
 | 23 — Middleware and Security | 18 | 10 P0, 7 P1, 1 P2 |
@@ -6509,7 +6738,9 @@ R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor)
 | 26 — API Tooling and DX | 15 | 10 P0, 4 P1, 1 P2 |
 | 27 — Observability and API Ops | 8 | 4 P0, 4 P1 |
 | 28 — API Conformance and Release | 7 | 5 P0, 2 P1/P2 |
-| **Total** | **128** | — |
+| 29 — Production Reality Gap Closure | 4 | 4 P0 |
+| 30 — Production ML Systems Gap Closure | 4 | 3 P0, 1 P1 |
+| **Total** | **138** | — |
 
 ## New Files To Be Added by the Workstream
 

@@ -133,6 +133,7 @@ pub import { println } from std.io;
 | `import std.result;` | Result helpers |
 | `import std.char;` | Char classification |
 | `import std.time;` | Timestamps, sleep |
+| `import std.range;` | Stored range handles |
 
 ### User Module Import
 
@@ -453,6 +454,12 @@ for i in 0..10 {
 // Inclusive range: i = 0, 1, 2, ..., 10
 for i in 0..=10 {
     // ...
+}
+
+// Stored Range handle
+let r: Range = 2..5;
+for i in r {
+    // i = 2, 3, 4
 }
 
 // Array iteration

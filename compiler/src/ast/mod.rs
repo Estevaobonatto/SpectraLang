@@ -37,6 +37,8 @@ pub enum Type {
     Task {
         output: Box<Type>,
     },
+    /// Integer range handle produced by `start..end` and `start..=end`.
+    Range,
     /// Tensor handle with compiler-visible dtype, rank, shape, layout, and device metadata.
     Tensor {
         dtype: Box<Type>,

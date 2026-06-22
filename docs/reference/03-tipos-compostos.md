@@ -237,7 +237,7 @@ let Point { x, y: renamed_y } = p;
 Intervalos (ranges) representam sequências de valores numéricos. Existem dois tipos: exclusivo (`..`) e inclusivo (`..=`).
 
 **EN-US:**  
-Ranges represent sequences of numeric values. There are two types: exclusive (`..`) and inclusive (`..=`).
+Ranges represent sequences of numeric values. There are two types: exclusive (`..`) and inclusive (`..=`). A stored range has type `Range` and is backed by a runtime handle, so it can be passed to functions and iterated later without losing its bounds.
 
 ```spectra
 // Exclusivo: não inclui o valor final / Exclusive: does not include the final value
@@ -245,6 +245,17 @@ let r1 = 0..10;     // 0, 1, 2, ..., 9
 
 // Inclusivo: inclui o valor final / Inclusive: includes the final value
 let r2 = 1..=10;    // 1, 2, 3, ..., 10
+
+fn soma_intervalo(r: Range) -> int {
+    let total = 0;
+    for i in r {
+        total = total + i;
+    }
+    return total;
+}
+
+let stored = 2..5;
+let total = soma_intervalo(stored); // 2 + 3 + 4 = 9
 
 // Em for loops / In for loops
 for i in 0..5 {
@@ -261,7 +272,29 @@ let fim = 10;
 for i in inicio..fim {
     // i = 5, 6, 7, 8, 9
 }
+
+// Empty descending range / intervalo descendente vazio
+let empty = 5..2;
+for i in empty {
+    // no iterations
+}
 ```
+
+`std.range` exposes handle inspection helpers:
+
+| Function | Signature | Meaning |
+|---|---|---|
+| `create` | `fn(int, int, bool) -> Range` | Build a range handle |
+| `len` | `fn(Range) -> int` | Count produced values |
+| `at` | `fn(Range, int) -> int` | Read value by zero-based index |
+| `eq` | `fn(Range, Range) -> bool` | Compare range bounds/inclusive flag |
+| `start` | `fn(Range) -> int` | Original start bound |
+| `end` | `fn(Range) -> int` | Original end bound |
+| `is_inclusive` | `fn(Range) -> bool` | True for `..=` |
+
+Invalid range handles, negative indexes, indexes outside `len`, invalid
+`create` flags, and length overflow fail in the runtime with
+`HOST_STATUS_INVALID_ARGUMENT`.
 
 ---
 

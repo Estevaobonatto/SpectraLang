@@ -398,6 +398,7 @@ genericos     = "<" IDENT (":" IDENT ("+" IDENT)*)? ("," ...)* ">" ;
 | `std.result` | `is_ok`, `is_err`, `result_unwrap`, `result_unwrap_or`, `result_unwrap_err` |
 | `std.char` | `is_alpha`, `is_digit_char`, `is_whitespace_char`, `is_alphanumeric`, `to_upper_char`, `to_lower_char` |
 | `std.time` | `time_now_millis`, `time_now_secs`, `sleep_ms` |
+| `std.range` | `create`, `len`, `at`, `eq`, `start`, `end`, `is_inclusive` |
 
 ---
 

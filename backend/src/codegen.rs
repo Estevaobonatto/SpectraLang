@@ -649,7 +649,7 @@ impl CodeGenerator {
 
             InstructionKind::Not { result, operand } => {
                 let operand_val = get_value(operand)?;
-                let result_val = builder.ins().bnot(operand_val);
+                let result_val = builder.ins().icmp_imm(IntCC::Equal, operand_val, 0);
                 value_map.insert(result.id, result_val);
             }
 
@@ -1255,6 +1255,7 @@ impl CodeGenerator {
             IRType::Function { .. } => Ok(types::I64),
             IRType::Tensor { .. } => Ok(types::I64),
             IRType::Task { .. } => Ok(types::I64),
+            IRType::Range => Ok(types::I64),
             IRType::DynTrait { .. } => Ok(types::I64), // fat pointer represented as i64 address
         }
     }
@@ -1270,6 +1271,7 @@ impl CodeGenerator {
             IRType::String => 8,
             IRType::Pointer(_) => 8,
             IRType::Task { .. } => 8,
+            IRType::Range => 8,
             IRType::Array { element_type, size } => Self::type_size_bytes(element_type) * size,
             IRType::Tuple { elements } => {
                 // Soma dos tamanhos de cada elemento (sem padding por enquanto)

@@ -1104,6 +1104,19 @@ if ($r2015StdTime.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-std-time"; Teste = "validate_r2015_std_time"; Status = $r2015StdTime.Status; Detalhe = $r2015StdTime.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27c: R-2902 range production semantics
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2902 range production semantics ---" -ForegroundColor Yellow
+$r2902RangeProduction = Invoke-HostCommand -name "validate_r2902_range_production" -fileName "python" -arguments @("scripts\validate_r2902_range_production.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2902RangeProduction.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase29-range-production"; Teste = "validate_r2902_range_production"; Status = $r2902RangeProduction.Status; Detalhe = $r2902RangeProduction.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""

@@ -1,8 +1,8 @@
 /// Tests for AST lowering to IR
 use spectra_compiler::ast::{
-    BinaryOperator, Block, Expression, ExpressionKind, Function, FunctionParam, Item, LetStatement,
-    LoopStatement, Module, Pattern, ReturnStatement, Statement, StatementKind, Visibility,
-    WhileLoop,
+    BinaryOperator, Block, Expression, ExpressionKind, ForLoop, Function, FunctionParam, Item,
+    LetStatement, LoopStatement, Module, Pattern, ReturnStatement, Statement, StatementKind,
+    Visibility, WhileLoop,
 };
 use spectra_compiler::span::Span;
 use spectra_midend::ir::InstructionKind;
@@ -44,6 +44,17 @@ fn bin(left: Expression, op: BinaryOperator, right: Expression) -> Expression {
             left: Box::new(left),
             operator: op,
             right: Box::new(right),
+        },
+    }
+}
+
+fn range_expr(start: Expression, end: Expression, inclusive: bool) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::Range {
+            start: Box::new(start),
+            end: Box::new(end),
+            inclusive,
         },
     }
 }
@@ -282,6 +293,53 @@ fn test_lower_loop_infinite() {
     let func = &ir_module.functions[0];
     // loop produces at least a header block and a body block
     assert!(!func.blocks.is_empty());
+}
+
+#[test]
+fn test_lower_stored_range_for_loop_uses_range_host_calls() {
+    let module = make_module(
+        "test",
+        vec![make_function(
+            "main",
+            vec![
+                let_stmt("r", range_expr(int_lit(1), int_lit(4), false)),
+                Statement {
+                    span: s(),
+                    kind: StatementKind::For(ForLoop {
+                        iterator: "i".to_string(),
+                        iterable: ident("r"),
+                        body: Block {
+                            span: s(),
+                            statements: vec![Statement {
+                                span: s(),
+                                kind: StatementKind::Break,
+                            }],
+                        },
+                        span: s(),
+                    }),
+                },
+            ],
+        )],
+    );
+
+    let mut lowering = ASTLowering::new();
+    let ir_module = lowering
+        .lower_module(&module)
+        .expect("lowering should succeed");
+    let func = &ir_module.functions[0];
+    let hosts: Vec<&str> = func
+        .blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .filter_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall { host, .. } => Some(host.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(hosts.contains(&"spectra.std.range.create"));
+    assert!(hosts.contains(&"spectra.std.range.len"));
+    assert!(hosts.contains(&"spectra.std.range.at"));
 }
 
 #[test]

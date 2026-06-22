@@ -1,0 +1,9 @@
+module std.range
+type std.range.Range: struct Range
+fn std.range.create: fn(int, int, bool) -> Range
+fn std.range.len: fn(Range) -> int
+fn std.range.at: fn(Range, int) -> int
+fn std.range.eq: fn(Range, Range) -> bool
+fn std.range.start: fn(Range) -> int
+fn std.range.end: fn(Range) -> int
+fn std.range.is_inclusive: fn(Range) -> bool

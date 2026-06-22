@@ -461,6 +461,7 @@ pub fn type_name(ty: &Type) -> String {
             format!("fn({}) -> {}", ps, type_name(return_type))
         }
         Type::Task { output } => format!("Task<{}>", type_name(output)),
+        Type::Range => "Range".into(),
         Type::Tensor {
             dtype,
             rank,
@@ -1657,6 +1658,7 @@ impl SemanticAnalyzer {
                             element_type: Box::new(Type::Unknown),
                             size: None,
                         },
+                        "Range" => Type::Range,
                         "Self" => Type::SelfType, // Self type
                         other => {
                             if self.is_generic_param(other) {
@@ -2488,6 +2490,7 @@ impl SemanticAnalyzer {
                     && self.types_match(r1, r2)
             }
             (Type::Task { output: a }, Type::Task { output: b }) => self.types_match(a, b),
+            (Type::Range, Type::Range) => true,
 
             // Dynamic trait objects match structurally by trait name.
             (
@@ -2597,6 +2600,7 @@ impl SemanticAnalyzer {
             (Type::Task { output: actual }, Type::Task { output: expected }) => {
                 self.return_types_match(actual, expected)
             }
+            (Type::Range, Type::Range) => true,
             (
                 Type::Array {
                     element_type: actual_element,
@@ -4093,9 +4097,11 @@ impl SemanticAnalyzer {
                             .all(|(item, expected)| self.json_value_matches_type(item, expected))
                 })
                 .unwrap_or(false),
-            Type::Fn { .. } | Type::Task { .. } | Type::Tensor { .. } | Type::DynTrait { .. } => {
-                false
-            }
+            Type::Fn { .. }
+            | Type::Task { .. }
+            | Type::Range
+            | Type::Tensor { .. }
+            | Type::DynTrait { .. } => false,
         }
     }
 
@@ -6210,6 +6216,7 @@ impl SemanticAnalyzer {
             }
             Type::Fn { .. } => false,
             Type::Tensor { .. }
+            | Type::Range
             | Type::Int
             | Type::Float
             | Type::Bool
@@ -6254,6 +6261,7 @@ impl SemanticAnalyzer {
             }
             Type::Fn { .. } => false,
             Type::Tensor { .. }
+            | Type::Range
             | Type::Int
             | Type::Float
             | Type::Bool
@@ -6277,6 +6285,7 @@ impl SemanticAnalyzer {
             | Type::Task {
                 output: element_type,
             } => self.type_is_ref_cell_family(element_type),
+            Type::Range => false,
             Type::Tuple { elements } => elements
                 .iter()
                 .any(|element| self.type_is_ref_cell_family(element)),
@@ -6539,10 +6548,14 @@ impl SemanticAnalyzer {
                 let iterable_type = self.infer_expression_type(&for_loop.iterable);
                 let iterator_type = match iterable_type {
                     Type::Array { element_type, .. } => *element_type,
+                    Type::Range => Type::Int,
                     Type::Unknown => Type::Unknown,
                     other => {
                         self.error(
-                            format!("For-loop iterable must be um array, encontrado {:?}", other),
+                            format!(
+                                "For-loop iterable must be an array or Range, found {}",
+                                type_name(&other)
+                            ),
                             for_loop.span,
                         );
                         Type::Unknown
@@ -7039,10 +7052,7 @@ impl SemanticAnalyzer {
             ExpressionKind::Cast { target_type, .. } => {
                 self.type_annotation_to_type(&Some(target_type.clone()))
             }
-            ExpressionKind::Range { .. } => Type::Array {
-                element_type: Box::new(Type::Int),
-                size: None,
-            },
+            ExpressionKind::Range { .. } => Type::Range,
             ExpressionKind::Block(block) => {
                 if self.block_guaranteed_return(block) {
                     return Type::Unknown;
@@ -11186,6 +11196,9 @@ impl SemanticAnalyzer {
             Type::Task { output } => TypeAnnotationKind::Generic {
                 name: "Task".to_string(),
                 type_args: vec![self.type_to_annotation(output)],
+            },
+            Type::Range => TypeAnnotationKind::Simple {
+                segments: vec!["Range".to_string()],
             },
             Type::Tensor {
                 dtype,
