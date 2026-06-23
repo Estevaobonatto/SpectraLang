@@ -2582,10 +2582,7 @@ impl TensorRegistry {
     }
 
     fn take_buffer(&mut self, len: usize) -> Vec<SpectraHostValue> {
-        if let Some(index) = self.pool.iter().position(|buffer| buffer.capacity() >= len) {
-            let mut buffer = self.pool.swap_remove(index);
-            buffer.clear();
-            buffer.resize(len, 0);
+        if let Some(buffer) = self.take_buffer_unfilled(len) {
             self.metrics.reused_buffers = self.metrics.reused_buffers.saturating_add(1);
             self.metrics.pool_hits = self.metrics.pool_hits.saturating_add(1);
             buffer
@@ -2593,6 +2590,24 @@ impl TensorRegistry {
             self.metrics.pool_misses = self.metrics.pool_misses.saturating_add(1);
             vec![0; len]
         }
+    }
+
+    fn take_buffer_unfilled(&mut self, len: usize) -> Option<Vec<SpectraHostValue>> {
+        let index = self.pool.iter().position(|buffer| buffer.capacity() >= len)?;
+        let mut buffer = self.pool.swap_remove(index);
+        if buffer.capacity() >= len {
+            unsafe {
+                buffer.set_len(len);
+            }
+        } else {
+            buffer.resize(len, 0);
+        }
+        Some(buffer)
+    }
+
+    #[allow(dead_code)]
+    fn reset_pool(&mut self) {
+        self.pool.clear();
     }
 
     fn note_kernel(&mut self, elements: usize) {
@@ -3084,6 +3099,25 @@ fn tensor_alloc(
 }
 
 #[track_caller]
+fn tensor_alloc_buffered(
+    dtype: TensorDType,
+    shape: Vec<usize>,
+    buffer: Vec<SpectraHostValue>,
+) -> Result<usize, i32> {
+    let Some(tensor) = StdTensor::new(dtype, shape, buffer) else {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    };
+    let memory = initialize().memory();
+    let tensor = memory
+        .allocate_manual(tensor)
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    let site = tensor_allocation_site(std::panic::Location::caller());
+    Ok(with_tensor_registry(|registry| {
+        registry.insert(tensor, site)
+    }))
+}
+
+#[track_caller]
 fn tensor_insert(tensor: StdTensor) -> Result<usize, i32> {
     let memory = initialize().memory();
     let tensor = memory
@@ -3261,11 +3295,29 @@ extern "C" fn std_tensor_full_f(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        if args[0] <= 0 {
+        let n = args[0];
+        if n <= 0 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let data = vec![args[1]; args[0] as usize];
-        match tensor_alloc(TensorDType::Float, vec![args[0] as usize], data) {
+        let len = n as usize;
+        let value = args[1];
+        let buffer = with_tensor_registry(|registry| {
+            if let Some(buffer) = registry.take_buffer_unfilled(len) {
+                registry.metrics.reused_buffers =
+                    registry.metrics.reused_buffers.saturating_add(1);
+                registry.metrics.pool_hits = registry.metrics.pool_hits.saturating_add(1);
+                Some(buffer)
+            } else {
+                registry.metrics.pool_misses =
+                    registry.metrics.pool_misses.saturating_add(1);
+                None
+            }
+        });
+        let mut buffer = buffer.unwrap_or_else(|| Vec::with_capacity(len));
+        let target_len = len;
+        buffer.clear();
+        buffer.resize(target_len, value);
+        match tensor_alloc_buffered(TensorDType::Float, vec![len], buffer) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
             Err(code) => code,
         }

@@ -1,0 +1,77 @@
+// R-3107 regression: tensor full_f buffer reuse pool.
+// Verifies that the runtime buffer pool returns previously-allocated buffers
+// instead of allocating fresh memory on every tensor.full_f call.
+
+module r3107_buffer_pool;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+
+    // First call: pool is empty, must allocate fresh.
+    let first = tensor.full_f(4096, 1.0);
+    if tensor.len(first) != 4096 {
+        return 1;
+    }
+    let first_misses = tensor.stats_pool_misses();
+    if first_misses < 1 {
+        return 2;
+    }
+    tensor.free(first);
+
+    // Second call of same shape: pool must hand back the buffer.
+    let second = tensor.full_f(4096, 2.0);
+    if tensor.len(second) != 4096 {
+        return 3;
+    }
+    let second_hits = tensor.stats_pool_hits();
+    if second_hits < 1 {
+        return 4;
+    }
+    let second_misses = tensor.stats_pool_misses();
+    if second_misses > first_misses {
+        return 5;
+    }
+    tensor.free(second);
+
+    // Several more iterations: each should hit the pool after the first.
+    let i = 0;
+    let iters = 8;
+    while i < iters {
+        let t = tensor.full_f(4096, 3.5);
+        tensor.free(t);
+        i = i + 1;
+    }
+    let final_hits = tensor.stats_pool_hits();
+    let expected_hits = second_hits + 1;
+    if final_hits < expected_hits {
+        return 6;
+    }
+
+    // Numerical correctness: full_f fills every slot with the requested value.
+    let small = tensor.full_f(8, 7.0);
+    if tensor.len(small) != 8 {
+        return 7;
+    }
+    let small_sum = tensor.sum(small);
+    if small_sum != 56 {
+        return 8;
+    }
+    tensor.free(small);
+
+    // Different shape: forces a new bucket (or fresh alloc), still correct.
+    let big = tensor.full_f(16384, 0.25);
+    if tensor.len(big) != 16384 {
+        return 9;
+    }
+    let big_sum = tensor.sum(big);
+    if big_sum != 4096 {
+        return 10;
+    }
+    tensor.free(big);
+
+    tensor.free_all();
+    return 0;
+}

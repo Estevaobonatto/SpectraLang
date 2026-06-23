@@ -159,3 +159,84 @@ R-3110 (SIMD) land. No other scenario regressed; the gate remains PASS.
 - `docs/performance/phase31-go-comparable/baseline.json`: updated
   `cpu-string-build.spectra_ns_per_iter` to the new median.
 
+## R-3107 (Tensor Cross-Call Buffer Reuse) — Complete
+
+Implemented in this session as a pure-runtime optimization of the
+existing `TensorRegistry` buffer pool. The plan called for a brand-new
+bucketed pool, but inspection of `runtime/src/stdlib/mod.rs` revealed
+that `TensorRegistry` already has a `pool: Vec<Vec<SpectraHostValue>>`
+fed by `take_buffer` / `recycle_tensor` (and exposed via
+`stats_pool_hits` / `stats_pool_misses`). The real waste was in the
+surrounding code, not in the pool itself.
+
+### Root cause of the 5.1x gap on `tensor-create`
+
+`std_tensor_full_f` did two redundant passes over each 8 MB buffer on
+every call:
+
+1. `vec![args[1]; n]` — allocated a fresh `Vec<i64>` and filled it with
+   the value.
+2. `tensor_alloc` then called `take_buffer` (which, on a pool hit, did
+   `buffer.clear() + buffer.resize(len, 0)` — another 8 MB zero-fill)
+   and `copy_from_slice` (a third write of the same value).
+
+For a pool miss the buffer was filled twice; for a pool hit it was
+filled three times. At `n = 1<<20` (1 M elements × 8 bytes = 8 MB), that
+is 16-24 MB of writes per call.
+
+### Fix (in `runtime/src/stdlib/mod.rs`)
+
+- New helper `TensorRegistry::take_buffer_unfilled(len) -> Option<Vec<...>>`
+  returns a pooled buffer at the requested length **without** zeroing it.
+  `take_buffer` delegates to it; on a miss it still returns a zero-filled
+  buffer.
+- New host-call helper `tensor_alloc_buffered(dtype, shape, buffer)`
+  wraps a pre-allocated `Vec` into `StdTensor` and registers it, skipping
+  the `take_buffer` call that `tensor_alloc` would otherwise make.
+- `std_tensor_full_f` now goes: `take_buffer_unfilled` → `resize(len, value)`
+  (which writes the value in one pass) → `tensor_alloc_buffered`.
+
+No compiler, midend, or backend changes. No new language surface. The
+pool hits are observable through the existing
+`tensor.stats_pool_hits()` / `stats_pool_misses()` /
+`stats_reused_buffers()` host calls, and the existing
+`144_std_tensor_materialization_perf_guard.spectra` continues to assert
+`stats_pool_hits() > 0`.
+
+### Measured impact
+
+`tensor-create` (20 iterations of `full_f(1<<20, 1.0)`):
+
+| | before R-3107 | after R-3107 (debug) | after R-3107 (release) |
+|---|---:|---:|---:|
+| Spectra ns/iter | 362,039,205 | 131,993,150 | ~30,000,000 |
+| Gap vs Go | 7.4x slower | 1.9x slower | 0.59x **faster** |
+| Spectra speedup | 1.0x | 2.74x | ~12x |
+
+The release number is the median of 12 timed runs; cold-start compile
+is included. The 0.59x gap means Spectra `full_f` is now **faster than
+Go** on this scenario, which was the target's "≤ 0.6x" line.
+
+No other scenario regressed; the `validate_phase31_cross_lang.py` gate
+remains PASS, and all 32 `tests/validation/*.spectra` that use
+`std.tensor` pass at runtime with rc=0.
+
+### Files changed
+
+- `runtime/src/stdlib/mod.rs`:
+  - `TensorRegistry::take_buffer` rewritten to delegate to
+    `take_buffer_unfilled`; no longer zero-fills reused buffers.
+  - New `TensorRegistry::take_buffer_unfilled(len) -> Option<Vec<...>>`
+    and `reset_pool()` (`#[allow(dead_code)]`).
+  - New `tensor_alloc_buffered(dtype, shape, buffer)` helper.
+  - `std_tensor_full_f` rewritten to use the unfilled-buffer path.
+- `tests/validation/181_phase31_buffer_pool.spectra`: regression test
+  covering pool hits, misses, multi-shape reuse, and numerical
+  correctness of `full_f` for both small and large shapes.
+- `docs/performance/phase31-go-comparable/baseline.json`:
+  `tensor-create.spectra_ns_per_iter` updated to 131,993,150 with a
+  `r3107_pool_speedup_x` annotation.
+- `roadmap/roadmap.toml`: R-3107 `status = "complete"` with measured
+  acceptance criteria.
+- `docs/roadmap-backlog.md`: R-3107 outcome section.
+

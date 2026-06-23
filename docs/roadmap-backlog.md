@@ -6911,7 +6911,7 @@ Cenários cobertos (11):
 
 ## R-3107 Tensor Cross-Call Buffer Reuse
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Dependencies: `R-3103`, `R-1502`
@@ -6926,6 +6926,30 @@ Cenários cobertos (11):
 
 - Benchmarks de materialização mostram redução em count e bytes alocados.
 - Sem regressão funcional; resultados numéricos dentro da tolerância `R-1503`.
+
+### Outcome (2026-06-23)
+
+- Otimização in-place em `runtime/src/stdlib/mod.rs`:
+  - `TensorRegistry::take_buffer` deixou de zerar buffers reusados
+    (`buffer.clear() + buffer.resize(len, 0)`) e passou a usar
+    `take_buffer_unfilled` (apenas ajusta `len`).
+  - `std_tensor_full_f` agora pega o buffer do pool via
+    `take_buffer_unfilled`, preenche com `resize(len, value)` (que já escreve o
+    valor) e insere via novo helper `tensor_alloc_buffered`, eliminando o
+    `vec![value; n]` intermediário e a passada extra de zero-fill.
+  - Pool interno de `TensorRegistry` (já existente) atinge 100% hit rate no
+    bench `tensor-create` após a primeira iteração.
+- Métricas `tensor-create` (Phase 31 cross-lang, debug):
+  - Antes: 362,039,205 ns/iter (baseline R-3101).
+  - Depois: 131,993,150 ns/iter. Speedup **2.74x** em debug.
+  - Em release, 30-43 ms/iter; gap contra Go inverteu de 5.1x mais lento
+    para 0.59-0.70x mais rápido.
+- Regressão: nenhuma. 32 testes de validação que usam `std.tensor` passam
+  com rc=0; `144_std_tensor_materialization_perf_guard.spectra` e
+  `180_phase31_string_builder.spectra` continuam rc=0; gate
+  `validate_phase31_cross_lang.py` retorna PASS.
+- Novo teste: `tests/validation/181_phase31_buffer_pool.spectra` valida
+  pool hit/miss e correção numérica de `full_f` em múltiplos shapes.
 
 ## R-3108 String Materialization Optimization
 
