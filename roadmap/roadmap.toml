@@ -4262,3 +4262,51 @@ acceptance = [
   "no other Phase 31 scenario regressed > 5%"
 ]
 
+[[items]]
+id = "R-3119"
+title = "Concurrent Task Slot Pool (eliminate `thread::spawn` per task)"
+phase = "phase_31"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-3118"]
+summary = "Replace the HashMap<JoinHandle> per task in `std_concurrent_task_spawn`/`_task_join` with a slot pool of `Arc<OnceLock<SpectraHostValue>>`. The current implementation spawns a real OS thread for every task_spawn call even when the work is trivial (the value is just an i64). On Windows that costs ~100µs per spawn+join; 10,000 tasks = ~1s of pure overhead. The slot pool keeps the public API identical but eliminates thread creation/destruction, dropping async-echo from 71x vs Go to ~5x."
+acceptance = [
+  "ConcurrentTask struct removed; ConcurrentRegistry now holds `Vec<Arc<OnceLock<SpectraHostValue>>>` + `Vec<usize>` free list + `next_fresh: usize`",
+  "`std_concurrent_task_spawn` writes the value into a fresh or recycled slot via `OnceLock::set` and returns the slot index as task_id",
+  "`std_concurrent_task_join` reads via `OnceLock::get`, replaces the slot with a fresh empty OnceLock, and pushes the index to the free list",
+  "`std_concurrent_task_is_done` returns 1 whenever the slot has a value (always true for valid task_ids)",
+  "`std_concurrent_reset` (`registry.clear()`) resets all slots, clears the free list, clears channels/counters, and resets `next_channel`/`next_counter` to 1",
+  "`std_concurrent_pipeline_sum` is UNCHANGED — continues to use `thread::spawn` + `handle.join()` for real parallelism",
+  "`stats_tasks_spawned` returns the same value as before (counter preserved across spawn/clear cycles)",
+  "tests/validation/77_concurrency_pipeline.spectra passes with rc=0",
+  "benchmarks/cross-lang/async-echo/spectra/bench.spectra passes with rc=0 and total==55000",
+  "async-echo ns/iter drops from ~1,631,820,200 (R-3118) to <= 600,000,000 (target <= 350,000,000)",
+  "async-pipeline does not regress > 5% (pipeline_sum unchanged)",
+  "phase31 cross-lang gate PASS"
+]
+
+[[items]]
+id = "R-3120"
+title = "Fast ABI for `concurrent.task_spawn`/`task_join` (eliminate host call dispatch)"
+phase = "phase_31"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-3119"]
+summary = "After R-3119, the residual gap to Go on `async-echo` was dominated by host call dispatch overhead: per call, the generic `spectra_rt_host_invoke` path does ~3 Mutex locks, 2 heap allocs, 2 frees, a name lookup, and a `catch_unwind` boundary. Add `spectra_rt_concurrent_spawn_fast` and `spectra_rt_concurrent_join_fast` as direct extern \"C\" entries and emit a single direct FFI call from the backend when `concurrent.task_spawn`/`task_join` is lowered. Drops async-echo from 4.94x to ~1.65x vs Go."
+acceptance = [
+  "`spectra_rt_concurrent_spawn_fast(value) -> i64` and `spectra_rt_concurrent_join_fast(task_id) -> i64` exported from `runtime/src/ffi.rs` (#[no_mangle] extern \"C\")",
+  "Backend (`backend/src/codegen.rs` and `backend/src/aot.rs`) special-cases `spectra.std.concurrent.task_spawn` and `spectra.std.concurrent.task_join` in the HostCall handler, emitting a single direct call to the fast ABI function (no manual_alloc/free, no name lookup, no catch_unwind, no host_registry lock)",
+  "All 62 `cargo test -p spectra-runtime` tests pass (including the updated `concurrent_host_calls_cover_tasks_channels_counters_and_pipeline` test that documents the new post-join is_done semantics)",
+  "`tests/validation/77_concurrency_pipeline.spectra` passes with rc=0",
+  "`benchmarks/cross-lang/async-echo/spectra/bench.spectra` passes with rc=0, total==55000",
+  "`benchmarks/cross-lang/async-pipeline/spectra/bench.spectra` passes with rc=0 (pipeline_sum unchanged, goes through generic path)",
+  "async-echo ns/iter drops from 124,048,900 (R-3119) to <= 50,000,000 (target <= 35,000,000)",
+  "async-pipeline does not regress > 5%",
+  "phase31 cross-lang gate PASS"
+]
+
+

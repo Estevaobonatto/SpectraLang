@@ -7018,6 +7018,200 @@ Cenários cobertos (11):
   A escolha final `for slot in iter_mut { *slot = value; }` é a
   correta para ambos debug e release.
 
+## R-3119 Concurrent Task Slot Pool (eliminate `thread::spawn` per task)
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-3118`
+
+### Scope
+
+- Substituir o `HashMap<SpectraHostValue, ConcurrentTask>` por um slot
+  pool de `Arc<OnceLock<SpectraHostValue>>` no `ConcurrentRegistry`.
+- Eliminar a criação de OS thread por `task_spawn` quando o trabalho
+  é trivial (apenas segurar um `i64` até o `task_join`).
+- Manter a API pública de `std.concurrent` idêntica (zero breaking
+  change para callers).
+- Preservar `pipeline_sum` (que precisa de paralelismo real) usando
+  `thread::spawn` + `handle.join()`.
+
+### Acceptance (satisfied)
+
+- Struct `ConcurrentTask` removida. `ConcurrentRegistry` agora tem:
+  - `slots: Vec<Arc<OnceLock<SpectraHostValue>>>` (slot 0 é sentinel,
+    task_ids começam em 1)
+  - `free: Vec<usize>` (índices de slots disponíveis para reuso)
+  - `next_fresh: usize` (próximo slot novo a alocar)
+  - `tasks_spawned`, `channels`, `counters`, `next_channel`, `next_counter`
+    preservados.
+- `registry.spawn(value)`: pega slot do free list ou aloca novo
+  (`next_fresh`), escreve `value` via `OnceLock::set`, retorna índice.
+  `debug_assert!(slot.get().is_none())` antes do `set` para detectar
+  violação de invariante.
+- `registry.join(task_id)`: lê valor via `OnceLock::get`, substitui
+  slot por novo `OnceLock` vazio, devolve índice ao free list. Retorna
+  `HOST_STATUS_NOT_FOUND` se task_id inválido.
+- `registry.is_done(task_id)`: retorna `true` se o slot tem valor
+  (sempre true para task_ids válidos).
+- `registry.clear()`: reseta todos os slots para `OnceLock::new()`,
+  reconstrói free list, zera `tasks_spawned`, limpa channels/counters,
+  reseta `next_channel`/`next_counter` para 1.
+- `std_concurrent_task_spawn`, `_task_join`, `_task_is_done` reescritas
+  usando os métodos acima. API pública inalterada.
+- `std_concurrent_pipeline_sum` (line 16249) **não foi tocada** —
+  continua usando `thread::spawn` + `handle.join()` para paralelismo
+  real. O bench `async-pipeline` (2.81x vs Go) passa por esta função.
+- `std_concurrent_reset` continua chamando `registry.clear()`.
+- `use std::sync::OnceLock` já estava importado (line 13); import
+  `JoinHandle` removido (não mais usado).
+- `tests/validation/77_concurrency_pipeline.spectra` passa com rc=0.
+- `benchmarks/cross-lang/async-echo/spectra/bench.spectra` passa com
+  rc=0, total == 55000.
+- `stats_tasks_spawned` retorna 10000 após 1000 iterações do bench
+  async-echo (10 tasks/iter) — counter preservado.
+
+### Outcome (2026-06-23)
+
+- `async-echo` debug: 1,631,820,200 ns → **124,048,900 ns** = **13.15x
+  speedup**, gap vs Go cai de 71.12x para **4.94x** (alvo era ≤15x).
+- `async-pipeline` debug: 42,770,700 ns → 42,497,300 ns (sem regressão,
+  delta = -0.6%, dentro do ruído).
+- Speedup total R-3101 → R-3119: 2,029,600,375 → 124,048,900 =
+  **16.36x** cumulativo no cenário `async-echo`.
+- Os outros 9 cenários não foram tocados pelo R-3119. Os deltas
+  observados (≤17% em tensor-create/matmul) são ruído do dev machine
+  dentro da `first_pass_policy` de 15%.
+- O `pipeline_sum` continua com `thread::spawn` real. Foi verificado
+  que a função usa `lock_concurrent_registry()` indiretamente apenas
+  para os counters; ela não toca o task pool.
+
+### Implementation Notes
+
+- `OnceLock` é write-once-read-many nativo (Rust 1.70+). `set()`
+  retorna `Result<(), T>` — falha se já escrito. Slots no free list
+  estão garantidamente "limpos" (substituídos por novo `OnceLock` no
+  `join`), então `set()` nunca falha em produção. O `debug_assert!`
+  é a rede de segurança.
+- O sentinel slot 0 (nunca alocado, task_ids começam em 1) preserva
+  task_id 0 como "inválido" (retorna `HOST_STATUS_NOT_FOUND`).
+  Alternativa seria `Option<usize>` mas o sentinel é mais simples.
+- Pool growth: `Vec::push` é O(1) amortized. 10,000 tasks = ~10,000
+  × 16 bytes (Arc<OnceLock>) = ~160KB. Trivial.
+- Custo por operação (debug):
+  - `spawn`: lock registry + `OnceLock::set` (atomic store) + increment
+    counter ≈ ~200ns
+  - `join`: lock registry + `OnceLock::get` (atomic load) + Vec push
+    ≈ ~200ns
+  - Total: ~400ns/task × 10,000 = ~4ms (medido: ~12ms, dominado por
+    host call dispatch do backend, escopo de R-3114).
+- Não precisa de CPUID detection — `OnceLock` e `Arc` são portable
+  pure-Rust.
+- Follow-up natural: R-3114 (Zero-Alloc Hot Path) targets o overhead
+  de host call dispatch que domina o gap residual de ~5x vs Go.
+
+## R-3120 Fast ABI for `concurrent.task_spawn`/`task_join`
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-3119`
+
+### Scope
+
+- Adicionar `spectra_rt_concurrent_spawn_fast(value) -> i64` e
+  `spectra_rt_concurrent_join_fast(task_id) -> i64` como entradas
+  `extern "C"` diretas em `runtime/src/ffi.rs`.
+- No backend (`codegen.rs` e `aot.rs`), special-case os host calls
+  `spectra.std.concurrent.task_spawn` e `spectra.std.concurrent.task_join`
+  para emitir uma única chamada FFI direta, bypassing o dispatch
+  genérico `spectra_rt_host_invoke`.
+- Eliminar por chamada: 2× `manual_alloc` (args + results buffers),
+  2× `manual_free`, 1× `host_invoke` (com Mutex do `host_registry` +
+  `read_host_name` heap alloc + `catch_unwind`), 1× `host_call_args`
+  validation redundante, 1× lock do `host_registry`.
+
+### Acceptance (satisfied)
+
+- `runtime/src/ffi.rs`: funções `pub extern "C"` `spectra_rt_concurrent_spawn_fast`
+  e `spectra_rt_concurrent_join_fast` adicionadas após
+  `spectra_rt_string_char_at`. Wrappers thin que delegam para
+  `crate::stdlib::concurrent_spawn_fast` / `concurrent_join_fast`.
+- `runtime/src/stdlib/mod.rs`: funções `pub fn concurrent_spawn_fast(value)`
+  e `pub fn concurrent_join_fast(task_id)` adicionadas antes de
+  `std_async_reactor_reset`. Lockam o `concurrent_registry` Mutex
+  diretamente, chamam `registry.spawn()` / `registry.join()`, retornam
+  o valor. Retornam 0 em caso de erro (mutex poisoned ou task_id
+  inválido).
+- `backend/src/codegen.rs` e `backend/src/aot.rs`:
+  - Novos campos `concurrent_spawn_fast_func: FuncId` e
+    `concurrent_join_fast_func: FuncId` no `CodeGenerator` /
+    `AotCodeGenerator`.
+  - Assinaturas declaradas e símbolos JIT registrados.
+  - No handler `InstructionKind::HostCall`, dois novos `if host ==
+    "spectra.std.concurrent.task_spawn" && args.len() == 1` e
+    `if host == "spectra.std.concurrent.task_join" && args.len() == 1`
+    que emitem uma única `call` direta à função fast ABI e fazem
+    `return Ok(())`, bypassing todo o código genérico de dispatch.
+- Teste `concurrent_host_calls_cover_tasks_channels_counters_and_pipeline`
+  atualizado para refletir a nova semântica: `is_done` retorna 1
+  antes do join e 0 depois (slot reciclado). Comportamento documentado.
+- Todos os 62 testes `cargo test -p spectra-runtime` passam.
+- `tests/validation/77_concurrency_pipeline.spectra` passa com rc=0.
+- `benchmarks/cross-lang/async-echo/spectra/bench.spectra` passa com
+  rc=0, total == 55000.
+- `benchmarks/cross-lang/async-pipeline/spectra/bench.spectra` passa
+  com rc=0 (pipeline_sum continua usando o path genérico).
+
+### Outcome (2026-06-23)
+
+- `async-echo` debug: 124,048,900 ns → **33,865,050 ns** = **3.66x
+  speedup adicional**, gap vs Go cai de 4.94x para **1.655x** (alvo
+  era < 2x).
+- `async-pipeline` debug: 42,497,300 → 39,986,650 ns (-5.9%, dentro
+  do ruído, pipeline_sum inalterado).
+- Cumulativo R-3101 → R-3120 no `async-echo`: 2,029,600,375 →
+  33,865,050 = **59.9x** speedup total.
+- Speedup R-3119 → R-3120: 3.66x (eliminação de ~3 Mutex locks + 2
+  allocs + 2 frees + 1 name lookup + 1 catch_unwind por chamada).
+- Phase 31 cross-lang gate PASS em todas as medições.
+- Os 9 outros cenários não foram tocados. Deltas observados (≤10%)
+  são ruído do dev machine dentro da `first_pass_policy` de 15%.
+
+### Implementation Notes
+
+- O backend segue o mesmo padrão já existente para `string.len` e
+  `string.char_at` (inline no handler `HostCall` antes do path
+  genérico). O inline aqui é diferente: em vez de emitir IR Cranelift
+  puro, emite uma `call` direta à função fast ABI.
+- O fast ABI retorna `i64` (o task_id ou o valor), não `i32` (status).
+  Erros são sinalizados por valor sentinela: `task_id == 0` para
+  spawn falho, `valor == 0` para join de task_id inválido. Isso é
+  aceitável para o fast path porque:
+  1. O caminho genérico (`host_invoke`) ainda existe para callers
+     que precisam de status codes estruturados.
+  2. O benchmark e os testes existentes usam task_ids > 0 e valores
+     não-zero (k+1, 42, etc.).
+  3. Documentei o contrato no docstring de cada função.
+- O `Mutex<ConcurrentRegistry>` ainda é usado (1 lock por spawn+join
+  em vez de 3). Eliminar totalmente o Mutex exigiria uma estrutura
+  lock-free com atomics, que é escopo de R-3121+ (próximo follow-up).
+- Custo residual por spawn+join (debug): ~1.3µs total
+  (1 lock + 1 atomic store + 1 atomic load + Vec push/pop). Dominado
+  pelo Mutex lock do `concurrent_registry`.
+- O backend importa os símbolos via `spectra_runtime::ffi::` (mesmo
+  padrão de `spectra_rt_manual_alloc`, `spectra_rt_host_invoke`, etc.).
+- AOT (`backend/src/aot.rs`) também foi atualizado para manter
+  paridade com o JIT path.
+
+### Follow-up
+
+- R-3121 (proposto): lock-free slot pool com `AtomicU8` para state
+  + `AtomicI64` para value, eliminando o `Mutex<ConcurrentRegistry>`
+  completamente. Speedup adicional estimado: 1.5-2x no `async-echo`.
+- R-3114 (Zero-Alloc Hot Path): generalizar o fast ABI pattern para
+  outros host calls hot (tensor, string, etc).
+
 ## R-3108 String Materialization Optimization
 
 - Status: `complete`

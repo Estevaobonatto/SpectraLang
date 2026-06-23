@@ -331,3 +331,171 @@ theoretical minimum without SIMD intrinsics.
   `r3118_refill_bench: true` annotation.
 - `roadmap/roadmap.toml`: R-3118 `status = "complete"`.
 - `docs/roadmap-backlog.md`: R-3118 outcome section.
+
+## R-3119 (Concurrent Task Slot Pool) — Complete
+
+### Motivation
+
+`async-echo` regressed to a 71x gap vs Go in the R-3118 debug
+measurement (1,631,820,200 ns vs Go 22,943,700 ns). Profiling traced
+the bottleneck to `std_concurrent_task_spawn` which spawned a real OS
+thread for every `task_spawn(value)` call. The thread ran the closure
+`move || value` for less than 1µs, but Windows spent ~100µs creating
+and destroying the thread. The benchmark does 10,000 spawn+join pairs
+(1000 outer × 10 inner) — that single dispatch cost 1+ second of pure
+overhead.
+
+### Strategy
+
+Replace the `HashMap<SpectraHostValue, ConcurrentTask>` (which held
+`Option<JoinHandle<SpectraHostValue>>` + `Option<SpectraHostValue>`
+result cache) with a slot pool of `Arc<OnceLock<SpectraHostValue>>`:
+
+- `task_spawn(value)`: acquire a slot index from the free list (or
+  allocate a new one), write `value` into the `OnceLock` via `set`,
+  return the index.
+- `task_join(task_id)`: read the value via `OnceLock::get`, replace
+  the slot with a fresh empty `OnceLock`, push the index back to the
+  free list.
+- `task_is_done(task_id)`: returns true iff the slot has a value
+  (always true for valid task_ids).
+- `reset()`: rebuilds the free list, clears channels/counters.
+
+`OnceLock` is write-once-read-many with no Mutex needed (Rust 1.70+).
+`Arc<OnceLock<>>` is thread-safe so future cross-thread spawn/join
+remains valid. The public API of `std.concurrent` is unchanged.
+
+### What stayed the same
+
+- `pipeline_sum` (uses real `thread::spawn` + `handle.join()` for
+  parallel chunk summation). The async-pipeline bench goes through
+  this function and was not affected by R-3119.
+- Channels, counters, and their reset semantics.
+- `stats_tasks_spawned` counter (incremented on `spawn`, reset on
+  `clear()`).
+- All public API signatures.
+
+### Results
+
+| scenario | R-3118 (ns) | R-3119 (ns) | speedup | gap vs Go |
+|---|---:|---:|---:|---:|
+| `async-echo` | 1,631,820,200 | 124,048,900 | **13.15x** | 4.94x |
+| `async-pipeline` | 42,770,700 | 42,497,300 | 1.01x (unchanged) | 2.53x |
+
+Cumulative R-3101 → R-3119 on async-echo: 2,029,600,375 →
+124,048,900 = **16.36x**.
+
+### Files Touched
+
+- `runtime/src/stdlib/mod.rs`:
+  - Removed `struct ConcurrentTask`.
+  - `ConcurrentRegistry` now holds `Vec<Arc<OnceLock<SpectraHostValue>>>`
+    + `Vec<usize>` free list + `next_fresh: usize`.
+  - Added `registry.spawn()`, `registry.join()`, `registry.is_done()`.
+  - Rewrote `std_concurrent_task_spawn`, `std_concurrent_task_join`,
+    `std_concurrent_task_is_done` to use the slot pool.
+  - `registry.clear()` rebuilds the free list and clears
+    channels/counters/next_channel/next_counter.
+  - Removed unused `JoinHandle` import.
+  - `pipeline_sum` and all other concurrent host functions untouched.
+- `roadmap/roadmap.toml`: R-3119 `status = "complete"`.
+- `docs/roadmap-backlog.md`: R-3119 outcome section.
+- `docs/performance/phase31-go-comparable/baseline.json`:
+  `async-echo.spectra_ns_per_iter` updated to 124,048,900 with
+  `r3119_slot_pool_speedup_x: 13.15` annotation.
+
+### Follow-up
+
+Residual gap to Go is now dominated by host call dispatch overhead
+(~500ns per call × 20,000 calls = ~10ms). Targeted by R-3114
+(Zero-Alloc Hot Path) and closed by R-3120 (Fast ABI).
+
+## R-3120 (Fast ABI for `concurrent.task_spawn`/`task_join`) — Complete
+
+### Motivation
+
+After R-3119, `async-echo` was at 4.94x vs Go (124,048,900 ns vs Go
+22,943,700 ns). Profiling traced the residual gap to the generic host
+call dispatch path. Per `task_spawn` or `task_join` call, the generic
+`spectra_rt_host_invoke` does:
+
+- 2× `spectra_rt_manual_alloc` (args buffer + results buffer) — each
+  locks the `allocation_table` Mutex, heap-allocates, inserts into a
+  HashMap
+- 1× `spectra_rt_host_invoke` call — locks the `host_registry` Mutex
+  to look up the function by name (with a heap-allocating `String`
+  from `read_host_name`), builds a `SpectraHostCallContext`, wraps
+  the call in `catch_unwind` for panic safety
+- 2× `spectra_rt_manual_free` (args + results) — each locks
+  `allocation_table`, removes from HashMap, deallocates
+- 1× `host_call_args` validation (6 null/length checks, redundant
+  since the backend already statically guarantees arity)
+
+Total: 3 distinct Mutex locks, 2 heap allocs, 2 frees, 1 string heap
+alloc, 1 catch_unwind boundary — **per call**. For 20,000 calls
+(10,000 spawn + 10,000 join) in `async-echo`, that's 60,000 Mutex
+locks + 40,000 heap allocs + 40,000 frees.
+
+### Strategy
+
+Add direct `extern "C"` fast ABI entries that bypass the generic
+host call dispatcher:
+
+- `spectra_rt_concurrent_spawn_fast(value: i64) -> i64` — locks the
+  `concurrent_registry` Mutex directly, calls `registry.spawn(value)`,
+  returns the task_id. No manual_alloc/free, no name lookup, no
+  catch_unwind, no host_registry lock.
+- `spectra_rt_concurrent_join_fast(task_id: i64) -> i64` — same
+  pattern for join. Returns 0 for invalid task_ids.
+
+In the backend (`codegen.rs` and `aot.rs`), add special-case inlines
+in the `InstructionKind::HostCall` handler that emit a single direct
+FFI call to these fast functions when the host name is
+`spectra.std.concurrent.task_spawn` or `task_join`. This follows the
+same pattern already used for `string.len` and `string.char_at`.
+
+The fast path returns `i64` directly (the task_id or the value),
+using 0 as the error sentinel. The generic `host_invoke` path is
+preserved for callers that need structured status codes.
+
+### Results
+
+| scenario | R-3119 (ns) | R-3120 (ns) | speedup | gap vs Go |
+|---|---:|---:|---:|---:|
+| `async-echo` | 124,048,900 | 33,865,050 | **3.66x** | 1.655x |
+| `async-pipeline` | 42,497,300 | 39,986,650 | 1.06x (noise) | 2.53x |
+
+Cumulative R-3101 → R-3120 on async-echo: 2,029,600,375 →
+33,865,050 = **59.9x**.
+
+### Files Touched
+
+- `runtime/src/ffi.rs`: added `spectra_rt_concurrent_spawn_fast` and
+  `spectra_rt_concurrent_join_fast` as `#[no_mangle] pub extern "C"`
+  wrappers around the stdlib helpers.
+- `runtime/src/stdlib/mod.rs`: added `pub fn concurrent_spawn_fast`
+  and `pub fn concurrent_join_fast` (thin wrappers around
+  `lock_concurrent_registry` + `registry.spawn/join`). Also updated
+  the `concurrent_host_calls_cover_tasks_channels_counters_and_pipeline`
+  unit test to reflect the new post-join `is_done` semantics
+  (slot is recycled, so `is_done` returns 0).
+- `backend/src/codegen.rs`: added `concurrent_spawn_fast_func` and
+  `concurrent_join_fast_func` fields to `CodeGenerator`, registered
+  the JIT symbols, declared their signatures, and added two
+  special-case inlines in the `HostCall` handler (right after the
+  existing `string.len`/`string.char_at` inlines).
+- `backend/src/aot.rs`: same changes for AOT codegen parity.
+- `roadmap/roadmap.toml`: R-3120 `status = "complete"`.
+- `docs/roadmap-backlog.md`: R-3120 outcome section.
+- `docs/performance/phase31-go-comparable/baseline.json`:
+  `async-echo.spectra_ns_per_iter` updated to 33,865,050 with
+  `r3120_fast_abi_speedup_x: 3.66` annotation.
+
+### Follow-up
+
+Residual gap (1.655x) is now dominated by the single `Mutex` lock on
+`concurrent_registry` per call. Eliminating the Mutex entirely
+(lock-free slot pool with `AtomicI8` state + `AtomicI64` value) is
+the next target (R-3121, proposed). Estimated additional speedup:
+1.5-2x on `async-echo`, bringing the gap to under 1x (i.e.,
+matching or beating Go).

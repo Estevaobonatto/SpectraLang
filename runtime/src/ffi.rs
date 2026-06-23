@@ -429,6 +429,31 @@ pub extern "C" fn spectra_rt_string_char_at(
     -1
 }
 
+/// Fast ABI entry for `concurrent.task_spawn(value)`.
+///
+/// Skips the generic host-call dispatch (no `manual_alloc`/`free` for the
+/// args/result buffer pair, no host name lookup, no `catch_unwind`). Called
+/// directly from JIT code when the backend inlines the `task_spawn` call.
+///
+/// Returns the new task_id (>0 on success) or 0 on internal error
+/// (poisoned registry mutex). Task 0 is reserved as the invalid sentinel.
+#[no_mangle]
+pub extern "C" fn spectra_rt_concurrent_spawn_fast(value: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::concurrent_spawn_fast(value)
+}
+
+/// Fast ABI entry for `concurrent.task_join(task_id)`.
+///
+/// Skips the generic host-call dispatch. Called directly from JIT code when
+/// the backend inlines the `task_join` call.
+///
+/// Returns the value written by the matching `task_spawn`, or 0 if the
+/// task_id is invalid (out of range, recycled, or never existed).
+#[no_mangle]
+pub extern "C" fn spectra_rt_concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::concurrent_join_fast(task_id)
+}
+
 /// Releases a manual allocation previously returned by `spectra_rt_manual_alloc`.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {

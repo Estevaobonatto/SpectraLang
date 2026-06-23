@@ -11,7 +11,7 @@ use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
@@ -15955,6 +15955,34 @@ extern "C" fn std_async_reactor_stats_io_registrations(ctx: *mut SpectraHostCall
     HOST_STATUS_SUCCESS
 }
 
+/// Fast-path helper for `concurrent.task_spawn(value)` called from JIT code
+/// via the `spectra_rt_concurrent_spawn_fast` fast ABI entry. Bypasses the
+/// generic host-call dispatcher (no manual_alloc/free, no name lookup, no
+/// catch_unwind, no host_registry lock). Returns the task_id, or 0 on
+/// internal error (poisoned mutex).
+pub fn concurrent_spawn_fast(value: SpectraHostValue) -> SpectraHostValue {
+    let mut registry = match lock_concurrent_registry() {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    registry.spawn(value) as SpectraHostValue
+}
+
+/// Fast-path helper for `concurrent.task_join(task_id)`. Returns the value
+/// written by the matching `task_spawn`, or 0 if the task_id is invalid
+/// (out of range, recycled, or never existed).
+pub fn concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
+    let task_id = task_id as usize;
+    let mut registry = match lock_concurrent_registry() {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    match registry.join(task_id) {
+        Ok(v) => v,
+        Err(_) => 0,
+    }
+}
+
 extern "C" fn std_async_reactor_reset(ctx: *mut SpectraHostCallContext) -> i32 {
     let args = match host_call_void_args(ctx, 0) {
         Ok(args) => args,
@@ -15968,10 +15996,7 @@ extern "C" fn std_async_reactor_reset(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-struct ConcurrentTask {
-    handle: Option<JoinHandle<SpectraHostValue>>,
-    result: Option<SpectraHostValue>,
-}
+const CONCURRENT_POOL_INITIAL_CAPACITY: usize = 64;
 
 struct ConcurrentChannel {
     queue: VecDeque<SpectraHostValue>,
@@ -15979,30 +16004,76 @@ struct ConcurrentChannel {
 }
 
 struct ConcurrentRegistry {
-    next_task: SpectraHostValue,
+    slots: Vec<Arc<OnceLock<SpectraHostValue>>>,
+    free: Vec<usize>,
+    next_fresh: usize,
     next_channel: SpectraHostValue,
     next_counter: SpectraHostValue,
     tasks_spawned: SpectraHostValue,
-    tasks: HashMap<SpectraHostValue, ConcurrentTask>,
     channels: HashMap<SpectraHostValue, ConcurrentChannel>,
     counters: HashMap<SpectraHostValue, SpectraHostValue>,
 }
 
 impl ConcurrentRegistry {
     fn new() -> Self {
+        let mut slots = Vec::with_capacity(CONCURRENT_POOL_INITIAL_CAPACITY);
+        slots.push(Arc::new(OnceLock::new()));
         Self {
-            next_task: 1,
+            slots,
+            free: Vec::new(),
+            next_fresh: 1,
             next_channel: 1,
             next_counter: 1,
             tasks_spawned: 0,
-            tasks: HashMap::new(),
             channels: HashMap::new(),
             counters: HashMap::new(),
         }
     }
 
     fn clear(&mut self) {
-        *self = Self::new();
+        for (idx, slot) in self.slots.iter_mut().enumerate() {
+            if idx == 0 {
+                continue;
+            }
+            *slot = Arc::new(OnceLock::new());
+        }
+        let total = self.slots.len();
+        self.free.clear();
+        self.free.extend(1..total);
+        self.tasks_spawned = 0;
+        self.channels.clear();
+        self.counters.clear();
+        self.next_channel = 1;
+        self.next_counter = 1;
+    }
+
+    fn spawn(&mut self, value: SpectraHostValue) -> usize {
+        self.tasks_spawned += 1;
+        let slot_idx = if let Some(idx) = self.free.pop() {
+            idx
+        } else {
+            let idx = self.next_fresh;
+            self.next_fresh += 1;
+            self.slots.push(Arc::new(OnceLock::new()));
+            idx
+        };
+        let slot = &self.slots[slot_idx];
+        debug_assert!(slot.get().is_none(), "slot pool invariant violated");
+        let _ = slot.set(value);
+        slot_idx
+    }
+
+    fn join(&mut self, task_id: usize) -> Result<SpectraHostValue, i32> {
+        let slot = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
+        let value = slot.get().copied().ok_or(HOST_STATUS_NOT_FOUND)?;
+        self.slots[task_id] = Arc::new(OnceLock::new());
+        self.free.push(task_id);
+        Ok(value)
+    }
+
+    fn is_done(&self, task_id: usize) -> Result<bool, i32> {
+        let slot = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
+        Ok(slot.get().is_some())
     }
 }
 
@@ -16023,23 +16094,12 @@ extern "C" fn std_concurrent_task_spawn(ctx: *mut SpectraHostCallContext) -> i32
         Err(status) => return status,
     };
     let value = args[0];
-    let handle = thread::spawn(move || value);
-
     let mut registry = match lock_concurrent_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let task_id = registry.next_task;
-    registry.next_task += 1;
-    registry.tasks_spawned += 1;
-    registry.tasks.insert(
-        task_id,
-        ConcurrentTask {
-            handle: Some(handle),
-            result: None,
-        },
-    );
-    results[0] = task_id;
+    let task_id = registry.spawn(value);
+    results[0] = task_id as SpectraHostValue;
     HOST_STATUS_SUCCESS
 }
 
@@ -16048,40 +16108,18 @@ extern "C" fn std_concurrent_task_join(ctx: *mut SpectraHostCallContext) -> i32 
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let task_id = args[0];
-    let handle = {
-        let mut registry = match lock_concurrent_registry() {
-            Ok(registry) => registry,
-            Err(status) => return status,
-        };
-        let Some(task) = registry.tasks.get_mut(&task_id) else {
-            return HOST_STATUS_NOT_FOUND;
-        };
-        if let Some(result) = task.result {
-            results[0] = result;
-            return HOST_STATUS_SUCCESS;
-        }
-        task.handle.take()
-    };
-
-    let Some(handle) = handle else {
-        return HOST_STATUS_INTERNAL_ERROR;
-    };
-    let result = match handle.join() {
-        Ok(value) => value,
-        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
-    };
-
+    let task_id = args[0] as usize;
     let mut registry = match lock_concurrent_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(task) = registry.tasks.get_mut(&task_id) else {
-        return HOST_STATUS_NOT_FOUND;
-    };
-    task.result = Some(result);
-    results[0] = result;
-    HOST_STATUS_SUCCESS
+    match registry.join(task_id) {
+        Ok(value) => {
+            results[0] = value;
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
 }
 
 extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -16089,21 +16127,18 @@ extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i
         Ok(parts) => parts,
         Err(status) => return status,
     };
+    let task_id = args[0] as usize;
     let registry = match lock_concurrent_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(task) = registry.tasks.get(&args[0]) else {
-        return HOST_STATUS_NOT_FOUND;
-    };
-    let done = task.result.is_some()
-        || task
-            .handle
-            .as_ref()
-            .map(|handle| handle.is_finished())
-            .unwrap_or(true);
-    results[0] = i64::from(done);
-    HOST_STATUS_SUCCESS
+    match registry.is_done(task_id) {
+        Ok(done) => {
+            results[0] = i64::from(done);
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
 }
 
 extern "C" fn std_concurrent_channel_new(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -19675,12 +19710,16 @@ mod tests {
         let (status, task) = call_host(CONCURRENT_TASK_SPAWN, &[42]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert_eq!(
+            call_host(CONCURRENT_TASK_IS_DONE, &[task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert_eq!(
             call_host(CONCURRENT_TASK_JOIN, &[task]),
             (HOST_STATUS_SUCCESS, 42)
         );
         assert_eq!(
             call_host(CONCURRENT_TASK_IS_DONE, &[task]),
-            (HOST_STATUS_SUCCESS, 1)
+            (HOST_STATUS_SUCCESS, 0)
         );
         assert_eq!(
             call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),

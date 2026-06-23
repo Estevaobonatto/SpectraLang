@@ -37,6 +37,8 @@ pub struct AotCodeGenerator {
     manual_frame_exit_func: FuncId,
     manual_escape_func: FuncId,
     host_invoke_func: FuncId,
+    concurrent_spawn_fast_func: FuncId,
+    concurrent_join_fast_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -110,6 +112,28 @@ impl AotCodeGenerator {
             .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare host-invoke import");
 
+        let mut concurrent_spawn_sig = module.make_signature();
+        concurrent_spawn_sig.params.push(AbiParam::new(types::I64));
+        concurrent_spawn_sig.returns.push(AbiParam::new(types::I64));
+        let concurrent_spawn_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_spawn_fast",
+                Linkage::Import,
+                &concurrent_spawn_sig,
+            )
+            .expect("Failed to declare concurrent spawn fast import");
+
+        let mut concurrent_join_sig = module.make_signature();
+        concurrent_join_sig.params.push(AbiParam::new(types::I64));
+        concurrent_join_sig.returns.push(AbiParam::new(types::I64));
+        let concurrent_join_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_join_fast",
+                Linkage::Import,
+                &concurrent_join_sig,
+            )
+            .expect("Failed to declare concurrent join fast import");
+
         Self {
             module,
             ctx,
@@ -121,6 +145,8 @@ impl AotCodeGenerator {
             manual_frame_exit_func,
             manual_escape_func,
             host_invoke_func,
+            concurrent_spawn_fast_func,
+            concurrent_join_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -307,6 +333,8 @@ impl AotCodeGenerator {
                 self.manual_frame_exit_func,
                 self.manual_escape_func,
                 self.host_invoke_func,
+                self.concurrent_spawn_fast_func,
+                self.concurrent_join_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
