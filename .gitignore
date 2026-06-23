@@ -61,3 +61,4 @@ run_output.txt
 .gitignore
 TEST_RESULTS.baseline.txt
 .kilo/plans/1782220289353-readme-rewrite-plan.md
+.kilo/plans/

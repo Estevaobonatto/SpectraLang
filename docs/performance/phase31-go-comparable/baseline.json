@@ -1,0 +1,95 @@
+{
+  "schema": "spectra.phase31.baseline.v1",
+  "updated": "2026-06-23",
+  "tolerance_policy": "Default: 1e-9 for float sums, 1e-6 for elementwise chains, 1e-4 for matmul, exact for integer reductions.",
+  "max_drift_pct": 15.0,
+  "first_pass_policy": "max_drift_pct is 15% on the first baseline to absorb dev-machine noise. Tighten to 5% once three consecutive runs on a pinned reference machine differ by less than 5%.",
+  "comment": "Baseline values reflect the first complete R-3101 runs on a developer Windows machine. Update via the methodology in docs/performance/phase31-go-comparable/methodology.md once two consecutive runs differ by less than the noise floor.",
+  "scenarios": {
+    "cpu-loop-sum": {
+      "category": "cpu",
+      "iterations": 1000000,
+      "expected_sum": 100000500000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 34627725,
+      "placeholder": false
+    },
+    "cpu-fibs": {
+      "category": "cpu",
+      "iterations": 200000,
+      "expected_value": 20466831000000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 50018925,
+      "placeholder": false
+    },
+    "cpu-string-build": {
+      "category": "cpu",
+      "iterations": 50,
+      "expected_output_bytes": 10000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 1088830105,
+      "placeholder": false
+    },
+    "cpu-hashmap": {
+      "category": "cpu",
+      "iterations": 30,
+      "expected_value": "n>0",
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 134579390,
+      "placeholder": false
+    },
+    "tensor-create": {
+      "category": "tensor",
+      "iterations": 20,
+      "expected_count": 20971520,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 362039205,
+      "placeholder": false
+    },
+    "tensor-elementwise": {
+      "category": "tensor",
+      "iterations": 10,
+      "expected_tolerance": "1e-6",
+      "spectra_ns_per_iter": 43305625,
+      "placeholder": false
+    },
+    "tensor-reduce": {
+      "category": "tensor",
+      "iterations": 50,
+      "expected_value": 5000000.0,
+      "tolerance": "1e-9",
+      "spectra_ns_per_iter": 53104700,
+      "placeholder": false
+    },
+    "tensor-matmul": {
+      "category": "tensor",
+      "iterations": 20,
+      "expected_tolerance": "1e-4",
+      "spectra_ns_per_iter": 56710280,
+      "placeholder": false
+    },
+    "ml-mlp-step": {
+      "category": "ml",
+      "iterations": 10,
+      "expected_tolerance": "1e-3",
+      "spectra_ns_per_iter": 76160370,
+      "placeholder": false
+    },
+    "async-echo": {
+      "category": "async",
+      "iterations": 1000,
+      "expected_value": 55000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 2029600375,
+      "placeholder": false
+    },
+    "async-pipeline": {
+      "category": "async",
+      "iterations": 200,
+      "expected_value": 99500,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 52467360,
+      "placeholder": false
+    }
+  }
+}

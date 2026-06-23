@@ -3959,3 +3959,282 @@ acceptance = [
   "training fixtures compare compiler-native gradients against finite-difference or reference gradients"
 ]
 
+[[phases]]
+id = "phase_31"
+name = "Performance Parity with Systems Languages"
+goal = "Reach Go-comparable runtime performance in CPU, tensor, ML, and async workloads through a cross-language benchmark suite, source-level profiling, and prioritized compiler/runtime optimization, without regressing functionality, numerical correctness, or existing performance."
+
+[[items]]
+id = "R-3101"
+title = "Cross-Language Performance Benchmark Suite"
+phase = "phase_31"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-1501", "R-1003", "R-2111"]
+summary = "Build a reproducible cross-language benchmark suite comparing Spectra vs Go, Java, and Rust across CPU, tensor, ML, and async scenarios, with machine-readable reports, versioned baselines, and a non-regression gate."
+acceptance = [
+  "11 scenarios (4 CPU, 4 tensor, 1 ML, 2 async) implemented equivalently in Spectra, Go, Java, and Rust",
+  "`scripts/validate_phase31_cross_lang.py` runs the suite, emits `target/phase31/cross-lang-report.{json,md}`, and compares against `docs/performance/phase31-go-comparable/baseline.json`",
+  "gate fails when any Spectra scenario regresses more than 5% vs the checked-in baseline, when numerical tolerance is violated, or when the existing functional suite regresses",
+  "gate does not fail on raw performance gap vs Go, Java, or Rust; that gap is reported per scenario",
+  "methodology document `docs/performance/phase31-go-comparable/methodology.md` documents machine, runtime flags, iteration count, and statistical reporting (median, p95, stddev)",
+  "`run_tests.ps1` invokes the gate as `phase31_cross_lang`",
+  "first complete run captured 11 scenarios; gap vs Go: 0.97x..218x; gap vs Rust: 1.6x..68x; details in `docs/performance/phase31-go-comparable/findings-r3101-initial.md`"
+]
+
+[[items]]
+id = "R-3102"
+title = "Performance Profiling and Bottleneck Analysis"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "in_progress"
+risk = "medium"
+dependencies = ["R-3101"]
+summary = "Profile Spectra workloads (cargo flamegraph, perf, async-profiler if JVM is in scope, pprof for Go reference) and write bottleneck analysis to `docs/performance/phase31-go-comparable/profiles/`."
+acceptance = [
+  "flamegraph SVGs are committed for each CPU and tensor scenario",
+  "callgrind or perf-report summaries are committed for top 5 hot functions per scenario",
+  "IR dumps before/after each phase are committed for the affected scenarios",
+  "analysis document names the top 5 bottlenecks with estimated impact and risk"
+]
+
+[[items]]
+id = "R-3103"
+title = "Optimization Implementation Plan"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-3102"]
+summary = "Convert profiling results into a prioritized list of concrete optimizations (impact x risk x effort) that drives R-3104..R-3117."
+acceptance = [
+  "ranked list of optimizations is committed to `docs/performance/phase31-go-comparable/optimization-plan.md`",
+  "each item maps to one of R-3104..R-3117 with measurable target",
+  "each item estimates speedup and rejection risk per scenario"
+]
+
+[[items]]
+id = "R-3104"
+title = "Cranelift Value Map and Codegen Hot Path"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3103"]
+summary = "Replace the HashMap-based value map and per-compile name interning in `backend/src/codegen.rs` with dense indexing and precomputed host records; split JIT vs AOT paths."
+acceptance = [
+  "value_map uses `Vec<Option<Value>>` indexed by IR `ValueId` with benchmarked lookup",
+  "host name records are precomputed at module load, not per hostcall lowering",
+  "no functional regression: `run_tests.ps1` reports zero failed expected tests",
+  "no performance regression: validate_phase31_cross_lang.py reports <= 5% drift on every Spectra scenario"
+]
+
+[[items]]
+id = "R-3105"
+title = "Host Call Batching and Name Precompute"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3103"]
+summary = "Reduce per-hostcall overhead by batching consecutive hostcalls, caching host name lookups, and minimizing string allocation on the hostcall boundary."
+acceptance = [
+  "hostcall lowering avoids per-call `to_string()` on the host name",
+  "consecutive hostcalls in the same basic block are grouped where semantics allow",
+  "no functional regression; CPU scenarios improve or stay flat; tensor scenarios improve or stay flat"
+]
+
+[[items]]
+id = "R-3106"
+title = "Alloca Hoisting and Lifetime-Based Reuse"
+phase = "phase_31"
+owner = "midend"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3103", "R-1502"]
+summary = "Hoist loop-invariant allocas, fuse adjacent allocas, and reuse slots across non-overlapping lifetimes in the midend IR."
+acceptance = [
+  "IR snapshots show reduced allocas per loop and per function in the affected benchmarks",
+  "no functional regression; no regression in numerical tolerance"
+]
+
+[[items]]
+id = "R-3107"
+title = "Tensor Cross-Call Buffer Reuse"
+phase = "phase_31"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3103", "R-1502"]
+summary = "Pool typed tensor buffers across consecutive host calls and inference-mode autodiff steps to cut allocation churn."
+acceptance = [
+  "tensor materialization benchmarks show reduced allocation count and bytes",
+  "buffer reuse is type-safe (shape, dtype, layout) and lifetime-safe",
+  "no functional regression; numerical results match within R-1503 tolerance"
+]
+
+[[items]]
+id = "R-3108"
+title = "String Materialization Optimization"
+phase = "phase_31"
+owner = "runtime"
+priority = "P1"
+status = "complete"
+risk = "medium"
+dependencies = ["R-109", "R-3103"]
+summary = "Optimize string value materialization across the backend ABI and host calls while preserving the R-109 invariants for cross-module strings."
+acceptance = [
+  "string-heavy CPU scenario improves measurably",
+  "cross-module string return (R-109) tests still pass",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3109"
+title = "Autodiff Inference-Mode Graph Skipping"
+phase = "phase_31"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-503", "R-3103"]
+summary = "Skip graph construction and retention entirely in pure inference mode, reducing per-step overhead for serving workloads."
+acceptance = [
+  "inference-mode path is verified to skip graph build and free paths",
+  "ML inference benchmark improves",
+  "training-mode path is unchanged and validated by existing training regressions"
+]
+
+[[items]]
+id = "R-3110"
+title = "SIMD Elementwise Kernels"
+phase = "phase_31"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3103"]
+summary = "Implement SSE2/AVX2 (and NEON where applicable) SIMD paths for `relu`, `tanh`, `sqrt`, and other elementwise tensor operations with runtime CPUID dispatch and a scalar fallback."
+acceptance = [
+  "SIMD path is selected on supported CPUs; scalar fallback runs on others",
+  "elementwise tensor benchmarks show measurable speedup",
+  "numerical results match the scalar reference within R-1503 tolerance",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3111"
+title = "Tiled Register-Blocked Matmul"
+phase = "phase_31"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3103", "R-401"]
+summary = "Replace the current matmul kernel with a cache-friendly tiled micro-kernel in Rust with register blocking and packing."
+acceptance = [
+  "matmul benchmark shows improvement on shapes 256..2048",
+  "numerical results match within R-1503 tolerance",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3112"
+title = "Im2col + GEMM Conv2D"
+phase = "phase_31"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3111"]
+summary = "Implement im2col + GEMM for `std.ml.conv2d` so convolution reuses the optimized matmul path."
+acceptance = [
+  "convolution benchmark shows improvement",
+  "numerical results match within R-1503 tolerance",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3113"
+title = "Work-Stealing Task Pool"
+phase = "phase_31"
+owner = "runtime"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-1101", "R-3103"]
+summary = "Replace the current reactor task scheduler with a work-stealing pool to improve async throughput under load."
+acceptance = [
+  "async-echo and async-pipeline benchmarks improve",
+  "R-21xx async conformance tests still pass",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3114"
+title = "Zero-Alloc Async Hot Path"
+phase = "phase_31"
+owner = "runtime"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3113"]
+summary = "Remove per-task allocation in the reactor hot path for short-lived tasks."
+acceptance = [
+  "allocation count in async-echo benchmark decreases",
+  "no functional regression; existing async tests pass"
+]
+
+[[items]]
+id = "R-3115"
+title = "Aggressive Const Propagation and Folding"
+phase = "phase_31"
+owner = "midend"
+priority = "P2"
+status = "not_started"
+risk = "low"
+dependencies = ["R-3103", "R-202"]
+summary = "Extend const propagation to fold more compile-time-known expressions through control flow and function-local bindings."
+acceptance = [
+  "IR dumps show fewer trivial instructions in affected scenarios",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3116"
+title = "Extended Dead Code Elimination"
+phase = "phase_31"
+owner = "midend"
+priority = "P2"
+status = "not_started"
+risk = "low"
+dependencies = ["R-3103"]
+summary = "Strengthen DCE across blocks and modules to remove unused hostcall results and unreachable branches."
+acceptance = [
+  "IR snapshots show reduced instruction count in the affected scenarios",
+  "no functional regression"
+]
+
+[[items]]
+id = "R-3117"
+title = "Cranelift Opt-Level and Tuning"
+phase = "phase_31"
+owner = "backend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3103"]
+summary = "Tune Cranelift optimization level, enables, and per-target settings for Spectra workloads; document defaults."
+acceptance = [
+  "opt-level policy is documented and applied in the JIT and AOT paths",
+  "all benchmarks improve or stay flat; no functional regression"
+]
+

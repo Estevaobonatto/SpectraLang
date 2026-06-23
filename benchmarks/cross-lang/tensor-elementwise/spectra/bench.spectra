@@ -1,0 +1,18 @@
+// Phase 31: tensor-elementwise (Spectra, single-shot)
+// Apply relu on a 100K-element tensor once. The runner times the process,
+// so this still gives a meaningful measurement.
+
+module bench_tensor_elementwise;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let t = tensor.full_f(100000, 0.5);
+    let r = tensor.relu(t);
+    let v = tensor.get_f(r, 0);
+    tensor.free_all();
+    if v > 0.0 {
+        return 0;
+    }
+    return 1;
+}

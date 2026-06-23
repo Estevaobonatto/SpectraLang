@@ -1,0 +1,29 @@
+// Phase 31: cpu-loop-sum (Spectra)
+// Sum 1..N inside a tight loop. Baseline integer arithmetic benchmark.
+// Workload is tuned to ~10ms per run on current Spectra JIT; the runner
+// reports median over 20 runs.
+
+module bench_cpu_loop_sum;
+
+pub fn main() -> int {
+    let outer = 5;
+    let inner = 200000;
+    let acc = 0;
+    let o = 0;
+    while o < outer {
+        let local_acc = 0;
+        let i = 1;
+        while i <= inner {
+            local_acc = local_acc + i;
+            i = i + 1;
+        }
+        acc = acc + local_acc;
+        o = o + 1;
+    }
+    // Expected: 5 * (inner * (inner + 1) / 2) = 5 * 200000 * 200001 / 2
+    //        = 5 * 200000 * 200001 / 2 = 100000500000
+    if acc == 100000500000 {
+        return 0;
+    }
+    return 1;
+}

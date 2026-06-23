@@ -6759,3 +6759,396 @@ R-501/R-2904 → R-3004
 - `examples/api/` (galeria)
 - `scripts/validate_r22XX_*.py` (um validator por fase)
 - `tests/validation/api_*.spectra`
+
+---
+
+# Phase 31: Performance Parity with Systems Languages
+
+## Purpose
+
+Drive SpectraLang toward Go-comparable runtime performance in CPU, tensor, ML,
+and async workloads through a reproducible cross-language benchmark suite, source
+profiling, and prioritized compiler/runtime optimization. The work is
+constrained by the project-wide rule: **no functional regression, no numerical
+regression, no more than 5% Spectra-vs-Spectra drift per scenario**. The gap
+between Spectra and Go/Java/Rust is reported per scenario, not gated.
+
+Linguagens de comparação: **Go**, **Java**, **Rust** (todas disponíveis no
+ambiente do usuário). C, Node, Python ficam fora desta iteração.
+
+Cenários cobertos (11):
+
+- CPU: `cpu-loop-sum`, `cpu-fibs`, `cpu-string-build`, `cpu-hashmap`
+- Tensor: `tensor-create`, `tensor-elementwise`, `tensor-reduce`, `tensor-matmul`
+- ML: `ml-mlp-step`
+- Async: `async-echo`, `async-pipeline`
+
+## R-3101 Cross-Language Performance Benchmark Suite
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-1501`, `R-1003`, `R-2111`
+
+### Scope
+
+- 11 cenários equivalentes em 4 linguagens (Spectra, Go, Java, Rust).
+- Driver Rust em `runtime/examples/phase31_cross_lang_bench.rs`.
+- Runner Python em `scripts/phase31_run_all.py`.
+- Gate `scripts/validate_phase31_cross_lang.py`, integrado em `run_tests.ps1`
+  como `phase31_cross_lang`.
+- Baseline versionado em `docs/performance/phase31-go-comparable/baseline.json`.
+- Metodologia em `docs/performance/phase31-go-comparable/methodology.md`.
+- Saída: `target/phase31/cross-lang-report.{json,md}`.
+
+### Acceptance
+
+- 11 cenários implementados em 4 linguagens com mesma entrada e iterações.
+- Gate falha se qualquer cenário Spectra regredir > 5% vs baseline checkado.
+- Gate falha se tolerância numérica for violada.
+- Gate falha se suite funcional existente regredir.
+- Gate **não** falha por gap absoluto vs Go/Java/Rust (vai para o report).
+- Metodologia documenta máquina, flags de runtime, número de iterações, e
+  estatística (mediana, p95, stddev).
+- `run_tests.ps1` invoca o gate como `phase31_cross_lang`.
+
+## R-3102 Performance Profiling and Bottleneck Analysis
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-3101`
+
+### Scope
+
+- Perfilar workloads representativos com `cargo flamegraph`, `perf record` e
+  `pprof` (Go) para cada cenário.
+- Salvar artefatos em `docs/performance/phase31-go-comparable/profiles/`.
+- Cruzar IR dumps (Spectra) e callgraphs para identificar hot paths.
+
+### Acceptance
+
+- Flamegraphs commitados para cada cenário CPU e tensor.
+- Top 5 hot functions por cenário documentados.
+- IR dumps before/after para cenários afetados.
+- Documento de análise nomeia top 5 gargalos com impacto e risco estimados.
+
+## R-3103 Optimization Implementation Plan
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-3102`
+
+### Scope
+
+- Cruzar profiling + IR dumps + métricas de runtime.
+- Emitir lista priorizada (impacto × risco × esforço) que direciona
+  R-3104..R-3117.
+
+### Acceptance
+
+- Ranking em `docs/performance/phase31-go-comparable/optimization-plan.md`.
+- Cada item mapeia para R-3104..R-3117 com target mensurável.
+
+## R-3104 Cranelift Value Map and Codegen Hot Path
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-3103`
+
+### Scope
+
+- Substituir `HashMap<usize, Value>` por `Vec<Option<Value>>` dense indexado
+  por `ValueId` em `backend/src/codegen.rs`.
+- Pré-computar `HostNameRecord` no module load.
+- Separar paths JIT e AOT.
+
+### Acceptance
+
+- `value_map` usa `Vec<Option<Value>>` indexado por IR `ValueId`.
+- Host name records pré-computados no module load.
+- `run_tests.ps1` zero falhas funcionais.
+- `validate_phase31_cross_lang.py` reporta ≤ 5% de drift em todos os cenários.
+
+## R-3105 Host Call Batching and Name Precompute
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-3103`
+
+### Scope
+
+- Reduzir overhead de host call: cache de host name lookups, evitar
+  `to_string()` por chamada, agrupar hostcalls consecutivos quando semântica
+  permite.
+
+### Acceptance
+
+- Hostcall lowering evita `to_string()` por chamada.
+- Hostcalls consecutivos no mesmo bloco básico são agrupados onde aplicável.
+- Sem regressão funcional; cenários CPU e tensor melhoram ou ficam estáveis.
+
+## R-3106 Alloca Hoisting and Lifetime-Based Reuse
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `midend`
+- Dependencies: `R-3103`, `R-1502`
+
+### Scope
+
+- Lift de allocas invariantes de loop.
+- Fusão de allocas adjacentes.
+- Reuso de slots em lifetimes não sobrepostas.
+
+### Acceptance
+
+- Snapshots IR mostram menos allocas por loop/função.
+- Sem regressão funcional ou numérica.
+
+## R-3107 Tensor Cross-Call Buffer Reuse
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-3103`, `R-1502`
+
+### Scope
+
+- Pool de buffers tipados (shape, dtype, layout) para host calls consecutivas e
+  passos de autodiff em inference mode.
+- Reuso type-safe e lifetime-safe.
+
+### Acceptance
+
+- Benchmarks de materialização mostram redução em count e bytes alocados.
+- Sem regressão funcional; resultados numéricos dentro da tolerância `R-1503`.
+
+## R-3108 String Materialization Optimization
+
+- Status: `complete`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-109`, `R-3103`
+
+### Scope
+
+- Otimizar materialização de string através do backend ABI e host calls.
+- Preservar invariantes de `R-109` (cross-module string return).
+
+### Acceptance (satisfied)
+
+- Cenário `cpu-string-build` melhora mensuravelmente: 3.85x mais rápido
+  (942ms → 245ms no Spectra, gap vs Go cai de 71.7x para 19.4x).
+- Testes de cross-module string (R-109) continuam passando.
+- Sem regressão funcional: `str.concat`, `str.repeat_str`, `str.len` e
+  todos os outros exports de `std.string` funcionam inalterados.
+- Regression test `tests/validation/180_phase31_string_builder.spectra`
+  cobre `builder_new` / `builder_push` / `builder_len` / `builder_finish`
+  / `builder_free` / builder vazio.
+- Gate `validate_phase31_cross_lang.py` continua PASS após a otimização.
+
+### Implementation Notes
+
+- Adicionado `StringBuilder` + `StringBuilderRegistry` em
+  `runtime/src/stdlib/mod.rs` com 5 host functions.
+- Adicionado 5 entries em `make_std_string()` em
+  `compiler/src/semantic/builtin_modules.rs`. `builder_new` aceita
+  uma capacidade inicial em bytes (int) para não ser uma chamada
+  sem argumentos.
+- Adicionado 5 entries na tabela hardcoded
+  `(module, function) -> HostFunctionDescriptor` em
+  `midend/src/lowering.rs:8133`. Esta tabela é o que efetivamente
+  resolve `str.builder_X(...)` para o nome do host function no
+  runtime; sem essa entrada o midend caía no caminho de
+  `infer_expr_ir_type` que não tem representação para aliases de
+  módulo e produzia o erro "Could not determine object type".
+- `benchmarks/cross-lang/cpu-string-build/spectra/bench.spectra`
+  atualizado para usar a API do builder; as versões Go/Java/Rust
+  já usavam buffers mutáveis pré-alocados (`strings.Builder`,
+  `StringBuilder`, `String::with_capacity`) então não mudaram.
+
+## R-3109 Autodiff Inference-Mode Graph Skipping
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Dependencies: `R-503`, `R-3103`
+
+### Scope
+
+- Pular construção e retenção de graph em inference mode puro.
+
+### Acceptance
+
+- Path de inference verificado a pular graph build e free paths.
+- Benchmark ML inference melhora.
+- Path de training inalterado e validado por regressões existentes.
+
+## R-3110 SIMD Elementwise Kernels
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-3103`
+
+### Scope
+
+- Path SIMD SSE2/AVX2 (e NEON quando aplicável) para `relu`, `tanh`, `sqrt` e
+  outras elementwise.
+- Dispatch via CPUID em runtime, fallback scalar.
+
+### Acceptance
+
+- Path SIMD selecionado em CPUs suportadas; fallback scalar em outras.
+- Benchmarks elementwise mostram speedup mensurável.
+- Resultados numéricos dentro da tolerância `R-1503`.
+- Sem regressão funcional.
+
+## R-3111 Tiled Register-Blocked Matmul
+
+- Status: `not_started`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-3103`, `R-401`
+
+### Scope
+
+- Substituir matmul atual por micro-kernel tiled em Rust com register blocking
+  e packing.
+
+### Acceptance
+
+- Benchmark matmul melhora em shapes 256..2048.
+- Resultados numéricos dentro de `R-1503`.
+- Sem regressão funcional.
+
+## R-3112 Im2col + GEMM Conv2D
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `numerics`
+- Dependencies: `R-3111`
+
+### Scope
+
+- im2col + GEMM para `std.ml.conv2d` reusando matmul otimizado.
+
+### Acceptance
+
+- Benchmark convolution melhora.
+- Resultados numéricos dentro de `R-1503`.
+- Sem regressão funcional.
+
+## R-3113 Work-Stealing Task Pool
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `runtime`
+- Dependencies: `R-1101`, `R-3103`
+
+### Scope
+
+- Substituir scheduler do reactor por work-stealing pool.
+
+### Acceptance
+
+- Benchmarks async melhoram.
+- Conformance tests `R-21xx` continuam passando.
+- Sem regressão funcional.
+
+## R-3114 Zero-Alloc Async Hot Path
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `runtime`
+- Dependencies: `R-3113`
+
+### Scope
+
+- Remover alocação por task no hot path do reactor.
+
+### Acceptance
+
+- Count de alocações em `async-echo` diminui.
+- Sem regressão funcional; testes async existentes passam.
+
+## R-3115 Aggressive Const Propagation and Folding
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `midend`
+- Dependencies: `R-3103`, `R-202`
+
+### Scope
+
+- Estender const propagation para folding através de control flow e bindings
+  locais.
+
+### Acceptance
+
+- IR dumps mostram menos instruções triviais.
+- Sem regressão funcional.
+
+## R-3116 Extended Dead Code Elimination
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `midend`
+- Dependencies: `R-3103`
+
+### Scope
+
+- DCE cross-block e cross-module; remover hostcall results não usados e
+  branches inalcançáveis.
+
+### Acceptance
+
+- Snapshots IR mostram menos instruções.
+- Sem regressão funcional.
+
+## R-3117 Cranelift Opt-Level and Tuning
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `backend`
+- Dependencies: `R-3103`
+
+### Scope
+
+- Tunar opt-level, enables e per-target settings do Cranelift para Spectra.
+- Documentar defaults.
+
+### Acceptance
+
+- Política de opt-level documentada e aplicada em JIT e AOT.
+- Benchmarks melhoram ou ficam estáveis; sem regressão funcional.
+
+---
+
+## Execution Order
+
+1. **R-3101** (suite): desbloqueia todos os outros itens.
+2. **R-3102** (profiling): precisa de R-3101 pronto.
+3. **R-3103** (plano priorizado): precisa de R-3102.
+4. **Fase B (R-3104, R-3105)**: backend hot path.
+5. **Fase C (R-3106, R-3107)**: midend + buffer reuse.
+6. **Fase D (R-3108, R-3109)**: string + autodiff inference.
+7. **Fase E (R-3110, R-3111, R-3112)**: SIMD + matmul + conv.
+8. **Fase F (R-3113, R-3114)**: reactor async.
+9. **Fase G (R-3115, R-3116, R-3117)**: compiler opts.
+10. **Final**: re-run todos os gates, atualizar baseline, publicar parity report.
+
+## Validação Final (gate de paridade)
+
+Placeholder até `R-3103` consolidar profiling:
+
+- CPU: gap ≤ 1.5x..2.0x vs Go
+- Tensor: gap ≤ 1.5x..3.0x vs Go
+- ML: gap ≤ 3.0x vs Go
+- Async: gap ≤ 2.0x vs Go
+
+Números em `optimization-plan.md` (R-3103) substituem esses placeholders.

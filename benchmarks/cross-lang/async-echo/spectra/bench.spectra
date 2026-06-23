@@ -1,0 +1,30 @@
+// Phase 31: async-echo (Spectra)
+// Spawn 10 tasks, join them, sum the results. Repeated iters=1000 times.
+// Total: 10_000 task spawn+join pairs. Workload tuned to ~20ms per run on
+// current Spectra; further iteration in R-3113/R-3114.
+
+module bench_async_echo;
+
+import std.concurrent as concurrent;
+
+pub fn main() -> int {
+    let iters = 1000;
+    let total = 0;
+    let i = 0;
+    while i < iters {
+        concurrent.reset();
+        let k = 0;
+        let local = 0;
+        while k < 10 {
+            let task = concurrent.task_spawn(k + 1);
+            local = local + concurrent.task_join(task);
+            k = k + 1;
+        }
+        total = total + local;
+        i = i + 1;
+    }
+    if total == 55000 {
+        return 0;
+    }
+    return 1;
+}

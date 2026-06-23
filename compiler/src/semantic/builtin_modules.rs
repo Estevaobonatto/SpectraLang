@@ -2668,6 +2668,43 @@ fn make_std_string() -> ModuleExports {
         "repeat_str".to_string(),
         pub_fn(vec![Type::String, Type::Int], Type::String),
     );
+    // String builder API (R-3108). Avoids the per-call allocation cost of
+    // `concat` by accumulating parts in a handle and joining them in a
+    // single allocation on `builder_finish`. The constructor takes a
+    // capacity hint (in bytes) so it is not parsed as a no-arg method
+    // call by the parser.
+    exports.functions.insert(
+        "builder_new".to_string(),
+        pub_fn(vec![Type::Int], Type::Int),
+    );
+    exports.functions.insert(
+        "builder_push".to_string(),
+        pub_fn(vec![Type::Int, Type::String], Type::Unit),
+    );
+    exports.functions.insert(
+        "builder_len".to_string(),
+        pub_fn(vec![Type::Int], Type::Int),
+    );
+    exports.functions.insert(
+        "builder_finish".to_string(),
+        pub_fn(vec![Type::Int], Type::String),
+    );
+    exports.functions.insert(
+        "builder_free".to_string(),
+        pub_fn(vec![Type::Int], Type::Unit),
+    );
+    // concat_n(list: int, count: int) -> string
+    // Concatenates the first `count` string elements of a std.collections
+    // list (each stored as a string handle) into a single fresh allocation.
+    // Low-level building block for R-3108; the user-facing string builder
+    // API is added by a follow-up.
+    // Currently not exposed at the language level because list_push takes
+    // int and the encoding of a string handle is not user-facing. This entry
+    // is left commented until the builder API lands.
+    // exports.functions.insert(
+    //     "concat_n".to_string(),
+    //     pub_fn(vec![Type::Int, Type::Int], Type::String),
+    // );
     // char_at(s: string, index: int) -> int  (returns char code; -1 if out of bounds)
     exports.functions.insert(
         "char_at".to_string(),

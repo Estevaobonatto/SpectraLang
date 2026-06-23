@@ -1325,6 +1325,27 @@ if ($r2111AsyncBench.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2111_async_bench"; Status = $r2111AsyncBench.Status; Detalhe = $r2111AsyncBench.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.36b: R-3101 Phase 31 cross-language benchmark gate
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-3101 Phase 31 cross-language benchmark gate ---" -ForegroundColor Yellow
+$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json") -workingDir (Get-Location).Path -timeoutSeconds 1800
+if ($phase31Driver.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "phase31_run_all"; Status = $phase31Driver.Status; Detalhe = $phase31Driver.Detail }
+
+$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json") -workingDir (Get-Location).Path
+if ($phase31Gate.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "validate_phase31_cross_lang"; Status = $phase31Gate.Status; Detalhe = $phase31Gate.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.37: R-2112 formal Send/Sync trait bounds
 # ---------------------------------------------------------------------------
 Write-Host ""

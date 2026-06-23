@@ -8897,6 +8897,32 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::String,
                 returns_value: true,
             }),
+            // ── std.string string builder (R-3108) ────────────────────────
+            ("string", "builder_new") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_new",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "builder_push") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_push",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("string", "builder_len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "builder_finish") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_finish",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "builder_free") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_free",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
             ("string", "split_by") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.split_by",
                 return_type: IRType::Int,

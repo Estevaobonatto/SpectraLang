@@ -1,0 +1,42 @@
+// Phase 31: ml-mlp-step (Spectra, simplified)
+// Forward + backward + sgd_step on a small linear model, 10 iterations.
+
+module bench_ml_mlp_step;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+fn train_step(x: int, target: int, weight: int, bias: int) -> int {
+    let prediction = ml.linear(x, weight, bias);
+    let loss = ml.mse_loss(prediction, target);
+    tensor.backward(loss);
+    ml.sgd_step(weight, 0.1);
+    ml.sgd_step(bias, 0.1);
+    return 0;
+}
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+
+    let iters = 10;
+    let features = tensor.reshape(tensor.full_f(16, 1.0), 16, 1);
+    let labels = tensor.full_f(16, 2.0);
+    let weight0 = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let weight = tensor.reshape(weight0, 1, 1);
+    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+
+    let i = 0;
+    while i < iters {
+        train_step(features, labels, weight, bias);
+        i = i + 1;
+    }
+
+    let prediction = ml.linear(features, weight, bias);
+    let n = tensor.len(prediction);
+    tensor.free_all();
+    if n == 16 {
+        return 0;
+    }
+    return 1;
+}

@@ -1,0 +1,19 @@
+// Phase 31: tensor-matmul (Spectra, single-shot)
+// 64x64 * 64x64 matmul, performed once.
+
+module bench_tensor_matmul;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let n = 64;
+    let a = tensor.reshape(tensor.full_f(n * n, 0.5), n, n);
+    let b = tensor.reshape(tensor.full_f(n * n, 0.25), n, n);
+    let c = tensor.matmul(a, b);
+    let v = tensor.get_f(c, 0);
+    tensor.free_all();
+    if v > 0.0 {
+        return 0;
+    }
+    return 1;
+}

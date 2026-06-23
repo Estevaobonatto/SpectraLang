@@ -1,0 +1,40 @@
+// Phase 31: cpu-hashmap (Spectra)
+// Use std.collections list with linear search as a hashmap-equivalent
+// because the runtime does not yet expose the typed map surface to .spectra.
+// Workload: insert + linear-search 200 entries, repeated 30 times.
+// The runner reports wall time, so iteration count is intentionally small
+// to keep the per-iteration cost near 10ms on current Spectra.
+
+module bench_cpu_hashmap;
+
+import std.collections as col;
+
+pub fn main() -> int {
+    let n = 200;
+    let iters = 30;
+    let acc = 0;
+    let it = 0;
+    while it < iters {
+        let values = col.list_new();
+        let i = 0;
+        while i < n {
+            col.list_push(values, i * 7);
+            i = i + 1;
+        }
+        let sum_insert = col.list_len(values);
+        let k = 0;
+        while k < n {
+            if col.list_contains(values, k * 7) {
+                acc = acc + 1;
+            }
+            k = k + 1;
+        }
+        acc = acc + sum_insert;
+        col.list_free(values);
+        it = it + 1;
+    }
+    if acc > 0 {
+        return 0;
+    }
+    return 1;
+}

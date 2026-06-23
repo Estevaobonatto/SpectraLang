@@ -62,6 +62,11 @@ const STR_ENDS_WITH: &str = "spectra.std.string.ends_with";
 const STR_EQ: &str = "spectra.std.string.eq";
 const STR_CONCAT: &str = "spectra.std.string.concat";
 const STR_REPEAT: &str = "spectra.std.string.repeat_str";
+const STR_BUILDER_NEW: &str = "spectra.std.string.builder_new";
+const STR_BUILDER_PUSH: &str = "spectra.std.string.builder_push";
+const STR_BUILDER_LEN: &str = "spectra.std.string.builder_len";
+const STR_BUILDER_FINISH: &str = "spectra.std.string.builder_finish";
+const STR_BUILDER_FREE: &str = "spectra.std.string.builder_free";
 const STR_CHAR_AT: &str = "spectra.std.string.char_at";
 const STR_SUBSTRING: &str = "spectra.std.string.substring";
 const STR_REPLACE: &str = "spectra.std.string.replace";
@@ -1831,6 +1836,91 @@ struct StdList {
 struct ListRegistry {
     next_id: usize,
     lists: HashMap<usize, ManualBox<StdList>>,
+}
+
+// ── std.string string builder (R-3108) ──────────────────────────────────────
+
+struct StringBuilder {
+    parts: Vec<String>,
+}
+
+struct StringBuilderRegistry {
+    next_id: usize,
+    builders: HashMap<usize, ManualBox<StringBuilder>>,
+}
+
+impl StringBuilderRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            builders: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, builder: ManualBox<StringBuilder>) -> usize {
+        let mut handle = self.next_id.max(1);
+        while self.builders.contains_key(&handle) {
+            handle = handle.wrapping_add(1).max(1);
+        }
+        self.next_id = handle.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        self.builders.insert(handle, builder);
+        handle
+    }
+
+    fn push(&mut self, handle: usize, value: String) -> Result<(), i32> {
+        match self.builders.get_mut(&handle) {
+            Some(b) => {
+                b.parts.push(value);
+                Ok(())
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn len(&self, handle: usize) -> Result<usize, i32> {
+        match self.builders.get(&handle) {
+            Some(b) => Ok(b.parts.iter().map(|p| p.len()).sum()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn finish(&mut self, handle: usize) -> Result<String, i32> {
+        match self.builders.remove(&handle) {
+            Some(b) => {
+                let total: usize = b.parts.iter().map(|p| p.len()).sum();
+                let mut out = String::with_capacity(total);
+                for p in &b.parts {
+                    out.push_str(p);
+                }
+                Ok(out)
+            }
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+
+    fn discard(&mut self, handle: usize) -> Result<(), i32> {
+        match self.builders.remove(&handle) {
+            Some(_) => Ok(()),
+            None => Err(HOST_STATUS_NOT_FOUND),
+        }
+    }
+}
+
+fn string_builder_registry() -> &'static Mutex<StringBuilderRegistry> {
+    static REGISTRY: OnceLock<Mutex<StringBuilderRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(StringBuilderRegistry::new()))
+}
+
+fn with_string_builder_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut StringBuilderRegistry) -> R,
+{
+    let registry = string_builder_registry();
+    let mut guard = lock_unpoisoned(registry);
+    action(&mut guard)
 }
 
 impl ListRegistry {
@@ -10370,6 +10460,11 @@ fn register_string() {
     register_host_function(STR_EQ, std_string_eq);
     register_host_function(STR_CONCAT, std_string_concat);
     register_host_function(STR_REPEAT, std_string_repeat);
+    register_host_function(STR_BUILDER_NEW, std_string_builder_new);
+    register_host_function(STR_BUILDER_PUSH, std_string_builder_push);
+    register_host_function(STR_BUILDER_LEN, std_string_builder_len);
+    register_host_function(STR_BUILDER_FINISH, std_string_builder_finish);
+    register_host_function(STR_BUILDER_FREE, std_string_builder_free);
     register_host_function(STR_CHAR_AT, std_string_char_at);
     register_host_function(STR_SUBSTRING, std_string_substring);
     register_host_function(STR_REPLACE, std_string_replace);
@@ -10697,6 +10792,136 @@ extern "C" fn std_string_repeat(ctx: *mut SpectraHostCallContext) -> i32 {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = ptr;
         }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.string string builder (R-3108) ──────────────────────────────────────
+//
+// Each builder function takes at least one argument (some a sentinel) so the
+// parser produces a `Call` on a `FieldAccess` instead of a `MethodCall`. The
+// midend currently has no representation for module/namespace types, and a
+// `MethodCall` on a bare identifier falls through to `IRType::Int` and then
+// fails to resolve a struct method. A `Call` on a qualified path routes
+// through the existing qualified-call resolution path.
+
+extern "C" fn std_string_builder_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let capacity_hint = unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        args[0].max(0) as usize
+    };
+    let memory = initialize().memory();
+    let mut parts: Vec<String> = Vec::new();
+    if capacity_hint > 0 {
+        parts.reserve(capacity_hint);
+    }
+    let builder = match memory.allocate_manual(StringBuilder { parts }) {
+        Ok(b) => b,
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    let handle = with_string_builder_registry(|reg| reg.insert(builder));
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = handle as SpectraHostValue;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_builder_push(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let value = match read_spectra_string(args[1]) {
+            Some(s) => s,
+            None => String::new(),
+        };
+        with_string_builder_registry(|reg| {
+            let _ = reg.push(handle, value);
+        });
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_builder_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let result = unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        with_string_builder_registry(|reg| match reg.len(handle) {
+            Ok(n) => n as SpectraHostValue,
+            Err(_) => -1,
+        })
+    };
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_builder_finish(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        let result = with_string_builder_registry(|reg| match reg.finish(handle) {
+            Ok(s) => alloc_spectra_string(&s),
+            Err(_) => 0,
+        });
+        if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
+            let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
+            results[0] = result;
+        }
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_string_builder_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len < 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let handle = args[0] as usize;
+        with_string_builder_registry(|reg| {
+            let _ = reg.discard(handle);
+        });
     }
     HOST_STATUS_SUCCESS
 }
