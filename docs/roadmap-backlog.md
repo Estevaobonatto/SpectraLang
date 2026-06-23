@@ -7212,6 +7212,74 @@ Cenários cobertos (11):
 - R-3114 (Zero-Alloc Hot Path): generalizar o fast ABI pattern para
   outros host calls hot (tensor, string, etc).
 
+## R-3121 Lock-Free Concurrent Slot Pool (reverted)
+
+- Status: `not_started` (implementação tentada e revertida)
+- Priority: `P3`
+- Owner: `runtime`
+- Dependencies: `R-3120`
+
+### Outcome (2026-06-23) — Reverted
+
+A implementação lock-free foi completada e testada, mas produziu
+**regressão** no `async-echo`:
+
+| design | async-echo ns | gap vs Go | vs R-3120 |
+|---|---:|---:|---:|
+| R-3120 (Mutex, `Vec<Arc<OnceLock>>`) | 33,865,050 | 1.655x | baseline |
+| R-3121 (lock-free, pool=65536) | 2,646,147,300 | 92.3x | **78x slower** |
+| R-3121 (lock-free, pool=1024) | 65,688,800 | 2.44x | 1.9x slower |
+| R-3121 (lock-free, pool=64) | 38,965,600 | 1.83x | 1.15x slower |
+| R-3120 (após revert, re-medido) | 33,457,100 | 1.637x | 0.99x (ruído) |
+
+### Root Cause
+
+O Mutex do Rust em single-threaded debug tem um fast path muito
+eficiente (~20-30ns): um único `compare_exchange` atômico na word
+do lock. O design lock-free faz 3 operações atômicas por chamada
+(load free_head + load slot.value + CAS free_head = ~100-150ns).
+
+Adicionalmente, o pool pré-alocado exige iterar todos os slots no
+`clear()` (2 atomic stores por slot), enquanto o design antigo com
+`Vec<Arc<OnceLock>>` apenas substituía os Arc pointers.
+
+### Key Insight
+
+Lock-free não é universalmente mais rápido que Mutex. Ele paga off
+sob **contenção** (múltiplas threads competindo pelo mesmo lock),
+mas para workloads **single-threaded**, o Mutex fast path é
+imbatível.
+
+A estimativa do plano (~100-200ns para Mutex em debug) estava
+inflada. Na prática, o `std::sync::Mutex` do Rust em x86 tem
+fast path uncontended de ~20-30ns.
+
+### Quando R-3121 Ajudaria
+
+O design lock-free é correto e beneficiaria workloads que são:
+- Multi-threaded (spawn/join cross-thread)
+- Com alta contenção no Mutex do registry
+- Com requisitos de wait-free para real-time
+
+Nenhum desses aplica ao `async-echo` (single-threaded).
+
+### Decisão
+
+**Revertido para o design R-3120.** Baseline R-3120 (33,865,050 ns,
+1.655x vs Go) permanece como melhor resultado. R-3121 marcado como
+`not_started` com este finding documentado.
+
+### Follow-up Proposto: R-3122
+
+O gap residual de 1.655x é dominado por:
+- Overhead de codegen do backend por chamada (~500-800ns em debug)
+- Overhead de FFI call boundary do Cranelift JIT
+
+Próximo alvo realista: inlinear `spectra_rt_concurrent_spawn_fast`
+diretamente no Cranelift IR usando `atomicrmw`/`cmpxchg`, eliminando
+o FFI call completamente. Estimativa: speedup de 1.5-2x no
+`async-echo`, trazendo o gap para < 1x vs Go.
+
 ## R-3108 String Materialization Optimization
 
 - Status: `complete`

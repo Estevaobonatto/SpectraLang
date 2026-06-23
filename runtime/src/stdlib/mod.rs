@@ -16128,7 +16128,7 @@ extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i
         Err(status) => return status,
     };
     let task_id = args[0] as usize;
-    let registry = match lock_concurrent_registry() {
+    let mut registry = match lock_concurrent_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };

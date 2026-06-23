@@ -4309,4 +4309,24 @@ acceptance = [
   "phase31 cross-lang gate PASS"
 ]
 
+[[items]]
+id = "R-3121"
+title = "Lock-Free Concurrent Slot Pool (reverted — not beneficial for single-threaded)"
+phase = "phase_31"
+owner = "runtime"
+priority = "P3"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3120"]
+summary = "Attempted to replace the Mutex<ConcurrentRegistry> with a lock-free slot pool (AtomicI64 + AtomicU8 + Treiber stack CAS). Implementation was completed and tested, but the lock-free design was 1.15-78x SLOWER than the Mutex-based design for the single-threaded async-echo benchmark. The Mutex fast path (uncontended atomic CAS on a single word, ~20-30ns) is cheaper than the lock-free path (3 atomic operations per call, ~100-150ns). The implementation was reverted. R-3121 remains `not_started` because the lock-free design does not benefit the current single-threaded workload. It would help multi-threaded/contended scenarios."
+acceptance = [
+  "REVERTED: Implementation was attempted but produced a regression on async-echo (1.15-78x slower depending on pool size)",
+  "Root cause: Mutex fast path in single-threaded debug is ~20-30ns vs lock-free ~100-150ns per call (3 atomic ops vs 1 CAS)",
+  "Secondary issue: pre-allocated pool requires iterating all slots in clear() (2 atomic stores per slot), adding overhead vs Arc-based replacement",
+  "The lock-free design is correct and would benefit multi-threaded/contended workloads, but the async-echo benchmark is single-threaded",
+  "See findings-r3101-initial.md R-3121 section for full analysis with measurements (pool=65536, 1024, 64)",
+  "R-3120 baseline (33,865,050 ns, 1.655x vs Go) remains the best result",
+  "Follow-up: R-3122 (proposed) — inline spectra_rt_concurrent_spawn_fast into Cranelift IR using atomicrmw/cmpxchg to eliminate FFI call entirely"
+]
+
 

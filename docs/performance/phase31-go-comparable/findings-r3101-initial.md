@@ -499,3 +499,104 @@ Residual gap (1.655x) is now dominated by the single `Mutex` lock on
 the next target (R-3121, proposed). Estimated additional speedup:
 1.5-2x on `async-echo`, bringing the gap to under 1x (i.e.,
 matching or beating Go).
+
+## R-3121 (Lock-Free Concurrent Slot Pool) — Reverted (not adopted)
+
+### Motivation
+
+R-3120 left a residual gap of 1.655x vs Go on `async-echo`. The
+dominant remaining cost was the `Mutex<ConcurrentRegistry>` lock,
+estimated at ~100-200ns per call in the plan. The proposed solution
+was a lock-free slot pool using `AtomicI64` + `AtomicU8` + a Treiber
+stack for the free list.
+
+### Implementation Attempted
+
+- Replaced `Mutex<ConcurrentRegistry>` with a `ConcurrentRegistry`
+  using `AtomicI64` slots + `AtomicUsize` free_head + `AtomicUsize`
+  next_fresh + `AtomicI64` tasks_spawned.
+- Pre-allocated `Vec<Slot>` of size 65536 (later reduced to 64).
+- Treiber stack CAS loop for the free list.
+- `clear_lock: Mutex<()>` for `clear()` only.
+- Channel/counter state moved to a separate `Mutex<RegistryState>`.
+
+### Results — Regression, Reverted
+
+| pool size | async-echo ns | gap vs Go | vs R-3120 |
+|---|---:|---:|---:|
+| R-3120 (Mutex, Vec<Arc<OnceLock>>) | 33,865,050 | 1.655x | baseline |
+| R-3121 (lock-free, pool=65536) | 2,646,147,300 | 92.3x | **78x slower** |
+| R-3121 (lock-free, pool=1024) | 65,688,800 | 2.44x | 1.9x slower |
+| R-3121 (lock-free, pool=64) | 38,965,600 | 1.83x | 1.15x slower |
+| R-3120 (after revert, re-measured) | 33,457,100 | 1.637x | 0.99x (noise) |
+
+### Root Cause
+
+The lock-free design was **slower** than the Mutex-based design for
+the single-threaded `async-echo` benchmark. Three factors:
+
+1. **CAS vs Mutex fast path**: In single-threaded debug, a
+   `compare_exchange` on a single Mutex word (~20-30ns) is cheaper
+   than the lock-free path which does 3 atomic operations per call
+   (load free_head + load slot.value + CAS free_head = ~100-150ns).
+   The Mutex fast path is a single atomic CAS on the lock word.
+
+2. **`clear()` overhead**: The pre-allocated pool (even at 64 slots)
+   requires iterating and resetting all slots in `clear()`. The
+   old `clear()` with `Vec<Arc<OnceLock>>` just replaced the Arc
+   pointers (which the allocator can batch). With atomics, each
+   slot reset is 2 atomic stores (value + state). For pool=64 and
+   1000 iterations in `async-echo`, that's 128,000 atomic stores
+   in `clear()` alone.
+
+3. **Cache footprint**: The `Vec<Slot>` of 64 entries × 16 bytes
+   = 1KB, vs the old `Vec<Arc<OnceLock>>` of 64 entries × 8 bytes
+   = 512 bytes. Doubles the cache footprint of the hot data
+   structure.
+
+### Key Insight
+
+Lock-free data structures are **not universally faster** than
+Mutex-based ones. They pay off under **contention** (multiple threads
+competing for the same lock), but for **single-threaded** workloads,
+the Mutex fast path (uncontended atomic CAS on a single word) is
+unbeatable.
+
+The plan's estimate of Mutex cost (~100-200ns in debug) was based
+on a contested Mutex or a Mutex with poor fast-path optimization.
+In practice, Rust's `std::sync::Mutex` on x86 has a very efficient
+uncontended fast path (~20-30ns), which is what the `async-echo`
+benchmark exercises.
+
+### Decision
+
+**Reverted to R-3120 design.** The R-3120 baseline (33,865,050 ns,
+1.655x vs Go) remains the best result. R-3121 is marked as
+`not_started` in the roadmap with this finding documented.
+
+### When R-3121 Would Help
+
+The lock-free design is correct and would benefit workloads that:
+- Are multi-threaded (spawn/join across threads)
+- Have high contention on the concurrent registry Mutex
+- Need wait-free guarantees for real-time systems
+
+None of these apply to the current `async-echo` benchmark, which
+is single-threaded.
+
+### Files Touched (during attempt, then reverted)
+
+- `runtime/src/stdlib/mod.rs`: lock-free `ConcurrentRegistry`
+  implemented, then reverted to R-3120 Mutex-based design.
+- No other files changed.
+
+### Follow-up
+
+The residual 1.655x gap is now dominated by:
+- Backend codegen overhead per call (~500-800ns in debug)
+- Cranelift JIT overhead for the FFI call boundary
+
+Both are out of scope for the concurrent module. The next realistic
+optimization target would be inlining the `spectra_rt_concurrent_spawn_fast`
+into Cranelift IR (using `atomicrmw`/`cmpxchg` directly) to eliminate
+the FFI call entirely. This is R-3122 (proposed, not planned in detail).
