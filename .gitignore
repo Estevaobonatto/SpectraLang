@@ -60,3 +60,4 @@ tests/projects/valid/integrated_basic_package_check/spectra.lock
 run_output.txt
 .gitignore
 TEST_RESULTS.baseline.txt
+.kilo/plans/1782220289353-readme-rewrite-plan.md
