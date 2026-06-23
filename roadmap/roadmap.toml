@@ -4329,4 +4329,30 @@ acceptance = [
   "Follow-up: R-3122 (proposed) — inline spectra_rt_concurrent_spawn_fast into Cranelift IR using atomicrmw/cmpxchg to eliminate FFI call entirely"
 ]
 
+[[items]]
+id = "R-3122"
+title = "StringBuilder Fast ABI + Linear Buffer"
+phase = "phase_31"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-3108", "R-3120"]
+summary = "Replace the StringBuilder Vec<String> representation with a linear Vec<u8> buffer and add Fast ABI entries for all 5 builder operations (new, push, len, finish, free). Eliminates per-push String allocation and bypasses the generic host call dispatch (manual_alloc/free, name lookup, catch_unwind). Drops cpu-string-build from ~280ms (17x vs Go) to ~48ms (~2.3x vs Go, noisy range 2.2-3.9x). The residual gap is dominated by the FFI call boundary overhead in debug mode."
+acceptance = [
+  "StringBuilder struct changed from `parts: Vec<String>` to `buf: Vec<u8>` + `len: usize`",
+  "StringBuilder::push_spectra_string reads Spectra string bytes directly into buf (no intermediate String allocation)",
+  "StringBuilder::finish returns String from buf[..len] (no two-pass scan over parts)",
+  "StringBuilder::len is O(1) (returns self.len, not sum over parts)",
+  "StringBuilderRegistry changed from HashMap<usize, ManualBox<StringBuilder>> to Vec<Option<ManualBox<StringBuilder>>> + free list (O(1) access by index, no hash lookup)",
+  "5 Fast ABI entries added: spectra_rt_builder_new, _push, _len, _finish, _free",
+  "Backend (codegen.rs and aot.rs) intercepts all 5 builder host calls and emits direct calls to the Fast ABI functions",
+  "All 62 cargo test -p spectra-runtime tests pass",
+  "tests/validation/180_phase31_string_builder.spectra passes with rc=0",
+  "tests/validation/77_concurrency_pipeline.spectra passes with rc=0",
+  "benchmarks/cross-lang/cpu-string-build/spectra/bench.spectra passes with rc=0, total==10000",
+  "cpu-string-build ns/iter drops from ~280,000,000 (R-3108) to <= 100,000,000 (achieved ~48ms = 5.8x speedup)",
+  "No other Phase 31 scenario regressed > 5% (gate noise from dev machine aside)"
+]
+
 

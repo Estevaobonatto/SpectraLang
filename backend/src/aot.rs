@@ -39,6 +39,11 @@ pub struct AotCodeGenerator {
     host_invoke_func: FuncId,
     concurrent_spawn_fast_func: FuncId,
     concurrent_join_fast_func: FuncId,
+    builder_new_fast_func: FuncId,
+    builder_push_fast_func: FuncId,
+    builder_len_fast_func: FuncId,
+    builder_finish_fast_func: FuncId,
+    builder_free_fast_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -134,6 +139,40 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare concurrent join fast import");
 
+        let mut builder_new_sig = module.make_signature();
+        builder_new_sig.params.push(AbiParam::new(types::I64));
+        builder_new_sig.returns.push(AbiParam::new(types::I64));
+        let builder_new_fast_func = module
+            .declare_function("spectra_rt_builder_new", Linkage::Import, &builder_new_sig)
+            .expect("Failed to declare builder_new fast import");
+
+        let mut builder_push_sig = module.make_signature();
+        builder_push_sig.params.push(AbiParam::new(types::I64));
+        builder_push_sig.params.push(AbiParam::new(types::I64));
+        let builder_push_fast_func = module
+            .declare_function("spectra_rt_builder_push", Linkage::Import, &builder_push_sig)
+            .expect("Failed to declare builder_push fast import");
+
+        let mut builder_len_sig = module.make_signature();
+        builder_len_sig.params.push(AbiParam::new(types::I64));
+        builder_len_sig.returns.push(AbiParam::new(types::I64));
+        let builder_len_fast_func = module
+            .declare_function("spectra_rt_builder_len", Linkage::Import, &builder_len_sig)
+            .expect("Failed to declare builder_len fast import");
+
+        let mut builder_finish_sig = module.make_signature();
+        builder_finish_sig.params.push(AbiParam::new(types::I64));
+        builder_finish_sig.returns.push(AbiParam::new(types::I64));
+        let builder_finish_fast_func = module
+            .declare_function("spectra_rt_builder_finish", Linkage::Import, &builder_finish_sig)
+            .expect("Failed to declare builder_finish fast import");
+
+        let mut builder_free_sig = module.make_signature();
+        builder_free_sig.params.push(AbiParam::new(types::I64));
+        let builder_free_fast_func = module
+            .declare_function("spectra_rt_builder_free", Linkage::Import, &builder_free_sig)
+            .expect("Failed to declare builder_free fast import");
+
         Self {
             module,
             ctx,
@@ -147,6 +186,11 @@ impl AotCodeGenerator {
             host_invoke_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
+            builder_new_fast_func,
+            builder_push_fast_func,
+            builder_len_fast_func,
+            builder_finish_fast_func,
+            builder_free_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -335,6 +379,11 @@ impl AotCodeGenerator {
                 self.host_invoke_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
+                self.builder_new_fast_func,
+                self.builder_push_fast_func,
+                self.builder_len_fast_func,
+                self.builder_finish_fast_func,
+                self.builder_free_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,

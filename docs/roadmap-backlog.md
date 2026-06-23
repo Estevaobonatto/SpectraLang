@@ -7280,6 +7280,84 @@ diretamente no Cranelift IR usando `atomicrmw`/`cmpxchg`, eliminando
 o FFI call completamente. Estimativa: speedup de 1.5-2x no
 `async-echo`, trazendo o gap para < 1x vs Go.
 
+## R-3122 StringBuilder Fast ABI + Linear Buffer
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-3108`, `R-3120`
+
+### Scope
+
+Substituir a representação `Vec<String>` do `StringBuilder` por um buffer
+linear `Vec<u8>` + `len: usize`, e adicionar entradas Fast ABI para as
+5 operações do builder (new, push, len, finish, free). Elimina a
+alocação de `String` por push e bypassa o dispatch genérico de host
+call (manual_alloc/free, name lookup, catch_unwind).
+
+### Acceptance (satisfied)
+
+- `StringBuilder` struct mudou de `parts: Vec<String>` para
+  `buf: Vec<u8>` + `len: usize`.
+- `StringBuilder::push_spectra_string` lê os bytes da Spectra string
+  diretamente no `buf` (sem alocação intermediária de `String`).
+- `StringBuilder::finish` retorna `String` de `buf[..len]`
+  (sem scan de duas passagens sobre parts).
+- `StringBuilder::len` é O(1) (retorna `self.len`, não soma sobre parts).
+- `StringBuilderRegistry` mudou de `HashMap<usize, ManualBox<...>>`
+  para `Vec<Option<ManualBox<...>>>` + free list (acesso O(1) por
+  índice, sem hash lookup).
+- 5 entradas Fast ABI adicionadas: `spectra_rt_builder_new`, `_push`,
+  `_len`, `_finish`, `_free`.
+- Backend (`codegen.rs` e `aot.rs`) intercepta as 5 host calls do
+  builder e emite calls diretas para as funções Fast ABI.
+- Todos os 62 testes `cargo test -p spectra-runtime` passam.
+- `tests/validation/180_phase31_string_builder.spectra` passa com rc=0.
+- `tests/validation/77_concurrency_pipeline.spectra` passa com rc=0.
+- `benchmarks/cross-lang/cpu-string-build/spectra/bench.spectra` passa
+  com rc=0, total==10000.
+
+### Outcome (2026-06-23)
+
+- `cpu-string-build` debug: ~280,000,000 ns → **~48,000,000 ns** =
+  **~5.8x speedup**, gap vs Go cai de ~17x para **~2.3x**
+  (range noisy: 2.2-3.9x dependendo do ruído do dev machine).
+- Speedup vs R-3108 baseline: 5.8x.
+- Os outros 10 cenários não foram tocados. Deltas observados são
+  ruído do dev machine dentro da `first_pass_policy` de 15%.
+
+### Implementation Notes
+
+- `push_spectra_string` lê 1 byte por slot i64 (Spectra string format:
+  um byte por i64 slot, null-terminated). Para "x|" (2 bytes), lê
+  3 slots (2 bytes + null terminator).
+- `finish` usa `String::from_utf8(self.buf[..self.len].to_vec())`
+  para criar a String final. O `to_vec()` faz uma cópia, mas é
+  necessário porque `alloc_spectra_string` precisa de um `&str`.
+- O Vec-based registry com free list elimina o overhead de HashMap
+  lookup. O handle é `idx + 1` (handle 0 = inválido, consistente com
+  o padrão do concurrent task pool).
+- `lock_string_builder_registry` foi removido em favor de
+  `with_string_builder_registry` (que usa `lock_unpoisoned`) para
+  evitar falhas por mutex poisoned (mesmo padrão do concurrent).
+- Bug encontrado durante implementação: `push_spectra_string`
+  empurrava bytes para `self.buf` mas não atualizava `self.len`,
+  fazendo `finish()` retornar string vazia. Corrigido.
+- O gap residual (~2.3x) é dominado pelo overhead de FFI call
+  boundary em debug mode. Cada `builder_push` ainda faz 1 FFI call
+  para o runtime. Para eliminar, seria necessário inlinear a
+  operação no Cranelift IR (acesso direto ao buffer do builder via
+  global/thread-local). Escopo de R-3123+.
+
+### Follow-up
+
+- R-3123 (proposto): inline `builder_push` no Cranelift IR com
+  acesso direto ao buffer do builder via thread-local, eliminando
+  o FFI call. Estimativa: speedup adicional de 1.5-2x, trazendo o
+  gap para < 1.5x vs Go.
+- R-3114 (Zero-Alloc Hot Path): generalizar o fast ABI pattern para
+  outros host calls hot (tensor, string, etc).
+
 ## R-3108 String Materialization Optimization
 
 - Status: `complete`

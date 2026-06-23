@@ -1843,69 +1843,129 @@ struct ListRegistry {
 // ── std.string string builder (R-3108) ──────────────────────────────────────
 
 struct StringBuilder {
-    parts: Vec<String>,
+    buf: Vec<u8>,
+    len: usize,
+}
+
+impl StringBuilder {
+    fn new(capacity: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(capacity.max(256)),
+            len: 0,
+        }
+    }
+
+    fn push_bytes(&mut self, bytes: &[u8]) {
+        let needed = self.len + bytes.len();
+        if needed > self.buf.len() {
+            self.buf.resize(needed, 0);
+        }
+        self.buf[self.len..needed].copy_from_slice(bytes);
+        self.len = needed;
+    }
+
+    fn push_spectra_string(&mut self, str_ptr: i64) {
+        let raw = str_ptr as *const i64;
+        if raw.is_null() {
+            return;
+        }
+        let mut offset = 0;
+        loop {
+            let slot = unsafe { *raw.add(offset) };
+            // Spectra string: one byte per i64 slot, byte is in the lowest byte.
+            let byte = (slot & 0xFF) as u8;
+            if byte == 0 {
+                break;
+            }
+            self.buf.push(byte);
+            self.len += 1;
+            offset += 1;
+        }
+    }
+
+    fn current_len(&self) -> usize {
+        self.len
+    }
+
+    fn finish(&mut self) -> String {
+        let s = String::from_utf8(self.buf[..self.len].to_vec()).unwrap_or_default();
+        self.len = 0;
+        s
+    }
 }
 
 struct StringBuilderRegistry {
-    next_id: usize,
-    builders: HashMap<usize, ManualBox<StringBuilder>>,
+    builders: Vec<Option<ManualBox<StringBuilder>>>,
+    free: Vec<usize>,
+    next_fresh: usize,
 }
 
 impl StringBuilderRegistry {
     fn new() -> Self {
         Self {
-            next_id: 1,
-            builders: HashMap::new(),
+            builders: Vec::new(),
+            free: Vec::new(),
+            next_fresh: 0,
         }
     }
 
     fn insert(&mut self, builder: ManualBox<StringBuilder>) -> usize {
-        let mut handle = self.next_id.max(1);
-        while self.builders.contains_key(&handle) {
-            handle = handle.wrapping_add(1).max(1);
-        }
-        self.next_id = handle.wrapping_add(1);
-        if self.next_id == 0 {
-            self.next_id = 1;
-        }
-        self.builders.insert(handle, builder);
-        handle
+        let handle = if let Some(idx) = self.free.pop() {
+            self.builders[idx] = Some(builder);
+            idx
+        } else {
+            let idx = self.next_fresh;
+            self.next_fresh += 1;
+            self.builders.push(Some(builder));
+            idx
+        };
+        // Handle 0 is reserved as invalid (matches concurrent task convention).
+        handle + 1
     }
 
-    fn push(&mut self, handle: usize, value: String) -> Result<(), i32> {
-        match self.builders.get_mut(&handle) {
-            Some(b) => {
-                b.parts.push(value);
+    fn push_spectra_string(&mut self, handle: usize, str_ptr: i64) -> Result<(), i32> {
+        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
+        match self.builders.get_mut(idx) {
+            Some(Some(b)) => {
+                b.push_spectra_string(str_ptr);
                 Ok(())
             }
-            None => Err(HOST_STATUS_NOT_FOUND),
+            _ => Err(HOST_STATUS_NOT_FOUND),
         }
     }
 
     fn len(&self, handle: usize) -> Result<usize, i32> {
-        match self.builders.get(&handle) {
-            Some(b) => Ok(b.parts.iter().map(|p| p.len()).sum()),
-            None => Err(HOST_STATUS_NOT_FOUND),
+        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
+        match self.builders.get(idx) {
+            Some(Some(b)) => Ok(b.current_len()),
+            _ => Err(HOST_STATUS_NOT_FOUND),
         }
     }
 
     fn finish(&mut self, handle: usize) -> Result<String, i32> {
-        match self.builders.remove(&handle) {
-            Some(b) => {
-                let total: usize = b.parts.iter().map(|p| p.len()).sum();
-                let mut out = String::with_capacity(total);
-                for p in &b.parts {
-                    out.push_str(p);
+        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
+        match self.builders.get_mut(idx) {
+            Some(slot) => match slot.take() {
+                Some(mut b) => {
+                    self.free.push(idx);
+                    Ok(b.finish())
                 }
-                Ok(out)
-            }
+                None => Err(HOST_STATUS_NOT_FOUND),
+            },
             None => Err(HOST_STATUS_NOT_FOUND),
         }
     }
 
     fn discard(&mut self, handle: usize) -> Result<(), i32> {
-        match self.builders.remove(&handle) {
-            Some(_) => Ok(()),
+        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
+        match self.builders.get_mut(idx) {
+            Some(slot) => match slot.take() {
+                Some(_) => {
+                    self.free.push(idx);
+                    Ok(())
+                }
+                None => Err(HOST_STATUS_NOT_FOUND),
+            },
             None => Err(HOST_STATUS_NOT_FOUND),
         }
     }
@@ -1923,6 +1983,58 @@ where
     let registry = string_builder_registry();
     let mut guard = lock_unpoisoned(registry);
     action(&mut guard)
+}
+
+fn lock_string_builder_registry() -> Result<std::sync::MutexGuard<'static, StringBuilderRegistry>, i32> {
+    string_builder_registry()
+        .lock()
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
+}
+
+/// Fast-path helper for `str.builder_new(capacity)` called from JIT code
+/// via the `spectra_rt_builder_new` fast ABI entry.
+pub fn string_builder_new_fast(capacity: usize) -> SpectraHostValue {
+    with_string_builder_registry(|reg| {
+        let builder = match initialize().memory().allocate_manual(StringBuilder::new(capacity)) {
+            Ok(b) => b,
+            Err(_) => return 0,
+        };
+        let handle = reg.insert(builder);
+        handle as SpectraHostValue
+    })
+}
+
+/// Fast-path helper for `str.builder_push(handle, str_ptr)`. Reads the
+/// Spectra string directly into the builder buffer without allocating an
+/// intermediate `String`.
+pub fn string_builder_push_fast(handle: usize, str_ptr: SpectraHostValue) {
+    with_string_builder_registry(|reg| {
+        let _ = reg.push_spectra_string(handle, str_ptr);
+    });
+}
+
+/// Fast-path helper for `str.builder_len(handle)`.
+pub fn string_builder_len_fast(handle: usize) -> SpectraHostValue {
+    with_string_builder_registry(|reg| match reg.len(handle) {
+        Ok(n) => n as SpectraHostValue,
+        Err(_) => 0,
+    })
+}
+
+/// Fast-path helper for `str.builder_finish(handle)`. Returns a Spectra
+/// string handle.
+pub fn string_builder_finish_fast(handle: usize) -> SpectraHostValue {
+    with_string_builder_registry(|reg| match reg.finish(handle) {
+        Ok(s) => unsafe { alloc_spectra_string(&s) },
+        Err(_) => 0,
+    })
+}
+
+/// Fast-path helper for `str.builder_free(handle)`.
+pub fn string_builder_free_fast(handle: usize) {
+    with_string_builder_registry(|reg| {
+        let _ = reg.discard(handle);
+    });
 }
 
 impl ListRegistry {
@@ -10915,11 +11027,7 @@ extern "C" fn std_string_builder_new(ctx: *mut SpectraHostCallContext) -> i32 {
         args[0].max(0) as usize
     };
     let memory = initialize().memory();
-    let mut parts: Vec<String> = Vec::new();
-    if capacity_hint > 0 {
-        parts.reserve(capacity_hint);
-    }
-    let builder = match memory.allocate_manual(StringBuilder { parts }) {
+    let builder = match memory.allocate_manual(StringBuilder::new(capacity_hint)) {
         Ok(b) => b,
         Err(_) => return HOST_STATUS_INTERNAL_ERROR,
     };
@@ -10945,12 +11053,9 @@ extern "C" fn std_string_builder_push(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        let value = match read_spectra_string(args[1]) {
-            Some(s) => s,
-            None => String::new(),
-        };
+        let str_ptr = args[1];
         with_string_builder_registry(|reg| {
-            let _ = reg.push(handle, value);
+            let _ = reg.push_spectra_string(handle, str_ptr);
         });
     }
     HOST_STATUS_SUCCESS

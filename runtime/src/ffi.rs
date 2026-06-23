@@ -454,6 +454,54 @@ pub extern "C" fn spectra_rt_concurrent_join_fast(task_id: SpectraHostValue) -> 
     crate::stdlib::concurrent_join_fast(task_id)
 }
 
+/// Fast ABI entry for `str.builder_new(capacity)`.
+///
+/// Skips the generic host-call dispatch. Called directly from JIT code
+/// when the backend inlines the `builder_new` call.
+///
+/// Returns the new builder handle (>0 on success) or 0 on internal error.
+#[no_mangle]
+pub extern "C" fn spectra_rt_builder_new(capacity: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::string_builder_new_fast(capacity as usize)
+}
+
+/// Fast ABI entry for `str.builder_push(handle, str_ptr)`.
+///
+/// Skips the generic host-call dispatch and the intermediate `String`
+/// allocation in `read_spectra_string`. Reads the Spectra string bytes
+/// directly into the builder buffer. Called directly from JIT code when
+/// the backend inlines the `builder_push` call.
+#[no_mangle]
+pub extern "C" fn spectra_rt_builder_push(handle: SpectraHostValue, str_ptr: SpectraHostValue) {
+    crate::stdlib::string_builder_push_fast(handle as usize, str_ptr)
+}
+
+/// Fast ABI entry for `str.builder_len(handle)`.
+///
+/// Skips the generic host-call dispatch. Returns the current byte count
+/// of the builder, or 0 for an invalid handle.
+#[no_mangle]
+pub extern "C" fn spectra_rt_builder_len(handle: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::string_builder_len_fast(handle as usize)
+}
+
+/// Fast ABI entry for `str.builder_finish(handle)`.
+///
+/// Skips the generic host-call dispatch. Returns a Spectra string handle
+/// for the accumulated bytes, or 0 for an invalid handle.
+#[no_mangle]
+pub extern "C" fn spectra_rt_builder_finish(handle: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::string_builder_finish_fast(handle as usize)
+}
+
+/// Fast ABI entry for `str.builder_free(handle)`.
+///
+/// Skips the generic host-call dispatch. Frees the builder resources.
+#[no_mangle]
+pub extern "C" fn spectra_rt_builder_free(handle: SpectraHostValue) {
+    crate::stdlib::string_builder_free_fast(handle as usize)
+}
+
 /// Releases a manual allocation previously returned by `spectra_rt_manual_alloc`.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {

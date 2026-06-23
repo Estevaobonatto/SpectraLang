@@ -69,6 +69,16 @@ pub struct CodeGenerator {
     concurrent_spawn_fast_func: FuncId,
     /// Import for fast-ABI `concurrent.task_join`
     concurrent_join_fast_func: FuncId,
+    /// Import for fast-ABI `str.builder_new`
+    builder_new_fast_func: FuncId,
+    /// Import for fast-ABI `str.builder_push`
+    builder_push_fast_func: FuncId,
+    /// Import for fast-ABI `str.builder_len`
+    builder_len_fast_func: FuncId,
+    /// Import for fast-ABI `str.builder_finish`
+    builder_finish_fast_func: FuncId,
+    /// Import for fast-ABI `str.builder_free`
+    builder_free_fast_func: FuncId,
     /// Cached host name pointers and backing storage
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
@@ -142,6 +152,26 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_concurrent_join_fast",
             spectra_runtime::ffi::spectra_rt_concurrent_join_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_builder_new",
+            spectra_runtime::ffi::spectra_rt_builder_new as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_builder_push",
+            spectra_runtime::ffi::spectra_rt_builder_push as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_builder_len",
+            spectra_runtime::ffi::spectra_rt_builder_len as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_builder_finish",
+            spectra_runtime::ffi::spectra_rt_builder_finish as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_builder_free",
+            spectra_runtime::ffi::spectra_rt_builder_free as *const u8,
         );
 
         let mut module = JITModule::new(builder);
@@ -225,6 +255,40 @@ impl CodeGenerator {
             )
             .expect("Failed to declare concurrent join fast import");
 
+        let mut builder_new_sig = module.make_signature();
+        builder_new_sig.params.push(AbiParam::new(types::I64));
+        builder_new_sig.returns.push(AbiParam::new(types::I64));
+        let builder_new_fast_func = module
+            .declare_function("spectra_rt_builder_new", Linkage::Import, &builder_new_sig)
+            .expect("Failed to declare builder_new fast import");
+
+        let mut builder_push_sig = module.make_signature();
+        builder_push_sig.params.push(AbiParam::new(types::I64));
+        builder_push_sig.params.push(AbiParam::new(types::I64));
+        let builder_push_fast_func = module
+            .declare_function("spectra_rt_builder_push", Linkage::Import, &builder_push_sig)
+            .expect("Failed to declare builder_push fast import");
+
+        let mut builder_len_sig = module.make_signature();
+        builder_len_sig.params.push(AbiParam::new(types::I64));
+        builder_len_sig.returns.push(AbiParam::new(types::I64));
+        let builder_len_fast_func = module
+            .declare_function("spectra_rt_builder_len", Linkage::Import, &builder_len_sig)
+            .expect("Failed to declare builder_len fast import");
+
+        let mut builder_finish_sig = module.make_signature();
+        builder_finish_sig.params.push(AbiParam::new(types::I64));
+        builder_finish_sig.returns.push(AbiParam::new(types::I64));
+        let builder_finish_fast_func = module
+            .declare_function("spectra_rt_builder_finish", Linkage::Import, &builder_finish_sig)
+            .expect("Failed to declare builder_finish fast import");
+
+        let mut builder_free_sig = module.make_signature();
+        builder_free_sig.params.push(AbiParam::new(types::I64));
+        let builder_free_fast_func = module
+            .declare_function("spectra_rt_builder_free", Linkage::Import, &builder_free_sig)
+            .expect("Failed to declare builder_free fast import");
+
         Self {
             module,
             ctx,
@@ -238,6 +302,11 @@ impl CodeGenerator {
             host_invoke_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
+            builder_new_fast_func,
+            builder_push_fast_func,
+            builder_len_fast_func,
+            builder_finish_fast_func,
+            builder_free_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -407,6 +476,11 @@ impl CodeGenerator {
                 self.host_invoke_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
+                self.builder_new_fast_func,
+                self.builder_push_fast_func,
+                self.builder_len_fast_func,
+                self.builder_finish_fast_func,
+                self.builder_free_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
@@ -611,6 +685,11 @@ impl CodeGenerator {
         host_invoke_func: FuncId,
         concurrent_spawn_fast_func: FuncId,
         concurrent_join_fast_func: FuncId,
+        builder_new_fast_func: FuncId,
+        builder_push_fast_func: FuncId,
+        builder_len_fast_func: FuncId,
+        builder_finish_fast_func: FuncId,
+        builder_free_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
@@ -646,6 +725,11 @@ impl CodeGenerator {
                 host_invoke_func,
                 concurrent_spawn_fast_func,
                 concurrent_join_fast_func,
+                builder_new_fast_func,
+                builder_push_fast_func,
+                builder_len_fast_func,
+                builder_finish_fast_func,
+                builder_free_fast_func,
                 builder,
                 instr,
                 value_map,
@@ -691,6 +775,11 @@ impl CodeGenerator {
         host_invoke_func: FuncId,
         concurrent_spawn_fast_func: FuncId,
         concurrent_join_fast_func: FuncId,
+        builder_new_fast_func: FuncId,
+        builder_push_fast_func: FuncId,
+        builder_len_fast_func: FuncId,
+        builder_finish_fast_func: FuncId,
+        builder_free_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
@@ -1021,6 +1110,65 @@ impl CodeGenerator {
                             value_map.insert(result_value.id, *ret);
                         }
                     }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.string.builder_new" && args.len() == 1 {
+                    let capacity = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(builder_new_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[capacity]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.string.builder_push" && args.len() == 2 {
+                    let handle = get_value(&args[0])?;
+                    let str_ptr = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(builder_push_fast_func, builder.func);
+                    builder.ins().call(func_ref, &[handle, str_ptr]);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.string.builder_len" && args.len() == 1 {
+                    let handle = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(builder_len_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.string.builder_finish" && args.len() == 1 {
+                    let handle = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(builder_finish_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.string.builder_free" && args.len() == 1 {
+                    let handle = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(builder_free_fast_func, builder.func);
+                    builder.ins().call(func_ref, &[handle]);
                     return Ok(());
                 }
 

@@ -27,8 +27,9 @@
       "iterations": 50,
       "expected_output_bytes": 10000,
       "tolerance": "exact",
-      "spectra_ns_per_iter": 1088830105,
-      "placeholder": false
+      "spectra_ns_per_iter": 47954150,
+      "placeholder": false,
+      "r3122_fast_abi_speedup_x": 5.8
     },
     "cpu-hashmap": {
       "category": "cpu",
