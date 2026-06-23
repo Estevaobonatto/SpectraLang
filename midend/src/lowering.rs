@@ -3987,36 +3987,47 @@ impl ASTLowering {
 
         for stmt in statements {
             match &stmt.kind {
+                StatementKind::Let(let_stmt) => {
+                    if let Some(value) = &let_stmt.value {
+                        self.collect_assigned_variables_in_expr(value, &mut assigned);
+                    }
+                }
                 StatementKind::Assignment(assign) => {
                     // Extract variable name from LValue
                     // For now, only track simple identifiers (not array elements)
                     if let spectra_compiler::ast::LValue::Identifier(name) = &assign.target {
                         assigned.insert(name.clone());
                     }
+                    self.collect_assigned_variables_in_expr(&assign.value, &mut assigned);
                 }
                 StatementKind::While(while_stmt) => {
-                    // Recursively check loop body
+                    self.collect_assigned_variables_in_expr(&while_stmt.condition, &mut assigned);
                     assigned.extend(self.find_assigned_variables(&while_stmt.body.statements));
                 }
                 StatementKind::DoWhile(do_while) => {
+                    self.collect_assigned_variables_in_expr(&do_while.condition, &mut assigned);
                     assigned.extend(self.find_assigned_variables(&do_while.body.statements));
                 }
                 StatementKind::For(for_stmt) => {
+                    self.collect_assigned_variables_in_expr(&for_stmt.iterable, &mut assigned);
                     assigned.extend(self.find_assigned_variables(&for_stmt.body.statements));
                 }
                 StatementKind::Loop(loop_stmt) => {
                     assigned.extend(self.find_assigned_variables(&loop_stmt.body.statements));
                 }
                 StatementKind::WhileLet(while_let) => {
+                    self.collect_assigned_variables_in_expr(&while_let.value, &mut assigned);
                     assigned.extend(self.find_assigned_variables(&while_let.body.statements));
                 }
                 StatementKind::IfLet(if_let) => {
+                    self.collect_assigned_variables_in_expr(&if_let.value, &mut assigned);
                     assigned.extend(self.find_assigned_variables(&if_let.then_block.statements));
                     if let Some(else_b) = &if_let.else_block {
                         assigned.extend(self.find_assigned_variables(&else_b.statements));
                     }
                 }
                 StatementKind::Switch(switch) => {
+                    self.collect_assigned_variables_in_expr(&switch.value, &mut assigned);
                     for case in &switch.cases {
                         assigned.extend(self.find_assigned_variables(&case.body.statements));
                     }
@@ -4025,21 +4036,11 @@ impl ASTLowering {
                     }
                 }
                 StatementKind::Expression(expr) => {
-                    // Check if expression contains assignments in blocks
-                    if let ExpressionKind::If {
-                        then_block,
-                        elif_blocks,
-                        else_block,
-                        ..
-                    } = &expr.kind
-                    {
-                        assigned.extend(self.find_assigned_variables(&then_block.statements));
-                        for (_, block) in elif_blocks {
-                            assigned.extend(self.find_assigned_variables(&block.statements));
-                        }
-                        if let Some(else_b) = else_block {
-                            assigned.extend(self.find_assigned_variables(&else_b.statements));
-                        }
+                    self.collect_assigned_variables_in_expr(expr, &mut assigned);
+                }
+                StatementKind::Return(ret) => {
+                    if let Some(value) = &ret.value {
+                        self.collect_assigned_variables_in_expr(value, &mut assigned);
                     }
                 }
                 _ => {}
@@ -4047,6 +4048,135 @@ impl ASTLowering {
         }
 
         assigned
+    }
+
+    fn collect_assigned_variables_in_expr(
+        &self,
+        expr: &Expression,
+        assigned: &mut std::collections::HashSet<String>,
+    ) {
+        match &expr.kind {
+            ExpressionKind::Block(block)
+            | ExpressionKind::DifferentiableBlock(block)
+            | ExpressionKind::AsyncBlock(block) => {
+                assigned.extend(self.find_assigned_variables(&block.statements));
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.collect_assigned_variables_in_expr(left, assigned);
+                self.collect_assigned_variables_in_expr(right, assigned);
+            }
+            ExpressionKind::Unary { operand, .. }
+            | ExpressionKind::Try(operand)
+            | ExpressionKind::Await(operand)
+            | ExpressionKind::Grouping(operand) => {
+                self.collect_assigned_variables_in_expr(operand, assigned);
+            }
+            ExpressionKind::Range { start, end, .. } => {
+                self.collect_assigned_variables_in_expr(start, assigned);
+                self.collect_assigned_variables_in_expr(end, assigned);
+            }
+            ExpressionKind::Call { callee, arguments } => {
+                self.collect_assigned_variables_in_expr(callee, assigned);
+                for argument in arguments {
+                    self.collect_assigned_variables_in_expr(argument, assigned);
+                }
+            }
+            ExpressionKind::If {
+                condition,
+                then_block,
+                elif_blocks,
+                else_block,
+            } => {
+                self.collect_assigned_variables_in_expr(condition, assigned);
+                assigned.extend(self.find_assigned_variables(&then_block.statements));
+                for (condition, block) in elif_blocks {
+                    self.collect_assigned_variables_in_expr(condition, assigned);
+                    assigned.extend(self.find_assigned_variables(&block.statements));
+                }
+                if let Some(else_block) = else_block {
+                    assigned.extend(self.find_assigned_variables(&else_block.statements));
+                }
+            }
+            ExpressionKind::Unless {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.collect_assigned_variables_in_expr(condition, assigned);
+                assigned.extend(self.find_assigned_variables(&then_block.statements));
+                if let Some(else_block) = else_block {
+                    assigned.extend(self.find_assigned_variables(&else_block.statements));
+                }
+            }
+            ExpressionKind::ArrayLiteral { elements }
+            | ExpressionKind::TupleLiteral { elements } => {
+                for element in elements {
+                    self.collect_assigned_variables_in_expr(element, assigned);
+                }
+            }
+            ExpressionKind::IndexAccess { array, index } => {
+                self.collect_assigned_variables_in_expr(array, assigned);
+                self.collect_assigned_variables_in_expr(index, assigned);
+            }
+            ExpressionKind::TupleAccess { tuple, .. } => {
+                self.collect_assigned_variables_in_expr(tuple, assigned);
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    self.collect_assigned_variables_in_expr(value, assigned);
+                }
+            }
+            ExpressionKind::FieldAccess { object, .. } => {
+                self.collect_assigned_variables_in_expr(object, assigned);
+            }
+            ExpressionKind::EnumVariant {
+                data, struct_data, ..
+            } => {
+                if let Some(values) = data {
+                    for value in values {
+                        self.collect_assigned_variables_in_expr(value, assigned);
+                    }
+                }
+                if let Some(fields) = struct_data {
+                    for (_, value) in fields {
+                        self.collect_assigned_variables_in_expr(value, assigned);
+                    }
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.collect_assigned_variables_in_expr(scrutinee, assigned);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.collect_assigned_variables_in_expr(guard, assigned);
+                    }
+                    self.collect_assigned_variables_in_expr(&arm.body, assigned);
+                }
+            }
+            ExpressionKind::MethodCall {
+                object, arguments, ..
+            } => {
+                self.collect_assigned_variables_in_expr(object, assigned);
+                for argument in arguments {
+                    self.collect_assigned_variables_in_expr(argument, assigned);
+                }
+            }
+            ExpressionKind::Lambda { .. } => {}
+            ExpressionKind::Cast { expr, .. } => {
+                self.collect_assigned_variables_in_expr(expr, assigned);
+            }
+            ExpressionKind::FString(parts) => {
+                for part in parts {
+                    if let spectra_compiler::ast::FStringPart::Interpolated(expr) = part {
+                        self.collect_assigned_variables_in_expr(expr, assigned);
+                    }
+                }
+            }
+            ExpressionKind::Identifier(_)
+            | ExpressionKind::NumberLiteral(_)
+            | ExpressionKind::StringLiteral(_)
+            | ExpressionKind::BoolLiteral(_)
+            | ExpressionKind::CharLiteral(_) => {}
+        }
     }
 
     fn lower_branch_block_result(

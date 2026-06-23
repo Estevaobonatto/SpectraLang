@@ -92,5 +92,10 @@ pub fn main() -> int {
     let d = analyze(false, 6);
     let e = branch_with_unless(false, 1);
 
-    a + b + c + d + e
+    let total = a + b + c + d + e;
+    if total == 47 {
+        0
+    } else {
+        total
+    }
 }

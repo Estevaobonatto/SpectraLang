@@ -229,17 +229,22 @@ impl AotCodeGenerator {
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        let frame_enter_ref = self
-            .module
-            .declare_func_in_func(self.manual_frame_enter_func, builder.func);
-        let frame_call = builder.ins().call(frame_enter_ref, &[]);
-        let frame_token = builder.inst_results(frame_call)[0];
-
         let mut value_map: HashMap<usize, Value> = HashMap::new();
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
+        let manual_frame_active =
+            CodeGenerator::function_needs_manual_frame(ir_func, &stack_allocas);
+        let frame_token = if manual_frame_active {
+            let frame_enter_ref = self
+                .module
+                .declare_func_in_func(self.manual_frame_enter_func, builder.func);
+            let frame_call = builder.ins().call(frame_enter_ref, &[]);
+            builder.inst_results(frame_call)[0]
+        } else {
+            builder.ins().iconst(types::I64, 0)
+        };
         let frame_var = builder.declare_var(types::I64);
         builder.def_var(frame_var, frame_token);
 
@@ -310,6 +315,7 @@ impl AotCodeGenerator {
                 &mut stack_array_lengths,
                 &stack_allocas,
                 frame_var,
+                manual_frame_active,
                 ir_block.id,
                 &phi_map,
             )?;

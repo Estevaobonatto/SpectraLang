@@ -494,3 +494,136 @@ fn test_function_inlining_remaps_parameters() {
         "callee parameters must be remapped to call-site arguments"
     );
 }
+
+#[test]
+fn test_function_inlining_allows_stack_safe_alloca_helpers() {
+    let mut module = Module {
+        name: "test".to_string(),
+        functions: vec![
+            Function {
+                name: "store_sum".to_string(),
+                params: vec![
+                    Parameter {
+                        id: 0,
+                        name: "lhs".to_string(),
+                        ty: Type::Int,
+                    },
+                    Parameter {
+                        id: 1,
+                        name: "rhs".to_string(),
+                        ty: Type::Int,
+                    },
+                ],
+                return_type: Type::Int,
+                next_value_id: 5,
+                next_block_id: 1,
+                blocks: vec![BasicBlock {
+                    id: 0,
+                    label: "entry".to_string(),
+                    instructions: vec![
+                        Instruction {
+                            id: 0,
+                            kind: InstructionKind::Alloca {
+                                result: Value { id: 2 },
+                                ty: Type::Int,
+                            },
+                        },
+                        Instruction {
+                            id: 1,
+                            kind: InstructionKind::Add {
+                                result: Value { id: 3 },
+                                lhs: Value { id: 0 },
+                                rhs: Value { id: 1 },
+                            },
+                        },
+                        Instruction {
+                            id: 2,
+                            kind: InstructionKind::Store {
+                                ptr: Value { id: 2 },
+                                value: Value { id: 3 },
+                            },
+                        },
+                        Instruction {
+                            id: 3,
+                            kind: InstructionKind::Load {
+                                result: Value { id: 4 },
+                                ptr: Value { id: 2 },
+                                ty: Type::Int,
+                            },
+                        },
+                    ],
+                    terminator: Some(Terminator::Return {
+                        value: Some(Value { id: 4 }),
+                    }),
+                }],
+            },
+            Function {
+                name: "main".to_string(),
+                params: vec![],
+                return_type: Type::Int,
+                next_value_id: 3,
+                next_block_id: 1,
+                blocks: vec![BasicBlock {
+                    id: 0,
+                    label: "entry".to_string(),
+                    instructions: vec![
+                        Instruction {
+                            id: 0,
+                            kind: InstructionKind::ConstInt {
+                                result: Value { id: 0 },
+                                value: 20,
+                            },
+                        },
+                        Instruction {
+                            id: 1,
+                            kind: InstructionKind::ConstInt {
+                                result: Value { id: 1 },
+                                value: 22,
+                            },
+                        },
+                        Instruction {
+                            id: 2,
+                            kind: InstructionKind::Call {
+                                result: Some(Value { id: 2 }),
+                                function: "store_sum".to_string(),
+                                args: vec![Value { id: 0 }, Value { id: 1 }],
+                            },
+                        },
+                    ],
+                    terminator: Some(Terminator::Return {
+                        value: Some(Value { id: 2 }),
+                    }),
+                }],
+            },
+        ],
+        globals: vec![],
+        vtables: vec![],
+    };
+
+    let modified = function_inlining::run(&mut module);
+    assert!(modified, "stack-local helper should inline");
+
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let instructions: Vec<_> = main
+        .blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .collect();
+
+    assert!(
+        instructions
+            .iter()
+            .all(|instruction| !matches!(instruction.kind, InstructionKind::Call { .. })),
+        "inlined main must not retain the helper call"
+    );
+    assert!(
+        instructions
+            .iter()
+            .any(|instruction| matches!(instruction.kind, InstructionKind::Alloca { .. })),
+        "stack-safe alloca should not block inlining"
+    );
+}

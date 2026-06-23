@@ -28,17 +28,25 @@ impl Pass for FunctionInlining {
     }
 
     fn run(&mut self, module: &mut Module) -> bool {
-        let call_graph = collect_direct_calls(module);
-        let candidates = collect_candidates(module, &call_graph);
-        if candidates.is_empty() {
-            return false;
-        }
-
         let mut modified = false;
-        for function in &mut module.functions {
-            if inline_calls_in_function(function, &candidates) {
-                modified = true;
+        for _ in 0..4 {
+            let call_graph = collect_direct_calls(module);
+            let candidates = collect_candidates(module, &call_graph);
+            if candidates.is_empty() {
+                break;
             }
+
+            let mut round_modified = false;
+            for function in &mut module.functions {
+                if inline_calls_in_function(function, &candidates) {
+                    round_modified = true;
+                }
+            }
+
+            if !round_modified {
+                break;
+            }
+            modified = true;
         }
         modified
     }
@@ -89,6 +97,12 @@ fn is_inline_candidate(function: &Function, call_graph: &HashMap<String, HashSet
     if function.blocks.is_empty() || function.blocks.len() > MAX_INLINE_BLOCKS {
         return false;
     }
+    if has_complex_control_labels(function) {
+        return false;
+    }
+    if has_unreachable_loop_exit(function) {
+        return false;
+    }
     if call_graph
         .get(&function.name)
         .is_some_and(|calls| calls.contains(&function.name))
@@ -101,8 +115,8 @@ fn is_inline_candidate(function: &Function, call_graph: &HashMap<String, HashSet
         instruction_count += block.instructions.len();
         for instruction in &block.instructions {
             match &instruction.kind {
-                InstructionKind::Alloca { .. }
-                | InstructionKind::HostCall { .. }
+                InstructionKind::Alloca { ty, .. } if !is_inline_alloca_type(ty) => return false,
+                InstructionKind::HostCall { .. }
                 | InstructionKind::Call { .. }
                 | InstructionKind::CallIndirect { .. }
                 | InstructionKind::FuncAddr { .. }
@@ -118,6 +132,59 @@ fn is_inline_candidate(function: &Function, call_graph: &HashMap<String, HashSet
         }
     }
     instruction_count <= MAX_INLINE_INSTRUCTIONS
+}
+
+fn has_complex_control_labels(function: &Function) -> bool {
+    function.blocks.iter().any(|block| {
+        block.label.contains("match")
+            || block.label.contains("unless")
+            || block.label.contains("block.result")
+    })
+}
+
+fn has_unreachable_loop_exit(function: &Function) -> bool {
+    let mut targets = HashSet::new();
+    for block in &function.blocks {
+        if let Some(terminator) = &block.terminator {
+            collect_terminator_targets(terminator, &mut targets);
+        }
+    }
+
+    function
+        .blocks
+        .iter()
+        .any(|block| block.label.contains("loop.exit") && !targets.contains(&block.id))
+}
+
+fn collect_terminator_targets(terminator: &Terminator, targets: &mut HashSet<usize>) {
+    match terminator {
+        Terminator::Branch { target } => {
+            targets.insert(*target);
+        }
+        Terminator::CondBranch {
+            true_block,
+            false_block,
+            ..
+        } => {
+            targets.insert(*true_block);
+            targets.insert(*false_block);
+        }
+        Terminator::Switch { cases, default, .. } => {
+            for (_, target) in cases {
+                targets.insert(*target);
+            }
+            targets.insert(*default);
+        }
+        Terminator::Return { .. } | Terminator::Unreachable => {}
+    }
+}
+
+fn is_inline_alloca_type(ty: &Type) -> bool {
+    match ty {
+        Type::Int | Type::Float | Type::Bool | Type::Char => true,
+        Type::Array { element_type, size } => *size <= 4096 && is_inline_alloca_type(element_type),
+        _ => false,
+    }
 }
 
 fn inline_calls_in_function(

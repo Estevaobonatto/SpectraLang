@@ -31,3 +31,9 @@ test_boolr.spectra
 # Installer build output
 installer/Output/
 fuzz/target/
+docs/performance/language-comparison-slides.html
+scripts/benchmark_language_comparison.py
+scripts/write_slides.py
+BENCHMARK_TABLE.md
+scripts/benchmark_language_comparison.py
+scripts/__pycache__/benchmark_language_comparison.cpython-314.pyc
