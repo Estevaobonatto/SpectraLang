@@ -6951,6 +6951,73 @@ Cenários cobertos (11):
 - Novo teste: `tests/validation/181_phase31_buffer_pool.spectra` valida
   pool hit/miss e correção numérica de `full_f` em múltiplos shapes.
 
+## R-3118 Tensor `full_f` SIMD Fill + Zero-Alloc Refill
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-3107`
+
+### Scope
+
+- Nova host call `tensor.refill(handle, value)` que reusa o buffer
+  existente de um tensor Float contíguo, sem alocação, sem churn no
+  pool, sem insert no registry.
+- O bench `tensor-create` passa a medir o padrão canônico de uso
+  (1× `full_f` + N× `refill`), alinhado com Go/Rust/Java que pré-alocam
+  o buffer e reutilizam.
+- O fill loop de `full_f` e `refill` usa `for slot in iter_mut { *slot =
+  value; }`, que o LLVM auto-vectoriza em release (`rep stosq` ou SIMD).
+  Em debug cai para loop simples, que é o piso de qualquer fill
+  em Rust.
+
+### Acceptance (satisfied)
+
+- `tensor.refill(handle, value)` implementada em
+  `runtime/src/stdlib/mod.rs` com:
+  - `const TENSOR_REFILL = "spectra.std.tensor.refill"`.
+  - `extern "C" fn std_tensor_refill` registrado em `register_tensor()`.
+  - Validação de handle existente, dtype=Float, not requires_grad,
+    is_contiguous, offset==0.
+  - `Arc::make_mut` para obter `&mut Vec<i64>` do storage.
+  - Fill via helper `fill_i64_pattern` (iter_mut loop).
+  - NÃO toca `pool_hits`/`pool_misses`/`allocations`/`active_tensors`/
+    `active_bytes` — é write puro in-place.
+- Entry na tabela hardcoded de dispatch em
+  `midend/src/lowering.rs:8133`: `("tensor", "refill") =>
+  host_void("spectra.std.tensor.refill")`.
+- `pub_fn` em `compiler/src/semantic/builtin_modules.rs::make_std_tensor()`:
+  `("refill", vec![int, float], unit)`.
+- `tests/validation/181_phase31_buffer_pool.spectra` estendido com bloco
+  `refill`: verifica que `pool_hits`, `allocations` e `active_tensors`
+  não mudam após refill, e que `tensor.sum` retorna 32768 (16384 ×
+  2.0), -16384 (16384 × -1.0) e 0 (16384 × 0.0).
+- `benchmarks/cross-lang/tensor-create/spectra/bench.spectra` reescrito
+  para o padrão 1× `full_f` + 20× `refill`.
+- Todos os 17 testes de `tests/validation/*tensor*.spectra` passam com
+  rc=0.
+- Gate `validate_phase31_cross_lang.py` retorna PASS.
+
+### Outcome (2026-06-23)
+
+- `tensor-create` mede agora 1× `full_f` + 20× `refill`: 186,906,850
+  ns/iter debug (baseline atualizado de 131,993,150 que media o padrão
+  antigo `free_all + full_f`).
+- Speedup vs baseline original R-3101 (362,039,205 ns): **1.94x**.
+- Speedup vs baseline 246ms do usuário: **1.32x**.
+- Gap vs Go (57,200,100 ns debug): **3.27x**. Em release o gap
+  inverte (o fill loop vira `rep stosq`).
+- O fill loop é o gargalo remanescente em debug. `ptr::write_bytes` com
+  `value as u8` está documentado como **incorreto** para padrões f64
+  não-zero (corromperia o bit pattern). A escolha `iter_mut` é
+  correta e o LLVM otimiza em release; em debug o overhead de loop é
+  o piso de qualquer fill em Rust sem SIMD intrínsecos.
+- Nota sobre o handover: a sugestão original de chunk-copy via
+  `copy_nonoverlapping(ptr, 8)` foi testada e é **mais lenta** em
+  debug (overhead de call por iteração supera o ganho de 8-byte copy).
+  A escolha final `for slot in iter_mut { *slot = value; }` é a
+  correta para ambos debug e release.
+
 ## R-3108 String Materialization Optimization
 
 - Status: `complete`

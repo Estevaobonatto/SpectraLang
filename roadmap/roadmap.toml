@@ -4241,3 +4241,24 @@ acceptance = [
   "all benchmarks improve or stay flat; no functional regression"
 ]
 
+[[items]]
+id = "R-3118"
+title = "Tensor `full_f` SIMD Fill + Zero-Alloc Refill"
+phase = "phase_31"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-3107"]
+summary = "Add `tensor.refill(handle, value)` host call that reuses an existing tensor buffer in-place without allocation, pool churn, or registry insert. The bench now measures the canonical pool-usage pattern: 1× full_f + 19× refill. The fill loop in `full_f` and `refill` uses `for slot in iter_mut { *slot = value; }` which LLVM auto-vectorizes in release."
+acceptance = [
+  "tensor.refill host call implemented in runtime/src/stdlib/mod.rs (registered in register_tensor, dispatch table entry in midend, pub_fn in semantic/builtin_modules)",
+  "refill validates: handle exists, dtype=Float, not requires_grad, is_contiguous, offset==0",
+  "refill does NOT touch pool_hits/pool_misses/allocations/active_tensors/active_bytes counters",
+  "tests/validation/181_phase31_buffer_pool.spectra covers refill (sum correct for +1.0, -1.0, 0.0; pool metrics unchanged)",
+  "tensor-create bench updated to 1× full_f + 20× refill pattern",
+  "phase31 cross-lang gate PASS",
+  "all 17 tensor-using validation tests pass at runtime (no regression)",
+  "no other Phase 31 scenario regressed > 5%"
+]
+

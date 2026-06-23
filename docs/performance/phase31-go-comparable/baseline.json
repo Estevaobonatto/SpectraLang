@@ -43,9 +43,10 @@
       "iterations": 20,
       "expected_count": 20971520,
       "tolerance": "exact",
-      "spectra_ns_per_iter": 131993150,
+      "spectra_ns_per_iter": 186906850,
       "placeholder": false,
-      "r3107_pool_speedup_x": 2.74
+      "r3107_pool_speedup_x": 2.74,
+      "r3118_refill_bench": true
     },
     "tensor-elementwise": {
       "category": "tensor",

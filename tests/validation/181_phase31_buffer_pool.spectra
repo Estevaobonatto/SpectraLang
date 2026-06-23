@@ -72,6 +72,46 @@ pub fn main() -> int {
     }
     tensor.free(big);
 
+    // R-3118: refill reuses the existing buffer, no alloc, no pool hit.
+    let big2 = tensor.full_f(16384, 1.0);
+    let pre_hits = tensor.stats_pool_hits();
+    let pre_allocs = tensor.stats_allocations();
+    let pre_active = tensor.stats_active();
+    tensor.refill(big2, 2.0);
+    let post_hits = tensor.stats_pool_hits();
+    let post_allocs = tensor.stats_allocations();
+    let post_active = tensor.stats_active();
+    if post_hits != pre_hits {
+        tensor.free(big2);
+        return 11;
+    }
+    if post_allocs != pre_allocs {
+        tensor.free(big2);
+        return 12;
+    }
+    if post_active != pre_active {
+        tensor.free(big2);
+        return 13;
+    }
+    let big2_sum = tensor.sum(big2);
+    if big2_sum != 32768 {
+        tensor.free(big2);
+        return 14;
+    }
+    tensor.refill(big2, -1.0);
+    let neg_sum = tensor.sum(big2);
+    if neg_sum != -16384 {
+        tensor.free(big2);
+        return 15;
+    }
+    tensor.refill(big2, 0.0);
+    let zero_sum = tensor.sum(big2);
+    if zero_sum != 0 {
+        tensor.free(big2);
+        return 16;
+    }
+    tensor.free(big2);
+
     tensor.free_all();
     return 0;
 }

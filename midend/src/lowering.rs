@@ -8504,6 +8504,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("tensor", "free") => Some(host_void("spectra.std.tensor.free")),
             ("tensor", "free_all") => Some(host_int("spectra.std.tensor.free_all")),
+            ("tensor", "refill") => Some(host_void("spectra.std.tensor.refill")),
             // ── std.ml ───────────────────────────────────────────────────
             ("ml", "module_new") => Some(host_int("spectra.std.ml.module_new")),
             ("ml", "module_add_parameter") => {

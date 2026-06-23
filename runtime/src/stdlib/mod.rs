@@ -313,6 +313,7 @@ const TENSOR_SET_GRAD_ENABLED: &str = "spectra.std.tensor.set_grad_enabled";
 const TENSOR_GRAD_ENABLED: &str = "spectra.std.tensor.grad_enabled";
 const TENSOR_FREE: &str = "spectra.std.tensor.free";
 const TENSOR_FREE_ALL: &str = "spectra.std.tensor.free_all";
+const TENSOR_REFILL: &str = "spectra.std.tensor.refill";
 
 // ── std.ml ──────────────────────────────────────────────────────────────────
 const ML_MODULE_NEW: &str = "spectra.std.ml.module_new";
@@ -730,6 +731,7 @@ fn register_tensor() {
     register_host_function(TENSOR_GRAD_ENABLED, std_tensor_grad_enabled);
     register_host_function(TENSOR_FREE, std_tensor_free);
     register_host_function(TENSOR_FREE_ALL, std_tensor_free_all);
+    register_host_function(TENSOR_REFILL, std_tensor_refill);
 }
 
 fn register_ml() {
@@ -3201,6 +3203,13 @@ fn tensor_optional_result(ctx_ref: &mut SpectraHostCallContext, value: SpectraHo
     HOST_STATUS_SUCCESS
 }
 
+#[inline]
+fn fill_i64_pattern(buffer: &mut [SpectraHostValue], value: SpectraHostValue) {
+    for slot in buffer.iter_mut() {
+        *slot = value;
+    }
+}
+
 unsafe fn tensor_args<'a>(
     ctx: *mut SpectraHostCallContext,
     expected: usize,
@@ -3314,11 +3323,47 @@ extern "C" fn std_tensor_full_f(ctx: *mut SpectraHostCallContext) -> i32 {
             }
         });
         let mut buffer = buffer.unwrap_or_else(|| Vec::with_capacity(len));
-        let target_len = len;
-        buffer.clear();
-        buffer.resize(target_len, value);
+        if buffer.len() < len {
+            buffer.resize(len, 0);
+        }
+        fill_i64_pattern(&mut buffer, value);
         match tensor_alloc_buffered(TensorDType::Float, vec![len], buffer) {
             Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
+    }
+}
+
+extern "C" fn std_tensor_refill(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let handle = args[0] as usize;
+        let value = args[1];
+        let result = with_tensor_registry(|registry| {
+            let Some(tensor) = registry.get_mut(handle) else {
+                return Err(HOST_STATUS_NOT_FOUND);
+            };
+            if tensor.dtype != TensorDType::Float {
+                return Err(HOST_STATUS_INVALID_ARGUMENT);
+            }
+            if tensor.requires_grad {
+                return Err(HOST_STATUS_INVALID_ARGUMENT);
+            }
+            if !tensor.is_contiguous() || tensor.offset != 0 {
+                return Err(HOST_STATUS_INVALID_ARGUMENT);
+            }
+            let len = tensor.len();
+            let storage = Arc::make_mut(&mut tensor.storage);
+            if storage.len() < len {
+                storage.resize(len, 0);
+            }
+            fill_i64_pattern(storage, value);
+            Ok(())
+        });
+        match result {
+            Ok(()) => tensor_optional_result(ctx_ref, 0),
             Err(code) => code,
         }
     }

@@ -2002,6 +2002,11 @@ fn make_std_tensor() -> ModuleExports {
         ("grad_enabled", vec![], bool_ty.clone()),
         ("free", vec![int.clone()], unit.clone()),
         ("free_all", vec![], int.clone()),
+        (
+            "refill",
+            vec![int.clone(), float.clone()],
+            unit.clone(),
+        ),
     ];
 
     for (name, params, return_type) in functions {

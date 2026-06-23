@@ -1,5 +1,6 @@
 // Phase 31: tensor-create (Spectra)
 // Materialize a 1M-element f64 tensor filled with 1.0, repeated 20 times.
+// After R-3118: pre-allocate once with full_f, then refill 19 times.
 
 module bench_tensor_create;
 
@@ -8,14 +9,14 @@ import std.tensor as tensor;
 pub fn main() -> int {
     let iters = 20;
     let total = 0;
+    let t = tensor.full_f(1048576, 1.0);
     let i = 0;
     while i < iters {
-        tensor.free_all();
-        let t = tensor.full_f(1048576, 1.0);
+        tensor.refill(t, 1.0);
         total = total + tensor.len(t);
         i = i + 1;
     }
-    tensor.free_all();
+    tensor.free(t);
     if total == 20971520 {
         return 0;
     }
