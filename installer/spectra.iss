@@ -30,11 +30,11 @@ AllowNoIcons=yes
 LicenseFile=
 ; Uninstaller
 UninstallDisplayName={#AppName} {#AppVersion}
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\spectra-icon.ico
 ; Output
 OutputDir=Output
 OutputBaseFilename=Spectra-Setup-{#AppVersion}-windows-x64
-SetupIconFile=
+SetupIconFile=spectra-icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -55,6 +55,8 @@ Name: "installvsix"; Description: "Install VS Code extension (requires VS Code)"
 ; Core binaries
 Source: "{#SourceDir}\spectralang.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\spectra-lsp.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Icon used by the installer, shortcuts and Windows file association
+Source: "spectra-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; VS Code extension (installed on demand)
 Source: "{#SourceDir}\spectra-vscode-extension.vsix"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -78,7 +80,7 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "SPECTRA_HOME
 ; File type class
 Root: HKCU; Subkey: "Software\Classes\.spectra"; ValueType: string; ValueName: ""; ValueData: "SpectraLang.SourceFile"; Flags: uninsdeletevalue; Tasks: fileassoc
 Root: HKCU; Subkey: "Software\Classes\SpectraLang.SourceFile"; ValueType: string; ValueName: ""; ValueData: "Spectra Source File"; Flags: uninsdeletekey; Tasks: fileassoc
-Root: HKCU; Subkey: "Software\Classes\SpectraLang.SourceFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; Tasks: fileassoc
+Root: HKCU; Subkey: "Software\Classes\SpectraLang.SourceFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\spectra-icon.ico"; Tasks: fileassoc
 Root: HKCU; Subkey: "Software\Classes\SpectraLang.SourceFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" run ""%1"""; Tasks: fileassoc
 
 ; ── Notify shell of registry changes ──────────────────────────────────────────
