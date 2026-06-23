@@ -370,7 +370,7 @@ cascading fallback diagnostics.
 
 ### Problems Found
 
-The multi-file test project suite (`multi_file_projects/`) surfaced two
+The multi-file test project suite (`examples/projects/multi_file/`) surfaced two
 related string-handling defects in the cross-module and main-module paths:
 
 - `let r = module::fn_returning_string(...); println(r);` prints a numeric
@@ -415,12 +415,12 @@ or assemble strings.
 
 ### Evidence
 
-- Reproduction project: `multi_file_projects/p2_string_utils/`
+- Reproduction project: `examples/projects/multi_file/p2_string_utils/`
   (`main.spectra` shows both defects; `p4_stdlib_showcase/` shows the
   `std.string` return variant).
 - Reduction output captured during the 2026-06-12 multi-file sweep.
 - Focused validation: `cargo run -q -p spectra-cli -- run
-  multi_file_projects/p2_string_utils` must print the full expected stdout
+  examples/projects/multi_file/p2_string_utils` must print the full expected stdout
   including all `--- string ops ---` lines and the post-concat `println`
   values.
 - Completed on 2026-06-12 by aligning stdlib `MethodCall` return-type
@@ -563,12 +563,12 @@ chaining fallible operations in `main`).
 
 ### Evidence
 
-- Reproduction projects: `multi_file_projects/p2_string_utils/string_utils.spectra`
+- Reproduction projects: `examples/projects/multi_file/p2_string_utils/string_utils.spectra`
   (the `[string]` index case, first observed as `join_strings`) and
-  `multi_file_projects/p3_inventory_oop/main.spectra` (the `Result` match
+  `examples/projects/multi_file/p3_inventory_oop/main.spectra` (the `Result` match
   case, with `--dump-ir` showing the `load(void)` lowering).
 - Focused validation: `cargo run -q -p spectra-cli -- run
-  multi_file_projects/p2_string_utils` and `multi_file_projects/p3_inventory_oop`
+  examples/projects/multi_file/p2_string_utils` and `examples/projects/multi_file/p3_inventory_oop`
   must complete without `Verifier errors` and without `load(void)` in the
   emitted IR.
 - Completed implementation adds typed `[T]` parsing/lowering instead of erasing

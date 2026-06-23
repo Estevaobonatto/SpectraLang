@@ -9,7 +9,21 @@
 **/*.so
 **/*.dylib
 
-# IDE files
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# npm / node
+**/node_modules/
+**/dist/
+
+# Spectra intermediate outputs
+.spectra_cache/
+
+# Agent / IDE caches
+.agents/
+.codex/
 .idea/
 .vscode/
 *.iml
@@ -27,6 +41,8 @@ Thumbs.db
 
 # Temp / scratch files in root
 test_boolr.spectra
+mintest.spectra
+test*_ir.txt
 
 # Installer build output
 installer/Output/
@@ -35,5 +51,12 @@ docs/performance/language-comparison-slides.html
 scripts/benchmark_language_comparison.py
 scripts/write_slides.py
 BENCHMARK_TABLE.md
-scripts/benchmark_language_comparison.py
 scripts/__pycache__/benchmark_language_comparison.cpython-314.pyc
+tests/projects/valid/integrated_ai_data_experiment/spectra.lock
+tests/projects/valid/integrated_ai_model_ecosystem/spectra.lock
+tests/projects/valid/integrated_basic_components/spectra.lock
+tests/projects/valid/integrated_basic_deep_components/spectra.lock
+tests/projects/valid/integrated_basic_package_check/spectra.lock
+run_output.txt
+.gitignore
+TEST_RESULTS.baseline.txt

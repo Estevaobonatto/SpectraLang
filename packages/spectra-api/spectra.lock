@@ -1,0 +1,13 @@
+version = 2
+root = "spectra.api"
+
+[[packages]]
+name = "spectra.api"
+version = "0.1.0"
+channel = "beta"
+compatibility = "spectralang-0.1"
+source = "path+"
+source_kind = "path"
+checksum = "fb5e9951bbe51cd9c48820788836c8d265c6441bdfd05d56f58a5d4d8d9df88f"
+manifest_hash = "fb5e9951bbe51cd9c48820788836c8d265c6441bdfd05d56f58a5d4d8d9df88f"
+dependencies = []

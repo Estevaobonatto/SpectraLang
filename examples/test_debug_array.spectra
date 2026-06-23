@@ -1,7 +1,0 @@
-module test_debug;
-
-fn test_array_read() -> int {
-    let arr = [10, 20, 30];
-    let i = 1;
-    arr[i]
-}

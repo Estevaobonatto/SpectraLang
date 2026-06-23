@@ -1,7 +1,7 @@
 # SpectraLang — Complete Language Reference for AI Agents
 
 **Version:** Alpha  
-**Source:** Verified against the compiler source code and working example projects (`app_project`, `test_project`, `complex_demo`).  
+**Source:** Verified against the compiler source code and working example projects (`examples/projects/spectra_academy`, `examples/projects/test_corpus`, `examples/projects/complex_demo`).  
 **Purpose:** This document is the authoritative reference for AI agents generating SpectraLang code. Every rule is stated unambiguously. All code examples are known to compile and run correctly.
 
 ---
@@ -1843,7 +1843,7 @@ src_dirs = ["src", "lib"]
 # Run all .spectra files in a directory
 spectralang run my_project/
 
-# Run specific files (for complex_demo with mixed modules)
+# Run specific files (for examples/projects/complex_demo with mixed modules)
 spectralang run main.spectra module_a.spectra module_b.spectra
 ```
 
