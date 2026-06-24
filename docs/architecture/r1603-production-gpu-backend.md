@@ -90,3 +90,49 @@ cargo run -p spectra-cli -- run tests\validation\91_tensor_phase16_gpu_backend.s
 ```
 
 The Spectra validation skips accelerator execution safely when WGPU is unavailable, while still validating CPU device status and reserved-device diagnostics.
+
+## Device Memory (R-3051, R-3021, R-3052 minimal)
+
+Land 2026-06-24 with the Block 3 cornerstone step:
+
+- `runtime/src/gpu.rs` adds `DeviceBuffer` (Arc<wgpu::Buffer> wrapper) and
+  `DeviceArena` keyed by `(device, dtype, size_bucket)`. Bucket function is
+  `next_power_of_two(n).max(16)`. Per-bucket free list capped at
+  `MAX_FREE_PER_BUCKET = 16`.
+- `TensorRegistry` holds the arena. No new lock surface; the arena shares
+  the existing registry mutex.
+- `to_device(_, 6)` acquires from the pool, enqueues a `queue.write_buffer`
+  of the host f32 mirror, submits, and stores the resident buffer on the
+  new tensor's `device_storage` field.
+- `tensor.free` and `tensor.free_all` release the buffer through
+  `recycle_tensor` (the same hook the host buffer pool already uses).
+- New host calls:
+  - `std.tensor.stats_device_pool_hits()` — pool reuse counter
+  - `std.tensor.stats_device_pool_misses()` — fresh allocation counter
+  - `std.tensor.stats_device_pool_bytes_resident()` — bytes held by the
+    arena (free list + in flight)
+  - `std.tensor.storage_device(handle)` — returns 0 (Cpu) or 6 (Wgpu) for
+    the tensor's residency
+- `reset_stats` clears the arena (free lists, hits, misses, bytes_resident).
+- Reuse safety: every acquire is followed by a full `queue.write_buffer`
+  (data overwrite) before the buffer can be released back to the pool.
+  See the `DeviceArena::acquire` doc-comment in `runtime/src/gpu.rs`.
+
+Residency-aware dispatch (R-3052 full) is **not** yet wired: the 5 GPU op
+sites still call `materialize()` on every input. The pool currently helps
+the upload side only. Closing the gap requires the kernel rewrites in
+R-3031..R-3044 to read from `device_storage`.
+
+Validation:
+
+- `tensor_runtime_r3021_real_upload_after_to_device` — `to_device` actually
+  uploads; `storage_device` reports 6.
+- `tensor_runtime_r3051_pool_reuse_under_load` — 100 same-shape
+  `to_device` + `free` cycles; `pool_hits >= 99`, `pool_misses <= 1`.
+- `tensor_runtime_r3051_pool_recycles_after_free` — second `to_device`
+  hits the pool; verifies the release hook.
+- `runtime/examples/tensor_phase7_gpu_bench.rs` extended JSON includes
+  `pool_hits`, `pool_misses`, `pool_bytes_resident`, `device_pool_tested`.
+  On RTX 2060: `pool_hits=99, pool_misses=1, pool_bytes_resident=1024`.
+- `python scripts/validate_r1603_gpu_backend.py` adds a 4th step running
+  the 3 new tests.

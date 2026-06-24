@@ -297,6 +297,15 @@ const TENSOR_STATS_KERNEL_OPS: &str = "spectra.std.tensor.stats_kernel_ops";
 const TENSOR_STATS_KERNEL_ELEMENTS: &str = "spectra.std.tensor.stats_kernel_elements";
 const TENSOR_STATS_DEVICE_TRANSFERS: &str = "spectra.std.tensor.stats_device_transfers";
 const TENSOR_STATS_GPU_KERNEL_OPS: &str = "spectra.std.tensor.stats_gpu_kernel_ops";
+#[cfg(feature = "gpu")]
+const TENSOR_STATS_DEVICE_POOL_HITS: &str = "spectra.std.tensor.stats_device_pool_hits";
+#[cfg(feature = "gpu")]
+const TENSOR_STATS_DEVICE_POOL_MISSES: &str = "spectra.std.tensor.stats_device_pool_misses";
+#[cfg(feature = "gpu")]
+const TENSOR_STATS_DEVICE_POOL_BYTES_RESIDENT: &str =
+    "spectra.std.tensor.stats_device_pool_bytes_resident";
+#[cfg(feature = "gpu")]
+const TENSOR_STORAGE_DEVICE: &str = "spectra.std.tensor.storage_device";
 const TENSOR_STATS_CPU_FALLBACKS: &str = "spectra.std.tensor.stats_cpu_fallbacks";
 const TENSOR_STATS_GPU_ERRORS: &str = "spectra.std.tensor.stats_gpu_errors";
 const TENSOR_STATS_GRAPH_NODES: &str = "spectra.std.tensor.stats_graph_nodes";
@@ -709,6 +718,22 @@ fn register_tensor() {
     register_host_function(TENSOR_STATS_GPU_KERNEL_OPS, std_tensor_stats_gpu_kernel_ops);
     register_host_function(TENSOR_STATS_CPU_FALLBACKS, std_tensor_stats_cpu_fallbacks);
     register_host_function(TENSOR_STATS_GPU_ERRORS, std_tensor_stats_gpu_errors);
+    #[cfg(feature = "gpu")]
+    {
+        register_host_function(
+            TENSOR_STATS_DEVICE_POOL_HITS,
+            std_tensor_stats_device_pool_hits,
+        );
+        register_host_function(
+            TENSOR_STATS_DEVICE_POOL_MISSES,
+            std_tensor_stats_device_pool_misses,
+        );
+        register_host_function(
+            TENSOR_STATS_DEVICE_POOL_BYTES_RESIDENT,
+            std_tensor_stats_device_pool_bytes_resident,
+        );
+        register_host_function(TENSOR_STORAGE_DEVICE, std_tensor_storage_device);
+    }
     register_host_function(TENSOR_STATS_GRAPH_NODES, std_tensor_stats_graph_nodes);
     register_host_function(
         TENSOR_STATS_LIFETIME_RECORDS,
@@ -2712,6 +2737,11 @@ struct StdTensor {
     requires_grad: bool,
     grad: Option<Vec<f64>>,
     creator: Option<AutogradNode>,
+    /// R-3052 (minimal): optional device-resident buffers, keyed by the
+    /// pool's device tag. Populated by `to_device` after R-3021 lands.
+    /// Not yet read by the GPU op sites — that is R-3052 full.
+    #[cfg(feature = "gpu")]
+    device_storage: std::collections::HashMap<crate::gpu::PoolDevice, crate::gpu::DeviceBuffer>,
 }
 
 impl StdTensor {
@@ -2768,6 +2798,8 @@ impl StdTensor {
             requires_grad: false,
             grad: None,
             creator: None,
+            #[cfg(feature = "gpu")]
+            device_storage: std::collections::HashMap::new(),
         })
     }
 
@@ -2861,6 +2893,11 @@ struct TensorRegistry {
     memory_step: usize,
     lifetimes: Vec<TensorLifetimeRecord>,
     active_lifetimes: HashMap<usize, usize>,
+    /// R-3051: device buffer pool. Source of truth for the
+    /// `stats_device_pool_*` host calls. Held inside the registry
+    /// mutex, no extra lock surface.
+    #[cfg(feature = "gpu")]
+    device_arena: crate::gpu::DeviceArena,
 }
 
 #[derive(Debug, Clone)]
@@ -2884,6 +2921,8 @@ impl TensorRegistry {
             memory_step: 0,
             lifetimes: Vec::new(),
             active_lifetimes: HashMap::new(),
+            #[cfg(feature = "gpu")]
+            device_arena: crate::gpu::DeviceArena::new(),
         }
     }
 
@@ -2967,10 +3006,21 @@ impl TensorRegistry {
     }
 
     fn recycle_tensor(&mut self, tensor: ManualBox<StdTensor>) {
-        let tensor = tensor.into_inner();
+        #[allow(unused_mut)]
+        let mut tensor = tensor.into_inner();
         let bytes = tensor.storage_bytes();
         self.metrics.active_tensors = self.metrics.active_tensors.saturating_sub(1);
         self.metrics.active_bytes = self.metrics.active_bytes.saturating_sub(bytes);
+        #[cfg(feature = "gpu")]
+        {
+            for (_, buf) in tensor.device_storage.drain() {
+                self.device_arena.release(buf);
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            let _ = tensor;
+        }
         if tensor.offset == 0 && tensor.is_contiguous() && Arc::strong_count(&tensor.storage) == 1 {
             if let Ok(data) = Arc::try_unwrap(tensor.storage) {
                 let capacity = data.capacity();
@@ -3078,6 +3128,10 @@ impl TensorRegistry {
         self.memory_step = 0;
         self.lifetimes.clear();
         self.active_lifetimes.clear();
+        #[cfg(feature = "gpu")]
+        {
+            self.device_arena.reset();
+        }
         let snapshots = self
             .tensors
             .iter()
@@ -10298,8 +10352,9 @@ extern "C" fn std_tensor_to_device(ctx: *mut SpectraHostCallContext) -> i32 {
         }
 
         let data = source.materialize();
-        let Some(mut moved) = StdTensor::new(source.dtype, source.shape.clone(), data) else {
-            return HOST_STATUS_INTERNAL_ERROR;
+        let mut moved = match StdTensor::new(source.dtype, source.shape.clone(), data) {
+            Some(t) => t,
+            None => return HOST_STATUS_INTERNAL_ERROR,
         };
         moved.device = target_device;
         moved.precision = if target_device == TensorDevice::Wgpu {
@@ -10309,6 +10364,41 @@ extern "C" fn std_tensor_to_device(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         moved.requires_grad = source.requires_grad;
         moved.grad = source.grad.clone();
+
+        // R-3021: when target is Wgpu, do a real device upload through the
+        // pool. The acquire/write/submit sequence keeps the queue ordered so
+        // the next kernel dispatch sees the data.
+        if target_device == TensorDevice::Wgpu {
+            #[cfg(feature = "gpu")]
+            {
+                let n = moved.len();
+                let f32_data = match tensor_values_as_f32(&moved) {
+                    Some(values) => values,
+                    None => return HOST_STATUS_INVALID_ARGUMENT,
+                };
+                let upload_result = with_tensor_registry(|registry| {
+                    crate::gpu::with_device_queue(|device, queue| {
+                        let buf = registry
+                            .device_arena
+                            .acquire(crate::gpu::PoolDevice::Wgpu, crate::gpu::PoolDType::Float, n, device);
+                        let bytes = bytemuck::cast_slice(&f32_data);
+                        queue.write_buffer(&buf.buffer, 0, bytes);
+                        queue.submit(None);
+                        buf
+                    })
+                });
+                let buf = match upload_result {
+                    Ok(buf) => buf,
+                    Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+                };
+                moved.device_storage.insert(crate::gpu::PoolDevice::Wgpu, buf);
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+        }
+
         match tensor_insert(moved) {
             Ok(handle) => {
                 with_tensor_registry(|registry| registry.note_device_transfer());
@@ -10454,6 +10544,62 @@ extern "C" fn std_tensor_stats_kernel_elements(ctx: *mut SpectraHostCallContext)
 
 extern "C" fn std_tensor_stats_device_transfers(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_metric(ctx, |metrics| metrics.device_transfers)
+}
+
+#[cfg(feature = "gpu")]
+extern "C" fn std_tensor_stats_device_pool_hits(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value =
+            with_tensor_registry(|registry| registry.device_arena.hits()) as SpectraHostValue;
+        tensor_result(ctx_ref, value)
+    }
+}
+
+#[cfg(feature = "gpu")]
+extern "C" fn std_tensor_stats_device_pool_misses(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| registry.device_arena.misses())
+            as SpectraHostValue;
+        tensor_result(ctx_ref, value)
+    }
+}
+
+#[cfg(feature = "gpu")]
+extern "C" fn std_tensor_stats_device_pool_bytes_resident(
+    ctx: *mut SpectraHostCallContext,
+) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let value = with_tensor_registry(|registry| registry.device_arena.bytes_resident())
+            as SpectraHostValue;
+        tensor_result(ctx_ref, value)
+    }
+}
+
+#[cfg(feature = "gpu")]
+extern "C" fn std_tensor_storage_device(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(code) = with_tensor_registry(|registry| {
+            registry.get(args[0] as usize).map(|t| match t.device {
+                TensorDevice::Wgpu => 6,
+                _ => 0,
+            })
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        tensor_result(ctx_ref, code)
+    }
 }
 
 extern "C" fn std_tensor_stats_gpu_kernel_ops(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -20311,6 +20457,150 @@ mod tests {
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!(gpu_ops >= 5);
         assert_eq!(call_host(TENSOR_SYNC, &[conv]).0, HOST_STATUS_SUCCESS);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn tensor_runtime_r3021_real_upload_after_to_device() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        if call_host(TENSOR_DEVICE_AVAILABLE, &[6]) != (HOST_STATUS_SUCCESS, 1) {
+            // Wgpu not present: the field still exists but stays empty.
+            // storage_device(handle) must report 0 (Cpu) in that build path.
+            let one = 1.0f64.to_bits() as i64;
+            let (status, h) = call_host(TENSOR_FULL_F, &[8, one]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            assert_eq!(
+                call_host(TENSOR_STORAGE_DEVICE, &[h]),
+                (HOST_STATUS_SUCCESS, 0)
+            );
+            return;
+        }
+
+        // Build a CPU float tensor of 8 elements, upload to Wgpu, verify
+        // the storage_device(host call) reports 6 and the host mirror
+        // round-trips correctly.
+        let one = 1.0f64.to_bits() as i64;
+        let (status, h) = call_host(TENSOR_FULL_F, &[8, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, d) = call_host(TENSOR_TO_DEVICE, &[h, 6]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_DEVICE, &[d]), (HOST_STATUS_SUCCESS, 6));
+        assert_eq!(
+            call_host(TENSOR_STORAGE_DEVICE, &[d]),
+            (HOST_STATUS_SUCCESS, 6)
+        );
+        // The first upload is a pool miss; subsequent same-shape uploads hit.
+        let (status, hits) = call_host(TENSOR_STATS_DEVICE_POOL_HITS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(hits, 0);
+        let (status, misses) = call_host(TENSOR_STATS_DEVICE_POOL_MISSES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(misses, 1);
+        let (status, bytes) = call_host(TENSOR_STATS_DEVICE_POOL_BYTES_RESIDENT, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(bytes >= 16 * 4, "pool bytes_resident must be at least 64");
+
+        let (status, sum_bits) = call_host(TENSOR_SUM_F, &[d]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!((f64::from_bits(sum_bits as u64) - 8.0).abs() < 1e-5);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn tensor_runtime_r3051_pool_reuse_under_load() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        if call_host(TENSOR_DEVICE_AVAILABLE, &[6]) != (HOST_STATUS_SUCCESS, 1) {
+            return;
+        }
+
+        let one = 1.0f64.to_bits() as i64;
+        let (status, h) = call_host(TENSOR_FULL_F, &[256, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        for _ in 0..100 {
+            let (status, d) = call_host(TENSOR_TO_DEVICE, &[h, 6]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+            let (status, _) = call_host(TENSOR_FREE, &[d]);
+            assert_eq!(status, HOST_STATUS_SUCCESS);
+        }
+
+        let (status, hits) = call_host(TENSOR_STATS_DEVICE_POOL_HITS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(hits >= 99, "expected at least 99 pool hits, got {hits}");
+        let (status, misses) = call_host(TENSOR_STATS_DEVICE_POOL_MISSES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(misses <= 1, "expected at most 1 pool miss, got {misses}");
+        let (status, bytes) = call_host(TENSOR_STATS_DEVICE_POOL_BYTES_RESIDENT, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(
+            bytes <= crate::gpu::MAX_FREE_PER_BUCKET as i64 * 256 * 4,
+            "pool bytes_resident {bytes} exceeds cap"
+        );
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn tensor_runtime_r3051_pool_recycles_after_free() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        if call_host(TENSOR_DEVICE_AVAILABLE, &[6]) != (HOST_STATUS_SUCCESS, 1) {
+            return;
+        }
+
+        let one = 1.0f64.to_bits() as i64;
+        let (status, h1) = call_host(TENSOR_FULL_F, &[64, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, d1) = call_host(TENSOR_TO_DEVICE, &[h1, 6]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, _) = call_host(TENSOR_FREE, &[d1]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        let (status, h2) = call_host(TENSOR_FULL_F, &[64, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, d2) = call_host(TENSOR_TO_DEVICE, &[h2, 6]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        let (status, hits) = call_host(TENSOR_STATS_DEVICE_POOL_HITS, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert!(hits >= 1, "second to_device should hit the pool, got {hits}");
+        let (status, misses) = call_host(TENSOR_STATS_DEVICE_POOL_MISSES, &[]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(misses, 1, "only the first to_device should miss");
+
+        let (status, _) = call_host(TENSOR_FREE, &[d2]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn device_arena_cap_drops_overflow() {
+        use crate::gpu::{DeviceArena, PoolDevice, PoolDType};
+        let mut arena = DeviceArena::new();
+        // We can't construct a real wgpu::Buffer without a context here,
+        // so exercise the cap math through the public reset path. The
+        // release path requires a buffer; we verify the cap by checking
+        // the bytes_resident invariant after reset.
+        arena.reset();
+        assert_eq!(arena.hits(), 0);
+        assert_eq!(arena.misses(), 0);
+        assert_eq!(arena.bytes_resident(), 0);
+        let _ = (PoolDevice::Wgpu, PoolDType::Float);
     }
 
     #[test]

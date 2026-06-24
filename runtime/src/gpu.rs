@@ -1,5 +1,6 @@
 use std::borrow::Cow;
-use std::sync::{Mutex, OnceLock};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuBinaryOp {
@@ -101,6 +102,161 @@ static CONTEXT: OnceLock<Result<Mutex<GpuContext>, GpuError>> = OnceLock::new();
 
 pub fn is_available() -> bool {
     context().is_ok()
+}
+
+/// Lock the GPU context and run a closure with `&wgpu::Device` and
+/// `&wgpu::Queue`. Used by `to_device` to write into pool buffers; the
+/// closure receives the same queue that `run_compute` uses, so an upload
+/// followed by a kernel dispatch is correctly ordered.
+pub fn with_device_queue<R>(
+    f: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> R,
+) -> Result<R, GpuError> {
+    let guard = context()?
+        .lock()
+        .map_err(|_| GpuError::new(GpuErrorKind::Other, "gpu context poisoned"))?;
+    Ok(f(&guard.device, &guard.queue))
+}
+
+/// Mirror of the runtime's `TensorDevice` enum used to key the device
+/// buffer pool. Only `Wgpu` is exercised by the arena today; the others
+/// are reserved for future native backends (R-3201..R-3204).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PoolDevice {
+    Wgpu,
+}
+
+/// Mirror of the runtime's `TensorDType` for pool keying. Only `Float`
+/// is exercised today; the rest are reserved for the f16/bf16 work in
+/// R-3071.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PoolDType {
+    Float,
+}
+
+impl PoolDType {
+    pub fn byte_size(self) -> u64 {
+        match self {
+            Self::Float => 4,
+        }
+    }
+}
+
+/// Owned, type-erased device buffer that is safe to hand back to a pool
+/// when the last `Arc` is dropped. The Arc-wrapped `wgpu::Buffer` keeps
+/// the GPU resource alive for any other holder while a buffer is in the
+/// free list (R-3051, D1).
+#[derive(Debug, Clone)]
+pub struct DeviceBuffer {
+    pub buffer: Arc<wgpu::Buffer>,
+    pub size: u64,
+    pub elements: usize,
+    pub device: PoolDevice,
+    pub dtype: PoolDType,
+}
+
+/// Bucket key. A buffer of bucket `B` is reusable for any `n <= B`; the
+/// pool acquires it for a request of `n` and reuses the storage as long
+/// as the caller writes the full `n` elements before releasing.
+pub type BucketKey = (PoolDevice, PoolDType, u64);
+
+/// Free-list pool of device buffers keyed by `(device, dtype, size_bucket)`
+/// (R-3051, D2). Held inside the existing `TensorRegistry` mutex, so it
+/// adds no new lock surface. The `bytes_resident` counter is the single
+/// source of truth for `stats_device_pool_bytes_resident`.
+///
+/// Invariant for reuse safety: every `acquire` is followed by either
+/// `queue.submit` (with a full data overwrite) before the buffer is
+/// released back to the pool, or the buffer is dropped without being
+/// pooled. See `acquire` doc-comment.
+#[derive(Debug, Default)]
+pub struct DeviceArena {
+    free: HashMap<BucketKey, VecDeque<DeviceBuffer>>,
+    hits: u64,
+    misses: u64,
+    bytes_resident: u64,
+}
+
+pub const MAX_FREE_PER_BUCKET: usize = 16;
+
+fn bucket_for(elements: usize) -> u64 {
+    (elements.max(16) as u64).next_power_of_two()
+}
+
+impl DeviceArena {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Acquire a buffer of bucket `bucket_for(n)`. Increments `hits` on
+    /// pool reuse, `misses` on a fresh allocation. `MAX_FREE_PER_BUCKET`
+    /// caps the free list per bucket.
+    pub fn acquire(
+        &mut self,
+        device: PoolDevice,
+        dtype: PoolDType,
+        elements: usize,
+        device_for_buffer: &wgpu::Device,
+    ) -> DeviceBuffer {
+        let bucket = bucket_for(elements);
+        let key = (device, dtype, bucket);
+        if let Some(list) = self.free.get_mut(&key) {
+            if let Some(buf) = list.pop_front() {
+                self.hits = self.hits.saturating_add(1);
+                return buf;
+            }
+        }
+        self.misses = self.misses.saturating_add(1);
+        let size = bucket * dtype.byte_size();
+        let buffer = device_for_buffer.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("spectra-runtime-device-pool"),
+            size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        self.bytes_resident = self.bytes_resident.saturating_add(size);
+        DeviceBuffer {
+            buffer: Arc::new(buffer),
+            size,
+            elements: elements.max(bucket as usize),
+            device,
+            dtype,
+        }
+    }
+
+    /// Return a buffer to the pool. The free list per bucket is capped
+    /// at `MAX_FREE_PER_BUCKET`; over-cap releases are dropped, which
+    /// drops the `Arc` and lets wgpu reclaim the underlying buffer.
+    pub fn release(&mut self, buf: DeviceBuffer) {
+        let bucket = bucket_for(buf.elements);
+        let key = (buf.device, buf.dtype, bucket);
+        let list = self.free.entry(key).or_default();
+        if list.len() >= MAX_FREE_PER_BUCKET {
+            self.bytes_resident = self.bytes_resident.saturating_sub(buf.size);
+            return;
+        }
+        list.push_back(buf);
+    }
+
+    pub fn hits(&self) -> u64 {
+        self.hits
+    }
+
+    pub fn misses(&self) -> u64 {
+        self.misses
+    }
+
+    pub fn bytes_resident(&self) -> u64 {
+        self.bytes_resident
+    }
+
+    pub fn reset(&mut self) {
+        self.free.clear();
+        self.hits = 0;
+        self.misses = 0;
+        self.bytes_resident = 0;
+    }
 }
 
 pub fn adapter_name() -> Option<String> {

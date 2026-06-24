@@ -3993,7 +3993,7 @@ title = "Real device upload on to_device"
 phase = "phase_30"
 owner = "numerics"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-702", "R-1603"]
 summary = "std_tensor_to_device must actually upload the tensor to the GPU buffer pool, not just flip a device field on a CPU-backed tensor."
@@ -4003,6 +4003,7 @@ acceptance = [
   "host mirror remains valid so materialize() still works",
   "new test: tensor_runtime_r3021_real_upload"
 ]
+progress = "Block 3 cornerstone 2026-06-24: to_device now does a real upload via the pool (acquire + queue.write_buffer + submit). The new tensor carries a resident DeviceBuffer. Subsequent GPU ops still call materialize() (R-3052 minimal; full residency-aware dispatch is R-3052 full). New test tensor_runtime_r3021_real_upload_after_to_device passes on the RTX 2060 WGPU adapter. R-3052 full + R-3053 still pending; upload-only path is complete."
 
 [[items]]
 id = "R-3022"
@@ -4292,7 +4293,7 @@ title = "Device buffer pool"
 phase = "phase_30"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "medium"
 dependencies = ["R-3021", "R-1603"]
 summary = "Introduce DeviceArena keyed by (device, dtype, size_bucket) with a free list of wgpu::Buffer. to_device acquires, tensor.free returns. Shared across all GPU tensors in a process."
@@ -4300,6 +4301,7 @@ acceptance = [
   "stats_device_pool_hits, stats_device_pool_misses, stats_device_pool_bytes_resident exposed",
   "for i in 0..100 { to_device(x, 6) } produces pool_hits >= 99 and zero active_bytes growth"
 ]
+progress = "Block 3 cornerstone 2026-06-24: DeviceArena + DeviceBuffer landed in runtime/src/gpu.rs (gated on #[cfg(feature='gpu')]). 3 new host calls (stats_device_pool_hits, stats_device_pool_misses, stats_device_pool_bytes_resident) + tensor.storage_device getter wired. MAX_FREE_PER_BUCKET=16. bucket_for(n) = next_power_of_two(n).max(16). Release hook fires on tensor.free and tensor.free_all (recycle_tensor). New tests tensor_runtime_r3051_pool_reuse_under_load and tensor_runtime_r3051_pool_recycles_after_free pass on RTX 2060; bench tensor_phase7_gpu_bench reports pool_hits=99, pool_misses=1, pool_bytes_resident=1024 after 100 same-shape to_device+free cycles. Reset via reset_stats host call. R-3052 full (residency-aware dispatch) still pending."
 
 [[items]]
 id = "R-3052"
@@ -4307,13 +4309,14 @@ title = "Tensor residency contract"
 phase = "phase_30"
 owner = "numerics"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "medium"
 dependencies = ["R-3051", "R-1603"]
 summary = "Extend StdTensor with residency: DeviceResidency { host: bool, device: HashSet<TensorDevice> }. materialize() is the host mirror; device tensors carry an optional DeviceBuffer. Ops consume device residency when both inputs are resident on the same device."
 acceptance = [
   "chain a -> add -> relu -> matmul -> sum on device; intermediates can be freed by free_all without re-uploading"
 ]
+progress = "Block 3 cornerstone 2026-06-24 (MINIMAL): StdTensor.device_storage: HashMap<PoolDevice, DeviceBuffer> field landed (gated on #[cfg(feature='gpu')]). Populated by to_device; released by recycle_tensor. R-3052 full — the 5 GPU op sites (tensor_binary, tensor_unary, std_tensor_sum_f, std_tensor_matmul, std_ml_conv2d) reading from device_storage — is still pending. New host call std_tensor_storage_device(handle) returns 0/6 for tests. Full residency-aware dispatch requires the kernel rewrite work in R-3031..R-3044 to be wired to device_storage."
 
 [[items]]
 id = "R-3053"

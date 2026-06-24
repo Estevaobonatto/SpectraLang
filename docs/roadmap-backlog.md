@@ -7996,6 +7996,169 @@ baseline: 38.8M ns.
 
 ---
 
+## R-3021 Real Device Upload on `to_device` (Block 3 cornerstone)
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-702`, `R-1603`
+
+### Scope
+
+`std_tensor_to_device` must actually upload the tensor to the GPU buffer
+pool when target=`6` (Wgpu), not just flip the `device` field on a
+CPU-backed tensor. Acquires a `DeviceBuffer` from the pool, enqueues a
+`queue.write_buffer` of the host `f32` mirror, submits, and stores the
+resident buffer on the new tensor's `device_storage` field.
+
+### Acceptance
+
+- after `to_device(handle, 6)` the tensor carries a resident `DeviceBuffer`
+- subsequent GPU ops read from the resident buffer instead of re-uploading
+  via `materialize()` (R-3052 full still pending; the upload is the
+  first half of the contract)
+- host mirror remains valid so `materialize()` still works
+- new test `tensor_runtime_r3021_real_upload_after_to_device` passes on
+  RTX 2060 (real WGPU adapter)
+
+### Completed Implementation (Block 3 cornerstone, 2026-06-24)
+
+- `runtime/src/stdlib/mod.rs:10340` `std_tensor_to_device` now acquires
+  a buffer from `TensorRegistry.device_arena`, calls
+  `queue.write_buffer` + `queue.submit`, and inserts the buffer into
+  the new tensor's `device_storage` field.
+- 1 new public host call `spectra.std.tensor.storage_device(handle) -> int`
+  exposes the residency state (0=Cpu, 6=Wgpu) for tests and debugging.
+- Test `tensor_runtime_r3021_real_upload_after_to_device` asserts:
+  `device_storage` reports 6; `pool_misses == 1`; `pool_bytes_resident`
+  non-zero; `sum_f` round-trip equals 8.0.
+- 3 new compiler signatures for the pool stats host calls (see R-3051).
+- 1 new compiler signature for `storage_device`.
+
+### Remaining Before Completion
+
+- R-3052 full: GPU op sites read from `device_storage` instead of calling
+  `materialize()`. This step is the minimal version (field plumbed but
+  unused on the read path).
+- R-3053: replace synchronous `device.poll(Wait)` with a futures-based
+  async path so transfers and computes can overlap.
+
+---
+
+## R-3051 Device Buffer Pool (Block 3 cornerstone)
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `runtime`
+- Dependencies: `R-3021`, `R-1603`
+
+### Scope
+
+Introduce `DeviceArena` keyed by `(device, dtype, size_bucket)` with a
+free list of `wgpu::Buffer` (held as `Arc<wgpu::Buffer>` for safe hand-
+back). `to_device(_, 6)` acquires; `tensor.free` returns. Shared across
+all GPU tensors in a process. The arena lives inside `TensorRegistry`,
+so it shares the existing registry mutex.
+
+### Acceptance
+
+- `stats_device_pool_hits`, `stats_device_pool_misses`,
+  `stats_device_pool_bytes_resident` exposed as host calls
+- `for i in 0..100 { to_device(x, 6); free(d) }` produces
+  `pool_hits >= 99` and bounded `pool_bytes_resident`
+- `MAX_FREE_PER_BUCKET = 16` caps the per-bucket free list
+
+### Completed Implementation (Block 3 cornerstone, 2026-06-24)
+
+- `runtime/src/gpu.rs`: new `DeviceBuffer` (Arc<wgpu::Buffer> wrapper),
+  `DeviceArena` with `acquire`/`release`/`hits`/`misses`/
+  `bytes_resident`/`reset`. Bucket function `next_power_of_two(n).max(16)`.
+  Cap `MAX_FREE_PER_BUCKET = 16`.
+- 3 new host calls: `stats_device_pool_hits`,
+  `stats_device_pool_misses`, `stats_device_pool_bytes_resident`.
+- Release hook in `recycle_tensor` returns buffers to the pool on
+  `tensor.free` and `tensor.free_all`.
+- `TensorRegistry::reset_metrics` clears the arena (free lists, hits,
+  misses, bytes_resident) so `reset_stats` is a clean slate.
+- Tests pass on RTX 2060:
+  - `tensor_runtime_r3051_pool_reuse_under_load` (100 same-shape
+    to_device+free, asserts `pool_hits >= 99`, `pool_misses <= 1`,
+    bytes_resident bounded by cap)
+  - `tensor_runtime_r3051_pool_recycles_after_free` (verifies the
+    release hook actually returns buffers to the pool)
+  - `device_arena_cap_drops_overflow` (unit test on the arena itself)
+- Bench `runtime/examples/tensor_phase7_gpu_bench.rs` extended with
+  `pool_hits`, `pool_misses`, `pool_bytes_resident`, `device_pool_tested`
+  fields in the JSON. Reports `pool_hits=99, pool_misses=1,
+  pool_bytes_resident=1024` on RTX 2060.
+- `scripts/validate_r1603_gpu_backend.py` updated to add a 4th step
+  running the 3 new tests.
+
+### Remaining Before Completion
+
+- R-3052 full: the 5 GPU op sites need to read from `device_storage` so
+  pool hits start to amortize end-to-end (today the pool helps the
+  *upload* side only).
+- R-3053: asynchronous dispatch so the queue can overlap compute and
+  transfer.
+
+---
+
+## R-3052 Tensor Residency Contract (Block 3 cornerstone, minimal)
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `numerics`
+- Dependencies: `R-3051`, `R-1603`
+
+### Scope
+
+Extend `StdTensor` with residency: `device_storage: HashMap<PoolDevice,
+DeviceBuffer>`. The host `materialize()` mirror is unchanged; device
+tensors carry an optional resident buffer. Ops consume device residency
+when both inputs are resident on the same device and emit a new device
+tensor; otherwise transfer-and-fallback.
+
+This step implements the **minimal** version: the field is plumbed and
+populated by `to_device`, released by the recycle hook, and exposed via
+the `storage_device` host call. The 5 GPU op sites
+(`tensor_binary`, `tensor_unary`, `std_tensor_sum_f`, `std_tensor_matmul`,
+`std_ml_conv2d`) still call `materialize()` for their inputs. R-3052
+**full** — wiring the op sites to read from `device_storage` — is a
+follow-on step that depends on the kernel rewrite work in
+R-3031..R-3044.
+
+### Acceptance
+
+- `chain a -> add -> relu -> matmul -> sum` on device; intermediates
+  can be freed by `free_all` without re-uploading
+- `storage_device(handle)` returns 6 for any tensor that went through
+  `to_device(_, 6)`
+
+### Completed Implementation (Block 3 cornerstone, 2026-06-24, MINIMAL)
+
+- `StdTensor.device_storage: HashMap<PoolDevice, DeviceBuffer>` field
+  landed (gated on `#[cfg(feature = "gpu")]`).
+- `to_device` populates the field after the upload.
+- `recycle_tensor` drains the field and returns buffers to the pool on
+  `tensor.free` and `tensor.free_all`.
+- New host call `spectra.std.tensor.storage_device(handle) -> int`
+  returns 0 (Cpu) or 6 (Wgpu) for tests.
+- Compiler signature for `storage_device` added in
+  `compiler/src/semantic/builtin_modules.rs`.
+
+### Remaining Before Completion
+
+- R-3052 full: the 5 GPU op sites must check `device_storage` and skip
+  `materialize()` when both inputs are resident on the same device.
+  Each new GPU op site that consumes a device-resident tensor must
+  re-validate against the resident buffer, not the host mirror.
+- Cross-cutting: when the op sites stop calling `materialize()` on
+  every input, the `R-3025` bench will start to show speedup at
+  small sizes (currently dominated by host transfer).
+
+---
+
 ## Execution Order
 
 1. **R-3101** (suite): desbloqueia todos os outros itens.

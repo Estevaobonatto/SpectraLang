@@ -2,6 +2,58 @@
 fn main() {
     use std::time::Instant;
 
+    // R-3051 follow-on: exercise the device pool through the public host
+    // call surface so the bench JSON reports whether pool reuse is
+    // actually happening. Skips gracefully on hosts without a WGPU
+    // adapter (the kernel timings below will be skipped on those hosts
+    // because `gpu::binary`/`matmul` require a live context).
+    let mut pool_hits: i64 = 0;
+    let mut pool_misses: i64 = 0;
+    let mut pool_bytes_resident: i64 = 0;
+    let mut device_pool_tested = false;
+    {
+        use spectra_runtime::ffi::{lookup_host_function, SpectraHostCallContext, HOST_STATUS_SUCCESS};
+        spectra_runtime::register_standard_library();
+        let call = |name: &str, args: &[i64]| -> Option<i64> {
+            let func = lookup_host_function(name)?;
+            let mut result = [0i64; 1];
+            let mut ctx = SpectraHostCallContext {
+                args: if args.is_empty() {
+                    std::ptr::null()
+                } else {
+                    args.as_ptr()
+                },
+                arg_len: args.len(),
+                results: result.as_mut_ptr(),
+                result_len: 1,
+                invoke_fn: None,
+            };
+            let status = func(&mut ctx);
+            if status == HOST_STATUS_SUCCESS {
+                Some(result[0])
+            } else {
+                None
+            }
+        };
+        let _ = call("spectra.std.tensor.free_all", &[]);
+        let _ = call("spectra.std.tensor.reset_stats", &[]);
+        if call("spectra.std.tensor.device_available", &[6]) == Some(1) {
+            let one = 1.0f64.to_bits() as i64;
+            if let Some(h) = call("spectra.std.tensor.full_f", &[256, one]) {
+                for _ in 0..100 {
+                    if let Some(d) = call("spectra.std.tensor.to_device", &[h, 6]) {
+                        let _ = call("spectra.std.tensor.free", &[d]);
+                    }
+                }
+            }
+            pool_hits = call("spectra.std.tensor.stats_device_pool_hits", &[]).unwrap_or(0);
+            pool_misses = call("spectra.std.tensor.stats_device_pool_misses", &[]).unwrap_or(0);
+            pool_bytes_resident =
+                call("spectra.std.tensor.stats_device_pool_bytes_resident", &[]).unwrap_or(0);
+            device_pool_tested = true;
+        }
+    }
+
     let size = 16_384usize;
     let m = 64usize;
     let k = 64usize;
@@ -71,7 +123,7 @@ fn main() {
     let matmul_faster = matmul_speedup > 1.0;
 
     println!(
-        "{{\"adapter\":\"{}\",\"add_cpu_ms\":{:.4},\"add_gpu_ms\":{:.4},\"add_speedup\":{:.3},\"add_faster\":{},\"add_h2d_bytes\":{},\"add_d2h_bytes\":{},\"matmul_cpu_ms\":{:.4},\"matmul_gpu_ms\":{:.4},\"matmul_speedup\":{:.3},\"matmul_faster\":{},\"matmul_h2d_bytes\":{},\"matmul_d2h_bytes\":{},\"semantic_parity\":true,\"r3025_honest_speedup_claim\":true}}",
+        "{{\"adapter\":\"{}\",\"add_cpu_ms\":{:.4},\"add_gpu_ms\":{:.4},\"add_speedup\":{:.3},\"add_faster\":{},\"add_h2d_bytes\":{},\"add_d2h_bytes\":{},\"matmul_cpu_ms\":{:.4},\"matmul_gpu_ms\":{:.4},\"matmul_speedup\":{:.3},\"matmul_faster\":{},\"matmul_h2d_bytes\":{},\"matmul_d2h_bytes\":{},\"device_pool_tested\":{},\"pool_hits\":{},\"pool_misses\":{},\"pool_bytes_resident\":{},\"semantic_parity\":true,\"r3025_honest_speedup_claim\":true}}",
         adapter.replace('"', "\\\""),
         cpu_add_ms,
         gpu_add_ms,
@@ -85,6 +137,10 @@ fn main() {
         matmul_faster,
         matmul_h2d,
         matmul_d2h,
+        device_pool_tested,
+        pool_hits,
+        pool_misses,
+        pool_bytes_resident,
     );
 }
 

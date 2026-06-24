@@ -63,6 +63,28 @@ def main() -> int:
             "--nocapture",
         ],
     )
+    # R-3021 / R-3051 / R-3052-minimal: real device upload, device buffer
+    # pool reuse, and residency field. Tests self-skip on hosts without a
+    # WGPU adapter.
+    for name in (
+        "tensor_runtime_r3021_real_upload_after_to_device",
+        "tensor_runtime_r3051_pool_reuse_under_load",
+        "tensor_runtime_r3051_pool_recycles_after_free",
+    ):
+        run_step(
+            f"device upload + pool ({name})",
+            [
+                "cargo",
+                "test",
+                "-p",
+                "spectra-runtime",
+                "--features",
+                "gpu",
+                name,
+                "--",
+                "--nocapture",
+            ],
+        )
     print("[R-1603] validation passed")
     return 0
 
