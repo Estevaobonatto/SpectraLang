@@ -2080,6 +2080,182 @@ pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
     })
 }
 
+/// Fast-path helper for `ml.linear(input, weight, bias)`.
+///
+/// Mirrors `std_ml_linear` but skips the generic host-call dispatch
+/// (no `ml_args` parsing, no `ctx_ref` writing, no catch_unwind).
+/// Returns the new tensor handle (>0) on success or 0 on error.
+pub fn ml_linear_fast(input_h: usize, weight_h: usize, bias_h: usize) -> SpectraHostValue {
+    let Some((shape, out, requires_grad, creator)) = with_tensor_registry(|registry| {
+        let input = registry.get(input_h)?;
+        let weight = registry.get(weight_h)?;
+        let bias = registry.get(bias_h)?;
+        if input.dtype != TensorDType::Float
+            || weight.dtype != TensorDType::Float
+            || bias.dtype != TensorDType::Float
+            || input.shape.len() != 2
+            || weight.shape.len() != 2
+            || bias.shape.len() != 1
+        {
+            return None;
+        }
+        let (batch, in_features) = (input.shape[0], input.shape[1]);
+        let (w_in, out_features) = (weight.shape[0], weight.shape[1]);
+        if in_features != w_in || bias.shape[0] != out_features {
+            return None;
+        }
+        let x = tensor_values_as_f64(input);
+        let w = tensor_values_as_f64(weight);
+        let b = tensor_values_as_f64(bias);
+        let mut out = matmul_f64(&x, &w, batch, in_features, out_features);
+        for row in 0..batch {
+            for col in 0..out_features {
+                out[row * out_features + col] += b[col];
+            }
+        }
+        let requires_grad = tensor_requires_autograd(registry, &[input_h, weight_h, bias_h]);
+        let creator = requires_grad.then(|| AutogradNode {
+            op: AutogradOp::MlLinear,
+            parents: vec![input_h, weight_h, bias_h],
+            input_shape: input.shape.clone(),
+            left_shape: input.shape.clone(),
+            right_shape: weight.shape.clone(),
+            input: b,
+            output: out.clone(),
+            left: x,
+            right: w,
+            aux: vec![batch, in_features, out_features],
+        });
+        registry.note_kernel(batch * in_features * out_features);
+        Some((vec![batch, out_features], out, requires_grad, creator))
+    }) else {
+        return 0;
+    };
+    match tensor_alloc_autograd(
+        TensorDType::Float,
+        shape,
+        f64_values_to_host(&out),
+        requires_grad,
+        creator,
+    ) {
+        Ok(handle) => handle as SpectraHostValue,
+        Err(_) => 0,
+    }
+}
+
+/// Fast-path helper for `ml.mse_loss(prediction, target)`.
+///
+/// Mirrors `std_ml_mse_loss` but skips the generic host-call dispatch.
+/// Returns the new loss tensor handle (>0) on success or 0 on error.
+pub fn ml_mse_loss_fast(prediction_h: usize, target_h: usize) -> SpectraHostValue {
+    let Some((_pred_shape, pred, pred_requires_grad)) = ml_tensor_float_data(prediction_h) else {
+        return 0;
+    };
+    let Some((_target_shape, target, _target_requires_grad)) = ml_tensor_float_data(target_h) else {
+        return 0;
+    };
+    if pred.len() != target.len() {
+        return 0;
+    }
+    let n = pred.len() as f64;
+    let value = pred
+        .iter()
+        .zip(target.iter())
+        .map(|(p, t)| (p - t) * (p - t))
+        .sum::<f64>()
+        / n;
+    let grad_pred: Vec<f64> = pred
+        .iter()
+        .zip(target.iter())
+        .map(|(p, t)| 2.0 * (p - t) / n)
+        .collect();
+    let requires_grad = pred_requires_grad && tensor_is_grad_enabled();
+    let creator = requires_grad.then(|| AutogradNode {
+        op: AutogradOp::MlMse,
+        parents: vec![prediction_h],
+        input_shape: vec![pred.len()],
+        left_shape: Vec::new(),
+        right_shape: Vec::new(),
+        input: Vec::new(),
+        output: grad_pred,
+        left: pred,
+        right: target,
+        aux: Vec::new(),
+    });
+    match tensor_alloc_autograd(
+        TensorDType::Float,
+        vec![1],
+        vec![value.to_bits() as SpectraHostValue],
+        requires_grad,
+        creator,
+    ) {
+        Ok(handle) => handle as SpectraHostValue,
+        Err(_) => 0,
+    }
+}
+
+/// Fast-path helper for `tensor.backward(loss)`.
+///
+/// Mirrors `std_tensor_backward` but skips the generic host-call dispatch.
+/// Returns `HOST_STATUS_SUCCESS` (0) on success or the error code on failure.
+pub fn tensor_backward_fast(loss_h: usize) -> i32 {
+    match tensor_backward_impl(loss_h) {
+        Ok(()) => HOST_STATUS_SUCCESS,
+        Err(code) => code,
+    }
+}
+
+/// Fast-path helper for `ml.sgd_step(param, lr)`.
+///
+/// Mirrors `std_ml_sgd_step` but skips the generic host-call dispatch.
+/// Returns `HOST_STATUS_SUCCESS` (0) on success, `HOST_STATUS_INVALID_ARGUMENT`
+/// if the learning rate is invalid, or `HOST_STATUS_NOT_FOUND` if the
+/// parameter handle is invalid or the tensor has no gradient.
+pub fn ml_sgd_step_fast(param_h: usize, lr: f64) -> i32 {
+    if !lr.is_finite() || lr < 0.0 {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    if !ml_optimizer_update(param_h, |value, grad, _| value - lr * grad) {
+        return HOST_STATUS_NOT_FOUND;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+/// Fast-path helper for `tensor.full_f(n, value)`.
+///
+/// Mirrors `std_tensor_full_f` but skips the generic host-call dispatch.
+/// `value` is the `f64` fill value written to every element (stored as
+/// its raw bit pattern in the tensor buffer). Returns the new tensor
+/// handle (>0) on success or 0 on error.
+pub fn tensor_full_f_fast(n: usize, value: f64) -> SpectraHostValue {
+    if n == 0 {
+        return 0;
+    }
+    let len = n;
+    let pattern = value.to_bits() as SpectraHostValue;
+    let buffer = with_tensor_registry(|registry| {
+        if let Some(buffer) = registry.take_buffer_unfilled(len) {
+            registry.metrics.reused_buffers =
+                registry.metrics.reused_buffers.saturating_add(1);
+            registry.metrics.pool_hits = registry.metrics.pool_hits.saturating_add(1);
+            Some(buffer)
+        } else {
+            registry.metrics.pool_misses =
+                registry.metrics.pool_misses.saturating_add(1);
+            None
+        }
+    });
+    let mut buffer = buffer.unwrap_or_else(|| Vec::with_capacity(len));
+    if buffer.len() < len {
+        buffer.resize(len, 0);
+    }
+    fill_i64_pattern(&mut buffer, pattern);
+    match tensor_alloc_buffered(TensorDType::Float, vec![len], buffer) {
+        Ok(handle) => handle as SpectraHostValue,
+        Err(_) => 0,
+    }
+}
+
 impl ListRegistry {
     fn new() -> Self {
         Self {

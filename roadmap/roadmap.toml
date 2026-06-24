@@ -4379,4 +4379,28 @@ acceptance = [
   "No other Phase 31 scenario regressed > 5%"
 ]
 
+[[items]]
+id = "R-3124"
+title = "Fast ABI for `ml.*` + `tensor.*` hot path (R-3124 ML Hot Path)"
+phase = "phase_31"
+owner = "runtime"
+priority = "P0"
+status = "in_progress"
+risk = "medium"
+dependencies = ["R-3118", "R-3120", "R-3122", "R-3123"]
+summary = "The `ml-mlp-step` benchmark was 3.14x slower than Go because each host call (`ml.linear`, `ml.mse_loss`, `tensor.backward`, `ml.sgd_step`, `tensor.full_f`) passed through the generic `spectra_rt_host_invoke` dispatch path (~2-5us overhead per call x ~50 calls/iter x 10 iters = ~200-500us of pure overhead). The runtime already had the implementations and the midend already had the dispatch entries. R-3124 adds 5 Fast ABI entries following the R-3120/R-3122/R-3123 pattern: `spectra_rt_ml_linear_fast`, `_ml_mse_loss_fast`, `_tensor_backward_fast`, `_ml_sgd_step_fast`, `_tensor_full_f_fast`. The lr/value args are passed as raw f64 across the FFI boundary (not f64-bits-as-i64) to match the IR type and avoid Cranelift verifier type mismatches. Results: ml-mlp-step drops from ~76.2ms to ~43.0ms (1.77x speedup), tensor-matmul drops from ~56.7ms to ~42.2ms (1.35x speedup), tensor-reduce drops from ~53.1ms to ~33.5ms (1.58x speedup). Tensor Arena (Parte C) deferred — Fast ABI alone already exceeds minimum acceptable speedup."
+acceptance = [
+  "runtime/src/stdlib/mod.rs adds 5 pub fn helpers: ml_linear_fast, ml_mse_loss_fast, tensor_backward_fast, ml_sgd_step_fast, tensor_full_f_fast (all using with_tensor_registry + lock_unpoisoned; ml_mse_loss_fast inlines the loss gradient computation since ml_two_tensor_loss takes a ctx_ref)",
+  "runtime/src/ffi.rs adds 5 #[no_mangle] extern \"C\" wrappers: spectra_rt_ml_linear_fast, _ml_mse_loss_fast, _tensor_backward_fast, _ml_sgd_step_fast, _tensor_full_f_fast. ml_sgd_step_fast and tensor_full_f_fast take f64 (not i64) for lr/value to match IR type and avoid Cranelift verifier errors",
+  "backend/src/codegen.rs and backend/src/aot.rs add 5 FuncId fields + 5 module.declare_function calls + 5 interceptions in the HostCall handler. generate_block and generate_instruction signatures updated with 5 new params. void-returning fast calls (backward, sgd_step) use `let _results = builder.inst_results(call)` to satisfy Cranelift verifier",
+  "All 62 cargo test -p spectra-runtime tests pass (including tensor_autodiff_* correctness tests)",
+  "tests/validation/77_concurrency_pipeline.spectra passes with rc=0 (no regression to concurrent path)",
+  "benchmarks/cross-lang/ml-mlp-step/spectra/bench.spectra passes with rc=0, n==16",
+  "ml-mlp-step ns/iter drops from ~76,160,370 (R-3123 baseline) to ~43,015,550 (achieved 1.77x speedup, exceeds 1.5x minimum acceptable)",
+  "tensor-matmul ns/iter drops from ~56,710,280 to ~42,158,200 (1.35x speedup bonus)",
+  "tensor-reduce ns/iter drops from ~53,104,700 to ~33,544,600 (1.58x speedup bonus)",
+  "Gap vs Go for ml-mlp-step is 2.79x (Go also improved from 21.9ms to 15.4ms; absolute spectra time improved 1.77x)",
+  "No other Phase 31 scenario regressed > 5%"
+]
+
 

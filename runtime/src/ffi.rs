@@ -541,6 +541,63 @@ pub extern "C" fn spectra_rt_map_contains_fast(
     crate::stdlib::map_contains_fast(handle as usize, key)
 }
 
+/// Fast ABI entry for `ml.linear(input, weight, bias)`.
+///
+/// Skips the generic host-call dispatch. Returns the new tensor handle
+/// (>0) on success or 0 on error.
+#[no_mangle]
+pub extern "C" fn spectra_rt_ml_linear_fast(
+    input_h: SpectraHostValue,
+    weight_h: SpectraHostValue,
+    bias_h: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::ml_linear_fast(input_h as usize, weight_h as usize, bias_h as usize)
+}
+
+/// Fast ABI entry for `ml.mse_loss(prediction, target)`.
+///
+/// Skips the generic host-call dispatch. Returns the new loss tensor
+/// handle (>0) on success or 0 on error.
+#[no_mangle]
+pub extern "C" fn spectra_rt_ml_mse_loss_fast(
+    prediction_h: SpectraHostValue,
+    target_h: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::ml_mse_loss_fast(prediction_h as usize, target_h as usize)
+}
+
+/// Fast ABI entry for `tensor.backward(loss)`.
+///
+/// Skips the generic host-call dispatch. Returns `HOST_STATUS_SUCCESS` (0)
+/// on success or the error code on failure.
+#[no_mangle]
+pub extern "C" fn spectra_rt_tensor_backward_fast(loss_h: SpectraHostValue) -> i32 {
+    crate::stdlib::tensor_backward_fast(loss_h as usize)
+}
+
+/// Fast ABI entry for `ml.sgd_step(param, lr)`.
+///
+/// Skips the generic host-call dispatch. `lr` is the raw `f64` learning
+/// rate passed directly across the FFI boundary. Returns `HOST_STATUS_SUCCESS` (0)
+/// on success, `HOST_STATUS_INVALID_ARGUMENT` if the LR is invalid, or
+/// `HOST_STATUS_NOT_FOUND` if the handle is invalid.
+#[no_mangle]
+pub extern "C" fn spectra_rt_ml_sgd_step_fast(param_h: SpectraHostValue, lr: f64) -> i32 {
+    crate::stdlib::ml_sgd_step_fast(param_h as usize, lr)
+}
+
+/// Fast ABI entry for `tensor.full_f(n, value)`.
+///
+/// Skips the generic host-call dispatch. `value` is the raw `f64` fill value.
+/// Returns the new tensor handle (>0) on success or 0 on error.
+#[no_mangle]
+pub extern "C" fn spectra_rt_tensor_full_f_fast(
+    n: SpectraHostValue,
+    value: f64,
+) -> SpectraHostValue {
+    crate::stdlib::tensor_full_f_fast(n as usize, value)
+}
+
 /// Releases a manual allocation previously returned by `spectra_rt_manual_alloc`.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {

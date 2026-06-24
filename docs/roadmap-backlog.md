@@ -7446,6 +7446,70 @@ Para fechar o gap para < 1.5x vs Go, próximos passos:
 - R-3114 (Zero-Alloc Hot Path): generalizar o fast ABI pattern para
   outros host calls hot.
 
+## R-3124 Fast ABI for `ml.*` + `tensor.*` hot path
+
+- Status: `in_progress` (Parte B done; Parte C Tensor Arena deferred)
+- Priority: `P0`
+- Owner: `runtime` + `backend`
+- Dependencies: `R-3118`, `R-3120`, `R-3122`, `R-3123`
+
+### Scope
+
+- Reduzir overhead de dispatch genérico no hot path do `ml-mlp-step`
+  (10 iters × ~5 host calls = ~50 calls no loop de training).
+- Adicionar 5 Fast ABI entries seguindo o padrão R-3120/R-3122/R-3123:
+  `spectra_rt_ml_linear_fast`, `_ml_mse_loss_fast`,
+  `_tensor_backward_fast`, `_ml_sgd_step_fast`, `_tensor_full_f_fast`.
+- Tensor Arena (Parte C) diferido — Fast ABI sozinho já excede o
+  speedup mínimo aceitável.
+
+### Acceptance (satisfied so far)
+
+- `runtime/src/stdlib/mod.rs` adiciona 5 helpers `pub fn *_fast` que
+  inlineam o body das funções originais, pulando `ml_args`/`tensor_args`
+  parsing e ctx dance.
+- `runtime/src/ffi.rs` adiciona 5 wrappers `#[no_mangle] pub extern "C"`.
+  `ml_sgd_step_fast` e `tensor_full_f_fast` recebem `f64` direto (não
+  i64 bits) para casar com o tipo IR e evitar erros do Cranelift
+  verifier.
+- `backend/src/codegen.rs` e `backend/src/aot.rs` adicionam 5
+  `FuncId` fields, 5 `module.declare_function`, 5 intercepções no
+  handler `HostCall`, e atualizam as signatures de `generate_block` e
+  `generate_instruction`. Chamadas void-returning (backward, sgd_step)
+  usam `let _results = builder.inst_results(call)` para satisfazer o
+  Cranelift verifier.
+- All 62 `cargo test -p spectra-runtime` tests passam (incluindo
+  `tensor_autodiff_*` correctness tests).
+- `tests/validation/77_concurrency_pipeline.spectra` passa com rc=0.
+- `benchmarks/cross-lang/ml-mlp-step/spectra/bench.spectra` passa com
+  rc=0, n==16.
+
+### Performance results (debug, after R-3124)
+
+| cenário | R-3123 baseline | R-3124 | speedup |
+|---|---:|---:|---:|
+| `ml-mlp-step` | 76,160,370 | 43,015,550 | **1.77x** |
+| `tensor-matmul` | 56,710,280 | 42,158,200 | 1.35x |
+| `tensor-reduce` | 53,104,700 | 33,544,600 | 1.58x |
+| `tensor-create` | 186,906,850 | 185,457,650 | 1.01x |
+| `tensor-elementwise` | 43,305,625 | 39,020,500 | 1.11x |
+| `cpu-hashmap` | 134,579,390 | 52,152,600 | 2.58x |
+| `async-echo` | 33,865,050 | 35,256,900 | 0.96x (within noise) |
+
+Gap vs Go para `ml-mlp-step` é 2.79x (Go também melhorou de 21.9ms
+para 15.4ms; tempo absoluto do Spectra melhorou 1.77x).
+
+### Remaining before completion
+
+- **Tensor Arena (Parte C)**: scratch pool de tensores pré-alocados
+  para `tensor_alloc_autograd` no hot loop. Risco médio (precisa
+  garantir que tensores da arena não vazem). Diferido — Fast ABI
+  sozinho já excede o speedup mínimo aceitável de 1.5x.
+- **SIMD no matmul kernel**: escopo maior, requer intrinsics ou
+  BLAS. Pode ser R-3125.
+- **Lock baseline**: `python scripts/phase31_lock_baseline.py --n 3`
+  quando três runs consecutivos diferirem por menos de 5%.
+
 ## R-3108 String Materialization Optimization
 
 - Status: `complete`

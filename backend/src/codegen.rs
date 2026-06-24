@@ -85,6 +85,16 @@ pub struct CodeGenerator {
     map_get_fast_func: FuncId,
     /// Import for fast-ABI `col.map_contains`
     map_contains_fast_func: FuncId,
+    /// Import for fast-ABI `ml.linear`
+    ml_linear_fast_func: FuncId,
+    /// Import for fast-ABI `ml.mse_loss`
+    ml_mse_loss_fast_func: FuncId,
+    /// Import for fast-ABI `tensor.backward`
+    tensor_backward_fast_func: FuncId,
+    /// Import for fast-ABI `ml.sgd_step`
+    ml_sgd_step_fast_func: FuncId,
+    /// Import for fast-ABI `tensor.full_f`
+    tensor_full_f_fast_func: FuncId,
     /// Cached host name pointers and backing storage
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
@@ -190,6 +200,26 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_map_contains_fast",
             spectra_runtime::ffi::spectra_rt_map_contains_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_ml_linear_fast",
+            spectra_runtime::ffi::spectra_rt_ml_linear_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_ml_mse_loss_fast",
+            spectra_runtime::ffi::spectra_rt_ml_mse_loss_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_tensor_backward_fast",
+            spectra_runtime::ffi::spectra_rt_tensor_backward_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_ml_sgd_step_fast",
+            spectra_runtime::ffi::spectra_rt_ml_sgd_step_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_tensor_full_f_fast",
+            spectra_runtime::ffi::spectra_rt_tensor_full_f_fast as *const u8,
         );
 
         let mut module = JITModule::new(builder);
@@ -336,6 +366,62 @@ impl CodeGenerator {
             )
             .expect("Failed to declare map_contains fast import");
 
+        let mut ml_linear_sig = module.make_signature();
+        ml_linear_sig.params.push(AbiParam::new(types::I64));
+        ml_linear_sig.params.push(AbiParam::new(types::I64));
+        ml_linear_sig.params.push(AbiParam::new(types::I64));
+        ml_linear_sig.returns.push(AbiParam::new(types::I64));
+        let ml_linear_fast_func = module
+            .declare_function("spectra_rt_ml_linear_fast", Linkage::Import, &ml_linear_sig)
+            .expect("Failed to declare ml_linear fast import");
+
+        let mut ml_mse_loss_sig = module.make_signature();
+        ml_mse_loss_sig.params.push(AbiParam::new(types::I64));
+        ml_mse_loss_sig.params.push(AbiParam::new(types::I64));
+        ml_mse_loss_sig.returns.push(AbiParam::new(types::I64));
+        let ml_mse_loss_fast_func = module
+            .declare_function(
+                "spectra_rt_ml_mse_loss_fast",
+                Linkage::Import,
+                &ml_mse_loss_sig,
+            )
+            .expect("Failed to declare ml_mse_loss fast import");
+
+        let mut tensor_backward_sig = module.make_signature();
+        tensor_backward_sig.params.push(AbiParam::new(types::I64));
+        tensor_backward_sig.returns.push(AbiParam::new(types::I32));
+        let tensor_backward_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_backward_fast",
+                Linkage::Import,
+                &tensor_backward_sig,
+            )
+            .expect("Failed to declare tensor_backward fast import");
+
+        let mut ml_sgd_step_sig = module.make_signature();
+        ml_sgd_step_sig.params.push(AbiParam::new(types::I64));
+        ml_sgd_step_sig.params.push(AbiParam::new(types::F64));
+        ml_sgd_step_sig.returns.push(AbiParam::new(types::I32));
+        let ml_sgd_step_fast_func = module
+            .declare_function(
+                "spectra_rt_ml_sgd_step_fast",
+                Linkage::Import,
+                &ml_sgd_step_sig,
+            )
+            .expect("Failed to declare ml_sgd_step fast import");
+
+        let mut tensor_full_f_sig = module.make_signature();
+        tensor_full_f_sig.params.push(AbiParam::new(types::I64));
+        tensor_full_f_sig.params.push(AbiParam::new(types::F64));
+        tensor_full_f_sig.returns.push(AbiParam::new(types::I64));
+        let tensor_full_f_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_full_f_fast",
+                Linkage::Import,
+                &tensor_full_f_sig,
+            )
+            .expect("Failed to declare tensor_full_f fast import");
+
         Self {
             module,
             ctx,
@@ -357,6 +443,11 @@ impl CodeGenerator {
             map_set_fast_func,
             map_get_fast_func,
             map_contains_fast_func,
+            ml_linear_fast_func,
+            ml_mse_loss_fast_func,
+            tensor_backward_fast_func,
+            ml_sgd_step_fast_func,
+            tensor_full_f_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -534,6 +625,11 @@ impl CodeGenerator {
                 self.map_set_fast_func,
                 self.map_get_fast_func,
                 self.map_contains_fast_func,
+                self.ml_linear_fast_func,
+                self.ml_mse_loss_fast_func,
+                self.tensor_backward_fast_func,
+                self.ml_sgd_step_fast_func,
+                self.tensor_full_f_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
@@ -746,6 +842,11 @@ impl CodeGenerator {
         map_set_fast_func: FuncId,
         map_get_fast_func: FuncId,
         map_contains_fast_func: FuncId,
+        ml_linear_fast_func: FuncId,
+        ml_mse_loss_fast_func: FuncId,
+        tensor_backward_fast_func: FuncId,
+        ml_sgd_step_fast_func: FuncId,
+        tensor_full_f_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
@@ -789,6 +890,11 @@ impl CodeGenerator {
                 map_set_fast_func,
                 map_get_fast_func,
                 map_contains_fast_func,
+                ml_linear_fast_func,
+                ml_mse_loss_fast_func,
+                tensor_backward_fast_func,
+                ml_sgd_step_fast_func,
+                tensor_full_f_fast_func,
                 builder,
                 instr,
                 value_map,
@@ -842,6 +948,11 @@ impl CodeGenerator {
         map_set_fast_func: FuncId,
         map_get_fast_func: FuncId,
         map_contains_fast_func: FuncId,
+        ml_linear_fast_func: FuncId,
+        ml_mse_loss_fast_func: FuncId,
+        tensor_backward_fast_func: FuncId,
+        ml_sgd_step_fast_func: FuncId,
+        tensor_full_f_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
@@ -1266,6 +1377,71 @@ impl CodeGenerator {
                     let func_ref =
                         module.declare_func_in_func(map_contains_fast_func, builder.func);
                     let call = builder.ins().call(func_ref, &[handle, key]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.ml.linear" && args.len() == 3 {
+                    let input = get_value(&args[0])?;
+                    let weight = get_value(&args[1])?;
+                    let bias = get_value(&args[2])?;
+                    let func_ref =
+                        module.declare_func_in_func(ml_linear_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[input, weight, bias]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.ml.mse_loss" && args.len() == 2 {
+                    let prediction = get_value(&args[0])?;
+                    let target = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(ml_mse_loss_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[prediction, target]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.tensor.backward" && args.len() == 1 {
+                    let loss = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(tensor_backward_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[loss]);
+                    let _results = builder.inst_results(call);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.ml.sgd_step" && args.len() == 2 {
+                    let param = get_value(&args[0])?;
+                    let lr = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(ml_sgd_step_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[param, lr]);
+                    let _results = builder.inst_results(call);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.tensor.full_f" && args.len() == 2 {
+                    let n = get_value(&args[0])?;
+                    let value = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(tensor_full_f_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[n, value]);
                     let results = builder.inst_results(call);
                     if let Some(result_value) = result {
                         if let Some(ret) = results.first() {

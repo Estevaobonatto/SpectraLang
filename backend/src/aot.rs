@@ -47,6 +47,11 @@ pub struct AotCodeGenerator {
     map_set_fast_func: FuncId,
     map_get_fast_func: FuncId,
     map_contains_fast_func: FuncId,
+    ml_linear_fast_func: FuncId,
+    ml_mse_loss_fast_func: FuncId,
+    tensor_backward_fast_func: FuncId,
+    ml_sgd_step_fast_func: FuncId,
+    tensor_full_f_fast_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -205,6 +210,62 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare map_contains fast import");
 
+        let mut ml_linear_sig = module.make_signature();
+        ml_linear_sig.params.push(AbiParam::new(types::I64));
+        ml_linear_sig.params.push(AbiParam::new(types::I64));
+        ml_linear_sig.params.push(AbiParam::new(types::I64));
+        ml_linear_sig.returns.push(AbiParam::new(types::I64));
+        let ml_linear_fast_func = module
+            .declare_function("spectra_rt_ml_linear_fast", Linkage::Import, &ml_linear_sig)
+            .expect("Failed to declare ml_linear fast import");
+
+        let mut ml_mse_loss_sig = module.make_signature();
+        ml_mse_loss_sig.params.push(AbiParam::new(types::I64));
+        ml_mse_loss_sig.params.push(AbiParam::new(types::I64));
+        ml_mse_loss_sig.returns.push(AbiParam::new(types::I64));
+        let ml_mse_loss_fast_func = module
+            .declare_function(
+                "spectra_rt_ml_mse_loss_fast",
+                Linkage::Import,
+                &ml_mse_loss_sig,
+            )
+            .expect("Failed to declare ml_mse_loss fast import");
+
+        let mut tensor_backward_sig = module.make_signature();
+        tensor_backward_sig.params.push(AbiParam::new(types::I64));
+        tensor_backward_sig.returns.push(AbiParam::new(types::I32));
+        let tensor_backward_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_backward_fast",
+                Linkage::Import,
+                &tensor_backward_sig,
+            )
+            .expect("Failed to declare tensor_backward fast import");
+
+        let mut ml_sgd_step_sig = module.make_signature();
+        ml_sgd_step_sig.params.push(AbiParam::new(types::I64));
+        ml_sgd_step_sig.params.push(AbiParam::new(types::F64));
+        ml_sgd_step_sig.returns.push(AbiParam::new(types::I32));
+        let ml_sgd_step_fast_func = module
+            .declare_function(
+                "spectra_rt_ml_sgd_step_fast",
+                Linkage::Import,
+                &ml_sgd_step_sig,
+            )
+            .expect("Failed to declare ml_sgd_step fast import");
+
+        let mut tensor_full_f_sig = module.make_signature();
+        tensor_full_f_sig.params.push(AbiParam::new(types::I64));
+        tensor_full_f_sig.params.push(AbiParam::new(types::F64));
+        tensor_full_f_sig.returns.push(AbiParam::new(types::I64));
+        let tensor_full_f_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_full_f_fast",
+                Linkage::Import,
+                &tensor_full_f_sig,
+            )
+            .expect("Failed to declare tensor_full_f fast import");
+
         Self {
             module,
             ctx,
@@ -226,6 +287,11 @@ impl AotCodeGenerator {
             map_set_fast_func,
             map_get_fast_func,
             map_contains_fast_func,
+            ml_linear_fast_func,
+            ml_mse_loss_fast_func,
+            tensor_backward_fast_func,
+            ml_sgd_step_fast_func,
+            tensor_full_f_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -422,6 +488,11 @@ impl AotCodeGenerator {
                 self.map_set_fast_func,
                 self.map_get_fast_func,
                 self.map_contains_fast_func,
+                self.ml_linear_fast_func,
+                self.ml_mse_loss_fast_func,
+                self.tensor_backward_fast_func,
+                self.ml_sgd_step_fast_func,
+                self.tensor_full_f_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
