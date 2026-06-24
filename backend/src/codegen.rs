@@ -79,6 +79,12 @@ pub struct CodeGenerator {
     builder_finish_fast_func: FuncId,
     /// Import for fast-ABI `str.builder_free`
     builder_free_fast_func: FuncId,
+    /// Import for fast-ABI `col.map_set`
+    map_set_fast_func: FuncId,
+    /// Import for fast-ABI `col.map_get`
+    map_get_fast_func: FuncId,
+    /// Import for fast-ABI `col.map_contains`
+    map_contains_fast_func: FuncId,
     /// Cached host name pointers and backing storage
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
@@ -172,6 +178,18 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_builder_free",
             spectra_runtime::ffi::spectra_rt_builder_free as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_map_set_fast",
+            spectra_runtime::ffi::spectra_rt_map_set_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_map_get_fast",
+            spectra_runtime::ffi::spectra_rt_map_get_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_map_contains_fast",
+            spectra_runtime::ffi::spectra_rt_map_contains_fast as *const u8,
         );
 
         let mut module = JITModule::new(builder);
@@ -289,6 +307,35 @@ impl CodeGenerator {
             .declare_function("spectra_rt_builder_free", Linkage::Import, &builder_free_sig)
             .expect("Failed to declare builder_free fast import");
 
+        let mut map_set_sig = module.make_signature();
+        map_set_sig.params.push(AbiParam::new(types::I64));
+        map_set_sig.params.push(AbiParam::new(types::I64));
+        map_set_sig.params.push(AbiParam::new(types::I64));
+        map_set_sig.returns.push(AbiParam::new(types::I32));
+        let map_set_fast_func = module
+            .declare_function("spectra_rt_map_set_fast", Linkage::Import, &map_set_sig)
+            .expect("Failed to declare map_set fast import");
+
+        let mut map_get_sig = module.make_signature();
+        map_get_sig.params.push(AbiParam::new(types::I64));
+        map_get_sig.params.push(AbiParam::new(types::I64));
+        map_get_sig.returns.push(AbiParam::new(types::I64));
+        let map_get_fast_func = module
+            .declare_function("spectra_rt_map_get_fast", Linkage::Import, &map_get_sig)
+            .expect("Failed to declare map_get fast import");
+
+        let mut map_contains_sig = module.make_signature();
+        map_contains_sig.params.push(AbiParam::new(types::I64));
+        map_contains_sig.params.push(AbiParam::new(types::I64));
+        map_contains_sig.returns.push(AbiParam::new(types::I64));
+        let map_contains_fast_func = module
+            .declare_function(
+                "spectra_rt_map_contains_fast",
+                Linkage::Import,
+                &map_contains_sig,
+            )
+            .expect("Failed to declare map_contains fast import");
+
         Self {
             module,
             ctx,
@@ -307,6 +354,9 @@ impl CodeGenerator {
             builder_len_fast_func,
             builder_finish_fast_func,
             builder_free_fast_func,
+            map_set_fast_func,
+            map_get_fast_func,
+            map_contains_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -481,6 +531,9 @@ impl CodeGenerator {
                 self.builder_len_fast_func,
                 self.builder_finish_fast_func,
                 self.builder_free_fast_func,
+                self.map_set_fast_func,
+                self.map_get_fast_func,
+                self.map_contains_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
@@ -690,6 +743,9 @@ impl CodeGenerator {
         builder_len_fast_func: FuncId,
         builder_finish_fast_func: FuncId,
         builder_free_fast_func: FuncId,
+        map_set_fast_func: FuncId,
+        map_get_fast_func: FuncId,
+        map_contains_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
@@ -730,6 +786,9 @@ impl CodeGenerator {
                 builder_len_fast_func,
                 builder_finish_fast_func,
                 builder_free_fast_func,
+                map_set_fast_func,
+                map_get_fast_func,
+                map_contains_fast_func,
                 builder,
                 instr,
                 value_map,
@@ -780,6 +839,9 @@ impl CodeGenerator {
         builder_len_fast_func: FuncId,
         builder_finish_fast_func: FuncId,
         builder_free_fast_func: FuncId,
+        map_set_fast_func: FuncId,
+        map_get_fast_func: FuncId,
+        map_contains_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
@@ -1169,6 +1231,47 @@ impl CodeGenerator {
                     let func_ref =
                         module.declare_func_in_func(builder_free_fast_func, builder.func);
                     builder.ins().call(func_ref, &[handle]);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_set" && args.len() == 3 {
+                    let handle = get_value(&args[0])?;
+                    let key = get_value(&args[1])?;
+                    let value = get_value(&args[2])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_set_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle, key, value]);
+                    let _results = builder.inst_results(call);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_get" && args.len() == 2 {
+                    let handle = get_value(&args[0])?;
+                    let key = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_get_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle, key]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_contains" && args.len() == 2 {
+                    let handle = get_value(&args[0])?;
+                    let key = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_contains_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle, key]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
                     return Ok(());
                 }
 

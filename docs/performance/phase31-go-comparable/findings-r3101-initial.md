@@ -679,3 +679,119 @@ caught this immediately.
   1.5-2x, bringing the gap to < 1.5x vs Go.
 - R-3114 (Zero-Alloc Hot Path): generalize the fast ABI pattern to
   other hot host calls.
+
+## R-3123 (Expose `col.map_*` + Fast ABI for hashmap) — Complete
+
+### Motivation
+
+The `cpu-hashmap` benchmark was 7.77x slower than Go (113ms vs 15ms
+debug). Initial analysis assumed it was FFI overhead, but deeper
+investigation revealed the root cause was **algorithmic**: the
+Spectra bench used `col.list_push` + `col.list_contains` (linear
+scan O(n)) as a placeholder, while Go uses `map[int]int` (O(1) hash).
+The Spectra bench was doing ~600k linear comparisons vs ~12k
+hashmap operations for Go (50x more work).
+
+The runtime already had a complete `StdMap { data: HashMap<i64, i64> }`
+with 8 host functions (`map_new`/`map_set`/`map_get`/`map_contains`/
+`map_remove`/`map_len`/`map_clear`/`map_free`), `register_map()` was
+already called in `register()`, and the midend dispatch table already
+had all 8 entries. The gap was purely in the compiler: `make_std_collections()`
+never exported `map_*` to the language level.
+
+### Strategy
+
+Two complementary changes:
+
+1. **Expose `map_*` in compiler**: added 8 `pub_fn` entries to
+   `make_std_collections()` in `compiler/src/semantic/builtin_modules.rs`.
+   No changes needed to midend (dispatch table already existed) or
+   runtime (host functions already existed).
+
+2. **Fast ABI for hot path**: added `spectra_rt_map_set_fast`,
+   `_map_get_fast`, `_map_contains_fast` as direct `extern "C"`
+   entries (same pattern as R-3120/R-3122). Backend intercepts
+   these 3 host calls and emits a single direct FFI call, bypassing
+   the generic dispatch (no manual_alloc/free, no name lookup, no
+   catch_unwind, no host_registry lock).
+
+3. **Rewrite bench**: changed `benchmarks/cross-lang/cpu-hashmap/spectra/bench.spectra`
+   from `list_push`/`list_contains` to `map_set`/`map_contains`/
+   `map_len`/`map_free`. Workload is now equivalent to Go (200
+   inserts + 200 contains + 1 len + 1 free per iter, 30 iters,
+   total==6000).
+
+### Results
+
+| scenario | R-3122 (ns) | R-3123 (ns) | speedup | gap vs Go |
+|---|---:|---:|---:|---:|
+| `cpu-hashmap` | ~113,000,000 | ~57,000,000 | **2.0x** | ~3.8x |
+
+The optimistic estimate of 5-10x speedup (from the plan) did not
+materialize. The actual gain is dominated by the workload reduction
+O(n²) → O(n) (50x less work). The Fast ABI in itself gives ~2-3x
+per op, but Mutex lock/unlock on `MapRegistry` + HashMap operation
+in debug mode still costs ~4μs/op × 12k ops = ~48ms.
+
+### Residual gap
+
+The residual gap (~3.8x vs Go) is dominated by:
+1. FFI call boundary overhead in debug mode (each `map_set`/`map_get`
+   still does 1 FFI call to the runtime).
+2. Mutex lock/unlock in `MapRegistry` (uncontended, ~20ns but × 12k).
+3. `HashMap<i64, i64>` from Rust (hashbrown) is competitive with Go,
+   but debug mode adds bounds checks.
+
+To close to < 1.5x vs Go, the next step is to inline `map_set`/`map_get`
+into Cranelift IR with direct access to the `MapRegistry` via
+thread-local storage, eliminating the FFI call entirely. This is
+R-3124 (proposed).
+
+### Files Touched
+
+- `compiler/src/semantic/builtin_modules.rs`: added 8 `pub_fn` entries
+  in `make_std_collections()` for `map_new`/`map_set`/`map_get`/
+  `map_contains`/`map_remove`/`map_len`/`map_clear`/`map_free`.
+- `runtime/src/stdlib/mod.rs`: added 3 fast ABI helpers using
+  `with_map_registry` + `lock_unpoisoned`:
+  `map_set_fast`/`map_get_fast`/`map_contains_fast`.
+- `runtime/src/ffi.rs`: added 3 `#[no_mangle] pub extern "C"`
+  wrappers: `spectra_rt_map_set_fast`/`_map_get_fast`/`_map_contains_fast`.
+- `backend/src/codegen.rs`: added 3 `FuncId` fields (`map_set_fast_func`,
+  `map_get_fast_func`, `map_contains_fast_func`), registered 3 JIT
+  symbols, declared 3 functions, added 3 interceptions in `HostCall`
+  handler. Updated `generate_block` and `generate_instruction` signatures.
+- `backend/src/aot.rs`: same 3 fields + 3 declarations + passed to
+  `generate_block` call (AOT shares block generation with JIT).
+- `benchmarks/cross-lang/cpu-hashmap/spectra/bench.spectra`: rewritten
+  to use `map_set`/`map_contains`/`map_len`/`map_free`.
+- `roadmap/roadmap.toml`: R-3123 entry added with `status = "complete"`.
+- `docs/roadmap-backlog.md`: R-3123 outcome section added.
+
+### Validation
+
+- `cargo build -p spectra-cli` succeeds (only pre-existing warnings).
+- `cargo test -p spectra-runtime` → 62 passed, 0 failed.
+- `tests/validation/77_concurrency_pipeline.spectra` → rc=0 (no
+  regression to concurrent path).
+- `benchmarks/cross-lang/cpu-hashmap/spectra/bench.spectra` → rc=0,
+  total==6000 (30 iters × 200 found).
+
+### Bug Avoided
+
+In R-3122, `push_spectra_string` was pushing bytes to `self.buf` but
+not updating `self.len`, causing `finish()` to return an empty string.
+For R-3123, the equivalent trap would be a `map_set` that doesn't
+actually insert. The bench catches this immediately: if `map_set`
+fails, `map_contains` returns 0, `total != 6000`, and the bench
+returns rc=1. This is why the bench itself serves as the regression
+test — no need for a separate unit test.
+
+### Follow-up
+
+- R-3124 (proposed): inline `map_set`/`map_get`/`map_contains` into
+  Cranelift IR with direct access to `MapRegistry` via thread-local
+  storage, eliminating the FFI call. Estimated additional speedup:
+  2-3x debug, bringing the gap to < 2x vs Go.
+- R-3114 (Zero-Alloc Hot Path): generalize the fast ABI pattern to
+  other hot host calls.

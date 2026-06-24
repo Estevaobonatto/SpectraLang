@@ -1855,6 +1855,7 @@ impl StringBuilder {
         }
     }
 
+    #[allow(dead_code)]
     fn push_bytes(&mut self, bytes: &[u8]) {
         let needed = self.len + bytes.len();
         if needed > self.buf.len() {
@@ -1985,6 +1986,7 @@ where
     action(&mut guard)
 }
 
+#[allow(dead_code)]
 fn lock_string_builder_registry() -> Result<std::sync::MutexGuard<'static, StringBuilderRegistry>, i32> {
     string_builder_registry()
         .lock()
@@ -2035,6 +2037,47 @@ pub fn string_builder_free_fast(handle: usize) {
     with_string_builder_registry(|reg| {
         let _ = reg.discard(handle);
     });
+}
+
+/// Fast-path helper for `col.map_set(handle, key, value)`.
+///
+/// Returns 0 on success, `HOST_STATUS_NOT_FOUND` if the handle is invalid.
+/// Handle 0 is a sentinel for "no map" and is a no-op (returns NOT_FOUND).
+pub fn map_set_fast(handle: usize, key: i64, value: i64) -> i32 {
+    with_map_registry(|reg| match reg.maps.get_mut(&handle) {
+        Some(m) => {
+            m.data.insert(key, value);
+            HOST_STATUS_SUCCESS
+        }
+        None => HOST_STATUS_NOT_FOUND,
+    })
+}
+
+/// Fast-path helper for `col.map_get(handle, key)`.
+///
+/// Returns the value for the key, or 0 if the key is absent or the handle
+/// is invalid. Note: cannot distinguish "stored value is 0" from "key
+/// absent / invalid handle".
+pub fn map_get_fast(handle: usize, key: i64) -> i64 {
+    with_map_registry(|reg| {
+        reg.maps
+            .get(&handle)
+            .and_then(|m| m.data.get(&key).copied())
+            .unwrap_or(0)
+    })
+}
+
+/// Fast-path helper for `col.map_contains(handle, key)`.
+///
+/// Returns 1 if the key is present in the map, 0 otherwise (including
+/// invalid handle).
+pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
+    with_map_registry(|reg| {
+        reg.maps
+            .get(&handle)
+            .map(|m| if m.data.contains_key(&key) { 1 } else { 0 })
+            .unwrap_or(0)
+    })
 }
 
 impl ListRegistry {
@@ -16233,7 +16276,7 @@ extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i
         Err(status) => return status,
     };
     let task_id = args[0] as usize;
-    let mut registry = match lock_concurrent_registry() {
+    let registry = match lock_concurrent_registry() {
         Ok(registry) => registry,
         Err(status) => return status,
     };

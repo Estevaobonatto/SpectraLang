@@ -1734,6 +1734,44 @@ fn make_std_collections() -> ModuleExports {
         pub_fn(vec![Type::Int, fn_int_int_to_int], Type::Unit),
     );
 
+    // ── map API (R-3123: expose existing runtime HashMap<i64, i64>) ──────────
+    // map_new() -> int  (returns handle; 0 on internal error)
+    exports
+        .functions
+        .insert("map_new".to_string(), pub_fn(vec![], Type::Int));
+    // map_set(handle: int, key: int, value: int) -> unit
+    exports.functions.insert(
+        "map_set".to_string(),
+        pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Unit),
+    );
+    // map_get(handle: int, key: int) -> int  (0 if key absent or handle invalid)
+    exports.functions.insert(
+        "map_get".to_string(),
+        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+    );
+    // map_contains(handle: int, key: int) -> int  (1 if present, 0 otherwise)
+    exports.functions.insert(
+        "map_contains".to_string(),
+        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+    );
+    // map_remove(handle: int, key: int) -> int  (removed value, 0 if absent)
+    exports.functions.insert(
+        "map_remove".to_string(),
+        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+    );
+    // map_len(handle: int) -> int
+    exports
+        .functions
+        .insert("map_len".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // map_clear(handle: int) -> unit
+    exports
+        .functions
+        .insert("map_clear".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+    // map_free(handle: int) -> unit
+    exports
+        .functions
+        .insert("map_free".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+
     // type aliases
     exports.types.insert(
         "List".to_string(),

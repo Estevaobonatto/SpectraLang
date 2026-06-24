@@ -502,6 +502,45 @@ pub extern "C" fn spectra_rt_builder_free(handle: SpectraHostValue) {
     crate::stdlib::string_builder_free_fast(handle as usize)
 }
 
+/// Fast ABI entry for `col.map_set(handle, key, value)`.
+///
+/// Skips the generic host-call dispatch. Called directly from JIT code
+/// when the backend inlines the `map_set` call. Returns `HOST_STATUS_SUCCESS`
+/// (0) on success or `HOST_STATUS_NOT_FOUND` if the handle is invalid.
+#[no_mangle]
+pub extern "C" fn spectra_rt_map_set_fast(
+    handle: SpectraHostValue,
+    key: SpectraHostValue,
+    value: SpectraHostValue,
+) -> i32 {
+    crate::stdlib::map_set_fast(handle as usize, key, value)
+}
+
+/// Fast ABI entry for `col.map_get(handle, key)`.
+///
+/// Skips the generic host-call dispatch. Returns the value for the key,
+/// or 0 if the key is absent or the handle is invalid. Cannot distinguish
+/// "stored value is 0" from "key absent / invalid handle".
+#[no_mangle]
+pub extern "C" fn spectra_rt_map_get_fast(
+    handle: SpectraHostValue,
+    key: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::map_get_fast(handle as usize, key)
+}
+
+/// Fast ABI entry for `col.map_contains(handle, key)`.
+///
+/// Skips the generic host-call dispatch. Returns 1 if the key is present
+/// in the map, 0 otherwise (including invalid handle).
+#[no_mangle]
+pub extern "C" fn spectra_rt_map_contains_fast(
+    handle: SpectraHostValue,
+    key: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::map_contains_fast(handle as usize, key)
+}
+
 /// Releases a manual allocation previously returned by `spectra_rt_manual_alloc`.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {

@@ -44,6 +44,9 @@ pub struct AotCodeGenerator {
     builder_len_fast_func: FuncId,
     builder_finish_fast_func: FuncId,
     builder_free_fast_func: FuncId,
+    map_set_fast_func: FuncId,
+    map_get_fast_func: FuncId,
+    map_contains_fast_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -173,6 +176,35 @@ impl AotCodeGenerator {
             .declare_function("spectra_rt_builder_free", Linkage::Import, &builder_free_sig)
             .expect("Failed to declare builder_free fast import");
 
+        let mut map_set_sig = module.make_signature();
+        map_set_sig.params.push(AbiParam::new(types::I64));
+        map_set_sig.params.push(AbiParam::new(types::I64));
+        map_set_sig.params.push(AbiParam::new(types::I64));
+        map_set_sig.returns.push(AbiParam::new(types::I32));
+        let map_set_fast_func = module
+            .declare_function("spectra_rt_map_set_fast", Linkage::Import, &map_set_sig)
+            .expect("Failed to declare map_set fast import");
+
+        let mut map_get_sig = module.make_signature();
+        map_get_sig.params.push(AbiParam::new(types::I64));
+        map_get_sig.params.push(AbiParam::new(types::I64));
+        map_get_sig.returns.push(AbiParam::new(types::I64));
+        let map_get_fast_func = module
+            .declare_function("spectra_rt_map_get_fast", Linkage::Import, &map_get_sig)
+            .expect("Failed to declare map_get fast import");
+
+        let mut map_contains_sig = module.make_signature();
+        map_contains_sig.params.push(AbiParam::new(types::I64));
+        map_contains_sig.params.push(AbiParam::new(types::I64));
+        map_contains_sig.returns.push(AbiParam::new(types::I64));
+        let map_contains_fast_func = module
+            .declare_function(
+                "spectra_rt_map_contains_fast",
+                Linkage::Import,
+                &map_contains_sig,
+            )
+            .expect("Failed to declare map_contains fast import");
+
         Self {
             module,
             ctx,
@@ -191,6 +223,9 @@ impl AotCodeGenerator {
             builder_len_fast_func,
             builder_finish_fast_func,
             builder_free_fast_func,
+            map_set_fast_func,
+            map_get_fast_func,
+            map_contains_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -384,6 +419,9 @@ impl AotCodeGenerator {
                 self.builder_len_fast_func,
                 self.builder_finish_fast_func,
                 self.builder_free_fast_func,
+                self.map_set_fast_func,
+                self.map_get_fast_func,
+                self.map_contains_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
