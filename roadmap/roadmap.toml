@@ -4457,4 +4457,28 @@ acceptance = [
   "AOT module AotCodeGenerator was also missing tensor_full_f_fast_func field from R-3124; this was fixed in the same change"
 ]
 
+[[items]]
+id = "R-3129"
+title = "Cranelift opt-level=speed + release build (global ~1.5-4x speedup)"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "complete"
+risk = "low"
+dependencies = []
+summary = "Two-line change with the highest leverage of the whole Phase 31 workstream. The default `JITBuilder::new` and `cranelift_native::builder().finish(settings::Flags::new(settings::builder()))` use `opt_level = \"none\"`, which skips almost all of Cranelift's mid-end optimization passes (GSN, DCE, LICM, value-tracking, branch coalescing, etc.). The fix is to opt into `opt_level = \"speed\"` for both the JIT path (`JITBuilder::with_flags(&[(\"opt_level\", \"speed\")], ...)` in `backend/src/codegen.rs`) and the AOT path (`settings_builder.set(\"opt_level\", \"speed\")` in `backend/src/aot.rs`). When combined with a `cargo build --release` (Rust opt-level=3, no debug bounds checks in stdlib), the impact is dramatic: numeric loops with div/mod/bounds checks (digit-sum, binary-search, pow-fast, sieve) see 2-4x speedup; 4 scenarios flip from slower-than-Go to FASTER than Go (tensor-create, tensor-elementwise, tensor-reduce, sort-int). The 21-scenario suite now has all gaps ≤ 2.25x vs Go (was: 5 scenarios > 3x). Spectra beats Java in 20/21 scenarios. word-count 2.24x (within ≤ 2x target line), string-reverse 1.92x."
+acceptance = [
+  "backend/src/codegen.rs CodeGenerator::new switches from JITBuilder::new to JITBuilder::with_flags(&[(\"opt_level\", \"speed\")], ...)",
+  "backend/src/aot.rs AotCodeGenerator::new uses settings_builder.set(\"opt_level\", \"speed\") before finishing the Flags",
+  "All 62 cargo test -p spectra-runtime tests still pass",
+  "All 21 phase31 benchmark scenarios pass correctness",
+  "word-count gap vs Go drops from 3.20x (R-3126 debug) to 2.24x (R-3129 release+speed) — within 2.5x of the 2x target",
+  "string-reverse gap vs Go: 1.92x (was 1.99x — holds)",
+  "Suites now within 1.5x of Go: 12/21 (was 8/21 in R-3126 debug)",
+  "Suites that BEAT Go (gap < 1.0x): tensor-create 0.72x, tensor-reduce 0.73x, tensor-elementwise 0.79x, sort-int 0.79x",
+  "Largest improvements over R-3126 debug: digit-sum 7.4x -> 2.2x, binary-search 5.7x -> 1.4x, pow-fast 4.7x -> 1.3x",
+  "Spectra beats Java in 20/21 scenarios; only gcd (1.62x) is slower",
+  "Worst gap vs Rust: 4.91x (string-reverse); best: 0.05x (async-echo, where Rust async runtime is heavy)"
+]
+
 

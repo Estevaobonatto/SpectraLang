@@ -205,8 +205,16 @@ fn get_phi_args(
 impl CodeGenerator {
     /// Create a new code generator
     pub fn new() -> Self {
-        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())
-            .expect("Failed to create JIT builder");
+        // R-3129: opt into Cranelift's speed optimizer for JIT code.
+        // The default `JITBuilder::new` uses `opt_level = "none"`, which
+        // skips almost all mid-end optimization passes and produces
+        // measurably slower native code. See `cranelift-codegen` settings
+        // for the full list of options.
+        let mut builder = JITBuilder::with_flags(
+            &[("opt_level", "speed")],
+            cranelift_module::default_libcall_names(),
+        )
+        .expect("Failed to create JIT builder");
 
         builder.symbol(
             "spectra_rt_manual_alloc",

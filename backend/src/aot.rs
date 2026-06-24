@@ -71,9 +71,18 @@ pub struct AotCodeGenerator {
 impl AotCodeGenerator {
     /// Create a new AOT code generator targeting the host machine.
     pub fn new() -> Self {
+        // R-3129: opt into Cranelift's speed optimizer. The default
+        // builder leaves `opt_level = "none"`, which skips almost all of
+        // Cranelift's mid-end passes (GSN, DCE, LICM, value-tracking,
+        // branch coalescing, etc.) and produces measurably slower code.
+        // See `cranelift_codegen::settings` for the full list of options.
+        let mut settings_builder = settings::builder();
+        settings_builder
+            .set("opt_level", "speed")
+            .expect("failed to set cranelift opt_level to speed");
         let isa = cranelift_native::builder()
             .expect("Failed to create native ISA builder")
-            .finish(settings::Flags::new(settings::builder()))
+            .finish(settings::Flags::new(settings_builder))
             .expect("Failed to build ISA");
 
         let builder = ObjectBuilder::new(

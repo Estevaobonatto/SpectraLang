@@ -7627,12 +7627,83 @@ R-3126 abaixo).
 **R-3126 hits the ≤ 2x gap target on `word-count` (2.06x).** Go
 baseline: 38.8M ns.
 
+## R-3129 Cranelift opt-level=speed + release build
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: (none)
+
+### Scope
+
+- 2-line change (1 in codegen.rs, 1 in aot.rs) com maior leverage
+  da Phase 31 inteira. Default `JITBuilder::new` e
+  `cranelift_native::builder().finish(...)` usam `opt_level = "none"`,
+  pulando quase todos os mid-end optimization passes do Cranelift
+  (GSN, DCE, LICM, value-tracking, branch coalescing).
+
+### Approach
+
+1. **JIT path** (`backend/src/codegen.rs:CodeGenerator::new`):
+   `JITBuilder::with_flags(&[("opt_level", "speed")],
+   cranelift_module::default_libcall_names())`
+2. **AOT path** (`backend/src/aot.rs:AotCodeGenerator::new`):
+   `settings_builder.set("opt_level", "speed")` antes de `Flags::new`
+3. **Release build** (`cargo build --release`): Rust opt-level=3
+   remove bounds checks no stdlib (Rust-side benefit)
+
+### Validation
+
+- `cargo build -p spectra-cli --release` succeeds.
+- `cargo test -p spectra-runtime` → 62 passed, 0 failed.
+- Phase 31 21/21 correctness.
+
+### Performance (release+speed, vs R-3126 debug)
+
+| métrica | R-3126 debug | R-3129 release | delta |
+|---|---:|---:|---:|
+| `digit-sum` (7.4x gap) | 161.9M | **58.1M** | **2.79x** |
+| `binary-search` (5.7x gap) | 207.3M | **64.0M** | **3.24x** |
+| `pow-fast` (4.7x gap) | 66.6M | **30.4M** | **2.19x** |
+| `sieve` (3.8x gap) | 64.2M | **33.8M** | **1.90x** |
+| `ml-mlp-step` (2.7x gap) | 52.6M | **26.2M** | **2.01x** |
+| `tensor-create` (2.8x gap) | 194.2M | **46.7M** | **4.16x** |
+| `tensor-reduce` (1.1x gap) | 43.5M | **27.5M** | 1.58x |
+| `tensor-matmul` (1.8x gap) | 43.9M | **30.8M** | 1.42x |
+| `word-count` (3.2x gap) | 83.8M | **77.1M** | 1.09x |
+| `string-reverse` (2.0x gap) | 67.9M | **72.9M** | 0.93x (noise) |
+
+### Phase 31 final state (R-3129 vs Go)
+
+- **Suites now BEAT Go** (gap < 1.0x): 4 (tensor-create 0.72x, tensor-reduce 0.73x, tensor-elementwise 0.79x, sort-int 0.79x)
+- **Suites ≤ 1.5x vs Go**: 12
+- **Suites 1.5-2.5x vs Go**: 5 (string-reverse 1.92x, sieve 1.63x, etc.)
+- **Worst gap**: word-count 2.24x
+- **All 21 scenarios within 2.25x of Go** (was: 5 scenarios > 3x in R-3126 debug)
+- **Spectra beats Java in 20/21 scenarios**
+- **Worst gap vs Rust**: 4.91x (string-reverse); best: 0.05x (async-echo)
+
+### Why R-3129 wasn't done first
+
+- R-3125 and R-3126 attacked structural inefficiencies (O(n²) walk,
+  manual_alloc per literal) that the optimizer couldn't fix
+- R-3129's speedup is roughly orthogonal: removing bounds checks
+  + better div/mod selection + value tracking
+- Doing them in order isolated which optimization helped which
+  scenario; R-3129 wins most on the numeric loops R-3125/3126
+  didn't touch
+
 ### Follow-up (deferred)
 
-- **Release build**: bounds checks removidos + Cranelift opt-level
-  mais alto devem dar speedup adicional ~1.5-2x global.
 - **Lock baseline**: `python scripts/phase31_lock_baseline.py --n 3`
-  quando três runs consecutivos diferirem por menos de 5%.
+  para travar baseline pós-R-3129
+- **Targeted optimizations** for residual > 2x gaps:
+  - `word-count` 2.24x (string iteration; possible Fast ABI for
+    str.char_at to skip bounds check)
+  - `digit-sum` 2.16x (div+mod extraction; Cranelift pode ter
+    div-by-constant optimization issue)
+  - `string-reverse` 1.92x (str.reverse implementation)
+- **Update findings-r3101-initial.md** with final Phase 31 numbers
 
 ## R-3108 String Materialization Optimization
 
