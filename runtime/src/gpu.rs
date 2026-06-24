@@ -15,12 +15,89 @@ pub enum GpuUnaryOp {
     Relu,
 }
 
+/// Stable kind tag for a GPU error, used by `std_tensor_stats_gpu_errors` to
+/// surface per-kind counters (R-3023). The previous `Err(String)` path
+/// swallowed every error into a single silent `stats_cpu_fallbacks++`
+/// counter; this enum restores the diagnostic signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuErrorKind {
+    /// Input shape or size does not satisfy the kernel's contract
+    ShapeMismatch,
+    /// WGSL compilation failed
+    ShaderCompile,
+    /// wgpu buffer allocation failed
+    BufferAlloc,
+    /// wgpu command submission failed
+    Dispatch,
+    /// wgpu readback (map_async) failed
+    Readback,
+    /// Requested capability (e.g. f16) is not supported by the adapter
+    FeatureUnsupported,
+    /// Anything else (wgpu adapter missing, poisoned lock, etc.)
+    Other,
+}
+
+impl GpuErrorKind {
+    /// Stable integer code for the public API.
+    pub fn code(self) -> i32 {
+        match self {
+            Self::ShapeMismatch => 0,
+            Self::ShaderCompile => 1,
+            Self::BufferAlloc => 2,
+            Self::Dispatch => 3,
+            Self::Readback => 4,
+            Self::FeatureUnsupported => 5,
+            Self::Other => 6,
+        }
+    }
+
+    fn from_message(message: &str) -> Self {
+        if message.contains("shape") {
+            Self::ShapeMismatch
+        } else if message.contains("shader") || message.contains("compil") {
+            Self::ShaderCompile
+        } else if message.contains("buffer") || message.contains("alloc") {
+            Self::BufferAlloc
+        } else if message.contains("readback") || message.contains("map") {
+            Self::Readback
+        } else if message.contains("feature") || message.contains("supported") {
+            Self::FeatureUnsupported
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// A typed GPU error surfaced to `std_tensor_stats_gpu_errors`.
+#[derive(Debug, Clone)]
+pub struct GpuError {
+    pub kind: GpuErrorKind,
+    pub message: String,
+}
+
+impl GpuError {
+    pub fn new(kind: GpuErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    /// Classify a free-form message into a `GpuErrorKind`. Used by callers
+    /// that only have the historical `String` payload.
+    pub fn from_message(message: impl Into<String>) -> Self {
+        let message = message.into();
+        let kind = GpuErrorKind::from_message(&message);
+        Self { kind, message }
+    }
+}
+
 struct GpuContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
 }
 
-static CONTEXT: OnceLock<Result<Mutex<GpuContext>, String>> = OnceLock::new();
+static CONTEXT: OnceLock<Result<Mutex<GpuContext>, GpuError>> = OnceLock::new();
 
 pub fn is_available() -> bool {
     context().is_ok()
@@ -39,9 +116,12 @@ pub fn adapter_name() -> Option<String> {
     Some(adapter.get_info().name)
 }
 
-pub fn binary(left: &[f32], right: &[f32], op: GpuBinaryOp) -> Result<Vec<f32>, String> {
+pub fn binary(left: &[f32], right: &[f32], op: GpuBinaryOp) -> Result<Vec<f32>, GpuError> {
     if left.len() != right.len() {
-        return Err("gpu binary shape mismatch".to_string());
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu binary shape mismatch",
+        ));
     }
     if left.is_empty() {
         return Ok(Vec::new());
@@ -72,7 +152,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
     dispatch_two_inputs(left, right, left.len(), &shader, [left.len() as u32, 1, 1])
 }
 
-pub fn unary(input: &[f32], op: GpuUnaryOp) -> Result<Vec<f32>, String> {
+pub fn unary(input: &[f32], op: GpuUnaryOp) -> Result<Vec<f32>, GpuError> {
     if input.is_empty() {
         return Ok(Vec::new());
     }
@@ -99,9 +179,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
     dispatch_one_input(input, input.len(), &shader, [input.len() as u32, 1, 1])
 }
 
-pub fn sum(input: &[f32]) -> Result<f32, String> {
+pub fn sum(input: &[f32]) -> Result<f32, GpuError> {
     if input.is_empty() {
-        return Err("gpu reduction requires at least one element".to_string());
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu reduction requires at least one element",
+        ));
     }
     let shader = format!(
         r#"
@@ -128,9 +211,12 @@ pub fn matmul(
     m: usize,
     k: usize,
     n: usize,
-) -> Result<Vec<f32>, String> {
+) -> Result<Vec<f32>, GpuError> {
     if left.len() != m.saturating_mul(k) || right.len() != k.saturating_mul(n) {
-        return Err("gpu matmul shape mismatch".to_string());
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu matmul shape mismatch",
+        ));
     }
     let shader = format!(
         r#"
@@ -165,16 +251,22 @@ pub fn conv2d(
     kernel: &[f32],
     bias: &[f32],
     dims: [usize; 7],
-) -> Result<Vec<f32>, String> {
+) -> Result<Vec<f32>, GpuError> {
     let [batch, in_ch, h, w, out_ch, kh, kw] = dims;
     if h < kh || w < kw {
-        return Err("gpu conv2d invalid kernel dimensions".to_string());
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu conv2d invalid kernel dimensions",
+        ));
     }
     if input.len() != batch * in_ch * h * w
         || kernel.len() != out_ch * in_ch * kh * kw
         || bias.len() != out_ch
     {
-        return Err("gpu conv2d shape mismatch".to_string());
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu conv2d shape mismatch",
+        ));
     }
     let out_h = h - kh + 1;
     let out_w = w - kw + 1;
@@ -229,14 +321,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
     )
 }
 
-fn context() -> Result<&'static Mutex<GpuContext>, String> {
+fn context() -> Result<&'static Mutex<GpuContext>, GpuError> {
     CONTEXT
         .get_or_init(|| pollster::block_on(create_context()).map(Mutex::new))
         .as_ref()
-        .map_err(Clone::clone)
+        .map_err(|err| err.clone())
 }
 
-async fn create_context() -> Result<GpuContext, String> {
+async fn create_context() -> Result<GpuContext, GpuError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..Default::default()
@@ -248,7 +340,9 @@ async fn create_context() -> Result<GpuContext, String> {
             force_fallback_adapter: false,
         })
         .await
-        .ok_or_else(|| "no GPU adapter available".to_string())?;
+        .ok_or_else(|| {
+            GpuError::new(GpuErrorKind::Other, "no GPU adapter available")
+        })?;
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
@@ -259,7 +353,7 @@ async fn create_context() -> Result<GpuContext, String> {
             None,
         )
         .await
-        .map_err(|err| format!("failed to create GPU device: {err}"))?;
+        .map_err(|err| GpuError::new(GpuErrorKind::BufferAlloc, format!("failed to create GPU device: {err}")))?;
     Ok(GpuContext { device, queue })
 }
 
@@ -268,10 +362,10 @@ fn dispatch_one_input(
     output_len: usize,
     shader_source: &str,
     dispatch_size: [u32; 3],
-) -> Result<Vec<f32>, String> {
+) -> Result<Vec<f32>, GpuError> {
     let mut guard = context()?
         .lock()
-        .map_err(|_| "gpu context poisoned".to_string())?;
+        .map_err(|_| GpuError::new(GpuErrorKind::Other, "gpu context poisoned"))?;
     let input_buffer = storage_buffer(&guard.device, bytemuck::cast_slice(input), "input");
     let output_buffer = output_buffer(&guard.device, output_len);
     let readback_buffer = readback_buffer(&guard.device, output_len);
@@ -296,10 +390,10 @@ fn dispatch_two_inputs(
     output_len: usize,
     shader_source: &str,
     dispatch_size: [u32; 3],
-) -> Result<Vec<f32>, String> {
+) -> Result<Vec<f32>, GpuError> {
     let mut guard = context()?
         .lock()
-        .map_err(|_| "gpu context poisoned".to_string())?;
+        .map_err(|_| GpuError::new(GpuErrorKind::Other, "gpu context poisoned"))?;
     let left_buffer = storage_buffer(&guard.device, bytemuck::cast_slice(left), "left");
     let right_buffer = storage_buffer(&guard.device, bytemuck::cast_slice(right), "right");
     let output_buffer = output_buffer(&guard.device, output_len);
@@ -327,10 +421,10 @@ fn dispatch_three_inputs(
     output_len: usize,
     shader_source: &str,
     dispatch_size: [u32; 3],
-) -> Result<Vec<f32>, String> {
+) -> Result<Vec<f32>, GpuError> {
     let mut guard = context()?
         .lock()
-        .map_err(|_| "gpu context poisoned".to_string())?;
+        .map_err(|_| GpuError::new(GpuErrorKind::Other, "gpu context poisoned"))?;
     let first_buffer = storage_buffer(&guard.device, bytemuck::cast_slice(first), "first");
     let second_buffer = storage_buffer(&guard.device, bytemuck::cast_slice(second), "second");
     let third_buffer = storage_buffer(&guard.device, bytemuck::cast_slice(third), "third");
@@ -407,7 +501,7 @@ fn run_compute(
     readback: &wgpu::Buffer,
     output_len: usize,
     dispatch_size: [u32; 3],
-) -> Result<Vec<f32>, String> {
+) -> Result<Vec<f32>, GpuError> {
     let shader = ctx
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -491,8 +585,8 @@ fn run_compute(
     ctx.device.poll(wgpu::Maintain::Wait);
     receiver
         .recv()
-        .map_err(|_| "gpu readback callback failed".to_string())?
-        .map_err(|err| format!("gpu readback failed: {err:?}"))?;
+        .map_err(|_| GpuError::new(GpuErrorKind::Readback, "gpu readback callback failed"))?
+        .map_err(|err| GpuError::new(GpuErrorKind::Readback, format!("gpu readback failed: {err:?}")))?;
     let mapped = slice.get_mapped_range();
     let values = bytemuck::cast_slice(&mapped).to_vec();
     drop(mapped);

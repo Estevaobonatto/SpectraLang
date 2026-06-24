@@ -2020,6 +2020,7 @@ fn make_std_tensor() -> ModuleExports {
         ("stats_device_transfers", vec![], int.clone()),
         ("stats_gpu_kernel_ops", vec![], int.clone()),
         ("stats_cpu_fallbacks", vec![], int.clone()),
+        ("stats_gpu_errors", vec![int.clone()], int.clone()),
         ("stats_graph_nodes", vec![], int.clone()),
         ("stats_lifetime_records", vec![], int.clone()),
         ("stats_released_lifetimes", vec![], int.clone()),

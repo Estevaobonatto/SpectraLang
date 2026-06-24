@@ -1606,23 +1606,25 @@ to an integer-typed local and then compared/returned through invalid IR.
 
 ## R-702 GPU Backend MVP
 
-- Status: `complete`
+- Status: `in_progress` (reopened 2026-06-24; see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md` Block 0)
 - Priority: `P0`
 - Owner: `numerics`
-- Dependencies: `R-701`, `R-401`
+- Dependencies: `R-701`, `R-401`, `R-3021`, `R-3031`, `R-3032`, `R-3051`
 
 ### Scope
 
 - one production-grade accelerator backend
 - elementwise/reduction/matmul support
+- demonstrated speedup at realistic sizes
 
 ### Acceptance
 
-- same program semantics on CPU and GPU
-- GPU benchmark records CPU/GPU timings on supported hardware
-- no speedup requirement for this baseline; correctness is the completion gate
+- same program semantics on CPU and GPU within documented tolerance
+- GPU benchmark records CPU/GPU timings AND a measured speedup ratio > 1.0x at the documented workload size
+- speedup, not just correctness, is the completion gate for the production baseline
+- all R-30xx GPU work blocks must be closed
 
-### Completed
+### Completed so far
 
 - Optional Cargo feature `gpu` enables a real `wgpu` compute backend.
 - Device code `6` is the `wgpu` accelerator backend; it is available only when the feature is enabled and an adapter is detected.
@@ -1631,29 +1633,41 @@ to an integer-typed local and then compared/returned through invalid IR.
 - `tests/validation/75_tensor_phase7_gpu.spectra` validates semantic parity when GPU is available and skips safely in default builds.
 - `runtime/examples/tensor_phase7_gpu_bench.rs` records CPU/GPU timings and semantic parity on supported hardware.
 
+### Remaining before completion
+
+The previously stated "no speedup requirement" gate was honest about a baseline, not a production target. The current WGPU shaders are naive: `sum` uses `workgroup_size(1)` (serial inside one workgroup), `matmul` uses one thread per output element with no tiling, `conv2d` uses seven nested loops per thread. On most realistic sizes these kernels are slower than the CPU scalar reference because of per-op host transfer overhead. Closing the gap requires the R-30xx blocks in the GPU production plan: real device memory residency (R-3051..R-3053), parallel reduction (R-3031), tiled matmul (R-3032), im2col conv2d (R-3033), GPU backward kernels (R-3061..R-3067), and the cross-lang GPU benchmark (R-3101-GPU).
+
 ## R-703 Mixed Precision
 
-- Status: `complete`
+- Status: `in_progress` (reopened 2026-06-24)
 - Priority: `P1`
 - Owner: `ml`
-- Dependencies: `R-702`
+- Dependencies: `R-702`, `R-3071`, `R-3072`, `R-3073`
 
 ### Scope
 
-- `f16`/`bf16`
+- `f16`/`bf16` quantization on host
+- `f16`/`bf16` WGSL execution on the GPU
 - autocast or explicit mixed precision
-- loss scaling
+- loss scaling on the GPU
 
 ### Acceptance
 
 - mixed precision training example converges on supported hardware
+- f16/bf16 WGSL kernels execute on the GPU with measured speedup
+- autocast routes selected ops through the f16/bf16 GPU path
+- loss scaling runs on the GPU when autocast is on
 
-### Completed
+### Completed so far
 
 - `std.tensor.precision(handle)` exposes precision metadata.
 - `std.tensor.to_precision(handle, code)` supports `0` f64, `1` f32, `2` f16, and `3` bf16 quantization for float tensors.
 - `std.ml.unscale_grad(parameter, scale)` supports loss-scaling workflows.
 - `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision training loop with loss scaling and gradient unscale.
+
+### Remaining before completion
+
+The host quantization path is complete, but the GPU path is not. All current WGSL shaders hardcode `array<f32>`. There is no f16 or bf16 buffer in `runtime/src/gpu.rs`. Closing the gap requires the R-3071 (f16/bf16 WGSL kernels), R-3072 (autocast / precision scope), and R-3073 (GPU loss scaling) items in the GPU production plan.
 
 ---
 
@@ -2715,10 +2729,10 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1603 Production GPU Backend
 
-- Status: `complete`
+- Status: `in_progress` (reopened 2026-06-24; see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md` Block 0)
 - Priority: `P0`
 - Owner: `numerics`
-- Dependencies: `R-702`, `R-1601`, `R-1503`
+- Dependencies: `R-702`, `R-1601`, `R-1503`, plus the full R-30xx GPU plan
 
 ### Scope
 
@@ -2726,14 +2740,17 @@ the next tracked development cycle toward a broader AI/ML platform.
 - CPU fallback
 - device capability detection
 - accelerator diagnostics
+- demonstrated speedup at realistic sizes
 
 ### Acceptance
 
-- GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels.
+- GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels (R-3061..R-3067).
 - CPU fallback remains available and produces equivalent results within tolerance.
-- Device capability detection and error reporting are documented and tested.
+- Device capability detection and error reporting are documented and tested (R-3023, R-3024).
+- Device residency avoids per-op host round-trip (R-3051, R-3052, R-3053).
+- Real measured speedup > 1.0x at realistic sizes on `gpu-mlp-train`, `gpu-matmul-1024`, `gpu-conv2d-cnn`, `gpu-attention` (R-3101-GPU).
 
-### Completed Evidence
+### Completed so far
 
 - `runtime/src/stdlib/mod.rs` exposes `device_status`, `stats_gpu_kernel_ops`, and `stats_cpu_fallbacks`, and records successful WGPU kernels separately from CPU fallbacks.
 - Optional WGPU kernels for elementwise ops, unary ops, reductions, `matmul`, and `std.ml.conv2d` fall back to CPU on dispatch failure instead of returning an internal operation failure.
@@ -2741,6 +2758,10 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `tests/validation/91_tensor_phase16_gpu_backend.spectra` validates the public API and skips accelerator-only execution safely when WGPU is unavailable.
 - `scripts/validate_r1603_gpu_backend.py` runs the default CPU diagnostics test and the optional `--features gpu` backend test.
 - `run_tests.ps1` includes the `phase16-gpu` gate.
+
+### Remaining before completion
+
+The completion evidence lists the public API surface, but several of the acceptance bullets are not actually met: (a) `autodiff-required backward kernels` is not implemented — the autograd pass runs entirely on the host, the GPU `AutogradNode` creators are just f64 mirrors of the input; (b) `device capability detection and error reporting` is reduced to silent CPU fallback with no typed error and no per-kind error counter; (c) `transfer` is a tag flip, not a real upload. Closing the gap requires the R-30xx GPU plan, in particular R-3021 (real upload), R-3022 (real `sync`), R-3023 (typed errors), R-3024 (honest reserved-device semantics), R-3051..R-3053 (device memory), R-3061..R-3067 (GPU backward), and R-3101-GPU (measured speedup).
 
 ---
 
@@ -2874,10 +2895,10 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ## R-1802 Transformer and LLM Runtime Primitives
 
-- Status: `complete`
+- Status: `in_progress` (reopened 2026-06-24)
 - Priority: `P0`
 - Owner: `ml`
-- Dependencies: `R-1603`, `R-1801`
+- Dependencies: `R-1603`, `R-1801`, `R-3036`, `R-3037`, `R-3041`, `R-3043`, `R-3044`, `R-3066`, `R-3067`
 
 ### Scope
 
@@ -2888,14 +2909,17 @@ the next tracked development cycle toward a broader AI/ML platform.
 - GELU/SwiGLU
 - KV cache
 - logits sampling
+- all of the above with working GPU forward AND backward paths
 
 ### Acceptance
 
-- attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested
+- attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested (host baseline met)
+- attention, layer norm, embedding lookup, and softmax also execute on the GPU with backward kernels (R-3044, R-3066, R-3067)
 - toy transformer example uses real runtime primitives rather than placeholder math
 - CPU fallback and accelerator path produce equivalent outputs within tolerance
+- transformer training example measures GPU speedup > 1.0x at the documented batch and sequence size
 
-### Completed
+### Completed so far
 
 - `std.ml` exposes `embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention`, `kv_cache_new`, `kv_cache_append`, `kv_cache_keys`, `kv_cache_values`, `kv_cache_len`, and `logits_sample`.
 - Runtime implementations operate on real `std.tensor` handles and validate dtype/shape contracts before execution.
@@ -2904,6 +2928,10 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `tests/validation/96_ml_phase18_transformer_primitives.spectra` validates the public language API.
 - `scripts/validate_r1802_transformer_primitives.py` runs runtime, public Spectra, and AI example validation.
 - `run_tests.ps1` includes the `phase18-transformers` gate.
+
+### Remaining before completion
+
+The CPU implementation is real and validated. The acceptance line "CPU fallback and accelerator path produce equivalent outputs within tolerance" was met by the existing structure only because no accelerator path exists for these ops: attention, layer norm, embedding, and softmax run entirely on the host. Closing the gap requires R-3043 (embedding GPU), R-3044 (attention GPU), R-3066 (layer norm + softmax GPU backward), and R-3067 (embedding GPU backward).
 
 ## R-1803 Tokenization, Embeddings, and RAG Toolkit
 

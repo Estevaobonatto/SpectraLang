@@ -1,6 +1,6 @@
 # R-1603 Production GPU Backend
 
-Status: complete for the current optional WGPU production baseline.
+Status: in progress (reopened 2026-06-24, see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md`).
 
 ## Contract
 
@@ -54,8 +54,20 @@ GPU kernel failures no longer abort the operation when a CPU equivalent exists. 
 - `std.tensor.stats_cpu_fallbacks()`: accelerator kernel failures that used CPU fallback
 - `std.tensor.stats_device_transfers()`: explicit device transfers
 - `std.tensor.kernel_strategy()`: active dispatch family (`5` when WGPU is available)
+- `std.tensor.stats_gpu_errors(kind)`: per-kind GPU error counter (R-3023). `kind` is one of:
+  - `0` ShapeMismatch
+  - `1` ShaderCompile
+  - `2` BufferAlloc
+  - `3` Dispatch
+  - `4` Readback
+  - `5` FeatureUnsupported
+  - `6` Other
 
 CPU fallback uses the same scalar kernels as the default runtime and is validated against the existing numerical tolerance policy from R-1503.
+
+## Device Code Semantics (R-3024)
+
+`device_status(0)` returns `0` (CPU available). `device_status(6)` returns `0` if a real WGPU adapter is detected, or `1` (backend exists but unavailable in this build/host) when the optional `gpu` feature is off or no adapter is found. `device_status(1..=5)` returns `HOST_STATUS_INVALID_ARGUMENT` — the historical "reserved but not implemented" status code `2` was misleading and has been removed. Adding a real CUDA/ROCm/Metal/DirectML/Vulkan backend will require updating the `is_implemented` predicate in `runtime/src/stdlib/mod.rs` and ADR 0004.
 
 ## Validation
 

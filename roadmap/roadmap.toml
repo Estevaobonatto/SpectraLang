@@ -821,14 +821,15 @@ title = "GPU Backend MVP"
 phase = "phase_7"
 owner = "numerics"
 priority = "P0"
-status = "complete"
+status = "in_progress"
 risk = "medium"
-dependencies = ["R-701", "R-401"]
-summary = "Deliver one production-grade accelerator backend for core tensor ops."
+dependencies = ["R-701", "R-401", "R-3021", "R-3031", "R-3032", "R-3051"]
+summary = "Deliver one production-grade accelerator backend for core tensor ops with demonstrated speedup over the CPU scalar path at realistic sizes."
 acceptance = [
-  "same semantics on CPU and GPU",
-  "GPU benchmark records CPU/GPU timings on supported hardware",
-  "no speedup requirement for this baseline; correctness is the completion gate"
+  "same semantics on CPU and GPU within documented tolerance",
+  "GPU benchmark records CPU/GPU timings AND a measured speedup ratio > 1.0x at the documented workload size",
+  "speedup, not just correctness, is the completion gate for the production baseline",
+  "all R-30xx GPU work blocks must be closed (R-3021..R-3044, R-3051..R-3053, R-3061..R-3067, R-3071..R-3073, R-3081..R-3083, R-3091..R-3093, R-3130)"
 ]
 
 [[items]]
@@ -837,14 +838,16 @@ title = "Mixed Precision"
 phase = "phase_7"
 owner = "ml"
 priority = "P1"
-status = "complete"
+status = "in_progress"
 risk = "medium"
-dependencies = ["R-702"]
-summary = "Support f16/bf16 execution and mixed-precision training."
+dependencies = ["R-702", "R-3071", "R-3072", "R-3073"]
+summary = "Support f16/bf16 execution on the accelerator backend and mixed-precision training end-to-end."
 acceptance = [
-  "f16/bf16 tensor quantization is implemented",
-  "loss scaling and gradient unscale are implemented",
-  "mixed precision training example converges on supported hardware or CPU fallback"
+  "f16/bf16 tensor quantization is implemented (R-703 baseline; already met on host)",
+  "f16/bf16 WGSL kernels execute on the GPU with measured speedup (R-3071)",
+  "autocast or explicit mixed precision API routes selected ops through the f16/bf16 GPU path (R-3072)",
+  "loss scaling and gradient unscale run on the GPU when autocast is on (R-3073)",
+  "mixed precision training example converges on supported hardware with measured speedup vs f32"
 ]
 
 [[items]]
@@ -1441,14 +1444,17 @@ title = "Production GPU Backend"
 phase = "phase_16"
 owner = "numerics"
 priority = "P0"
-status = "complete"
+status = "in_progress"
 risk = "high"
-dependencies = ["R-702", "R-1601", "R-1503"]
-summary = "Move beyond the baseline optional GPU path toward production accelerator execution for core training/inference ops."
+  dependencies = ["R-702", "R-1601", "R-1503", "R-3021", "R-3022", "R-3023", "R-3025", "R-3031", "R-3032", "R-3033", "R-3042", "R-3044", "R-3051", "R-3052", "R-3053", "R-3061", "R-3062", "R-3063", "R-3064", "R-3065", "R-3066", "R-3130"]
+summary = "Move beyond the baseline optional GPU path toward production accelerator execution for core training/inference ops with real backward kernels, device residency, mixed precision, and measured speedup on realistic workloads."
 acceptance = [
-  "GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels",
+  "GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels (R-3061..R-3067)",
   "CPU fallback remains available and produces equivalent results within tolerance",
-  "device capability detection and error reporting are documented and tested"
+  "device capability detection and error reporting are documented and tested (R-3023, R-3024)",
+  "device residency avoids per-op host round-trip (R-3051, R-3052, R-3053)",
+  "real measured speedup > 1.0x at realistic sizes on gpu-mlp-train, gpu-matmul-1024, gpu-conv2d-cnn, gpu-attention (R-3130)",
+  "the items this R-1603 depended on (R-1802 transformer primitives, R-703 mixed precision GPU) also reopened and being closed"
 ]
 
 [[items]]
@@ -1521,14 +1527,16 @@ title = "Transformer and LLM Runtime Primitives"
 phase = "phase_18"
 owner = "ml"
 priority = "P0"
-status = "complete"
+status = "in_progress"
 risk = "high"
-dependencies = ["R-1603", "R-1801"]
-summary = "Add the core primitives needed for transformer inference/training and LLM-oriented workloads."
+dependencies = ["R-1603", "R-1801", "R-3036", "R-3037", "R-3041", "R-3043", "R-3044", "R-3066", "R-3067"]
+summary = "Add the core primitives needed for transformer inference/training and LLM-oriented workloads, with both a real CPU implementation AND a working accelerator path."
 acceptance = [
-  "attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested",
+  "attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested (R-1802 baseline; met on host)",
+  "attention, layer norm, embedding lookup, and softmax also execute on the GPU with backward kernels (R-3044, R-3066, R-3067)",
   "toy transformer example uses real runtime primitives rather than placeholder math",
-  "CPU fallback and accelerator path produce equivalent outputs within tolerance"
+  "CPU fallback and accelerator path produce equivalent outputs within tolerance",
+  "transformer training example measures GPU speedup > 1.0x at the documented batch and sequence size"
 ]
 
 [[items]]
@@ -3976,6 +3984,610 @@ acceptance = [
   "gradient rules are registered, versioned, and validated for scalar, vector, matrix, and broadcasted tensor cases",
   "unsupported operations fail during semantic or midend validation with stable diagnostics",
   "training fixtures compare compiler-native gradients against finite-difference or reference gradients"
+]
+
+# --- Block 1: Honest runtime semantics (R-30xx GPU plan) ---
+[[items]]
+id = "R-3021"
+title = "Real device upload on to_device"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-702", "R-1603"]
+summary = "std_tensor_to_device must actually upload the tensor to the GPU buffer pool, not just flip a device field on a CPU-backed tensor."
+acceptance = [
+  "after to_device(handle, 6) the tensor carries a resident DeviceBuffer",
+  "subsequent GPU ops read from the resident buffer instead of re-uploading via materialize()",
+  "host mirror remains valid so materialize() still works",
+  "new test: tensor_runtime_r3021_real_upload"
+]
+
+[[items]]
+id = "R-3022"
+title = "Real tensor.sync on the device queue"
+phase = "phase_30"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3021", "R-3053"]
+summary = "tensor.sync(handle) must block on the device queue (poll until pending commands complete) for device tensors, not be a no-op."
+acceptance = [
+  "sync(handle) for device=6 waits for the wgpu queue",
+  "sync(handle) for device=0 is identity",
+  "sync on a freed handle returns HOST_STATUS_NOT_FOUND"
+]
+
+[[items]]
+id = "R-3023"
+title = "Typed GPU errors and stats_gpu_errors"
+phase = "phase_30"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-702", "R-1603"]
+summary = "Replace the silent Err(_) -> note_cpu_fallback() path with typed GpuError values, surfaced through std_tensor_stats_gpu_errors(kind) for diagnostics."
+acceptance = [
+  "GpuError { kind: ShaderCompile|BufferAlloc|Dispatch|Readback|ShapeMismatch|FeatureUnsupported, message }",
+  "std_tensor_stats_gpu_errors(kind) -> int returns per-kind counts",
+  "deliberately bad inputs (0-element matmul, oversized buffer) record an error and still produce a CPU fallback result, no panic"
+]
+
+[[items]]
+id = "R-3024"
+title = "Honest reserved-device semantics for codes 1..=5"
+phase = "phase_30"
+owner = "frontend"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-1603"]
+summary = "device_status(1..=5) must return HOST_STATUS_INVALID_ARGUMENT (no such backend in this build), not a fake 'reserved but not implemented' code 2 that misleads callers into waiting for a CUDA/ROCm/Metal/etc. backend that does not exist."
+acceptance = [
+  "device_status(1..=5) returns HOST_STATUS_INVALID_ARGUMENT",
+  "device_available(1..=5) returns 0",
+  "ADR 0004 and docs/architecture/r1603-production-gpu-backend.md updated to match",
+  "R-1603 GPU validation test still passes with the new semantics"
+]
+
+[[items]]
+id = "R-3025"
+title = "Honest GPU benchmark report"
+phase = "phase_30"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-3101"]
+summary = "Extend runtime/examples/tensor_phase7_gpu_bench.rs to report the adapter name and limits, transfer bytes per kernel, kernel duration via wgpu timestamp queries, and only claim 'GPU faster' when actual measured speedup > 1.0x at the measured size. Emit JSON."
+acceptance = [
+  "JSON report with adapter name, adapter limits, host->device bytes, device->host bytes, kernel duration per op",
+  "speedup claim is computed vs the CPU scalar reference and only printed when > 1.0x",
+  "report is read by the cross-lang GPU suite (R-3130)"
+]
+
+# --- Block 2: Correct and fast WGSL kernels ---
+[[items]]
+id = "R-3031"
+title = "Parallel sum reduction on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-702", "R-1603"]
+summary = "Replace the naive workgroup_size(1) sum shader with a two-stage parallel reduction using workgroup-shared memory and tree reduction."
+acceptance = [
+  "workgroup-shared memory tree reduction in WGSL",
+  "speedup >= 5x vs CPU scalar for N >= 8192 on a discrete GPU"
+]
+
+[[items]]
+id = "R-3032"
+title = "Tiled matmul on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-702", "R-1603"]
+summary = "Replace the naive 1-thread-per-output matmul with a 16x16 shared-memory tiled matmul (TILE=16, workgroup_size=(16,16))."
+acceptance = [
+  "WGSL tiled matmul with shared-memory tiles",
+  "speedup >= 10x vs CPU scalar at M=N=K=512",
+  "speedup >= 50x vs CPU scalar at 1024x1024"
+]
+
+[[items]]
+id = "R-3033"
+title = "Im2col + tiled conv2d on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3032", "R-702", "R-1603"]
+summary = "Replace the 7-nested-loop-per-thread conv2d with im2col transform + tiled GEMM that reuses R-3032. Support stride, dilation, and padding via im2col parameters."
+acceptance = [
+  "im2col on device, fused into the GEMM",
+  "stride, dilation, padding covered by tests",
+  "speedup vs CPU scalar at documented CNN shapes"
+]
+
+[[items]]
+id = "R-3034"
+title = "Stat reductions: mean, max, min, argmax, argmin on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3031"]
+summary = "Add WGSL kernels and host calls for mean, max, min, argmax, argmin. Same two-stage parallel reduction pattern as R-3031."
+acceptance = [
+  "new host calls: std_tensor_mean, std_tensor_max, std_tensor_min, std_tensor_argmax, std_tensor_argmin",
+  "GPU path used when input device = Wgpu and dtype = Float",
+  "CPU fallback path unchanged"
+]
+
+[[items]]
+id = "R-3035"
+title = "Axis-aware reductions on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3031", "R-3034"]
+summary = "tensor.sum_axis(handle, dim) and tensor.mean_axis(handle, dim) for arbitrary dim. Output shape = input shape with dim reduced. One workgroup per output element along the reduction axis."
+acceptance = [
+  "new host calls: std_tensor_sum_axis, std_tensor_mean_axis",
+  "shape inference matches NumPy semantics",
+  "GPU path used when input device = Wgpu and dtype = Float"
+]
+
+[[items]]
+id = "R-3036"
+title = "Softmax, log_softmax, layer norm, batch norm on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3031", "R-3034", "R-3037", "R-3038"]
+summary = "Forward WGSL kernels for softmax, log_softmax, layer_norm, batch_norm. Wired through std.ml.softmax, std.ml.layer_norm, std.ml.batch_norm."
+acceptance = [
+  "forward kernels match CPU reference within 1e-4 (f32)",
+  "GPU path used when inputs are device-resident",
+  "CPU fallback path unchanged"
+]
+
+[[items]]
+id = "R-3037"
+title = "Activations on GPU: sigmoid, tanh, gelu, silu, swish"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-702", "R-1603"]
+summary = "Extend runtime/src/gpu.rs::unary with Sigmoid, Tanh, Gelu, Silu, Swish WGSL expressions. Wire to std_tensor_sigmoid_f, std_tensor_tanh_f, std_ml_gelu, std_ml_silu."
+acceptance = [
+  "forward kernels match CPU reference within 1e-4 (f32)",
+  "GPU path used when input device = Wgpu and dtype = Float"
+]
+
+[[items]]
+id = "R-3038"
+title = "Math ops on GPU: exp, log, sqrt, square, abs, neg, reciprocal, pow"
+phase = "phase_30"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-702", "R-1603"]
+summary = "WGSL elementwise math ops required for softmax/layer norm/losses."
+acceptance = [
+  "forward kernels match CPU reference within 1e-4 (f32)",
+  "GPU path used when input device = Wgpu and dtype = Float"
+]
+
+[[items]]
+id = "R-3039"
+title = "Broadcast, where/select, comparison ops on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3038", "R-1603"]
+summary = "Elementwise broadcast (NumPy semantics), where(cond,x,y), and equal/less/greater returning int tensors. Required for masked softmax, GELU(x)*mask, and most loss implementations."
+acceptance = [
+  "broadcast follows NumPy axis-aligned rules",
+  "where/select and comparison ops GPU path when inputs are device-resident"
+]
+
+[[items]]
+id = "R-3040"
+title = "Transpose, gather, scatter, concat, split, slice on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1603"]
+summary = "Index-manipulation ops implemented via device-side permutation kernels that do not require host round-trip."
+acceptance = [
+  "forward kernels match CPU reference within 1e-4 (f32)",
+  "backward (gradient w.r.t. data) is a separate item (R-3043/R-3067)"
+]
+
+[[items]]
+id = "R-3041"
+title = "Pooling: max_pool2d, avg_pool2d on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3034", "R-1603"]
+summary = "Forward WGSL kernels for max_pool2d and avg_pool2d. Wired to std_ml_max_pool2d, std_ml_avg_pool2d."
+acceptance = [
+  "stride, padding, kernel size covered by tests",
+  "forward kernels match CPU reference within 1e-4 (f32)"
+]
+
+[[items]]
+id = "R-3042"
+title = "Batched matmul on GPU"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3032", "R-1603"]
+summary = "Route std_tensor_matmul_batched to wgpu when inputs are GPU tensors (currently always uses CPU kernels)."
+acceptance = [
+  "GPU path used when inputs are device-resident and dtype = Float",
+  "matches CPU reference within 1e-3 (f32)"
+]
+
+[[items]]
+id = "R-3043"
+title = "Embedding lookup on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3040", "R-1603"]
+summary = "std_ml_embedding_lookup(ids, table) gather along dim 0. Forward kernel is a gather (R-3040); backward is a scatter-add on the table rows (R-3067)."
+acceptance = [
+  "forward matches CPU reference",
+  "ids int32/int64, table float32, device = Wgpu supported"
+]
+
+[[items]]
+id = "R-3044"
+title = "Scaled-dot-product attention on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3036", "R-3042", "R-3043", "R-3039"]
+summary = "std_ml_attention(q, k, v, mask, scale). Forward = batched matmul (Q.K^T) -> scale -> mask -> softmax -> batched matmul (.V). Requires R-3036, R-3042, R-3043, R-3039."
+acceptance = [
+  "forward matches CPU reference within 1e-3 (f32)",
+  "supported on Wgpu when q, k, v, mask all device-resident"
+]
+
+# --- Block 3: Device memory and residency ---
+[[items]]
+id = "R-3051"
+title = "Device buffer pool"
+phase = "phase_30"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3021", "R-1603"]
+summary = "Introduce DeviceArena keyed by (device, dtype, size_bucket) with a free list of wgpu::Buffer. to_device acquires, tensor.free returns. Shared across all GPU tensors in a process."
+acceptance = [
+  "stats_device_pool_hits, stats_device_pool_misses, stats_device_pool_bytes_resident exposed",
+  "for i in 0..100 { to_device(x, 6) } produces pool_hits >= 99 and zero active_bytes growth"
+]
+
+[[items]]
+id = "R-3052"
+title = "Tensor residency contract"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3051", "R-1603"]
+summary = "Extend StdTensor with residency: DeviceResidency { host: bool, device: HashSet<TensorDevice> }. materialize() is the host mirror; device tensors carry an optional DeviceBuffer. Ops consume device residency when both inputs are resident on the same device."
+acceptance = [
+  "chain a -> add -> relu -> matmul -> sum on device; intermediates can be freed by free_all without re-uploading"
+]
+
+[[items]]
+id = "R-3053"
+title = "Asynchronous dispatch"
+phase = "phase_30"
+owner = "runtime"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3051"]
+summary = "Replace run_compute synchronous device.poll(Wait) + receiver.recv() with a futures-based async path that submits the encoder, records a completion future per tensor, and only blocks on tensor.sync or implicit join points."
+acceptance = [
+  "compute and transfer can overlap on a single wgpu queue",
+  "tensor.sync(handle) waits only for that tensor's future"
+]
+
+# --- Block 4: GPU autodiff ---
+[[items]]
+id = "R-3061"
+title = "Autodiff graph carries device"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1603"]
+summary = "Extend AutogradNode with input_device and output_device. tensor.backward decides per node whether to call the GPU backward or the CPU backward based on input_device."
+acceptance = [
+  "mixed chains (CPU forward -> GPU forward -> CPU backward) compute correct gradients",
+  "all-float and all-gpu chains stay on device"
+]
+
+[[items]]
+id = "R-3062"
+title = "Backward kernels: add, sub, mul, div, neg, relu on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3061"]
+summary = "WGSL backward expressions for the elementwise unary/binary ops."
+acceptance = [
+  "gradient parity with CPU backward within 1e-4 (f32)",
+  "tests/validation/<NN>_gpu_backward_<op>.spectra per op"
+]
+
+[[items]]
+id = "R-3063"
+title = "Backward sum on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "low"
+dependencies = ["R-3061"]
+summary = "Broadcast gradient to input shape and store. Single kernel; trivial."
+acceptance = [
+  "gradient parity with CPU backward within 1e-4 (f32)"
+]
+
+[[items]]
+id = "R-3064"
+title = "Backward matmul on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3032", "R-3061"]
+summary = "dL/dA = dL/dC . B^T, dL/dB = A^T . dL/dC. Reuses forward matmul + a transpose. Required for any linear layer backward."
+acceptance = [
+  "gradient parity with CPU backward within 1e-3 (f32)",
+  "end-to-end MLP backward on GPU without host round-trip"
+]
+
+[[items]]
+id = "R-3065"
+title = "Backward conv2d on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3033", "R-3061"]
+summary = "dL/dinput = col2im(dL/dout . kernel^T), dL/dkernel = im2col(dL/dout)^T . input, dL/dbias = sum(dL/dout, axis=batch+h+w). Required for any CNN backward."
+acceptance = [
+  "gradient parity with CPU backward within 1e-3 (f32)",
+  "end-to-end CNN backward on GPU without host round-trip"
+]
+
+[[items]]
+id = "R-3066"
+title = "Backward softmax, log_softmax, layer norm on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3036", "R-3061"]
+summary = "Required for transformer training end-to-end."
+acceptance = [
+  "gradient parity with CPU backward within 1e-3 (f32)",
+  "transformer loss backward on GPU without host round-trip"
+]
+
+[[items]]
+id = "R-3067"
+title = "Backward embedding lookup on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3043", "R-3061"]
+summary = "Scatter-add into the table rows."
+acceptance = [
+  "gradient parity with CPU backward within 1e-3 (f32)"
+]
+
+# --- Block 5: Mixed precision on the GPU ---
+[[items]]
+id = "R-3071"
+title = "f16 and bf16 WGSL kernels"
+phase = "phase_30"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3031", "R-3032", "R-3033", "R-3037", "R-3038"]
+summary = "Extend runtime/src/gpu.rs to accept f16/bf16 buffers (cast at upload, store, and download). Use enable f16 in the wgpu device descriptor; fall back to f32 if not supported."
+acceptance = [
+  "f16/bf16 elementwise, matmul, conv2d, sum, sigmoid, tanh, exp, log, sqrt available",
+  "fallback to f32 with stats_gpu_errors(FeatureUnsupported) when f16 is not supported by the adapter",
+  "matches CPU f64 reference within 1e-2 (f16) and 5e-2 (bf16)"
+]
+
+[[items]]
+id = "R-3072"
+title = "Autocast and precision scope"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3071"]
+summary = "std.tensor.autocast(enabled: bool) and std.tensor.precision_scope(precision: int) set a thread-local policy that promotes f32 -> f16 for selected ops (matmul, conv2d) while keeping f32 for reductions and loss."
+acceptance = [
+  "scope is honored by std_tensor_matmul, std_tensor_matmul_batched, std_ml_conv2d",
+  "scope is ignored by reductions, loss, gradient accumulation"
+]
+
+[[items]]
+id = "R-3073"
+title = "Loss scaling and unscale on the GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3071", "R-3072"]
+summary = "Wire the scale/unscale/inf-check into the GPU backward pipeline when autocast is on."
+acceptance = [
+  "std_ml_scale_grad / std_ml_unscale_grad run on the GPU when inputs are device-resident",
+  "inf-check issues a stable diagnostic when any gradient is non-finite"
+]
+
+# --- Block 6: Graph IR device placement and real fusion ---
+[[items]]
+id = "R-3081"
+title = "Graph IR device placement pass"
+phase = "phase_30"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-1601", "R-1602", "R-3052"]
+summary = "Extend TensorGraph::optimize() with a placement pass that assigns a TensorDevice to each node based on op cost and tensor residency. Default: keep on current device; promote chains of elementwise ops to the same device."
+acceptance = [
+  "placement report attached to the optimized graph dump",
+  "placement does not move tensors to a device that is not available in the build"
+]
+
+[[items]]
+id = "R-3082"
+title = "Elementwise fusion that issues fewer WGSL dispatches"
+phase = "phase_30"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3081", "R-3052"]
+summary = "Fused elementwise chain (a + b * c - relu(d)) becomes a single WGSL kernel instead of N dispatches. R-1602 currently reports the fusion; the kernel generator is what makes it real."
+acceptance = [
+  "kernel count on a representative 5-op chain drops by >= 3x",
+  "snapshot at midend/tests/snapshots/tensor_graph_fused.snap"
+]
+
+[[items]]
+id = "R-3083"
+title = "Reduction + adjacent op fusion"
+phase = "phase_30"
+owner = "midend"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3082"]
+summary = "sum(relu(x)) becomes a single kernel that fuses the relu into the reduction prologue."
+acceptance = [
+  "sum(relu(x)) issues one WGSL dispatch, not two",
+  "snapshot at midend/tests/snapshots/tensor_graph_reduction_fused.snap"
+]
+
+# --- Block 7: Optimizer steps on the GPU ---
+[[items]]
+id = "R-3091"
+title = "SGD step on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3052", "R-3061"]
+summary = "std_ml_sgd_step gets a device-resident path that updates param -= lr * grad in a single WGSL kernel over the parameter tensor. Required for any non-trivial training step to beat CPU."
+acceptance = [
+  "GPU path used when param and grad are device-resident",
+  "MLP training step end-to-end on GPU without host round-trip per step"
+]
+
+[[items]]
+id = "R-3092"
+title = "AdamW and Adam step on GPU"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3091"]
+summary = "Momentum + variance maintained as device-resident auxiliary tensors; step kernel is param -= lr * m_hat / (sqrt(v_hat) + eps) - lr * wd * param. Required for transformer training."
+acceptance = [
+  "GPU path used when param, grad, m, v are device-resident",
+  "transformer training step end-to-end on GPU without host round-trip per step"
+]
+
+[[items]]
+id = "R-3093"
+title = "Optimizer state on device"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3052", "R-3091", "R-3092"]
+summary = "When to_device(optimizer_state, 6) is called, the state stays on device. Currently optimizer state lives only on host (mod.rs std_ml_optimizer_*)."
+acceptance = [
+  "to_device(optimizer_state, 6) yields a device-resident handle",
+  "subsequent optimizer steps use the resident state without re-upload"
+]
+
+# --- Block 8: GPU cross-lang benchmark suite ---
+[[items]]
+id = "R-3130"
+title = "Cross-language GPU benchmark suite"
+phase = "phase_31"
+owner = "tooling"
+priority = "P0"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3101", "R-3025", "R-3031", "R-3032", "R-3033", "R-3036", "R-3044", "R-3051", "R-3064", "R-3091"]
+summary = "Add to scripts/validate_phase31_cross_lang.py: gpu-mlp-train, gpu-matmul-1024, gpu-conv2d-cnn, gpu-attention. Spectra on CPU vs Spectra on WGPU vs Python+PyTorch(CPU) vs Python+PyTorch(CUDA). Report iters/sec and per-step latency. Each scenario fails the cross-lang gate if it regresses > 5% vs the checked-in baseline; speedup target is recorded but not gated."
+acceptance = [
+  "four scenarios in the cross-lang suite with Spectra, Go, Java, Rust, Python+PyTorch(CPU) and Python+PyTorch(CUDA)",
+  "report at target/phase31/gpu-cross-lang-report.json lists the four scenarios with timings and speedup ratios",
+  "methodology section in docs/performance/phase31-go-comparable/methodology.md documents GPU hardware, wgpu backend, and CPU reference construction"
 ]
 
 [[phases]]

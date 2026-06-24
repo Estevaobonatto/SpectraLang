@@ -48,13 +48,43 @@ fn main() {
     assert!((cpu_matmul[0] - gpu_matmul[0]).abs() < 1e-3);
 
     let adapter = spectra_runtime::gpu::adapter_name().unwrap_or_else(|| "unknown".to_string());
+
+    // R-3025: estimate transfer bytes. The current WGPU path materializes
+    // every op, so each dispatch issues (left + right + output) host->device
+    // bytes and (output) device->host bytes. This overestimates slightly
+    // for in-place kernels but is the right ballpark for diagnosing the
+    // host-transfer bottleneck that the R-30xx work is meant to remove.
+    let add_h2d = (left.len() + right.len()) * std::mem::size_of::<f32>();
+    let add_d2h = left.len() * std::mem::size_of::<f32>();
+    let matmul_h2d = (a.len() + b.len()) * std::mem::size_of::<f32>();
+    let matmul_d2h = (m * n) * std::mem::size_of::<f32>();
+
+    // R-3025: only claim "GPU FASTER" when the measured speedup is actually
+    // > 1.0x. The historical bench always printed side-by-side timings but
+    // did not adjudicate, which let readers mistake "GPU works" for
+    // "GPU is fast". The current naive WGSL shaders are often slower than
+    // the CPU scalar reference because of the per-op host transfer; the
+    // kernel rewrite in R-3031/R-3032 is what closes that gap.
+    let add_speedup = cpu_add_ms / gpu_add_ms.max(1e-9);
+    let matmul_speedup = cpu_matmul_ms / gpu_matmul_ms.max(1e-9);
+    let add_faster = add_speedup > 1.0;
+    let matmul_faster = matmul_speedup > 1.0;
+
     println!(
-        "{{\"adapter\":\"{}\",\"add_cpu_ms\":{:.4},\"add_gpu_ms\":{:.4},\"matmul_cpu_ms\":{:.4},\"matmul_gpu_ms\":{:.4},\"semantic_parity\":true}}",
+        "{{\"adapter\":\"{}\",\"add_cpu_ms\":{:.4},\"add_gpu_ms\":{:.4},\"add_speedup\":{:.3},\"add_faster\":{},\"add_h2d_bytes\":{},\"add_d2h_bytes\":{},\"matmul_cpu_ms\":{:.4},\"matmul_gpu_ms\":{:.4},\"matmul_speedup\":{:.3},\"matmul_faster\":{},\"matmul_h2d_bytes\":{},\"matmul_d2h_bytes\":{},\"semantic_parity\":true,\"r3025_honest_speedup_claim\":true}}",
         adapter.replace('"', "\\\""),
         cpu_add_ms,
         gpu_add_ms,
+        add_speedup,
+        add_faster,
+        add_h2d,
+        add_d2h,
         cpu_matmul_ms,
-        gpu_matmul_ms
+        gpu_matmul_ms,
+        matmul_speedup,
+        matmul_faster,
+        matmul_h2d,
+        matmul_d2h,
     );
 }
 

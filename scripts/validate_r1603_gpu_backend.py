@@ -48,6 +48,21 @@ def main() -> int:
             "--nocapture",
         ],
     )
+    # R-3023: typed GPU errors and per-kind stats counter.
+    run_step(
+        "typed GPU error counters (R-3023)",
+        [
+            "cargo",
+            "test",
+            "-p",
+            "spectra-runtime",
+            "--features",
+            "gpu",
+            "tensor_runtime_r3023_typed_gpu_errors_are_counted_per_kind",
+            "--",
+            "--nocapture",
+        ],
+    )
     print("[R-1603] validation passed")
     return 0
 

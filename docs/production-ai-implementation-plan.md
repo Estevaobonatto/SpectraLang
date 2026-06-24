@@ -773,7 +773,7 @@ Current state: complete for the current production baseline. ADR [0004](adr/0004
 
 ## 7.2 GPU Kernel Execution
 
-Current state: complete for the current production baseline. The optional `gpu` feature adds a real `wgpu` compute backend for float tensor elementwise arithmetic, `relu`, `sum_f`, `matmul`, and `ml.conv2d`. The backend is validated on supported hardware by `cargo test -p spectra-runtime --features gpu`, `cargo run -p spectra-cli --features gpu -- run tests/validation/75_tensor_phase7_gpu.spectra`, and the release benchmark `cargo run --release -p spectra-runtime --features gpu --example tensor_phase7_gpu_bench`. Per user direction for this baseline, correctness and recorded CPU/GPU timings are the completion gate; speedup is not required.
+Current state: in progress (reopened 2026-06-24, see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md`). The optional `gpu` feature adds a real `wgpu` compute backend for float tensor elementwise arithmetic, `relu`, `sum_f`, `matmul`, and `ml.conv2d`. The current kernels are functionally correct and the public validation gates pass, but they are naive: `sum` uses `workgroup_size(1)` (serial inside one workgroup), `matmul` uses one thread per output element with no tiling, `conv2d` uses seven nested loops per thread, and every op materializes its result back to the host. The completion gate for the production baseline is now measured speedup, not just correctness. Closing the gap is the work in the GPU production plan (R-30xx blocks: R-3021..R-3025 honest semantics, R-3031..R-3044 correct/fast kernels, R-3051..R-3053 device memory, R-3061..R-3067 GPU backward, R-3071..R-3073 mixed precision on GPU, R-3081..R-3083 graph IR, R-3091..R-3093 optimizer on GPU, R-3101-GPU cross-lang GPU benchmark).
 
 ### Tasks
 
@@ -796,7 +796,7 @@ Current state: complete for the current production baseline. The optional `gpu` 
 
 ## 7.3 Mixed Precision
 
-Current state: complete for the current production baseline. `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision loop.
+Current state: in progress (reopened 2026-06-24). `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision loop on the host. The GPU half of this story is not yet implemented: no f16/bf16 WGSL shader exists, no autocast / precision scope is exposed, and the loss-scaling path runs on the host. Closing the gap is R-3071, R-3072, and R-3073 in the GPU production plan.
 
 ### Tasks
 
@@ -1472,7 +1472,7 @@ and RAG-oriented development.
 ### Workstreams
 
 - `R-1801 ONNX Import and Export`: supported ONNX subset export/import, shape/dtype validation, and external runtime validation.
-- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling.
+- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling. (Reopened 2026-06-24: CPU host implementation is real; GPU forward and backward for the heavy ops (attention, layer norm, softmax, embedding) are pending R-3043, R-3044, R-3066, R-3067 in the GPU production plan.)
 - `R-1803 Tokenization, Embeddings, and RAG Toolkit`: deterministic tokenization, vector indexes, retrieval, chunking, prompt assembly, and RAG evaluation.
 
 ### Acceptance Direction

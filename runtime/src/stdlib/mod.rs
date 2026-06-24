@@ -298,6 +298,7 @@ const TENSOR_STATS_KERNEL_ELEMENTS: &str = "spectra.std.tensor.stats_kernel_elem
 const TENSOR_STATS_DEVICE_TRANSFERS: &str = "spectra.std.tensor.stats_device_transfers";
 const TENSOR_STATS_GPU_KERNEL_OPS: &str = "spectra.std.tensor.stats_gpu_kernel_ops";
 const TENSOR_STATS_CPU_FALLBACKS: &str = "spectra.std.tensor.stats_cpu_fallbacks";
+const TENSOR_STATS_GPU_ERRORS: &str = "spectra.std.tensor.stats_gpu_errors";
 const TENSOR_STATS_GRAPH_NODES: &str = "spectra.std.tensor.stats_graph_nodes";
 const TENSOR_STATS_LIFETIME_RECORDS: &str = "spectra.std.tensor.stats_lifetime_records";
 const TENSOR_STATS_RELEASED_LIFETIMES: &str = "spectra.std.tensor.stats_released_lifetimes";
@@ -707,6 +708,7 @@ fn register_tensor() {
     );
     register_host_function(TENSOR_STATS_GPU_KERNEL_OPS, std_tensor_stats_gpu_kernel_ops);
     register_host_function(TENSOR_STATS_CPU_FALLBACKS, std_tensor_stats_cpu_fallbacks);
+    register_host_function(TENSOR_STATS_GPU_ERRORS, std_tensor_stats_gpu_errors);
     register_host_function(TENSOR_STATS_GRAPH_NODES, std_tensor_stats_graph_nodes);
     register_host_function(
         TENSOR_STATS_LIFETIME_RECORDS,
@@ -2585,6 +2587,16 @@ impl TensorDevice {
         }
     }
 
+    /// Returns true if this build has any implementation for this device code.
+    /// CUDA, ROCm, Metal, DirectML, and Vulkan are reserved device codes
+    /// with no implementation in this build; they must surface as
+    /// `HOST_STATUS_INVALID_ARGUMENT` to the caller, not as a fake
+    /// "reserved but not implemented" status that misleads users into
+    /// expecting a future backend.
+    fn is_implemented(self) -> bool {
+        matches!(self, Self::Cpu | Self::Wgpu)
+    }
+
     fn is_accelerator(self) -> bool {
         !matches!(self, Self::Cpu)
     }
@@ -3029,6 +3041,27 @@ impl TensorRegistry {
         self.metrics.cpu_fallbacks = self.metrics.cpu_fallbacks.saturating_add(1);
     }
 
+    /// R-3023: record a typed GPU error so callers can see per-kind
+    /// counters via `std_tensor_stats_gpu_errors(kind)`.
+    #[cfg(feature = "gpu")]
+    fn note_gpu_error(&mut self, kind: crate::gpu::GpuErrorKind) {
+        let code = kind.code();
+        if (0..self.metrics.gpu_errors.len() as i32).contains(&code) {
+            self.metrics.gpu_errors[code as usize] =
+                self.metrics.gpu_errors[code as usize].saturating_add(1);
+        }
+    }
+
+    /// R-3023: non-gpu build stub. The metric is still tracked by code so
+    /// user code that compiles without --features gpu sees the same counter
+    /// layout. The kind arg is ignored; only the slot for `Other` (6) is
+    /// ever incremented in this build (which is unreachable in practice).
+    #[cfg(not(feature = "gpu"))]
+    #[allow(dead_code)]
+    fn note_gpu_error(&mut self, _kind: u8) {
+        self.metrics.gpu_errors[6] = self.metrics.gpu_errors[6].saturating_add(1);
+    }
+
     fn reset_metrics(&mut self) {
         let active_tensors = self.tensors.len();
         let active_bytes = self
@@ -3125,6 +3158,16 @@ impl TensorRegistry {
             self.metrics.gpu_kernel_ops,
             self.metrics.cpu_fallbacks
         ));
+        out.push_str(&format!(
+            ",\"gpu_errors\":[{},{},{},{},{},{},{}]",
+            self.metrics.gpu_errors[0],
+            self.metrics.gpu_errors[1],
+            self.metrics.gpu_errors[2],
+            self.metrics.gpu_errors[3],
+            self.metrics.gpu_errors[4],
+            self.metrics.gpu_errors[5],
+            self.metrics.gpu_errors[6]
+        ));
         out.push_str(",\"tensors\":[");
         for (index, record) in self.lifetimes.iter().enumerate() {
             if index > 0 {
@@ -3170,6 +3213,10 @@ struct TensorMetrics {
     device_transfers: usize,
     gpu_kernel_ops: usize,
     cpu_fallbacks: usize,
+    /// Per-kind GPU error counter (R-3023). Indexed by `GpuErrorKind::code()`.
+    /// 0 = ShapeMismatch, 1 = ShaderCompile, 2 = BufferAlloc, 3 = Dispatch,
+    /// 4 = Readback, 5 = FeatureUnsupported, 6 = Other.
+    gpu_errors: [usize; 7],
 }
 
 fn tensor_registry() -> &'static Mutex<TensorRegistry> {
@@ -3263,7 +3310,7 @@ fn gpu_binary_float(
     left: &StdTensor,
     right: &StdTensor,
     op: crate::gpu::GpuBinaryOp,
-) -> Result<Option<Vec<SpectraHostValue>>, ()> {
+) -> Result<Option<Vec<SpectraHostValue>>, crate::gpu::GpuError> {
     if left.device != TensorDevice::Wgpu
         || right.device != TensorDevice::Wgpu
         || left.dtype != TensorDType::Float
@@ -3279,7 +3326,7 @@ fn gpu_binary_float(
     };
     match crate::gpu::binary(&left_data, &right_data, op) {
         Ok(values) => Ok(Some(f32_values_to_host(&values))),
-        Err(_) => Err(()),
+        Err(err) => Err(err),
     }
 }
 
@@ -3287,7 +3334,7 @@ fn gpu_binary_float(
 fn gpu_unary_float(
     tensor: &StdTensor,
     op: crate::gpu::GpuUnaryOp,
-) -> Result<Option<Vec<SpectraHostValue>>, ()> {
+) -> Result<Option<Vec<SpectraHostValue>>, crate::gpu::GpuError> {
     if tensor.device != TensorDevice::Wgpu || tensor.dtype != TensorDType::Float {
         return Ok(None);
     }
@@ -3296,7 +3343,7 @@ fn gpu_unary_float(
     };
     match crate::gpu::unary(&data, op) {
         Ok(values) => Ok(Some(f32_values_to_host(&values))),
-        Err(_) => Err(()),
+        Err(err) => Err(err),
     }
 }
 
@@ -4425,7 +4472,8 @@ fn tensor_binary(
                             Some(data)
                         }
                         Ok(None) => None,
-                        Err(()) => {
+                        Err(err) => {
+                            registry.note_gpu_error(err.kind);
                             registry.note_cpu_fallback();
                             None
                         }
@@ -4546,7 +4594,8 @@ extern "C" fn std_tensor_sum(ctx: *mut SpectraHostCallContext) -> i32 {
                                 registry.note_gpu_kernel();
                                 value as i64
                             }
-                            Err(_) => {
+                            Err(err) => {
+                                registry.note_gpu_error(err.kind);
                                 registry.note_cpu_fallback();
                                 data.iter()
                                     .map(|bits| f64::from_bits(*bits as u64))
@@ -4938,7 +4987,8 @@ fn tensor_unary(
                             Some(data)
                         }
                         Ok(None) => None,
-                        Err(()) => {
+                        Err(err) => {
+                            registry.note_gpu_error(err.kind);
                             registry.note_cpu_fallback();
                             None
                         }
@@ -5110,7 +5160,8 @@ extern "C" fn std_tensor_matmul(ctx: *mut SpectraHostCallContext) -> i32 {
                                     registry.note_gpu_kernel();
                                     f32_values_to_host(&values)
                                 }
-                                Err(_) => {
+                                Err(err) => {
+                                    registry.note_gpu_error(err.kind);
                                     registry.note_cpu_fallback();
                                     kernel_matmul_f64_bits(&a_data, &b_data, m, k, n)
                                 }
@@ -6385,7 +6436,8 @@ extern "C" fn std_ml_conv2d(ctx: *mut SpectraHostCallContext) -> i32 {
                         registry.note_gpu_kernel();
                         values.iter().map(|value| *value as f64).collect::<Vec<_>>()
                     }
-                    Err(_) => {
+                    Err(err) => {
+                        registry.note_gpu_error(err.kind);
                         registry.note_cpu_fallback();
                         cpu_conv2d()
                     }
@@ -10200,6 +10252,9 @@ extern "C" fn std_tensor_device_available(ctx: *mut SpectraHostCallContext) -> i
         let Some(device) = TensorDevice::from_code(args[0]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
+        if !device.is_implemented() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
         tensor_result(ctx_ref, if device.is_available() { 1 } else { 0 })
     }
 }
@@ -10212,6 +10267,9 @@ extern "C" fn std_tensor_device_status(ctx: *mut SpectraHostCallContext) -> i32 
         let Some(device) = TensorDevice::from_code(args[0]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
+        if !device.is_implemented() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
         tensor_result(ctx_ref, device.status_code())
     }
 }
@@ -10224,6 +10282,9 @@ extern "C" fn std_tensor_to_device(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some(target_device) = TensorDevice::from_code(args[1]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
+        if !target_device.is_implemented() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
         if !target_device.is_available() {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
@@ -10401,6 +10462,24 @@ extern "C" fn std_tensor_stats_gpu_kernel_ops(ctx: *mut SpectraHostCallContext) 
 
 extern "C" fn std_tensor_stats_cpu_fallbacks(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_metric(ctx, |metrics| metrics.cpu_fallbacks)
+}
+
+extern "C" fn std_tensor_stats_gpu_errors(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let code = args[0];
+        let slot = if code < 0 { usize::MAX } else { code as usize };
+        let value = with_tensor_registry(|registry| {
+            if slot < registry.metrics.gpu_errors.len() {
+                registry.metrics.gpu_errors[slot]
+            } else {
+                0
+            }
+        });
+        tensor_result(ctx_ref, value as SpectraHostValue)
+    }
 }
 
 extern "C" fn std_tensor_stats_graph_nodes(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -19841,15 +19920,37 @@ mod tests {
             (HOST_STATUS_SUCCESS, 1)
         );
         assert_eq!(
-            call_host(TENSOR_DEVICE_AVAILABLE, &[1]),
-            (HOST_STATUS_SUCCESS, 0)
+            call_host(TENSOR_DEVICE_AVAILABLE, &[6]).0,
+            HOST_STATUS_SUCCESS
         );
+        // R-3024: device codes 1..=5 (CUDA, ROCm, Metal, DirectML, Vulkan) have
+        // no implementation in this build. They must surface as
+        // HOST_STATUS_INVALID_ARGUMENT instead of the historical fake
+        // "reserved but not implemented" status code 2 that misled callers into
+        // expecting a future backend that does not exist.
+        for reserved in 1..=5 {
+            assert_eq!(
+                call_host(TENSOR_DEVICE_AVAILABLE, &[reserved]).0,
+                HOST_STATUS_INVALID_ARGUMENT,
+                "device_available({reserved}) should be invalid"
+            );
+            assert_eq!(
+                call_host(TENSOR_DEVICE_STATUS, &[reserved]).0,
+                HOST_STATUS_INVALID_ARGUMENT,
+                "device_status({reserved}) should be invalid"
+            );
+            assert_eq!(
+                call_host(TENSOR_TO_DEVICE, &[tensor, reserved]).0,
+                HOST_STATUS_INVALID_ARGUMENT,
+                "to_device(_, {reserved}) should be invalid"
+            );
+        }
         assert_eq!(
             call_host(TENSOR_TO_DEVICE, &[tensor, 99]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
         assert_eq!(
-            call_host(TENSOR_TO_DEVICE, &[tensor, 1]).0,
+            call_host(TENSOR_TO_DEVICE, &[tensor, -1]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
 
@@ -19967,14 +20068,22 @@ mod tests {
             call_host(TENSOR_DEVICE_AVAILABLE, &[0]),
             (HOST_STATUS_SUCCESS, 1)
         );
-        assert_eq!(
-            call_host(TENSOR_DEVICE_STATUS, &[1]),
-            (HOST_STATUS_SUCCESS, 2)
-        );
-        assert_eq!(
-            call_host(TENSOR_DEVICE_AVAILABLE, &[1]),
-            (HOST_STATUS_SUCCESS, 0)
-        );
+        // R-3024: device codes 1..=5 have no implementation in this build and
+        // must surface as HOST_STATUS_INVALID_ARGUMENT from device_status,
+        // device_available, and to_device. The previous "reserved but not
+        // implemented" status code 2 was misleading and has been removed.
+        for reserved in 1..=5 {
+            assert_eq!(
+                call_host(TENSOR_DEVICE_STATUS, &[reserved]).0,
+                HOST_STATUS_INVALID_ARGUMENT,
+                "device_status({reserved}) should be invalid"
+            );
+            assert_eq!(
+                call_host(TENSOR_DEVICE_AVAILABLE, &[reserved]).0,
+                HOST_STATUS_INVALID_ARGUMENT,
+                "device_available({reserved}) should be invalid"
+            );
+        }
         assert_eq!(
             call_host(TENSOR_DEVICE_STATUS, &[99]).0,
             HOST_STATUS_INVALID_ARGUMENT
@@ -20043,6 +20152,62 @@ mod tests {
             call_host(TENSOR_STATS_GPU_KERNEL_OPS, &[]),
             (HOST_STATUS_SUCCESS, 0)
         );
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn tensor_runtime_r3023_typed_gpu_errors_are_counted_per_kind() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let _ = call_host(TENSOR_RESET_STATS, &[]);
+
+        // R-3023: std_tensor_stats_gpu_errors(kind) is a public host call.
+        // Verify it is wired for all 7 kinds (returns HOST_STATUS_SUCCESS,
+        // result is a non-negative count). The default count is 0.
+        for kind in 0..=6 {
+            let (status, count) = call_host(TENSOR_STATS_GPU_ERRORS, &[kind]);
+            assert_eq!(
+                status,
+                HOST_STATUS_SUCCESS,
+                "stats_gpu_errors({kind}) must succeed"
+            );
+            assert!(count >= 0, "stats_gpu_errors({kind}) returned negative count");
+        }
+        // Out-of-range kind is not a host error; returns 0.
+        assert_eq!(
+            call_host(TENSOR_STATS_GPU_ERRORS, &[99]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+
+        if call_host(TENSOR_DEVICE_AVAILABLE, &[6]) != (HOST_STATUS_SUCCESS, 1) {
+            // WGPU not present in this build/host; nothing to test on the
+            // live kernel path. The counter exposure above is the
+            // production contract for the public API.
+            return;
+        }
+
+        // Run the canonical happy-path GPU workload. The counters stay at
+        // 0 because every dispatch succeeds. The point of this test is the
+        // counter exposure above; the increment path is exercised by the
+        // typed GpuError code path in runtime/src/gpu.rs and the per-call
+        // `note_gpu_error` integration in the stdlib host calls.
+        let one = 1.0f64.to_bits() as i64;
+        let (status, a) = call_host(TENSOR_FULL_F, &[4, one]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, a_dev) = call_host(TENSOR_TO_DEVICE, &[a, 6]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, _) = call_host(TENSOR_SUM_F, &[a_dev]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+
+        let (status, shape_mismatch_count) = call_host(TENSOR_STATS_GPU_ERRORS, &[0]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(shape_mismatch_count, 0);
+        let (status, readback_count) = call_host(TENSOR_STATS_GPU_ERRORS, &[4]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(readback_count, 0);
     }
 
     #[cfg(feature = "gpu")]

@@ -18,9 +18,6 @@ pub fn main() -> int {
     } else {
         return 2;
     }
-    if tensor.device_status(1) != 2 {
-        return 3;
-    }
 
     let wgpu_status = tensor.device_status(6);
     if tensor.device_available(6) {
