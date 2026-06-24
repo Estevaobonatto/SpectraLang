@@ -1,6 +1,6 @@
 version = 1
 title = "SpectraLang Production AI Roadmap"
-updated_at = "2026-06-22"
+updated_at = "2026-06-24"
 status_scale = ["not_started", "in_progress", "blocked", "complete"]
 priority_scale = ["P0", "P1", "P2", "P3"]
 
@@ -1161,6 +1161,25 @@ summary = "Expose benchmark and profiling tools for compiler and runtime perform
 acceptance = [
   "benchmark suite exists and perf regressions are reportable",
   "spectralang bench emits machine-readable timing reports"
+]
+
+[[items]]
+id = "R-1004"
+title = "JIT Fast-Path Symbol Export on Windows"
+phase = "phase_10"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-1001", "R-1002", "R-1101", "R-1601"]
+summary = "Fix the `can't resolve symbol spectra_rt_*_fast` JIT panic by anchoring every fast-path extern \"C\" symbol both in the runtime's address space and in the Windows PE export table so cranelift-jit's GetProcAddress lookup succeeds at runtime. Affected surfaces: std.concurrent (task_spawn, channel_*), std.collections.map_*, std.ml (linear, mse_loss, sgd_step), std.tensor (full_f, backward), and std.string (len, char_at)."
+acceptance = [
+  "`tests/validation/77_concurrency_pipeline.spectra` compiles and links",
+  "`examples/ai/data_preprocessing_pipeline.spectra` runs to completion (rc=0)",
+  "`benchmarks/cross-lang/cpu-hashmap/spectra/bench.spectra` runs to completion (rc=0)",
+  "`run_tests.ps1` reports 357/357 PASSOU (0 FALHOU)",
+  "All `spectra_rt_*_fast` symbols survive both Rust dead-code elimination and Windows linker strip",
+  "Fix is cross-platform: no runtime behaviour regression on Linux/macOS"
 ]
 
 [[items]]

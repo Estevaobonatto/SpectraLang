@@ -544,6 +544,9 @@ pub fn register() {
     register_concurrent();
     register_async();
     register_serve();
+    // Anchor the fast-path extern "C" symbols so the JIT symbol resolver
+    // can find them at runtime. See `ffi::keep_fast_symbols` for details.
+    crate::ffi::keep_fast_symbols();
 }
 
 fn register_math() {
@@ -2039,18 +2042,27 @@ pub fn string_builder_free_fast(handle: usize) {
     });
 }
 
+/// Fast-path helper for `col.map_new()`.
+///
+/// Creates an empty map and returns its handle. Skips the generic
+/// host-call dispatch and the result-slice validation path.
+pub fn map_new_fast() -> i64 {
+    with_map_registry(|reg| reg.insert(Arc::new(Mutex::new(StdMap::default()))) as i64)
+}
+
 /// Fast-path helper for `col.map_set(handle, key, value)`.
 ///
 /// Returns 0 on success, `HOST_STATUS_NOT_FOUND` if the handle is invalid.
 /// Handle 0 is a sentinel for "no map" and is a no-op (returns NOT_FOUND).
 pub fn map_set_fast(handle: usize, key: i64, value: i64) -> i32 {
-    with_map_registry(|reg| match reg.maps.get_mut(&handle) {
-        Some(m) => {
-            m.data.insert(key, value);
+    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    match map_arc {
+        Some(map_arc) => {
+            lock_unpoisoned(&map_arc).data.insert(key, value);
             HOST_STATUS_SUCCESS
         }
         None => HOST_STATUS_NOT_FOUND,
-    })
+    }
 }
 
 /// Fast-path helper for `col.map_get(handle, key)`.
@@ -2059,12 +2071,15 @@ pub fn map_set_fast(handle: usize, key: i64, value: i64) -> i32 {
 /// is invalid. Note: cannot distinguish "stored value is 0" from "key
 /// absent / invalid handle".
 pub fn map_get_fast(handle: usize, key: i64) -> i64 {
-    with_map_registry(|reg| {
-        reg.maps
-            .get(&handle)
-            .and_then(|m| m.data.get(&key).copied())
-            .unwrap_or(0)
-    })
+    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    match map_arc {
+        Some(map_arc) => lock_unpoisoned(&map_arc)
+            .data
+            .get(&key)
+            .copied()
+            .unwrap_or(0),
+        None => 0,
+    }
 }
 
 /// Fast-path helper for `col.map_contains(handle, key)`.
@@ -2072,12 +2087,60 @@ pub fn map_get_fast(handle: usize, key: i64) -> i64 {
 /// Returns 1 if the key is present in the map, 0 otherwise (including
 /// invalid handle).
 pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
+    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    match map_arc {
+        Some(map_arc) => {
+            if lock_unpoisoned(&map_arc).data.contains_key(&key) {
+                1
+            } else {
+                0
+            }
+        }
+        None => 0,
+    }
+}
+
+/// Fast-path helper for `col.map_remove(handle, key)`.
+///
+/// Returns the removed value, or 0 if the key was absent or the handle
+/// is invalid. Same caveat as `map_get_fast` regarding stored 0.
+pub fn map_remove_fast(handle: usize, key: i64) -> i64 {
+    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    match map_arc {
+        Some(map_arc) => lock_unpoisoned(&map_arc).data.remove(&key).unwrap_or(0),
+        None => 0,
+    }
+}
+
+/// Fast-path helper for `col.map_len(handle)`.
+///
+/// Returns the number of entries in the map, or 0 for an invalid handle.
+pub fn map_len_fast(handle: usize) -> i64 {
+    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    match map_arc {
+        Some(map_arc) => lock_unpoisoned(&map_arc).data.len() as i64,
+        None => 0,
+    }
+}
+
+/// Fast-path helper for `col.map_clear(handle)`.
+///
+/// Removes all entries from the map. No-op for an invalid handle.
+pub fn map_clear_fast(handle: usize) {
+    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    if let Some(map_arc) = map_arc {
+        lock_unpoisoned(&map_arc).data.clear();
+    }
+}
+
+/// Fast-path helper for `col.map_free(handle)`.
+///
+/// Removes the map from the registry and drops the last `Arc` reference.
+/// No-op for an invalid handle.
+pub fn map_free_fast(handle: usize) {
     with_map_registry(|reg| {
-        reg.maps
-            .get(&handle)
-            .map(|m| if m.data.contains_key(&key) { 1 } else { 0 })
-            .unwrap_or(0)
-    })
+        reg.maps.remove(&handle);
+    });
 }
 
 /// Fast-path helper for `ml.linear(input, weight, bias)`.
@@ -13523,7 +13586,7 @@ fn register_map() {
 
 struct MapRegistry {
     next_id: usize,
-    maps: HashMap<usize, ManualBox<StdMap>>,
+    maps: HashMap<usize, Arc<Mutex<StdMap>>>,
 }
 
 #[derive(Default)]
@@ -13539,7 +13602,7 @@ impl MapRegistry {
         }
     }
 
-    fn insert(&mut self, map: ManualBox<StdMap>) -> usize {
+    fn insert(&mut self, map: Arc<Mutex<StdMap>>) -> usize {
         let mut handle = self.next_id.max(1);
         while self.maps.contains_key(&handle) {
             handle = handle.wrapping_add(1).max(1);
@@ -13578,12 +13641,7 @@ extern "C" fn std_map_new(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        let memory = initialize().memory();
-        let map = match memory.allocate_manual(StdMap::default()) {
-            Ok(m) => m,
-            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
-        };
-        let handle = with_map_registry(|reg| reg.insert(map));
+        let handle = with_map_registry(|reg| reg.insert(Arc::new(Mutex::new(StdMap::default()))));
         results[0] = handle as i64;
     }
     HOST_STATUS_SUCCESS
@@ -13604,16 +13662,12 @@ extern "C" fn std_map_set(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let key = args[1];
         let value = args[2];
-        let ok = with_map_registry(|reg| match reg.maps.get_mut(&handle) {
-            Some(m) => {
-                m.data.insert(key, value);
-                true
-            }
-            None => false,
-        });
-        if !ok {
+        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let Some(map_arc) = map_arc else {
             return HOST_STATUS_NOT_FOUND;
-        }
+        };
+        let mut map = lock_unpoisoned(&map_arc);
+        map.data.insert(key, value);
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -13640,12 +13694,11 @@ extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
         let key = args[1];
-        let value = with_map_registry(|reg| {
-            reg.maps
-                .get(&handle)
-                .and_then(|m| m.data.get(&key).copied())
-                .unwrap_or(0)
-        });
+        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let value = match map_arc {
+            Some(map_arc) => lock_unpoisoned(&map_arc).data.get(&key).copied().unwrap_or(0),
+            None => 0,
+        };
         results[0] = value;
     }
     HOST_STATUS_SUCCESS
@@ -13669,12 +13722,11 @@ extern "C" fn std_map_contains(ctx: *mut SpectraHostCallContext) -> i32 {
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
         let key = args[1];
-        let found = with_map_registry(|reg| {
-            reg.maps
-                .get(&handle)
-                .map(|m| m.data.contains_key(&key))
-                .unwrap_or(false)
-        });
+        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let found = match map_arc {
+            Some(map_arc) => lock_unpoisoned(&map_arc).data.contains_key(&key),
+            None => false,
+        };
         results[0] = if found { 1 } else { 0 };
     }
     HOST_STATUS_SUCCESS
@@ -13694,12 +13746,11 @@ extern "C" fn std_map_remove(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         let key = args[1];
-        let removed = with_map_registry(|reg| {
-            reg.maps
-                .get_mut(&handle)
-                .and_then(|m| m.data.remove(&key))
-                .unwrap_or(0)
-        });
+        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let removed = match map_arc {
+            Some(map_arc) => lock_unpoisoned(&map_arc).data.remove(&key).unwrap_or(0),
+            None => 0,
+        };
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = removed;
@@ -13725,7 +13776,11 @@ extern "C" fn std_map_len(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
-        let len = with_map_registry(|reg| reg.maps.get(&handle).map(|m| m.data.len()).unwrap_or(0));
+        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let len = match map_arc {
+            Some(map_arc) => lock_unpoisoned(&map_arc).data.len(),
+            None => 0,
+        };
         results[0] = len as i64;
     }
     HOST_STATUS_SUCCESS
@@ -13744,11 +13799,10 @@ extern "C" fn std_map_clear(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        with_map_registry(|reg| {
-            if let Some(m) = reg.maps.get_mut(&handle) {
-                m.data.clear();
-            }
-        });
+        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        if let Some(map_arc) = map_arc {
+            lock_unpoisoned(&map_arc).data.clear();
+        }
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -16357,6 +16411,85 @@ pub fn concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
     }
 }
 
+/// Fast-path helper for `concurrent.channel_new()`. Returns the new channel
+/// id, or 0 if the registry mutex is poisoned.
+pub fn concurrent_channel_new_fast() -> SpectraHostValue {
+    let mut registry = match lock_concurrent_registry() {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    let id = registry.next_channel;
+    registry.next_channel += 1;
+    registry.channels.insert(
+        id,
+        Arc::new(Mutex::new(ConcurrentChannel {
+            queue: VecDeque::with_capacity(CONCURRENT_CHANNEL_INITIAL_CAPACITY),
+            closed: false,
+        })),
+    );
+    id
+}
+
+/// Fast-path helper for `concurrent.channel_send(channel, value)`.
+///
+/// Returns 1 on success, 0 if the channel is closed, 0 if the channel id
+/// is invalid (NOT_FOUND propagated as 0 for Fast ABI).
+pub fn concurrent_channel_send_fast(channel: SpectraHostValue, value: SpectraHostValue) -> i32 {
+    let arc = match lock_concurrent_registry() {
+        Ok(r) => r.channels.get(&channel).cloned(),
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    let Some(arc) = arc else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    let mut ch = lock_unpoisoned(&arc);
+    if ch.closed {
+        return HOST_STATUS_SUCCESS;
+    }
+    ch.queue.push_back(value);
+    1
+}
+
+/// Fast-path helper for `concurrent.channel_recv(channel)`. Returns the next
+/// value in the channel, or -1 if the channel is empty / closed.
+pub fn concurrent_channel_recv_fast(channel: SpectraHostValue) -> i64 {
+    let arc = match lock_concurrent_registry() {
+        Ok(r) => r.channels.get(&channel).cloned(),
+        Err(_) => return -1,
+    };
+    let Some(arc) = arc else {
+        return -1;
+    };
+    let mut ch = lock_unpoisoned(&arc);
+    ch.queue.pop_front().unwrap_or(-1)
+}
+
+/// Fast-path helper for `concurrent.channel_close(channel)`.
+pub fn concurrent_channel_close_fast(channel: SpectraHostValue) -> i32 {
+    let arc = match lock_concurrent_registry() {
+        Ok(r) => r.channels.get(&channel).cloned(),
+        Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+    };
+    let Some(arc) = arc else {
+        return HOST_STATUS_NOT_FOUND;
+    };
+    lock_unpoisoned(&arc).closed = true;
+    HOST_STATUS_SUCCESS
+}
+
+/// Fast-path helper for `concurrent.channel_len(channel)`.
+pub fn concurrent_channel_len_fast(channel: SpectraHostValue) -> i64 {
+    let arc = match lock_concurrent_registry() {
+        Ok(r) => r.channels.get(&channel).cloned(),
+        Err(_) => return 0,
+    };
+    let Some(arc) = arc else {
+        return 0;
+    };
+    let n = lock_unpoisoned(&arc).queue.len() as i64;
+    n
+}
+
 extern "C" fn std_async_reactor_reset(ctx: *mut SpectraHostCallContext) -> i32 {
     let args = match host_call_void_args(ctx, 0) {
         Ok(args) => args,
@@ -16371,6 +16504,7 @@ extern "C" fn std_async_reactor_reset(ctx: *mut SpectraHostCallContext) -> i32 {
 }
 
 const CONCURRENT_POOL_INITIAL_CAPACITY: usize = 64;
+const CONCURRENT_CHANNEL_INITIAL_CAPACITY: usize = 8;
 
 struct ConcurrentChannel {
     queue: VecDeque<SpectraHostValue>,
@@ -16384,7 +16518,7 @@ struct ConcurrentRegistry {
     next_channel: SpectraHostValue,
     next_counter: SpectraHostValue,
     tasks_spawned: SpectraHostValue,
-    channels: HashMap<SpectraHostValue, ConcurrentChannel>,
+    channels: HashMap<SpectraHostValue, Arc<Mutex<ConcurrentChannel>>>,
     counters: HashMap<SpectraHostValue, SpectraHostValue>,
 }
 
@@ -16520,19 +16654,20 @@ extern "C" fn std_concurrent_channel_new(ctx: *mut SpectraHostCallContext) -> i3
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let mut registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
+    let (channel_id, channel_arc) = match lock_concurrent_registry() {
+        Ok(mut registry) => {
+            let id = registry.next_channel;
+            registry.next_channel += 1;
+            let arc = Arc::new(Mutex::new(ConcurrentChannel {
+                queue: VecDeque::with_capacity(CONCURRENT_CHANNEL_INITIAL_CAPACITY),
+                closed: false,
+            }));
+            registry.channels.insert(id, arc.clone());
+            (id, arc)
+        }
         Err(status) => return status,
     };
-    let channel_id = registry.next_channel;
-    registry.next_channel += 1;
-    registry.channels.insert(
-        channel_id,
-        ConcurrentChannel {
-            queue: VecDeque::new(),
-            closed: false,
-        },
-    );
+    let _ = channel_arc;
     results[0] = channel_id;
     HOST_STATUS_SUCCESS
 }
@@ -16542,13 +16677,14 @@ extern "C" fn std_concurrent_channel_send(ctx: *mut SpectraHostCallContext) -> i
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let mut registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
+    let channel_arc = match lock_concurrent_registry() {
+        Ok(registry) => registry.channels.get(&args[0]).cloned(),
         Err(status) => return status,
     };
-    let Some(channel) = registry.channels.get_mut(&args[0]) else {
+    let Some(channel_arc) = channel_arc else {
         return HOST_STATUS_NOT_FOUND;
     };
+    let mut channel = lock_unpoisoned(&channel_arc);
     if channel.closed {
         results[0] = 0;
         return HOST_STATUS_SUCCESS;
@@ -16563,13 +16699,14 @@ extern "C" fn std_concurrent_channel_recv(ctx: *mut SpectraHostCallContext) -> i
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let mut registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
+    let channel_arc = match lock_concurrent_registry() {
+        Ok(registry) => registry.channels.get(&args[0]).cloned(),
         Err(status) => return status,
     };
-    let Some(channel) = registry.channels.get_mut(&args[0]) else {
+    let Some(channel_arc) = channel_arc else {
         return HOST_STATUS_NOT_FOUND;
     };
+    let mut channel = lock_unpoisoned(&channel_arc);
     results[0] = channel.queue.pop_front().unwrap_or(-1);
     HOST_STATUS_SUCCESS
 }
@@ -16579,14 +16716,16 @@ extern "C" fn std_concurrent_channel_len(ctx: *mut SpectraHostCallContext) -> i3
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
+    let channel_arc = match lock_concurrent_registry() {
+        Ok(registry) => registry.channels.get(&args[0]).cloned(),
         Err(status) => return status,
     };
-    let Some(channel) = registry.channels.get(&args[0]) else {
+    let Some(channel_arc) = channel_arc else {
         return HOST_STATUS_NOT_FOUND;
     };
-    results[0] = channel.queue.len() as i64;
+    let channel = lock_unpoisoned(&channel_arc);
+    let n = channel.queue.len() as i64;
+    results[0] = n;
     HOST_STATUS_SUCCESS
 }
 
@@ -16595,14 +16734,14 @@ extern "C" fn std_concurrent_channel_close(ctx: *mut SpectraHostCallContext) -> 
         Ok(args) => args,
         Err(status) => return status,
     };
-    let mut registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
+    let channel_arc = match lock_concurrent_registry() {
+        Ok(registry) => registry.channels.get(&args[0]).cloned(),
         Err(status) => return status,
     };
-    let Some(channel) = registry.channels.get_mut(&args[0]) else {
+    let Some(channel_arc) = channel_arc else {
         return HOST_STATUS_NOT_FOUND;
     };
-    channel.closed = true;
+    lock_unpoisoned(&channel_arc).closed = true;
     HOST_STATUS_SUCCESS
 }
 

@@ -54,6 +54,16 @@ pub struct AotCodeGenerator {
     tensor_full_f_fast_func: FuncId,
     string_len_fast_func: FuncId,
     string_char_at_fast_func: FuncId,
+    map_new_fast_func: FuncId,
+    map_remove_fast_func: FuncId,
+    map_len_fast_func: FuncId,
+    map_clear_fast_func: FuncId,
+    map_free_fast_func: FuncId,
+    channel_new_fast_func: FuncId,
+    channel_send_fast_func: FuncId,
+    channel_recv_fast_func: FuncId,
+    channel_close_fast_func: FuncId,
+    channel_len_fast_func: FuncId,
     /// Dedup table for string literals (R-3126). Each unique
     /// `ConstString` value resolves to one entry pre-populated in
     /// [`pre_intern_string_literals`].
@@ -306,6 +316,94 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare string_char_at fast import");
 
+        let mut map_new_sig = module.make_signature();
+        map_new_sig.returns.push(AbiParam::new(types::I64));
+        let map_new_fast_func = module
+            .declare_function("spectra_rt_map_new_fast", Linkage::Import, &map_new_sig)
+            .expect("Failed to declare map_new fast import");
+
+        let mut map_remove_sig = module.make_signature();
+        map_remove_sig.params.push(AbiParam::new(types::I64));
+        map_remove_sig.params.push(AbiParam::new(types::I64));
+        map_remove_sig.returns.push(AbiParam::new(types::I64));
+        let map_remove_fast_func = module
+            .declare_function("spectra_rt_map_remove_fast", Linkage::Import, &map_remove_sig)
+            .expect("Failed to declare map_remove fast import");
+
+        let mut map_len_sig = module.make_signature();
+        map_len_sig.params.push(AbiParam::new(types::I64));
+        map_len_sig.returns.push(AbiParam::new(types::I64));
+        let map_len_fast_func = module
+            .declare_function("spectra_rt_map_len_fast", Linkage::Import, &map_len_sig)
+            .expect("Failed to declare map_len fast import");
+
+        let mut map_clear_sig = module.make_signature();
+        map_clear_sig.params.push(AbiParam::new(types::I64));
+        let map_clear_fast_func = module
+            .declare_function("spectra_rt_map_clear_fast", Linkage::Import, &map_clear_sig)
+            .expect("Failed to declare map_clear fast import");
+
+        let mut map_free_sig = module.make_signature();
+        map_free_sig.params.push(AbiParam::new(types::I64));
+        let map_free_fast_func = module
+            .declare_function("spectra_rt_map_free_fast", Linkage::Import, &map_free_sig)
+            .expect("Failed to declare map_free fast import");
+
+        let mut channel_new_sig = module.make_signature();
+        channel_new_sig.returns.push(AbiParam::new(types::I64));
+        let channel_new_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_new_fast",
+                Linkage::Import,
+                &channel_new_sig,
+            )
+            .expect("Failed to declare channel_new fast import");
+
+        let mut channel_send_sig = module.make_signature();
+        channel_send_sig.params.push(AbiParam::new(types::I64));
+        channel_send_sig.params.push(AbiParam::new(types::I64));
+        channel_send_sig.returns.push(AbiParam::new(types::I32));
+        let channel_send_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_send_fast",
+                Linkage::Import,
+                &channel_send_sig,
+            )
+            .expect("Failed to declare channel_send fast import");
+
+        let mut channel_recv_sig = module.make_signature();
+        channel_recv_sig.params.push(AbiParam::new(types::I64));
+        channel_recv_sig.returns.push(AbiParam::new(types::I64));
+        let channel_recv_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_recv_fast",
+                Linkage::Import,
+                &channel_recv_sig,
+            )
+            .expect("Failed to declare channel_recv fast import");
+
+        let mut channel_close_sig = module.make_signature();
+        channel_close_sig.params.push(AbiParam::new(types::I64));
+        channel_close_sig.returns.push(AbiParam::new(types::I32));
+        let channel_close_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_close_fast",
+                Linkage::Import,
+                &channel_close_sig,
+            )
+            .expect("Failed to declare channel_close fast import");
+
+        let mut channel_len_sig = module.make_signature();
+        channel_len_sig.params.push(AbiParam::new(types::I64));
+        channel_len_sig.returns.push(AbiParam::new(types::I64));
+        let channel_len_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_len_fast",
+                Linkage::Import,
+                &channel_len_sig,
+            )
+            .expect("Failed to declare channel_len fast import");
+
         Self {
             module,
             ctx,
@@ -334,6 +432,16 @@ impl AotCodeGenerator {
             tensor_full_f_fast_func,
             string_len_fast_func,
             string_char_at_fast_func,
+            map_new_fast_func,
+            map_remove_fast_func,
+            map_len_fast_func,
+            map_clear_fast_func,
+            map_free_fast_func,
+            channel_new_fast_func,
+            channel_send_fast_func,
+            channel_recv_fast_func,
+            channel_close_fast_func,
+            channel_len_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
             string_literal_data: HashMap::new(),
@@ -548,6 +656,16 @@ impl AotCodeGenerator {
                 self.tensor_full_f_fast_func,
                 self.string_len_fast_func,
                 self.string_char_at_fast_func,
+                self.map_new_fast_func,
+                self.map_remove_fast_func,
+                self.map_len_fast_func,
+                self.map_clear_fast_func,
+                self.map_free_fast_func,
+                self.channel_new_fast_func,
+                self.channel_send_fast_func,
+                self.channel_recv_fast_func,
+                self.channel_close_fast_func,
+                self.channel_len_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,

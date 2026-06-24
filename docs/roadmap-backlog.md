@@ -2110,6 +2110,67 @@ to an integer-typed local and then compared/returned through invalid IR.
 
 ---
 
+## R-1004 JIT Fast-Path Symbol Export on Windows
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-1001`, `R-1002`, `R-1101`, `R-1601`
+
+### Problem (2026-06-24)
+
+`run_tests.ps1` reported 6 failures sharing the same root cause: the JIT
+could not resolve `spectra_rt_channel_new_fast`, `spectra_rt_map_new_fast`,
+and other `spectra_rt_*_fast` symbols at runtime:
+
+```
+thread 'main' panicked at
+  cranelift-jit-0.130.0/src/backend.rs:243:21:
+  can't resolve symbol spectra_rt_channel_new_fast
+```
+
+The fast-path `extern "C"` functions in `runtime/src/ffi.rs` are designed
+to be called directly by JIT-compiled code (bypassing the generic
+host-call dispatch). They are **not** called from any Rust code, so the
+linker treats them as dead code. On Linux/macOS the `pub fn` in the
+safe wrapper `crate::ffi::keep_fast_symbols` (called from
+`spectra_runtime::register_standard_library`) keeps the bodies, but on
+Windows even the in-tree call does not place the symbol in the **PE
+export table**, so `GetProcAddress(GetModuleHandleA(NULL), name)`
+returns `NULL` and the JIT panics.
+
+### Affected tests (all now PASSOU)
+
+- `tests/validation/77_concurrency_pipeline.spectra` (compile, F1)
+- `examples/ai/data_preprocessing_pipeline.spectra` (run, rc=101, F2)
+- `benchmarks/cross-lang/cpu-hashmap/spectra/bench.spectra` (run, rc=101, F3)
+- `scripts/validate_r2001_ai_conformance.py` (gate, F4) — cascata
+- `scripts/phase31_run_all.py` / `validate_phase31_cross_lang.py` (F5) — cascata
+- `scripts/stress_soak.py` (F6) — cascata
+
+### Fix (2026-06-24)
+
+1. `runtime/src/ffi.rs`: each `pub extern "C" fn spectra_rt_*_fast` got
+   `#[inline(never)]` so the compiler emits a real body that can be
+   addressed by the JIT (and is not inlined into the caller).
+2. `runtime/src/ffi.rs`: new `pub fn keep_fast_symbols` calls every
+   fast function with safe dummy inputs; invoked from
+   `crate::stdlib::register` so all symbols survive Rust dead-code
+   elimination on every target.
+3. `tools/spectra-cli/build.rs`: on Windows, emit
+   `cargo:rustc-link-arg=/EXPORT:spectra_rt_<name>` for each of the 22
+   fast-path symbols so they appear in the PE export table of
+   `spectralang.exe` and are reachable via `GetProcAddress`.
+
+### Validation
+
+- `run_tests.ps1` reports 357/357 PASSOU (0 FALHOU, 100% success rate).
+- All `tests\validation` (151) pass.
+- All `phase13-ai` AI examples (21) pass.
+- `R-2001`, `R-3101` (Phase 31 cross-lang), and `phase12` stress gates pass.
+
+---
+
 # Phase 11: Concurrency and Serving
 
 ## R-1101 Concurrency Model

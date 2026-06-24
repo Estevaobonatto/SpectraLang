@@ -157,6 +157,26 @@ pub struct CodeGenerator {
         /// The inline path is currently strictly faster, so this is registered and
         /// declared but not yet wired into the `HostCall` intercept.
         _string_char_at_fast_func: FuncId,
+        /// Import for fast-ABI `col.map_new`
+        map_new_fast_func: FuncId,
+        /// Import for fast-ABI `col.map_remove`
+        map_remove_fast_func: FuncId,
+        /// Import for fast-ABI `col.map_len`
+        map_len_fast_func: FuncId,
+        /// Import for fast-ABI `col.map_clear`
+        map_clear_fast_func: FuncId,
+        /// Import for fast-ABI `col.map_free`
+        map_free_fast_func: FuncId,
+        /// Import for fast-ABI `concurrent.channel_new`
+        channel_new_fast_func: FuncId,
+        /// Import for fast-ABI `concurrent.channel_send`
+        channel_send_fast_func: FuncId,
+        /// Import for fast-ABI `concurrent.channel_recv`
+        channel_recv_fast_func: FuncId,
+        /// Import for fast-ABI `concurrent.channel_close`
+        channel_close_fast_func: FuncId,
+        /// Import for fast-ABI `concurrent.channel_len`
+        channel_len_fast_func: FuncId,
         /// Dedup table for string literals (R-3126). Each unique `ConstString`
         /// value resolves to one entry; see [`intern_string_literal`].
         string_literal_data: HashMap<String, StringLiteralRecord>,
@@ -528,6 +548,94 @@ impl CodeGenerator {
             )
             .expect("Failed to declare string_char_at fast import");
 
+        let mut map_new_sig = module.make_signature();
+        map_new_sig.returns.push(AbiParam::new(types::I64));
+        let map_new_fast_func = module
+            .declare_function("spectra_rt_map_new_fast", Linkage::Import, &map_new_sig)
+            .expect("Failed to declare map_new fast import");
+
+        let mut map_remove_sig = module.make_signature();
+        map_remove_sig.params.push(AbiParam::new(types::I64));
+        map_remove_sig.params.push(AbiParam::new(types::I64));
+        map_remove_sig.returns.push(AbiParam::new(types::I64));
+        let map_remove_fast_func = module
+            .declare_function("spectra_rt_map_remove_fast", Linkage::Import, &map_remove_sig)
+            .expect("Failed to declare map_remove fast import");
+
+        let mut map_len_sig = module.make_signature();
+        map_len_sig.params.push(AbiParam::new(types::I64));
+        map_len_sig.returns.push(AbiParam::new(types::I64));
+        let map_len_fast_func = module
+            .declare_function("spectra_rt_map_len_fast", Linkage::Import, &map_len_sig)
+            .expect("Failed to declare map_len fast import");
+
+        let mut map_clear_sig = module.make_signature();
+        map_clear_sig.params.push(AbiParam::new(types::I64));
+        let map_clear_fast_func = module
+            .declare_function("spectra_rt_map_clear_fast", Linkage::Import, &map_clear_sig)
+            .expect("Failed to declare map_clear fast import");
+
+        let mut map_free_sig = module.make_signature();
+        map_free_sig.params.push(AbiParam::new(types::I64));
+        let map_free_fast_func = module
+            .declare_function("spectra_rt_map_free_fast", Linkage::Import, &map_free_sig)
+            .expect("Failed to declare map_free fast import");
+
+        let mut channel_new_sig = module.make_signature();
+        channel_new_sig.returns.push(AbiParam::new(types::I64));
+        let channel_new_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_new_fast",
+                Linkage::Import,
+                &channel_new_sig,
+            )
+            .expect("Failed to declare channel_new fast import");
+
+        let mut channel_send_sig = module.make_signature();
+        channel_send_sig.params.push(AbiParam::new(types::I64));
+        channel_send_sig.params.push(AbiParam::new(types::I64));
+        channel_send_sig.returns.push(AbiParam::new(types::I32));
+        let channel_send_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_send_fast",
+                Linkage::Import,
+                &channel_send_sig,
+            )
+            .expect("Failed to declare channel_send fast import");
+
+        let mut channel_recv_sig = module.make_signature();
+        channel_recv_sig.params.push(AbiParam::new(types::I64));
+        channel_recv_sig.returns.push(AbiParam::new(types::I64));
+        let channel_recv_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_recv_fast",
+                Linkage::Import,
+                &channel_recv_sig,
+            )
+            .expect("Failed to declare channel_recv fast import");
+
+        let mut channel_close_sig = module.make_signature();
+        channel_close_sig.params.push(AbiParam::new(types::I64));
+        channel_close_sig.returns.push(AbiParam::new(types::I32));
+        let channel_close_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_close_fast",
+                Linkage::Import,
+                &channel_close_sig,
+            )
+            .expect("Failed to declare channel_close fast import");
+
+        let mut channel_len_sig = module.make_signature();
+        channel_len_sig.params.push(AbiParam::new(types::I64));
+        channel_len_sig.returns.push(AbiParam::new(types::I64));
+        let channel_len_fast_func = module
+            .declare_function(
+                "spectra_rt_channel_len_fast",
+                Linkage::Import,
+                &channel_len_sig,
+            )
+            .expect("Failed to declare channel_len fast import");
+
         Self {
             module,
             ctx,
@@ -556,6 +664,16 @@ impl CodeGenerator {
             tensor_full_f_fast_func,
             _string_len_fast_func: string_len_fast_func,
             _string_char_at_fast_func: string_char_at_fast_func,
+            map_new_fast_func,
+            map_remove_fast_func,
+            map_len_fast_func,
+            map_clear_fast_func,
+            map_free_fast_func,
+            channel_new_fast_func,
+            channel_send_fast_func,
+            channel_recv_fast_func,
+            channel_close_fast_func,
+            channel_len_fast_func,
             string_literal_data: HashMap::new(),
             string_literal_storage: Vec::new(),
             host_name_data: HashMap::new(),
@@ -745,6 +863,16 @@ impl CodeGenerator {
                 self.tensor_full_f_fast_func,
                 self._string_len_fast_func,
                 self._string_char_at_fast_func,
+                self.map_new_fast_func,
+                self.map_remove_fast_func,
+                self.map_len_fast_func,
+                self.map_clear_fast_func,
+                self.map_free_fast_func,
+                self.channel_new_fast_func,
+                self.channel_send_fast_func,
+                self.channel_recv_fast_func,
+                self.channel_close_fast_func,
+                self.channel_len_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
@@ -967,6 +1095,16 @@ impl CodeGenerator {
         tensor_full_f_fast_func: FuncId,
         _string_len_fast_func: FuncId,
         _string_char_at_fast_func: FuncId,
+        map_new_fast_func: FuncId,
+        map_remove_fast_func: FuncId,
+        map_len_fast_func: FuncId,
+        map_clear_fast_func: FuncId,
+        map_free_fast_func: FuncId,
+        channel_new_fast_func: FuncId,
+        channel_send_fast_func: FuncId,
+        channel_recv_fast_func: FuncId,
+        channel_close_fast_func: FuncId,
+        channel_len_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
@@ -1020,6 +1158,16 @@ impl CodeGenerator {
                 tensor_full_f_fast_func,
                 _string_len_fast_func,
                 _string_char_at_fast_func,
+                map_new_fast_func,
+                map_remove_fast_func,
+                map_len_fast_func,
+                map_clear_fast_func,
+                map_free_fast_func,
+                channel_new_fast_func,
+                channel_send_fast_func,
+                channel_recv_fast_func,
+                channel_close_fast_func,
+                channel_len_fast_func,
                 builder,
                 instr,
                 value_map,
@@ -1083,6 +1231,16 @@ impl CodeGenerator {
         tensor_full_f_fast_func: FuncId,
         _string_len_fast_func: FuncId,
         _string_char_at_fast_func: FuncId,
+        map_new_fast_func: FuncId,
+        map_remove_fast_func: FuncId,
+        map_len_fast_func: FuncId,
+        map_clear_fast_func: FuncId,
+        map_free_fast_func: FuncId,
+        channel_new_fast_func: FuncId,
+        channel_send_fast_func: FuncId,
+        channel_recv_fast_func: FuncId,
+        channel_close_fast_func: FuncId,
+        channel_len_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
@@ -1531,6 +1689,128 @@ impl CodeGenerator {
                     let func_ref =
                         module.declare_func_in_func(map_contains_fast_func, builder.func);
                     let call = builder.ins().call(func_ref, &[handle, key]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_new" && args.is_empty() {
+                    let func_ref =
+                        module.declare_func_in_func(map_new_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_remove" && args.len() == 2 {
+                    let handle = get_value(&args[0])?;
+                    let key = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_remove_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle, key]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_len" && args.len() == 1 {
+                    let handle = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_len_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[handle]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_clear" && args.len() == 1 {
+                    let handle = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_clear_fast_func, builder.func);
+                    builder.ins().call(func_ref, &[handle]);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.collections.map_free" && args.len() == 1 {
+                    let handle = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(map_free_fast_func, builder.func);
+                    builder.ins().call(func_ref, &[handle]);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.concurrent.channel_new" && args.is_empty() {
+                    let func_ref =
+                        module.declare_func_in_func(channel_new_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.concurrent.channel_send" && args.len() == 2 {
+                    let channel = get_value(&args[0])?;
+                    let value = get_value(&args[1])?;
+                    let func_ref =
+                        module.declare_func_in_func(channel_send_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[channel, value]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.concurrent.channel_recv" && args.len() == 1 {
+                    let channel = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(channel_recv_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[channel]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.concurrent.channel_close" && args.len() == 1 {
+                    let channel = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(channel_close_fast_func, builder.func);
+                    builder.ins().call(func_ref, &[channel]);
+                    return Ok(());
+                }
+
+                if host == "spectra.std.concurrent.channel_len" && args.len() == 1 {
+                    let channel = get_value(&args[0])?;
+                    let func_ref =
+                        module.declare_func_in_func(channel_len_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[channel]);
                     let results = builder.inst_results(call);
                     if let Some(result_value) = result {
                         if let Some(ret) = results.first() {

@@ -4,4 +4,49 @@ fn main() {
     // the canonical SVG at assets/icon.svg.
     #[cfg(windows)]
     embed_resource::compile("assets/icon.rc", embed_resource::NONE);
+
+    // Export every `spectra_rt_*_fast` fast-path symbol from the Windows
+    // executable so the JIT symbol resolver (cranelift-jit calls
+    // `GetProcAddress` against the running process image) can find them.
+    //
+    // Without these flags the Windows linker keeps the function bodies
+    // in the binary (because `crate::ffi::keep_fast_symbols` references
+    // them and is called from `spectra_runtime::register_standard_library`)
+    // but does not add them to the PE export table, so `GetProcAddress`
+    // returns NULL and the JIT panics with
+    // `can't resolve symbol spectra_rt_channel_new_fast`.
+    //
+    // Listing the symbols as linker `/EXPORT:` directives makes them
+    // visible to `GetProcAddress(GetModuleHandleA(NULL), …)` without
+    // affecting the public ABI of the CLI in any other way.
+    #[cfg(windows)]
+    {
+        let fast_symbols = [
+            "spectra_rt_concurrent_spawn_fast",
+            "spectra_rt_concurrent_join_fast",
+            "spectra_rt_map_new_fast",
+            "spectra_rt_map_set_fast",
+            "spectra_rt_map_get_fast",
+            "spectra_rt_map_contains_fast",
+            "spectra_rt_map_remove_fast",
+            "spectra_rt_map_len_fast",
+            "spectra_rt_map_clear_fast",
+            "spectra_rt_map_free_fast",
+            "spectra_rt_channel_new_fast",
+            "spectra_rt_channel_send_fast",
+            "spectra_rt_channel_recv_fast",
+            "spectra_rt_channel_close_fast",
+            "spectra_rt_channel_len_fast",
+            "spectra_rt_ml_linear_fast",
+            "spectra_rt_ml_mse_loss_fast",
+            "spectra_rt_tensor_backward_fast",
+            "spectra_rt_ml_sgd_step_fast",
+            "spectra_rt_tensor_full_f_fast",
+            "spectra_rt_string_len_fast",
+            "spectra_rt_string_char_at_fast",
+        ];
+        for symbol in &fast_symbols {
+            println!("cargo:rustc-link-arg=/EXPORT:{}", symbol);
+        }
+    }
 }

@@ -438,6 +438,7 @@ pub extern "C" fn spectra_rt_string_char_at(
 /// Returns the new task_id (>0 on success) or 0 on internal error
 /// (poisoned registry mutex). Task 0 is reserved as the invalid sentinel.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_concurrent_spawn_fast(value: SpectraHostValue) -> SpectraHostValue {
     crate::stdlib::concurrent_spawn_fast(value)
 }
@@ -450,6 +451,7 @@ pub extern "C" fn spectra_rt_concurrent_spawn_fast(value: SpectraHostValue) -> S
 /// Returns the value written by the matching `task_spawn`, or 0 if the
 /// task_id is invalid (out of range, recycled, or never existed).
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
     crate::stdlib::concurrent_join_fast(task_id)
 }
@@ -461,6 +463,7 @@ pub extern "C" fn spectra_rt_concurrent_join_fast(task_id: SpectraHostValue) -> 
 ///
 /// Returns the new builder handle (>0 on success) or 0 on internal error.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_builder_new(capacity: SpectraHostValue) -> SpectraHostValue {
     crate::stdlib::string_builder_new_fast(capacity as usize)
 }
@@ -472,6 +475,7 @@ pub extern "C" fn spectra_rt_builder_new(capacity: SpectraHostValue) -> SpectraH
 /// directly into the builder buffer. Called directly from JIT code when
 /// the backend inlines the `builder_push` call.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_builder_push(handle: SpectraHostValue, str_ptr: SpectraHostValue) {
     crate::stdlib::string_builder_push_fast(handle as usize, str_ptr)
 }
@@ -481,6 +485,7 @@ pub extern "C" fn spectra_rt_builder_push(handle: SpectraHostValue, str_ptr: Spe
 /// Skips the generic host-call dispatch. Returns the current byte count
 /// of the builder, or 0 for an invalid handle.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_builder_len(handle: SpectraHostValue) -> SpectraHostValue {
     crate::stdlib::string_builder_len_fast(handle as usize)
 }
@@ -490,6 +495,7 @@ pub extern "C" fn spectra_rt_builder_len(handle: SpectraHostValue) -> SpectraHos
 /// Skips the generic host-call dispatch. Returns a Spectra string handle
 /// for the accumulated bytes, or 0 for an invalid handle.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_builder_finish(handle: SpectraHostValue) -> SpectraHostValue {
     crate::stdlib::string_builder_finish_fast(handle as usize)
 }
@@ -498,6 +504,7 @@ pub extern "C" fn spectra_rt_builder_finish(handle: SpectraHostValue) -> Spectra
 ///
 /// Skips the generic host-call dispatch. Frees the builder resources.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_builder_free(handle: SpectraHostValue) {
     crate::stdlib::string_builder_free_fast(handle as usize)
 }
@@ -508,6 +515,7 @@ pub extern "C" fn spectra_rt_builder_free(handle: SpectraHostValue) {
 /// when the backend inlines the `map_set` call. Returns `HOST_STATUS_SUCCESS`
 /// (0) on success or `HOST_STATUS_NOT_FOUND` if the handle is invalid.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_map_set_fast(
     handle: SpectraHostValue,
     key: SpectraHostValue,
@@ -522,6 +530,7 @@ pub extern "C" fn spectra_rt_map_set_fast(
 /// or 0 if the key is absent or the handle is invalid. Cannot distinguish
 /// "stored value is 0" from "key absent / invalid handle".
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_map_get_fast(
     handle: SpectraHostValue,
     key: SpectraHostValue,
@@ -534,6 +543,7 @@ pub extern "C" fn spectra_rt_map_get_fast(
 /// Skips the generic host-call dispatch. Returns 1 if the key is present
 /// in the map, 0 otherwise (including invalid handle).
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_map_contains_fast(
     handle: SpectraHostValue,
     key: SpectraHostValue,
@@ -541,11 +551,120 @@ pub extern "C" fn spectra_rt_map_contains_fast(
     crate::stdlib::map_contains_fast(handle as usize, key)
 }
 
+/// Fast ABI entry for `col.map_new()`.
+///
+/// Creates a new empty map and returns its handle (>0) or 0 on internal
+/// error (poisoned registry mutex).
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_map_new_fast() -> SpectraHostValue {
+    crate::stdlib::map_new_fast()
+}
+
+/// Fast ABI entry for `col.map_remove(handle, key)`.
+///
+/// Skips the generic host-call dispatch. Returns the removed value, or
+/// 0 if the key was absent / handle is invalid. Same caveat as
+/// `map_get_fast` regarding stored 0.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_map_remove_fast(
+    handle: SpectraHostValue,
+    key: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::map_remove_fast(handle as usize, key)
+}
+
+/// Fast ABI entry for `col.map_len(handle)`.
+///
+/// Skips the generic host-call dispatch. Returns the number of entries
+/// in the map, or 0 for an invalid handle.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_map_len_fast(handle: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::map_len_fast(handle as usize)
+}
+
+/// Fast ABI entry for `col.map_clear(handle)`.
+///
+/// Skips the generic host-call dispatch. Removes all entries from the
+/// map. No-op for an invalid handle.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_map_clear_fast(handle: SpectraHostValue) {
+    crate::stdlib::map_clear_fast(handle as usize)
+}
+
+/// Fast ABI entry for `col.map_free(handle)`.
+///
+/// Skips the generic host-call dispatch. Removes the map from the
+/// registry. No-op for an invalid handle.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_map_free_fast(handle: SpectraHostValue) {
+    crate::stdlib::map_free_fast(handle as usize)
+}
+
+/// Fast ABI entry for `concurrent.channel_new()`.
+///
+/// Skips the generic host-call dispatch. Returns the new channel id
+/// (>0 on success) or 0 on internal error.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_channel_new_fast() -> SpectraHostValue {
+    crate::stdlib::concurrent_channel_new_fast()
+}
+
+/// Fast ABI entry for `concurrent.channel_send(channel, value)`.
+///
+/// Skips the generic host-call dispatch. Returns 1 on success, 0 if the
+/// channel is closed. Returns `HOST_STATUS_NOT_FOUND` (-2) if the channel
+/// id is invalid.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_channel_send_fast(
+    channel: SpectraHostValue,
+    value: SpectraHostValue,
+) -> i32 {
+    crate::stdlib::concurrent_channel_send_fast(channel, value)
+}
+
+/// Fast ABI entry for `concurrent.channel_recv(channel)`.
+///
+/// Skips the generic host-call dispatch. Returns the next value in the
+/// channel, or -1 if the channel is empty / closed / invalid id.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_channel_recv_fast(channel: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::concurrent_channel_recv_fast(channel)
+}
+
+/// Fast ABI entry for `concurrent.channel_close(channel)`.
+///
+/// Skips the generic host-call dispatch. Returns `HOST_STATUS_SUCCESS` (0)
+/// on success or `HOST_STATUS_NOT_FOUND` (-2) if the channel id is invalid.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_channel_close_fast(channel: SpectraHostValue) -> i32 {
+    crate::stdlib::concurrent_channel_close_fast(channel)
+}
+
+/// Fast ABI entry for `concurrent.channel_len(channel)`.
+///
+/// Skips the generic host-call dispatch. Returns the queue length, or 0
+/// for an invalid channel id.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_channel_len_fast(channel: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::concurrent_channel_len_fast(channel)
+}
+
 /// Fast ABI entry for `ml.linear(input, weight, bias)`.
 ///
 /// Skips the generic host-call dispatch. Returns the new tensor handle
 /// (>0) on success or 0 on error.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_ml_linear_fast(
     input_h: SpectraHostValue,
     weight_h: SpectraHostValue,
@@ -559,6 +678,7 @@ pub extern "C" fn spectra_rt_ml_linear_fast(
 /// Skips the generic host-call dispatch. Returns the new loss tensor
 /// handle (>0) on success or 0 on error.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_ml_mse_loss_fast(
     prediction_h: SpectraHostValue,
     target_h: SpectraHostValue,
@@ -571,6 +691,7 @@ pub extern "C" fn spectra_rt_ml_mse_loss_fast(
 /// Skips the generic host-call dispatch. Returns `HOST_STATUS_SUCCESS` (0)
 /// on success or the error code on failure.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_tensor_backward_fast(loss_h: SpectraHostValue) -> i32 {
     crate::stdlib::tensor_backward_fast(loss_h as usize)
 }
@@ -582,6 +703,7 @@ pub extern "C" fn spectra_rt_tensor_backward_fast(loss_h: SpectraHostValue) -> i
 /// on success, `HOST_STATUS_INVALID_ARGUMENT` if the LR is invalid, or
 /// `HOST_STATUS_NOT_FOUND` if the handle is invalid.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_ml_sgd_step_fast(param_h: SpectraHostValue, lr: f64) -> i32 {
     crate::stdlib::ml_sgd_step_fast(param_h as usize, lr)
 }
@@ -591,6 +713,7 @@ pub extern "C" fn spectra_rt_ml_sgd_step_fast(param_h: SpectraHostValue, lr: f64
 /// Skips the generic host-call dispatch. `value` is the raw `f64` fill value.
 /// Returns the new tensor handle (>0) on success or 0 on error.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_tensor_full_f_fast(
     n: SpectraHostValue,
     value: f64,
@@ -607,6 +730,7 @@ pub extern "C" fn spectra_rt_tensor_full_f_fast(
 ///
 /// Returns the string length (>0) or `0` for an invalid handle.
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_string_len_fast(s: SpectraHostValue) -> SpectraHostValue {
     crate::stdlib::string_len_fast(s)
 }
@@ -621,6 +745,7 @@ pub extern "C" fn spectra_rt_string_len_fast(s: SpectraHostValue) -> SpectraHost
 /// Returns the byte value (0-255) on success or `-1` for an out-of-bounds
 /// access (null handle, negative index, or index past the null terminator).
 #[no_mangle]
+#[inline(never)]
 pub extern "C" fn spectra_rt_string_char_at_fast(
     s: SpectraHostValue,
     index: SpectraHostValue,
@@ -1183,4 +1308,75 @@ mod tests {
 
         spectra_rt_host_clear();
     }
+}
+
+// ── Fast-path symbol retention ────────────────────────────────────────────────
+//
+// The `spectra_rt_*_fast` functions are not called from any Rust code: they
+// are resolved at runtime by the JIT's symbol resolver (cranelift-jit calls
+// `GetProcAddress` / `dlsym` against the running process image). Because
+// nothing in `spectra-cli` references them, the linker treats them as dead
+// code and strips them, which then causes runtime panics such as
+// `can't resolve symbol spectra_rt_channel_new_fast`.
+//
+// Two complementary mechanisms keep every fast-path symbol alive in the
+// final binary across all targets (including MSVC, which strips
+// unreferenced functions even when other functions in the same TU call
+// them through a `#[no_mangle]` re-export):
+//
+//  1. Each `pub extern "C" fn spectra_rt_*_fast` is also marked
+//     `#[inline(never)]`, so the compiler emits a real function body that
+//     can be addressed by the JIT.
+//  2. `pub fn keep_fast_symbols` calls each fast function with safe dummy
+//     inputs and discards the results. The call is invoked once at startup
+//     from `crate::stdlib::register`, which itself is called from
+//     `spectra_runtime::register_standard_library` in `spectra-cli`, so
+//     every fast-path symbol survives dead-code elimination.
+//
+// To keep them across all targets (including MSVC, where `#[used]` on a
+// `fn` itself is not supported and `#[used]` statics do not pull in the
+// functions they reference), `pub fn keep_fast_symbols` calls each one
+// with safe dummy inputs and discards the results. The call is invoked
+// once at startup from `crate::stdlib::register`, which itself is called
+// from `spectra_runtime::register_standard_library` in `spectra-cli`, so
+// every fast-path symbol survives dead-code elimination.
+//
+// The functions are designed to be side-effect-safe when called with valid
+// registry state: `*_new_*` allocates a fresh handle (cheap), `*_get_*` /
+// `*_contains_*` / `*_len_*` are read-only, and the rest are no-ops on
+// invalid handles (they return NOT_FOUND / 0). Because the handles they
+// return are immediately dropped without being used again, no observable
+// state changes.
+#[doc(hidden)]
+#[inline(never)]
+pub fn keep_fast_symbols() {
+    // Concurrent: spawn a task we never join, then drop the channel we open.
+    let task = spectra_rt_concurrent_spawn_fast(0);
+    let _ = spectra_rt_concurrent_join_fast(task);
+    let channel = spectra_rt_channel_new_fast();
+    let _ = spectra_rt_channel_len_fast(channel);
+    let _ = spectra_rt_channel_recv_fast(channel);
+    let _ = spectra_rt_channel_send_fast(channel, 0);
+    let _ = spectra_rt_channel_close_fast(channel);
+
+    // Map: create a map, write / read / check, then free.
+    let m = spectra_rt_map_new_fast();
+    let _ = spectra_rt_map_set_fast(m, 0, 0);
+    let _ = spectra_rt_map_get_fast(m, 0);
+    let _ = spectra_rt_map_contains_fast(m, 0);
+    let _ = spectra_rt_map_remove_fast(m, 0);
+    let _ = spectra_rt_map_len_fast(m);
+    spectra_rt_map_clear_fast(m);
+    spectra_rt_map_free_fast(m);
+
+    // Tensor / ML: exercise the full pipeline with a 1-element tensor.
+    let t = spectra_rt_tensor_full_f_fast(1, 0.0);
+    let _ = spectra_rt_ml_linear_fast(t, t, t);
+    let loss = spectra_rt_ml_mse_loss_fast(t, t);
+    let _ = spectra_rt_tensor_backward_fast(loss);
+    let _ = spectra_rt_ml_sgd_step_fast(t, 0.0);
+
+    // String fast-path: handle 0 is the no-op sentinel (returns 0).
+    let _ = spectra_rt_string_len_fast(0);
+    let _ = spectra_rt_string_char_at_fast(0, 0);
 }
