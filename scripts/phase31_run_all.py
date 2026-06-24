@@ -48,6 +48,16 @@ SCENARIOS = [
     "ml-mlp-step",
     "async-echo",
     "async-pipeline",
+    "sort-int",
+    "binary-search",
+    "sieve",
+    "matrix-transpose",
+    "string-reverse",
+    "count-primes",
+    "gcd",
+    "pow-fast",
+    "word-count",
+    "digit-sum",
 ]
 
 LANGUAGES = ("spectra", "go", "java", "rust")

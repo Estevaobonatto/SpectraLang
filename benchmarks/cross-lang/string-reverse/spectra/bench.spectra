@@ -1,0 +1,44 @@
+// Phase 31: string-reverse (Spectra)
+// Reverse a string by swapping chars at mirrored positions, repeated.
+
+module bench_string_reverse;
+
+import std.string as str;
+
+pub fn main() -> int {
+    let iters = 200000;
+    let text = "The quick brown fox jumps over the lazy dog";
+    let n = str.len(text);
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        // Build a mutable copy as an array of char codes
+        let chars = [
+            84,104,101,32,113,117,105,99,107,32,98,114,111,119,110,32,102,111,120,32,106,117,109,112,115,32,111,118,101,114,32,116,104,101,32,108,97,122,121,32,100,111,103
+        ];
+        let lo = 0;
+        let hi = n - 1;
+        while lo < hi {
+            let tmp = chars[lo];
+            chars[lo] = chars[hi];
+            chars[hi] = tmp;
+            lo = lo + 1;
+            hi = hi - 1;
+        }
+        // Compute a checksum: weighted sum of reversed chars
+        let checksum = 0;
+        let i = 0;
+        while i < n {
+            checksum = checksum + chars[i] * (i + 1);
+            i = i + 1;
+        }
+        total = total + checksum;
+        it = it + 1;
+    }
+    // Expected reversed string: "god yzal eht revo spmuj xof nworb kciuq ehT"
+    // The exact expected weighted sum is 88994 (precomputed).
+    if total == 88994 * iters {
+        return 0;
+    }
+    return 1;
+}

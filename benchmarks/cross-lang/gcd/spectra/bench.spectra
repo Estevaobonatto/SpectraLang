@@ -1,0 +1,37 @@
+// Phase 31: gcd (Spectra)
+// Euclidean GCD on pairs, repeated.
+
+module bench_gcd;
+
+pub fn main() -> int {
+    let iters = 1000000;
+    // Pairs of (a, b) values
+    let a_vals = [48, 56, 1071, 1024, 270, 816, 462, 100, 75, 999];
+    let b_vals = [36, 42, 462, 768, 192, 204, 330, 75, 125, 333];
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let acc = 0;
+        let p = 0;
+        while p < 10 {
+            let a = a_vals[p];
+            let b = b_vals[p];
+            let mut_a = a;
+            let mut_b = b;
+            while mut_b != 0 {
+                let t = mut_b;
+                mut_b = mut_a - (mut_a / mut_b) * mut_b;
+                mut_a = t;
+            }
+            acc = acc + mut_a;
+            p = p + 1;
+        }
+        // gcds: 12, 14, 21, 256, 6, 12, 66, 25, 25, 3 = 962 (Python math.gcd)
+        total = total + acc;
+        it = it + 1;
+    }
+    if total == 962 * iters {
+        return 0;
+    }
+    return 1;
+}

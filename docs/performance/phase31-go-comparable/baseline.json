@@ -95,6 +95,86 @@
       "tolerance": "exact",
       "spectra_ns_per_iter": 52467360,
       "placeholder": false
+    },
+    "sort-int": {
+      "category": "cpu",
+      "iterations": 50000,
+      "expected_value": 1360,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "binary-search": {
+      "category": "cpu",
+      "iterations": 1000000,
+      "expected_value": 19,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "sieve": {
+      "category": "cpu",
+      "iterations": 2000,
+      "expected_value": 46,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "matrix-transpose": {
+      "category": "cpu",
+      "iterations": 20000,
+      "expected_value": 4368320,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "string-reverse": {
+      "category": "string",
+      "iterations": 200000,
+      "expected_value": 88994,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "count-primes": {
+      "category": "cpu",
+      "iterations": 500,
+      "expected_value": 95,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "gcd": {
+      "category": "cpu",
+      "iterations": 1000000,
+      "expected_value": 962,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "pow-fast": {
+      "category": "cpu",
+      "iterations": 50000,
+      "expected_value": 4325366774,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "word-count": {
+      "category": "string",
+      "iterations": 200000,
+      "expected_value": 12,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "digit-sum": {
+      "category": "cpu",
+      "iterations": 200,
+      "expected_value": 180001,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
     }
   }
 }

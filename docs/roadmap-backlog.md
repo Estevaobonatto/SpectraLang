@@ -7510,6 +7510,87 @@ para 15.4ms; tempo absoluto do Spectra melhorou 1.77x).
 - **Lock baseline**: `python scripts/phase31_lock_baseline.py --n 3`
   quando três runs consecutivos diferirem por menos de 5%.
 
+## R-3125 String Literal Length Tracking + Fast ABI for `str.char_at`/`str.len`
+
+- Status: `in_progress` (Part A infrastructure done; Part B done;
+  performance target missed — see below)
+- Priority: `P0`
+- Owner: `runtime` + `backend`
+- Dependencies: `R-3120`, `R-3122`, `R-3123`, `R-3124`
+
+### Scope
+
+- Fechar o gap de **19.96x** do `word-count` (628M ns debug vs Go 31.5M)
+  para ≤ 2x vs Go (~63M ou menos), eliminando o overhead de iteração
+  linear O(n) por chamada de `str.char_at` / `str.len` em string literals.
+- **Root cause**: o inline path existente (`emit_string_char_at_inline`
+  em `backend/src/codegen.rs:1801`) faz walk linear O(n) do array
+  null-terminated. Para uma string de 53 chars com 200K iterações,
+  resulta em ~286M byte-reads O(n²).
+- **Solução em 2 partes**:
+  1. **Parte A — Fast ABI infra**: 2 helpers em
+     `runtime/src/stdlib/mod.rs` (`string_len_fast`, `string_char_at_fast`)
+     e 2 wrappers `#[no_mangle] pub extern "C"` em `runtime/src/ffi.rs`
+     (`spectra_rt_string_len_fast`, `spectra_rt_string_char_at_fast`).
+     Registrados e declarados no backend mas **não** interligados nas
+     intercepts `HostCall` — o inline path continua sendo estritamente
+     mais rápido (sem call boundary), e a Fast ABI é reservada para uso
+     futuro (e.g., AOT path com inlining desabilitado).
+  2. **Parte B — String literal length tracking**: novo map
+     `string_literal_lengths: HashMap<usize, i64>` no
+     `CodeGenerator::define_function`, populado em `Alloca` handler
+     sempre que o IR type é `IRType::Array { element_type: Int|Char, size }`
+     (independente de o alloca estar em `stack_allocas` ou não).
+     Intercept `str.char_at` agora consulta primeiro `stack_array_lengths`
+     (stack path), depois `string_literal_lengths` (qualquer path com
+     length conhecido), caindo no walk linear O(n) só como último
+     recurso. Intercept `str.len` retorna `iconst(alloc_len - 1)`
+     quando length é conhecida — sem walk, sem call.
+
+### Validation
+
+- `cargo build -p spectra-cli` succeeds.
+- `cargo test -p spectra-runtime` → 62 passed, 0 failed.
+- `benchmarks/cross-lang/word-count/spectra/bench.spectra` → rc=0,
+  total == 12 * iters (correctness preservada).
+- `benchmarks/cross-lang/string-reverse/spectra/bench.spectra` →
+  sem regressão (atualmente ~70M ns vs baseline ~80M, ~1.14x speedup).
+
+### Performance (debug)
+
+| métrica | R-3124 baseline | R-3125 | speedup |
+|---|---:|---:|---:|
+| `word-count` debug (ns) | ~628,000,000 | ~104,500,000 | **6.0x** |
+| gap vs Go | 19.96x | ~2.7x | — |
+
+Speedup real é **6.0x** (não os 10x esperados). O gap residual
+~2.7x vs Go é dominado por:
+1. **JIT compilation overhead** amortizado em runs curtos (200K iters).
+2. **manual_alloc call** para o buffer do string literal (não stack
+   alloca — o alloca é removido de `stack_allocas` porque é passado
+   para `HostCall`).
+3. **Overhead de debug mode**: bounds checks explícitos no inline
+   path, sem inlining de funções pequenas.
+
+### Remaining before completion
+
+- **Const string data section (Parte B+)**: promover string literals
+  a `.rodata` global constants em vez de heap-allocated buffers. Isso
+  eliminaria a `manual_alloc` call (item 2 acima) e reduziria o gap
+  para ~2x. Escopo maior, requer mudança no midend/IR.
+- **Inline `str.len`/`str.char_at` agressivo**: emitir diretamente
+  no Cranelift IR sem branches quando o length é estático (e.g.,
+  eliminar bounds check quando index é loop-bounded).
+- **Release build**: bounds checks removidos e Cranelift opt-level
+  mais alto devem dar speedup adicional ~1.5-2x, fechando o gap.
+- **Lock baseline**: `python scripts/phase31_lock_baseline.py --n 3`
+  quando três runs consecutivos diferirem por menos de 5%.
+
+### Follow-up
+
+- R-3126 (proposto): Const string data section — promover string
+  literals a .rodata globals, eliminando manual_alloc no hot path.
+
 ## R-3108 String Materialization Optimization
 
 - Status: `complete`

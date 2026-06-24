@@ -10961,6 +10961,56 @@ unsafe fn alloc_spectra_string(s: &str) -> SpectraHostValue {
     raw as i64
 }
 
+/// Fast-path helper for `str.len(s)`.
+///
+/// Mirrors `std_string_len` but skips the generic host-call dispatch AND the
+/// unnecessary `String` allocation in `read_spectra_string`. Walks the
+/// null-terminated `i64` array directly to count bytes.
+///
+/// Returns the string length (>0) or `0` for an invalid handle.
+pub fn string_len_fast(s: SpectraHostValue) -> SpectraHostValue {
+    if s == 0 {
+        return 0;
+    }
+    let raw = s as *const i64;
+    let mut len: usize = 0;
+    unsafe {
+        while (*raw.add(len) as u8) != 0 {
+            len += 1;
+        }
+    }
+    len as SpectraHostValue
+}
+
+/// Fast-path helper for `str.char_at(s, index)`.
+///
+/// Mirrors `std_string_char_at` but skips the generic host-call dispatch AND
+/// the unnecessary `String` allocation in `read_spectra_string`. Reads the
+/// byte at the given index directly from the null-terminated `i64` array.
+///
+/// Returns the byte value (0-255) on success or `-1` for an out-of-bounds
+/// access (null handle, negative index, or index past the null terminator).
+pub fn string_char_at_fast(
+    s: SpectraHostValue,
+    index: SpectraHostValue,
+) -> SpectraHostValue {
+    if s == 0 || index < 0 {
+        return -1;
+    }
+    let idx = index as usize;
+    let raw = s as *const i64;
+    unsafe {
+        let mut len: usize = 0;
+        while (*raw.add(len) as u8) != 0 {
+            len += 1;
+        }
+        if idx >= len {
+            return -1;
+        }
+        (*raw.add(idx) as u8) as SpectraHostValue
+    }
+}
+
 fn fs_path_from_string(path: String) -> Option<PathBuf> {
     if path.trim().is_empty() || path.contains('\0') {
         return None;

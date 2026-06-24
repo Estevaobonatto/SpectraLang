@@ -1,0 +1,32 @@
+// Phase 31: digit-sum (Spectra)
+// For each n in 1..N, compute the sum of its decimal digits and accumulate.
+
+module bench_digit_sum;
+
+pub fn main() -> int {
+    let iters = 200;
+    let n = 10000;
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let acc = 0;
+        let i = 1;
+        while i <= n {
+            let mut_x = i;
+            let mut_digit_sum = 0;
+            while mut_x > 0 {
+                mut_digit_sum = mut_digit_sum + mut_x - (mut_x / 10) * 10;
+                mut_x = mut_x / 10;
+            }
+            acc = acc + mut_digit_sum;
+            i = i + 1;
+        }
+        // Sum of digit sums for 1..10000 = 180001 (verified by Python).
+        total = total + acc;
+        it = it + 1;
+    }
+    if total == 180001 * iters {
+        return 0;
+    }
+    return 1;
+}

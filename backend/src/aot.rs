@@ -52,6 +52,8 @@ pub struct AotCodeGenerator {
     tensor_backward_fast_func: FuncId,
     ml_sgd_step_fast_func: FuncId,
     tensor_full_f_fast_func: FuncId,
+    string_len_fast_func: FuncId,
+    string_char_at_fast_func: FuncId,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -266,6 +268,25 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare tensor_full_f fast import");
 
+        let mut string_len_sig = module.make_signature();
+        string_len_sig.params.push(AbiParam::new(types::I64));
+        string_len_sig.returns.push(AbiParam::new(types::I64));
+        let string_len_fast_func = module
+            .declare_function("spectra_rt_string_len_fast", Linkage::Import, &string_len_sig)
+            .expect("Failed to declare string_len fast import");
+
+        let mut string_char_at_sig = module.make_signature();
+        string_char_at_sig.params.push(AbiParam::new(types::I64));
+        string_char_at_sig.params.push(AbiParam::new(types::I64));
+        string_char_at_sig.returns.push(AbiParam::new(types::I64));
+        let string_char_at_fast_func = module
+            .declare_function(
+                "spectra_rt_string_char_at_fast",
+                Linkage::Import,
+                &string_char_at_sig,
+            )
+            .expect("Failed to declare string_char_at fast import");
+
         Self {
             module,
             ctx,
@@ -292,6 +313,8 @@ impl AotCodeGenerator {
             tensor_backward_fast_func,
             ml_sgd_step_fast_func,
             tensor_full_f_fast_func,
+            string_len_fast_func,
+            string_char_at_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -404,6 +427,7 @@ impl AotCodeGenerator {
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
+        let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
         let manual_frame_active =
             CodeGenerator::function_needs_manual_frame(ir_func, &stack_allocas);
@@ -493,12 +517,15 @@ impl AotCodeGenerator {
                 self.tensor_backward_fast_func,
                 self.ml_sgd_step_fast_func,
                 self.tensor_full_f_fast_func,
+                self.string_len_fast_func,
+                self.string_char_at_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
                 &mut stack_array_lengths,
+                &mut string_literal_lengths,
                 &stack_allocas,
                 frame_var,
                 manual_frame_active,

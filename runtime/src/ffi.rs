@@ -598,6 +598,36 @@ pub extern "C" fn spectra_rt_tensor_full_f_fast(
     crate::stdlib::tensor_full_f_fast(n as usize, value)
 }
 
+/// Fast ABI entry for `str.len(s)`.
+///
+/// Skips the generic host-call dispatch AND the intermediate `String`
+/// allocation in `read_spectra_string`. Walks the null-terminated `i64`
+/// array directly to count bytes. Called from JIT/AOT code when the inline
+/// path is not available (e.g., AOT path with non-statically-known length).
+///
+/// Returns the string length (>0) or `0` for an invalid handle.
+#[no_mangle]
+pub extern "C" fn spectra_rt_string_len_fast(s: SpectraHostValue) -> SpectraHostValue {
+    crate::stdlib::string_len_fast(s)
+}
+
+/// Fast ABI entry for `str.char_at(s, index)`.
+///
+/// Skips the generic host-call dispatch AND the intermediate `String`
+/// allocation in `read_spectra_string`. Reads the byte at the given index
+/// directly from the null-terminated `i64` array. Called from JIT/AOT code
+/// when the inline path is not available.
+///
+/// Returns the byte value (0-255) on success or `-1` for an out-of-bounds
+/// access (null handle, negative index, or index past the null terminator).
+#[no_mangle]
+pub extern "C" fn spectra_rt_string_char_at_fast(
+    s: SpectraHostValue,
+    index: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::string_char_at_fast(s, index)
+}
+
 /// Releases a manual allocation previously returned by `spectra_rt_manual_alloc`.
 #[no_mangle]
 pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {

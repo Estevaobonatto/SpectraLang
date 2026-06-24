@@ -92,12 +92,18 @@ pub struct CodeGenerator {
     /// Import for fast-ABI `tensor.backward`
     tensor_backward_fast_func: FuncId,
     /// Import for fast-ABI `ml.sgd_step`
-    ml_sgd_step_fast_func: FuncId,
-    /// Import for fast-ABI `tensor.full_f`
-    tensor_full_f_fast_func: FuncId,
-    /// Cached host name pointers and backing storage
-    host_name_data: HashMap<String, HostNameRecord>,
-    host_name_storage: Vec<Box<[u8]>>,
+        ml_sgd_step_fast_func: FuncId,
+        tensor_full_f_fast_func: FuncId,
+        /// Reserved for future Fast ABI interception of `str.len` (Part A of R-3125).
+        /// The inline path is currently strictly faster, so this is registered and
+        /// declared but not yet wired into the `HostCall` intercept.
+        _string_len_fast_func: FuncId,
+        /// Reserved for future Fast ABI interception of `str.char_at` (Part A of R-3125).
+        /// The inline path is currently strictly faster, so this is registered and
+        /// declared but not yet wired into the `HostCall` intercept.
+        _string_char_at_fast_func: FuncId,
+        host_name_data: HashMap<String, HostNameRecord>,
+        host_name_storage: Vec<Box<[u8]>>,
 }
 
 /// Describes a PHI node so that the backend can emit Cranelift block parameters.
@@ -220,6 +226,14 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_tensor_full_f_fast",
             spectra_runtime::ffi::spectra_rt_tensor_full_f_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_string_len_fast",
+            spectra_runtime::ffi::spectra_rt_string_len_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_string_char_at_fast",
+            spectra_runtime::ffi::spectra_rt_string_char_at_fast as *const u8,
         );
 
         let mut module = JITModule::new(builder);
@@ -422,6 +436,25 @@ impl CodeGenerator {
             )
             .expect("Failed to declare tensor_full_f fast import");
 
+        let mut string_len_sig = module.make_signature();
+        string_len_sig.params.push(AbiParam::new(types::I64));
+        string_len_sig.returns.push(AbiParam::new(types::I64));
+        let string_len_fast_func = module
+            .declare_function("spectra_rt_string_len_fast", Linkage::Import, &string_len_sig)
+            .expect("Failed to declare string_len fast import");
+
+        let mut string_char_at_sig = module.make_signature();
+        string_char_at_sig.params.push(AbiParam::new(types::I64));
+        string_char_at_sig.params.push(AbiParam::new(types::I64));
+        string_char_at_sig.returns.push(AbiParam::new(types::I64));
+        let string_char_at_fast_func = module
+            .declare_function(
+                "spectra_rt_string_char_at_fast",
+                Linkage::Import,
+                &string_char_at_sig,
+            )
+            .expect("Failed to declare string_char_at fast import");
+
         Self {
             module,
             ctx,
@@ -448,6 +481,8 @@ impl CodeGenerator {
             tensor_backward_fast_func,
             ml_sgd_step_fast_func,
             tensor_full_f_fast_func,
+            _string_len_fast_func: string_len_fast_func,
+            _string_char_at_fast_func: string_char_at_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -537,6 +572,7 @@ impl CodeGenerator {
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
+        let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = Self::collect_stack_allocas(ir_func);
         let manual_frame_active = Self::function_needs_manual_frame(ir_func, &stack_allocas);
         let frame_token = if manual_frame_active {
@@ -630,12 +666,15 @@ impl CodeGenerator {
                 self.tensor_backward_fast_func,
                 self.ml_sgd_step_fast_func,
                 self.tensor_full_f_fast_func,
+                self._string_len_fast_func,
+                self._string_char_at_fast_func,
                 &mut builder,
                 ir_block,
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
                 &mut stack_array_lengths,
+                &mut string_literal_lengths,
                 &stack_allocas,
                 frame_var,
                 manual_frame_active,
@@ -847,12 +886,15 @@ impl CodeGenerator {
         tensor_backward_fast_func: FuncId,
         ml_sgd_step_fast_func: FuncId,
         tensor_full_f_fast_func: FuncId,
+        _string_len_fast_func: FuncId,
+        _string_char_at_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
         value_map: &mut HashMap<usize, Value>,
         block_map: &HashMap<usize, Block>,
         allocation_vars: &mut Vec<Variable>,
         stack_array_lengths: &mut HashMap<usize, i64>,
+        string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         frame_var: Variable,
         manual_frame_active: bool,
@@ -895,11 +937,14 @@ impl CodeGenerator {
                 tensor_backward_fast_func,
                 ml_sgd_step_fast_func,
                 tensor_full_f_fast_func,
+                _string_len_fast_func,
+                _string_char_at_fast_func,
                 builder,
                 instr,
                 value_map,
                 allocation_vars,
                 stack_array_lengths,
+                string_literal_lengths,
                 stack_allocas,
                 track_allocations,
                 ir_block.id,
@@ -953,11 +998,14 @@ impl CodeGenerator {
         tensor_backward_fast_func: FuncId,
         ml_sgd_step_fast_func: FuncId,
         tensor_full_f_fast_func: FuncId,
+        _string_len_fast_func: FuncId,
+        _string_char_at_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
         value_map: &mut HashMap<usize, Value>,
         allocation_vars: &mut Vec<Variable>,
         stack_array_lengths: &mut HashMap<usize, i64>,
+        string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         track_allocations: bool,
         current_block_id: usize,
@@ -1138,6 +1186,7 @@ impl CodeGenerator {
                     if let IRType::Array { element_type, size } = ty {
                         if matches!(**element_type, IRType::Int | IRType::Char) {
                             stack_array_lengths.insert(result.id, *size as i64);
+                            string_literal_lengths.insert(result.id, *size as i64);
                         }
                     }
                     return Ok(());
@@ -1155,6 +1204,12 @@ impl CodeGenerator {
                         let var = builder.declare_var(types::I64);
                         builder.def_var(var, ptr);
                         allocation_vars.push(var);
+                    }
+
+                    if let IRType::Array { element_type, size } = ty {
+                        if matches!(**element_type, IRType::Int | IRType::Char) {
+                            string_literal_lengths.insert(result.id, *size as i64);
+                        }
                     }
                 } else {
                     return Err(BackendCodegenError::invalid_ir(
@@ -1238,7 +1293,16 @@ impl CodeGenerator {
                 if host == "spectra.std.string.len" && args.len() == 1 {
                     let ptr = get_value(&args[0])?;
                     if let Some(result_value) = result {
-                        let value = Self::emit_string_len_inline(builder, ptr);
+                        let value = if let Some(alloc_len) =
+                            string_literal_lengths.get(&args[0].id).copied()
+                        {
+                            // String literal: known length, return constant
+                            // (alloc_len includes the trailing null terminator, so the
+                            // actual byte count is alloc_len - 1).
+                            builder.ins().iconst(types::I64, alloc_len - 1)
+                        } else {
+                            Self::emit_string_len_inline(builder, ptr)
+                        };
                         value_map.insert(result_value.id, value);
                     }
                     return Ok(());
@@ -1250,6 +1314,13 @@ impl CodeGenerator {
                     if let Some(result_value) = result {
                         let value = if let Some(length) = stack_array_lengths.get(&args[0].id) {
                             Self::emit_stack_string_char_at_inline(builder, ptr, index, *length)
+                        } else if let Some(length) =
+                            string_literal_lengths.get(&args[0].id).copied()
+                        {
+                            // String literal with known length: emit direct O(1) load
+                            // (re-use the stack inline emitter — it only needs the
+                            // allocation length to do bounds checks, not stack residency).
+                            Self::emit_stack_string_char_at_inline(builder, ptr, index, length)
                         } else {
                             Self::emit_string_char_at_inline(builder, ptr, index)
                         };
