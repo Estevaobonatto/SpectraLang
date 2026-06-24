@@ -1,0 +1,49 @@
+// Phase 31: hashmap-churn (Spectra)
+// Insert 500 entries, delete every odd key, insert 250 more, sum remaining keys.
+// Expected per-iter total: 218375
+// (computed via scripts/_compute_bench10_expected.py)
+
+module bench_hashmap_churn;
+
+import std.collections as col;
+
+pub fn main() -> int {
+    let iters = 2000;
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let m = col.map_new();
+        let i = 0;
+        while i < 500 {
+            col.map_set(m, i, i * 2);
+            i = i + 1;
+        }
+        let k = 0;
+        while k < 500 {
+            if k - (k / 2) * 2 == 1 {
+                let _x = col.map_remove(m, k);
+            }
+            k = k + 1;
+        }
+        let j = 0;
+        while j < 250 {
+            col.map_set(m, 500 + j, (500 + j) * 2);
+            j = j + 1;
+        }
+        let acc = 0;
+        let x = 0;
+        while x < 750 {
+            if col.map_contains(m, x) == 1 {
+                acc = acc + x;
+            }
+            x = x + 1;
+        }
+        col.map_free(m);
+        total = total + acc;
+        it = it + 1;
+    }
+    if total == 218375 * iters {
+        return 0;
+    }
+    return 1;
+}
