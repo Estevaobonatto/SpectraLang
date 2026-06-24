@@ -10,7 +10,7 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
-use crate::codegen::{CodeGenerator, HostNameRecord, PhiDescriptor};
+use crate::codegen::{CodeGenerator, HostNameRecord, PhiDescriptor, StringLiteralRecord};
 use crate::error::{BackendCodegenError, BackendResult};
 
 /// Options that control AOT code generation.
@@ -54,6 +54,16 @@ pub struct AotCodeGenerator {
     tensor_full_f_fast_func: FuncId,
     string_len_fast_func: FuncId,
     string_char_at_fast_func: FuncId,
+    /// Dedup table for string literals (R-3126). Each unique
+    /// `ConstString` value resolves to one entry pre-populated in
+    /// [`pre_intern_string_literals`].
+    string_literal_data: HashMap<String, StringLiteralRecord>,
+    /// Heap storage for string literal buffers (R-3126). In AOT mode
+    /// this stays empty because every entry is pre-populated with a
+    /// `data_id`; the field exists to satisfy the `generate_block`
+    /// signature shared with the JIT path. Layout matches the JIT
+    /// side: one byte per `i64` slot.
+    string_literal_storage: Vec<Box<[i64]>>,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
 }
@@ -317,6 +327,8 @@ impl AotCodeGenerator {
             string_char_at_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
+            string_literal_data: HashMap::new(),
+            string_literal_storage: Vec::new(),
         }
     }
 
@@ -334,6 +346,12 @@ impl AotCodeGenerator {
         // addresses) instead of compile-time heap pointers (which would be
         // invalid in the final executable's address space).
         self.pre_intern_host_names(ir_module);
+
+        // Pre-intern all string literals as `.rodata` data sections (R-3126).
+        // Each unique `ConstString` value becomes one data section; the
+        // `generate_block` path then emits `global_value` instructions
+        // pointing at these sections instead of going through `manual_alloc`.
+        self.pre_intern_string_literals(ir_module);
 
         // First pass: declare all functions.
         for func in &ir_module.functions {
@@ -497,6 +515,8 @@ impl AotCodeGenerator {
                 &self.function_map,
                 &mut self.host_name_data,
                 &mut self.host_name_storage,
+                &mut self.string_literal_data,
+                &mut self.string_literal_storage,
                 self.manual_alloc_func,
                 self.manual_free_func,
                 self.manual_frame_exit_func,
@@ -715,6 +735,75 @@ impl AotCodeGenerator {
             data_id: Some(data_id),
         };
         self.host_name_data.insert(name.to_string(), record);
+    }
+
+    /// R-3126: scan every function for `ConstString` instructions and
+    /// pre-declare each unique literal as a `.rodata` data section.
+    /// Mirrors [`pre_intern_host_names`].
+    fn pre_intern_string_literals(&mut self, ir_module: &IRModule) {
+        for func in &ir_module.functions {
+            for block in &func.blocks {
+                for instr in &block.instructions {
+                    if let InstructionKind::ConstString { value, .. } = &instr.kind {
+                        if !self.string_literal_data.contains_key(value.as_str()) {
+                            self.create_string_literal_data(value);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// R-3126: declare a `.rodata` data section for one string literal
+    /// value. Stores the resulting `StringLiteralRecord` (with
+    /// `data_id = Some(...)`) in `self.string_literal_data`.
+    fn create_string_literal_data(&mut self, value: &str) {
+        // Layout: one byte per `i64` slot (8 bytes each), null-terminated.
+        // This matches the JIT `Box<[i64]>` buffer and the `*8` indexing
+        // in `emit_stack_string_char_at_inline`.
+        let mut slots: Vec<i64> = value
+            .as_bytes()
+            .iter()
+            .map(|&b| b as i64)
+            .collect();
+        slots.push(0);
+        let len_with_null = slots.len() as i64;
+        // Convert the i64 slots to a raw byte buffer for the data section.
+        // Safety: `i64` is `repr(i64)` and we want the same byte layout.
+        let bytes: Vec<u8> = unsafe {
+            std::slice::from_raw_parts(
+                slots.as_ptr() as *const u8,
+                slots.len() * std::mem::size_of::<i64>(),
+            )
+            .to_vec()
+        };
+        // Use a simple FNV-1a 64-bit hash for compact, deterministic naming
+        // without depending on an external hash crate.
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &b in &bytes {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        let symbol = format!(".__spectra_strlit_{:016x}", hash);
+
+        let data_id: DataId = match self
+            .module
+            .declare_data(&symbol, Linkage::Local, false, false)
+        {
+            Ok(id) => id,
+            Err(_) => return, // Already declared.
+        };
+
+        let mut data_ctx = DataDescription::new();
+        data_ctx.define(bytes.into_boxed_slice());
+        let _ = self.module.define_data(data_id, &data_ctx);
+
+        let record = StringLiteralRecord {
+            ptr: 0,
+            len_with_null,
+            data_id: Some(data_id),
+        };
+        self.string_literal_data.insert(value.to_string(), record);
     }
 }
 

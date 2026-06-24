@@ -236,6 +236,14 @@ pub enum InstructionKind {
         result: Value,
         value: bool,
     },
+    /// String literal value. Codegen resolves this to a stable pointer
+    /// (global data section in AOT, heap-allocated immutable buffer in
+    /// JIT). Length is always known at compile time and the bytes are
+    /// stored null-terminated, one byte per `i64` slot.
+    ConstString {
+        result: Value,
+        value: String,
+    },
     /// Numeric type conversion: int↔float, int↔char
     Cast {
         result: Value,

@@ -165,6 +165,10 @@ impl IRBuilder {
         self.try_emit(func, |result| InstructionKind::ConstBool { result, value })
     }
 
+    pub fn build_const_string(&self, func: &mut Function, value: String) -> Value {
+        self.try_emit(func, |result| InstructionKind::ConstString { result, value })
+    }
+
     pub fn build_return(&self, func: &mut Function, value: Option<Value>) {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {

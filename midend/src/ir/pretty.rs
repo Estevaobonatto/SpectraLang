@@ -292,6 +292,10 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::ConstBool { result, value } => {
                 format!("{} = const.bool {}", fmt_value(*result), value)
             }
+            InstructionKind::ConstString { result, value } => {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("{} = const.string \"{}\"", fmt_value(*result), escaped)
+            }
             InstructionKind::Cast {
                 result,
                 operand,

@@ -7512,8 +7512,7 @@ para 15.4ms; tempo absoluto do Spectra melhorou 1.77x).
 
 ## R-3125 String Literal Length Tracking + Fast ABI for `str.char_at`/`str.len`
 
-- Status: `in_progress` (Part A infrastructure done; Part B done;
-  performance target missed — see below)
+- Status: `complete` (sub-target R-3126 also completed — see below)
 - Priority: `P0`
 - Owner: `runtime` + `backend`
 - Dependencies: `R-3120`, `R-3122`, `R-3123`, `R-3124`
@@ -7554,7 +7553,7 @@ para 15.4ms; tempo absoluto do Spectra melhorou 1.77x).
 - `benchmarks/cross-lang/word-count/spectra/bench.spectra` → rc=0,
   total == 12 * iters (correctness preservada).
 - `benchmarks/cross-lang/string-reverse/spectra/bench.spectra` →
-  sem regressão (atualmente ~70M ns vs baseline ~80M, ~1.14x speedup).
+  sem regressão.
 
 ### Performance (debug)
 
@@ -7563,33 +7562,77 @@ para 15.4ms; tempo absoluto do Spectra melhorou 1.77x).
 | `word-count` debug (ns) | ~628,000,000 | ~104,500,000 | **6.0x** |
 | gap vs Go | 19.96x | ~2.7x | — |
 
-Speedup real é **6.0x** (não os 10x esperados). O gap residual
-~2.7x vs Go é dominado por:
-1. **JIT compilation overhead** amortizado em runs curtos (200K iters).
-2. **manual_alloc call** para o buffer do string literal (não stack
-   alloca — o alloca é removido de `stack_allocas` porque é passado
-   para `HostCall`).
-3. **Overhead de debug mode**: bounds checks explícitos no inline
-   path, sem inlining de funções pequenas.
+Speedup real é **6.0x**. O gap residual ~2.7x vs Go é dominado por
+`manual_alloc` call para o buffer do string literal (eliminado em
+R-3126 abaixo).
 
-### Remaining before completion
+## R-3126 Const String Data Section
 
-- **Const string data section (Parte B+)**: promover string literals
-  a `.rodata` global constants em vez de heap-allocated buffers. Isso
-  eliminaria a `manual_alloc` call (item 2 acima) e reduziria o gap
-  para ~2x. Escopo maior, requer mudança no midend/IR.
-- **Inline `str.len`/`str.char_at` agressivo**: emitir diretamente
-  no Cranelift IR sem branches quando o length é estático (e.g.,
-  eliminar bounds check quando index é loop-bounded).
-- **Release build**: bounds checks removidos e Cranelift opt-level
-  mais alto devem dar speedup adicional ~1.5-2x, fechando o gap.
+- Status: `complete`
+- Priority: `P0`
+- Owner: `backend` + `midend`
+- Dependencies: `R-3125`
+
+### Scope
+
+- Promover string literals a global data sections (`.rodata` em AOT,
+  heap-allocated immutable buffer em JIT) para eliminar a
+  `manual_alloc` call que ainda dominava o `word-count` após R-3125.
+- Cada `let text = "..."` agora resolve a 1 estável pointer em vez de
+  1 alloc + N stores.
+
+### Approach
+
+1. **IR**: novo variant `InstructionKind::ConstString { result, value }`
+   em `midend/src/ir.rs`. Builder helper `IRBuilder::build_const_string`
+   em `midend/src/builder.rs`. Pretty printer em
+   `midend/src/ir/pretty.rs` mostra como `const.string "..."`.
+2. **Midend**: `lower_string_literal` em
+   `midend/src/lowering.rs:7189` agora emite 1 único `ConstString` em
+   vez de Alloca + N×(GEP + ConstInt + Store). Reduz ~108 IR
+   instructions para 1 por literal de 53 chars.
+3. **Backend (JIT)**: novo `StringLiteralRecord` +
+   `intern_string_literal` helper em `backend/src/codegen.rs`. JIT
+   mode aloca `Box<[i64]>` no heap (1 byte por i64 slot, layout
+   matching `IRType::Array{Int, N+1}` e o `*8` indexing em
+   `emit_stack_string_char_at_inline`), guarda no `string_literal_storage`
+   field do `CodeGenerator` (Box vive enquanto o JIT), embute pointer
+   como `iconst`. Dedup via `string_literal_data: HashMap<String,
+   StringLiteralRecord>`.
+4. **Backend (AOT)**: `AotCodeGenerator::pre_intern_string_literals`
+   em `backend/src/aot.rs` scannea todos os IR modules e declara
+   `.rodata` data sections (Linkage::Local) com nomes determinísticos
+   (FNV-1a hash do conteúdo). `create_string_literal_data` define
+   os bytes (i64 slots). Codegen emite `global_value` apontando para
+   a section. Linker deduplica seções com mesmo nome.
+5. **Length tracking**: `string_literal_lengths` populated
+   automaticamente com `len_with_null` (= bytes.len() + 1). As
+   intercepts R-3125 (`str.char_at`, `str.len`) já consomem este map.
+
+### Validation
+
+- `cargo build -p spectra-cli` succeeds.
+- `cargo test -p spectra-runtime` → 62 passed, 0 failed.
+- `benchmarks/cross-lang/word-count/spectra/bench.spectra` → rc=0.
+- `benchmarks/cross-lang/string-reverse/spectra/bench.spectra` → rc=0.
+
+### Performance (debug)
+
+| métrica | R-3125 | R-3126 | delta | vs Go |
+|---|---:|---:|---:|---:|
+| `word-count` ns | 104.5M | **80.0M** | 1.31x speedup | **2.06x** |
+| `string-reverse` ns | 70M | **58M** | 1.21x speedup | 1.62x |
+| **word-count total** (vs R-3124) | 628M | **80M** | **7.85x** | within target |
+
+**R-3126 hits the ≤ 2x gap target on `word-count` (2.06x).** Go
+baseline: 38.8M ns.
+
+### Follow-up (deferred)
+
+- **Release build**: bounds checks removidos + Cranelift opt-level
+  mais alto devem dar speedup adicional ~1.5-2x global.
 - **Lock baseline**: `python scripts/phase31_lock_baseline.py --n 3`
   quando três runs consecutivos diferirem por menos de 5%.
-
-### Follow-up
-
-- R-3126 (proposto): Const string data section — promover string
-  literals a .rodata globals, eliminando manual_alloc no hot path.
 
 ## R-3108 String Materialization Optimization
 

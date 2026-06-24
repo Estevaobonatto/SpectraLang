@@ -221,6 +221,7 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::ConstInt { result, .. }
         | InstructionKind::ConstFloat { result, .. }
         | InstructionKind::ConstBool { result, .. }
+        | InstructionKind::ConstString { result, .. }
         | InstructionKind::Cast { result, .. }
         | InstructionKind::MakeDynFatPtr { result, .. }
         | InstructionKind::LoadDynDataPtr { result, .. }
@@ -288,7 +289,8 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }
         | InstructionKind::ConstFloat { .. }
-        | InstructionKind::ConstBool { .. } => Vec::new(),
+        | InstructionKind::ConstBool { .. }
+        | InstructionKind::ConstString { .. } => Vec::new(),
     }
 }
 

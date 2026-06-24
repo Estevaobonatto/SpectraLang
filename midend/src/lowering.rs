@@ -7187,35 +7187,11 @@ impl ASTLowering {
     }
 
     fn lower_string_literal(&mut self, literal: &str, ir_func: &mut IRFunction) -> Value {
-        // Allocate buffer with trailing null terminator
-        let bytes = literal.as_bytes();
-        let total_size = bytes.len() + 1; // +1 for '\0'
-        let array_type = IRType::Array {
-            element_type: Box::new(IRType::Int),
-            size: total_size,
-        };
-
-        let buffer_ptr = self.builder.build_alloca(ir_func, array_type);
-
-        // Populate buffer with literal contents
-        for (idx, byte) in bytes.iter().enumerate() {
-            let index = self.builder.build_const_int(ir_func, idx as i64);
-            let slot_ptr =
-                self.builder
-                    .build_getelementptr(ir_func, buffer_ptr, index, IRType::Int);
-            let value = self.builder.build_const_int(ir_func, *byte as i64);
-            self.builder.build_store(ir_func, slot_ptr, value);
-        }
-
-        // Null terminator at the end
-        let terminator_index = self.builder.build_const_int(ir_func, bytes.len() as i64);
-        let terminator_ptr =
-            self.builder
-                .build_getelementptr(ir_func, buffer_ptr, terminator_index, IRType::Int);
-        let zero = self.builder.build_const_int(ir_func, 0);
-        self.builder.build_store(ir_func, terminator_ptr, zero);
-
-        buffer_ptr
+        // R-3126: emit a single ConstString instruction. The backend resolves
+        // this to a stable pointer (global .rodata section in AOT, heap
+        // buffer in JIT) and tracks the compile-time length for fast
+        // `str.len` / `str.char_at` interception.
+        self.builder.build_const_string(ir_func, literal.to_string())
     }
 
     fn lower_pattern_check(

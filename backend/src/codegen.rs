@@ -21,6 +21,21 @@ pub(crate) struct HostNameRecord {
     pub(crate) data_id: Option<DataId>,
 }
 
+/// Storage record for a string literal (R-3126).
+///
+/// Resolves a `ConstString` IR value to a stable pointer. In JIT mode the
+/// bytes are allocated on the heap (in `string_literal_storage`) and `ptr`
+/// is the heap address. In AOT mode the bytes live in a `.rodata` data
+/// section and `data_id` is the Cranelift handle. Either way, the bytes
+/// are stored null-terminated, one byte per `i64` slot, and `len_with_null`
+/// is the total slot count (including the trailing null terminator).
+#[derive(Clone, Copy)]
+pub(crate) struct StringLiteralRecord {
+    pub(crate) ptr: u64,
+    pub(crate) len_with_null: i64,
+    pub(crate) data_id: Option<DataId>,
+}
+
 pub(crate) fn intern_host_name(
     host_name_data: &mut HashMap<String, HostNameRecord>,
     host_name_storage: &mut Vec<Box<[u8]>>,
@@ -41,6 +56,46 @@ pub(crate) fn intern_host_name(
         data_id: None,
     };
     host_name_data.insert(name.to_string(), record);
+    record
+}
+
+/// Resolves a string literal to a stable pointer + length (R-3126).
+///
+/// In JIT mode (when the entry is not already interned) this allocates a
+/// null-terminated byte buffer on the heap and stores it in
+/// `string_literal_storage` so the pointer outlives any JIT function that
+/// references it. The buffer is laid out as one byte per `i64` slot
+/// (matching the existing `IRType::Array{Int, N+1}` representation used
+/// by `emit_stack_string_char_at_inline` which indexes with `*8`).
+/// In AOT mode the entry is pre-populated by
+/// [`AotCodeGenerator::pre_intern_string_literals`] with a `data_id`, so
+/// the heap fallback never fires.
+pub(crate) fn intern_string_literal(
+    string_literal_data: &mut HashMap<String, StringLiteralRecord>,
+    string_literal_storage: &mut Vec<Box<[i64]>>,
+    value: &str,
+) -> StringLiteralRecord {
+    if let Some(record) = string_literal_data.get(value) {
+        return *record;
+    }
+
+    let mut slots: Vec<i64> = value
+        .as_bytes()
+        .iter()
+        .map(|&b| b as i64)
+        .collect();
+    slots.push(0);
+    let boxed: Box<[i64]> = slots.into_boxed_slice();
+    let ptr = boxed.as_ptr() as u64;
+    let len_with_null = boxed.len() as i64;
+    string_literal_storage.push(boxed);
+
+    let record = StringLiteralRecord {
+        ptr,
+        len_with_null,
+        data_id: None,
+    };
+    string_literal_data.insert(value.to_string(), record);
     record
 }
 
@@ -102,6 +157,16 @@ pub struct CodeGenerator {
         /// The inline path is currently strictly faster, so this is registered and
         /// declared but not yet wired into the `HostCall` intercept.
         _string_char_at_fast_func: FuncId,
+        /// Dedup table for string literals (R-3126). Each unique `ConstString`
+        /// value resolves to one entry; see [`intern_string_literal`].
+        string_literal_data: HashMap<String, StringLiteralRecord>,
+        /// Owned storage for JIT-mode string literal buffers (R-3126).
+        /// Each `ConstString` IR instruction resolves to a stable pointer
+        /// into one of these buffers. The buffers must outlive any JIT
+        /// function that references them. Layout is one byte per `i64`
+        /// slot (matches `IRType::Array{Int, N+1}` and the `*8` indexing
+        /// in `emit_stack_string_char_at_inline`).
+        string_literal_storage: Vec<Box<[i64]>>,
         host_name_data: HashMap<String, HostNameRecord>,
         host_name_storage: Vec<Box<[u8]>>,
 }
@@ -483,6 +548,8 @@ impl CodeGenerator {
             tensor_full_f_fast_func,
             _string_len_fast_func: string_len_fast_func,
             _string_char_at_fast_func: string_char_at_fast_func,
+            string_literal_data: HashMap::new(),
+            string_literal_storage: Vec::new(),
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
         }
@@ -646,6 +713,8 @@ impl CodeGenerator {
                 &self.function_map,
                 &mut self.host_name_data,
                 &mut self.host_name_storage,
+                &mut self.string_literal_data,
+                &mut self.string_literal_storage,
                 self.manual_alloc_func,
                 self.manual_free_func,
                 self.manual_frame_exit_func,
@@ -866,6 +935,8 @@ impl CodeGenerator {
         function_map: &HashMap<String, FuncId>,
         host_name_data: &mut HashMap<String, HostNameRecord>,
         host_name_storage: &mut Vec<Box<[u8]>>,
+        string_literal_data: &mut HashMap<String, StringLiteralRecord>,
+        string_literal_storage: &mut Vec<Box<[i64]>>,
         manual_alloc_func: FuncId,
         manual_free_func: FuncId,
         manual_frame_exit_func: FuncId,
@@ -919,6 +990,8 @@ impl CodeGenerator {
                 function_map,
                 host_name_data,
                 host_name_storage,
+                string_literal_data,
+                string_literal_storage,
                 manual_alloc_func,
                 manual_free_func,
                 host_invoke_func,
@@ -980,6 +1053,8 @@ impl CodeGenerator {
         function_map: &HashMap<String, FuncId>,
         host_name_data: &mut HashMap<String, HostNameRecord>,
         host_name_storage: &mut Vec<Box<[u8]>>,
+        string_literal_data: &mut HashMap<String, StringLiteralRecord>,
+        string_literal_storage: &mut Vec<Box<[i64]>>,
         manual_alloc_func: FuncId,
         manual_free_func: FuncId,
         host_invoke_func: FuncId,
@@ -1863,6 +1938,27 @@ impl CodeGenerator {
             InstructionKind::ConstBool { result, value } => {
                 let result_val = builder.ins().iconst(types::I8, if *value { 1 } else { 0 });
                 value_map.insert(result.id, result_val);
+            }
+
+            InstructionKind::ConstString { result, value } => {
+                // R-3126: resolve to a stable pointer. In JIT mode this
+                // allocates a heap buffer (kept alive in
+                // `string_literal_storage`); in AOT mode the entry was
+                // pre-populated by `pre_intern_string_literals` and we
+                // emit a `global_value` referencing the `.rodata` section.
+                let record = intern_string_literal(
+                    string_literal_data,
+                    string_literal_storage,
+                    value,
+                );
+                let ptr_val = if let Some(data_id) = record.data_id {
+                    let gv = module.declare_data_in_func(data_id, builder.func);
+                    builder.ins().global_value(types::I64, gv)
+                } else {
+                    builder.ins().iconst(types::I64, record.ptr as i64)
+                };
+                value_map.insert(result.id, ptr_val);
+                string_literal_lengths.insert(result.id, record.len_with_null);
             }
         }
 

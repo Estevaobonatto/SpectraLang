@@ -247,9 +247,11 @@ def run_scenario(
 
     gap_to_go = None
     gap_to_rust = None
+    gap_to_java = None
     spec = per_lang.get("spectra", {})
     go = per_lang.get("go", {})
     rs = per_lang.get("rust", {})
+    jv = per_lang.get("java", {})
     if (
         isinstance(spec, dict)
         and "ns_per_iter" in spec
@@ -266,6 +268,14 @@ def run_scenario(
         and rs["ns_per_iter"] > 0
     ):
         gap_to_rust = round(spec["ns_per_iter"] / rs["ns_per_iter"], 3)
+    if (
+        isinstance(spec, dict)
+        and "ns_per_iter" in spec
+        and isinstance(jv, dict)
+        and "ns_per_iter" in jv
+        and jv["ns_per_iter"] > 0
+    ):
+        gap_to_java = round(spec["ns_per_iter"] / jv["ns_per_iter"], 3)
 
     return {
         "id": scenario,
@@ -274,6 +284,7 @@ def run_scenario(
         "results": per_lang,
         "gap_to_go": gap_to_go,
         "gap_to_rust": gap_to_rust,
+        "gap_to_java": gap_to_java,
         "correctness_passed": correctness,
     }
 
@@ -284,8 +295,8 @@ def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
         "",
         f"Updated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "",
-        "| scenario | category | spectra ns | go ns | java ns | rust ns | gap vs go | gap vs rust |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "| scenario | category | spectra ns | go ns | java ns | rust ns | gap vs go | gap vs java | gap vs rust |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for s in report.get("scenarios", []):
         results = s.get("results", {})
@@ -299,13 +310,15 @@ def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
             return "n/a"
 
         gap_go = s.get("gap_to_go")
+        gap_java = s.get("gap_to_java")
         gap_rust = s.get("gap_to_rust")
         gap_go_s = f"{gap_go:.3f}x" if gap_go is not None else "n/a"
+        gap_java_s = f"{gap_java:.3f}x" if gap_java is not None else "n/a"
         gap_rust_s = f"{gap_rust:.3f}x" if gap_rust is not None else "n/a"
         lines.append(
             f"| `{s['id']}` | {s['category']} | {ns_of('spectra')} | "
             f"{ns_of('go')} | {ns_of('java')} | {ns_of('rust')} | "
-            f"{gap_go_s} | {gap_rust_s} |"
+            f"{gap_go_s} | {gap_java_s} | {gap_rust_s} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
