@@ -70,9 +70,11 @@ def main() -> int:
         "tensor_runtime_r3021_real_upload_after_to_device",
         "tensor_runtime_r3051_pool_reuse_under_load",
         "tensor_runtime_r3051_pool_recycles_after_free",
+        "tensor_runtime_r3052_device_resident_counter_tracks_to_device",
+        "tensor_runtime_r3080_backward_kernels_match_cpu_within_tolerance",
     ):
         run_step(
-            f"device upload + pool ({name})",
+            f"device upload + pool + residency + backward ({name})",
             [
                 "cargo",
                 "test",

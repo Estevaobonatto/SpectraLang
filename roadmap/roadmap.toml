@@ -1443,10 +1443,109 @@ priority = "P0"
 status = "in_progress"
 risk = "high"
   dependencies = ["R-702", "R-1601", "R-1503"]
-summary = "Move beyond the baseline optional GPU path toward production accelerator execution for core training/inference ops with real backward kernels, device residency, mixed precision, and measured speedup on realistic workloads."
+summary = "Move beyond the baseline optional GPU path toward production accelerator execution for core training/inference ops with real backward kernels, device residency, mixed precision, and measured speedup on realistic workloads. Backward kernels and residency are closed in this item (R-3080, R-3052 full); mixed precision (R-3071) and transformer GPU primitives (R-1802) remain as dependent items."
 acceptance = [
   "CPU fallback remains available and produces equivalent results within tolerance",
   "the items this R-1603 depended on (R-1802 transformer primitives, R-703 mixed precision GPU) also reopened and being closed"
+]
+
+[[items]]
+id = "R-3021"
+title = "Real Device Upload After to_device"
+phase = "phase_16"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-1603"]
+summary = "When `tensor.to_device(_, Wgpu)` is called, perform a real device upload through the wgpu queue rather than just tagging the host tensor. The uploaded buffer is the source of truth for downstream GPU ops; reads return the device-resident copy."
+acceptance = [
+  "`runtime/src/stdlib/mod.rs` `to_device` path writes the host bytes to a wgpu STORAGE buffer when target is Wgpu",
+  "`runtime/src/gpu.rs` exposes a `with_device_queue` helper used by `to_device` to share the same queue as `run_compute`",
+  "`runtime/src/stdlib/mod.rs` test `tensor_runtime_r3021_real_upload_after_to_device` passes on hosts with a WGPU adapter and self-skips otherwise"
+]
+
+[[items]]
+id = "R-3023"
+title = "Typed GPU Error Kinds"
+phase = "phase_16"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "low"
+dependencies = ["R-1603"]
+summary = "Replace silent `String` GPU errors with a typed `GpuErrorKind` enum (ShapeMismatch, ShaderCompile, BufferAlloc, Dispatch, Readback, FeatureUnsupported, Other) and expose per-kind counters through `std_tensor_stats_gpu_errors(kind)`."
+acceptance = [
+  "`runtime/src/gpu.rs` defines `GpuErrorKind` with stable integer codes",
+  "`runtime/src/stdlib/mod.rs` exposes `std_tensor_stats_gpu_errors` and increments the right counter on each GPU failure",
+  "test `tensor_runtime_r3023_typed_gpu_errors_are_counted_per_kind` passes"
+]
+
+[[items]]
+id = "R-3051"
+title = "Device Buffer Pool Reuse"
+phase = "phase_16"
+owner = "runtime"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-3021", "R-1603"]
+summary = "Add a per-(device, dtype, size_bucket) free list `DeviceArena` so repeated wgpu buffer allocations reuse existing buffers instead of going through `create_buffer` every time. Bounded at 16 free per bucket; over-cap drops release the wgpu resource."
+acceptance = [
+  "`runtime/src/gpu.rs` `DeviceArena` with `acquire`/`release`/`hits`/`misses`/`bytes_resident`",
+  "pool is held inside the existing `TensorRegistry` mutex so no new lock surface is added",
+  "tests `tensor_runtime_r3051_pool_reuse_under_load` and `tensor_runtime_r3051_pool_recycles_after_free` pass"
+]
+
+[[items]]
+id = "R-3052"
+title = "Device Residency Full"
+phase = "phase_16"
+owner = "runtime"
+priority = "P0"
+status = "in_progress"
+risk = "medium"
+dependencies = ["R-3051", "R-1603"]
+summary = "Promote the minimal `device_storage` map (R-3052 minimal, populated by `to_device` after R-3021) to the full residency story: downstream tensor ops (matmul, conv2d, relu, binary, reductions, `tensor.linear`, `tensor.backward`) recognize the device and consume the device-resident copy without round-tripping through host memory. CPU fallback remains the default when either operand is host-only or residency is missing."
+acceptance = [
+  "`runtime/src/stdlib/mod.rs` exposes `stats_device_resident_tensors` and increments it on every tensor that lives on a device",
+  "each device-resident op consumes `device_storage` and writes its output back into a pool buffer (no host readback inside the hot path)",
+  "tests cover: resident matmul produces the same numerical result as the CPU path within R-1503 tolerance; releasing the last Arc returns the buffer to the free list",
+  "phase31 cross-lang gate does not regress; new `ml-mlp-step-gpu` benchmark uses residency end-to-end"
+]
+
+[[items]]
+id = "R-3071"
+title = "f16/bf16 GPU Kernels (Mixed Precision)"
+phase = "phase_16"
+owner = "numerics"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = ["R-3052", "R-703", "R-1603"]
+summary = "Extend the wgpu backend to f16 and bf16 storage buffers. Backward kernels and forward elementwise/matmul paths get dtype-dispatched variants. Adapter feature detection (`SHADER_F16`) gates the f16 path; bf16 is emulated via two f16 lanes until native bf16 is widely available."
+acceptance = [
+  "`PoolDType` carries `F16` and `BF16` variants with the right `byte_size`",
+  "feature detection uses `wgpu::Features::SHADER_F16` and returns `GpuErrorKind::FeatureUnsupported` when missing",
+  "ml-mlp-step-f16 benchmark shows > 1.2x speedup over f32 GPU at the documented batch size",
+  "no CPU-fallback regression in f32 path"
+]
+
+[[items]]
+id = "R-3080"
+title = "GPU Backward Kernels"
+phase = "phase_16"
+owner = "numerics"
+priority = "P0"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3052", "R-1603"]
+summary = "Add real WGSL backward shaders for matmul (gradient w.r.t. left and right), conv2d (input, weight, bias), relu, and binary ops (add, sub, mul, div) so the autograd path can run end-to-end on device. CPU fallback is preserved and per-kind `stats_cpu_fallbacks` is incremented whenever the GPU path is bypassed."
+acceptance = [
+  "`runtime/src/gpu.rs` exposes `backward_matmul_left/_right`, `backward_conv2d`, `backward_relu`, `backward_binary` returning `Result<Vec<f32>, GpuError>`",
+  "`runtime/src/stdlib/mod.rs` `autograd_parent_grads` dispatches to the GPU path when both operands are device-resident; otherwise falls back to CPU",
+  "finite-difference cross-check in `tensor_runtime_r1603_backward_*` tests stays within R-1503 tolerance",
+  "`scripts/validate_r1603_gpu_backend.py` covers batch 64/128/256 and self-skips on hosts without a WGPU adapter"
 ]
 
 [[items]]

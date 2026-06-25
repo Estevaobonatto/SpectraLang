@@ -2025,6 +2025,8 @@ fn make_std_tensor() -> ModuleExports {
         ("stats_device_pool_misses", vec![], int.clone()),
         ("stats_device_pool_bytes_resident", vec![], int.clone()),
         ("storage_device", vec![int.clone()], int.clone()),
+        ("stats_device_resident_tensors", vec![], int.clone()),
+        ("stats_gpu_backward_ops", vec![], int.clone()),
         ("stats_graph_nodes", vec![], int.clone()),
         ("stats_lifetime_records", vec![], int.clone()),
         ("stats_released_lifetimes", vec![], int.clone()),

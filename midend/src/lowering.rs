@@ -8446,6 +8446,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "stats_cpu_fallbacks") => {
                 Some(host_int("spectra.std.tensor.stats_cpu_fallbacks"))
             }
+            ("tensor", "stats_device_resident_tensors") => {
+                Some(host_int("spectra.std.tensor.stats_device_resident_tensors"))
+            }
+            ("tensor", "stats_gpu_backward_ops") => {
+                Some(host_int("spectra.std.tensor.stats_gpu_backward_ops"))
+            }
             ("tensor", "stats_graph_nodes") => {
                 Some(host_int("spectra.std.tensor.stats_graph_nodes"))
             }

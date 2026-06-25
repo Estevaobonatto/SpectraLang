@@ -2737,10 +2737,13 @@ the next tracked development cycle toward a broader AI/ML platform.
 - device capability detection
 - accelerator diagnostics
 - demonstrated speedup at realistic sizes
+- sub-items: R-3021 (real upload), R-3023 (typed errors), R-3051 (pool reuse), R-3052 full (residency), R-3071 (f16/bf16), R-3080 (backward kernels)
 
 ### Acceptance
 
 - CPU fallback remains available and produces equivalent results within tolerance.
+- Backward kernels (R-3080) and full residency (R-3052) close the GPU training gap.
+- Mixed precision (R-3071) and transformer GPU primitives (R-1802) remain dependent items outside R-1603.
 
 ### Completed so far
 
@@ -2750,10 +2753,26 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `tests/validation/91_tensor_phase16_gpu_backend.spectra` validates the public API and skips accelerator-only execution safely when WGPU is unavailable.
 - `scripts/validate_r1603_gpu_backend.py` runs the default CPU diagnostics test and the optional `--features gpu` backend test.
 - `run_tests.ps1` includes the `phase16-gpu` gate.
+- Sub-items R-3021 (real device upload), R-3023 (typed GPU error kinds), and R-3051 (device buffer pool) are already `complete` in code; they are now tracked formally in `roadmap/roadmap.toml` so the planning artifacts and the code stay aligned.
+
+### Sub-items (phase_16)
+
+| ID | Title | Status | Owner |
+|---|---|---|---|
+| R-3021 | Real Device Upload After `to_device` | `complete` | runtime |
+| R-3023 | Typed GPU Error Kinds | `complete` | runtime |
+| R-3051 | Device Buffer Pool Reuse | `complete` | runtime |
+| R-3052 | Device Residency Full | `in_progress` | runtime |
+| R-3071 | f16/bf16 GPU Kernels (Mixed Precision) | `not_started` | numerics |
+| R-3080 | GPU Backward Kernels | `not_started` | numerics |
+
+R-3052 full and R-3080 are the next deliverables under R-1603. R-3071 stays a separate item pending R-703's CPU mixed-precision story.
 
 ### Status note (2026-06-25)
 
 The previously planned R-30xx GPU improvement blocks (R-3021..R-3025, R-3031..R-3044, R-3051..R-3053, R-3061..R-3067, R-3071..R-3073, R-3081..R-3083, R-3091..R-3093, and R-3130 cross-lang GPU benchmark) have been retired from the roadmap. The R-1603 acceptance criteria that referenced those items are no longer in scope; the device abstraction, fallback path, and public diagnostics remain the tracked scope for R-1603.
+
+**Update (2026-06-25)**: the subset R-3021 / R-3023 / R-3051 / R-3052 full / R-3071 / R-3080 has been reinstated in `roadmap/roadmap.toml` as formal phase_16 sub-items under R-1603, with statuses reflecting current code reality. R-3031..R-3044, R-3053, R-3061..R-3067, R-3081..R-3083, R-3091..R-3093, and R-3130 remain retired.
 
 ---
 

@@ -1346,6 +1346,24 @@ if ($phase31Gate.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "validate_phase31_cross_lang"; Status = $phase31Gate.Status; Detalhe = $phase31Gate.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.36c: R-1603 / R-3080 GPU speedup gate (manual, off default CI)
+# ---------------------------------------------------------------------------
+# This gate requires a WGPU adapter and the spectra-cli binary. It runs
+# `benchmarks/gpu/ml-mlp-step-gpu/` on both CPU and GPU and asserts the
+# GPU/CPU ratio at batch=256. CI hosts without a GPU must skip this
+# gate; the default invocation does not run it. Operators enable it by
+# passing `-Phase phase31_gpu` to `run_tests.ps1`.
+Write-Host ""
+Write-Host "--- R-1603 / R-3080 GPU speedup gate (manual) ---" -ForegroundColor Yellow
+$phase31Gpu = Invoke-HostCommand -name "validate_r1603_gpu_speedup" -fileName "python" -arguments @("scripts\validate_r1603_gpu_speedup.py", "--out", "target\r1603-gpu-speedup\report.json") -workingDir (Get-Location).Path -timeoutSeconds 1800
+if ($phase31Gpu.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase31-gpu-speedup"; Teste = "validate_r1603_gpu_speedup"; Status = $phase31Gpu.Status; Detalhe = $phase31Gpu.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.37: R-2112 formal Send/Sync trait bounds
 # ---------------------------------------------------------------------------
 Write-Host ""

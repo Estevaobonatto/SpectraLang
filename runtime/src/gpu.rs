@@ -477,6 +477,203 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
     )
 }
 
+// ===== R-3080: GPU backward kernels =====
+//
+// Each `backward_*` returns a freshly-allocated `Vec<f32>` in row-major
+// layout that matches the equivalent CPU implementation in
+// `runtime/src/stdlib/mod.rs::autograd_parent_grads`. The CPU path is
+// the source of truth for tolerance; tests in
+// `tensor_runtime_r1603_backward_*` cross-check both paths via
+// finite differences.
+
+/// `out[i, j] = sum_l grad[i, l] * right[j, l]` for `C = A @ B`.
+/// Equivalent to `grad @ right.T` in row-major. Output length `m*k`.
+pub fn backward_matmul_left(
+    grad: &[f32],
+    right: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Result<Vec<f32>, GpuError> {
+    if grad.len() != m.saturating_mul(n) || right.len() != k.saturating_mul(n) {
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu backward_matmul_left shape mismatch",
+        ));
+    }
+    if m == 0 || k == 0 {
+        return Ok(Vec::new());
+    }
+    let shader = format!(
+        r#"
+@group(0) @binding(0) var<storage, read> grad_values: array<f32>;
+@group(0) @binding(1) var<storage, read> right_values: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let index = id.x;
+    let total = {m}u * {k}u;
+    if (index >= total) {{
+        return;
+    }}
+    let i = index / {k}u;
+    let j = index % {k}u;
+    var acc = 0.0;
+    for (var l = 0u; l < {n}u; l = l + 1u) {{
+        acc = acc + grad_values[i * {n}u + l] * right_values[j * {n}u + l];
+    }}
+    out[index] = acc;
+}}
+"#,
+        m = m,
+        k = k,
+        n = n
+    );
+    dispatch_two_inputs(grad, right, m * k, &shader, [(m * k) as u32, 1, 1])
+}
+
+/// `out[j, l] = sum_i left[i, j] * grad[i, l]` for `C = A @ B`.
+/// Equivalent to `left.T @ grad` in row-major. Output length `k*n`.
+pub fn backward_matmul_right(
+    left: &[f32],
+    grad: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Result<Vec<f32>, GpuError> {
+    if left.len() != m.saturating_mul(k) || grad.len() != m.saturating_mul(n) {
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu backward_matmul_right shape mismatch",
+        ));
+    }
+    if k == 0 || n == 0 {
+        return Ok(Vec::new());
+    }
+    let shader = format!(
+        r#"
+@group(0) @binding(0) var<storage, read> left_values: array<f32>;
+@group(0) @binding(1) var<storage, read> grad_values: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let index = id.x;
+    let total = {k}u * {n}u;
+    if (index >= total) {{
+        return;
+    }}
+    let j = index / {n}u;
+    let l = index % {n}u;
+    var acc = 0.0;
+    for (var i = 0u; i < {m}u; i = i + 1u) {{
+        acc = acc + left_values[i * {k}u + j] * grad_values[i * {n}u + l];
+    }}
+    out[index] = acc;
+}}
+"#,
+        m = m,
+        k = k,
+        n = n
+    );
+    dispatch_two_inputs(left, grad, k * n, &shader, [(k * n) as u32, 1, 1])
+}
+
+/// `out[i] = grad[i] if output[i] > 0 else 0` for `output = relu(input)`.
+/// Output length `n`; `output` carries the post-activation values.
+pub fn backward_relu(grad: &[f32], output: &[f32]) -> Result<Vec<f32>, GpuError> {
+    if grad.len() != output.len() {
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu backward_relu shape mismatch",
+        ));
+    }
+    if grad.is_empty() {
+        return Ok(Vec::new());
+    }
+    let shader = format!(
+        r#"
+@group(0) @binding(0) var<storage, read> grad_values: array<f32>;
+@group(0) @binding(1) var<storage, read> output_values: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let i = id.x;
+    if (i >= {len}u) {{
+        return;
+    }}
+    out[i] = select(0.0, grad_values[i], output_values[i] > 0.0);
+}}
+"#,
+        len = grad.len()
+    );
+    dispatch_two_inputs(grad, output, grad.len(), &shader, [grad.len() as u32, 1, 1])
+}
+
+/// Backward pass for `out = sigmoid(input)` (autograd uses
+/// `grad * out * (1 - out)`). Kept here because the forward path in
+/// `autograd_parent_grads` for `Sigmoid` references a host
+/// implementation; when a `Sigmoid` forward is added to the GPU
+/// surface, the backward can be reused as-is.
+pub fn backward_sigmoid(grad: &[f32], output: &[f32]) -> Result<Vec<f32>, GpuError> {
+    if grad.len() != output.len() {
+        return Err(GpuError::new(
+            GpuErrorKind::ShapeMismatch,
+            "gpu backward_sigmoid shape mismatch",
+        ));
+    }
+    if grad.is_empty() {
+        return Ok(Vec::new());
+    }
+    let shader = format!(
+        r#"
+@group(0) @binding(0) var<storage, read> grad_values: array<f32>;
+@group(0) @binding(1) var<storage, read> output_values: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let i = id.x;
+    if (i >= {len}u) {{
+        return;
+    }}
+    out[i] = grad_values[i] * output_values[i] * (1.0 - output_values[i]);
+}}
+"#,
+        len = grad.len()
+    );
+    dispatch_two_inputs(grad, output, grad.len(), &shader, [grad.len() as u32, 1, 1])
+}
+
+/// `out = relu(input)`. Forward pass needed by `backward_relu`'s caller
+/// so the autograd step can recover the post-activation values without
+/// recomputing on the host. Mirrors the formula in
+/// `autograd_parent_grads::AutogradOp::Relu` (CPU reference).
+pub fn relu_forward(input: &[f32]) -> Result<Vec<f32>, GpuError> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+    let shader = format!(
+        r#"
+@group(0) @binding(0) var<storage, read> input_values: array<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let i = id.x;
+    if (i >= {len}u) {{
+        return;
+    }}
+    out[i] = max(input_values[i], 0.0);
+}}
+"#,
+        len = input.len()
+    );
+    dispatch_one_input(input, input.len(), &shader, [input.len() as u32, 1, 1])
+}
+
 fn context() -> Result<&'static Mutex<GpuContext>, GpuError> {
     CONTEXT
         .get_or_init(|| pollster::block_on(create_context()).map(Mutex::new))
