@@ -1609,7 +1609,7 @@ to an integer-typed local and then compared/returned through invalid IR.
 - Status: `in_progress` (reopened 2026-06-24; see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md` Block 0)
 - Priority: `P0`
 - Owner: `numerics`
-- Dependencies: `R-701`, `R-401`, `R-3021`, `R-3031`, `R-3032`, `R-3051`
+- Dependencies: `R-701`, `R-401`
 
 ### Scope
 
@@ -1622,7 +1622,6 @@ to an integer-typed local and then compared/returned through invalid IR.
 - same program semantics on CPU and GPU within documented tolerance
 - GPU benchmark records CPU/GPU timings AND a measured speedup ratio > 1.0x at the documented workload size
 - speedup, not just correctness, is the completion gate for the production baseline
-- all R-30xx GPU work blocks must be closed
 
 ### Completed so far
 
@@ -1633,16 +1632,16 @@ to an integer-typed local and then compared/returned through invalid IR.
 - `tests/validation/75_tensor_phase7_gpu.spectra` validates semantic parity when GPU is available and skips safely in default builds.
 - `runtime/examples/tensor_phase7_gpu_bench.rs` records CPU/GPU timings and semantic parity on supported hardware.
 
-### Remaining before completion
+### Status note (2026-06-25)
 
-The previously stated "no speedup requirement" gate was honest about a baseline, not a production target. The current WGPU shaders are naive: `sum` uses `workgroup_size(1)` (serial inside one workgroup), `matmul` uses one thread per output element with no tiling, `conv2d` uses seven nested loops per thread. On most realistic sizes these kernels are slower than the CPU scalar reference because of per-op host transfer overhead. Closing the gap requires the R-30xx blocks in the GPU production plan: real device memory residency (R-3051..R-3053), parallel reduction (R-3031), tiled matmul (R-3032), im2col conv2d (R-3033), GPU backward kernels (R-3061..R-3067), and the cross-lang GPU benchmark (R-3101-GPU).
+The previously planned R-30xx GPU improvement blocks (parallel reduction, tiled matmul, im2col conv2d, GPU backward kernels, device memory residency, cross-lang GPU benchmark) have been retired from the roadmap. Production GPU speedup is therefore not a tracked completion gate for R-702 in the current plan; the item remains in progress for the supported baseline and device abstraction, and the speedup criterion is treated as a future-work benchmark rather than a release gate.
 
 ## R-703 Mixed Precision
 
 - Status: `in_progress` (reopened 2026-06-24)
 - Priority: `P1`
 - Owner: `ml`
-- Dependencies: `R-702`, `R-3071`, `R-3072`, `R-3073`
+- Dependencies: `R-702`
 
 ### Scope
 
@@ -1654,9 +1653,6 @@ The previously stated "no speedup requirement" gate was honest about a baseline,
 ### Acceptance
 
 - mixed precision training example converges on supported hardware
-- f16/bf16 WGSL kernels execute on the GPU with measured speedup
-- autocast routes selected ops through the f16/bf16 GPU path
-- loss scaling runs on the GPU when autocast is on
 
 ### Completed so far
 
@@ -1665,9 +1661,9 @@ The previously stated "no speedup requirement" gate was honest about a baseline,
 - `std.ml.unscale_grad(parameter, scale)` supports loss-scaling workflows.
 - `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision training loop with loss scaling and gradient unscale.
 
-### Remaining before completion
+### Status note (2026-06-25)
 
-The host quantization path is complete, but the GPU path is not. All current WGSL shaders hardcode `array<f32>`. There is no f16 or bf16 buffer in `runtime/src/gpu.rs`. Closing the gap requires the R-3071 (f16/bf16 WGSL kernels), R-3072 (autocast / precision scope), and R-3073 (GPU loss scaling) items in the GPU production plan.
+The previously planned R-3071, R-3072, and R-3073 GPU mixed-precision items have been retired from the roadmap. The host quantization path remains complete and the convergence acceptance criterion is met on host. The GPU-side f16/bf16 execution, autocast, and loss-scaling gates are no longer tracked as part of R-703.
 
 ---
 
@@ -2732,7 +2728,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Status: `in_progress` (reopened 2026-06-24; see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md` Block 0)
 - Priority: `P0`
 - Owner: `numerics`
-- Dependencies: `R-702`, `R-1601`, `R-1503`, plus the full R-30xx GPU plan
+- Dependencies: `R-702`, `R-1601`, `R-1503`
 
 ### Scope
 
@@ -2744,11 +2740,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Acceptance
 
-- GPU execution supports tensor transfer, matmul, reductions, elementwise ops, convolution, and autodiff-required backward kernels (R-3061..R-3067).
 - CPU fallback remains available and produces equivalent results within tolerance.
-- Device capability detection and error reporting are documented and tested (R-3023, R-3024).
-- Device residency avoids per-op host round-trip (R-3051, R-3052, R-3053).
-- Real measured speedup > 1.0x at realistic sizes on `gpu-mlp-train`, `gpu-matmul-1024`, `gpu-conv2d-cnn`, `gpu-attention` (R-3101-GPU).
 
 ### Completed so far
 
@@ -2759,9 +2751,9 @@ the next tracked development cycle toward a broader AI/ML platform.
 - `scripts/validate_r1603_gpu_backend.py` runs the default CPU diagnostics test and the optional `--features gpu` backend test.
 - `run_tests.ps1` includes the `phase16-gpu` gate.
 
-### Remaining before completion
+### Status note (2026-06-25)
 
-The completion evidence lists the public API surface, but several of the acceptance bullets are not actually met: (a) `autodiff-required backward kernels` is not implemented — the autograd pass runs entirely on the host, the GPU `AutogradNode` creators are just f64 mirrors of the input; (b) `device capability detection and error reporting` is reduced to silent CPU fallback with no typed error and no per-kind error counter; (c) `transfer` is a tag flip, not a real upload. Closing the gap requires the R-30xx GPU plan, in particular R-3021 (real upload), R-3022 (real `sync`), R-3023 (typed errors), R-3024 (honest reserved-device semantics), R-3051..R-3053 (device memory), R-3061..R-3067 (GPU backward), and R-3101-GPU (measured speedup).
+The previously planned R-30xx GPU improvement blocks (R-3021..R-3025, R-3031..R-3044, R-3051..R-3053, R-3061..R-3067, R-3071..R-3073, R-3081..R-3083, R-3091..R-3093, and R-3130 cross-lang GPU benchmark) have been retired from the roadmap. The R-1603 acceptance criteria that referenced those items are no longer in scope; the device abstraction, fallback path, and public diagnostics remain the tracked scope for R-1603.
 
 ---
 
@@ -2898,7 +2890,7 @@ The completion evidence lists the public API surface, but several of the accepta
 - Status: `in_progress` (reopened 2026-06-24)
 - Priority: `P0`
 - Owner: `ml`
-- Dependencies: `R-1603`, `R-1801`, `R-3036`, `R-3037`, `R-3041`, `R-3043`, `R-3044`, `R-3066`, `R-3067`
+- Dependencies: `R-1603`, `R-1801`
 
 ### Scope
 
@@ -2914,10 +2906,8 @@ The completion evidence lists the public API surface, but several of the accepta
 ### Acceptance
 
 - attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested (host baseline met)
-- attention, layer norm, embedding lookup, and softmax also execute on the GPU with backward kernels (R-3044, R-3066, R-3067)
 - toy transformer example uses real runtime primitives rather than placeholder math
 - CPU fallback and accelerator path produce equivalent outputs within tolerance
-- transformer training example measures GPU speedup > 1.0x at the documented batch and sequence size
 
 ### Completed so far
 
@@ -2929,9 +2919,9 @@ The completion evidence lists the public API surface, but several of the accepta
 - `scripts/validate_r1802_transformer_primitives.py` runs runtime, public Spectra, and AI example validation.
 - `run_tests.ps1` includes the `phase18-transformers` gate.
 
-### Remaining before completion
+### Status note (2026-06-25)
 
-The CPU implementation is real and validated. The acceptance line "CPU fallback and accelerator path produce equivalent outputs within tolerance" was met by the existing structure only because no accelerator path exists for these ops: attention, layer norm, embedding, and softmax run entirely on the host. Closing the gap requires R-3043 (embedding GPU), R-3044 (attention GPU), R-3066 (layer norm + softmax GPU backward), and R-3067 (embedding GPU backward).
+The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items have been retired from the roadmap. The CPU-side transformer primitives remain the tracked scope for R-1802; the GPU forward/backward transformer path is no longer a tracked completion gate.
 
 ## R-1803 Tokenization, Embeddings, and RAG Toolkit
 
@@ -6903,7 +6893,7 @@ Cenários cobertos (11):
 
 ## R-3102 Performance Profiling and Bottleneck Analysis
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3101`
@@ -6922,9 +6912,19 @@ Cenários cobertos (11):
 - IR dumps before/after para cenários afetados.
 - Documento de análise nomeia top 5 gargalos com impacto e risco estimados.
 
+### Progress
+
+- `docs/performance/phase31-go-comparable/baseline.json` (R-3101).
+- `docs/performance/phase31-go-comparable/findings-r3101-initial.md` cobre
+  o gap inicial vs Go/Java/Rust.
+- `docs/performance/phase31-go-comparable/optimization-plan.md` (R-3103)
+  já foi produzido a partir das métricas existentes; resta o conjunto
+  completo de artefatos de profiling (`profiles/`, SVGs, callgrind/perf
+  summaries) que esse item é o dono de entregar.
+
 ## R-3103 Optimization Implementation Plan
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3102`
@@ -7537,7 +7537,8 @@ Para fechar o gap para < 1.5x vs Go, próximos passos:
 
 ## R-3124 Fast ABI for `ml.*` + `tensor.*` hot path
 
-- Status: `in_progress` (Parte B done; Parte C Tensor Arena deferred)
+- Status: `complete` (Parte B done; Parte C Tensor Arena deferred and
+  out of scope for this item)
 - Priority: `P0`
 - Owner: `runtime` + `backend`
 - Dependencies: `R-3118`, `R-3120`, `R-3122`, `R-3123`
@@ -7550,9 +7551,9 @@ Para fechar o gap para < 1.5x vs Go, próximos passos:
   `spectra_rt_ml_linear_fast`, `_ml_mse_loss_fast`,
   `_tensor_backward_fast`, `_ml_sgd_step_fast`, `_tensor_full_f_fast`.
 - Tensor Arena (Parte C) diferido — Fast ABI sozinho já excede o
-  speedup mínimo aceitável.
+  speedup mínimo aceitável. Não é mais parte do acceptance de R-3124.
 
-### Acceptance (satisfied so far)
+### Acceptance (satisfied)
 
 - `runtime/src/stdlib/mod.rs` adiciona 5 helpers `pub fn *_fast` que
   inlineam o body das funções originais, pulando `ml_args`/`tensor_args`
@@ -7979,7 +7980,7 @@ baseline: 38.8M ns.
 
 ## R-3117 Cranelift Opt-Level and Tuning
 
-- Status: `not_started`
+- Status: `complete` (delivered as part of R-3129)
 - Priority: `P1`
 - Owner: `backend`
 - Dependencies: `R-3103`
@@ -7994,168 +7995,15 @@ baseline: 38.8M ns.
 - Política de opt-level documentada e aplicada em JIT e AOT.
 - Benchmarks melhoram ou ficam estáveis; sem regressão funcional.
 
----
+### Delivery
 
-## R-3021 Real Device Upload on `to_device` (Block 3 cornerstone)
-
-- Status: `in_progress`
-- Priority: `P0`
-- Owner: `numerics`
-- Dependencies: `R-702`, `R-1603`
-
-### Scope
-
-`std_tensor_to_device` must actually upload the tensor to the GPU buffer
-pool when target=`6` (Wgpu), not just flip the `device` field on a
-CPU-backed tensor. Acquires a `DeviceBuffer` from the pool, enqueues a
-`queue.write_buffer` of the host `f32` mirror, submits, and stores the
-resident buffer on the new tensor's `device_storage` field.
-
-### Acceptance
-
-- after `to_device(handle, 6)` the tensor carries a resident `DeviceBuffer`
-- subsequent GPU ops read from the resident buffer instead of re-uploading
-  via `materialize()` (R-3052 full still pending; the upload is the
-  first half of the contract)
-- host mirror remains valid so `materialize()` still works
-- new test `tensor_runtime_r3021_real_upload_after_to_device` passes on
-  RTX 2060 (real WGPU adapter)
-
-### Completed Implementation (Block 3 cornerstone, 2026-06-24)
-
-- `runtime/src/stdlib/mod.rs:10340` `std_tensor_to_device` now acquires
-  a buffer from `TensorRegistry.device_arena`, calls
-  `queue.write_buffer` + `queue.submit`, and inserts the buffer into
-  the new tensor's `device_storage` field.
-- 1 new public host call `spectra.std.tensor.storage_device(handle) -> int`
-  exposes the residency state (0=Cpu, 6=Wgpu) for tests and debugging.
-- Test `tensor_runtime_r3021_real_upload_after_to_device` asserts:
-  `device_storage` reports 6; `pool_misses == 1`; `pool_bytes_resident`
-  non-zero; `sum_f` round-trip equals 8.0.
-- 3 new compiler signatures for the pool stats host calls (see R-3051).
-- 1 new compiler signature for `storage_device`.
-
-### Remaining Before Completion
-
-- R-3052 full: GPU op sites read from `device_storage` instead of calling
-  `materialize()`. This step is the minimal version (field plumbed but
-  unused on the read path).
-- R-3053: replace synchronous `device.poll(Wait)` with a futures-based
-  async path so transfers and computes can overlap.
-
----
-
-## R-3051 Device Buffer Pool (Block 3 cornerstone)
-
-- Status: `in_progress`
-- Priority: `P0`
-- Owner: `runtime`
-- Dependencies: `R-3021`, `R-1603`
-
-### Scope
-
-Introduce `DeviceArena` keyed by `(device, dtype, size_bucket)` with a
-free list of `wgpu::Buffer` (held as `Arc<wgpu::Buffer>` for safe hand-
-back). `to_device(_, 6)` acquires; `tensor.free` returns. Shared across
-all GPU tensors in a process. The arena lives inside `TensorRegistry`,
-so it shares the existing registry mutex.
-
-### Acceptance
-
-- `stats_device_pool_hits`, `stats_device_pool_misses`,
-  `stats_device_pool_bytes_resident` exposed as host calls
-- `for i in 0..100 { to_device(x, 6); free(d) }` produces
-  `pool_hits >= 99` and bounded `pool_bytes_resident`
-- `MAX_FREE_PER_BUCKET = 16` caps the per-bucket free list
-
-### Completed Implementation (Block 3 cornerstone, 2026-06-24)
-
-- `runtime/src/gpu.rs`: new `DeviceBuffer` (Arc<wgpu::Buffer> wrapper),
-  `DeviceArena` with `acquire`/`release`/`hits`/`misses`/
-  `bytes_resident`/`reset`. Bucket function `next_power_of_two(n).max(16)`.
-  Cap `MAX_FREE_PER_BUCKET = 16`.
-- 3 new host calls: `stats_device_pool_hits`,
-  `stats_device_pool_misses`, `stats_device_pool_bytes_resident`.
-- Release hook in `recycle_tensor` returns buffers to the pool on
-  `tensor.free` and `tensor.free_all`.
-- `TensorRegistry::reset_metrics` clears the arena (free lists, hits,
-  misses, bytes_resident) so `reset_stats` is a clean slate.
-- Tests pass on RTX 2060:
-  - `tensor_runtime_r3051_pool_reuse_under_load` (100 same-shape
-    to_device+free, asserts `pool_hits >= 99`, `pool_misses <= 1`,
-    bytes_resident bounded by cap)
-  - `tensor_runtime_r3051_pool_recycles_after_free` (verifies the
-    release hook actually returns buffers to the pool)
-  - `device_arena_cap_drops_overflow` (unit test on the arena itself)
-- Bench `runtime/examples/tensor_phase7_gpu_bench.rs` extended with
-  `pool_hits`, `pool_misses`, `pool_bytes_resident`, `device_pool_tested`
-  fields in the JSON. Reports `pool_hits=99, pool_misses=1,
-  pool_bytes_resident=1024` on RTX 2060.
-- `scripts/validate_r1603_gpu_backend.py` updated to add a 4th step
-  running the 3 new tests.
-
-### Remaining Before Completion
-
-- R-3052 full: the 5 GPU op sites need to read from `device_storage` so
-  pool hits start to amortize end-to-end (today the pool helps the
-  *upload* side only).
-- R-3053: asynchronous dispatch so the queue can overlap compute and
-  transfer.
-
----
-
-## R-3052 Tensor Residency Contract (Block 3 cornerstone, minimal)
-
-- Status: `in_progress`
-- Priority: `P0`
-- Owner: `numerics`
-- Dependencies: `R-3051`, `R-1603`
-
-### Scope
-
-Extend `StdTensor` with residency: `device_storage: HashMap<PoolDevice,
-DeviceBuffer>`. The host `materialize()` mirror is unchanged; device
-tensors carry an optional resident buffer. Ops consume device residency
-when both inputs are resident on the same device and emit a new device
-tensor; otherwise transfer-and-fallback.
-
-This step implements the **minimal** version: the field is plumbed and
-populated by `to_device`, released by the recycle hook, and exposed via
-the `storage_device` host call. The 5 GPU op sites
-(`tensor_binary`, `tensor_unary`, `std_tensor_sum_f`, `std_tensor_matmul`,
-`std_ml_conv2d`) still call `materialize()` for their inputs. R-3052
-**full** — wiring the op sites to read from `device_storage` — is a
-follow-on step that depends on the kernel rewrite work in
-R-3031..R-3044.
-
-### Acceptance
-
-- `chain a -> add -> relu -> matmul -> sum` on device; intermediates
-  can be freed by `free_all` without re-uploading
-- `storage_device(handle)` returns 6 for any tensor that went through
-  `to_device(_, 6)`
-
-### Completed Implementation (Block 3 cornerstone, 2026-06-24, MINIMAL)
-
-- `StdTensor.device_storage: HashMap<PoolDevice, DeviceBuffer>` field
-  landed (gated on `#[cfg(feature = "gpu")]`).
-- `to_device` populates the field after the upload.
-- `recycle_tensor` drains the field and returns buffers to the pool on
-  `tensor.free` and `tensor.free_all`.
-- New host call `spectra.std.tensor.storage_device(handle) -> int`
-  returns 0 (Cpu) or 6 (Wgpu) for tests.
-- Compiler signature for `storage_device` added in
-  `compiler/src/semantic/builtin_modules.rs`.
-
-### Remaining Before Completion
-
-- R-3052 full: the 5 GPU op sites must check `device_storage` and skip
-  `materialize()` when both inputs are resident on the same device.
-  Each new GPU op site that consumes a device-resident tensor must
-  re-validate against the resident buffer, not the host mirror.
-- Cross-cutting: when the op sites stop calling `materialize()` on
-  every input, the `R-3025` bench will start to show speedup at
-  small sizes (currently dominated by host transfer).
+- O scope de R-3117 foi entregue dentro de R-3129: o path JIT usa
+  `JITBuilder::with_flags(&[("opt_level", "speed")])` em
+  `backend/src/codegen.rs:229-236` e o path AOT usa
+  `settings_builder.set("opt_level", "speed")` em
+  `backend/src/aot.rs:85-92`. Métricas e justificativa estão no item
+  R-3129. Mantido como item separado no roadmap apenas para
+  rastreabilidade do acceptance original.
 
 ---
 
