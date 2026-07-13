@@ -757,14 +757,10 @@ Current state: complete for the current production baseline. ADR [0004](adr/0004
 
 ### Tasks
 
-- Define `Device` model:
-  - CPU
-  - CUDA
-  - ROCm
-  - Metal
-- DirectML or Vulkan, depending on target audience
-- Add tensor placement APIs.
-- Add explicit and implicit transfer semantics.
+- Keep CPU (`0`) and optional WGPU (`6`) as the implemented device contract.
+- Keep CUDA, ROCm, Metal, DirectML, and Vulkan explicitly reserved until each has a real backend, capability probe, transfer path, kernel coverage, and validation gate.
+- Preserve explicit tensor placement APIs and predictable host/device transfer semantics.
+- Do not describe reserved device codes as supported accelerators.
 
 ### Acceptance Criteria
 
@@ -773,38 +769,35 @@ Current state: complete for the current production baseline. ADR [0004](adr/0004
 
 ## 7.2 GPU Kernel Execution
 
-Current state: in progress (reopened 2026-06-24, see `.kilo/plans/1782330688549-gpu-production-implementation-plan.md`). The optional `gpu` feature adds a real `wgpu` compute backend for float tensor elementwise arithmetic, `relu`, `sum_f`, `matmul`, and `ml.conv2d`. The current kernels are functionally correct and the public validation gates pass, but they are naive: `sum` uses `workgroup_size(1)` (serial inside one workgroup), `matmul` uses one thread per output element with no tiling, `conv2d` uses seven nested loops per thread, and every op materializes its result back to the host.
+Current state: validated WGPU baseline, still in progress toward production acceleration. The optional `gpu` feature executes real float kernels for elementwise arithmetic, `relu`, `sum_f`, `matmul`, `ml.conv2d`, selected resident training operations, and supported backward paths. Upload, device buffer pooling, residency, typed GPU errors, CPU fallback, and diagnostics are tested. The backend is not yet CUDA/ROCm/Metal/Vulkan, and kernel efficiency remains limited: `sum` uses `workgroup_size(1)`, `matmul` has no tiling, `conv2d` uses nested loops per thread, and some public paths still require host materialization.
 
-Note (2026-06-25): the previously planned R-30xx GPU improvement blocks (R-3021..R-3025 honest semantics, R-3031..R-3044 correct/fast kernels, R-3051..R-3053 device memory, R-3061..R-3067 GPU backward, R-3071..R-3073 mixed precision on GPU, R-3081..R-3083 graph IR, R-3091..R-3093 optimizer on GPU, and the R-3101-GPU cross-lang GPU benchmark) have been retired from the roadmap. Production GPU speedup is no longer a tracked completion gate in the current plan; the supported baseline, device abstraction, and CPU fallback remain the in-scope work for the GPU workstream.
+Note (2026-07-13): performance-expansion blocks for tiled/parallel kernels, broader device memory planning, GPU mixed precision, graph execution, optimizer kernels, and cross-language GPU speedup were retired from the original R-30xx plan. The validated current baseline separately retains real upload, typed errors, buffer pooling, full residency, and supported backward kernels; these are tracked as complete sub-items. Production GPU speedup is not claimed by the baseline and remains follow-up evidence.
 
-### Tasks
+### Remaining implementation steps
 
-- Choose backend approach:
-  - custom kernel compiler
-  - external accelerator library bindings
-  - hybrid
-- Implement kernel launch abstraction.
-- Add GPU implementations for:
-  - elementwise ops
-  - reductions
-  - matmul
-  - convolution
-- Add asynchronous streams and synchronization points.
+1. Extract device execution behind a typed executor/backend boundary; keep WGPU runtime dispatch separate from tensor registry and host-call registration.
+2. Add shader/pipeline caching and efficient reduction, tiled matmul, and convolution kernels; measure correctness and throughput without lowering the baseline gate.
+3. Extend residency-aware execution so supported chains avoid host round-trips; make fallback decisions observable per operator.
+4. Implement compiler-native tensor/device lowering through `R-2904`; host calls remain compatibility backend, not sole tensor representation.
+5. Add asynchronous stream/queue semantics only after ordering, synchronization, error propagation, and lifetime contracts are specified and tested.
+6. Add new native accelerator backends only with explicit capability, transfer, kernel, and conformance evidence.
 
 ### Acceptance Criteria
 
 - Same tensor programs run on CPU and GPU with identical semantics.
-- GPU benchmarks record CPU/GPU timings and semantic parity for target workloads; speedup is not required for this baseline.
+- GPU benchmarks record CPU/GPU timings and semantic parity for target workloads.
+- Speedup is follow-up evidence until efficient kernels and workload methodology are established; no current baseline claim promises GPU speedup.
 
 ## 7.3 Mixed Precision
 
-Current state: in progress (reopened 2026-06-24). `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision loop on the host. The GPU half of this story is not currently planned: no f16/bf16 WGSL shader, autocast / precision scope, or GPU-side loss-scaling path is in the roadmap after the R-30xx retirement on 2026-06-25.
+Current state: host half complete; GPU half not started. `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports host loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates host convergence. No f16/bf16 WGSL shader, autocast/precision scope, or GPU-side loss-scaling path exists yet.
 
-### Tasks
+### Remaining implementation steps
 
-- Implement `f16` and `bf16` execution paths.
-- Add loss scaling for training.
-- Add autocast or explicit mixed precision API.
+1. Add WGPU feature detection and typed unsupported-feature diagnostics.
+2. Add f16 storage/shader variants; define bf16 representation and conversion policy.
+3. Add explicit precision scope or autocast policy, then GPU loss scaling and unscale operations.
+4. Validate numerical stability and convergence against the existing host reference.
 
 ### Acceptance Criteria
 
@@ -1056,12 +1049,9 @@ the normal CLI pipeline.
 
 ### Tasks
 
-- Implement task/runtime model:
-  - threads
-  - task executor
-  - channels
-  - synchronization primitives
-- Decide whether concurrency is stdlib-only or syntax-backed.
+- Preserve current stdlib-only task handles, channels, counters, synchronization, and specialized real-thread `pipeline_sum` behavior.
+- Do not describe `task_spawn` as general worker execution: it stores an immediate host value and returns a deterministic slot handle.
+- Define a separate future workstream for arbitrary-function parallel execution, worker pool/scheduler semantics, data-race rules, and parallel loop syntax if the language adopts them.
 
 ### Acceptance Criteria
 
@@ -1404,7 +1394,7 @@ Compile tensor/model programs to optimized graph and device execution targets.
 
 ### Current Implementation State
 
-Status: R-1601, R-1602, and R-1603 are complete for the current graph/device execution baseline.
+Status: R-1601 and R-1602 are complete. R-1603 has a validated WGPU graph/device execution baseline but remains `in_progress` for production continuation. `R-3080` backward kernels and `R-3052` full residency are complete for their currently supported operation sets; compiler-native device lowering, efficient kernels, GPU mixed precision, and broader accelerator coverage remain open.
 
 Completed:
 
@@ -1417,7 +1407,7 @@ Completed:
 - `TensorGraph::compare_optimized()` compares observable original and optimized graph outputs under the documented `1e-9` tolerance policy.
 - `midend/tests/snapshots/tensor_graph_optimized.snap` locks the optimized graph dump format.
 - `run_tests.ps1` includes the R-1602 graph optimization gate.
-- R-1603 extends the optional `gpu` runtime feature into a production WGPU baseline for float tensor transfer, elementwise ops, unary `relu`/`neg`, reductions, `matmul`, `std.ml.conv2d`, and autodiff-required forward kernels.
+- R-1603 extends the optional `gpu` runtime feature into a validated WGPU baseline for float tensor transfer, elementwise ops, unary `relu`/`neg`, reductions, `matmul`, `std.ml.conv2d`, resident training operations, and supported autodiff kernels.
 - CPU fallback remains the default build path and is also used when a WGPU kernel reports failure after dispatch.
 - Device capability diagnostics are exposed through `std.tensor.device_status`, `device_available`, `stats_gpu_kernel_ops`, `stats_cpu_fallbacks`, `stats_device_transfers`, and `kernel_strategy`.
 - `scripts/validate_r1603_gpu_backend.py` validates the default CPU fallback path and the optional WGPU backend path.
@@ -1427,7 +1417,8 @@ Completed:
 
 - Tensor programs should lower to a validated graph representation.
 - Graph optimization should be observable and correctness-preserving.
-- GPU support should be equivalent to CPU fallback within documented tolerance.
+- GPU support should be equivalent to CPU fallback within documented tolerance for covered operations.
+- Production completion requires explicit device lowering, efficient kernels, and evidence for each newly claimed operation; WGPU baseline correctness must not be conflated with native multi-backend or general compiler GPU support.
 
 ## Phase 17: Data and Experiment Platform
 

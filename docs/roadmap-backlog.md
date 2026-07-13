@@ -1613,15 +1613,17 @@ to an integer-typed local and then compared/returned through invalid IR.
 
 ### Scope
 
-- one production-grade accelerator backend
-- elementwise/reduction/matmul support
-- demonstrated speedup at realistic sizes
+- validated optional WGPU accelerator baseline for float tensors
+- elementwise/reduction/matmul/conv2d support with CPU fallback
+- device upload, residency, diagnostics, and semantic parity
+- future kernel-efficiency and benchmark work tracked separately from baseline correctness
 
 ### Acceptance
 
 - same program semantics on CPU and GPU within documented tolerance
-- GPU benchmark records CPU/GPU timings AND a measured speedup ratio > 1.0x at the documented workload size
-- speedup, not just correctness, is the completion gate for the production baseline
+- optional `gpu` build executes covered kernels on a detected WGPU adapter and skips safely without one
+- CPU fallback, device capability detection, transfer metrics, GPU kernel metrics, and typed GPU errors remain validated
+- speedup is a future performance target; it is not claimed as a completed production guarantee
 
 ### Completed so far
 
@@ -1632,9 +1634,9 @@ to an integer-typed local and then compared/returned through invalid IR.
 - `tests/validation/75_tensor_phase7_gpu.spectra` validates semantic parity when GPU is available and skips safely in default builds.
 - `runtime/examples/tensor_phase7_gpu_bench.rs` records CPU/GPU timings and semantic parity on supported hardware.
 
-### Status note (2026-06-25)
+### Status note (2026-07-13)
 
-The previously planned R-30xx GPU improvement blocks (parallel reduction, tiled matmul, im2col conv2d, GPU backward kernels, device memory residency, cross-lang GPU benchmark) have been retired from the roadmap. Production GPU speedup is therefore not a tracked completion gate for R-702 in the current plan; the item remains in progress for the supported baseline and device abstraction, and the speedup criterion is treated as a future-work benchmark rather than a release gate.
+R-702 remains `in_progress`: the WGPU baseline is real and validated, but it is not a native CUDA/ROCm/Metal/Vulkan backend and does not yet provide efficient production kernels or compiler-native device lowering. Keep speedup as measured follow-up evidence, not as an already-satisfied criterion.
 
 ## R-703 Mixed Precision
 
@@ -1645,14 +1647,15 @@ The previously planned R-30xx GPU improvement blocks (parallel reduction, tiled 
 
 ### Scope
 
-- `f16`/`bf16` quantization on host
-- `f16`/`bf16` WGSL execution on the GPU
-- autocast or explicit mixed precision
-- loss scaling on the GPU
+- host `f16`/`bf16` quantization and loss-scaling workflow: implemented
+- GPU `f16`/`bf16` WGSL execution: not started
+- GPU autocast/precision scope: not started
+- GPU loss scaling: not started
 
 ### Acceptance
 
-- mixed precision training example converges on supported hardware
+- host mixed-precision training example converges and remains validated
+- GPU mixed-precision execution has feature detection, numerical-stability tests, and convergence evidence before status changes to complete
 
 ### Completed so far
 
@@ -1661,9 +1664,9 @@ The previously planned R-30xx GPU improvement blocks (parallel reduction, tiled 
 - `std.ml.unscale_grad(parameter, scale)` supports loss-scaling workflows.
 - `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision training loop with loss scaling and gradient unscale.
 
-### Status note (2026-06-25)
+### Status note (2026-07-13)
 
-The previously planned R-3071, R-3072, and R-3073 GPU mixed-precision items have been retired from the roadmap. The host quantization path remains complete and the convergence acceptance criterion is met on host. The GPU-side f16/bf16 execution, autocast, and loss-scaling gates are no longer tracked as part of R-703.
+Host quantization and loss scaling are complete. GPU-side f16/bf16 execution, autocast, and device loss scaling remain explicit future work under R-3071 and are not represented as complete by the host test.
 
 ---
 
@@ -2192,11 +2195,11 @@ returns `NULL` and the JIT panics.
 
 ### Scope
 
-- threads/tasks/channels
-- synchronization primitives
+- task handles, FIFO channels, counters, and synchronization primitives
 - stdlib-only API through `std.concurrent`
 - deterministic handle registry for task, channel, and counter resources
-- parallel chunk execution for pipeline sums
+- real OS-thread parallelism only in specialized `pipeline_sum`
+- explicit non-goal: general parallel execution of arbitrary Spectra functions
 
 ### Acceptance
 
@@ -2208,6 +2211,7 @@ returns `NULL` and the JIT panics.
 
 - Added virtual module signatures for `std.concurrent`.
 - Added runtime host functions for task handles, non-blocking FIFO channels, counters, stats, reset, and deterministic parallel pipeline sum.
+- `task_spawn` stores an immediate host value in a slot; it does not execute an arbitrary Spectra function on a worker thread. `pipeline_sum` remains the current real CPU-parallel path.
 - Added midend host-call descriptors so aliased module calls lower to runtime host calls instead of struct method calls.
 - Validated through Rust unit tests and `run_tests.ps1`.
 
@@ -2732,18 +2736,17 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 ### Scope
 
-- production accelerator execution for core ops
-- CPU fallback
-- device capability detection
-- accelerator diagnostics
-- demonstrated speedup at realistic sizes
+- validated WGPU execution for covered core ops
+- CPU fallback, device capability detection, typed errors, and diagnostics
+- real upload, pooled buffers, device residency, and selected resident training/backward paths
+- future compiler-native device lowering, efficient kernels, mixed precision, and broader accelerator coverage
 - sub-items: R-3021 (real upload), R-3023 (typed errors), R-3051 (pool reuse), R-3052 full (residency), R-3071 (f16/bf16), R-3080 (backward kernels)
 
 ### Acceptance
 
 - CPU fallback remains available and produces equivalent results within tolerance.
-- Backward kernels (R-3080) and full residency (R-3052) close the GPU training gap.
-- Mixed precision (R-3071) and transformer GPU primitives (R-1802) remain dependent items outside R-1603.
+- Real WGPU upload, residency, covered forward/backward kernels, pool reuse, typed GPU errors, and diagnostics remain validated.
+- R-3071 mixed precision, R-1802 transformer GPU coverage, efficient kernels, and R-2904 compiler-native device lowering remain open dependencies/follow-ups.
 
 ### Completed so far
 
@@ -2764,15 +2767,15 @@ the next tracked development cycle toward a broader AI/ML platform.
 | R-3051 | Device Buffer Pool Reuse | `complete` | runtime |
 | R-3052 | Device Residency Full | `complete` | runtime |
 | R-3071 | f16/bf16 GPU Kernels (Mixed Precision) | `not_started` | numerics |
-| R-3080 | GPU Backward Kernels | `not_started` | numerics |
+| R-3080 | GPU Backward Kernels | `complete` | numerics |
 
-R-3052 full is complete: resident forward ops, MSE loss, backward accumulation, and SGD update consume `device_storage` / `device_grad` without host readback between chained ops, covered by `tensor_runtime_r3052_full_resident_*` and `scripts/validate_r1603_gpu_backend.py`. R-3071 stays a separate item pending R-703's CPU mixed-precision story.
+R-3052 full is complete: resident forward ops, MSE loss, backward accumulation, and SGD update consume `device_storage` / `device_grad` without host readback between chained ops, covered by `tensor_runtime_r3052_full_resident_*` and `scripts/validate_r1603_gpu_backend.py`. R-3080 is complete for the currently supported resident backward kernels and tests; unsupported operators still use CPU fallback. R-3071 remains open for GPU mixed precision.
 
-### Status note (2026-06-25)
+### Status note (2026-07-13)
 
-The previously planned R-30xx GPU improvement blocks (R-3021..R-3025, R-3031..R-3044, R-3051..R-3053, R-3061..R-3067, R-3071..R-3073, R-3081..R-3083, R-3091..R-3093, and R-3130 cross-lang GPU benchmark) have been retired from the roadmap. The R-1603 acceptance criteria that referenced those items are no longer in scope; the device abstraction, fallback path, and public diagnostics remain the tracked scope for R-1603.
+Original R-30xx performance-expansion blocks for tiled/parallel kernels, broader memory planning, GPU mixed precision, graph execution, optimizer kernels, and cross-language speedup were retired. The validated baseline sub-items R-3021, R-3023, R-3051, R-3052, and R-3080 remain active formal roadmap items with statuses based on code evidence; R-3071 remains open.
 
-**Update (2026-06-25)**: the subset R-3021 / R-3023 / R-3051 / R-3052 full / R-3071 / R-3080 has been reinstated in `roadmap/roadmap.toml` as formal phase_16 sub-items under R-1603, with statuses reflecting current code reality. R-3031..R-3044, R-3053, R-3061..R-3067, R-3081..R-3083, R-3091..R-3093, and R-3130 remain retired.
+**Update (2026-07-13)**: formal phase_16 sub-item statuses now reflect code evidence: R-3021, R-3023, R-3051, R-3052, and R-3080 are complete; R-3071 remains not started. R-3031..R-3044, R-3053, R-3061..R-3067, R-3081..R-3083, R-3091..R-3093, and R-3130 remain retired.
 
 ---
 
@@ -6673,6 +6676,14 @@ exist; they are not cosmetic documentation fixes.
   metadata, fusion/legalization hooks, and device-lowering validation.
 - Keep host calls as one execution backend, not the compiler's only tensor
   representation.
+
+### Required implementation sequence
+
+1. Introduce typed tensor IR nodes carrying shape, dtype, layout, device, and source span.
+2. Lower existing tensor host calls into that IR without breaking the current ABI.
+3. Validate shapes, device placement, unsupported operators, transfers, and fallback decisions before backend dispatch.
+4. Add fusion, memory planning, and legalization passes with golden IR and negative tests.
+5. Route both CPU and WGPU execution through the shared IR contract, then add a normal CLI integration fixture.
 
 ### Acceptance
 
