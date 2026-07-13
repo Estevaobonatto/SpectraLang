@@ -19,24 +19,49 @@ def report(*, profile: str = "debug", stddev_ns: int = 5, ns_per_iter: int = 100
                 "id": scenario_id,
                 "correctness_passed": True,
                 "results": {
-                    "spectra": {
+                    language: {
                         "ns_per_iter": ns_per_iter,
                         "stddev_ns": stddev_ns,
+                        "command": [language, "bench"],
+                        "exit_code": 0,
+                        "failure_class": None,
                     }
+                    for language in phase31_runner.LANGUAGES
                 },
         }
         if scenario_id == "async-echo":
-            entry["performance_reference"] = "go"
-            entry["gap_to_go"] = 1.0
+            entry.update({
+                "benchmark_contract": phase31_runner.ASYNC_ECHO_CONTRACT,
+                "performance_reference": "go",
+                "reference_runtime": "go",
+                "gap_to_go": 1.0,
+                "paired_gap_to_go": [1.0] * 5,
+                "paired_gap_stddev_pct": 0.0,
+                "reference_performance_passed": True,
+                "tasks_per_iteration": 10,
+                "benchmark_iterations": 1000,
+                "expected_result": 55_000,
+                "concurrency_metrics": {
+                    "max_pending_tasks": 10,
+                    "tasks_executed": 10_000,
+                    "task_joins": 10_000,
+                    "tasks_failed": 0,
+                },
+            })
         scenarios.append(entry)
     return {
         "schema": "spectra.phase31.bench.v1",
         "profile": profile,
         "spectra_binary": str(Path("target/debug/spectralang.exe").resolve()),
+        "scenario_matrix": list(cross_lang.SCENARIOS),
+        "complete_scenario_set": True,
+        "environment_preflight": {"status": "quiescent"},
         "measurement_policy": {
             "warmup_runs": 3,
             "timed_runs": 20,
             "max_stddev_pct": 10.0,
+            "independent_runs": 5,
+            "per_process_timeout_s": 300,
         },
         "scenarios": scenarios,
     }
@@ -84,7 +109,7 @@ class Phase31GateTests(unittest.TestCase):
         aggregated = phase31_runner.aggregate_scenario_attempts(attempts)
         result = aggregated["results"]["spectra"]
         self.assertEqual(result["independent_medians_ns"], [100, 101, 99, 100, 102, 1000, 98])
-        self.assertEqual(result["outlier_medians_ns"], [1000])
+        self.assertEqual(result["outlier_medians_ns"], [98, 1000])
         self.assertLess(result["independent_stddev_ns"], 3)
 
     def test_stable_report_passes(self) -> None:
@@ -111,6 +136,7 @@ class Phase31GateTests(unittest.TestCase):
         async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
         async_entry["performance_reference"] = "go"
         async_entry["gap_to_go"] = 1.20
+        async_entry["reference_performance_passed"] = False
         failures, inconclusive = cross_lang.check_baseline(baseline(), value)
         self.assertTrue(any("gap to Go" in failure for failure in failures))
         self.assertEqual(inconclusive, [])
@@ -120,9 +146,44 @@ class Phase31GateTests(unittest.TestCase):
         async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
         async_entry["performance_reference"] = "go"
         async_entry["gap_to_go"] = 1.03
+        async_entry["paired_gap_to_go"] = [1.03] * 5
         failures, inconclusive = cross_lang.check_baseline(baseline(), value)
         self.assertEqual(failures, [])
         self.assertEqual(inconclusive, [])
+
+    def test_async_echo_contract_mismatch_is_rejected(self) -> None:
+        value = report()
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["benchmark_contract"] = "legacy"
+        failures, _ = cross_lang.check_baseline(baseline(), value)
+        self.assertTrue(any("benchmark contract" in failure for failure in failures))
+
+    def test_async_echo_missing_real_concurrency_is_rejected(self) -> None:
+        value = report()
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["concurrency_metrics"]["max_pending_tasks"] = 1
+        failures, _ = cross_lang.check_baseline(baseline(), value)
+        self.assertTrue(any("fan-out concurrency" in failure for failure in failures))
+
+    def test_async_echo_accepts_ten_percent_paired_variance(self) -> None:
+        value = report()
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["paired_gap_stddev_pct"] = 10.0
+        failures, inconclusive = cross_lang.check_baseline(baseline(), value)
+        self.assertEqual(failures, [])
+        self.assertEqual(inconclusive, [])
+
+    def test_async_echo_rejects_paired_variance_above_ten_percent(self) -> None:
+        value = report()
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["paired_gap_stddev_pct"] = 10.01
+        _, inconclusive = cross_lang.check_baseline(baseline(), value)
+        self.assertTrue(any("paired ratio noise" in item for item in inconclusive))
+
+    def test_partial_report_metadata_is_rejected(self) -> None:
+        value = report()
+        value["complete_scenario_set"] = False
+        self.assertTrue(cross_lang.validate_report_metadata(value, "debug", None))
 
     def test_current_contract_requires_all_21_scenarios(self) -> None:
         self.assertEqual(len(cross_lang.REQUIRED_SCENARIOS), 21)
@@ -181,7 +242,7 @@ class Phase31GateTests(unittest.TestCase):
         )
         self.assertIn('$phase31BinaryPath = (Join-Path (Get-Location).Path "target\\release\\spectralang.exe")', source)
         self.assertIn('"--spectra-profile", "release"', source)
-        self.assertIn("-timeoutSeconds 1800", source)
+        self.assertIn("-timeoutSeconds 3600", source)
         self.assertIn("$runPhase31Gpu = $Phase -contains \"phase31_gpu\"", source)
         self.assertIn("$gpuStatus = \"SKIPPED\"", source)
 

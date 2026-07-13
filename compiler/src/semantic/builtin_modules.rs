@@ -2047,11 +2047,7 @@ fn make_std_tensor() -> ModuleExports {
         ("grad_enabled", vec![], bool_ty.clone()),
         ("free", vec![int.clone()], unit.clone()),
         ("free_all", vec![], int.clone()),
-        (
-            "refill",
-            vec![int.clone(), float.clone()],
-            unit.clone(),
-        ),
+        ("refill", vec![int.clone(), float.clone()], unit.clone()),
     ];
 
     for (name, params, return_type) in functions {
@@ -2524,6 +2520,12 @@ fn make_std_concurrent() -> ModuleExports {
     let functions = [
         ("task_spawn", vec![int.clone()], int.clone()),
         ("task_join", vec![int.clone()], int.clone()),
+        (
+            "task_spawn_batch",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("task_join_batch_sum", vec![int.clone()], int.clone()),
         ("task_is_done", vec![int.clone()], bool_ty.clone()),
         ("channel_new", vec![], int.clone()),
         (

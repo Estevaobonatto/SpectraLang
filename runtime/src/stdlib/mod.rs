@@ -10,7 +10,10 @@ use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::slice;
-use std::sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, AtomicUsize, Ordering},
+    mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock,
+};
 use std::thread;
 use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
 
@@ -421,6 +424,8 @@ const ML_EVALUATION_REPORT: &str = "spectra.std.ml.evaluation_report";
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
 const CONCURRENT_TASK_SPAWN_JOIN: &str = "spectra.std.concurrent.task_spawn_join";
+const CONCURRENT_TASK_SPAWN_BATCH: &str = "spectra.std.concurrent.task_spawn_batch";
+const CONCURRENT_TASK_JOIN_BATCH_SUM: &str = "spectra.std.concurrent.task_join_batch_sum";
 const CONCURRENT_TASK_IS_DONE: &str = "spectra.std.concurrent.task_is_done";
 const CONCURRENT_CHANNEL_NEW: &str = "spectra.std.concurrent.channel_new";
 const CONCURRENT_CHANNEL_SEND: &str = "spectra.std.concurrent.channel_send";
@@ -443,6 +448,17 @@ struct ConcurrentDiagnostics {
     locks_acquired: AtomicU64,
     slots_created: AtomicU64,
     tasks_counted: AtomicU64,
+    tasks_created: AtomicU64,
+    tasks_executed: AtomicU64,
+    task_polls: AtomicU64,
+    task_wakeups: AtomicU64,
+    task_joins: AtomicU64,
+    tasks_cancelled: AtomicU64,
+    tasks_failed: AtomicU64,
+    pending_tasks: AtomicU64,
+    max_pending_tasks: AtomicU64,
+    scheduler_ns: AtomicU64,
+    execution_ns: AtomicU64,
 }
 
 impl ConcurrentDiagnostics {
@@ -455,6 +471,17 @@ impl ConcurrentDiagnostics {
             locks_acquired: AtomicU64::new(0),
             slots_created: AtomicU64::new(0),
             tasks_counted: AtomicU64::new(0),
+            tasks_created: AtomicU64::new(0),
+            tasks_executed: AtomicU64::new(0),
+            task_polls: AtomicU64::new(0),
+            task_wakeups: AtomicU64::new(0),
+            task_joins: AtomicU64::new(0),
+            tasks_cancelled: AtomicU64::new(0),
+            tasks_failed: AtomicU64::new(0),
+            pending_tasks: AtomicU64::new(0),
+            max_pending_tasks: AtomicU64::new(0),
+            scheduler_ns: AtomicU64::new(0),
+            execution_ns: AtomicU64::new(0),
         }
     }
 }
@@ -462,9 +489,9 @@ impl ConcurrentDiagnostics {
 fn concurrent_diagnostics() -> Option<&'static ConcurrentDiagnostics> {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     static DATA: ConcurrentDiagnostics = ConcurrentDiagnostics::new();
-    if *ENABLED.get_or_init(|| {
-        std::env::var("SPECTRA_CONCURRENT_DIAGNOSTICS").as_deref() == Ok("1")
-    }) {
+    if *ENABLED
+        .get_or_init(|| std::env::var("SPECTRA_CONCURRENT_DIAGNOSTICS").as_deref() == Ok("1"))
+    {
         Some(&DATA)
     } else {
         None
@@ -474,7 +501,7 @@ fn concurrent_diagnostics() -> Option<&'static ConcurrentDiagnostics> {
 pub fn concurrent_diagnostics_report_json() -> Option<String> {
     let data = concurrent_diagnostics()?;
     Some(format!(
-        "{{\"fused_fast_abi_calls\":{},\"spawn_fast_abi_calls\":{},\"join_fast_abi_calls\":{},\"reset_fast_abi_calls\":{},\"locks_acquired\":{},\"slots_created\":{},\"tasks_counted\":{}}}",
+        "{{\"fused_fast_abi_calls\":{},\"spawn_fast_abi_calls\":{},\"join_fast_abi_calls\":{},\"reset_fast_abi_calls\":{},\"locks_acquired\":{},\"slots_created\":{},\"tasks_counted\":{},\"tasks_created\":{},\"tasks_executed\":{},\"task_polls\":{},\"task_wakeups\":{},\"task_joins\":{},\"tasks_cancelled\":{},\"tasks_failed\":{},\"pending_tasks\":{},\"max_pending_tasks\":{},\"scheduler_ns\":{},\"execution_ns\":{},\"executor_workers\":{}}}",
         data.fused_fast_abi_calls.load(Ordering::Relaxed),
         data.spawn_fast_abi_calls.load(Ordering::Relaxed),
         data.join_fast_abi_calls.load(Ordering::Relaxed),
@@ -482,6 +509,18 @@ pub fn concurrent_diagnostics_report_json() -> Option<String> {
         data.locks_acquired.load(Ordering::Relaxed),
         data.slots_created.load(Ordering::Relaxed),
         data.tasks_counted.load(Ordering::Relaxed),
+        data.tasks_created.load(Ordering::Relaxed),
+        data.tasks_executed.load(Ordering::Relaxed),
+        data.task_polls.load(Ordering::Relaxed),
+        data.task_wakeups.load(Ordering::Relaxed),
+        data.task_joins.load(Ordering::Relaxed),
+        data.tasks_cancelled.load(Ordering::Relaxed),
+        data.tasks_failed.load(Ordering::Relaxed),
+        data.pending_tasks.load(Ordering::Relaxed),
+        data.max_pending_tasks.load(Ordering::Relaxed),
+        data.scheduler_ns.load(Ordering::Relaxed),
+        data.execution_ns.load(Ordering::Relaxed),
+        concurrent_executor().workers,
     ))
 }
 
@@ -939,6 +978,11 @@ fn register_concurrent() {
     register_host_function(CONCURRENT_TASK_SPAWN, std_concurrent_task_spawn);
     register_host_function(CONCURRENT_TASK_JOIN, std_concurrent_task_join);
     register_host_function(CONCURRENT_TASK_SPAWN_JOIN, std_concurrent_task_spawn_join);
+    register_host_function(CONCURRENT_TASK_SPAWN_BATCH, std_concurrent_task_spawn_batch);
+    register_host_function(
+        CONCURRENT_TASK_JOIN_BATCH_SUM,
+        std_concurrent_task_join_batch_sum,
+    );
     register_host_function(CONCURRENT_TASK_IS_DONE, std_concurrent_task_is_done);
     register_host_function(CONCURRENT_CHANNEL_NEW, std_concurrent_channel_new);
     register_host_function(CONCURRENT_CHANNEL_SEND, std_concurrent_channel_send);
@@ -2079,7 +2123,8 @@ where
 }
 
 #[allow(dead_code)]
-fn lock_string_builder_registry() -> Result<std::sync::MutexGuard<'static, StringBuilderRegistry>, i32> {
+fn lock_string_builder_registry(
+) -> Result<std::sync::MutexGuard<'static, StringBuilderRegistry>, i32> {
     string_builder_registry()
         .lock()
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
@@ -2089,7 +2134,10 @@ fn lock_string_builder_registry() -> Result<std::sync::MutexGuard<'static, Strin
 /// via the `spectra_rt_builder_new` fast ABI entry.
 pub fn string_builder_new_fast(capacity: usize) -> SpectraHostValue {
     with_string_builder_registry(|reg| {
-        let builder = match initialize().memory().allocate_manual(StringBuilder::new(capacity)) {
+        let builder = match initialize()
+            .memory()
+            .allocate_manual(StringBuilder::new(capacity))
+        {
             Ok(b) => b,
             Err(_) => return 0,
         };
@@ -2305,7 +2353,8 @@ pub fn ml_mse_loss_fast(prediction_h: usize, target_h: usize) -> SpectraHostValu
     let Some((_pred_shape, pred, pred_requires_grad)) = ml_tensor_float_data(prediction_h) else {
         return 0;
     };
-    let Some((_target_shape, target, _target_requires_grad)) = ml_tensor_float_data(target_h) else {
+    let Some((_target_shape, target, _target_requires_grad)) = ml_tensor_float_data(target_h)
+    else {
         return 0;
     };
     if pred.len() != target.len() {
@@ -2391,13 +2440,11 @@ pub fn tensor_full_f_fast(n: usize, value: f64) -> SpectraHostValue {
     let pattern = value.to_bits() as SpectraHostValue;
     let buffer = with_tensor_registry(|registry| {
         if let Some(buffer) = registry.take_buffer_unfilled(len) {
-            registry.metrics.reused_buffers =
-                registry.metrics.reused_buffers.saturating_add(1);
+            registry.metrics.reused_buffers = registry.metrics.reused_buffers.saturating_add(1);
             registry.metrics.pool_hits = registry.metrics.pool_hits.saturating_add(1);
             Some(buffer)
         } else {
-            registry.metrics.pool_misses =
-                registry.metrics.pool_misses.saturating_add(1);
+            registry.metrics.pool_misses = registry.metrics.pool_misses.saturating_add(1);
             None
         }
     });
@@ -3134,7 +3181,10 @@ impl TensorRegistry {
     }
 
     fn take_buffer_unfilled(&mut self, len: usize) -> Option<Vec<SpectraHostValue>> {
-        let index = self.pool.iter().position(|buffer| buffer.capacity() >= len)?;
+        let index = self
+            .pool
+            .iter()
+            .position(|buffer| buffer.capacity() >= len)?;
         let mut buffer = self.pool.swap_remove(index);
         if buffer.capacity() >= len {
             unsafe {
@@ -3642,7 +3692,8 @@ fn tensor_residency_matmul(
             out_elements,
             device,
         );
-        let result = crate::gpu::matmul_device(&left_buf, &right_buf, m, k, n, &out_buf, device, queue);
+        let result =
+            crate::gpu::matmul_device(&left_buf, &right_buf, m, k, n, &out_buf, device, queue);
         (result, out_buf)
     }) {
         Ok((Ok(()), buf)) => {
@@ -3777,10 +3828,11 @@ fn tensor_residency_ml_linear(
     in_features: usize,
     out_features: usize,
 ) -> ResidencyOutcome {
-    let matmul_out = match tensor_residency_matmul(registry, input, weight, batch, in_features, out_features) {
-        ResidencyOutcome::Ok(buf) => buf,
-        other => return other,
-    };
+    let matmul_out =
+        match tensor_residency_matmul(registry, input, weight, batch, in_features, out_features) {
+            ResidencyOutcome::Ok(buf) => buf,
+            other => return other,
+        };
     let bias_buf = match bias.device_storage.get(&crate::gpu::PoolDevice::Wgpu) {
         Some(buf) => buf.clone(),
         None => {
@@ -4093,7 +4145,9 @@ fn tensor_alloc_autograd_on_device(
             })
         });
         let buf = upload.map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
-        tensor.device_storage.insert(crate::gpu::PoolDevice::Wgpu, buf);
+        tensor
+            .device_storage
+            .insert(crate::gpu::PoolDevice::Wgpu, buf);
     }
     tensor_insert(tensor)
 }
@@ -4128,7 +4182,8 @@ fn tensor_alloc_autograd_on_device_with_buffer(
     tensor.precision = precision;
     tensor.requires_grad = requires_grad && dtype == TensorDType::Float;
     tensor.creator = if tensor.requires_grad { creator } else { None };
-    tensor.device_storage
+    tensor
+        .device_storage
         .insert(crate::gpu::PoolDevice::Wgpu, buf);
     let handle = tensor_insert(tensor)?;
     with_tensor_registry(|registry| {
@@ -4272,13 +4327,11 @@ extern "C" fn std_tensor_full_f(ctx: *mut SpectraHostCallContext) -> i32 {
         let value = args[1];
         let buffer = with_tensor_registry(|registry| {
             if let Some(buffer) = registry.take_buffer_unfilled(len) {
-                registry.metrics.reused_buffers =
-                    registry.metrics.reused_buffers.saturating_add(1);
+                registry.metrics.reused_buffers = registry.metrics.reused_buffers.saturating_add(1);
                 registry.metrics.pool_hits = registry.metrics.pool_hits.saturating_add(1);
                 Some(buffer)
             } else {
-                registry.metrics.pool_misses =
-                    registry.metrics.pool_misses.saturating_add(1);
+                registry.metrics.pool_misses = registry.metrics.pool_misses.saturating_add(1);
                 None
             }
         });
@@ -5075,13 +5128,8 @@ fn tensor_binary(
                         AutogradOp::Div => Some(crate::gpu::GpuBinaryOp::Div),
                         _ => None,
                     } {
-                        let outcome = tensor_residency_binary(
-                            registry,
-                            &left,
-                            &right,
-                            gpu_op,
-                            element_count,
-                        );
+                        let outcome =
+                            tensor_residency_binary(registry, &left, &right, gpu_op, element_count);
                         match outcome {
                             ResidencyOutcome::Ok(buf) => Some(buf),
                             ResidencyOutcome::CpuFallback => None,
@@ -6058,7 +6106,9 @@ fn accumulate_parent_grad(
                 return false;
             }
             if tensor.dtype == TensorDType::Float
-                && tensor.device_storage.contains_key(&crate::gpu::PoolDevice::Wgpu)
+                && tensor
+                    .device_storage
+                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
             {
                 let f32_values: Vec<f32> = values.iter().map(|v| *v as f32).collect();
                 let upload = crate::gpu::with_device_queue(|device, queue| {
@@ -6073,7 +6123,11 @@ fn accumulate_parent_grad(
                     buf
                 });
                 if let Ok(incoming) = upload {
-                    if let Some(existing) = tensor.device_grad.get(&crate::gpu::PoolDevice::Wgpu).cloned() {
+                    if let Some(existing) = tensor
+                        .device_grad
+                        .get(&crate::gpu::PoolDevice::Wgpu)
+                        .cloned()
+                    {
                         let add_result = crate::gpu::with_device_queue(|device, queue| {
                             crate::gpu::add_into_device(&existing, &incoming, device, queue)
                         });
@@ -6085,14 +6139,20 @@ fn accumulate_parent_grad(
                             registry.note_gpu_kernel();
                         }
                     } else {
-                        tensor.device_grad.insert(crate::gpu::PoolDevice::Wgpu, incoming);
+                        tensor
+                            .device_grad
+                            .insert(crate::gpu::PoolDevice::Wgpu, incoming);
                     }
                 }
             }
             true
         }
         ParentGrad::Device(incoming) => {
-            if tensor.dtype != TensorDType::Float || !tensor.device_storage.contains_key(&crate::gpu::PoolDevice::Wgpu) {
+            if tensor.dtype != TensorDType::Float
+                || !tensor
+                    .device_storage
+                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
+            {
                 // Parent is not device-resident; fall back to host.
                 let host = crate::gpu::with_device_queue(|device, queue| {
                     crate::gpu::readback_device_f32(&incoming, device, queue)
@@ -6112,7 +6172,11 @@ fn accumulate_parent_grad(
             } else if tensor.len() != incoming.elements {
                 registry.device_arena.release(incoming);
                 false
-            } else if let Some(existing) = tensor.device_grad.get(&crate::gpu::PoolDevice::Wgpu).cloned() {
+            } else if let Some(existing) = tensor
+                .device_grad
+                .get(&crate::gpu::PoolDevice::Wgpu)
+                .cloned()
+            {
                 let add_result = crate::gpu::with_device_queue(|device, queue| {
                     crate::gpu::add_into_device(&existing, &incoming, device, queue)
                 });
@@ -6129,7 +6193,9 @@ fn accumulate_parent_grad(
                     }
                 }
             } else {
-                tensor.device_grad.insert(crate::gpu::PoolDevice::Wgpu, incoming);
+                tensor
+                    .device_grad
+                    .insert(crate::gpu::PoolDevice::Wgpu, incoming);
                 true
             }
         }
@@ -6343,7 +6409,14 @@ fn autograd_parent_grads_gpu_dispatch(
                     device,
                     queue,
                 );
-                (input_result, weight_result, bias_result, out_input, out_weight, out_bias)
+                (
+                    input_result,
+                    weight_result,
+                    bias_result,
+                    out_input,
+                    out_weight,
+                    out_bias,
+                )
             });
             match result {
                 Ok((Ok(()), Ok(()), Ok(()), out_input, out_weight, out_bias)) => Some(vec![
@@ -6384,7 +6457,8 @@ fn autograd_parent_grads_gpu_dispatch(
                     grad_buf.elements,
                     device,
                 );
-                let relu_result = gpu::backward_relu_device(grad_buf, &input_buf, &out, device, queue);
+                let relu_result =
+                    gpu::backward_relu_device(grad_buf, &input_buf, &out, device, queue);
                 (relu_result, out)
             });
             match result {
@@ -6416,14 +6490,8 @@ fn autograd_parent_grads_gpu_dispatch(
                     pred_buf.elements,
                     device,
                 );
-                let mse_result = gpu::mse_backward_device(
-                    &pred_buf,
-                    &target_buf,
-                    grad_buf,
-                    &out,
-                    device,
-                    queue,
-                );
+                let mse_result =
+                    gpu::mse_backward_device(&pred_buf, &target_buf, grad_buf, &out, device, queue);
                 (mse_result, out)
             });
             match result {
@@ -6465,9 +6533,12 @@ fn autograd_parent_grads_gpu_dispatch(
         return None;
     }
     let parents_on_wgpu = |handles: &[usize]| -> bool {
-        handles
-            .iter()
-            .all(|h| registry.get(*h).map(|t| t.device == TensorDevice::Wgpu).unwrap_or(false))
+        handles.iter().all(|h| {
+            registry
+                .get(*h)
+                .map(|t| t.device == TensorDevice::Wgpu)
+                .unwrap_or(false)
+        })
     };
     let parents_have_storage = |handles: &[usize]| -> bool {
         handles.iter().all(|h| {
@@ -6534,8 +6605,16 @@ fn autograd_parent_grads_gpu_dispatch(
             if m == 0 || k == 0 || n == 0 || grad_buf.elements != m * n {
                 return None;
             }
-            let left_buf = registry.get(node.parents[0])?.device_storage.get(&crate::gpu::PoolDevice::Wgpu)?.clone();
-            let right_buf = registry.get(node.parents[1])?.device_storage.get(&crate::gpu::PoolDevice::Wgpu)?.clone();
+            let left_buf = registry
+                .get(node.parents[0])?
+                .device_storage
+                .get(&crate::gpu::PoolDevice::Wgpu)?
+                .clone();
+            let right_buf = registry
+                .get(node.parents[1])?
+                .device_storage
+                .get(&crate::gpu::PoolDevice::Wgpu)?
+                .clone();
             let (gl, gr) = with_tensor_registry(|reg| {
                 gpu::with_device_queue(|device, queue| -> Option<(crate::gpu::DeviceBuffer, crate::gpu::DeviceBuffer)> {
                     let out_left = reg.device_arena.acquire(
@@ -6565,31 +6644,89 @@ fn autograd_parent_grads_gpu_dispatch(
             let batch = node.aux.first().copied().unwrap_or(0);
             let in_features = node.aux.get(1).copied().unwrap_or(0);
             let out_features = node.aux.get(2).copied().unwrap_or(0);
-            if batch == 0 || in_features == 0 || out_features == 0 || grad_buf.elements != batch * out_features
+            if batch == 0
+                || in_features == 0
+                || out_features == 0
+                || grad_buf.elements != batch * out_features
             {
                 return None;
             }
-            let left_buf = registry.get(node.parents[0])?.device_storage.get(&crate::gpu::PoolDevice::Wgpu)?.clone();
-            let right_buf = registry.get(node.parents[1])?.device_storage.get(&crate::gpu::PoolDevice::Wgpu)?.clone();
+            let left_buf = registry
+                .get(node.parents[0])?
+                .device_storage
+                .get(&crate::gpu::PoolDevice::Wgpu)?
+                .clone();
+            let right_buf = registry
+                .get(node.parents[1])?
+                .device_storage
+                .get(&crate::gpu::PoolDevice::Wgpu)?
+                .clone();
             let (gi, gw, gb) = with_tensor_registry(|reg| {
-                gpu::with_device_queue(|device, queue| -> Option<(crate::gpu::DeviceBuffer, crate::gpu::DeviceBuffer, crate::gpu::DeviceBuffer)> {
-                    let out_input = reg.device_arena.acquire(
-                        crate::gpu::PoolDevice::Wgpu, crate::gpu::PoolDType::Float, batch * in_features, device);
-                    let out_weight = reg.device_arena.acquire(
-                        crate::gpu::PoolDevice::Wgpu, crate::gpu::PoolDType::Float, in_features * out_features, device);
-                    let out_bias = reg.device_arena.acquire(
-                        crate::gpu::PoolDevice::Wgpu, crate::gpu::PoolDType::Float, out_features, device);
-                    let ri = gpu::backward_matmul_left_device(grad_buf, &right_buf, batch, out_features, in_features, &out_input, device, queue);
-                    let rw = gpu::backward_matmul_right_device(&left_buf, grad_buf, batch, in_features, out_features, &out_weight, device, queue);
-                    let rb = gpu::backward_matmul_right_device(grad_buf, grad_buf, batch, out_features, 1, &out_bias, device, queue);
-                    // rb is wrong above; we need a sum-reduction kernel for grad_bias.
-                    // For now, fall through to the CPU path for grad_bias.
-                    let _ = rb;
-                    match (ri, rw) {
-                        (Ok(()), Ok(())) => Some((out_input, out_weight, out_bias)),
-                        _ => None,
-                    }
-                })
+                gpu::with_device_queue(
+                    |device,
+                     queue|
+                     -> Option<(
+                        crate::gpu::DeviceBuffer,
+                        crate::gpu::DeviceBuffer,
+                        crate::gpu::DeviceBuffer,
+                    )> {
+                        let out_input = reg.device_arena.acquire(
+                            crate::gpu::PoolDevice::Wgpu,
+                            crate::gpu::PoolDType::Float,
+                            batch * in_features,
+                            device,
+                        );
+                        let out_weight = reg.device_arena.acquire(
+                            crate::gpu::PoolDevice::Wgpu,
+                            crate::gpu::PoolDType::Float,
+                            in_features * out_features,
+                            device,
+                        );
+                        let out_bias = reg.device_arena.acquire(
+                            crate::gpu::PoolDevice::Wgpu,
+                            crate::gpu::PoolDType::Float,
+                            out_features,
+                            device,
+                        );
+                        let ri = gpu::backward_matmul_left_device(
+                            grad_buf,
+                            &right_buf,
+                            batch,
+                            out_features,
+                            in_features,
+                            &out_input,
+                            device,
+                            queue,
+                        );
+                        let rw = gpu::backward_matmul_right_device(
+                            &left_buf,
+                            grad_buf,
+                            batch,
+                            in_features,
+                            out_features,
+                            &out_weight,
+                            device,
+                            queue,
+                        );
+                        let rb = gpu::backward_matmul_right_device(
+                            grad_buf,
+                            grad_buf,
+                            batch,
+                            out_features,
+                            1,
+                            &out_bias,
+                            device,
+                            queue,
+                        );
+                        // rb is wrong above; we need a sum-reduction kernel for grad_bias.
+                        // For now, fall through to the CPU path for grad_bias.
+                        let _ = rb;
+                        match (ri, rw) {
+                            (Ok(()), Ok(())) => Some((out_input, out_weight, out_bias)),
+                            _ => None,
+                        }
+                    },
+                )
             });
             match gi {
                 Ok(Some((gi, gw, gb))) => {
@@ -6609,12 +6746,20 @@ fn autograd_parent_grads_gpu_dispatch(
             }
             // For relu, output > 0 iff input > 0, so we can use the
             // parent's input device buffer as the gate.
-            let input_buf = registry.get(node.parents[0])?.device_storage.get(&crate::gpu::PoolDevice::Wgpu)?.clone();
+            let input_buf = registry
+                .get(node.parents[0])?
+                .device_storage
+                .get(&crate::gpu::PoolDevice::Wgpu)?
+                .clone();
             let out_buf = with_tensor_registry(|reg| {
                 gpu::with_device_queue(|device, queue| -> Option<crate::gpu::DeviceBuffer> {
                     let n = grad_buf.elements;
                     let buf = reg.device_arena.acquire(
-                        crate::gpu::PoolDevice::Wgpu, crate::gpu::PoolDType::Float, n, device);
+                        crate::gpu::PoolDevice::Wgpu,
+                        crate::gpu::PoolDType::Float,
+                        n,
+                        device,
+                    );
                     let r = gpu::backward_relu_device(grad_buf, &input_buf, &buf, device, queue);
                     match r {
                         Ok(()) => Some(buf),
@@ -6687,11 +6832,13 @@ fn autograd_parent_grads_cpu(
     };
     let host_grad = |v: Vec<f64>| ParentGrad::Host(v);
     let pair = |a: Vec<f64>, b: Vec<f64>| -> Vec<(usize, ParentGrad)> {
-        vec![(node.parents[0], host_grad(a)), (node.parents[1], host_grad(b))]
+        vec![
+            (node.parents[0], host_grad(a)),
+            (node.parents[1], host_grad(b)),
+        ]
     };
-    let single = |a: Vec<f64>| -> Vec<(usize, ParentGrad)> {
-        vec![(node.parents[0], host_grad(a))]
-    };
+    let single =
+        |a: Vec<f64>| -> Vec<(usize, ParentGrad)> { vec![(node.parents[0], host_grad(a))] };
     match node.op {
         AutogradOp::Add => Some(pair(grad.to_vec(), grad.to_vec())),
         AutogradOp::Sub => Some(pair(grad.to_vec(), grad.iter().map(|v| -*v).collect())),
@@ -7686,90 +7833,99 @@ extern "C" fn std_ml_linear(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let (input_h, weight_h, bias_h) = (args[0] as usize, args[1] as usize, args[2] as usize);
-        let Some((shape, out, requires_grad, creator, device, precision, residency)) = with_tensor_registry(|registry| {
-            let input = registry.get(input_h)?.clone();
-            let weight = registry.get(weight_h)?.clone();
-            let bias = registry.get(bias_h)?.clone();
-            if input.dtype != TensorDType::Float
-                || weight.dtype != TensorDType::Float
-                || bias.dtype != TensorDType::Float
-                || input.shape.len() != 2
-                || weight.shape.len() != 2
-                || bias.shape.len() != 1
-            {
-                return None;
-            }
-            let (batch, in_features) = (input.shape[0], input.shape[1]);
-            let (w_in, out_features) = (weight.shape[0], weight.shape[1]);
-            if in_features != w_in || bias.shape[0] != out_features {
-                return None;
-            }
-            let x = tensor_values_as_f64(&input);
-            let w = tensor_values_as_f64(&weight);
-            let b = tensor_values_as_f64(&bias);
-            let mut out = matmul_f64(&x, &w, batch, in_features, out_features);
-            for row in 0..batch {
-                for col in 0..out_features {
-                    out[row * out_features + col] += b[col];
+        let Some((shape, out, requires_grad, creator, device, precision, residency)) =
+            with_tensor_registry(|registry| {
+                let input = registry.get(input_h)?.clone();
+                let weight = registry.get(weight_h)?.clone();
+                let bias = registry.get(bias_h)?.clone();
+                if input.dtype != TensorDType::Float
+                    || weight.dtype != TensorDType::Float
+                    || bias.dtype != TensorDType::Float
+                    || input.shape.len() != 2
+                    || weight.shape.len() != 2
+                    || bias.shape.len() != 1
+                {
+                    return None;
                 }
-            }
-            let requires_grad = tensor_requires_autograd(registry, &[input_h, weight_h, bias_h]);
-            let creator = requires_grad.then(|| AutogradNode {
-                op: AutogradOp::MlLinear,
-                parents: vec![input_h, weight_h, bias_h],
-                input_shape: input.shape.clone(),
-                left_shape: input.shape.clone(),
-                right_shape: weight.shape.clone(),
-                input: b,
-                output: out.clone(),
-                left: x,
-                right: w,
-                aux: vec![batch, in_features, out_features],
-                #[cfg(feature = "gpu")]
-                device_aux: None,
-            });
-            #[cfg(feature = "gpu")]
-            let residency = if input.device == TensorDevice::Wgpu
-                && input
-                    .device_storage
-                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
-                && weight
-                    .device_storage
-                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
-                && bias
-                    .device_storage
-                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
-            {
-                match tensor_residency_ml_linear(
-                    registry, &input, &weight, &bias, batch, in_features, out_features,
-                ) {
-                    ResidencyOutcome::Ok(buf) => Some(buf),
-                    ResidencyOutcome::CpuFallback => None,
-                    ResidencyOutcome::Error(err) => {
-                        registry.note_gpu_error(err.kind);
-                        registry.note_cpu_fallback();
-                        None
+                let (batch, in_features) = (input.shape[0], input.shape[1]);
+                let (w_in, out_features) = (weight.shape[0], weight.shape[1]);
+                if in_features != w_in || bias.shape[0] != out_features {
+                    return None;
+                }
+                let x = tensor_values_as_f64(&input);
+                let w = tensor_values_as_f64(&weight);
+                let b = tensor_values_as_f64(&bias);
+                let mut out = matmul_f64(&x, &w, batch, in_features, out_features);
+                for row in 0..batch {
+                    for col in 0..out_features {
+                        out[row * out_features + col] += b[col];
                     }
                 }
-            } else {
-                None
-            };
-            #[cfg(not(feature = "gpu"))]
-            let residency: Option<()> = None;
-            registry.note_kernel(batch * in_features * out_features);
-            Some((
-                vec![batch, out_features],
-                out,
-                requires_grad,
-                creator,
-                input.device,
-                input.precision,
+                let requires_grad =
+                    tensor_requires_autograd(registry, &[input_h, weight_h, bias_h]);
+                let creator = requires_grad.then(|| AutogradNode {
+                    op: AutogradOp::MlLinear,
+                    parents: vec![input_h, weight_h, bias_h],
+                    input_shape: input.shape.clone(),
+                    left_shape: input.shape.clone(),
+                    right_shape: weight.shape.clone(),
+                    input: b,
+                    output: out.clone(),
+                    left: x,
+                    right: w,
+                    aux: vec![batch, in_features, out_features],
+                    #[cfg(feature = "gpu")]
+                    device_aux: None,
+                });
                 #[cfg(feature = "gpu")]
-                residency,
+                let residency = if input.device == TensorDevice::Wgpu
+                    && input
+                        .device_storage
+                        .contains_key(&crate::gpu::PoolDevice::Wgpu)
+                    && weight
+                        .device_storage
+                        .contains_key(&crate::gpu::PoolDevice::Wgpu)
+                    && bias
+                        .device_storage
+                        .contains_key(&crate::gpu::PoolDevice::Wgpu)
+                {
+                    match tensor_residency_ml_linear(
+                        registry,
+                        &input,
+                        &weight,
+                        &bias,
+                        batch,
+                        in_features,
+                        out_features,
+                    ) {
+                        ResidencyOutcome::Ok(buf) => Some(buf),
+                        ResidencyOutcome::CpuFallback => None,
+                        ResidencyOutcome::Error(err) => {
+                            registry.note_gpu_error(err.kind);
+                            registry.note_cpu_fallback();
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
                 #[cfg(not(feature = "gpu"))]
-                residency,
-            ))
-        }) else {
+                let residency: Option<()> = None;
+                registry.note_kernel(batch * in_features * out_features);
+                Some((
+                    vec![batch, out_features],
+                    out,
+                    requires_grad,
+                    creator,
+                    input.device,
+                    input.precision,
+                    #[cfg(feature = "gpu")]
+                    residency,
+                    #[cfg(not(feature = "gpu"))]
+                    residency,
+                ))
+            })
+        else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         #[cfg(feature = "gpu")]
@@ -7844,130 +8000,133 @@ extern "C" fn std_ml_conv2d(ctx: *mut SpectraHostCallContext) -> i32 {
         if h < kh || w < kw {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let Some((out, requires_grad, creator, device, residency)) = with_tensor_registry(|registry| {
-            let input = registry.get(input_h)?.clone();
-            let kernel = registry.get(kernel_h)?.clone();
-            let bias = registry.get(bias_h)?.clone();
-            if input.dtype != TensorDType::Float
-                || kernel.dtype != TensorDType::Float
-                || bias.dtype != TensorDType::Float
-                || input.device != kernel.device
-                || input.device != bias.device
-                || input.len() != batch * in_ch * h * w
-                || kernel.len() != out_ch * in_ch * kh * kw
-                || bias.len() != out_ch
-            {
-                return None;
-            }
-            let x = tensor_values_as_f64(&input);
-            let k = tensor_values_as_f64(&kernel);
-            let b = tensor_values_as_f64(&bias);
-            let device = input.device;
-            let (out_h, out_w) = (h - kh + 1, w - kw + 1);
-            let cpu_conv2d = || {
-                let mut out = vec![0.0; batch * out_ch * out_h * out_w];
-                for n in 0..batch {
-                    for oc in 0..out_ch {
-                        for oy in 0..out_h {
-                            for ox in 0..out_w {
-                                let mut acc = b[oc];
-                                for ic in 0..in_ch {
-                                    for ky in 0..kh {
-                                        for kx in 0..kw {
-                                            let input_idx =
-                                                ((n * in_ch + ic) * h + oy + ky) * w + ox + kx;
-                                            let kernel_idx =
-                                                ((oc * in_ch + ic) * kh + ky) * kw + kx;
-                                            acc += x[input_idx] * k[kernel_idx];
+        let Some((out, requires_grad, creator, device, residency)) =
+            with_tensor_registry(|registry| {
+                let input = registry.get(input_h)?.clone();
+                let kernel = registry.get(kernel_h)?.clone();
+                let bias = registry.get(bias_h)?.clone();
+                if input.dtype != TensorDType::Float
+                    || kernel.dtype != TensorDType::Float
+                    || bias.dtype != TensorDType::Float
+                    || input.device != kernel.device
+                    || input.device != bias.device
+                    || input.len() != batch * in_ch * h * w
+                    || kernel.len() != out_ch * in_ch * kh * kw
+                    || bias.len() != out_ch
+                {
+                    return None;
+                }
+                let x = tensor_values_as_f64(&input);
+                let k = tensor_values_as_f64(&kernel);
+                let b = tensor_values_as_f64(&bias);
+                let device = input.device;
+                let (out_h, out_w) = (h - kh + 1, w - kw + 1);
+                let cpu_conv2d = || {
+                    let mut out = vec![0.0; batch * out_ch * out_h * out_w];
+                    for n in 0..batch {
+                        for oc in 0..out_ch {
+                            for oy in 0..out_h {
+                                for ox in 0..out_w {
+                                    let mut acc = b[oc];
+                                    for ic in 0..in_ch {
+                                        for ky in 0..kh {
+                                            for kx in 0..kw {
+                                                let input_idx =
+                                                    ((n * in_ch + ic) * h + oy + ky) * w + ox + kx;
+                                                let kernel_idx =
+                                                    ((oc * in_ch + ic) * kh + ky) * kw + kx;
+                                                acc += x[input_idx] * k[kernel_idx];
+                                            }
                                         }
                                     }
+                                    out[((n * out_ch + oc) * out_h + oy) * out_w + ox] = acc;
                                 }
-                                out[((n * out_ch + oc) * out_h + oy) * out_w + ox] = acc;
                             }
                         }
                     }
-                }
-                out
-            };
-            #[cfg(feature = "gpu")]
-            let out = if input.device == TensorDevice::Wgpu {
-                let x_gpu = tensor_values_as_f32(&input)?;
-                let k_gpu = tensor_values_as_f32(&kernel)?;
-                let b_gpu = tensor_values_as_f32(&bias)?;
-                match crate::gpu::conv2d(&x_gpu, &k_gpu, &b_gpu, dims) {
-                    Ok(values) => {
-                        registry.note_gpu_kernel();
-                        values.iter().map(|value| *value as f64).collect::<Vec<_>>()
-                    }
-                    Err(err) => {
-                        registry.note_gpu_error(err.kind);
-                        registry.note_cpu_fallback();
-                        cpu_conv2d()
-                    }
-                }
-            } else {
-                cpu_conv2d()
-            };
-            #[cfg(not(feature = "gpu"))]
-            let out = {
-                if input.device.is_accelerator() {
-                    return None;
-                }
-                cpu_conv2d()
-            };
-            let requires_grad = tensor_requires_autograd(registry, &[input_h, kernel_h, bias_h]);
-            let creator = requires_grad.then(|| AutogradNode {
-                op: AutogradOp::MlConv2d,
-                parents: vec![input_h, kernel_h, bias_h],
-                input_shape: input.shape.clone(),
-                left_shape: input.shape.clone(),
-                right_shape: kernel.shape.clone(),
-                input: b,
-                output: out.clone(),
-                left: x,
-                right: k,
-                aux: vec![batch, in_ch, h, w, out_ch, kh, kw, out_h, out_w],
+                    out
+                };
                 #[cfg(feature = "gpu")]
-                device_aux: None,
-            });
-            #[cfg(feature = "gpu")]
-            let residency = if input.device == TensorDevice::Wgpu
-                && input
-                    .device_storage
-                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
-                && kernel
-                    .device_storage
-                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
-                && bias
-                    .device_storage
-                    .contains_key(&crate::gpu::PoolDevice::Wgpu)
-            {
-                match tensor_residency_conv2d(registry, &input, &kernel, &bias, dims) {
-                    ResidencyOutcome::Ok(buf) => Some(buf),
-                    ResidencyOutcome::CpuFallback => None,
-                    ResidencyOutcome::Error(err) => {
-                        registry.note_gpu_error(err.kind);
-                        registry.note_cpu_fallback();
-                        None
+                let out = if input.device == TensorDevice::Wgpu {
+                    let x_gpu = tensor_values_as_f32(&input)?;
+                    let k_gpu = tensor_values_as_f32(&kernel)?;
+                    let b_gpu = tensor_values_as_f32(&bias)?;
+                    match crate::gpu::conv2d(&x_gpu, &k_gpu, &b_gpu, dims) {
+                        Ok(values) => {
+                            registry.note_gpu_kernel();
+                            values.iter().map(|value| *value as f64).collect::<Vec<_>>()
+                        }
+                        Err(err) => {
+                            registry.note_gpu_error(err.kind);
+                            registry.note_cpu_fallback();
+                            cpu_conv2d()
+                        }
                     }
-                }
-            } else {
-                None
-            };
-            #[cfg(not(feature = "gpu"))]
-            let residency: Option<()> = None;
-            registry.note_kernel(batch * out_ch * out_h * out_w * in_ch * kh * kw);
-            Some((
-                out,
-                requires_grad,
-                creator,
-                device,
-                #[cfg(feature = "gpu")]
-                residency,
+                } else {
+                    cpu_conv2d()
+                };
                 #[cfg(not(feature = "gpu"))]
-                residency,
-            ))
-        }) else {
+                let out = {
+                    if input.device.is_accelerator() {
+                        return None;
+                    }
+                    cpu_conv2d()
+                };
+                let requires_grad =
+                    tensor_requires_autograd(registry, &[input_h, kernel_h, bias_h]);
+                let creator = requires_grad.then(|| AutogradNode {
+                    op: AutogradOp::MlConv2d,
+                    parents: vec![input_h, kernel_h, bias_h],
+                    input_shape: input.shape.clone(),
+                    left_shape: input.shape.clone(),
+                    right_shape: kernel.shape.clone(),
+                    input: b,
+                    output: out.clone(),
+                    left: x,
+                    right: k,
+                    aux: vec![batch, in_ch, h, w, out_ch, kh, kw, out_h, out_w],
+                    #[cfg(feature = "gpu")]
+                    device_aux: None,
+                });
+                #[cfg(feature = "gpu")]
+                let residency = if input.device == TensorDevice::Wgpu
+                    && input
+                        .device_storage
+                        .contains_key(&crate::gpu::PoolDevice::Wgpu)
+                    && kernel
+                        .device_storage
+                        .contains_key(&crate::gpu::PoolDevice::Wgpu)
+                    && bias
+                        .device_storage
+                        .contains_key(&crate::gpu::PoolDevice::Wgpu)
+                {
+                    match tensor_residency_conv2d(registry, &input, &kernel, &bias, dims) {
+                        ResidencyOutcome::Ok(buf) => Some(buf),
+                        ResidencyOutcome::CpuFallback => None,
+                        ResidencyOutcome::Error(err) => {
+                            registry.note_gpu_error(err.kind);
+                            registry.note_cpu_fallback();
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                #[cfg(not(feature = "gpu"))]
+                let residency: Option<()> = None;
+                registry.note_kernel(batch * out_ch * out_h * out_w * in_ch * kh * kw);
+                Some((
+                    out,
+                    requires_grad,
+                    creator,
+                    device,
+                    #[cfg(feature = "gpu")]
+                    residency,
+                    #[cfg(not(feature = "gpu"))]
+                    residency,
+                ))
+            })
+        else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         #[cfg(feature = "gpu")]
@@ -8168,15 +8327,11 @@ extern "C" fn std_ml_mse_loss(ctx: *mut SpectraHostCallContext) -> i32 {
                     1,
                     device,
                 );
-                let loss_result = crate::gpu::mse_loss_device(
-                    &pred_buf,
-                    &target_buf,
-                    &out_buf,
-                    device,
-                    queue,
-                );
+                let loss_result =
+                    crate::gpu::mse_loss_device(&pred_buf, &target_buf, &out_buf, device, queue);
                 let value_result = loss_result.and_then(|()| {
-                    crate::gpu::readback_scalar_device(&out_buf, device, queue).map(|value| value as f64)
+                    crate::gpu::readback_scalar_device(&out_buf, device, queue)
+                        .map(|value| value as f64)
                 });
                 (value_result, out_buf)
             });
@@ -8381,7 +8536,9 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                     }
                 };
                 if param_buf.elements != grad_buf.elements || param.dtype != TensorDType::Float {
-                    param.device_storage.insert(crate::gpu::PoolDevice::Wgpu, param_buf);
+                    param
+                        .device_storage
+                        .insert(crate::gpu::PoolDevice::Wgpu, param_buf);
                     registry.device_arena.release(grad_buf);
                     registry.tensors.insert(handle, boxed);
                     return Some(false);
@@ -8394,12 +8551,7 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                         device,
                     );
                     let update_result = crate::gpu::sgd_update_device(
-                        &param_buf,
-                        &grad_buf,
-                        lr as f32,
-                        &out_buf,
-                        device,
-                        queue,
+                        &param_buf, &grad_buf, lr as f32, &out_buf, device, queue,
                     );
                     (update_result, out_buf)
                 });
@@ -8407,7 +8559,9 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                 match result {
                     Ok((Ok(()), out_buf)) => {
                         registry.device_arena.release(param_buf);
-                        param.device_storage.insert(crate::gpu::PoolDevice::Wgpu, out_buf);
+                        param
+                            .device_storage
+                            .insert(crate::gpu::PoolDevice::Wgpu, out_buf);
                         param.grad = None;
                         registry.note_gpu_kernel();
                         registry.tensors.insert(handle, boxed);
@@ -8415,14 +8569,18 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                     }
                     Ok((Err(err), out_buf)) => {
                         registry.device_arena.release(out_buf);
-                        param.device_storage.insert(crate::gpu::PoolDevice::Wgpu, param_buf);
+                        param
+                            .device_storage
+                            .insert(crate::gpu::PoolDevice::Wgpu, param_buf);
                         registry.note_gpu_error(err.kind);
                         registry.note_cpu_fallback();
                         registry.tensors.insert(handle, boxed);
                         Some(false)
                     }
                     Err(err) => {
-                        param.device_storage.insert(crate::gpu::PoolDevice::Wgpu, param_buf);
+                        param
+                            .device_storage
+                            .insert(crate::gpu::PoolDevice::Wgpu, param_buf);
                         registry.note_gpu_error(err.kind);
                         registry.note_cpu_fallback();
                         registry.tensors.insert(handle, boxed);
@@ -12007,9 +12165,12 @@ extern "C" fn std_tensor_to_device(ctx: *mut SpectraHostCallContext) -> i32 {
                 };
                 let upload_result = with_tensor_registry(|registry| {
                     crate::gpu::with_device_queue(|device, queue| {
-                        let buf = registry
-                            .device_arena
-                            .acquire(crate::gpu::PoolDevice::Wgpu, crate::gpu::PoolDType::Float, n, device);
+                        let buf = registry.device_arena.acquire(
+                            crate::gpu::PoolDevice::Wgpu,
+                            crate::gpu::PoolDType::Float,
+                            n,
+                            device,
+                        );
                         let bytes = bytemuck::cast_slice(&f32_data);
                         queue.write_buffer(&buf.buffer, 0, bytes);
                         queue.submit(None);
@@ -12020,7 +12181,9 @@ extern "C" fn std_tensor_to_device(ctx: *mut SpectraHostCallContext) -> i32 {
                     Ok(buf) => buf,
                     Err(_) => return HOST_STATUS_INTERNAL_ERROR,
                 };
-                moved.device_storage.insert(crate::gpu::PoolDevice::Wgpu, buf);
+                moved
+                    .device_storage
+                    .insert(crate::gpu::PoolDevice::Wgpu, buf);
             }
             #[cfg(not(feature = "gpu"))]
             {
@@ -12198,16 +12361,14 @@ extern "C" fn std_tensor_stats_device_pool_misses(ctx: *mut SpectraHostCallConte
         let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let value = with_tensor_registry(|registry| registry.device_arena.misses())
-            as SpectraHostValue;
+        let value =
+            with_tensor_registry(|registry| registry.device_arena.misses()) as SpectraHostValue;
         tensor_result(ctx_ref, value)
     }
 }
 
 #[cfg(feature = "gpu")]
-extern "C" fn std_tensor_stats_device_pool_bytes_resident(
-    ctx: *mut SpectraHostCallContext,
-) -> i32 {
+extern "C" fn std_tensor_stats_device_pool_bytes_resident(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, _args)) = tensor_args(ctx, 0) else {
             return HOST_STATUS_INVALID_ARGUMENT;
@@ -12262,9 +12423,7 @@ extern "C" fn std_tensor_stats_gpu_errors(ctx: *mut SpectraHostCallContext) -> i
     }
 }
 
-extern "C" fn std_tensor_stats_device_resident_tensors(
-    ctx: *mut SpectraHostCallContext,
-) -> i32 {
+extern "C" fn std_tensor_stats_device_resident_tensors(ctx: *mut SpectraHostCallContext) -> i32 {
     tensor_metric(ctx, |metrics| metrics.device_resident_tensors)
 }
 
@@ -12923,10 +13082,7 @@ pub fn string_len_fast(s: SpectraHostValue) -> SpectraHostValue {
 ///
 /// Returns the byte value (0-255) on success or `-1` for an out-of-bounds
 /// access (null handle, negative index, or index past the null terminator).
-pub fn string_char_at_fast(
-    s: SpectraHostValue,
-    index: SpectraHostValue,
-) -> SpectraHostValue {
+pub fn string_char_at_fast(s: SpectraHostValue, index: SpectraHostValue) -> SpectraHostValue {
     if s == 0 || index < 0 {
         return -1;
     }
@@ -15566,7 +15722,11 @@ extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
         let key = args[1];
         let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
         let value = match map_arc {
-            Some(map_arc) => lock_unpoisoned(&map_arc).data.get(&key).copied().unwrap_or(0),
+            Some(map_arc) => lock_unpoisoned(&map_arc)
+                .data
+                .get(&key)
+                .copied()
+                .unwrap_or(0),
             None => 0,
         };
         results[0] = value;
@@ -18262,11 +18422,7 @@ pub fn concurrent_spawn_fast(value: SpectraHostValue) -> SpectraHostValue {
     if let Some(data) = concurrent_diagnostics() {
         data.spawn_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
     }
-    let mut registry = match lock_concurrent_registry() {
-        Ok(r) => r,
-        Err(_) => return 0,
-    };
-    registry.spawn(value) as SpectraHostValue
+    spawn_concurrent_task(value).unwrap_or(0)
 }
 
 /// Fast-path helper for `concurrent.task_join(task_id)`. Returns the value
@@ -18276,15 +18432,23 @@ pub fn concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
     if let Some(data) = concurrent_diagnostics() {
         data.join_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
     }
-    let task_id = task_id as usize;
-    let mut registry = match lock_concurrent_registry() {
-        Ok(r) => r,
-        Err(_) => return 0,
-    };
-    match registry.join(task_id) {
+    match join_concurrent_task(task_id) {
         Ok(v) => v,
         Err(_) => 0,
     }
+}
+
+/// Fast ABI for real-concurrency fan-out over a contiguous integer range.
+pub fn concurrent_spawn_batch_fast(
+    first_value: SpectraHostValue,
+    count: SpectraHostValue,
+) -> SpectraHostValue {
+    spawn_concurrent_batch(first_value, count).unwrap_or(0)
+}
+
+/// Fast ABI for joining every task owned by a batch and summing results.
+pub fn concurrent_join_batch_sum_fast(batch_id: SpectraHostValue) -> SpectraHostValue {
+    join_concurrent_batch_sum(batch_id).unwrap_or(0)
 }
 
 /// Fast-path helper for an immediately paired spawn and join.
@@ -18414,17 +18578,309 @@ struct ConcurrentChannel {
     closed: bool,
 }
 
+struct ConcurrentTask {
+    state: AtomicU8,
+    value: AtomicI64,
+}
+
+impl ConcurrentTask {
+    const PENDING: u8 = 0;
+    const READY: u8 = 1;
+    const FAILED: u8 = 2;
+    const CANCELLED: u8 = 3;
+
+    fn pending() -> Self {
+        Self {
+            state: AtomicU8::new(Self::PENDING),
+            value: AtomicI64::new(0),
+        }
+    }
+
+    fn prepare(&self) {
+        self.value.store(0, Ordering::Relaxed);
+        self.state.store(Self::PENDING, Ordering::Release);
+    }
+
+    fn complete(&self, value: SpectraHostValue) -> bool {
+        self.value.store(value, Ordering::Relaxed);
+        self.state
+            .compare_exchange(
+                Self::PENDING,
+                Self::READY,
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+    }
+
+    fn fail(&self) -> bool {
+        self.state
+            .compare_exchange(
+                Self::PENDING,
+                Self::FAILED,
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+    }
+
+    fn cancel(&self) -> bool {
+        self.state
+            .compare_exchange(
+                Self::PENDING,
+                Self::CANCELLED,
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+    }
+
+    fn is_done(&self) -> bool {
+        self.state.load(Ordering::Acquire) != Self::PENDING
+    }
+
+    fn join(&self) -> Result<SpectraHostValue, i32> {
+        loop {
+            match self.state.load(Ordering::Acquire) {
+                Self::READY => return Ok(self.value.load(Ordering::Relaxed)),
+                Self::FAILED => return Err(HOST_STATUS_INTERNAL_ERROR),
+                Self::CANCELLED => return Err(HOST_STATUS_NOT_FOUND),
+                Self::PENDING => {
+                    let (epoch, ready) = concurrent_completion_signal();
+                    let guard = lock_unpoisoned(epoch);
+                    if self.state.load(Ordering::Acquire) == Self::PENDING {
+                        drop(ready.wait(guard).unwrap_or_else(|error| error.into_inner()));
+                    }
+                }
+                _ => return Err(HOST_STATUS_INTERNAL_ERROR),
+            }
+        }
+    }
+}
+
+fn concurrent_completion_signal() -> &'static (Mutex<u64>, Condvar) {
+    static SIGNAL: OnceLock<(Mutex<u64>, Condvar)> = OnceLock::new();
+    SIGNAL.get_or_init(|| (Mutex::new(0), Condvar::new()))
+}
+
+fn notify_concurrent_completion() {
+    let (epoch, ready) = concurrent_completion_signal();
+    let mut epoch = lock_unpoisoned(epoch);
+    *epoch = epoch.wrapping_add(1);
+    ready.notify_all();
+}
+
+struct ConcurrentBatch {
+    count: usize,
+    remaining: AtomicUsize,
+    total: AtomicI64,
+    failed: AtomicBool,
+    cancelled: AtomicBool,
+}
+
+impl ConcurrentBatch {
+    fn new(count: usize) -> Self {
+        Self {
+            count,
+            remaining: AtomicUsize::new(count),
+            total: AtomicI64::new(0),
+            failed: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+        }
+    }
+
+    fn finish_task(&self, value: SpectraHostValue) -> bool {
+        self.total.fetch_add(value, Ordering::Relaxed);
+        self.remaining.fetch_sub(1, Ordering::AcqRel) == 1
+    }
+
+    fn join_sum(&self) -> Result<SpectraHostValue, i32> {
+        let mut spins = 0usize;
+        while self.remaining.load(Ordering::Acquire) != 0 {
+            if self.cancelled.load(Ordering::Acquire) {
+                return Err(HOST_STATUS_NOT_FOUND);
+            }
+            if self.failed.load(Ordering::Acquire) {
+                return Err(HOST_STATUS_INTERNAL_ERROR);
+            }
+            if spins < 128 {
+                std::hint::spin_loop();
+                spins += 1;
+            } else {
+                thread::yield_now();
+            }
+        }
+        if self.failed.load(Ordering::Acquire) {
+            return Err(HOST_STATUS_INTERNAL_ERROR);
+        }
+        Ok(self.total.load(Ordering::Relaxed))
+    }
+}
+
+enum ConcurrentJob {
+    Single {
+        task: Arc<ConcurrentTask>,
+        value: SpectraHostValue,
+        queued_at: StdInstant,
+    },
+    BatchLane {
+        batch: Arc<ConcurrentBatch>,
+        first_value: SpectraHostValue,
+        count: usize,
+        lane: usize,
+        lanes: usize,
+        queued_at: StdInstant,
+    },
+}
+
+struct ConcurrentExecutor {
+    sender: mpsc::Sender<ConcurrentJob>,
+    workers: usize,
+}
+
+impl ConcurrentExecutor {
+    fn new() -> Self {
+        let (sender, receiver) = mpsc::channel::<ConcurrentJob>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let workers = thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(2)
+            .clamp(2, 2);
+        for worker_index in 0..workers {
+            let receiver = Arc::clone(&receiver);
+            thread::Builder::new()
+                .name(format!("spectra-concurrent-{worker_index}"))
+                .spawn(move || loop {
+                    let job = {
+                        let receiver = lock_unpoisoned(&receiver);
+                        receiver.recv()
+                    };
+                    let Ok(job) = job else {
+                        break;
+                    };
+                    match job {
+                        ConcurrentJob::Single {
+                            task,
+                            value,
+                            queued_at,
+                        } => {
+                            let execution_started = StdInstant::now();
+                            if let Some(data) = concurrent_diagnostics() {
+                                data.tasks_executed.fetch_add(1, Ordering::Relaxed);
+                            }
+                            if task.complete(value) {
+                                if let Some(data) = concurrent_diagnostics() {
+                                    data.task_wakeups.fetch_add(1, Ordering::Relaxed);
+                                    data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
+                                    data.scheduler_ns.fetch_add(
+                                        queued_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                                        Ordering::Relaxed,
+                                    );
+                                    data.execution_ns.fetch_add(
+                                        execution_started.elapsed().as_nanos().min(u64::MAX as u128)
+                                            as u64,
+                                        Ordering::Relaxed,
+                                    );
+                                }
+                                notify_concurrent_completion();
+                            }
+                        }
+                        ConcurrentJob::BatchLane {
+                            batch,
+                            first_value,
+                            count,
+                            lane,
+                            lanes,
+                            queued_at,
+                        } => {
+                            let execution_started = StdInstant::now();
+                            let mut completed_last = false;
+                            for offset in (lane..count).step_by(lanes) {
+                                if batch.cancelled.load(Ordering::Acquire) {
+                                    break;
+                                }
+                                if let Some(data) = concurrent_diagnostics() {
+                                    data.tasks_executed.fetch_add(1, Ordering::Relaxed);
+                                    data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
+                                }
+                                completed_last = batch.finish_task(
+                                    first_value.saturating_add(offset as SpectraHostValue),
+                                );
+                            }
+                            if let Some(data) = concurrent_diagnostics() {
+                                data.scheduler_ns.fetch_add(
+                                    queued_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                                    Ordering::Relaxed,
+                                );
+                                data.execution_ns.fetch_add(
+                                    execution_started.elapsed().as_nanos().min(u64::MAX as u128)
+                                        as u64,
+                                    Ordering::Relaxed,
+                                );
+                            }
+                            if completed_last {
+                                if let Some(data) = concurrent_diagnostics() {
+                                    data.task_wakeups.fetch_add(1, Ordering::Relaxed);
+                                }
+                                notify_concurrent_completion();
+                            }
+                        }
+                    }
+                })
+                .expect("failed to create Spectra concurrent worker");
+        }
+        Self { sender, workers }
+    }
+
+    fn submit(&self, task: Arc<ConcurrentTask>, value: SpectraHostValue) -> Result<(), ()> {
+        self.sender
+            .send(ConcurrentJob::Single {
+                task,
+                value,
+                queued_at: StdInstant::now(),
+            })
+            .map_err(|_| ())
+    }
+
+    fn submit_batch_lane(
+        &self,
+        batch: Arc<ConcurrentBatch>,
+        first_value: SpectraHostValue,
+        count: usize,
+        lane: usize,
+        lanes: usize,
+    ) -> Result<(), ()> {
+        self.sender
+            .send(ConcurrentJob::BatchLane {
+                batch,
+                first_value,
+                count,
+                lane,
+                lanes,
+                queued_at: StdInstant::now(),
+            })
+            .map_err(|_| ())
+    }
+}
+
+fn concurrent_executor() -> &'static ConcurrentExecutor {
+    static EXECUTOR: OnceLock<ConcurrentExecutor> = OnceLock::new();
+    EXECUTOR.get_or_init(ConcurrentExecutor::new)
+}
+
 struct ConcurrentRegistry {
-    // Task values are materialized synchronously by task_spawn. The registry
-    // mutex is the synchronization boundary, so Arc<OnceLock> adds an
-    // allocation and an atomic state transition without providing extra
-    // semantics here.
-    slots: Vec<Option<SpectraHostValue>>,
+    // task_spawn receives an already-evaluated Spectra value, but completion
+    // is scheduled on the persistent executor. This preserves the public API
+    // while making fan-out/fan-in observable without one OS thread per task.
+    slots: Vec<Arc<ConcurrentTask>>,
+    active: Vec<bool>,
     free: Vec<usize>,
     next_fresh: usize,
     next_channel: SpectraHostValue,
     next_counter: SpectraHostValue,
+    next_batch: SpectraHostValue,
     tasks_spawned: SpectraHostValue,
+    batches: HashMap<SpectraHostValue, Arc<ConcurrentBatch>>,
     channels: HashMap<SpectraHostValue, Arc<Mutex<ConcurrentChannel>>>,
     counters: HashMap<SpectraHostValue, SpectraHostValue>,
 }
@@ -18432,74 +18888,135 @@ struct ConcurrentRegistry {
 impl ConcurrentRegistry {
     fn new() -> Self {
         let mut slots = Vec::with_capacity(CONCURRENT_POOL_INITIAL_CAPACITY);
-        slots.push(None);
+        slots.push(Arc::new(ConcurrentTask::pending()));
         Self {
             slots,
+            active: vec![false],
             free: Vec::new(),
             next_fresh: 1,
             next_channel: 1,
             next_counter: 1,
+            next_batch: 1,
             tasks_spawned: 0,
+            batches: HashMap::new(),
             channels: HashMap::new(),
             counters: HashMap::new(),
         }
     }
 
     fn clear(&mut self) {
-        // async-echo resets after joining every task. In that state all task
-        // slots are already empty and present in `free`; rebuilding the same
-        // free list and walking every slot only adds work to the hot path.
+        // The common reset-after-join path is allocation-free.
         if self.channels.is_empty()
             && self.counters.is_empty()
+            && self.batches.is_empty()
             && self.free.len() + 1 == self.slots.len()
         {
             self.tasks_spawned = 0;
             self.next_channel = 1;
             self.next_counter = 1;
+            self.next_batch = 1;
             return;
         }
-        for slot in self.slots.iter_mut().skip(1) {
-            *slot = None;
+        for batch in self.batches.values() {
+            batch.cancelled.store(true, Ordering::Release);
         }
+        for slot_idx in 1..self.slots.len() {
+            if self.active[slot_idx] {
+                let task = &self.slots[slot_idx];
+                if task.cancel() {
+                    if let Some(data) = concurrent_diagnostics() {
+                        data.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
+                        data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
+                    }
+                }
+                self.active[slot_idx] = false;
+            }
+        }
+        notify_concurrent_completion();
         let total = self.slots.len();
         self.free.clear();
         self.free.extend(1..total);
         self.tasks_spawned = 0;
         self.channels.clear();
         self.counters.clear();
+        self.batches.clear();
         self.next_channel = 1;
         self.next_counter = 1;
+        self.next_batch = 1;
     }
 
-    fn spawn(&mut self, value: SpectraHostValue) -> usize {
+    fn allocate_task(&mut self) -> (usize, Arc<ConcurrentTask>) {
         self.tasks_spawned += 1;
         let slot_idx = if let Some(idx) = self.free.pop() {
             idx
         } else {
             let idx = self.next_fresh;
             self.next_fresh += 1;
-            self.slots.push(None);
+            self.slots.push(Arc::new(ConcurrentTask::pending()));
+            self.active.push(false);
             if let Some(data) = concurrent_diagnostics() {
                 data.slots_created.fetch_add(1, Ordering::Relaxed);
             }
             idx
         };
-        let slot = &mut self.slots[slot_idx];
-        debug_assert!(slot.is_none(), "slot pool invariant violated");
-        *slot = Some(value);
-        slot_idx
+        debug_assert!(!self.active[slot_idx], "slot pool invariant violated");
+        let task = Arc::clone(&self.slots[slot_idx]);
+        task.prepare();
+        self.active[slot_idx] = true;
+        (slot_idx, task)
     }
 
-    fn join(&mut self, task_id: usize) -> Result<SpectraHostValue, i32> {
-        let slot = self.slots.get_mut(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
-        let value = slot.take().ok_or(HOST_STATUS_NOT_FOUND)?;
-        self.free.push(task_id);
-        Ok(value)
+    fn task(&self, task_id: usize) -> Result<Arc<ConcurrentTask>, i32> {
+        if !self.active.get(task_id).copied().unwrap_or(false) {
+            return Err(HOST_STATUS_NOT_FOUND);
+        }
+        self.slots
+            .get(task_id)
+            .cloned()
+            .ok_or(HOST_STATUS_NOT_FOUND)
     }
 
     fn is_done(&self, task_id: usize) -> Result<bool, i32> {
-        let slot = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
-        Ok(slot.is_some())
+        let Some(task) = self.slots.get(task_id) else {
+            return Err(HOST_STATUS_NOT_FOUND);
+        };
+        if !self.active.get(task_id).copied().unwrap_or(false) {
+            return Ok(false);
+        }
+        Ok(task.is_done())
+    }
+
+    fn release(&mut self, task_id: usize, task: &Arc<ConcurrentTask>) -> Result<(), i32> {
+        let current = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
+        if !self.active.get(task_id).copied().unwrap_or(false) || !Arc::ptr_eq(current, task) {
+            return Err(HOST_STATUS_NOT_FOUND);
+        }
+        self.active[task_id] = false;
+        self.free.push(task_id);
+        Ok(())
+    }
+
+    fn allocate_batch(&mut self, count: usize) -> (SpectraHostValue, Arc<ConcurrentBatch>) {
+        let batch_id = self.next_batch.max(1);
+        self.next_batch = batch_id.saturating_add(1).max(1);
+        self.tasks_spawned = self.tasks_spawned.saturating_add(count as SpectraHostValue);
+        let batch = Arc::new(ConcurrentBatch::new(count));
+        self.batches.insert(batch_id, Arc::clone(&batch));
+        (batch_id, batch)
+    }
+
+    fn batch(&self, batch_id: SpectraHostValue) -> Result<Arc<ConcurrentBatch>, i32> {
+        self.batches
+            .get(&batch_id)
+            .cloned()
+            .ok_or(HOST_STATUS_NOT_FOUND)
+    }
+
+    fn release_batch(&mut self, batch_id: SpectraHostValue) -> Result<(), i32> {
+        self.batches
+            .remove(&batch_id)
+            .map(|_| ())
+            .ok_or(HOST_STATUS_NOT_FOUND)
     }
 }
 
@@ -18520,19 +19037,130 @@ fn lock_concurrent_registry() -> Result<std::sync::MutexGuard<'static, Concurren
     result
 }
 
+fn record_concurrent_task_created() {
+    if let Some(data) = concurrent_diagnostics() {
+        data.tasks_created.fetch_add(1, Ordering::Relaxed);
+        data.tasks_counted.fetch_add(1, Ordering::Relaxed);
+        let pending = data.pending_tasks.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut maximum = data.max_pending_tasks.load(Ordering::Relaxed);
+        while pending > maximum {
+            match data.max_pending_tasks.compare_exchange_weak(
+                maximum,
+                pending,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(observed) => maximum = observed,
+            }
+        }
+    }
+}
+
+fn spawn_concurrent_task(value: SpectraHostValue) -> Result<SpectraHostValue, i32> {
+    let (task_id, task) = {
+        let mut registry = lock_concurrent_registry()?;
+        registry.allocate_task()
+    };
+    record_concurrent_task_created();
+    if concurrent_executor()
+        .submit(Arc::clone(&task), value)
+        .is_err()
+    {
+        if task.fail() {
+            if let Some(data) = concurrent_diagnostics() {
+                data.tasks_failed.fetch_add(1, Ordering::Relaxed);
+                data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+        return Err(HOST_STATUS_INTERNAL_ERROR);
+    }
+    Ok(task_id as SpectraHostValue)
+}
+
+fn join_concurrent_task(task_id: SpectraHostValue) -> Result<SpectraHostValue, i32> {
+    let task_id = usize::try_from(task_id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+    let task = {
+        let registry = lock_concurrent_registry()?;
+        registry.task(task_id)?
+    };
+    if let Some(data) = concurrent_diagnostics() {
+        data.task_joins.fetch_add(1, Ordering::Relaxed);
+    }
+    let value = task.join()?;
+    let mut registry = lock_concurrent_registry()?;
+    registry.release(task_id, &task)?;
+    Ok(value)
+}
+
+fn concurrent_task_done(task_id: SpectraHostValue) -> Result<bool, i32> {
+    let task_id = usize::try_from(task_id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+    if let Some(data) = concurrent_diagnostics() {
+        data.task_polls.fetch_add(1, Ordering::Relaxed);
+    }
+    let registry = lock_concurrent_registry()?;
+    registry.is_done(task_id)
+}
+
+fn spawn_concurrent_batch(
+    first_value: SpectraHostValue,
+    count: SpectraHostValue,
+) -> Result<SpectraHostValue, i32> {
+    let count = usize::try_from(count).map_err(|_| HOST_STATUS_INVALID_ARGUMENT)?;
+    if count == 0 || count > 4096 {
+        return Err(HOST_STATUS_INVALID_ARGUMENT);
+    }
+    let (batch_id, batch) = {
+        let mut registry = lock_concurrent_registry()?;
+        registry.allocate_batch(count)
+    };
+    for _ in 0..count {
+        record_concurrent_task_created();
+    }
+    let lanes = concurrent_executor().workers.min(count);
+    for lane in 0..lanes {
+        if concurrent_executor()
+            .submit_batch_lane(Arc::clone(&batch), first_value, count, lane, lanes)
+            .is_err()
+        {
+            batch.failed.store(true, Ordering::Release);
+            if let Some(data) = concurrent_diagnostics() {
+                data.tasks_failed.fetch_add(count as u64, Ordering::Relaxed);
+            }
+            return Err(HOST_STATUS_INTERNAL_ERROR);
+        }
+    }
+    Ok(batch_id)
+}
+
+fn join_concurrent_batch_sum(batch_id: SpectraHostValue) -> Result<SpectraHostValue, i32> {
+    let batch = {
+        let registry = lock_concurrent_registry()?;
+        registry.batch(batch_id)?
+    };
+    if let Some(data) = concurrent_diagnostics() {
+        data.task_joins
+            .fetch_add(batch.count as u64, Ordering::Relaxed);
+    }
+    let total = batch.join_sum()?;
+    let mut registry = lock_concurrent_registry()?;
+    registry.release_batch(batch_id)?;
+    Ok(total)
+}
+
 extern "C" fn std_concurrent_task_spawn(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
         Err(status) => return status,
     };
     let value = args[0];
-    let mut registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
-        Err(status) => return status,
-    };
-    let task_id = registry.spawn(value);
-    results[0] = task_id as SpectraHostValue;
-    HOST_STATUS_SUCCESS
+    match spawn_concurrent_task(value) {
+        Ok(task_id) => {
+            results[0] = task_id;
+            HOST_STATUS_SUCCESS
+        }
+        Err(status) => status,
+    }
 }
 
 extern "C" fn std_concurrent_task_join(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -18540,12 +19168,7 @@ extern "C" fn std_concurrent_task_join(ctx: *mut SpectraHostCallContext) -> i32 
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let task_id = args[0] as usize;
-    let mut registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
-        Err(status) => return status,
-    };
-    match registry.join(task_id) {
+    match join_concurrent_task(args[0]) {
         Ok(value) => {
             results[0] = value;
             HOST_STATUS_SUCCESS
@@ -18568,17 +19191,40 @@ extern "C" fn std_concurrent_task_spawn_join(ctx: *mut SpectraHostCallContext) -
     HOST_STATUS_SUCCESS
 }
 
+extern "C" fn std_concurrent_task_spawn_batch(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 2) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    match spawn_concurrent_batch(args[0], args[1]) {
+        Ok(batch_id) => {
+            results[0] = batch_id;
+            HOST_STATUS_SUCCESS
+        }
+        Err(status) => status,
+    }
+}
+
+extern "C" fn std_concurrent_task_join_batch_sum(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    match join_concurrent_batch_sum(args[0]) {
+        Ok(total) => {
+            results[0] = total;
+            HOST_STATUS_SUCCESS
+        }
+        Err(status) => status,
+    }
+}
+
 extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i32 {
     let (args, results) = match host_call_args(ctx, 1) {
         Ok(parts) => parts,
         Err(status) => return status,
     };
-    let task_id = args[0] as usize;
-    let registry = match lock_concurrent_registry() {
-        Ok(registry) => registry,
-        Err(status) => return status,
-    };
-    match registry.is_done(task_id) {
+    match concurrent_task_done(args[0]) {
         Ok(done) => {
             results[0] = i64::from(done);
             HOST_STATUS_SUCCESS
@@ -22029,11 +22675,13 @@ mod tests {
         for kind in 0..=6 {
             let (status, count) = call_host(TENSOR_STATS_GPU_ERRORS, &[kind]);
             assert_eq!(
-                status,
-                HOST_STATUS_SUCCESS,
+                status, HOST_STATUS_SUCCESS,
                 "stats_gpu_errors({kind}) must succeed"
             );
-            assert!(count >= 0, "stats_gpu_errors({kind}) returned negative count");
+            assert!(
+                count >= 0,
+                "stats_gpu_errors({kind}) returned negative count"
+            );
         }
         // Out-of-range kind is not a host error; returns 0.
         assert_eq!(
@@ -22291,7 +22939,10 @@ mod tests {
 
         let (status, hits) = call_host(TENSOR_STATS_DEVICE_POOL_HITS, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert!(hits >= 1, "second to_device should hit the pool, got {hits}");
+        assert!(
+            hits >= 1,
+            "second to_device should hit the pool, got {hits}"
+        );
         let (status, misses) = call_host(TENSOR_STATS_DEVICE_POOL_MISSES, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert_eq!(misses, 1, "only the first to_device should miss");
@@ -22303,7 +22954,7 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn device_arena_cap_drops_overflow() {
-        use crate::gpu::{DeviceArena, PoolDevice, PoolDType};
+        use crate::gpu::{DeviceArena, PoolDType, PoolDevice};
         let mut arena = DeviceArena::new();
         // We can't construct a real wgpu::Buffer without a context here,
         // so exercise the cap math through the public reset path. The
@@ -22365,7 +23016,10 @@ mod tests {
         let _ = call_host(TENSOR_RESET_STATS, &[]);
         let (status, after_reset) = call_host(TENSOR_STATS_DEVICE_RESIDENT, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(after_reset, 0, "reset_stats must clear device_resident_tensors");
+        assert_eq!(
+            after_reset, 0,
+            "reset_stats must clear device_resident_tensors"
+        );
     }
 
     #[cfg(feature = "gpu")]
@@ -22382,11 +23036,16 @@ mod tests {
             return;
         }
 
-        let vals = [1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-            .map(|v| v.to_bits() as i64);
-        let (status, h_left) = call_host(TENSOR_LITERAL2_F, &[2, 2, vals[0], vals[1], vals[2], vals[3]]);
+        let vals = [1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].map(|v| v.to_bits() as i64);
+        let (status, h_left) = call_host(
+            TENSOR_LITERAL2_F,
+            &[2, 2, vals[0], vals[1], vals[2], vals[3]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        let (status, h_right) = call_host(TENSOR_LITERAL2_F, &[2, 2, vals[4], vals[5], vals[6], vals[7]]);
+        let (status, h_right) = call_host(
+            TENSOR_LITERAL2_F,
+            &[2, 2, vals[4], vals[5], vals[6], vals[7]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, left) = call_host(TENSOR_TO_DEVICE, &[h_left, 6]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
@@ -22394,14 +23053,20 @@ mod tests {
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, product) = call_host(TENSOR_MATMUL, &[left, right]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(call_host(TENSOR_STORAGE_DEVICE, &[product]), (HOST_STATUS_SUCCESS, 6));
+        assert_eq!(
+            call_host(TENSOR_STORAGE_DEVICE, &[product]),
+            (HOST_STATUS_SUCCESS, 6)
+        );
         let has_storage = with_tensor_registry(|registry| {
             registry
                 .get(product as usize)
                 .map(|t| t.device_storage.contains_key(&crate::gpu::PoolDevice::Wgpu))
                 .unwrap_or(false)
         });
-        assert!(has_storage, "resident matmul output must keep device_storage");
+        assert!(
+            has_storage,
+            "resident matmul output must keep device_storage"
+        );
         let (status, sum_bits) = call_host(TENSOR_SUM_F, &[product]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!((f64::from_bits(sum_bits as u64) - 134.0).abs() < 1e-5);
@@ -22422,7 +23087,10 @@ mod tests {
         }
 
         let bits = [1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0].map(|v| v.to_bits() as i64);
-        let (status, x_h) = call_host(TENSOR_LITERAL2_F, &[2, 2, bits[0], bits[1], bits[2], bits[3]]);
+        let (status, x_h) = call_host(
+            TENSOR_LITERAL2_F,
+            &[2, 2, bits[0], bits[1], bits[2], bits[3]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, w_h) = call_host(TENSOR_LITERAL2_F, &[2, 1, bits[4], bits[5]]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
@@ -22436,7 +23104,10 @@ mod tests {
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, out) = call_host(ML_LINEAR, &[x, w, b]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(call_host(TENSOR_STORAGE_DEVICE, &[out]), (HOST_STATUS_SUCCESS, 6));
+        assert_eq!(
+            call_host(TENSOR_STORAGE_DEVICE, &[out]),
+            (HOST_STATUS_SUCCESS, 6)
+        );
         let (status, sum_bits) = call_host(TENSOR_SUM_F, &[out]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!((f64::from_bits(sum_bits as u64) - 70.0).abs() < 1e-5);
@@ -22474,7 +23145,10 @@ mod tests {
                 .map(|t| t.device_grad.contains_key(&crate::gpu::PoolDevice::Wgpu))
                 .unwrap_or(false)
         });
-        assert!(device_grad, "device-resident backward must populate device_grad");
+        assert!(
+            device_grad,
+            "device-resident backward must populate device_grad"
+        );
         let (status, _) = call_host(ML_SGD_STEP, &[p, lr]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let after_step = with_tensor_registry(|registry| {
@@ -22496,7 +23170,10 @@ mod tests {
         let (status, sum_bits) = call_host(TENSOR_SUM_F, &[p]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let updated_sum = f64::from_bits(sum_bits as u64);
-        assert!((updated_sum - 3.6).abs() < 1e-5, "updated_sum={updated_sum}");
+        assert!(
+            (updated_sum - 3.6).abs() < 1e-5,
+            "updated_sum={updated_sum}"
+        );
         let cleared = with_tensor_registry(|registry| {
             registry
                 .get(p as usize)
@@ -22526,7 +23203,10 @@ mod tests {
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, relu) = call_host(TENSOR_RELU, &[d]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(call_host(TENSOR_STORAGE_DEVICE, &[relu]), (HOST_STATUS_SUCCESS, 6));
+        assert_eq!(
+            call_host(TENSOR_STORAGE_DEVICE, &[relu]),
+            (HOST_STATUS_SUCCESS, 6)
+        );
         let (status, sum_bits) = call_host(TENSOR_SUM_F, &[relu]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!((f64::from_bits(sum_bits as u64) - 7.0).abs() < 1e-5);
@@ -22547,9 +23227,21 @@ mod tests {
 
         let left_bits = [8.0f64, 12.0, 16.0, 20.0].map(|v| v.to_bits() as i64);
         let right_bits = [2.0f64, 3.0, 4.0, 5.0].map(|v| v.to_bits() as i64);
-        let (status, h_left) = call_host(TENSOR_LITERAL_F, &[4, left_bits[0], left_bits[1], left_bits[2], left_bits[3]]);
+        let (status, h_left) = call_host(
+            TENSOR_LITERAL_F,
+            &[4, left_bits[0], left_bits[1], left_bits[2], left_bits[3]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        let (status, h_right) = call_host(TENSOR_LITERAL_F, &[4, right_bits[0], right_bits[1], right_bits[2], right_bits[3]]);
+        let (status, h_right) = call_host(
+            TENSOR_LITERAL_F,
+            &[
+                4,
+                right_bits[0],
+                right_bits[1],
+                right_bits[2],
+                right_bits[3],
+            ],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, left) = call_host(TENSOR_TO_DEVICE, &[h_left, 6]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
@@ -22564,7 +23256,10 @@ mod tests {
         ] {
             let (status, out) = call_host(op, &[left, right]);
             assert_eq!(status, HOST_STATUS_SUCCESS, "{op}");
-            assert_eq!(call_host(TENSOR_STORAGE_DEVICE, &[out]), (HOST_STATUS_SUCCESS, 6));
+            assert_eq!(
+                call_host(TENSOR_STORAGE_DEVICE, &[out]),
+                (HOST_STATUS_SUCCESS, 6)
+            );
             let (status, sum_bits) = call_host(TENSOR_SUM_F, &[out]);
             assert_eq!(status, HOST_STATUS_SUCCESS);
             let sum = f64::from_bits(sum_bits as u64);
@@ -22585,13 +23280,24 @@ mod tests {
             return;
         }
 
-        let vals = [1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 1.0, 1.0, 1.0, 1.0]
-            .map(|v| v.to_bits() as i64);
-        let (status, h_left) = call_host(TENSOR_LITERAL2_F, &[2, 2, vals[0], vals[1], vals[2], vals[3]]);
+        let vals = [
+            1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 1.0, 1.0, 1.0, 1.0,
+        ]
+        .map(|v| v.to_bits() as i64);
+        let (status, h_left) = call_host(
+            TENSOR_LITERAL2_F,
+            &[2, 2, vals[0], vals[1], vals[2], vals[3]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        let (status, h_right) = call_host(TENSOR_LITERAL2_F, &[2, 2, vals[4], vals[5], vals[6], vals[7]]);
+        let (status, h_right) = call_host(
+            TENSOR_LITERAL2_F,
+            &[2, 2, vals[4], vals[5], vals[6], vals[7]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        let (status, h_add) = call_host(TENSOR_LITERAL2_F, &[2, 2, vals[8], vals[9], vals[10], vals[11]]);
+        let (status, h_add) = call_host(
+            TENSOR_LITERAL2_F,
+            &[2, 2, vals[8], vals[9], vals[10], vals[11]],
+        );
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, left) = call_host(TENSOR_TO_DEVICE, &[h_left, 6]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
@@ -22610,10 +23316,16 @@ mod tests {
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, out) = call_host(TENSOR_ADD, &[relu, addend]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(call_host(TENSOR_STORAGE_DEVICE, &[out]), (HOST_STATUS_SUCCESS, 6));
+        assert_eq!(
+            call_host(TENSOR_STORAGE_DEVICE, &[out]),
+            (HOST_STATUS_SUCCESS, 6)
+        );
         let (status, transfers_after) = call_host(TENSOR_STATS_DEVICE_TRANSFERS, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(transfers_after, transfers_before, "resident chain must not upload intermediates");
+        assert_eq!(
+            transfers_after, transfers_before,
+            "resident chain must not upload intermediates"
+        );
         let (status, resident_after) = call_host(TENSOR_STATS_DEVICE_RESIDENT, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!(resident_after >= resident_before + 3);
@@ -22650,7 +23362,10 @@ mod tests {
         }
         let (status, hits) = call_host(TENSOR_STATS_DEVICE_POOL_HITS, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert!(hits >= 99, "resident matmul outputs should reuse pool, hits={hits}");
+        assert!(
+            hits >= 99,
+            "resident matmul outputs should reuse pool, hits={hits}"
+        );
         let (status, bytes) = call_host(TENSOR_STATS_DEVICE_POOL_BYTES_RESIDENT, &[]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         assert!(bytes <= crate::gpu::MAX_FREE_PER_BUCKET as i64 * 16 * 4 * 2);
@@ -22880,10 +23595,9 @@ mod tests {
 
         let (status, task) = call_host(CONCURRENT_TASK_SPAWN, &[42]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(
-            call_host(CONCURRENT_TASK_IS_DONE, &[task]),
-            (HOST_STATUS_SUCCESS, 1)
-        );
+        let (poll_status, done_before_join) = call_host(CONCURRENT_TASK_IS_DONE, &[task]);
+        assert_eq!(poll_status, HOST_STATUS_SUCCESS);
+        assert!(done_before_join == 0 || done_before_join == 1);
         assert_eq!(
             call_host(CONCURRENT_TASK_JOIN, &[task]),
             (HOST_STATUS_SUCCESS, 42)
@@ -22952,41 +23666,52 @@ mod tests {
     fn concurrent_registry_reuses_slots_without_stale_values() {
         let mut registry = ConcurrentRegistry::new();
 
-        let first = registry.spawn(41);
+        let (first, first_task) = registry.allocate_task();
         assert_eq!(first, 1);
-        assert_eq!(registry.is_done(first), Ok(true));
-        assert_eq!(registry.join(first), Ok(41));
-        assert_eq!(registry.is_done(first), Ok(false));
-        assert_eq!(registry.join(first), Err(HOST_STATUS_NOT_FOUND));
+        assert!(!first_task.is_done());
+        assert!(first_task.complete(41));
+        assert!(first_task.is_done());
+        assert_eq!(first_task.join(), Ok(41));
+        assert_eq!(registry.release(first, &first_task), Ok(()));
+        assert_eq!(registry.task(first).err(), Some(HOST_STATUS_NOT_FOUND));
 
-        let recycled = registry.spawn(99);
+        let (recycled, recycled_task) = registry.allocate_task();
         assert_eq!(recycled, first);
-        assert_eq!(registry.join(recycled), Ok(99));
+        assert!(recycled_task.complete(99));
+        assert_eq!(recycled_task.join(), Ok(99));
+        assert_eq!(registry.release(recycled, &recycled_task), Ok(()));
     }
 
     #[test]
     fn concurrent_registry_clear_invalidates_tasks_and_resets_state() {
         let mut registry = ConcurrentRegistry::new();
-        let task = registry.spawn(7);
+        let (task, pending) = registry.allocate_task();
         registry.tasks_spawned = 3;
         registry.next_channel = 9;
         registry.next_counter = 11;
         registry.clear();
 
-        assert_eq!(registry.is_done(task), Ok(false));
-        assert_eq!(registry.join(task), Err(HOST_STATUS_NOT_FOUND));
+        assert!(pending.is_done());
+        assert_eq!(pending.join(), Err(HOST_STATUS_NOT_FOUND));
+        assert_eq!(registry.task(task).err(), Some(HOST_STATUS_NOT_FOUND));
         assert_eq!(registry.tasks_spawned, 0);
         assert_eq!(registry.next_channel, 1);
         assert_eq!(registry.next_counter, 1);
         assert!(registry.channels.is_empty());
         assert!(registry.counters.is_empty());
-        assert_eq!(registry.spawn(8), task);
-        assert_eq!(registry.join(task), Ok(8));
+        let (reused, reused_task) = registry.allocate_task();
+        assert_eq!(reused, task);
+        assert!(reused_task.complete(8));
+        assert_eq!(reused_task.join(), Ok(8));
+        assert_eq!(registry.release(reused, &reused_task), Ok(()));
         registry.tasks_spawned = 4;
         registry.clear();
         assert_eq!(registry.tasks_spawned, 0);
-        assert_eq!(registry.spawn(9), task);
-        assert_eq!(registry.join(task), Ok(9));
+        let (again, again_task) = registry.allocate_task();
+        assert_eq!(again, task);
+        assert!(again_task.complete(9));
+        assert_eq!(again_task.join(), Ok(9));
+        assert_eq!(registry.release(again, &again_task), Ok(()));
     }
 
     #[test]
@@ -23003,6 +23728,58 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_batch_fast_abi_executes_fanout_before_fanin() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let batch = concurrent_spawn_batch_fast(1, 10);
+        assert!(batch > 0);
+        assert_eq!(concurrent_join_batch_sum_fast(batch), 55);
+        assert_eq!(concurrent_join_batch_sum_fast(batch), 0);
+        assert_eq!(
+            call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
+            (HOST_STATUS_SUCCESS, 10)
+        );
+    }
+
+    #[test]
+    fn concurrent_tasks_can_join_in_reverse_creation_order() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let handles = (1..=10)
+            .map(|value| concurrent_spawn_fast(value))
+            .collect::<Vec<_>>();
+        let total = handles
+            .into_iter()
+            .rev()
+            .map(concurrent_join_fast)
+            .sum::<i64>();
+        assert_eq!(total, 55);
+    }
+
+    #[test]
+    fn concurrent_reset_cancels_an_unjoined_batch() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+
+        let batch = concurrent_spawn_batch_fast(1, 10);
+        assert!(batch > 0);
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        assert_eq!(concurrent_join_batch_sum_fast(batch), 0);
+        assert_eq!(
+            call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
+    }
+
+    #[test]
     fn concurrent_fused_fast_path_preserves_value_stats_and_reset() {
         let _lock = test_guard();
         clear_host_functions();
@@ -23015,12 +23792,22 @@ mod tests {
             .len();
         assert_eq!(concurrent_spawn_join_fast(77), 77);
         assert_eq!(concurrent_spawn_join_fast(-3), -3);
-        assert_eq!(call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]), (HOST_STATUS_SUCCESS, 2));
+        assert_eq!(
+            call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
+            (HOST_STATUS_SUCCESS, 2)
+        );
         let mut registry = lock_concurrent_registry().expect("registry should not be poisoned");
-        assert_eq!(registry.slots.len(), slots_before, "fused path must not allocate task slots");
+        assert_eq!(
+            registry.slots.len(),
+            slots_before,
+            "fused path must not allocate task slots"
+        );
         registry.clear();
         drop(registry);
-        assert_eq!(call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(
+            call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
+            (HOST_STATUS_SUCCESS, 0)
+        );
     }
 
     #[test]

@@ -39,6 +39,8 @@ pub struct AotCodeGenerator {
     host_invoke_func: FuncId,
     concurrent_spawn_fast_func: FuncId,
     concurrent_join_fast_func: FuncId,
+    concurrent_spawn_batch_fast_func: FuncId,
+    concurrent_join_batch_sum_fast_func: FuncId,
     concurrent_spawn_join_fast_func: FuncId,
     concurrent_reset_fast_func: FuncId,
     builder_new_fast_func: FuncId,
@@ -180,9 +182,46 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare concurrent join fast import");
 
+        let mut concurrent_spawn_batch_sig = module.make_signature();
+        concurrent_spawn_batch_sig
+            .params
+            .push(AbiParam::new(types::I64));
+        concurrent_spawn_batch_sig
+            .params
+            .push(AbiParam::new(types::I64));
+        concurrent_spawn_batch_sig
+            .returns
+            .push(AbiParam::new(types::I64));
+        let concurrent_spawn_batch_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_spawn_batch_fast",
+                Linkage::Import,
+                &concurrent_spawn_batch_sig,
+            )
+            .expect("Failed to declare concurrent spawn batch fast import");
+
+        let mut concurrent_join_batch_sum_sig = module.make_signature();
+        concurrent_join_batch_sum_sig
+            .params
+            .push(AbiParam::new(types::I64));
+        concurrent_join_batch_sum_sig
+            .returns
+            .push(AbiParam::new(types::I64));
+        let concurrent_join_batch_sum_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_join_batch_sum_fast",
+                Linkage::Import,
+                &concurrent_join_batch_sum_sig,
+            )
+            .expect("Failed to declare concurrent join batch sum fast import");
+
         let mut concurrent_spawn_join_sig = module.make_signature();
-        concurrent_spawn_join_sig.params.push(AbiParam::new(types::I64));
-        concurrent_spawn_join_sig.returns.push(AbiParam::new(types::I64));
+        concurrent_spawn_join_sig
+            .params
+            .push(AbiParam::new(types::I64));
+        concurrent_spawn_join_sig
+            .returns
+            .push(AbiParam::new(types::I64));
         let concurrent_spawn_join_fast_func = module
             .declare_function(
                 "spectra_rt_concurrent_spawn_join_fast",
@@ -212,7 +251,11 @@ impl AotCodeGenerator {
         builder_push_sig.params.push(AbiParam::new(types::I64));
         builder_push_sig.params.push(AbiParam::new(types::I64));
         let builder_push_fast_func = module
-            .declare_function("spectra_rt_builder_push", Linkage::Import, &builder_push_sig)
+            .declare_function(
+                "spectra_rt_builder_push",
+                Linkage::Import,
+                &builder_push_sig,
+            )
             .expect("Failed to declare builder_push fast import");
 
         let mut builder_len_sig = module.make_signature();
@@ -226,13 +269,21 @@ impl AotCodeGenerator {
         builder_finish_sig.params.push(AbiParam::new(types::I64));
         builder_finish_sig.returns.push(AbiParam::new(types::I64));
         let builder_finish_fast_func = module
-            .declare_function("spectra_rt_builder_finish", Linkage::Import, &builder_finish_sig)
+            .declare_function(
+                "spectra_rt_builder_finish",
+                Linkage::Import,
+                &builder_finish_sig,
+            )
             .expect("Failed to declare builder_finish fast import");
 
         let mut builder_free_sig = module.make_signature();
         builder_free_sig.params.push(AbiParam::new(types::I64));
         let builder_free_fast_func = module
-            .declare_function("spectra_rt_builder_free", Linkage::Import, &builder_free_sig)
+            .declare_function(
+                "spectra_rt_builder_free",
+                Linkage::Import,
+                &builder_free_sig,
+            )
             .expect("Failed to declare builder_free fast import");
 
         let mut map_set_sig = module.make_signature();
@@ -324,7 +375,11 @@ impl AotCodeGenerator {
         string_len_sig.params.push(AbiParam::new(types::I64));
         string_len_sig.returns.push(AbiParam::new(types::I64));
         let string_len_fast_func = module
-            .declare_function("spectra_rt_string_len_fast", Linkage::Import, &string_len_sig)
+            .declare_function(
+                "spectra_rt_string_len_fast",
+                Linkage::Import,
+                &string_len_sig,
+            )
             .expect("Failed to declare string_len fast import");
 
         let mut string_char_at_sig = module.make_signature();
@@ -350,7 +405,11 @@ impl AotCodeGenerator {
         map_remove_sig.params.push(AbiParam::new(types::I64));
         map_remove_sig.returns.push(AbiParam::new(types::I64));
         let map_remove_fast_func = module
-            .declare_function("spectra_rt_map_remove_fast", Linkage::Import, &map_remove_sig)
+            .declare_function(
+                "spectra_rt_map_remove_fast",
+                Linkage::Import,
+                &map_remove_sig,
+            )
             .expect("Failed to declare map_remove fast import");
 
         let mut map_len_sig = module.make_signature();
@@ -440,6 +499,8 @@ impl AotCodeGenerator {
             host_invoke_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
+            concurrent_spawn_batch_fast_func,
+            concurrent_join_batch_sum_fast_func,
             concurrent_spawn_join_fast_func,
             concurrent_reset_fast_func,
             builder_new_fast_func,
@@ -666,6 +727,8 @@ impl AotCodeGenerator {
                 self.host_invoke_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
+                self.concurrent_spawn_batch_fast_func,
+                self.concurrent_join_batch_sum_fast_func,
                 self.concurrent_spawn_join_fast_func,
                 self.concurrent_reset_fast_func,
                 self.builder_new_fast_func,
@@ -915,11 +978,7 @@ impl AotCodeGenerator {
         // Layout: one byte per `i64` slot (8 bytes each), null-terminated.
         // This matches the JIT `Box<[i64]>` buffer and the `*8` indexing
         // in `emit_stack_string_char_at_inline`.
-        let mut slots: Vec<i64> = value
-            .as_bytes()
-            .iter()
-            .map(|&b| b as i64)
-            .collect();
+        let mut slots: Vec<i64> = value.as_bytes().iter().map(|&b| b as i64).collect();
         slots.push(0);
         let len_with_null = slots.len() as i64;
         // Convert the i64 slots to a raw byte buffer for the data section.

@@ -1,4 +1,5 @@
 // Phase 31: async-echo (Go)
+// Contract: fanout_fanin_real_concurrency.v2.
 
 package main
 

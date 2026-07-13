@@ -7191,7 +7191,8 @@ impl ASTLowering {
         // this to a stable pointer (global .rodata section in AOT, heap
         // buffer in JIT) and tracks the compile-time length for fast
         // `str.len` / `str.char_at` interception.
-        self.builder.build_const_string(ir_func, literal.to_string())
+        self.builder
+            .build_const_string(ir_func, literal.to_string())
     }
 
     fn lower_pattern_check(
@@ -8632,6 +8633,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),
+            ("concurrent", "task_spawn_batch") => {
+                Some(host_int("spectra.std.concurrent.task_spawn_batch"))
+            }
+            ("concurrent", "task_join_batch_sum") => {
+                Some(host_int("spectra.std.concurrent.task_join_batch_sum"))
+            }
             ("concurrent", "task_is_done") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.concurrent.task_is_done",
                 return_type: IRType::Bool,

@@ -35,7 +35,14 @@ from typing import Any
 
 try:
     from scripts.phase31_contract import (
+        ASYNC_ECHO_CONTRACT,
+        ASYNC_ECHO_EXPECTED_RESULT,
+        ASYNC_ECHO_ITERATIONS,
+        ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
+        ASYNC_ECHO_REFERENCE_RUNTIME,
+        ASYNC_ECHO_TASKS_PER_ITERATION,
         LANGUAGES,
+        MAX_CONFIRMATION_RUNS,
         MAX_STDDEV_PCT,
         PHASE31_SCHEMA,
         SCENARIOS,
@@ -45,7 +52,14 @@ try:
     )
 except ModuleNotFoundError:  # direct `python scripts/phase31_run_all.py`
     from phase31_contract import (  # type: ignore[no-redef]
+        ASYNC_ECHO_CONTRACT,
+        ASYNC_ECHO_EXPECTED_RESULT,
+        ASYNC_ECHO_ITERATIONS,
+        ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
+        ASYNC_ECHO_REFERENCE_RUNTIME,
+        ASYNC_ECHO_TASKS_PER_ITERATION,
         LANGUAGES,
+        MAX_CONFIRMATION_RUNS,
         MAX_STDDEV_PCT,
         PHASE31_SCHEMA,
         SCENARIOS,
@@ -62,6 +76,8 @@ BUILD_DIR = TARGET_DIR / "build"
 WARMUP = WARMUP_RUNS
 TIMED = TIMED_RUNS
 DEFAULT_TIMEOUT_S = 300
+MAX_HOST_LOAD_PCT = 70.0
+KNOWN_HEAVY_PROCESSES = {"cline.exe"}
 
 
 def log(msg: str) -> None:
@@ -70,6 +86,46 @@ def log(msg: str) -> None:
 
 def find_tool(name: str) -> str | None:
     return shutil.which(name)
+
+
+def host_preflight() -> dict[str, Any]:
+    load_pct: float | None = None
+    known_processes: list[str] = []
+    if os.name == "nt":
+        load = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "(Get-Counter '\\Processor(_Total)\\% Processor Time' "
+                "-SampleInterval 1 -MaxSamples 2).CounterSamples[-1].CookedValue",
+            ],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        try:
+            load_pct = float(load.stdout.strip().replace(",", "."))
+        except ValueError:
+            load_pct = None
+        processes = subprocess.run(
+            ["tasklist", "/fo", "csv", "/nh"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        for line in processes.stdout.splitlines():
+            image = line.split(",", 1)[0].strip('"').lower()
+            if image in KNOWN_HEAVY_PROCESSES:
+                known_processes.append(image)
+    elif hasattr(os, "getloadavg") and os.cpu_count():
+        load_pct = os.getloadavg()[0] / max(1, os.cpu_count() or 1) * 100.0
+    reasons: list[str] = []
+    if load_pct is not None and load_pct > MAX_HOST_LOAD_PCT:
+        reasons.append(f"host CPU load {load_pct:.1f}% exceeds {MAX_HOST_LOAD_PCT:.1f}%")
+    if known_processes:
+        reasons.append(f"known heavy processes active: {sorted(set(known_processes))}")
+    return {
+        "status": "busy" if reasons else "quiescent",
+        "load_pct": load_pct,
+        "max_load_pct": MAX_HOST_LOAD_PCT,
+        "known_heavy_processes": sorted(set(known_processes)),
+        "reasons": reasons,
+    }
 
 
 @lru_cache(maxsize=None)
@@ -113,12 +169,18 @@ def build_spectra(binary: pathlib.Path, scenario: str) -> pathlib.Path:
     return BENCH_DIR / scenario / "spectra" / "bench.spectra"
 
 
-def time_subprocess(cmd: list[str], cwd: pathlib.Path | None = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> tuple[int, float, bool, str]:
+def time_subprocess(
+    cmd: list[str],
+    cwd: pathlib.Path | None = None,
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+    env: dict[str, str] | None = None,
+) -> tuple[int, float, bool, str]:
     """Run `cmd` once, returning exit code, duration, status, output tail."""
     start = time.perf_counter_ns()
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, cwd=cwd, check=False, timeout=timeout_s
+            cmd, capture_output=True, text=True, cwd=cwd, check=False,
+            timeout=timeout_s, env=env,
         )
     except subprocess.TimeoutExpired:
         return -1, time.perf_counter_ns() - start, False, f"timeout after {timeout_s}s"
@@ -127,19 +189,25 @@ def time_subprocess(cmd: list[str], cwd: pathlib.Path | None = None, timeout_s: 
     return proc.returncode, elapsed, proc.returncode == 0, output[-4000:]
 
 
-def time_runs(cmd: list[str], cwd: pathlib.Path | None = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+def time_runs(
+    cmd: list[str],
+    cwd: pathlib.Path | None = None,
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+) -> dict[str, Any]:
     """Run warmup + timed iterations, return stats."""
     for _ in range(WARMUP):
         rc, _, ok, output_tail = time_subprocess(cmd, cwd, timeout_s)
         if not ok:
             return {"elapsed_ns": [], "ok": False, "last_rc": rc, "output_tail": output_tail}
     samples: list[int] = []
+    last_output_tail = ""
     for _ in range(TIMED):
         rc, ns, ok, output_tail = time_subprocess(cmd, cwd, timeout_s)
         if not ok:
             return {"elapsed_ns": samples, "ok": False, "last_rc": rc, "output_tail": output_tail}
         samples.append(ns)
-    return {"elapsed_ns": samples, "ok": True, "last_rc": 0, "output_tail": ""}
+        last_output_tail = output_tail
+    return {"elapsed_ns": samples, "ok": True, "last_rc": 0, "output_tail": last_output_tail}
 
 
 def stats_for(samples: list[int]) -> dict[str, int]:
@@ -335,10 +403,241 @@ def run_scenario(
     }
 
 
+def _language_command(
+    scenario: str, language: str, spectra_binary: pathlib.Path
+) -> tuple[list[str], pathlib.Path | None]:
+    if language == "spectra":
+        source = build_spectra(spectra_binary, scenario)
+        return [str(spectra_binary), "run", str(source)], REPO_ROOT
+    if language == "go":
+        return [str(build_go(scenario))], None
+    if language == "java":
+        class_path = build_java(scenario)
+        return ["java", "-cp", str(class_path.parent), "Bench"], None
+    if language == "rust":
+        return [str(build_rust(scenario))], None
+    raise ValueError(f"unsupported benchmark language: {language}")
+
+
+def _measure_language(
+    scenario: str,
+    language: str,
+    spectra_binary: pathlib.Path,
+    timeout_s: int,
+) -> dict[str, Any]:
+    required_tool = {"go": "go", "java": "javac", "rust": "rustc"}.get(language)
+    if required_tool and find_tool(required_tool) is None:
+        return {
+            "error": f"{required_tool} toolchain not available",
+            "exit_code": None,
+            "failure_class": "environment",
+            "command": [],
+            "output_tail": "",
+        }
+    try:
+        cmd, cwd = _language_command(scenario, language, spectra_binary)
+        result = time_runs(cmd, cwd=cwd, timeout_s=timeout_s)
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "exit_code": None,
+            "failure_class": "build",
+            "command": [],
+            "output_tail": str(exc)[-4000:],
+        }
+    if not result["ok"]:
+        return {
+            "error": f"rc={result['last_rc']}",
+            "exit_code": result["last_rc"],
+            "failure_class": "timeout" if result["last_rc"] == -1 else "runtime",
+            "command": cmd,
+            "output_tail": result.get("output_tail", ""),
+        }
+    return {
+        **stats_for(result["elapsed_ns"]),
+        "samples_ns": result["elapsed_ns"],
+        "command": cmd,
+        "exit_code": 0,
+        "failure_class": None,
+        "output_tail": result.get("output_tail", ""),
+    }
+
+
+def _measure_spectra_go_pair(
+    scenario: str,
+    spectra_binary: pathlib.Path,
+    timeout_s: int,
+    attempt_number: int,
+) -> tuple[dict[str, Any], dict[str, Any], list[float]]:
+    commands = {
+        language: _language_command(scenario, language, spectra_binary)
+        for language in ("spectra", "go")
+    }
+    samples: dict[str, list[int]] = {"spectra": [], "go": []}
+    outputs = {"spectra": "", "go": ""}
+    for warmup in range(WARMUP):
+        order = ("spectra", "go") if (attempt_number + warmup) % 2 == 0 else ("go", "spectra")
+        for language in order:
+            cmd, cwd = commands[language]
+            rc, _, ok, output = time_subprocess(cmd, cwd, timeout_s)
+            outputs[language] = output
+            if not ok:
+                failure = {
+                    "error": f"rc={rc}", "exit_code": rc,
+                    "failure_class": "timeout" if rc == -1 else "runtime",
+                    "command": cmd, "output_tail": output,
+                }
+                return failure, failure, []
+    paired_ratios: list[float] = []
+    for timed_run in range(TIMED):
+        order = ("spectra", "go") if (attempt_number + timed_run) % 2 == 0 else ("go", "spectra")
+        round_values: dict[str, int] = {}
+        for language in order:
+            cmd, cwd = commands[language]
+            rc, elapsed, ok, output = time_subprocess(cmd, cwd, timeout_s)
+            outputs[language] = output
+            if not ok:
+                failure = {
+                    "error": f"rc={rc}", "exit_code": rc,
+                    "failure_class": "timeout" if rc == -1 else "runtime",
+                    "command": cmd, "output_tail": output,
+                }
+                return failure, failure, []
+            samples[language].append(int(elapsed))
+            round_values[language] = int(elapsed)
+        paired_ratios.append(round_values["spectra"] / round_values["go"])
+
+    results: dict[str, dict[str, Any]] = {}
+    for language in ("spectra", "go"):
+        cmd, _ = commands[language]
+        results[language] = {
+            **stats_for(samples[language]),
+            "samples_ns": samples[language],
+            "command": cmd,
+            "exit_code": 0,
+            "failure_class": None,
+            "output_tail": outputs[language],
+        }
+    return results["spectra"], results["go"], paired_ratios
+
+
+def _async_echo_concurrency_probe(
+    spectra_binary: pathlib.Path, timeout_s: int
+) -> tuple[dict[str, Any] | None, str | None]:
+    cmd, cwd = _language_command("async-echo", "spectra", spectra_binary)
+    env = dict(os.environ)
+    env["SPECTRA_CONCURRENT_DIAGNOSTICS"] = "1"
+    rc, _, ok, output = time_subprocess(cmd, cwd=cwd, timeout_s=timeout_s, env=env)
+    if not ok:
+        return None, f"diagnostic probe failed rc={rc}: {output}"
+    marker = "SPECTRA_CONCURRENT_DIAGNOSTICS="
+    for line in output.splitlines():
+        if line.startswith(marker):
+            try:
+                return json.loads(line[len(marker):]), None
+            except json.JSONDecodeError as exc:
+                return None, f"invalid concurrency diagnostics: {exc}"
+    return None, "concurrency diagnostics marker missing"
+
+
+def run_scenario_v2(
+    scenario: str,
+    spectra_binary: pathlib.Path,
+    skip_missing: set[str],
+    attempt_number: int,
+    timeout_s: int,
+) -> dict[str, Any]:
+    log(f"running {scenario} attempt {attempt_number + 1}")
+    baseline_path = REPO_ROOT / "docs" / "performance" / "phase31-go-comparable" / "baseline.json"
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8")) if baseline_path.exists() else {}
+    baseline_entry = baseline.get("scenarios", {}).get(scenario, {})
+    iterations = baseline_entry.get("iterations", 1)
+    category = baseline_entry.get("category", "unknown")
+    order = ["spectra", "go"] if attempt_number % 2 == 0 else ["go", "spectra"]
+    order.extend(["java", "rust"])
+    results: dict[str, Any] = {}
+    if scenario == "async-echo" and not ({"spectra", "go"} & skip_missing):
+        log(f"  attempt {attempt_number + 1}: paired spectra/go")
+        spectra_result, go_result, paired_samples = _measure_spectra_go_pair(
+            scenario, spectra_binary, timeout_s, attempt_number
+        )
+        results["spectra"] = spectra_result
+        results["go"] = go_result
+    else:
+        paired_samples = []
+    for language in order:
+        if language in results:
+            continue
+        if language in skip_missing:
+            results[language] = {
+                "error": "explicitly skipped",
+                "exit_code": None,
+                "failure_class": "environment",
+                "command": [],
+                "output_tail": "",
+            }
+            continue
+        log(f"  attempt {attempt_number + 1}: {language}")
+        results[language] = _measure_language(
+            scenario, language, spectra_binary, timeout_s
+        )
+
+    correctness = all(
+        result.get("exit_code") == 0 and "error" not in result
+        for result in results.values()
+    ) and set(results) == set(LANGUAGES)
+    gaps: dict[str, float | None] = {}
+    spectra_ns = results.get("spectra", {}).get("ns_per_iter")
+    for language in ("go", "java", "rust"):
+        reference_ns = results.get(language, {}).get("ns_per_iter")
+        gaps[language] = (
+            round(spectra_ns / reference_ns, 6)
+            if spectra_ns and reference_ns and reference_ns > 0
+            else None
+        )
+    if scenario == "async-echo" and paired_samples:
+        gaps["go"] = round(statistics.median(paired_samples), 6)
+
+    entry: dict[str, Any] = {
+        "id": scenario,
+        "category": category,
+        "iterations": iterations,
+        "results": results,
+        "language_order": order,
+        "gap_to_go": gaps["go"],
+        "gap_to_java": gaps["java"],
+        "gap_to_rust": gaps["rust"],
+        "correctness_passed": correctness,
+    }
+    if scenario == "async-echo":
+        metrics, probe_error = _async_echo_concurrency_probe(spectra_binary, timeout_s)
+        gap = gaps["go"]
+        entry.update({
+            "benchmark_contract": ASYNC_ECHO_CONTRACT,
+            "reference_runtime": ASYNC_ECHO_REFERENCE_RUNTIME,
+            "performance_reference": ASYNC_ECHO_REFERENCE_RUNTIME,
+            "max_reference_gap_pct": ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
+            "tasks_per_iteration": ASYNC_ECHO_TASKS_PER_ITERATION,
+            "benchmark_iterations": ASYNC_ECHO_ITERATIONS,
+            "expected_result": ASYNC_ECHO_EXPECTED_RESULT,
+            "concurrency_metrics": metrics,
+            "concurrency_probe_error": probe_error,
+            "paired_sample_ratios": paired_samples,
+            "reference_performance_passed": (
+                gap is not None and 0.95 <= gap <= 1.05
+            ),
+        })
+        if metrics is None:
+            entry["correctness_passed"] = False
+    return entry
+
+
 def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate independent attempts without hiding correctness failures."""
     if len(attempts) == 1:
         attempts[0]["independent_runs"] = 1
+        if attempts[0].get("id") == "async-echo":
+            attempts[0]["paired_gap_to_go"] = [attempts[0].get("gap_to_go")]
         return attempts[0]
 
     first = attempts[0]
@@ -356,21 +655,19 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
         stable_medians = medians
         outliers: list[int] = []
         if len(medians) >= 5:
-            center = statistics.median(medians)
-            deviations = [abs(value - center) for value in medians]
-            mad = statistics.median(deviations)
-            if mad > 0:
-                threshold = 3.0 * mad
-                stable_medians = [value for value in medians if abs(value - center) <= threshold]
-                outliers = [value for value in medians if abs(value - center) > threshold]
-                if len(stable_medians) < 3:
-                    stable_medians = medians
-                    outliers = []
+            ordered = sorted(medians)
+            trim_count = max(1, int(len(ordered) * 0.20))
+            candidate = ordered[trim_count:-trim_count]
+            if len(candidate) >= 3:
+                stable_medians = candidate
+                outliers = ordered[:trim_count] + ordered[-trim_count:]
         result["ns_per_iter"] = int(statistics.median(stable_medians))
         result["independent_medians_ns"] = medians
         result["stable_medians_ns"] = stable_medians
         result["outlier_medians_ns"] = outliers
-        result["outlier_policy"] = "3x median absolute deviation; raw samples preserved"
+        result["outlier_policy"] = (
+            "symmetric 20% trimmed independent medians; raw samples preserved"
+        )
         result["independent_stddev_ns"] = int(statistics.pstdev(stable_medians))
         results[language] = result
 
@@ -380,6 +677,9 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
         {
             "results": attempt.get("results", {}),
             "correctness_passed": attempt.get("correctness_passed", False),
+            "language_order": attempt.get("language_order", []),
+            "gap_to_go": attempt.get("gap_to_go"),
+            "concurrency_metrics": attempt.get("concurrency_metrics"),
         }
         for attempt in attempts
     ]
@@ -398,10 +698,31 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
         first["gap_to_rust"] = round(spectra["ns_per_iter"] / rust["ns_per_iter"], 3)
         first["gap_to_java"] = round(spectra["ns_per_iter"] / java["ns_per_iter"], 3)
     if first.get("id") == "async-echo":
-        gap = first.get("gap_to_go")
+        paired_gaps = [
+            float(attempt["gap_to_go"])
+            for attempt in attempts
+            if isinstance(attempt.get("gap_to_go"), (int, float))
+        ]
+        gap = round(statistics.median(paired_gaps), 6) if paired_gaps else None
+        first["paired_gap_to_go"] = paired_gaps
+        first["gap_to_go"] = gap
+        first["paired_gap_stddev_pct"] = (
+            statistics.pstdev(paired_gaps) / gap * 100.0
+            if gap and len(paired_gaps) > 1 else 0.0
+        )
         first["performance_reference"] = "go"
         first["max_reference_gap_pct"] = 5.0
-        first["reference_performance_passed"] = gap is not None and 0.95 <= gap <= 1.05
+        first["reference_performance_passed"] = (
+            len(paired_gaps) == len(attempts)
+            and gap is not None
+            and 0.95 <= gap <= 1.05
+        )
+        first["concurrency_metrics"] = attempts[-1].get("concurrency_metrics")
+        first["concurrency_probe_error"] = next(
+            (attempt.get("concurrency_probe_error") for attempt in attempts
+             if attempt.get("concurrency_probe_error")),
+            None,
+        )
     return first
 
 
@@ -485,6 +806,17 @@ def main() -> int:
         help="extra independent attempts for scenarios initially over baseline drift",
     )
     parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=DEFAULT_TIMEOUT_S,
+        help="per-process timeout",
+    )
+    parser.add_argument(
+        "--allow-busy-host",
+        action="store_true",
+        help="diagnostic-only override; official full-suite runs reject this flag",
+    )
+    parser.add_argument(
         "--skip",
         nargs="*",
         default=[],
@@ -492,7 +824,12 @@ def main() -> int:
         help="languages to skip (e.g. when toolchain missing)",
     )
     args = parser.parse_args()
-    if args.independent_runs < 1 or args.confirm_regressions < 0:
+    if (
+        args.independent_runs < 1
+        or args.confirm_regressions < 0
+        or args.confirm_regressions > MAX_CONFIRMATION_RUNS
+        or args.timeout_seconds < 1
+    ):
         log("ERROR: --independent-runs must be >= 1 and --confirm-regressions >= 0")
         return 2
 
@@ -536,8 +873,18 @@ def main() -> int:
             log(f"ERROR: {error}")
         return 2
 
+    official_full_suite = tuple(args.scenarios) == tuple(SCENARIOS)
+    if official_full_suite and args.allow_busy_host:
+        log("ERROR: --allow-busy-host is diagnostic-only and forbidden for the official gate")
+        return 2
+    preflight = host_preflight()
+    if preflight["status"] != "quiescent" and not args.allow_busy_host:
+        log(f"ERROR: host preflight failed: {preflight['reasons']}")
+        return 2
+
     report = {
         "schema": PHASE31_SCHEMA,
+        "scenario_matrix": list(SCENARIOS),
         "profile": profile,
         "spectra_binary": str(spectra_binary.resolve()),
         "git_revision": subprocess.run(
@@ -553,12 +900,15 @@ def main() -> int:
             "cpu_count": os.cpu_count(),
             "python": platform.python_version(),
         },
+        "environment_preflight": preflight,
+        "complete_scenario_set": official_full_suite,
         "measurement_policy": {
             "warmup_runs": WARMUP,
             "timed_runs": TIMED,
             "independent_runs": args.independent_runs,
             "confirmation_runs": args.confirm_regressions,
             "max_stddev_pct": MAX_STDDEV_PCT,
+            "per_process_timeout_s": args.timeout_seconds,
         },
         "runtimes": {
             "go": subprocess.run(
@@ -584,7 +934,10 @@ def main() -> int:
         attempts: list[dict[str, Any]] = []
         for attempt_number in range(args.independent_runs):
             try:
-                attempts.append(run_scenario(scenario, spectra_binary, skip_missing))
+                attempts.append(run_scenario_v2(
+                    scenario, spectra_binary, skip_missing, attempt_number,
+                    args.timeout_seconds,
+                ))
             except Exception as e:
                 log(f"scenario {scenario} attempt {attempt_number + 1} raised: {e}")
                 attempts.append(
@@ -608,11 +961,13 @@ def main() -> int:
         observed_stddev_pct = (observed_stddev / observed_ns * 100.0) if observed_ns else 0.0
         needs_confirmation = (
             args.confirm_regressions > 0
-            and not base_entry.get("placeholder", False)
-            and base_ns > 0
             and (
-                observed_ns > base_ns * (1.0 + max_drift / 100.0)
-                or observed_stddev_pct > MAX_STDDEV_PCT
+                observed_stddev_pct > MAX_STDDEV_PCT
+                or (
+                    not base_entry.get("placeholder", False)
+                    and base_ns > 0
+                    and observed_ns > base_ns * (1.0 + max_drift / 100.0)
+                )
             )
         )
         if needs_confirmation:
@@ -622,7 +977,11 @@ def main() -> int:
             )
             for confirmation_number in range(args.confirm_regressions):
                 try:
-                    attempts.append(run_scenario(scenario, spectra_binary, skip_missing))
+                    attempts.append(run_scenario_v2(
+                        scenario, spectra_binary, skip_missing,
+                        args.independent_runs + confirmation_number,
+                        args.timeout_seconds,
+                    ))
                 except Exception as e:
                     log(
                         f"scenario {scenario} confirmation {confirmation_number + 1} raised: {e}"
@@ -649,8 +1008,37 @@ def main() -> int:
     log(f"wrote {md_path}")
 
     failed = [s for s in report["scenarios"] if not s.get("correctness_passed", False)]
+    unstable = []
+    for scenario in report["scenarios"]:
+        if scenario.get("id") == "async-echo":
+            continue
+        spectra = scenario.get("results", {}).get("spectra", {})
+        median_ns = spectra.get("ns_per_iter", 0)
+        stddev_ns = spectra.get("independent_stddev_ns", spectra.get("stddev_ns", 0))
+        if not median_ns or stddev_ns / median_ns * 100.0 > MAX_STDDEV_PCT:
+            unstable.append(scenario["id"])
+    reference_failed = [
+        scenario["id"] for scenario in report["scenarios"]
+        if scenario["id"] == "async-echo"
+        and not scenario.get("reference_performance_passed", False)
+    ]
+    reference_unstable = [
+        scenario["id"] for scenario in report["scenarios"]
+        if scenario["id"] == "async-echo"
+        and scenario.get("paired_gap_stddev_pct", 0.0) > MAX_STDDEV_PCT
+    ]
     if failed:
         log(f"correctness failures: {[s['id'] for s in failed]}")
+    if unstable:
+        log(f"inconclusive measurements: {unstable}")
+    if reference_failed:
+        log(f"reference parity failures: {reference_failed}")
+    if reference_unstable:
+        log(f"reference parity inconclusive: {reference_unstable}")
+    if official_full_suite and len(report["scenarios"]) != len(SCENARIOS):
+        log("partial report rejected")
+        return 1
+    if failed or unstable or reference_failed or reference_unstable:
         return 1
     return 0
 

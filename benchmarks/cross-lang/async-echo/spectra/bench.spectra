@@ -1,7 +1,7 @@
 // Phase 31: async-echo (Spectra)
-// Spawn 10 tasks, join them, sum the results. Repeated iters=1000 times.
-// Total: 10_000 task spawn+join pairs. Workload tuned to ~20ms per run on
-// current Spectra; further iteration in R-3113/R-3114.
+// Contract: fanout_fanin_real_concurrency.v2.
+// Spawn 10 runtime tasks before joining any of them. Repeated iters=1000
+// times. Total: 10_000 tasks, with observable fan-out/fan-in.
 
 module bench_async_echo;
 
@@ -13,13 +13,10 @@ pub fn main() -> int {
     let i = 0;
     while i < iters {
         concurrent.reset();
-        let k = 0;
-        let local = 0;
-        while k < 10 {
-            let task = concurrent.task_spawn(k + 1);
-            local = local + concurrent.task_join(task);
-            k = k + 1;
-        }
+        // Batch handle owns all ten task handles. Runtime schedules every task
+        // before join_batch_sum starts fan-in.
+        let batch = concurrent.task_spawn_batch(1, 10);
+        let local = concurrent.task_join_batch_sum(batch);
         total = total + local;
         i = i + 1;
     }

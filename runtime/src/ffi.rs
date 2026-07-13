@@ -456,6 +456,23 @@ pub extern "C" fn spectra_rt_concurrent_join_fast(task_id: SpectraHostValue) -> 
     crate::stdlib::concurrent_join_fast(task_id)
 }
 
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_concurrent_spawn_batch_fast(
+    first_value: SpectraHostValue,
+    count: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::concurrent_spawn_batch_fast(first_value, count)
+}
+
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_concurrent_join_batch_sum_fast(
+    batch_id: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::concurrent_join_batch_sum_fast(batch_id)
+}
+
 /// Fast ABI entry for an immediately paired concurrent spawn and join.
 #[no_mangle]
 #[inline(never)]

@@ -1319,7 +1319,7 @@ $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-3101 Phase 31 cross-language benchmark gate ---" -ForegroundColor Yellow
-$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $phase31Binary, "--spectra-profile", "release", "--independent-runs", "3", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "2") -workingDir (Get-Location).Path -timeoutSeconds 1800
+$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $phase31Binary, "--spectra-profile", "release", "--independent-runs", "5", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "2", "--timeout-seconds", "300") -workingDir (Get-Location).Path -timeoutSeconds 3600
 if ($phase31Driver.Status -eq "PASSOU") {
     $totalPassed++
 } else {

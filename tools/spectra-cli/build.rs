@@ -24,6 +24,8 @@ fn main() {
         let fast_symbols = [
             "spectra_rt_concurrent_spawn_fast",
             "spectra_rt_concurrent_join_fast",
+            "spectra_rt_concurrent_spawn_batch_fast",
+            "spectra_rt_concurrent_join_batch_sum_fast",
             "spectra_rt_concurrent_spawn_join_fast",
             "spectra_rt_concurrent_reset_fast",
             "spectra_rt_map_new_fast",
