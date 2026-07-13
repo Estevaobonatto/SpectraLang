@@ -142,16 +142,16 @@ The gate fails when:
    per-scenario tolerance (defaults to 1e-9 for float sums, 1e-6 for elementwise
    chains, 1e-4 for matmul).
 
-The gate **does not** fail on `gap_to_go`, `gap_to_java`, or `gap_to_rust`; those
-values are reported per scenario and feed `R-3103`.
+The gate keeps Java/Rust gaps diagnostic. `async-echo` is the exception:
+`gap_to_go` is an acceptance metric and must remain within +/-5% because Go is
+the declared reference runtime for R-3131.
 
 ## Local Development
 
 ```powershell
-python scripts\phase31_run_all.py --spectra-binary target\debug\spectralang.exe --spectra-profile debug --independent-runs 3 --confirm-regressions 2 --baseline docs\performance\phase31-go-comparable\baseline.json --out target\phase31\cross-lang-report.json
-python scripts\validate_phase31_cross_lang.py --baseline docs/performance/phase31-go-comparable/baseline.json --report target\phase31/cross-lang-report.json --profile debug --spectra-binary target\debug\spectralang.exe
+python scripts\phase31_run_all.py --spectra-binary target\release\spectralang.exe --spectra-profile release --independent-runs 3 --confirm-regressions 2 --baseline docs\performance\phase31-go-comparable\baseline.json --out target\phase31\cross-lang-report.json
+python scripts\validate_phase31_cross_lang.py --baseline docs/performance/phase31-go-comparable/baseline.json --report target\phase31/cross-lang-report.json --profile release --spectra-binary target\release\spectralang.exe
 python scripts\compare_phase31_reports.py target\phase31\run-1.json target\phase31\run-2.json
-python scripts\diagnose_async_echo.py --binary target\debug\spectralang.exe --profile debug --out target\phase31\async-echo-diagnostics\debug.json
 python scripts\diagnose_async_echo.py --binary target\release\spectralang.exe --profile release --out target\phase31\async-echo-diagnostics\release.json
 ```
 
@@ -171,10 +171,10 @@ revision, host, warmups, samples, median, p95, standard deviation, and cost per
 task pair. It never edits `baseline.json`. The fused variant is diagnostic and
 does not replace the official process-inclusive baseline contract.
 
-The current debug baseline is process-inclusive. Therefore a stable debug
-regression with a large startup component must first be reproduced on the
-reference environment; release measurements are diagnostic and cannot
-replace the official debug gate.
+The official Phase 31 gate uses the repository-built release binary because
+Go and Rust benchmark binaries are optimized. Debug remains useful for
+compiler/runtime diagnosis, but debug-vs-Go process timings are not a valid
+release performance comparison.
 
 ## Updating the Baseline
 

@@ -1942,6 +1942,10 @@ fn execute_plan_with_options(
         ));
     }
 
+    if let Some(report) = spectra_runtime::concurrent_diagnostics_report_json() {
+        println!("SPECTRA_CONCURRENT_DIAGNOSTICS={report}");
+    }
+
     // Propagate the Spectra program's exit code when running via JIT.
     if kind == BuildCommand::Run {
         match take_last_exec_exit() {

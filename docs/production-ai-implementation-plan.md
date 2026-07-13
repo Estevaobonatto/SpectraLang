@@ -2018,14 +2018,14 @@ on a quiescent reference machine; the 2026-07-13 run was contaminated by a
 high-CPU `cline` process.
 
 The subsequent controlled rerun removed that competing process and made
-`async-pipeline` stable, but reproduced `async-echo` above baseline with low
-variance. R-3131 now has reproducible decomposition reports for startup,
-reset, spawn, join, and full workload. Runtime task slots no longer allocate
-`Arc<OnceLock>` on every join; task semantics and Fast ABI tests pass. Current
-debug full workload remains above the process-inclusive baseline, while release
-is materially faster. Therefore baseline remains unchanged and R-3130/R-3131
-remain in progress until the official debug reference gate separates startup
-overhead from remaining backend/runtime cost.
+`async-pipeline` stable. The official Phase 31 gate now uses the optimized
+repository release binary, so the former debug-versus-Go profile mismatch is
+resolved. Final release runs nevertheless measured `async-echo` at roughly
+0.90--0.91 of Go with 6.7--7.9% variance, outside R-3131's bilateral +/-5%
+window and variance gate. This is currently a benchmark/reference-parity
+blocker, not evidence of a compiler/runtime correctness defect; the historical
+Spectra baseline remains unchanged. R-3130 still requires all scenarios to be
+stable, and R-2013 still requires the full repository gate.
 
 R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
 run in separate serialized commands with per-step timeouts and captured output,

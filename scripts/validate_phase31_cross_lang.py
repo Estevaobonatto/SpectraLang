@@ -25,6 +25,8 @@ import sys
 try:
     from scripts.phase31_contract import (
         MAX_STDDEV_PCT,
+        ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
+        ASYNC_ECHO_REFERENCE_RUNTIME,
         PHASE31_SCHEMA,
         SCENARIOS,
         TIMED_RUNS,
@@ -33,6 +35,8 @@ try:
 except ModuleNotFoundError:  # direct `python scripts/validate_phase31_cross_lang.py`
     from phase31_contract import (  # type: ignore[no-redef]
         MAX_STDDEV_PCT,
+        ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
+        ASYNC_ECHO_REFERENCE_RUNTIME,
         PHASE31_SCHEMA,
         SCENARIOS,
         TIMED_RUNS,
@@ -71,6 +75,17 @@ def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
         entry = report_by_id[scenario_id]
         if not entry.get("correctness_passed", False):
             failures.append(f"{scenario_id}: correctness check failed")
+        if scenario_id == "async-echo":
+            if entry.get("performance_reference") != ASYNC_ECHO_REFERENCE_RUNTIME:
+                failures.append("async-echo: performance reference must be Go")
+            gap_to_go = entry.get("gap_to_go")
+            if not isinstance(gap_to_go, (int, float)):
+                failures.append("async-echo: missing gap_to_go measurement")
+            elif not (0.95 <= float(gap_to_go) <= 1.05):
+                failures.append(
+                    f"async-echo: gap to Go {float(gap_to_go):.3f} is outside "
+                    f"+/-{ASYNC_ECHO_MAX_REFERENCE_GAP_PCT:.1f}%"
+                )
         spec = entry.get("results", {}).get("spectra", {})
         if "error" in spec:
             failures.append(f"{scenario_id}: spectra runtime error: {spec['error']}")

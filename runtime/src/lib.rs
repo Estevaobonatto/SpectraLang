@@ -14,6 +14,7 @@ pub use memory::{
     CollectionOutcome, HybridMemory, ManualStats, MemoryConfig, MemoryStats, TracedStats,
 };
 pub use stdlib::register as register_standard_library;
+pub use stdlib::concurrent_diagnostics_report_json;
 
 /// Sets the program arguments visible to Spectra code via `std.env.env_args_count`
 /// and `std.env.env_arg`. Must be called before any Spectra code executes.

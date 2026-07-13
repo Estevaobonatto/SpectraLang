@@ -14,6 +14,7 @@ import pathlib
 import platform
 import statistics
 import subprocess
+import shutil
 import sys
 import time
 
@@ -112,29 +113,43 @@ pub fn main() -> int {{
 }
 
 
-def run_once(cmd: list[str], timeout_s: int) -> tuple[int, int, str]:
+def run_once(cmd: list[str], timeout_s: int, diagnostics: bool = False) -> tuple[int, int, str, dict | None]:
     start = time.perf_counter_ns()
+    env = os.environ.copy()
+    if diagnostics:
+        env["SPECTRA_CONCURRENT_DIAGNOSTICS"] = "1"
     try:
         proc = subprocess.run(
-            cmd, cwd=ROOT, capture_output=True, text=True, check=False, timeout=timeout_s
+            cmd, cwd=ROOT, capture_output=True, text=True, check=False,
+            timeout=timeout_s, env=env
         )
     except subprocess.TimeoutExpired as exc:
-        return -1, time.perf_counter_ns() - start, str(exc)
+        return -1, time.perf_counter_ns() - start, str(exc), None
     output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-    return proc.returncode, time.perf_counter_ns() - start, output[-4000:]
+    diagnostics_report = None
+    for line in output.splitlines():
+        if line.startswith("SPECTRA_CONCURRENT_DIAGNOSTICS="):
+            try:
+                diagnostics_report = json.loads(line.split("=", 1)[1])
+            except json.JSONDecodeError:
+                diagnostics_report = {"parse_error": True}
+    return proc.returncode, time.perf_counter_ns() - start, output[-4000:], diagnostics_report
 
 
-def measure(cmd: list[str], timeout_s: int) -> dict:
+def measure(cmd: list[str], timeout_s: int, diagnostics: bool = False) -> dict:
+    diagnostic_samples: list[dict] = []
     for _ in range(WARMUPS):
-        rc, _, output = run_once(cmd, timeout_s)
+        rc, _, output, _ = run_once(cmd, timeout_s, diagnostics)
         if rc != 0:
             return {"ok": False, "exit_code": rc, "output_tail": output, "samples_ns": []}
     samples: list[int] = []
     for _ in range(SAMPLES):
-        rc, elapsed, output = run_once(cmd, timeout_s)
+        rc, elapsed, output, diagnostic = run_once(cmd, timeout_s, diagnostics)
         if rc != 0:
             return {"ok": False, "exit_code": rc, "output_tail": output, "samples_ns": samples}
         samples.append(elapsed)
+        if diagnostic is not None:
+            diagnostic_samples.append(diagnostic)
     median = int(statistics.median(samples))
     stddev = int(statistics.pstdev(samples)) if len(samples) > 1 else 0
     sorted_samples = sorted(samples)
@@ -149,6 +164,7 @@ def measure(cmd: list[str], timeout_s: int) -> dict:
         "stddev_pct": round(stddev / median * 100, 3) if median else 0.0,
         "ns_per_task_pair": round(median / (OUTER * INNER), 2),
         "output_tail": "",
+        "diagnostics": diagnostic_samples[-1] if diagnostic_samples else None,
     }
 
 
@@ -158,6 +174,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=("debug", "release"), required=True)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--out", default=str(OUT_DIR / "report.json"))
+    parser.add_argument("--go-binary", help="Optional prebuilt Go benchmark binary.")
     args = parser.parse_args()
 
     binary = pathlib.Path(args.binary)
@@ -179,6 +196,7 @@ def main() -> int:
         "git_revision": revision,
         "spectra_binary": str(binary.resolve()),
         "profile": args.profile,
+        "reference_runtime": "go",
         "host": {"platform": platform.platform(), "processor": platform.processor()},
         "workload": {"outer": OUTER, "inner": INNER, "task_pairs": OUTER * INNER},
         "expected_diagnostics": {
@@ -193,11 +211,28 @@ def main() -> int:
         fixture = OUT_DIR / f"{name}.spectra"
         fixture.write_text(source + "\n", encoding="utf-8")
         cmd = [str(binary.resolve()), "run", str(fixture.resolve())]
-        result = measure(cmd, args.timeout)
+        result = measure(cmd, args.timeout, diagnostics=name in {"spawn-only", "join-only", "spawn-join", "fused", "full"})
         result["command"] = cmd
         result["fixture"] = str(fixture.relative_to(ROOT))
         report["variants"][name] = result
         print(f"[async-echo] {name}: {result.get('median_ns', 'FAILED')} ns", flush=True)
+
+    go_binary = pathlib.Path(args.go_binary) if args.go_binary else ROOT / "target" / "phase31" / "build" / "async-echo" / "go" / "bench.exe"
+    if not go_binary.exists() and shutil.which("go"):
+        go_binary.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["go", "build", "-o", str(go_binary), str(ROOT / "benchmarks" / "cross-lang" / "async-echo" / "go" / "bench.go")], cwd=ROOT, check=True)
+    if go_binary.exists():
+        go_result = measure([str(go_binary.resolve())], args.timeout)
+        report["go"] = {"binary": str(go_binary.resolve()), **go_result}
+        full = report["variants"].get("full", {})
+        if go_result.get("median_ns") and full.get("median_ns"):
+            report["comparison"] = {
+                "reference_runtime": "go",
+                "spectra_median_ns": full["median_ns"],
+                "go_median_ns": go_result["median_ns"],
+                "gap_to_go_pct": round((full["median_ns"] / go_result["median_ns"] - 1.0) * 100.0, 3),
+                "stddev_pct": full.get("stddev_pct", 0.0),
+            }
 
     output = pathlib.Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)

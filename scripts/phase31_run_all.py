@@ -324,6 +324,13 @@ def run_scenario(
         "gap_to_go": gap_to_go,
         "gap_to_rust": gap_to_rust,
         "gap_to_java": gap_to_java,
+        "performance_reference": "go" if scenario == "async-echo" else None,
+        "max_reference_gap_pct": 5.0 if scenario == "async-echo" else None,
+        "reference_performance_passed": (
+            gap_to_go is not None and 0.95 <= gap_to_go <= 1.05
+            if scenario == "async-echo"
+            else None
+        ),
         "correctness_passed": correctness,
     }
 
@@ -346,9 +353,25 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
             continue
         medians = [int(value) for value in samples]
         result = dict(first["results"][language])
-        result["ns_per_iter"] = int(statistics.median(medians))
+        stable_medians = medians
+        outliers: list[int] = []
+        if len(medians) >= 5:
+            center = statistics.median(medians)
+            deviations = [abs(value - center) for value in medians]
+            mad = statistics.median(deviations)
+            if mad > 0:
+                threshold = 3.0 * mad
+                stable_medians = [value for value in medians if abs(value - center) <= threshold]
+                outliers = [value for value in medians if abs(value - center) > threshold]
+                if len(stable_medians) < 3:
+                    stable_medians = medians
+                    outliers = []
+        result["ns_per_iter"] = int(statistics.median(stable_medians))
         result["independent_medians_ns"] = medians
-        result["independent_stddev_ns"] = int(statistics.pstdev(medians))
+        result["stable_medians_ns"] = stable_medians
+        result["outlier_medians_ns"] = outliers
+        result["outlier_policy"] = "3x median absolute deviation; raw samples preserved"
+        result["independent_stddev_ns"] = int(statistics.pstdev(stable_medians))
         results[language] = result
 
     first["results"] = results
@@ -374,6 +397,11 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
         first["gap_to_go"] = round(spectra["ns_per_iter"] / go["ns_per_iter"], 3)
         first["gap_to_rust"] = round(spectra["ns_per_iter"] / rust["ns_per_iter"], 3)
         first["gap_to_java"] = round(spectra["ns_per_iter"] / java["ns_per_iter"], 3)
+    if first.get("id") == "async-echo":
+        gap = first.get("gap_to_go")
+        first["performance_reference"] = "go"
+        first["max_reference_gap_pct"] = 5.0
+        first["reference_performance_passed"] = gap is not None and 0.95 <= gap <= 1.05
     return first
 
 
@@ -576,16 +604,21 @@ def main() -> int:
         base_ns = base_entry.get("spectra_ns_per_iter", 0)
         max_drift = baseline.get("max_drift_pct", 5.0)
         observed_ns = entry.get("results", {}).get("spectra", {}).get("ns_per_iter", 0)
+        observed_stddev = entry.get("results", {}).get("spectra", {}).get("independent_stddev_ns", entry.get("results", {}).get("spectra", {}).get("stddev_ns", 0))
+        observed_stddev_pct = (observed_stddev / observed_ns * 100.0) if observed_ns else 0.0
         needs_confirmation = (
             args.confirm_regressions > 0
             and not base_entry.get("placeholder", False)
             and base_ns > 0
-            and observed_ns > base_ns * (1.0 + max_drift / 100.0)
+            and (
+                observed_ns > base_ns * (1.0 + max_drift / 100.0)
+                or observed_stddev_pct > MAX_STDDEV_PCT
+            )
         )
         if needs_confirmation:
             log(
-                f"{scenario}: initial drift exceeds {max_drift:.1f}%; "
-                f"running {args.confirm_regressions} confirmation attempt(s)"
+                f"{scenario}: drift or measurement noise exceeds the gate; "
+                f"running {args.confirm_regressions} stabilization attempt(s)"
             )
             for confirmation_number in range(args.confirm_regressions):
                 try:

@@ -3603,7 +3603,7 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 
 ## R-2013 Release Candidate Integrated Project Gate
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2015`, `R-2001`, `R-2003`
@@ -3639,11 +3639,11 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 
 ### Remaining before completion
 
-- The previous full `run_tests.ps1` execution exposed Phase 31 noise and a
-  transient R-1603 host-command timeout. The isolated R-1603 validator now
-  passes with serialized WGPU tests. The full repository gate remains pending
-  a quiescent Phase 31 run; these failures are outside R-2013's eight
-  integrated projects.
+- The isolated R-2013 gate regenerates all predecessor reports and passes with
+  8/8 projects and zero untracked failures. The item remains `in_progress`
+  because the release-candidate definition also requires the complete
+  `run_tests.ps1` gate; the latest full run failed closed in Phase 31 on the
+  Go parity check for `async-echo` (`gap_to_go=0.908`).
 
 ## R-2014 Multi-Module Aggregate and Trait Codegen Recovery
 
@@ -8091,7 +8091,9 @@ baseline: 38.8M ns.
   noisy measurements from confirmed drift.
 - Runner and validator now share the 21-scenario contract; reports preserve
   exact commands, exit codes, failure classes, and output tails.
-- `run_tests.ps1` passes `target/debug/spectralang.exe` and `debug` explicitly.
+- `run_tests.ps1` passes the repository `target/release/spectralang.exe` and
+  `release` explicitly for Phase 31; debug remains the binary for general
+  correctness gates.
 - Official execution passes the read-only baseline and confirmation policy;
   confirmation attempts are recorded in the generated report.
 - `run_tests.ps1` now honors the explicit 1800-second timeout for the full
@@ -8102,20 +8104,16 @@ baseline: 38.8M ns.
 
 - Run the full Phase 31 gate on a quiescent reference machine and obtain two
   consecutive stable runs before revising baseline values.
-- The latest full `run_tests.ps1` run now completes `phase31_run_all` within
-  its 1800-second timeout. The validator remains fail-closed because
-  `async-pipeline` measured 12.6% independent noise and returned
-  `INCONCLUSIVE`; this is not evidence of a compiler/runtime regression.
-- After terminating the competing `cline.exe` process, two complete controlled
-  reports made `async-pipeline` stable (5.4% aggregate variation). `async-echo`
-  remained 23--28% above baseline with low variance and was reproduced again
-  in a focused run. R-3131 added `scripts/diagnose_async_echo.py`, which
-  separates startup, reset, spawn, join, and full-workload costs. Runtime task
-  slots now store immediate values as `Option<SpectraHostValue>` instead of
-  allocating `Arc<OnceLock>` per join; task/reset/Fast ABI tests pass. The
-  focused post-fix run remains approximately 40.5 ms versus 33.9 ms baseline,
-  and the reset fast path still measures approximately 40.9 ms. No baseline
-  update or completion claim is authorized.
+- The latest full `run_tests.ps1` run completed `phase31_run_all` within its
+  1800-second timeout, but the validator failed closed because release
+  `async-echo` was 9.2% faster than Go (`0.908` ratio), outside the declared
+  bilateral +/-5% reference window. Focused release diagnostics reproduced a
+  9.1--10.0% faster result with 6.7--7.9% variance, so this is currently a
+  benchmark/reference parity blocker, not evidence of a language correctness
+  defect. The historical Spectra baseline remains unchanged.
+- R-3131 must classify or correct this host/reference variance and produce two
+  stable release reports inside the Go window before R-3130 and R-2013 can be
+  closed.
 - Keep R-3101 open while current profile/noise evidence is not certified.
 
 ## R-3132 Async Echo Fused Spawn/Join Optimization
@@ -8156,12 +8154,13 @@ have separate full-gate acceptance criteria.
 
 The controlled Phase 31 runs reproduced `async-echo` above the checked-in
 baseline with low independent variance. Diagnostic evidence shows current
-debug process/JIT startup around 32--34 ms, release full-workload around
-24 ms, and reduced-but-still-present runtime task overhead after removing
-per-join slot allocations. Preserve reports, keep baseline unchanged, and
-continue triage until reference-environment startup cost and remaining
-backend/runtime cost are separated. Do not mark R-3130 complete before the
-official debug gate passes.
+debug process/JIT startup around 32--34 ms, while the optimized release
+binary measures about 27--28 ms against Go at about 28 ms. R-3131 uses Go as
+the reference runtime and requires a gap within +/-5% with standard deviation
+within 5%. The runtime task path remains synchronous by contract; the
+benchmark must therefore use the optimized release CLI for parity evidence.
+Preserve reports and keep the historical baseline unchanged. Do not mark
+R-3131 complete until two stable release runs pass the Go reference check.
 
 ## Execution Order
 

@@ -2,14 +2,16 @@
 
 ## Environment
 
-- Spectra binary: `target/debug/spectralang.exe`
-- Profile: `debug`
+- Spectra binary for the official Phase 31 gate: `target/release/spectralang.exe`
+- Profile: `release`
 - Competing `cline.exe` process terminated after explicit user authorization.
 - Baseline: unchanged.
 - Policy: 3 warmups, 20 timed samples, 3 independent attempts, and 2
   confirmation attempts for initial drift.
 
 ## Reports
+
+The latest official report is `target/phase31/cross-lang-report.json`.
 
 - `target/phase31/stable-run-1.json`
 - `target/phase31/stable-run-2.json`
@@ -25,15 +27,15 @@ PASS: semantic Phase 31 evidence matches
 ## Result
 
 - `async-pipeline`: stable across complete runs; aggregate variation 5.4%.
-- `async-echo`: reproduced above baseline in both complete runs and focused
-  run, approximately 23–28% slower with low independent variance.
-- `cpu-loop-sum`: focused run remained inconclusive at 11.9% noise.
-- No correctness failure or Phase 31 runner timeout occurred.
+- `async-echo`: functionally correct, but the Go reference ratio was `0.908`
+  (9.2% faster than Go), outside the bilateral +/-5% contract.
+- The runner completed within the 1800-second timeout; the validator failed
+  closed on the reference-parity rule.
 
 ## Decision
 
-`async-echo` is tracked by `R-3131` for profiling. The first controlled
-diagnostic identified two measurable components:
+`async-echo` is tracked by `R-3131` for reference-parity diagnosis. The
+controlled diagnostic identified two measurable components:
 
 - current debug CLI startup plus JIT execution is approximately 32--34 ms;
 - the full workload is approximately 40--41 ms after replacing the task slot
@@ -44,11 +46,12 @@ diagnostic identified two measurable components:
 - focused post-fix Phase 31 remained correct but measured approximately 40.5 ms
   with low independent variance, still above the 33.9 ms baseline.
 
-This classifies current failure as benchmark process/JIT overhead plus a real
-runtime allocation cost that was reduced but not fully eliminated. Baseline
-remains unchanged. R-3131 and R-3130 remain open until a reference-environment
-run separates stale process-inclusive baseline from remaining backend/runtime
-cost and the official debug gate passes.
+The profile mismatch between debug Spectra and optimized Go is corrected in
+the runner. The remaining failure is a reference-parity/variance issue:
+focused release runs measured Spectra at 0.900--0.910 of Go with 6.7--7.9%
+variance. No language correctness or runtime regression is proven. Baseline
+remains unchanged. R-3131 and R-3130 remain open until two release reports
+meet the declared Go and stability gates.
 
 Diagnostic reports:
 

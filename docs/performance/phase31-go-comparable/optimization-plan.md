@@ -89,7 +89,8 @@ Each item must:
 
 ## R-3132 measurement contract
 
-The `async-echo` path is process-inclusive and uses the debug binary. R-3132
+The `async-echo` path is process-inclusive and uses the optimized release
+binary for official cross-language comparison. R-3132
 adds `ConcurrentSpawnJoinFusion` after lowering and before DCE. It accepts only
 same-block pairs whose handle has one use and whose gap is pure; all other
 handles use the existing spawn/join ABI. The runtime keeps

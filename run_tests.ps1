@@ -17,6 +17,7 @@ param(
 )
 
 $binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
+$phase31BinaryPath = (Join-Path (Get-Location).Path "target\release\spectralang.exe")
 $timeoutSeconds = 10
 $hostCommandTimeoutSeconds = 300
 $env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
@@ -1158,6 +1159,16 @@ if ($r2013ReleaseCandidate.Status -eq "PASSOU") {
 } else {
     $totalFailed++
 }
+
+if (-not (Test-Path $phase31BinaryPath)) {
+    Write-Host "Binario release nao encontrado. Compilando para Phase 31..." -ForegroundColor Yellow
+    & "C:\Users\estev\.cargo\bin\cargo.exe" build --release -p spectra-cli 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERRO: Falha ao compilar binario release para Phase 31." -ForegroundColor Red
+        exit 1
+    }
+}
+$phase31Binary = (Resolve-Path $phase31BinaryPath).Path
 $results += [PSCustomObject]@{ Diretorio = "phase20-release-candidate"; Teste = "validate_r2013_release_candidate"; Status = $r2013ReleaseCandidate.Status; Detalhe = $r2013ReleaseCandidate.Detail }
 
 # ---------------------------------------------------------------------------
@@ -1308,7 +1319,7 @@ $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-3101 Phase 31 cross-language benchmark gate ---" -ForegroundColor Yellow
-$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $binary, "--spectra-profile", "debug", "--independent-runs", "3", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "2") -workingDir (Get-Location).Path -timeoutSeconds 1800
+$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $phase31Binary, "--spectra-profile", "release", "--independent-runs", "3", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "2") -workingDir (Get-Location).Path -timeoutSeconds 1800
 if ($phase31Driver.Status -eq "PASSOU") {
     $totalPassed++
 } else {
@@ -1316,7 +1327,7 @@ if ($phase31Driver.Status -eq "PASSOU") {
 }
 $results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "phase31_run_all"; Status = $phase31Driver.Status; Detalhe = $phase31Driver.Detail }
 
-$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json", "--profile", "debug", "--spectra-binary", $binary) -workingDir (Get-Location).Path
+$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json", "--profile", "release", "--spectra-binary", $phase31Binary) -workingDir (Get-Location).Path
 if ($phase31Gate.Status -eq "PASSOU") {
     $totalPassed++
 } else {

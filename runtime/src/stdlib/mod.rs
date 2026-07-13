@@ -10,7 +10,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::slice;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
 
@@ -434,6 +434,56 @@ const CONCURRENT_PIPELINE_SUM: &str = "spectra.std.concurrent.pipeline_sum";
 const CONCURRENT_STATS_TASKS_SPAWNED: &str = "spectra.std.concurrent.stats_tasks_spawned";
 const CONCURRENT_STATS_CHANNELS: &str = "spectra.std.concurrent.stats_channels";
 const CONCURRENT_RESET: &str = "spectra.std.concurrent.reset";
+
+struct ConcurrentDiagnostics {
+    fused_fast_abi_calls: AtomicU64,
+    spawn_fast_abi_calls: AtomicU64,
+    join_fast_abi_calls: AtomicU64,
+    reset_fast_abi_calls: AtomicU64,
+    locks_acquired: AtomicU64,
+    slots_created: AtomicU64,
+    tasks_counted: AtomicU64,
+}
+
+impl ConcurrentDiagnostics {
+    const fn new() -> Self {
+        Self {
+            fused_fast_abi_calls: AtomicU64::new(0),
+            spawn_fast_abi_calls: AtomicU64::new(0),
+            join_fast_abi_calls: AtomicU64::new(0),
+            reset_fast_abi_calls: AtomicU64::new(0),
+            locks_acquired: AtomicU64::new(0),
+            slots_created: AtomicU64::new(0),
+            tasks_counted: AtomicU64::new(0),
+        }
+    }
+}
+
+fn concurrent_diagnostics() -> Option<&'static ConcurrentDiagnostics> {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    static DATA: ConcurrentDiagnostics = ConcurrentDiagnostics::new();
+    if *ENABLED.get_or_init(|| {
+        std::env::var("SPECTRA_CONCURRENT_DIAGNOSTICS").as_deref() == Ok("1")
+    }) {
+        Some(&DATA)
+    } else {
+        None
+    }
+}
+
+pub fn concurrent_diagnostics_report_json() -> Option<String> {
+    let data = concurrent_diagnostics()?;
+    Some(format!(
+        "{{\"fused_fast_abi_calls\":{},\"spawn_fast_abi_calls\":{},\"join_fast_abi_calls\":{},\"reset_fast_abi_calls\":{},\"locks_acquired\":{},\"slots_created\":{},\"tasks_counted\":{}}}",
+        data.fused_fast_abi_calls.load(Ordering::Relaxed),
+        data.spawn_fast_abi_calls.load(Ordering::Relaxed),
+        data.join_fast_abi_calls.load(Ordering::Relaxed),
+        data.reset_fast_abi_calls.load(Ordering::Relaxed),
+        data.locks_acquired.load(Ordering::Relaxed),
+        data.slots_created.load(Ordering::Relaxed),
+        data.tasks_counted.load(Ordering::Relaxed),
+    ))
+}
 
 const ASYNC_TASK_READY: &str = "spectra.async.task.ready";
 const ASYNC_TASK_READY_BATCH: &str = "spectra.async.task.ready_batch";
@@ -18209,6 +18259,9 @@ extern "C" fn std_async_reactor_stats_io_registrations(ctx: *mut SpectraHostCall
 /// catch_unwind, no host_registry lock). Returns the task_id, or 0 on
 /// internal error (poisoned mutex).
 pub fn concurrent_spawn_fast(value: SpectraHostValue) -> SpectraHostValue {
+    if let Some(data) = concurrent_diagnostics() {
+        data.spawn_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
+    }
     let mut registry = match lock_concurrent_registry() {
         Ok(r) => r,
         Err(_) => return 0,
@@ -18220,6 +18273,9 @@ pub fn concurrent_spawn_fast(value: SpectraHostValue) -> SpectraHostValue {
 /// written by the matching `task_spawn`, or 0 if the task_id is invalid
 /// (out of range, recycled, or never existed).
 pub fn concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
+    if let Some(data) = concurrent_diagnostics() {
+        data.join_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
+    }
     let task_id = task_id as usize;
     let mut registry = match lock_concurrent_registry() {
         Ok(r) => r,
@@ -18233,6 +18289,10 @@ pub fn concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
 
 /// Fast-path helper for an immediately paired spawn and join.
 pub fn concurrent_spawn_join_fast(value: SpectraHostValue) -> SpectraHostValue {
+    if let Some(data) = concurrent_diagnostics() {
+        data.fused_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
+        data.tasks_counted.fetch_add(1, Ordering::Relaxed);
+    }
     let mut registry = match lock_concurrent_registry() {
         Ok(r) => r,
         Err(_) => return 0,
@@ -18243,6 +18303,9 @@ pub fn concurrent_spawn_join_fast(value: SpectraHostValue) -> SpectraHostValue {
 
 /// Fast-path helper for `concurrent.reset()`.
 pub fn concurrent_reset_fast() -> SpectraHostValue {
+    if let Some(data) = concurrent_diagnostics() {
+        data.reset_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
+    }
     let mut registry = match lock_concurrent_registry() {
         Ok(r) => r,
         Err(_) => return 0,
@@ -18416,6 +18479,9 @@ impl ConcurrentRegistry {
             let idx = self.next_fresh;
             self.next_fresh += 1;
             self.slots.push(None);
+            if let Some(data) = concurrent_diagnostics() {
+                data.slots_created.fetch_add(1, Ordering::Relaxed);
+            }
             idx
         };
         let slot = &mut self.slots[slot_idx];
@@ -18443,9 +18509,15 @@ fn concurrent_registry() -> &'static Mutex<ConcurrentRegistry> {
 }
 
 fn lock_concurrent_registry() -> Result<std::sync::MutexGuard<'static, ConcurrentRegistry>, i32> {
-    concurrent_registry()
+    let result = concurrent_registry()
         .lock()
-        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR);
+    if result.is_ok() {
+        if let Some(data) = concurrent_diagnostics() {
+            data.locks_acquired.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    result
 }
 
 extern "C" fn std_concurrent_task_spawn(ctx: *mut SpectraHostCallContext) -> i32 {

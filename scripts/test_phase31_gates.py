@@ -15,8 +15,7 @@ from scripts import diagnose_async_echo as async_echo_diagnostics
 def report(*, profile: str = "debug", stddev_ns: int = 5, ns_per_iter: int = 100) -> dict:
     scenarios = []
     for scenario_id in cross_lang.REQUIRED_SCENARIOS:
-        scenarios.append(
-            {
+        entry = {
                 "id": scenario_id,
                 "correctness_passed": True,
                 "results": {
@@ -25,8 +24,11 @@ def report(*, profile: str = "debug", stddev_ns: int = 5, ns_per_iter: int = 100
                         "stddev_ns": stddev_ns,
                     }
                 },
-            }
-        )
+        }
+        if scenario_id == "async-echo":
+            entry["performance_reference"] = "go"
+            entry["gap_to_go"] = 1.0
+        scenarios.append(entry)
     return {
         "schema": "spectra.phase31.bench.v1",
         "profile": profile,
@@ -68,6 +70,23 @@ class Phase31GateTests(unittest.TestCase):
         self.assertEqual(aggregated["results"]["spectra"]["independent_medians_ns"], [100, 120, 110])
         self.assertEqual(aggregated["independent_runs"], 3)
 
+    def test_aggregation_preserves_and_filters_clear_outlier(self) -> None:
+        attempts = [
+            {
+                "id": "sample",
+                "category": "cpu",
+                "iterations": 1,
+                "results": {"spectra": {"ns_per_iter": value, "stddev_ns": 1}},
+                "correctness_passed": True,
+            }
+            for value in (100, 101, 99, 100, 102, 1000, 98)
+        ]
+        aggregated = phase31_runner.aggregate_scenario_attempts(attempts)
+        result = aggregated["results"]["spectra"]
+        self.assertEqual(result["independent_medians_ns"], [100, 101, 99, 100, 102, 1000, 98])
+        self.assertEqual(result["outlier_medians_ns"], [1000])
+        self.assertLess(result["independent_stddev_ns"], 3)
+
     def test_stable_report_passes(self) -> None:
         failures, inconclusive = cross_lang.check_baseline(baseline(), report())
         self.assertEqual(failures, [])
@@ -85,6 +104,24 @@ class Phase31GateTests(unittest.TestCase):
             baseline(), report(stddev_ns=5, ns_per_iter=120)
         )
         self.assertTrue(failures)
+        self.assertEqual(inconclusive, [])
+
+    def test_async_echo_requires_go_reference_parity(self) -> None:
+        value = report()
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["performance_reference"] = "go"
+        async_entry["gap_to_go"] = 1.20
+        failures, inconclusive = cross_lang.check_baseline(baseline(), value)
+        self.assertTrue(any("gap to Go" in failure for failure in failures))
+        self.assertEqual(inconclusive, [])
+
+    def test_async_echo_go_reference_parity_passes(self) -> None:
+        value = report()
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["performance_reference"] = "go"
+        async_entry["gap_to_go"] = 1.03
+        failures, inconclusive = cross_lang.check_baseline(baseline(), value)
+        self.assertEqual(failures, [])
         self.assertEqual(inconclusive, [])
 
     def test_current_contract_requires_all_21_scenarios(self) -> None:
@@ -142,6 +179,8 @@ class Phase31GateTests(unittest.TestCase):
             'Invoke-HostCommand -name "phase31_run_all"',
             source,
         )
+        self.assertIn('$phase31BinaryPath = (Join-Path (Get-Location).Path "target\\release\\spectralang.exe")', source)
+        self.assertIn('"--spectra-profile", "release"', source)
         self.assertIn("-timeoutSeconds 1800", source)
         self.assertIn("$runPhase31Gpu = $Phase -contains \"phase31_gpu\"", source)
         self.assertIn("$gpuStatus = \"SKIPPED\"", source)
