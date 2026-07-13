@@ -8,6 +8,8 @@ from unittest.mock import Mock, patch
 from scripts import validate_phase31_cross_lang as cross_lang
 from scripts import validate_r1603_gpu_backend as gpu_backend
 from scripts import phase31_run_all as phase31_runner
+from scripts import compare_phase31_reports as report_comparator
+from scripts import diagnose_async_echo as async_echo_diagnostics
 
 
 def report(*, profile: str = "debug", stddev_ns: int = 5, ns_per_iter: int = 100) -> dict:
@@ -85,6 +87,38 @@ class Phase31GateTests(unittest.TestCase):
         self.assertTrue(failures)
         self.assertEqual(inconclusive, [])
 
+    def test_current_contract_requires_all_21_scenarios(self) -> None:
+        self.assertEqual(len(cross_lang.REQUIRED_SCENARIOS), 21)
+        value = report()
+        value["scenarios"].append(
+            {
+                "id": "unknown-scenario",
+                "correctness_passed": True,
+                "results": {"spectra": {"ns_per_iter": 100, "stddev_ns": 1}},
+            }
+        )
+        failures, _ = cross_lang.check_baseline(baseline(), value)
+        self.assertIn("report has unknown scenario: unknown-scenario", failures)
+
+    def test_baseline_missing_scenario_is_failure(self) -> None:
+        value = baseline()
+        value["scenarios"].pop(cross_lang.REQUIRED_SCENARIOS[-1])
+        failures, _ = cross_lang.check_baseline(value, report())
+        self.assertIn(
+            f"baseline missing scenario: {cross_lang.REQUIRED_SCENARIOS[-1]}",
+            failures,
+        )
+
+    def test_semantic_report_comparison_ignores_runtime_timestamps(self) -> None:
+        first = report()
+        second = report()
+        first["generated_at"] = "2026-01-01T00:00:00Z"
+        second["generated_at"] = "2026-01-02T00:00:00Z"
+        self.assertEqual(
+            report_comparator.semantic_report(first),
+            report_comparator.semantic_report(second),
+        )
+
     def test_profile_metadata_mismatch_is_rejected_by_contract(self) -> None:
         value = report(profile="release")
         self.assertTrue(cross_lang.validate_report_metadata(value, "debug", None))
@@ -93,6 +127,37 @@ class Phase31GateTests(unittest.TestCase):
         value = report()
         value["measurement_policy"]["timed_runs"] = 12
         self.assertTrue(cross_lang.validate_report_metadata(value, "debug", None))
+
+    def test_run_tests_phase31_timeout_is_forwarded_to_host_runner(self) -> None:
+        source = Path("run_tests.ps1").read_text(encoding="utf-8")
+        self.assertIn(
+            "[int]$timeoutSeconds = $hostCommandTimeoutSeconds",
+            source,
+        )
+        self.assertIn(
+            "$proc.WaitForExit($timeoutSeconds * 1000)",
+            source,
+        )
+        self.assertIn(
+            'Invoke-HostCommand -name "phase31_run_all"',
+            source,
+        )
+        self.assertIn("-timeoutSeconds 1800", source)
+        self.assertIn("$runPhase31Gpu = $Phase -contains \"phase31_gpu\"", source)
+        self.assertIn("$gpuStatus = \"SKIPPED\"", source)
+
+    def test_async_echo_diagnostic_contract_has_required_variants(self) -> None:
+        self.assertEqual(
+            set(async_echo_diagnostics.FIXTURES),
+        {"startup", "reset-only", "spawn-only", "join-only", "spawn-join", "fused", "full"},
+        )
+        self.assertEqual(
+            async_echo_diagnostics.OUTER * async_echo_diagnostics.INNER,
+            10_000,
+        )
+        speedup_source = Path("scripts/validate_r1603_gpu_speedup.py").read_text(encoding="utf-8")
+        self.assertIn('report["status"] = "skipped"', speedup_source)
+        self.assertIn("no WGPU adapter available", speedup_source)
 
 
 class R1603ValidatorTests(unittest.TestCase):

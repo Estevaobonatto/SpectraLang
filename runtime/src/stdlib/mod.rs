@@ -420,6 +420,7 @@ const ML_EVALUATION_REPORT: &str = "spectra.std.ml.evaluation_report";
 
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
+const CONCURRENT_TASK_SPAWN_JOIN: &str = "spectra.std.concurrent.task_spawn_join";
 const CONCURRENT_TASK_IS_DONE: &str = "spectra.std.concurrent.task_is_done";
 const CONCURRENT_CHANNEL_NEW: &str = "spectra.std.concurrent.channel_new";
 const CONCURRENT_CHANNEL_SEND: &str = "spectra.std.concurrent.channel_send";
@@ -887,6 +888,7 @@ fn register_ml() {
 fn register_concurrent() {
     register_host_function(CONCURRENT_TASK_SPAWN, std_concurrent_task_spawn);
     register_host_function(CONCURRENT_TASK_JOIN, std_concurrent_task_join);
+    register_host_function(CONCURRENT_TASK_SPAWN_JOIN, std_concurrent_task_spawn_join);
     register_host_function(CONCURRENT_TASK_IS_DONE, std_concurrent_task_is_done);
     register_host_function(CONCURRENT_CHANNEL_NEW, std_concurrent_channel_new);
     register_host_function(CONCURRENT_CHANNEL_SEND, std_concurrent_channel_send);
@@ -18229,6 +18231,26 @@ pub fn concurrent_join_fast(task_id: SpectraHostValue) -> SpectraHostValue {
     }
 }
 
+/// Fast-path helper for an immediately paired spawn and join.
+pub fn concurrent_spawn_join_fast(value: SpectraHostValue) -> SpectraHostValue {
+    let mut registry = match lock_concurrent_registry() {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    registry.tasks_spawned += 1;
+    value
+}
+
+/// Fast-path helper for `concurrent.reset()`.
+pub fn concurrent_reset_fast() -> SpectraHostValue {
+    let mut registry = match lock_concurrent_registry() {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    registry.clear();
+    1
+}
+
 /// Fast-path helper for `concurrent.channel_new()`. Returns the new channel
 /// id, or 0 if the registry mutex is poisoned.
 pub fn concurrent_channel_new_fast() -> SpectraHostValue {
@@ -18330,7 +18352,11 @@ struct ConcurrentChannel {
 }
 
 struct ConcurrentRegistry {
-    slots: Vec<Arc<OnceLock<SpectraHostValue>>>,
+    // Task values are materialized synchronously by task_spawn. The registry
+    // mutex is the synchronization boundary, so Arc<OnceLock> adds an
+    // allocation and an atomic state transition without providing extra
+    // semantics here.
+    slots: Vec<Option<SpectraHostValue>>,
     free: Vec<usize>,
     next_fresh: usize,
     next_channel: SpectraHostValue,
@@ -18343,7 +18369,7 @@ struct ConcurrentRegistry {
 impl ConcurrentRegistry {
     fn new() -> Self {
         let mut slots = Vec::with_capacity(CONCURRENT_POOL_INITIAL_CAPACITY);
-        slots.push(Arc::new(OnceLock::new()));
+        slots.push(None);
         Self {
             slots,
             free: Vec::new(),
@@ -18357,11 +18383,20 @@ impl ConcurrentRegistry {
     }
 
     fn clear(&mut self) {
-        for (idx, slot) in self.slots.iter_mut().enumerate() {
-            if idx == 0 {
-                continue;
-            }
-            *slot = Arc::new(OnceLock::new());
+        // async-echo resets after joining every task. In that state all task
+        // slots are already empty and present in `free`; rebuilding the same
+        // free list and walking every slot only adds work to the hot path.
+        if self.channels.is_empty()
+            && self.counters.is_empty()
+            && self.free.len() + 1 == self.slots.len()
+        {
+            self.tasks_spawned = 0;
+            self.next_channel = 1;
+            self.next_counter = 1;
+            return;
+        }
+        for slot in self.slots.iter_mut().skip(1) {
+            *slot = None;
         }
         let total = self.slots.len();
         self.free.clear();
@@ -18380,26 +18415,25 @@ impl ConcurrentRegistry {
         } else {
             let idx = self.next_fresh;
             self.next_fresh += 1;
-            self.slots.push(Arc::new(OnceLock::new()));
+            self.slots.push(None);
             idx
         };
-        let slot = &self.slots[slot_idx];
-        debug_assert!(slot.get().is_none(), "slot pool invariant violated");
-        let _ = slot.set(value);
+        let slot = &mut self.slots[slot_idx];
+        debug_assert!(slot.is_none(), "slot pool invariant violated");
+        *slot = Some(value);
         slot_idx
     }
 
     fn join(&mut self, task_id: usize) -> Result<SpectraHostValue, i32> {
-        let slot = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
-        let value = slot.get().copied().ok_or(HOST_STATUS_NOT_FOUND)?;
-        self.slots[task_id] = Arc::new(OnceLock::new());
+        let slot = self.slots.get_mut(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
+        let value = slot.take().ok_or(HOST_STATUS_NOT_FOUND)?;
         self.free.push(task_id);
         Ok(value)
     }
 
     fn is_done(&self, task_id: usize) -> Result<bool, i32> {
         let slot = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
-        Ok(slot.get().is_some())
+        Ok(slot.is_some())
     }
 }
 
@@ -18446,6 +18480,20 @@ extern "C" fn std_concurrent_task_join(ctx: *mut SpectraHostCallContext) -> i32 
         }
         Err(code) => code,
     }
+}
+
+extern "C" fn std_concurrent_task_spawn_join(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    let mut registry = match lock_concurrent_registry() {
+        Ok(registry) => registry,
+        Err(status) => return status,
+    };
+    registry.tasks_spawned += 1;
+    results[0] = args[0];
+    HOST_STATUS_SUCCESS
 }
 
 extern "C" fn std_concurrent_task_is_done(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -22826,6 +22874,81 @@ mod tests {
             call_host(CONCURRENT_STATS_CHANNELS, &[]),
             (HOST_STATUS_SUCCESS, 1)
         );
+    }
+
+    #[test]
+    fn concurrent_registry_reuses_slots_without_stale_values() {
+        let mut registry = ConcurrentRegistry::new();
+
+        let first = registry.spawn(41);
+        assert_eq!(first, 1);
+        assert_eq!(registry.is_done(first), Ok(true));
+        assert_eq!(registry.join(first), Ok(41));
+        assert_eq!(registry.is_done(first), Ok(false));
+        assert_eq!(registry.join(first), Err(HOST_STATUS_NOT_FOUND));
+
+        let recycled = registry.spawn(99);
+        assert_eq!(recycled, first);
+        assert_eq!(registry.join(recycled), Ok(99));
+    }
+
+    #[test]
+    fn concurrent_registry_clear_invalidates_tasks_and_resets_state() {
+        let mut registry = ConcurrentRegistry::new();
+        let task = registry.spawn(7);
+        registry.tasks_spawned = 3;
+        registry.next_channel = 9;
+        registry.next_counter = 11;
+        registry.clear();
+
+        assert_eq!(registry.is_done(task), Ok(false));
+        assert_eq!(registry.join(task), Err(HOST_STATUS_NOT_FOUND));
+        assert_eq!(registry.tasks_spawned, 0);
+        assert_eq!(registry.next_channel, 1);
+        assert_eq!(registry.next_counter, 1);
+        assert!(registry.channels.is_empty());
+        assert!(registry.counters.is_empty());
+        assert_eq!(registry.spawn(8), task);
+        assert_eq!(registry.join(task), Ok(8));
+        registry.tasks_spawned = 4;
+        registry.clear();
+        assert_eq!(registry.tasks_spawned, 0);
+        assert_eq!(registry.spawn(9), task);
+        assert_eq!(registry.join(task), Ok(9));
+    }
+
+    #[test]
+    fn concurrent_fast_abi_preserves_task_contract() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let task = concurrent_spawn_fast(123);
+        assert!(task > 0);
+        assert_eq!(concurrent_join_fast(task), 123);
+        assert_eq!(concurrent_join_fast(task), 0);
+    }
+
+    #[test]
+    fn concurrent_fused_fast_path_preserves_value_stats_and_reset() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let slots_before = lock_concurrent_registry()
+            .expect("registry should not be poisoned")
+            .slots
+            .len();
+        assert_eq!(concurrent_spawn_join_fast(77), 77);
+        assert_eq!(concurrent_spawn_join_fast(-3), -3);
+        assert_eq!(call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]), (HOST_STATUS_SUCCESS, 2));
+        let mut registry = lock_concurrent_registry().expect("registry should not be poisoned");
+        assert_eq!(registry.slots.len(), slots_before, "fused path must not allocate task slots");
+        registry.clear();
+        drop(registry);
+        assert_eq!(call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]), (HOST_STATUS_SUCCESS, 0));
     }
 
     #[test]

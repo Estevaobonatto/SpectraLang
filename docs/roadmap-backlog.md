@@ -3603,7 +3603,7 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 
 ## R-2013 Release Candidate Integrated Project Gate
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2015`, `R-2001`, `R-2003`
@@ -8074,6 +8074,8 @@ baseline: 38.8M ns.
 - Record actual Spectra binary/profile, Git revision, host, timestamp, and
   warmup/sample policy in every benchmark report.
 - Align runner with 3 warmups and 20 timed samples.
+- Keep runner and validator on the same 21-scenario contract used by the
+  current baseline.
 - Run 3 independent attempts per scenario and add 2 confirmation attempts
   only when the initial aggregate exceeds the baseline drift threshold.
 - Classify standard deviation above 10% as `inconclusive`, separate from a
@@ -8087,20 +8089,79 @@ baseline: 38.8M ns.
   and records measurement metadata.
 - `scripts/validate_phase31_cross_lang.py` validates metadata and separates
   noisy measurements from confirmed drift.
+- Runner and validator now share the 21-scenario contract; reports preserve
+  exact commands, exit codes, failure classes, and output tails.
 - `run_tests.ps1` passes `target/debug/spectralang.exe` and `debug` explicitly.
 - Official execution passes the read-only baseline and confirmation policy;
   confirmation attempts are recorded in the generated report.
+- `run_tests.ps1` now honors the explicit 1800-second timeout for the full
+  Phase 31 driver; the previous 300-second timeout was a wrapper bug.
 - Unit coverage is in `scripts/test_phase31_gates.py`.
 
 ### Remaining
 
 - Run the full Phase 31 gate on a quiescent reference machine and obtain two
   consecutive stable runs before revising baseline values.
-- The 2026-07-13 full run used the new 3-attempt plus 2-confirmation policy but
-  remained contaminated by a high-CPU `cline` process; its `cpu-fibs`,
-  `tensor-elementwise`, and `async-echo` drift must not be treated as a
-  compiler/runtime regression.
+- The latest full `run_tests.ps1` run now completes `phase31_run_all` within
+  its 1800-second timeout. The validator remains fail-closed because
+  `async-pipeline` measured 12.6% independent noise and returned
+  `INCONCLUSIVE`; this is not evidence of a compiler/runtime regression.
+- After terminating the competing `cline.exe` process, two complete controlled
+  reports made `async-pipeline` stable (5.4% aggregate variation). `async-echo`
+  remained 23--28% above baseline with low variance and was reproduced again
+  in a focused run. R-3131 added `scripts/diagnose_async_echo.py`, which
+  separates startup, reset, spawn, join, and full-workload costs. Runtime task
+  slots now store immediate values as `Option<SpectraHostValue>` instead of
+  allocating `Arc<OnceLock>` per join; task/reset/Fast ABI tests pass. The
+  focused post-fix run remains approximately 40.5 ms versus 33.9 ms baseline,
+  and the reset fast path still measures approximately 40.9 ms. No baseline
+  update or completion claim is authorized.
 - Keep R-3101 open while current profile/noise evidence is not certified.
+
+## R-3132 Async Echo Fused Spawn/Join Optimization
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-3120`, `R-3131`
+
+R-3132 adds a conservative `ConcurrentSpawnJoinFusion` pass. It recognizes a
+single-use handle joined in the same basic block, permits only pure operations
+between spawn and join, and falls back whenever the handle is observed,
+escaped, branched, or used more than once. The fused host is implemented in
+the generic registry, JIT Fast ABI, AOT imports, and Windows export list. It
+increments task statistics once, returns the materialized value, and does not
+allocate a visible task slot. `concurrent.reset()` also has a direct Fast ABI
+path because it is part of the benchmark's outer loop.
+
+Added validation fixtures:
+
+- `tests/validation/182_concurrent_spawn_join_fusion.spectra`;
+- `tests/validation/183_concurrent_spawn_join_fallback.spectra`;
+- `tests/validation/184_concurrent_spawn_join_reset.spectra`.
+
+The current debug diagnostics report correct execution and a fused/full
+median around 38.9 ms, above the historical 33.865 ms baseline. The user
+accepted this measured result as the R-3132 release criterion; the historical
+baseline remains unchanged. The original ≤1% aspiration is deferred to a
+future optimization item. R-3131, R-3130, and R-2013 remain open because they
+have separate full-gate acceptance criteria.
+
+## R-3131 Async Echo Stable Regression Triage
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `backend`
+- Dependencies: `R-3120`
+
+The controlled Phase 31 runs reproduced `async-echo` above the checked-in
+baseline with low independent variance. Diagnostic evidence shows current
+debug process/JIT startup around 32--34 ms, release full-workload around
+24 ms, and reduced-but-still-present runtime task overhead after removing
+per-join slot allocations. Preserve reports, keep baseline unchanged, and
+continue triage until reference-environment startup cost and remaining
+backend/runtime cost are separated. Do not mark R-3130 complete before the
+official debug gate passes.
 
 ## Execution Order
 

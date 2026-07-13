@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Run the Phase 31 cross-language suite 3 times and pick the median result
-as the next candidate baseline.
+"""Run Phase 31 repeatedly and write a read-only candidate baseline report.
 
 Output:
 - target/phase31/stable-report.json: median numbers across 3 runs
 - target/phase31/stable-run-N.json (N=1,2,3): each individual run
 
-Usage::
-
-    python scripts/phase31_lock_baseline.py
+This script never edits baseline.json. Applying a candidate requires explicit
+review through phase31_apply_baseline.py --apply.
 """
 
 from __future__ import annotations
@@ -19,6 +17,11 @@ import pathlib
 import statistics
 import subprocess
 import sys
+
+try:
+    from scripts.phase31_contract import SCENARIOS
+except ModuleNotFoundError:  # direct script execution
+    from phase31_contract import SCENARIOS  # type: ignore[no-redef]
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNNER = REPO_ROOT / "scripts" / "phase31_run_all.py"
@@ -33,6 +36,10 @@ def median_ns(samples: list[int]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=N_RUNS, help="number of runs")
+    parser.add_argument("--binary", default="target/debug/spectralang.exe")
+    parser.add_argument("--profile", choices=("debug", "release"), default="debug")
+    parser.add_argument("--independent-runs", type=int, default=3)
+    parser.add_argument("--confirm-regressions", type=int, default=2)
     args = parser.parse_args()
     TARGET.mkdir(parents=True, exist_ok=True)
 
@@ -44,6 +51,14 @@ def main() -> int:
             str(RUNNER),
             "--out",
             str(out),
+            "--spectra-binary",
+            args.binary,
+            "--spectra-profile",
+            args.profile,
+            "--independent-runs",
+            str(args.independent_runs),
+            "--confirm-regressions",
+            str(args.confirm_regressions),
         ]
         print(f"[phase31-stable] run {i}/{args.n}: {' '.join(cmd)}", flush=True)
         rc = subprocess.run(cmd, check=False).returncode
@@ -77,11 +92,20 @@ def main() -> int:
             ),
             "spectra_ns_per_iter_samples": spectra_nses,
             "spectra_ns_per_iter_median": median_ns(spectra_nses),
+            "spectra_stddev_pct": (
+                statistics.pstdev(spectra_nses) / median_ns(spectra_nses) * 100.0
+                if len(spectra_nses) > 1 and median_ns(spectra_nses) > 0
+                else None
+            ),
         })
 
     stable = {
         "schema": "spectra.phase31.stable.v1",
         "n_runs": len(runs),
+        "profile": runs[0].get("profile"),
+        "spectra_binary": runs[0].get("spectra_binary"),
+        "git_revisions": sorted({r.get("git_revision") for r in runs}),
+        "measurement_policies": [r.get("measurement_policy") for r in runs],
         "scenarios": aggregated,
     }
     out_path = TARGET / "stable-report.json"

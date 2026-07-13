@@ -12,6 +12,10 @@
 # Requer que o binario ja esteja compilado:
 #   cargo build -p spectra-cli
 
+param(
+    [string[]]$Phase = @()
+)
+
 $binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
 $timeoutSeconds = 10
 $hostCommandTimeoutSeconds = 300
@@ -42,6 +46,7 @@ $totalFailed  = 0
 $totalInfo    = 0
 $totalSkipped = 0
 $results      = @()
+$runPhase31Gpu = $Phase -contains "phase31_gpu"
 
 # ---------------------------------------------------------------------------
 # Funcao auxiliar: compila um arquivo .spectra com timeout e retorna o resultado
@@ -550,7 +555,7 @@ if (Test-Path $packageConsumerRoot) {
 Write-Host ""
 Write-Host "--- Interop (Rust/Python/C ABI) ---" -ForegroundColor Yellow
 
-function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$arguments, [string]$workingDir) {
+function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$arguments, [string]$workingDir, [int]$timeoutSeconds = $hostCommandTimeoutSeconds) {
     Write-Host "  $name" -NoNewline
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -574,7 +579,7 @@ function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$argumen
 
     try {
         [void]$proc.Start()
-        if (-not $proc.WaitForExit($hostCommandTimeoutSeconds * 1000)) {
+        if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
             $timedOut = $true
             $proc.Kill()
             $proc.WaitForExit()
@@ -590,7 +595,7 @@ function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$argumen
 
     if ($timedOut) {
         Write-Host " TIMEOUT" -ForegroundColor Red
-        return [PSCustomObject]@{ Status = "TIMEOUT"; Detail = "comando excedeu ${hostCommandTimeoutSeconds}s" }
+        return [PSCustomObject]@{ Status = "TIMEOUT"; Detail = "comando excedeu ${timeoutSeconds}s" }
     }
     if ($proc.ExitCode -eq 0) {
         Write-Host " PASSOU" -ForegroundColor Green
@@ -1324,18 +1329,24 @@ $results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "valida
 # ---------------------------------------------------------------------------
 # This gate requires a WGPU adapter and the spectra-cli binary. It runs
 # `benchmarks/gpu/ml-mlp-step-gpu/` on both CPU and GPU and asserts the
-# GPU/CPU ratio at batch=256. CI hosts without a GPU must skip this
-# gate; the default invocation does not run it. Operators enable it by
-# passing `-Phase phase31_gpu` to `run_tests.ps1`.
+# GPU/CPU ratio at batch=256. CI hosts without a GPU must skip this gate.
 Write-Host ""
 Write-Host "--- R-1603 / R-3080 GPU speedup gate (manual) ---" -ForegroundColor Yellow
-$phase31Gpu = Invoke-HostCommand -name "validate_r1603_gpu_speedup" -fileName "python" -arguments @("scripts\validate_r1603_gpu_speedup.py", "--out", "target\r1603-gpu-speedup\report.json") -workingDir (Get-Location).Path -timeoutSeconds 1800
-if ($phase31Gpu.Status -eq "PASSOU") {
-    $totalPassed++
+if ($runPhase31Gpu) {
+    $phase31Gpu = Invoke-HostCommand -name "validate_r1603_gpu_speedup" -fileName "python" -arguments @("scripts\validate_r1603_gpu_speedup.py", "--out", "target\r1603-gpu-speedup\report.json") -workingDir (Get-Location).Path -timeoutSeconds 1800
+    if ($phase31Gpu.Status -eq "PASSOU") {
+        $totalPassed++
+    } else {
+        $totalFailed++
+    }
+    $gpuStatus = $phase31Gpu.Status
+    $gpuDetail = $phase31Gpu.Detail
 } else {
-    $totalFailed++
+    $totalSkipped++
+    $gpuStatus = "SKIPPED"
+    $gpuDetail = "manual gate; use .\run_tests.ps1 -Phase phase31_gpu on host with WGPU adapter"
 }
-$results += [PSCustomObject]@{ Diretorio = "phase31-gpu-speedup"; Teste = "validate_r1603_gpu_speedup"; Status = $phase31Gpu.Status; Detalhe = $phase31Gpu.Detail }
+$results += [PSCustomObject]@{ Diretorio = "phase31-gpu-speedup"; Teste = "validate_r1603_gpu_speedup"; Status = $gpuStatus; Detalhe = $gpuDetail }
 
 # ---------------------------------------------------------------------------
 # Grupo 8.37: R-2112 formal Send/Sync trait bounds

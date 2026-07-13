@@ -821,7 +821,7 @@ title = "GPU Backend MVP"
 phase = "phase_7"
 owner = "numerics"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-701", "R-401"]
 summary = "Maintain the validated optional WGPU accelerator baseline for core float tensor operations while tracking kernel efficiency, native device lowering, and additional backend work as follow-ups."
@@ -4100,13 +4100,13 @@ risk = "medium"
 dependencies = ["R-1501", "R-1003", "R-2111"]
 summary = "Build a reproducible cross-language benchmark suite comparing Spectra vs Go, Java, and Rust across CPU, tensor, ML, and async scenarios, with machine-readable reports, versioned baselines, and a non-regression gate."
 acceptance = [
-  "11 scenarios (4 CPU, 4 tensor, 1 ML, 2 async) implemented equivalently in Spectra, Go, Java, and Rust",
+  "21 scenarios currently registered in the runner and baseline are implemented equivalently in Spectra, Go, Java, and Rust",
   "`scripts/validate_phase31_cross_lang.py` runs the suite, emits `target/phase31/cross-lang-report.{json,md}`, and compares against `docs/performance/phase31-go-comparable/baseline.json`",
   "gate fails when any Spectra scenario regresses more than 5% vs the checked-in baseline, when numerical tolerance is violated, or when the existing functional suite regresses",
   "gate does not fail on raw performance gap vs Go, Java, or Rust; that gap is reported per scenario",
   "methodology document `docs/performance/phase31-go-comparable/methodology.md` documents machine, runtime flags, iteration count, and statistical reporting (median, p95, stddev)",
   "`run_tests.ps1` invokes the gate as `phase31_cross_lang`",
-  "first complete run captured 11 scenarios; gap vs Go: 0.97x..218x; gap vs Rust: 1.6x..68x; details in `docs/performance/phase31-go-comparable/findings-r3101-initial.md`"
+  "historical findings remain in `docs/performance/phase31-go-comparable/findings-r3101-initial.md`; current acceptance uses the 21-scenario contract"
 ]
 
 [[items]]
@@ -4618,12 +4618,55 @@ dependencies = ["R-3101"]
 summary = "Make the Phase 31 benchmark gate identify its actual Spectra profile and binary, use the documented warmup/sample policy, classify noisy measurements as inconclusive, and preserve reproducible baseline evidence without automatic baseline mutation."
 acceptance = [
   "phase31_run_all.py accepts --spectra-binary and --spectra-profile, rejects profile/path mismatches, and records binary, profile, Git revision, host, timestamp, warmup count, timed count, and measurement policy",
+  "runner and validator share one contract for all 21 scenarios currently present in the runner and baseline",
   "the runner uses 3 warmups and 20 timed samples, matching the methodology document",
   "official runs perform 2 additional confirmation attempts for scenarios initially over the drift threshold",
   "validate_phase31_cross_lang.py rejects metadata mismatch, reports noisy scenarios as inconclusive when stddev exceeds 10%, and keeps confirmed drift as failure",
+  "reports preserve exact commands, exit codes, failure classes, and output tails for failed language runs",
   "baseline.json is never modified by benchmark or validation scripts",
   "two consecutive stable runs on the reference machine are required before baseline changes",
   "run_tests.ps1 passes the repository-built binary and explicit debug profile to both Phase 31 stages"
+]
+
+[[items]]
+id = "R-3132"
+title = "Async Echo Fused Spawn/Join Optimization"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-3120", "R-3131"]
+summary = "Add a conservative midend fusion for an immediately paired concurrent.task_spawn/task_join, backed by a single-lock Fast ABI, without changing the public API or the historical baseline."
+acceptance = [
+  "The fusion pass only rewrites a single-use spawn handle joined in the same block with no effectful gap, escape, branch, task_is_done, or multiple use; uncertain cases remain generic",
+  "runtime, JIT, AOT, Windows export, and generic host registration support spectra.std.concurrent.task_spawn_join",
+  "the fused path returns the original value, increments task statistics exactly once, allocates no observable task slot, and reset clears its statistics",
+  "Spectra validation fixtures cover fused execution, observed-handle fallback, and reset semantics",
+  "async-echo remains functionally correct with no timeout and its focused report records binary, profile, revision, commands, medians, p95, and standard deviation",
+  "the baseline remains unchanged; the accepted release criterion is the measured 38.9 ms fused/full result with no functional regression",
+  "the ≤1% aspirational target is explicitly deferred to a future optimization item, while R-3132 is complete after the accepted measured result and regression coverage"
+]
+
+[[items]]
+id = "R-3131"
+title = "Async Echo Stable Regression Triage"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-3120"]
+summary = "Investigate the reproducible async-echo slowdown observed by the controlled Phase 31 gate before changing the compiler, backend, or runtime. Preserve evidence and baseline integrity while determining whether the regression is implementation or benchmark-specific."
+acceptance = [
+  "two controlled Phase 31 reports and the focused async-echo report are preserved as evidence",
+  "scripts/diagnose_async_echo.py produces reproducible startup, reset, spawn, join, spawn+join, and full-workload reports with binary/profile/revision/host/command/median/stddev metadata",
+  "profiling covers Spectra JIT/codegen, concurrent fast ABI, runtime registry, task spawn/join, allocation, and process startup costs",
+  "root cause is classified as compiler/backend/runtime, benchmark contract, or external environment",
+  "if compiler/backend/runtime is responsible, a targeted fix and async-echo regression test are added",
+  "immediate concurrent task values use a mutex-protected representation without per-join Arc<OnceLock> allocation, while task IDs, reset, is_done, channels, counters, and pipeline semantics remain covered",
+  "if benchmark/environment is responsible, methodology and harness are corrected without changing the baseline to hide the result",
+  "R-3130 remains incomplete until async-echo is resolved or explicitly tracked with a validated follow-up decision"
 ]
 
 

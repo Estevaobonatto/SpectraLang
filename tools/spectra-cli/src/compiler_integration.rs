@@ -16,6 +16,7 @@ use spectra_midend::{
     lowering::ASTLowering,
     passes::{
         constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
+        concurrent_spawn_join_fusion::ConcurrentSpawnJoinFusion,
         function_inlining::FunctionInlining, validation::LoopStructureValidation,
         verification::verify_module, Pass,
     },
@@ -255,6 +256,15 @@ impl BackendDriver for FullPipelineBackend {
         }
 
         if options.optimize {
+            let mut fusion = ConcurrentSpawnJoinFusion::new();
+            let pass_start = Instant::now();
+            let modified = fusion.run(&mut ir_module);
+            pass_reports.push(PassReport {
+                name: "Concurrent Spawn/Join Fusion",
+                duration: pass_start.elapsed(),
+                modified,
+            });
+
             if options.opt_level >= 1 {
                 let mut cf = ConstantFolding::new();
                 let pass_start = Instant::now();

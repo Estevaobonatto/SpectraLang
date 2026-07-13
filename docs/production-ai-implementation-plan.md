@@ -2005,8 +2005,9 @@ networking, lifecycle, and operations are prerequisites.
 
 ### Phase 31 — Benchmark Evidence Hardening
 
-`R-3101` remains in progress until its cross-language evidence is reproducible
-on the declared Spectra binary/profile. `R-3130` hardens this gate: reports
+`R-3101` benchmark suite implementation is complete; `R-3130` remains in
+progress until its evidence gate is certified on the declared Spectra
+binary/profile. Reports
 must identify profile, binary, revision, host, timestamp, and sample policy;
 measurements above the 10% standard-deviation threshold are inconclusive;
 confirmed drift remains a failure; and baseline updates require repeated stable
@@ -2016,9 +2017,30 @@ does not claim a compiler or runtime regression until the same drift reproduces
 on a quiescent reference machine; the 2026-07-13 run was contaminated by a
 high-CPU `cline` process.
 
+The subsequent controlled rerun removed that competing process and made
+`async-pipeline` stable, but reproduced `async-echo` above baseline with low
+variance. R-3131 now has reproducible decomposition reports for startup,
+reset, spawn, join, and full workload. Runtime task slots no longer allocate
+`Arc<OnceLock>` on every join; task semantics and Fast ABI tests pass. Current
+debug full workload remains above the process-inclusive baseline, while release
+is materially faster. Therefore baseline remains unchanged and R-3130/R-3131
+remain in progress until the official debug reference gate separates startup
+overhead from remaining backend/runtime cost.
+
 R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
 run in separate serialized commands with per-step timeouts and captured output,
 while adapter absence remains an explicit supported skip condition.
+
+R-3132 adds the next backend/runtime optimization under this evidence rule:
+`task_spawn` followed by a single-use immediate `task_join` is fused only when
+the IR proves that the handle cannot be observed or escape. The fused path has
+one registry lock, preserves task accounting, creates no observable slot, and
+has generic-host and JIT/AOT Fast ABI implementations. The historical
+33,865,050 ns baseline is intentionally unchanged while the current debug
+measurement remains above the historical target. The measured 38.9 ms result
+was accepted for R-3132 without changing the baseline; further reduction
+toward ≤1% is deferred to a future optimization item. R-3130 and R-2013 still
+require their independent full-gate criteria.
 
 ## Architectural Principles for the API Platform
 

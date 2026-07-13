@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and run the Phase 31 cross-language benchmark suite.
 
-For each of 11 scenarios, this script:
+For each of 21 scenarios, this script:
 1. Builds the Go, Java, and Rust binaries.
 2. Compiles and runs the Spectra scenario via `spectralang run`.
 3. Times 20 iterations per language with 3 warmup rounds.
@@ -33,39 +33,34 @@ import sys
 import time
 from typing import Any
 
+try:
+    from scripts.phase31_contract import (
+        LANGUAGES,
+        MAX_STDDEV_PCT,
+        PHASE31_SCHEMA,
+        SCENARIOS,
+        TIMED_RUNS,
+        WARMUP_RUNS,
+        validate_scenario_ids,
+    )
+except ModuleNotFoundError:  # direct `python scripts/phase31_run_all.py`
+    from phase31_contract import (  # type: ignore[no-redef]
+        LANGUAGES,
+        MAX_STDDEV_PCT,
+        PHASE31_SCHEMA,
+        SCENARIOS,
+        TIMED_RUNS,
+        WARMUP_RUNS,
+        validate_scenario_ids,
+    )
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 BENCH_DIR = REPO_ROOT / "benchmarks" / "cross-lang"
 TARGET_DIR = REPO_ROOT / "target" / "phase31"
 BUILD_DIR = TARGET_DIR / "build"
 
-SCENARIOS = [
-    "cpu-loop-sum",
-    "cpu-fibs",
-    "cpu-string-build",
-    "cpu-hashmap",
-    "tensor-create",
-    "tensor-elementwise",
-    "tensor-reduce",
-    "tensor-matmul",
-    "ml-mlp-step",
-    "async-echo",
-    "async-pipeline",
-    "sort-int",
-    "binary-search",
-    "sieve",
-    "matrix-transpose",
-    "string-reverse",
-    "count-primes",
-    "gcd",
-    "pow-fast",
-    "word-count",
-    "digit-sum",
-]
-
-LANGUAGES = ("spectra", "go", "java", "rust")
-
-WARMUP = 3
-TIMED = 20
+WARMUP = WARMUP_RUNS
+TIMED = TIMED_RUNS
 DEFAULT_TIMEOUT_S = 300
 
 
@@ -118,32 +113,33 @@ def build_spectra(binary: pathlib.Path, scenario: str) -> pathlib.Path:
     return BENCH_DIR / scenario / "spectra" / "bench.spectra"
 
 
-def time_subprocess(cmd: list[str], cwd: pathlib.Path | None = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> tuple[int, float, bool]:
-    """Run `cmd` once, return (exit_code, elapsed_ns, success)."""
+def time_subprocess(cmd: list[str], cwd: pathlib.Path | None = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> tuple[int, float, bool, str]:
+    """Run `cmd` once, returning exit code, duration, status, output tail."""
     start = time.perf_counter_ns()
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, cwd=cwd, check=False, timeout=timeout_s
         )
     except subprocess.TimeoutExpired:
-        return -1, time.perf_counter_ns() - start, False
+        return -1, time.perf_counter_ns() - start, False, f"timeout after {timeout_s}s"
     elapsed = time.perf_counter_ns() - start
-    return proc.returncode, elapsed, proc.returncode == 0
+    output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+    return proc.returncode, elapsed, proc.returncode == 0, output[-4000:]
 
 
 def time_runs(cmd: list[str], cwd: pathlib.Path | None = None, timeout_s: int = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
     """Run warmup + timed iterations, return stats."""
     for _ in range(WARMUP):
-        rc, _, ok = time_subprocess(cmd, cwd, timeout_s)
+        rc, _, ok, output_tail = time_subprocess(cmd, cwd, timeout_s)
         if not ok:
-            return {"elapsed_ns": [], "ok": False, "last_rc": rc}
+            return {"elapsed_ns": [], "ok": False, "last_rc": rc, "output_tail": output_tail}
     samples: list[int] = []
     for _ in range(TIMED):
-        rc, ns, ok = time_subprocess(cmd, cwd, timeout_s)
+        rc, ns, ok, output_tail = time_subprocess(cmd, cwd, timeout_s)
         if not ok:
-            return {"elapsed_ns": samples, "ok": False, "last_rc": rc}
+            return {"elapsed_ns": samples, "ok": False, "last_rc": rc, "output_tail": output_tail}
         samples.append(ns)
-    return {"elapsed_ns": samples, "ok": True, "last_rc": 0}
+    return {"elapsed_ns": samples, "ok": True, "last_rc": 0, "output_tail": ""}
 
 
 def stats_for(samples: list[int]) -> dict[str, int]:
@@ -195,9 +191,20 @@ def run_scenario(
         if not res["ok"]:
             log(f"  spectra FAILED rc={res['last_rc']}")
             correctness = False
-            per_lang["spectra"] = {"error": f"rc={res['last_rc']}"}
+            per_lang["spectra"] = {
+                "error": f"rc={res['last_rc']}",
+                "output_tail": res.get("output_tail", ""),
+                "command": cmd,
+                "exit_code": res["last_rc"],
+                "failure_class": "timeout" if res["last_rc"] == -1 else "runtime",
+            }
         else:
-            per_lang["spectra"] = stats_for(res["elapsed_ns"])
+            per_lang["spectra"] = {
+                **stats_for(res["elapsed_ns"]),
+                "command": cmd,
+                "exit_code": res["last_rc"],
+                "failure_class": None,
+            }
 
     # Go
     if "go" not in skip_missing:
@@ -210,9 +217,18 @@ def run_scenario(
                 res = time_runs(cmd)
                 if not res["ok"]:
                     correctness = False
-                    per_lang["go"] = {"error": f"rc={res['last_rc']}"}
+                    per_lang["go"] = {
+                        "error": f"rc={res['last_rc']}",
+                        "output_tail": res.get("output_tail", ""),
+                        "command": cmd,
+                        "exit_code": res["last_rc"],
+                        "failure_class": "timeout" if res["last_rc"] == -1 else "runtime",
+                    }
                 else:
-                    per_lang["go"] = stats_for(res["elapsed_ns"])
+                    per_lang["go"] = {
+                        **stats_for(res["elapsed_ns"]), "command": cmd,
+                        "exit_code": res["last_rc"], "failure_class": None,
+                    }
             except Exception as e:
                 per_lang["go"] = {"error": str(e)}
 
@@ -227,9 +243,18 @@ def run_scenario(
                 res = time_runs(cmd)
                 if not res["ok"]:
                     correctness = False
-                    per_lang["java"] = {"error": f"rc={res['last_rc']}"}
+                    per_lang["java"] = {
+                        "error": f"rc={res['last_rc']}",
+                        "output_tail": res.get("output_tail", ""),
+                        "command": cmd,
+                        "exit_code": res["last_rc"],
+                        "failure_class": "timeout" if res["last_rc"] == -1 else "runtime",
+                    }
                 else:
-                    per_lang["java"] = stats_for(res["elapsed_ns"])
+                    per_lang["java"] = {
+                        **stats_for(res["elapsed_ns"]), "command": cmd,
+                        "exit_code": res["last_rc"], "failure_class": None,
+                    }
             except Exception as e:
                 per_lang["java"] = {"error": str(e)}
 
@@ -244,9 +269,18 @@ def run_scenario(
                 res = time_runs(cmd)
                 if not res["ok"]:
                     correctness = False
-                    per_lang["rust"] = {"error": f"rc={res['last_rc']}"}
+                    per_lang["rust"] = {
+                        "error": f"rc={res['last_rc']}",
+                        "output_tail": res.get("output_tail", ""),
+                        "command": cmd,
+                        "exit_code": res["last_rc"],
+                        "failure_class": "timeout" if res["last_rc"] == -1 else "runtime",
+                    }
                 else:
-                    per_lang["rust"] = stats_for(res["elapsed_ns"])
+                    per_lang["rust"] = {
+                        **stats_for(res["elapsed_ns"]), "command": cmd,
+                        "exit_code": res["last_rc"], "failure_class": None,
+                    }
             except Exception as e:
                 per_lang["rust"] = {"error": str(e)}
 
@@ -468,8 +502,14 @@ def main() -> int:
             log(f"auto-skipping {lang}: '{tool}' not on PATH")
             skip_missing.add(lang)
 
+    scenario_errors = validate_scenario_ids(list(args.scenarios))
+    if scenario_errors:
+        for error in scenario_errors:
+            log(f"ERROR: {error}")
+        return 2
+
     report = {
-        "schema": "spectra.phase31.bench.v1",
+        "schema": PHASE31_SCHEMA,
         "profile": profile,
         "spectra_binary": str(spectra_binary.resolve()),
         "git_revision": subprocess.run(
@@ -481,12 +521,16 @@ def main() -> int:
         ).stdout.strip() or "unknown",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "host": platform.platform(),
+        "host_details": {
+            "cpu_count": os.cpu_count(),
+            "python": platform.python_version(),
+        },
         "measurement_policy": {
             "warmup_runs": WARMUP,
             "timed_runs": TIMED,
             "independent_runs": args.independent_runs,
             "confirmation_runs": args.confirm_regressions,
-            "max_stddev_pct": 10.0,
+            "max_stddev_pct": MAX_STDDEV_PCT,
         },
         "runtimes": {
             "go": subprocess.run(

@@ -1,16 +1,16 @@
 # Phase 31 Implementation Summary
 
 Updated: 2026-06-23
-Roadmap items: `R-3101` (complete), `R-3102` (in_progress), `R-3103` (complete), `R-3108` (complete), `R-3104..R-3107`, `R-3109..R-3117` (not_started)
+Roadmap items: `R-3101` (complete), `R-3102` (in_progress), `R-3103` (in_progress), `R-3108` (complete), `R-3130` (in_progress), `R-3104..R-3107`, `R-3109..R-3117` (not_started)
 
 ## What Was Built
 
 ### R-3101 Cross-Language Benchmark Suite (complete)
 
-- **11 scenarios** × **4 languages** (Spectra + Go + Java + Rust) = 44 implementation files under `benchmarks/cross-lang/`.
-- **Driver** in `scripts/phase31_run_all.py`: builds the Go/Java/Rust binaries, compiles + runs the Spectra scenarios, times 14 runs (2 warmup + 12 timed) per language, emits `target/phase31/cross-lang-report.{json,md}`.
-- **Gate** in `scripts/validate_phase31_cross_lang.py`: checks presence, correctness, and ≤ 15% drift vs checked-in baseline (15% on first baseline to absorb dev-machine noise; tighten in CI to 5% on a pinned machine).
-- **Baseline helper** in `scripts/phase31_lock_baseline.py` + `scripts/phase31_apply_baseline.py`: run 3x, pick median, apply to baseline.
+- **21 scenarios** × **4 languages** (Spectra + Go + Java + Rust) under `benchmarks/cross-lang/`.
+- **Driver** in `scripts/phase31_run_all.py`: builds the Go/Java/Rust binaries once per scenario, runs Spectra scenarios, times 3 warmups + 20 samples, and emits `target/phase31/cross-lang-report.{json,md}`.
+- **Gate** in `scripts/validate_phase31_cross_lang.py`: checks the complete 21-scenario contract, correctness, metadata, noise, and ≤ 15% drift vs checked-in baseline.
+- **Baseline helpers** in `scripts/phase31_lock_baseline.py` + `scripts/phase31_apply_baseline.py`: create a reviewed candidate; applying requires explicit `--apply`, two stable runs, matching metadata, and no inconclusive scenario.
 - **Methodology** in `docs/performance/phase31-go-comparable/methodology.md`.
 - **Findings** in `docs/performance/phase31-go-comparable/findings-r3101-initial.md`.
 - **Wired into `run_tests.ps1`** as `phase31_run_all` + `validate_phase31_cross_lang`.
@@ -20,7 +20,7 @@ Roadmap items: `R-3101` (complete), `R-3102` (in_progress), `R-3103` (complete),
 - **Not** run yet (`cargo flamegraph` and `perf` are environment-dependent and were out of scope for this session). The R-3101 findings doc is the initial input to R-3103 and the eventual R-3102 profile.
 - The first R-3101 pass itself surfaced the most important finding: **string concatenation is 50x slower than Go** in `cpu-string-build`.
 
-### R-3103 Optimization Plan (complete)
+### R-3103 Optimization Plan (in_progress)
 
 - `docs/performance/phase31-go-comparable/optimization-plan.md` ranks 14 optimization items by impact × feasibility / risk.
 - Tier 1: R-3108 (string concat), R-3107 (tensor buffer reuse).
@@ -30,7 +30,12 @@ Roadmap items: `R-3101` (complete), `R-3102` (in_progress), `R-3103` (complete),
 - Tier 5: R-3115, R-3116, R-3117 (compiler + cranelift tuning).
 - Tier 6: R-3109 (autodiff inference skip).
 
-## Measured Baseline (after async-echo workload fix)
+## Historical Measured Baseline
+
+Values below are checked-in historical reference values, not a claim that the
+current working tree passes the gate. Current controlled evidence is recorded
+in `evidence-r3130-controlled-2026-07-13.md` and diagnostic JSON under
+`target/phase31/async-echo-diagnostics/`.
 
 | scenario | gap vs Go | gap vs Rust |
 |---|---:|---:|
@@ -60,14 +65,16 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 6. R-3110 (SIMD elementwise)
 7. R-3111 (tiled matmul)
 8. R-3109 (autodiff inference skip)
-9. R-3115 / R-3116 / R-3117 (compiler + cranelift)
-10. R-3112 (im2col + GEMM)
-11. R-3113 / R-3114 (async)
+9. R-3131 (async-echo regression triage)
+10. R-3115 / R-3116 / R-3117 (compiler + cranelift)
+11. R-3112 (im2col + GEMM)
+12. R-3113 / R-3114 (async)
 
 ## Acceptance Evidence
 
-- `python scripts/phase31_run_all.py` — full 11-scenario run completes.
-- `python scripts/validate_phase31_cross_lang.py` — passes with 15% drift.
+- `python scripts/phase31_run_all.py` — full 21-scenario run completes.
+- `python scripts/validate_phase31_cross_lang.py` — fail-closed until current
+  async-echo evidence passes on the official debug reference environment.
 - `python scripts/validate_phase31_cross_lang.py --max-drift 5` — strict mode
   for CI on a pinned machine.
 - Gate wired into `run_tests.ps1` (line ~1325).
@@ -122,8 +129,8 @@ scripts/phase31_apply_baseline.py
 
 ## Next Session Suggestions
 
-1. `python scripts/phase31_lock_baseline.py` (3 runs, ~10-15 min).
-2. `python scripts/phase31_apply_baseline.py` (updates `baseline.json`).
+1. `python scripts/phase31_lock_baseline.py --binary target/debug/spectralang.exe --profile debug` (candidate only).
+2. Review two stable candidate runs, then use `python scripts/phase31_apply_baseline.py --apply`.
 3. R-3102: run `cargo flamegraph`, `perf`, `pprof` on each scenario;
    commit artifacts under `docs/performance/phase31-go-comparable/profiles/`.
 4. Land R-3107 (tensor buffer pool) — the next-largest gap.

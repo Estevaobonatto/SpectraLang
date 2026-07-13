@@ -39,6 +39,8 @@ pub struct AotCodeGenerator {
     host_invoke_func: FuncId,
     concurrent_spawn_fast_func: FuncId,
     concurrent_join_fast_func: FuncId,
+    concurrent_spawn_join_fast_func: FuncId,
+    concurrent_reset_fast_func: FuncId,
     builder_new_fast_func: FuncId,
     builder_push_fast_func: FuncId,
     builder_len_fast_func: FuncId,
@@ -177,6 +179,27 @@ impl AotCodeGenerator {
                 &concurrent_join_sig,
             )
             .expect("Failed to declare concurrent join fast import");
+
+        let mut concurrent_spawn_join_sig = module.make_signature();
+        concurrent_spawn_join_sig.params.push(AbiParam::new(types::I64));
+        concurrent_spawn_join_sig.returns.push(AbiParam::new(types::I64));
+        let concurrent_spawn_join_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_spawn_join_fast",
+                Linkage::Import,
+                &concurrent_spawn_join_sig,
+            )
+            .expect("Failed to declare concurrent spawn/join fast import");
+
+        let mut concurrent_reset_sig = module.make_signature();
+        concurrent_reset_sig.returns.push(AbiParam::new(types::I64));
+        let concurrent_reset_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_reset_fast",
+                Linkage::Import,
+                &concurrent_reset_sig,
+            )
+            .expect("Failed to declare concurrent reset fast import");
 
         let mut builder_new_sig = module.make_signature();
         builder_new_sig.params.push(AbiParam::new(types::I64));
@@ -417,6 +440,8 @@ impl AotCodeGenerator {
             host_invoke_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
+            concurrent_spawn_join_fast_func,
+            concurrent_reset_fast_func,
             builder_new_fast_func,
             builder_push_fast_func,
             builder_len_fast_func,
@@ -641,6 +666,8 @@ impl AotCodeGenerator {
                 self.host_invoke_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
+                self.concurrent_spawn_join_fast_func,
+                self.concurrent_reset_fast_func,
                 self.builder_new_fast_func,
                 self.builder_push_fast_func,
                 self.builder_len_fast_func,

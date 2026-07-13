@@ -124,6 +124,9 @@ pub struct CodeGenerator {
     concurrent_spawn_fast_func: FuncId,
     /// Import for fast-ABI `concurrent.task_join`
     concurrent_join_fast_func: FuncId,
+    /// Import for fast-ABI fused `concurrent.task_spawn` + `task_join`
+    concurrent_spawn_join_fast_func: FuncId,
+    concurrent_reset_fast_func: FuncId,
     /// Import for fast-ABI `str.builder_new`
     builder_new_fast_func: FuncId,
     /// Import for fast-ABI `str.builder_push`
@@ -269,6 +272,14 @@ impl CodeGenerator {
             spectra_runtime::ffi::spectra_rt_concurrent_join_fast as *const u8,
         );
         builder.symbol(
+            "spectra_rt_concurrent_spawn_join_fast",
+            spectra_runtime::ffi::spectra_rt_concurrent_spawn_join_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_concurrent_reset_fast",
+            spectra_runtime::ffi::spectra_rt_concurrent_reset_fast as *const u8,
+        );
+        builder.symbol(
             "spectra_rt_builder_new",
             spectra_runtime::ffi::spectra_rt_builder_new as *const u8,
         );
@@ -409,6 +420,29 @@ impl CodeGenerator {
                 &concurrent_join_sig,
             )
             .expect("Failed to declare concurrent join fast import");
+
+        let mut concurrent_spawn_join_sig = module.make_signature();
+        concurrent_spawn_join_sig.params.push(AbiParam::new(types::I64));
+        concurrent_spawn_join_sig
+            .returns
+            .push(AbiParam::new(types::I64));
+        let concurrent_spawn_join_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_spawn_join_fast",
+                Linkage::Import,
+                &concurrent_spawn_join_sig,
+            )
+            .expect("Failed to declare concurrent spawn/join fast import");
+
+        let mut concurrent_reset_sig = module.make_signature();
+        concurrent_reset_sig.returns.push(AbiParam::new(types::I64));
+        let concurrent_reset_fast_func = module
+            .declare_function(
+                "spectra_rt_concurrent_reset_fast",
+                Linkage::Import,
+                &concurrent_reset_sig,
+            )
+            .expect("Failed to declare concurrent reset fast import");
 
         let mut builder_new_sig = module.make_signature();
         builder_new_sig.params.push(AbiParam::new(types::I64));
@@ -649,6 +683,8 @@ impl CodeGenerator {
             host_invoke_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
+            concurrent_spawn_join_fast_func,
+            concurrent_reset_fast_func,
             builder_new_fast_func,
             builder_push_fast_func,
             builder_len_fast_func,
@@ -848,6 +884,8 @@ impl CodeGenerator {
                 self.host_invoke_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
+                self.concurrent_spawn_join_fast_func,
+                self.concurrent_reset_fast_func,
                 self.builder_new_fast_func,
                 self.builder_push_fast_func,
                 self.builder_len_fast_func,
@@ -1080,6 +1118,8 @@ impl CodeGenerator {
         host_invoke_func: FuncId,
         concurrent_spawn_fast_func: FuncId,
         concurrent_join_fast_func: FuncId,
+        concurrent_spawn_join_fast_func: FuncId,
+        concurrent_reset_fast_func: FuncId,
         builder_new_fast_func: FuncId,
         builder_push_fast_func: FuncId,
         builder_len_fast_func: FuncId,
@@ -1143,6 +1183,8 @@ impl CodeGenerator {
                 host_invoke_func,
                 concurrent_spawn_fast_func,
                 concurrent_join_fast_func,
+                concurrent_spawn_join_fast_func,
+                concurrent_reset_fast_func,
                 builder_new_fast_func,
                 builder_push_fast_func,
                 builder_len_fast_func,
@@ -1216,6 +1258,8 @@ impl CodeGenerator {
         host_invoke_func: FuncId,
         concurrent_spawn_fast_func: FuncId,
         concurrent_join_fast_func: FuncId,
+        concurrent_spawn_join_fast_func: FuncId,
+        concurrent_reset_fast_func: FuncId,
         builder_new_fast_func: FuncId,
         builder_push_fast_func: FuncId,
         builder_len_fast_func: FuncId,
@@ -1531,6 +1575,13 @@ impl CodeGenerator {
                 args,
                 result_type,
             } => {
+                if host == "spectra.std.concurrent.reset" && args.is_empty() {
+                    let func_ref = module
+                        .declare_func_in_func(concurrent_reset_fast_func, builder.func);
+                    builder.ins().call(func_ref, &[]);
+                    return Ok(());
+                }
+
                 if host == "spectra.std.string.len" && args.len() == 1 {
                     let ptr = get_value(&args[0])?;
                     if let Some(result_value) = result {
@@ -1566,6 +1617,20 @@ impl CodeGenerator {
                             Self::emit_string_char_at_inline(builder, ptr, index)
                         };
                         value_map.insert(result_value.id, value);
+                    }
+                    return Ok(());
+                }
+
+                if host == "spectra.std.concurrent.task_spawn_join" && args.len() == 1 {
+                    let value = get_value(&args[0])?;
+                    let func_ref = module
+                        .declare_func_in_func(concurrent_spawn_join_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[value]);
+                    let results = builder.inst_results(call);
+                    if let Some(result_value) = result {
+                        if let Some(ret) = results.first() {
+                            value_map.insert(result_value.id, *ret);
+                        }
                     }
                     return Ok(());
                 }

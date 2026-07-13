@@ -1,6 +1,6 @@
 # Phase 31 Optimization Plan (R-3103)
 
-Updated: 2026-06-23
+Updated: 2026-07-13
 Roadmap item: `R-3103 Optimization Implementation Plan`
 Source data: `docs/performance/phase31-go-comparable/findings-r3101-initial.md`
 
@@ -63,9 +63,14 @@ per-scenario speedup range and the risk of regressing other workloads.
 6. **R-3110** — leverages R-3107.
 7. **R-3111** — leverages R-3107.
 8. **R-3109** — narrow impact.
-9. **R-3115 / R-3116 / R-3117** — combined compiler pass.
-10. **R-3112** — conv2d opt.
-11. **R-3113 / R-3114** — async work.
+9. **R-3131** — triage async-echo before reopening R-3113/R-3114.
+10. **R-3132** — fuse proven single-use `task_spawn`/`task_join` pairs and
+   measure the reset Fast ABI; keep conservative fallback and baseline
+   unchanged. The ≤1% aspiration is deferred after acceptance of the measured
+   R-3132 result.
+11. **R-3115 / R-3116 / R-3117** — combined compiler pass.
+12. **R-3112** — conv2d opt.
+13. **R-3113 / R-3114** — async work after R-3131 evidence.
 
 ## Acceptance Gate per Item
 
@@ -81,6 +86,23 @@ Each item must:
   with the new numbers.
 - Update `docs/performance/phase31-go-comparable/baseline.json` only if the
   improvement is intentional and accepted.
+
+## R-3132 measurement contract
+
+The `async-echo` path is process-inclusive and uses the debug binary. R-3132
+adds `ConcurrentSpawnJoinFusion` after lowering and before DCE. It accepts only
+same-block pairs whose handle has one use and whose gap is pure; all other
+handles use the existing spawn/join ABI. The runtime keeps
+`Vec<Option<SpectraHostValue>>`, increments task statistics once for a fused
+pair, and does not create a visible slot. `concurrent.reset()` is also emitted
+through a direct Fast ABI call.
+
+Diagnostic output is written to
+`target/phase31/async-echo-diagnostics/r3132-debug*.json` and includes a
+dedicated fused variant, p95, standard deviation, exact command, profile,
+binary, revision, and expected fused-operation accounting. The current
+post-implementation median is about 38.9 ms versus the unchanged 33.865 ms
+baseline. This result was accepted for R-3132; no baseline update was made.
 
 ## Out of Scope for R-3103
 

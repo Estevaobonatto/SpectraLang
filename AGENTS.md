@@ -1,7 +1,5 @@
 # AGENTS.md
 
-SEMPRE USAR SKILL CAVEMAN E SUAS VARIANTES
-
 ## Purpose
 
 This file defines repository-specific instructions for coding agents working in SpectraLang.

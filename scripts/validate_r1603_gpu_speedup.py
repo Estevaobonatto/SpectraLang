@@ -81,6 +81,29 @@ def spectra_bench_variant(mode: str) -> Path:
     return path
 
 
+def gpu_adapter_available(binary: Path) -> bool:
+    """Probe WGPU adapter availability before forcing the GPU benchmark path."""
+    BENCH_WORKDIR.mkdir(parents=True, exist_ok=True)
+    probe = BENCH_WORKDIR / "gpu-adapter-probe.spectra"
+    probe.write_text(
+        "module r1603_gpu_adapter_probe;\n"
+        "import std.tensor as tensor;\n"
+        "pub fn main() -> int {\n"
+        "    if tensor.device_available(6) { return 0; }\n"
+        "    return 2;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    result = run([str(binary), "run", str(probe)], timeout=120)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 2:
+        return False
+    output = (result.stdout or "") + (result.stderr or "")
+    print(output[-4000:], file=sys.stderr)
+    raise SystemExit(f"GPU adapter probe failed (rc={result.returncode})")
+
+
 def time_spectra(batch: int, iters: int, *, mode: str) -> dict[str, Any]:
     """Run the Spectra bench in an explicit CPU-only or GPU-only mode."""
     binary = ensure_spectralang()
@@ -161,6 +184,16 @@ def main() -> int:
         "bench_path": str(SPECTRA_BENCH.relative_to(ROOT)),
         "go_path": str(GO_BENCH.relative_to(ROOT)) if GO_BENCH.exists() else None,
     }
+
+    binary = ensure_spectralang()
+    if not gpu_adapter_available(binary):
+        report["status"] = "skipped"
+        report["skip_reason"] = "no WGPU adapter available"
+        with args.out.open("w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2)
+        print("[R-1603] SKIP: no WGPU adapter available")
+        return 0
+    report["status"] = "measured"
 
     # CPU (Spectra with no GPU upload = fall back)
     print(f"[R-1603] measuring CPU (batch={args.batch}) ...")

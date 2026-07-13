@@ -25,7 +25,7 @@ gate is functional regression + Spectra-vs-Spectra drift + numerical tolerance.
 
 | Runtime | Version pin | Build flags |
 |---|---|---|
-| Spectra (JIT) | in-tree CLI, `cargo build -p spectra-cli` | `--release` only for the `spectralang run` driver |
+| Spectra (JIT) | in-tree CLI, `cargo build -p spectra-cli` | official gate uses explicit `target/debug/spectralang.exe` and `debug` profile |
 | Go | `go1.22+` | `go build -ldflags="-s -w"` |
 | Java | OpenJDK 21 | default G1 GC |
 | Rust | stable 1.80+ | `cargo build --release` |
@@ -37,7 +37,8 @@ Rust binaries for each scenario.
 
 ## Scenarios
 
-11 scenarios across 4 domains. Each scenario has 4 implementations under
+21 scenarios across CPU, tensor, ML, async, and additional workload domains.
+Each scenario has 4 implementations under
 `benchmarks/cross-lang/<scenario>/{spectra,go,java,rust}/`.
 
 ### CPU
@@ -114,9 +115,10 @@ summary is written to `target/phase31/cross-lang-report.md`.
 - `independent_stddev_ns` measures variation between complete attempts and is
   the stability statistic when present.
 - `ns_per_iter = median_ns / iterations`.
-- A scenario with `stddev_ns > median_ns * 0.10` is `inconclusive`, not a
-  confirmed performance regression. It must be rerun on a quiescent or pinned
-  reference machine.
+- A scenario with `independent_stddev_ns > median_ns * 0.10` (or, for a
+  single-run diagnostic, `stddev_ns > median_ns * 0.10`) is `inconclusive`,
+  not a confirmed performance regression. It must be rerun on a quiescent or
+  pinned reference machine.
 - A stable scenario fails only when correctness fails or its Spectra median
   exceeds the checked-in baseline drift limit after confirmation attempts.
 - Baseline updates require two consecutive stable runs and review evidence;
@@ -148,10 +150,31 @@ values are reported per scenario and feed `R-3103`.
 ```powershell
 python scripts\phase31_run_all.py --spectra-binary target\debug\spectralang.exe --spectra-profile debug --independent-runs 3 --confirm-regressions 2 --baseline docs\performance\phase31-go-comparable\baseline.json --out target\phase31\cross-lang-report.json
 python scripts\validate_phase31_cross_lang.py --baseline docs/performance/phase31-go-comparable/baseline.json --report target\phase31/cross-lang-report.json --profile debug --spectra-binary target\debug\spectralang.exe
+python scripts\compare_phase31_reports.py target\phase31\run-1.json target\phase31\run-2.json
+python scripts\diagnose_async_echo.py --binary target\debug\spectralang.exe --profile debug --out target\phase31\async-echo-diagnostics\debug.json
+python scripts\diagnose_async_echo.py --binary target\release\spectralang.exe --profile release --out target\phase31\async-echo-diagnostics\release.json
 ```
 
 The full `run_tests.ps1` invokes the validator under the `phase31-cross-lang`
 group and includes the result in the test report.
+
+The optional GPU speedup benchmark is not part of the default suite. Run it
+with `run_tests.ps1 -Phase phase31_gpu`; when the adapter probe reports no WGPU
+adapter, the report is `status = "skipped"`, not a failed language/runtime
+benchmark.
+
+`diagnose_async_echo.py` is diagnostic only. It generates temporary fixtures
+under `target/phase31/async-echo-diagnostics/` for process startup,
+`reset`-only, `task_spawn`-only, `task_join`-only, `spawn+join`, the fused
+expression, and the full workload. It records exact commands, binary/profile,
+revision, host, warmups, samples, median, p95, standard deviation, and cost per
+task pair. It never edits `baseline.json`. The fused variant is diagnostic and
+does not replace the official process-inclusive baseline contract.
+
+The current debug baseline is process-inclusive. Therefore a stable debug
+regression with a large startup component must first be reproduced on the
+reference environment; release measurements are diagnostic and cannot
+replace the official debug gate.
 
 ## Updating the Baseline
 
@@ -163,6 +186,10 @@ Updating the baseline requires:
 2. Validation evidence: the new run, the comparison vs Go, and the functional
    suite result.
 3. Reviewer sign-off in the PR thread.
+
+`scripts/phase31_lock_baseline.py` creates a candidate only. It never edits
+`baseline.json`; `scripts/phase31_apply_baseline.py` refuses to edit it unless
+called with `--apply` after the two-run and metadata checks pass.
 
 ## Out of Scope
 

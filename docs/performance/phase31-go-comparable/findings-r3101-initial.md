@@ -7,7 +7,8 @@ Roadmap item: `R-3103` input
 ## Summary
 
 First complete pass of the cross-language benchmark suite (Spectra vs Go,
-Java, Rust) on 11 scenarios. The table is generated from
+Java, Rust) on the historical 11-scenario snapshot. The current suite has 21
+scenarios; this document is retained as historical evidence. The table is generated from
 `target/phase31/cross-lang-report.md` and is automatically re-emitted by
 `scripts/phase31_run_all.py`.
 
@@ -66,7 +67,7 @@ the existing kernels.
 2. **R-3107** (Tensor Cross-Call Buffer Reuse) — closes 5-17x gap on
    `tensor-create` and reduces hashmap host-call overhead.
 3. **R-3106** (Alloca Hoisting) — supports R-3107 and reduces midend cost.
-4. **R-3104** (Cranelift Value Map) — broadens across all 11 scenarios.
+4. **R-3104** (Cranelift Value Map) — broadens across the benchmark suite.
 5. **R-3110** (SIMD) — closes Rust gap on `tensor-elementwise` and
    `tensor-matmul`.
 6. **R-3105** (Host Call Batching) — same impact as R-3104 but more surgical.
@@ -213,7 +214,7 @@ pool hits are observable through the existing
 | Gap vs Go | 7.4x slower | 1.9x slower | 0.59x **faster** |
 | Spectra speedup | 1.0x | 2.74x | ~12x |
 
-The release number is the median of 12 timed runs; cold-start compile
+The historical release number is the median of 12 timed runs; cold-start compile
 is included. The 0.59x gap means Spectra `full_f` is now **faster than
 Go** on this scenario, which was the target's "≤ 0.6x" line.
 

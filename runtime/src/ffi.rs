@@ -456,6 +456,22 @@ pub extern "C" fn spectra_rt_concurrent_join_fast(task_id: SpectraHostValue) -> 
     crate::stdlib::concurrent_join_fast(task_id)
 }
 
+/// Fast ABI entry for an immediately paired concurrent spawn and join.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_concurrent_spawn_join_fast(
+    value: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::concurrent_spawn_join_fast(value)
+}
+
+/// Fast ABI entry for `concurrent.reset()`.
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn spectra_rt_concurrent_reset_fast() -> SpectraHostValue {
+    crate::stdlib::concurrent_reset_fast()
+}
+
 /// Fast ABI entry for `str.builder_new(capacity)`.
 ///
 /// Skips the generic host-call dispatch. Called directly from JIT code

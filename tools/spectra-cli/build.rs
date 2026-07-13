@@ -24,6 +24,8 @@ fn main() {
         let fast_symbols = [
             "spectra_rt_concurrent_spawn_fast",
             "spectra_rt_concurrent_join_fast",
+            "spectra_rt_concurrent_spawn_join_fast",
+            "spectra_rt_concurrent_reset_fast",
             "spectra_rt_map_new_fast",
             "spectra_rt_map_set_fast",
             "spectra_rt_map_get_fast",
@@ -46,7 +48,10 @@ fn main() {
             "spectra_rt_string_char_at_fast",
         ];
         for symbol in &fast_symbols {
-            println!("cargo:rustc-link-arg=/EXPORT:{}", symbol);
+            // Scope exports to the CLI binary. Applying `/EXPORT` to library
+            // and integration-test targets makes link.exe require runtime
+            // symbols that those targets intentionally do not link.
+            println!("cargo:rustc-link-arg-bin=spectralang=/EXPORT:{}", symbol);
         }
     }
 }

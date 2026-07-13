@@ -22,25 +22,30 @@ import json
 import pathlib
 import sys
 
+try:
+    from scripts.phase31_contract import (
+        MAX_STDDEV_PCT,
+        PHASE31_SCHEMA,
+        SCENARIOS,
+        TIMED_RUNS,
+        WARMUP_RUNS,
+    )
+except ModuleNotFoundError:  # direct `python scripts/validate_phase31_cross_lang.py`
+    from phase31_contract import (  # type: ignore[no-redef]
+        MAX_STDDEV_PCT,
+        PHASE31_SCHEMA,
+        SCENARIOS,
+        TIMED_RUNS,
+        WARMUP_RUNS,
+    )
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_BASELINE = (
     REPO_ROOT / "docs" / "performance" / "phase31-go-comparable" / "baseline.json"
 )
 DEFAULT_REPORT = REPO_ROOT / "target" / "phase31" / "cross-lang-report.json"
 
-REQUIRED_SCENARIOS = [
-    "cpu-loop-sum",
-    "cpu-fibs",
-    "cpu-string-build",
-    "cpu-hashmap",
-    "tensor-create",
-    "tensor-elementwise",
-    "tensor-reduce",
-    "tensor-matmul",
-    "ml-mlp-step",
-    "async-echo",
-    "async-pipeline",
-]
+REQUIRED_SCENARIOS = list(SCENARIOS)
 
 
 def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
@@ -48,6 +53,16 @@ def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
     inconclusive: list[str] = []
     base_scenarios = baseline.get("scenarios", {})
     report_by_id = {s["id"]: s for s in report.get("scenarios", [])}
+
+    missing_baseline = sorted(set(REQUIRED_SCENARIOS) - set(base_scenarios))
+    extra_baseline = sorted(set(base_scenarios) - set(REQUIRED_SCENARIOS))
+    extra_report = sorted(set(report_by_id) - set(REQUIRED_SCENARIOS))
+    for scenario_id in missing_baseline:
+        failures.append(f"baseline missing scenario: {scenario_id}")
+    for scenario_id in extra_baseline:
+        failures.append(f"baseline has unknown scenario: {scenario_id}")
+    for scenario_id in extra_report:
+        failures.append(f"report has unknown scenario: {scenario_id}")
 
     for scenario_id in REQUIRED_SCENARIOS:
         if scenario_id not in report_by_id:
@@ -67,7 +82,7 @@ def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
         if stddev_ns is None or spec["ns_per_iter"] <= 0:
             inconclusive.append(f"{scenario_id}: missing stable measurement statistics")
             continue
-        max_stddev_pct = baseline.get("max_stddev_pct", 10.0)
+        max_stddev_pct = baseline.get("max_stddev_pct", MAX_STDDEV_PCT)
         stddev_pct = (stddev_ns / spec["ns_per_iter"]) * 100.0
         if stddev_pct > max_stddev_pct:
             inconclusive.append(
@@ -99,6 +114,10 @@ def validate_report_metadata(
     report: dict, expected_profile: str | None, expected_binary: str | None
 ) -> list[str]:
     failures: list[str] = []
+    if report.get("schema") != PHASE31_SCHEMA:
+        failures.append(
+            f"report schema is {report.get('schema')!r}, expected {PHASE31_SCHEMA!r}"
+        )
     if expected_profile and report.get("profile") != expected_profile:
         failures.append(
             f"report profile is {report.get('profile')!r}, expected {expected_profile!r}"
@@ -111,10 +130,18 @@ def validate_report_metadata(
                 f"report binary is {actual_path!r}, expected {expected_path!r}"
             )
     policy = report.get("measurement_policy", {})
-    if policy.get("warmup_runs") != 3:
-        failures.append(f"report warmup_runs is {policy.get('warmup_runs')!r}, expected 3")
-    if policy.get("timed_runs") != 20:
-        failures.append(f"report timed_runs is {policy.get('timed_runs')!r}, expected 20")
+    if policy.get("warmup_runs") != WARMUP_RUNS:
+        failures.append(
+            f"report warmup_runs is {policy.get('warmup_runs')!r}, expected {WARMUP_RUNS}"
+        )
+    if policy.get("timed_runs") != TIMED_RUNS:
+        failures.append(
+            f"report timed_runs is {policy.get('timed_runs')!r}, expected {TIMED_RUNS}"
+        )
+    if policy.get("max_stddev_pct") != MAX_STDDEV_PCT:
+        failures.append(
+            f"report max_stddev_pct is {policy.get('max_stddev_pct')!r}, expected {MAX_STDDEV_PCT}"
+        )
     independent_runs = policy.get("independent_runs", 1)
     if not isinstance(independent_runs, int) or independent_runs < 1:
         failures.append("report independent_runs must be a positive integer")
@@ -169,6 +196,11 @@ def main() -> int:
 
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    report_ids = [s.get("id") for s in report.get("scenarios", [])]
+    if len(report_ids) != len(set(report_ids)):
+        print("phase31 cross-lang gate: FAIL (duplicate scenario)", file=sys.stderr)
+        return 1
 
     metadata_failures = validate_report_metadata(
         report, args.profile, args.spectra_binary
