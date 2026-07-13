@@ -1635,6 +1635,14 @@ the matrix requires them. The runner must reject missing files, missing package
 tests, parser-only substitutions, non-deterministic outputs, and commands that
 do not match the R-2008 matrix.
 
+The R-2013 implementation now provides the aggregate fail-closed validator
+`scripts/validate_r2013_release_candidate.py`. It regenerates the R-2001,
+R-2011, and R-2012 reports in one ordered execution and writes the versioned
+release-candidate evidence to `target/r2013-release-candidate/report.json`.
+The directed certification currently passes all eight matrix projects with
+zero untracked failures; the roadmap item remains `in_progress` until the
+repository-wide `run_tests.ps1` completion criterion is clean.
+
 When execution of this track finds a real compiler, runtime, package, or AI
 Support defect, the defect must either be fixed in the same change with
 regression coverage or added as a new roadmap/backlog item beyond `R-2008`
@@ -1994,6 +2002,23 @@ networking, lifecycle, and operations are prerequisites.
 - `R-3002` Distributed training real transport
 - `R-3003` Production model artifact formats
 - `R-3004` Compiler-native autodiff lowering
+
+### Phase 31 — Benchmark Evidence Hardening
+
+`R-3101` remains in progress until its cross-language evidence is reproducible
+on the declared Spectra binary/profile. `R-3130` hardens this gate: reports
+must identify profile, binary, revision, host, timestamp, and sample policy;
+measurements above the 10% standard-deviation threshold are inconclusive;
+confirmed drift remains a failure; and baseline updates require repeated stable
+runs with review evidence. Official runs use three independent attempts and
+two additional confirmations only for initially regressed scenarios. This work
+does not claim a compiler or runtime regression until the same drift reproduces
+on a quiescent reference machine; the 2026-07-13 run was contaminated by a
+high-CPU `cline` process.
+
+R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
+run in separate serialized commands with per-step timeouts and captured output,
+while adapter absence remains an explicit supported skip condition.
 
 ## Architectural Principles for the API Platform
 

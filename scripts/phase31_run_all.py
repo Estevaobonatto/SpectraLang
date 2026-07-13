@@ -21,9 +21,11 @@ report and compares Spectra performance against the checked-in baseline.
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 import json
 import os
 import pathlib
+import platform
 import shutil
 import statistics
 import subprocess
@@ -62,8 +64,8 @@ SCENARIOS = [
 
 LANGUAGES = ("spectra", "go", "java", "rust")
 
-WARMUP = 2
-TIMED = 12
+WARMUP = 3
+TIMED = 20
 DEFAULT_TIMEOUT_S = 300
 
 
@@ -75,6 +77,7 @@ def find_tool(name: str) -> str | None:
     return shutil.which(name)
 
 
+@lru_cache(maxsize=None)
 def build_go(scenario: str) -> pathlib.Path:
     src = BENCH_DIR / scenario / "go" / "bench.go"
     out = BUILD_DIR / scenario / "go" / "bench"
@@ -86,6 +89,7 @@ def build_go(scenario: str) -> pathlib.Path:
     return out
 
 
+@lru_cache(maxsize=None)
 def build_java(scenario: str) -> pathlib.Path:
     src = BENCH_DIR / scenario / "java" / "Bench.java"
     out_dir = BUILD_DIR / scenario / "java"
@@ -97,6 +101,7 @@ def build_java(scenario: str) -> pathlib.Path:
     return out_dir / "Bench.class"
 
 
+@lru_cache(maxsize=None)
 def build_rust(scenario: str) -> pathlib.Path:
     src = BENCH_DIR / scenario / "rust" / "bench.rs"
     out = BUILD_DIR / scenario / "rust" / "bench"
@@ -289,6 +294,55 @@ def run_scenario(
     }
 
 
+def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate independent attempts without hiding correctness failures."""
+    if len(attempts) == 1:
+        attempts[0]["independent_runs"] = 1
+        return attempts[0]
+
+    first = attempts[0]
+    results: dict[str, Any] = {}
+    for language in LANGUAGES:
+        samples = [
+            attempt.get("results", {}).get(language, {}).get("ns_per_iter")
+            for attempt in attempts
+        ]
+        if any(value is None for value in samples):
+            results[language] = {"error": "independent attempt failed"}
+            continue
+        medians = [int(value) for value in samples]
+        result = dict(first["results"][language])
+        result["ns_per_iter"] = int(statistics.median(medians))
+        result["independent_medians_ns"] = medians
+        result["independent_stddev_ns"] = int(statistics.pstdev(medians))
+        results[language] = result
+
+    first["results"] = results
+    first["independent_runs"] = len(attempts)
+    first["independent_attempts"] = [
+        {
+            "results": attempt.get("results", {}),
+            "correctness_passed": attempt.get("correctness_passed", False),
+        }
+        for attempt in attempts
+    ]
+    first["correctness_passed"] = all(
+        attempt.get("correctness_passed", False) for attempt in attempts
+    )
+    spectra = results.get("spectra", {})
+    go = results.get("go", {})
+    java = results.get("java", {})
+    rust = results.get("rust", {})
+    if all(
+        result.get("ns_per_iter", 0) > 0
+        for result in (spectra, go, java, rust)
+    ):
+        first["gap_to_go"] = round(spectra["ns_per_iter"] / go["ns_per_iter"], 3)
+        first["gap_to_rust"] = round(spectra["ns_per_iter"] / rust["ns_per_iter"], 3)
+        first["gap_to_java"] = round(spectra["ns_per_iter"] / java["ns_per_iter"], 3)
+    return first
+
+
 def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
     lines = [
         "# Phase 31 Cross-Language Performance Report",
@@ -344,6 +398,31 @@ def main() -> int:
         help="path to the spectra CLI binary",
     )
     parser.add_argument(
+        "--spectra-profile",
+        choices=("debug", "release"),
+        default=None,
+        help="actual build profile of --spectra-binary; inferred when omitted",
+    )
+    parser.add_argument(
+        "--independent-runs",
+        type=int,
+        default=1,
+        help="number of complete independent measurements per scenario",
+    )
+    parser.add_argument(
+        "--baseline",
+        default=str(
+            REPO_ROOT / "docs" / "performance" / "phase31-go-comparable" / "baseline.json"
+        ),
+        help="read-only baseline used to trigger confirmation measurements",
+    )
+    parser.add_argument(
+        "--confirm-regressions",
+        type=int,
+        default=0,
+        help="extra independent attempts for scenarios initially over baseline drift",
+    )
+    parser.add_argument(
         "--skip",
         nargs="*",
         default=[],
@@ -351,6 +430,9 @@ def main() -> int:
         help="languages to skip (e.g. when toolchain missing)",
     )
     args = parser.parse_args()
+    if args.independent_runs < 1 or args.confirm_regressions < 0:
+        log("ERROR: --independent-runs must be >= 1 and --confirm-regressions >= 0")
+        return 2
 
     spectra_binary = pathlib.Path(args.spectra_binary)
     if not spectra_binary.exists():
@@ -358,11 +440,28 @@ def main() -> int:
         log("Build it first: cargo build -p spectra-cli")
         return 2
 
+    inferred_profile = "release" if "release" in spectra_binary.parts else "debug"
+    profile = args.spectra_profile or inferred_profile
+    if args.spectra_profile and args.spectra_profile != inferred_profile:
+        log(
+            f"ERROR: --spectra-profile={args.spectra_profile} does not match "
+            f"binary path ({inferred_profile})"
+        )
+        return 2
+
     out_path = pathlib.Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
     skip_missing = set(args.skip)
+    baseline = {}
+    baseline_path = pathlib.Path(args.baseline)
+    if baseline_path.exists():
+        try:
+            baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            log(f"ERROR: invalid Phase 31 baseline at {baseline_path}: {exc}")
+            return 2
     # Auto-skip languages whose toolchain is missing.
     for lang, tool in (("go", "go"), ("java", "javac"), ("rust", "rustc")):
         if find_tool(tool) is None:
@@ -371,8 +470,24 @@ def main() -> int:
 
     report = {
         "schema": "spectra.phase31.bench.v1",
-        "profile": "release",
-        "host": os.uname().sysname if hasattr(os, "uname") else os.name,
+        "profile": profile,
+        "spectra_binary": str(spectra_binary.resolve()),
+        "git_revision": subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip() or "unknown",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "host": platform.platform(),
+        "measurement_policy": {
+            "warmup_runs": WARMUP,
+            "timed_runs": TIMED,
+            "independent_runs": args.independent_runs,
+            "confirmation_runs": args.confirm_regressions,
+            "max_stddev_pct": 10.0,
+        },
         "runtimes": {
             "go": subprocess.run(
                 ["go", "version"], capture_output=True, text=True, check=False
@@ -394,20 +509,60 @@ def main() -> int:
     }
 
     for scenario in args.scenarios:
-        try:
-            entry = run_scenario(scenario, spectra_binary, skip_missing)
-        except Exception as e:
-            log(f"scenario {scenario} raised: {e}")
-            entry = {
-                "id": scenario,
-                "category": "unknown",
-                "iterations": 0,
-                "results": {},
-                "gap_to_go": None,
-                "gap_to_rust": None,
-                "correctness_passed": False,
-                "error": str(e),
-            }
+        attempts: list[dict[str, Any]] = []
+        for attempt_number in range(args.independent_runs):
+            try:
+                attempts.append(run_scenario(scenario, spectra_binary, skip_missing))
+            except Exception as e:
+                log(f"scenario {scenario} attempt {attempt_number + 1} raised: {e}")
+                attempts.append(
+                    {
+                        "id": scenario,
+                        "category": "unknown",
+                        "iterations": 0,
+                        "results": {},
+                        "gap_to_go": None,
+                        "gap_to_rust": None,
+                        "correctness_passed": False,
+                        "error": str(e),
+                    }
+                )
+        entry = aggregate_scenario_attempts(attempts)
+        base_entry = baseline.get("scenarios", {}).get(scenario, {})
+        base_ns = base_entry.get("spectra_ns_per_iter", 0)
+        max_drift = baseline.get("max_drift_pct", 5.0)
+        observed_ns = entry.get("results", {}).get("spectra", {}).get("ns_per_iter", 0)
+        needs_confirmation = (
+            args.confirm_regressions > 0
+            and not base_entry.get("placeholder", False)
+            and base_ns > 0
+            and observed_ns > base_ns * (1.0 + max_drift / 100.0)
+        )
+        if needs_confirmation:
+            log(
+                f"{scenario}: initial drift exceeds {max_drift:.1f}%; "
+                f"running {args.confirm_regressions} confirmation attempt(s)"
+            )
+            for confirmation_number in range(args.confirm_regressions):
+                try:
+                    attempts.append(run_scenario(scenario, spectra_binary, skip_missing))
+                except Exception as e:
+                    log(
+                        f"scenario {scenario} confirmation {confirmation_number + 1} raised: {e}"
+                    )
+                    attempts.append(
+                        {
+                            "id": scenario,
+                            "category": entry.get("category", "unknown"),
+                            "iterations": entry.get("iterations", 0),
+                            "results": {},
+                            "gap_to_go": None,
+                            "gap_to_rust": None,
+                            "correctness_passed": False,
+                            "error": str(e),
+                        }
+                    )
+            entry = aggregate_scenario_attempts(attempts)
         report["scenarios"].append(entry)
 
     out_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

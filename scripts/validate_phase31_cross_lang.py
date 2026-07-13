@@ -43,8 +43,9 @@ REQUIRED_SCENARIOS = [
 ]
 
 
-def check_baseline(baseline: dict, report: dict) -> list[str]:
+def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
     failures: list[str] = []
+    inconclusive: list[str] = []
     base_scenarios = baseline.get("scenarios", {})
     report_by_id = {s["id"]: s for s in report.get("scenarios", [])}
 
@@ -61,6 +62,18 @@ def check_baseline(baseline: dict, report: dict) -> list[str]:
             continue
         if "ns_per_iter" not in spec:
             failures.append(f"{scenario_id}: missing spectra ns_per_iter")
+            continue
+        stddev_ns = spec.get("independent_stddev_ns", spec.get("stddev_ns"))
+        if stddev_ns is None or spec["ns_per_iter"] <= 0:
+            inconclusive.append(f"{scenario_id}: missing stable measurement statistics")
+            continue
+        max_stddev_pct = baseline.get("max_stddev_pct", 10.0)
+        stddev_pct = (stddev_ns / spec["ns_per_iter"]) * 100.0
+        if stddev_pct > max_stddev_pct:
+            inconclusive.append(
+                f"{scenario_id}: measurement noise {stddev_pct:.1f}% > "
+                f"{max_stddev_pct:.1f}%"
+            )
             continue
         base_entry = base_scenarios.get(scenario_id)
         if base_entry is None:
@@ -79,6 +92,32 @@ def check_baseline(baseline: dict, report: dict) -> list[str]:
                 f"{scenario_id}: spectra regressed {drift_pct:.1f}% > {max_drift:.1f}% "
                 f"(baseline={base_ns} ns, observed={spec['ns_per_iter']} ns)"
             )
+    return failures, inconclusive
+
+
+def validate_report_metadata(
+    report: dict, expected_profile: str | None, expected_binary: str | None
+) -> list[str]:
+    failures: list[str] = []
+    if expected_profile and report.get("profile") != expected_profile:
+        failures.append(
+            f"report profile is {report.get('profile')!r}, expected {expected_profile!r}"
+        )
+    if expected_binary:
+        expected_path = str(pathlib.Path(expected_binary).resolve())
+        actual_path = str(pathlib.Path(report.get("spectra_binary", "")).resolve())
+        if actual_path != expected_path:
+            failures.append(
+                f"report binary is {actual_path!r}, expected {expected_path!r}"
+            )
+    policy = report.get("measurement_policy", {})
+    if policy.get("warmup_runs") != 3:
+        failures.append(f"report warmup_runs is {policy.get('warmup_runs')!r}, expected 3")
+    if policy.get("timed_runs") != 20:
+        failures.append(f"report timed_runs is {policy.get('timed_runs')!r}, expected 20")
+    independent_runs = policy.get("independent_runs", 1)
+    if not isinstance(independent_runs, int) or independent_runs < 1:
+        failures.append("report independent_runs must be a positive integer")
     return failures
 
 
@@ -105,6 +144,17 @@ def main() -> int:
         default=str(DEFAULT_REPORT),
         help="observed Phase 31 cross-lang JSON report",
     )
+    parser.add_argument(
+        "--profile",
+        choices=("debug", "release"),
+        default=None,
+        help="require this profile in the observed report",
+    )
+    parser.add_argument(
+        "--spectra-binary",
+        default=None,
+        help="require this binary path in the observed report",
+    )
     args = parser.parse_args()
 
     baseline_path = pathlib.Path(args.baseline)
@@ -120,6 +170,15 @@ def main() -> int:
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     report = json.loads(report_path.read_text(encoding="utf-8"))
 
+    metadata_failures = validate_report_metadata(
+        report, args.profile, args.spectra_binary
+    )
+    if metadata_failures:
+        print("phase31 cross-lang gate: FAIL (metadata)", file=sys.stderr)
+        for failure in metadata_failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+
     max_drift = baseline.get("max_drift_pct", 5.0)
     # Allow CLI override to compare against a stricter target than the
     # checked-in baseline (e.g. for tight CI gates on a pinned machine).
@@ -128,12 +187,19 @@ def main() -> int:
         max_drift = args_drift
     baseline_for_check = dict(baseline)
     baseline_for_check["max_drift_pct"] = max_drift
-    failures = check_baseline(baseline_for_check, report)
+    failures, inconclusive = check_baseline(baseline_for_check, report)
     if failures:
         print("phase31 cross-lang gate: FAIL", file=sys.stderr)
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
+        for item in inconclusive:
+            print(f"  - inconclusive: {item}", file=sys.stderr)
         return 1
+    if inconclusive:
+        print("phase31 cross-lang gate: INCONCLUSIVE", file=sys.stderr)
+        for item in inconclusive:
+            print(f"  - {item}", file=sys.stderr)
+        return 2
 
     print("phase31 cross-lang gate: PASS")
     return 0

@@ -1039,19 +1039,6 @@ if ($r1903ModelMonitoring.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase19-monitoring"; Teste = "validate_r1903_model_monitoring"; Status = $r1903ModelMonitoring.Status; Detalhe = $r1903ModelMonitoring.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.24: R-2001 AI conformance suite
-# ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host "--- R-2001 AI conformance suite ---" -ForegroundColor Yellow
-$r2001AiConformance = Invoke-HostCommand -name "validate_r2001_ai_conformance" -fileName "python" -arguments @("scripts\validate_r2001_ai_conformance.py", "--keep-going") -workingDir (Get-Location).Path
-if ($r2001AiConformance.Status -eq "PASSOU") {
-    $totalPassed++
-} else {
-    $totalFailed++
-}
-$results += [PSCustomObject]@{ Diretorio = "phase20-conformance"; Teste = "validate_r2001_ai_conformance"; Status = $r2001AiConformance.Status; Detalhe = $r2001AiConformance.Detail }
-
-# ---------------------------------------------------------------------------
 # Grupo 8.25: R-2002 production release channels
 # ---------------------------------------------------------------------------
 Write-Host ""
@@ -1156,30 +1143,17 @@ if ($r2008LanguageFeatureMatrix.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase20-project-matrix"; Teste = "validate_r2008_language_feature_matrix"; Status = $r2008LanguageFeatureMatrix.Status; Detalhe = $r2008LanguageFeatureMatrix.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.31: R-2011 integrated project runner
+# Grupo 8.31: R-2013 release candidate integrated project gate
 # ---------------------------------------------------------------------------
 Write-Host ""
-Write-Host "--- R-2011 integrated project runner ---" -ForegroundColor Yellow
-$r2011IntegratedProjectRunner = Invoke-HostCommand -name "validate_r2011_integrated_project_runner" -fileName "python" -arguments @("scripts\validate_r2011_integrated_project_runner.py", "--binary", $binary) -workingDir (Get-Location).Path
-if ($r2011IntegratedProjectRunner.Status -eq "PASSOU") {
+Write-Host "--- R-2013 release candidate integrated project gate ---" -ForegroundColor Yellow
+$r2013ReleaseCandidate = Invoke-HostCommand -name "validate_r2013_release_candidate" -fileName "python" -arguments @("scripts\validate_r2013_release_candidate.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r2013ReleaseCandidate.Status -eq "PASSOU") {
     $totalPassed++
 } else {
     $totalFailed++
 }
-$results += [PSCustomObject]@{ Diretorio = "phase20-integrated-project-runner"; Teste = "validate_r2011_integrated_project_runner"; Status = $r2011IntegratedProjectRunner.Status; Detalhe = $r2011IntegratedProjectRunner.Detail }
-
-# ---------------------------------------------------------------------------
-# Grupo 8.32: R-2012 failure-to-roadmap triage
-# ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host "--- R-2012 failure-to-roadmap triage ---" -ForegroundColor Yellow
-$r2012FailureTriage = Invoke-HostCommand -name "validate_r2012_failure_triage" -fileName "python" -arguments @("scripts\validate_r2012_failure_triage.py", "--runner-report", "target\r2011-integrated-project-runner\report.json", "--report", "target\r2012-failure-triage\report.json") -workingDir (Get-Location).Path
-if ($r2012FailureTriage.Status -eq "PASSOU") {
-    $totalPassed++
-} else {
-    $totalFailed++
-}
-$results += [PSCustomObject]@{ Diretorio = "phase20-failure-triage"; Teste = "validate_r2012_failure_triage"; Status = $r2012FailureTriage.Status; Detalhe = $r2012FailureTriage.Detail }
+$results += [PSCustomObject]@{ Diretorio = "phase20-release-candidate"; Teste = "validate_r2013_release_candidate"; Status = $r2013ReleaseCandidate.Status; Detalhe = $r2013ReleaseCandidate.Detail }
 
 # ---------------------------------------------------------------------------
 # Grupo 8.33: R-2101 async/await execution model ADR
@@ -1329,7 +1303,7 @@ $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-3101 Phase 31 cross-language benchmark gate ---" -ForegroundColor Yellow
-$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json") -workingDir (Get-Location).Path -timeoutSeconds 1800
+$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $binary, "--spectra-profile", "debug", "--independent-runs", "3", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "2") -workingDir (Get-Location).Path -timeoutSeconds 1800
 if ($phase31Driver.Status -eq "PASSOU") {
     $totalPassed++
 } else {
@@ -1337,7 +1311,7 @@ if ($phase31Driver.Status -eq "PASSOU") {
 }
 $results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "phase31_run_all"; Status = $phase31Driver.Status; Detalhe = $phase31Driver.Detail }
 
-$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json") -workingDir (Get-Location).Path
+$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json", "--profile", "debug", "--spectra-binary", $binary) -workingDir (Get-Location).Path
 if ($phase31Gate.Status -eq "PASSOU") {
     $totalPassed++
 } else {

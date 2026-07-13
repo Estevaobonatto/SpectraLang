@@ -2177,7 +2177,8 @@ returns `NULL` and the JIT panics.
 
 ### Validation
 
-- `run_tests.ps1` reports 357/357 PASSOU (0 FALHOU, 100% success rate).
+- Historical snapshot for this phase reported 357/357 PASSOU; current
+  repository-wide status must be taken from the latest `run_tests.ps1` output.
 - All `tests\validation` (151) pass.
 - All `phase13-ai` AI examples (21) pass.
 - `R-2001`, `R-3101` (Phase 31 cross-lang), and `phase12` stress gates pass.
@@ -2754,7 +2755,9 @@ the next tracked development cycle toward a broader AI/ML platform.
 - Optional WGPU kernels for elementwise ops, unary ops, reductions, `matmul`, and `std.ml.conv2d` fall back to CPU on dispatch failure instead of returning an internal operation failure.
 - `compiler/src/semantic/builtin_modules.rs` and `midend/src/lowering.rs` expose the new public tensor diagnostics through normal Spectra compilation.
 - `tests/validation/91_tensor_phase16_gpu_backend.spectra` validates the public API and skips accelerator-only execution safely when WGPU is unavailable.
-- `scripts/validate_r1603_gpu_backend.py` runs the default CPU diagnostics test and the optional `--features gpu` backend test.
+- `scripts/validate_r1603_gpu_backend.py` runs the default CPU diagnostics test
+  and the exact-name WGPU backend test with `--test-threads=1`, per-step
+  timeout, and captured failure output.
 - `run_tests.ps1` includes the `phase16-gpu` gate.
 - Sub-items R-3021 (real device upload), R-3023 (typed GPU error kinds), and R-3051 (device buffer pool) are already `complete` in code; they are now tracked formally in `roadmap/roadmap.toml` so the planning artifacts and the code stay aligned.
 
@@ -2775,7 +2778,7 @@ R-3052 full is complete: resident forward ops, MSE loss, backward accumulation, 
 
 Original R-30xx performance-expansion blocks for tiled/parallel kernels, broader memory planning, GPU mixed precision, graph execution, optimizer kernels, and cross-language speedup were retired. The validated baseline sub-items R-3021, R-3023, R-3051, R-3052, and R-3080 remain active formal roadmap items with statuses based on code evidence; R-3071 remains open.
 
-**Update (2026-07-13)**: formal phase_16 sub-item statuses now reflect code evidence: R-3021, R-3023, R-3051, R-3052, and R-3080 are complete; R-3071 remains not started. R-3031..R-3044, R-3053, R-3061..R-3067, R-3081..R-3083, R-3091..R-3093, and R-3130 remain retired.
+**Update (2026-07-13)**: formal phase_16 sub-item statuses now reflect code evidence: R-3021, R-3023, R-3051, R-3052, and R-3080 are complete; R-3071 remains not started. R-3031..R-3044, R-3053, R-3061..R-3067, R-3081..R-3083, and R-3091..R-3093 remain retired. R-3130 is reopened as the Phase 31 benchmark-gate hardening item.
 
 ---
 
@@ -3600,7 +3603,7 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 
 ## R-2013 Release Candidate Integrated Project Gate
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2015`, `R-2001`, `R-2003`
@@ -3620,6 +3623,27 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 - Basic component and AI Support integrated `.spectra` projects pass with zero
   untracked failures through normal CLI/package paths.
 - The release report lists any newly-created follow-up roadmap items.
+
+### Implemented so far
+
+- `scripts/validate_r2013_release_candidate.py` validates the R-2008 matrix,
+  regenerates R-2001/R-2011/R-2012 reports in order, rejects stale or invalid
+  predecessor evidence, and writes the versioned aggregate report.
+- `run_tests.ps1` invokes the aggregate gate once and records
+  `validate_r2013_release_candidate` as the official Phase 20 release-candidate
+  result.
+- Unit coverage exists in `scripts/test_validate_r2013_release_candidate.py`.
+- Directed evidence in `target/r2013-release-candidate/report.json` currently
+  reports `passed`, 8/8 projects, certified R-2001 conformance, and zero
+  untracked failures.
+
+### Remaining before completion
+
+- The previous full `run_tests.ps1` execution exposed Phase 31 noise and a
+  transient R-1603 host-command timeout. The isolated R-1603 validator now
+  passes with serialized WGPU tests. The full repository gate remains pending
+  a quiescent Phase 31 run; these failures are outside R-2013's eight
+  integrated projects.
 
 ## R-2014 Multi-Module Aggregate and Trait Codegen Recovery
 
@@ -7293,7 +7317,8 @@ Cenários cobertos (11):
   33,865,050 = **59.9x** speedup total.
 - Speedup R-3119 → R-3120: 3.66x (eliminação de ~3 Mutex locks + 2
   allocs + 2 frees + 1 name lookup + 1 catch_unwind por chamada).
-- Phase 31 cross-lang gate PASS em todas as medições.
+- Phase 31 cross-lang gate passed in the historical R-3120 measurement; current
+  runs require stable-profile metadata and noise validation from R-3130.
 - Os 9 outros cenários não foram tocados. Deltas observados (≤10%)
   são ruído do dev machine dentro da `first_pass_policy` de 15%.
 
@@ -8036,6 +8061,46 @@ baseline: 38.8M ns.
   rastreabilidade do acceptance original.
 
 ---
+
+## R-3130 Deterministic Phase 31 Benchmark Gate
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `tooling`
+- Dependencies: `R-3101`
+
+### Scope
+
+- Record actual Spectra binary/profile, Git revision, host, timestamp, and
+  warmup/sample policy in every benchmark report.
+- Align runner with 3 warmups and 20 timed samples.
+- Run 3 independent attempts per scenario and add 2 confirmation attempts
+  only when the initial aggregate exceeds the baseline drift threshold.
+- Classify standard deviation above 10% as `inconclusive`, separate from a
+  confirmed performance regression.
+- Require stable repeated evidence before baseline changes; scripts never
+  modify `baseline.json` automatically.
+
+### Current implementation
+
+- `scripts/phase31_run_all.py` now accepts explicit binary/profile arguments
+  and records measurement metadata.
+- `scripts/validate_phase31_cross_lang.py` validates metadata and separates
+  noisy measurements from confirmed drift.
+- `run_tests.ps1` passes `target/debug/spectralang.exe` and `debug` explicitly.
+- Official execution passes the read-only baseline and confirmation policy;
+  confirmation attempts are recorded in the generated report.
+- Unit coverage is in `scripts/test_phase31_gates.py`.
+
+### Remaining
+
+- Run the full Phase 31 gate on a quiescent reference machine and obtain two
+  consecutive stable runs before revising baseline values.
+- The 2026-07-13 full run used the new 3-attempt plus 2-confirmation policy but
+  remained contaminated by a high-CPU `cline` process; its `cpu-fibs`,
+  `tensor-elementwise`, and `async-echo` drift must not be treated as a
+  compiler/runtime regression.
+- Keep R-3101 open while current profile/noise evidence is not certified.
 
 ## Execution Order
 

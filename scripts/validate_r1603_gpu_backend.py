@@ -18,10 +18,26 @@ ROOT = Path(__file__).resolve().parents[1]
 CARGO = shutil.which("cargo") or str(Path.home() / ".cargo" / "bin" / "cargo.exe")
 
 
-def run_step(name: str, args: list[str]) -> None:
+DEFAULT_STEP_TIMEOUT_S = 120
+
+
+def run_step(name: str, args: list[str], timeout_s: int = DEFAULT_STEP_TIMEOUT_S) -> None:
     print(f"[R-1603] {name}: {' '.join(args)}")
-    completed = subprocess.run(args, cwd=ROOT, text=True)
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"[R-1603] TIMEOUT after {timeout_s}s: {name}", file=sys.stderr)
+        raise SystemExit(124)
     if completed.returncode != 0:
+        output = (completed.stdout or "") + (completed.stderr or "")
+        if output.strip():
+            print(output[-4000:], file=sys.stderr)
         raise SystemExit(completed.returncode)
 
 
@@ -45,8 +61,9 @@ def main() -> int:
             "spectra-runtime",
             "--features",
             "gpu",
-            "tensor_runtime_r1603",
+            "tensor_runtime_r1603_wgpu_backend_diagnostics_and_backward",
             "--",
+            "--test-threads=1",
             "--nocapture",
         ],
     )

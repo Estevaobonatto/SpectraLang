@@ -77,10 +77,14 @@ Required gate:
 python scripts\validate_r1603_gpu_backend.py
 ```
 
-The script runs:
+The script runs CPU fallback and WGPU tests in separate commands. The WGPU
+diagnostic uses its exact test name and `--test-threads=1` because runtime GPU
+context and tensor registries are process-global. Each validation step has a
+bounded timeout and captures compiler/runtime output on failure. The script
+runs:
 
 - `cargo test -p spectra-runtime tensor_runtime_r1603_default_cpu_fallback_and_diagnostics`
-- `cargo test -p spectra-runtime --features gpu tensor_runtime_r1603 -- --nocapture`
+- `cargo test -p spectra-runtime --features gpu tensor_runtime_r1603_wgpu_backend_diagnostics_and_backward -- --test-threads=1 --nocapture`
 
 Public Spectra validation:
 

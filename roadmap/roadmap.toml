@@ -1449,6 +1449,7 @@ summary = "Maintain the validated WGPU baseline for transfer, resident forward e
 acceptance = [
   "CPU fallback remains available and produces equivalent results within tolerance",
   "real WGPU upload, buffer reuse, device residency, covered forward/backward kernels, typed errors, and diagnostics remain validated",
+  "GPU validation runs CPU and exact-name WGPU tests in separate commands with --test-threads=1, per-step timeout, and captured failure output",
   "remaining production gaps are tracked explicitly: efficient kernels, GPU mixed precision, transformer GPU coverage, and compiler-native device lowering"
 ]
 
@@ -1906,14 +1907,16 @@ title = "Release Candidate Integrated Project Gate"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-2011", "R-2012", "R-2014", "R-2015", "R-2001", "R-2003"]
 summary = "Require zero failures in the integrated `.spectra` language and AI project suite before certifying a production release candidate."
 acceptance = [
   "release-candidate certification includes the integrated project runner report alongside R-2001 conformance",
   "all basic component and AI Support `.spectra` projects pass with zero untracked failures through the normal CLI/package paths",
-  "the release report records the project matrix version, runner report path, exact commands, project paths, and any newly-created follow-up roadmap items"
+  "the release report records the project matrix version, runner report path, exact commands, project paths, and any newly-created follow-up roadmap items",
+  "`scripts/validate_r2013_release_candidate.py` regenerates R-2001, R-2011, and R-2012 reports in order and writes schema `spectralang.r2013_release_candidate_gate.v1`",
+  "`run_tests.ps1` invokes the aggregate gate once and records its result as `validate_r2013_release_candidate`"
 ]
 
 [[items]]
@@ -4601,6 +4604,26 @@ acceptance = [
   "Largest improvements over R-3126 debug: digit-sum 7.4x -> 2.2x, binary-search 5.7x -> 1.4x, pow-fast 4.7x -> 1.3x",
   "Spectra beats Java in 20/21 scenarios; only gcd (1.62x) is slower",
   "Worst gap vs Rust: 4.91x (string-reverse); best: 0.05x (async-echo, where Rust async runtime is heavy)"
+]
+
+[[items]]
+id = "R-3130"
+title = "Deterministic Phase 31 Benchmark Gate"
+phase = "phase_31"
+owner = "tooling"
+priority = "P0"
+status = "in_progress"
+risk = "medium"
+dependencies = ["R-3101"]
+summary = "Make the Phase 31 benchmark gate identify its actual Spectra profile and binary, use the documented warmup/sample policy, classify noisy measurements as inconclusive, and preserve reproducible baseline evidence without automatic baseline mutation."
+acceptance = [
+  "phase31_run_all.py accepts --spectra-binary and --spectra-profile, rejects profile/path mismatches, and records binary, profile, Git revision, host, timestamp, warmup count, timed count, and measurement policy",
+  "the runner uses 3 warmups and 20 timed samples, matching the methodology document",
+  "official runs perform 2 additional confirmation attempts for scenarios initially over the drift threshold",
+  "validate_phase31_cross_lang.py rejects metadata mismatch, reports noisy scenarios as inconclusive when stddev exceeds 10%, and keeps confirmed drift as failure",
+  "baseline.json is never modified by benchmark or validation scripts",
+  "two consecutive stable runs on the reference machine are required before baseline changes",
+  "run_tests.ps1 passes the repository-built binary and explicit debug profile to both Phase 31 stages"
 ]
 
 

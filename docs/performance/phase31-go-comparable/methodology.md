@@ -1,7 +1,7 @@
 # Phase 31 Cross-Language Performance Methodology
 
-Updated: 2026-06-23
-Roadmap items: `R-3101`, `R-3102`, `R-3103`, `R-3104..R-3117`
+Updated: 2026-07-13
+Roadmap items: `R-3101`, `R-3102`, `R-3103`, `R-3104..R-3117`, `R-3130`
 
 ## Purpose
 
@@ -105,11 +105,22 @@ summary is written to `target/phase31/cross-lang-report.md`.
 
 ## Statistical Policy
 
-- 20 timed iterations per scenario; first 3 are warmup and discarded.
-- `median_ns`, `p95_ns`, `stddev_ns` come from the remaining 17.
+- 3 warmup iterations per scenario; 20 timed iterations follow.
+- `median_ns`, `p95_ns`, and `stddev_ns` come from the 20 timed iterations.
+- Official `run_tests.ps1` performs 3 complete independent measurements per
+  scenario and aggregates their medians; scenarios initially above the drift
+  threshold receive 2 additional confirmation attempts. Local diagnosis may
+  use 1 run without confirmations.
+- `independent_stddev_ns` measures variation between complete attempts and is
+  the stability statistic when present.
 - `ns_per_iter = median_ns / iterations`.
-- A scenario fails if any correctness assertion fails, or if `stddev_ns >
-  median_ns * 0.10` (too noisy to be a stable measurement).
+- A scenario with `stddev_ns > median_ns * 0.10` is `inconclusive`, not a
+  confirmed performance regression. It must be rerun on a quiescent or pinned
+  reference machine.
+- A stable scenario fails only when correctness fails or its Spectra median
+  exceeds the checked-in baseline drift limit after confirmation attempts.
+- Baseline updates require two consecutive stable runs and review evidence;
+  benchmark scripts never update `baseline.json` automatically.
 
 ## Non-Regression Gate
 
@@ -135,8 +146,8 @@ values are reported per scenario and feed `R-3103`.
 ## Local Development
 
 ```powershell
-python scripts\phase31_run_all.py --out target\phase31\cross-lang-report.json
-python scripts\validate_phase31_cross_lang.py --baseline docs/performance/phase31-go-comparable/baseline.json --report target\phase31/cross-lang-report.json
+python scripts\phase31_run_all.py --spectra-binary target\debug\spectralang.exe --spectra-profile debug --independent-runs 3 --confirm-regressions 2 --baseline docs\performance\phase31-go-comparable\baseline.json --out target\phase31\cross-lang-report.json
+python scripts\validate_phase31_cross_lang.py --baseline docs/performance/phase31-go-comparable/baseline.json --report target\phase31/cross-lang-report.json --profile debug --spectra-binary target\debug\spectralang.exe
 ```
 
 The full `run_tests.ps1` invokes the validator under the `phase31-cross-lang`
