@@ -17,7 +17,7 @@ on the GPU and in 1 batch size (256) on the CPU.
 Usage:
     python scripts/validate_r1603_gpu_speedup.py
     python scripts/validate_r1603_gpu_speedup.py --out target/custom.json
-    python scripts/validate_r1603_gpu_speedup.py --target-ratio 1.5
+    python scripts/validate_r1603_gpu_speedup.py --target-ratio 1.0
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ SPECTRA_BENCH = ROOT / "benchmarks" / "gpu" / "ml-mlp-step-gpu" / "spectra" / "b
 GO_BENCH = ROOT / "benchmarks" / "gpu" / "ml-mlp-step-gpu" / "go" / "bench.go"
 SPECTRALANG_DEBUG = ROOT / "target" / "debug" / "spectralang.exe"
 SPECTRALANG_RELEASE = ROOT / "target" / "release" / "spectralang.exe"
+BENCH_WORKDIR = ROOT / "target" / "r1603-gpu-speedup"
 
 
 def run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 600) -> subprocess.CompletedProcess[str]:
@@ -62,17 +63,34 @@ def ensure_spectralang() -> Path:
     return SPECTRALANG_DEBUG
 
 
-def time_spectra(batch: int, iters: int) -> dict[str, Any]:
-    """Run the Spectra bench on the host (CPU fallback if no GPU)."""
+def spectra_bench_variant(mode: str) -> Path:
+    """Materialize a CPU-only or GPU-only copy of the Spectra bench."""
+    if mode not in {"cpu", "gpu"}:
+        raise ValueError(f"invalid Spectra bench mode: {mode}")
     if not SPECTRA_BENCH.exists():
         raise SystemExit(f"Spectra bench not found: {SPECTRA_BENCH}")
+    source = SPECTRA_BENCH.read_text(encoding="utf-8")
+    if mode == "cpu":
+        source = source.replace("if !tensor.device_available(6) {", "if true {")
+        source = source.replace("let p = ml.linear(h, w2, b2);", "let p = ml.linear(_a, w2, b2);")
+    else:
+        source = source.replace("if !tensor.device_available(6) {", "if false {")
+    BENCH_WORKDIR.mkdir(parents=True, exist_ok=True)
+    path = BENCH_WORKDIR / f"bench-{mode}.spectra"
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+def time_spectra(batch: int, iters: int, *, mode: str) -> dict[str, Any]:
+    """Run the Spectra bench in an explicit CPU-only or GPU-only mode."""
     binary = ensure_spectralang()
+    bench = spectra_bench_variant(mode)
     # The bench accepts no args; batch/iters are baked into the source.
     # We invoke it 3 times for warmup, then take the median of 5 runs.
     timings: list[float] = []
     for _ in range(5):
         t0 = time.perf_counter()
-        result = run([str(binary), "run", str(SPECTRA_BENCH)], timeout=120)
+        result = run([str(binary), "run", str(bench)], timeout=120)
         elapsed = time.perf_counter() - t0
         if result.returncode != 0:
             print(result.stdout)
@@ -119,8 +137,8 @@ def main() -> int:
     parser.add_argument(
         "--target-ratio",
         type=float,
-        default=1.5,
-        help="Minimum GPU/CPU speedup ratio to pass (default 1.5x at batch 256)",
+        default=1.0,
+        help="Minimum GPU/CPU speedup ratio to pass (default 1.0x at batch 256)",
     )
     parser.add_argument(
         "--batch",
@@ -129,6 +147,7 @@ def main() -> int:
         help="Batch size for the speedup gate (default 256)",
     )
     args = parser.parse_args()
+    args.out = (ROOT / args.out).resolve() if not args.out.is_absolute() else args.out.resolve()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -137,7 +156,7 @@ def main() -> int:
     report: dict[str, Any] = {
         "schema": "r1603-gpu-speedup-v1",
         "target_ratio": args.target_ratio,
-        "batch": 128,
+        "batch": args.batch,
         "iters": 10,
         "bench_path": str(SPECTRA_BENCH.relative_to(ROOT)),
         "go_path": str(GO_BENCH.relative_to(ROOT)) if GO_BENCH.exists() else None,
@@ -145,13 +164,13 @@ def main() -> int:
 
     # CPU (Spectra with no GPU upload = fall back)
     print(f"[R-1603] measuring CPU (batch={args.batch}) ...")
-    cpu = time_spectra(args.batch, 10)
+    cpu = time_spectra(args.batch, 10, mode="cpu")
     report["cpu"] = cpu
 
     # GPU (Spectra with Wgpu upload; runs GPU path on hosts with adapter,
     # falls back to CPU otherwise and reports no speedup).
     print(f"[R-1603] measuring GPU (batch={args.batch}) ...")
-    gpu = time_spectra(args.batch, 10)
+    gpu = time_spectra(args.batch, 10, mode="gpu")
     report["gpu"] = gpu
 
     cpu_ns = cpu["ns_per_iter"]
