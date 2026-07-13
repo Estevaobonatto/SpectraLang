@@ -91,7 +91,7 @@ cargo run -p spectra-cli -- run tests\validation\91_tensor_phase16_gpu_backend.s
 
 The Spectra validation skips accelerator execution safely when WGPU is unavailable, while still validating CPU device status and reserved-device diagnostics.
 
-## Device Memory (R-3051, R-3021, R-3052 minimal)
+## Device Memory (R-3051, R-3021, R-3052 full)
 
 Land 2026-06-24 with the Block 3 cornerstone step:
 
@@ -118,10 +118,14 @@ Land 2026-06-24 with the Block 3 cornerstone step:
   (data overwrite) before the buffer can be released back to the pool.
   See the `DeviceArena::acquire` doc-comment in `runtime/src/gpu.rs`.
 
-Residency-aware dispatch (R-3052 full) is **not** yet wired: the 5 GPU op
-sites still call `materialize()` on every input. The pool currently helps
-the upload side only. Closing the gap requires the kernel rewrites in
-R-3031..R-3044 to read from `device_storage`.
+Residency-aware dispatch (R-3052 full) is wired: forward ops (`matmul`,
+`conv2d`, `relu`/`neg`, binary ops, reductions, `ml.linear`, and
+`ml.mse_loss`) consume `device_storage` pool buffers directly and write
+resident outputs back into fresh pool buffers without host readback between
+chained ops. Backward for `ml.mse_loss`, `ml.linear`, `relu`, and `matmul`
+accumulates into `device_grad`, and `ml.sgd_step` consumes device gradients
+to update resident parameters without a host round trip. Explicit scalar
+loss reads and `tensor.grad()` inspection remain readback boundaries.
 
 Validation:
 
@@ -130,9 +134,12 @@ Validation:
 - `tensor_runtime_r3051_pool_reuse_under_load` — 100 same-shape
   `to_device` + `free` cycles; `pool_hits >= 99`, `pool_misses <= 1`.
 - `tensor_runtime_r3051_pool_recycles_after_free` — second `to_device`
-  hits the pool; verifies the release hook.
+  reuses the pool.
+- `tensor_runtime_r3052_full_resident_*` — resident matmul, chain,
+  `ml.linear`, relu, binary ops, pool release, backward accumulation, and
+  SGD update stay on device and match CPU results within tolerance.
 - `runtime/examples/tensor_phase7_gpu_bench.rs` extended JSON includes
   `pool_hits`, `pool_misses`, `pool_bytes_resident`, `device_pool_tested`.
   On RTX 2060: `pool_hits=99, pool_misses=1, pool_bytes_resident=1024`.
-- `python scripts/validate_r1603_gpu_backend.py` adds a 4th step running
-  the 3 new tests.
+- `python scripts/validate_r1603_gpu_backend.py` runs the R-3021, R-3051,
+  R-3052, and R-3080 GPU validation set.

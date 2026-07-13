@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CARGO = shutil.which("cargo") or str(Path.home() / ".cargo" / "bin" / "cargo.exe")
 
 
 def run_step(name: str, args: list[str]) -> None:
@@ -27,7 +29,7 @@ def main() -> int:
     run_step(
         "default CPU fallback and diagnostics",
         [
-            "cargo",
+            CARGO,
             "test",
             "-p",
             "spectra-runtime",
@@ -37,7 +39,7 @@ def main() -> int:
     run_step(
         "optional WGPU backend diagnostics and backward coverage",
         [
-            "cargo",
+            CARGO,
             "test",
             "-p",
             "spectra-runtime",
@@ -52,7 +54,7 @@ def main() -> int:
     run_step(
         "typed GPU error counters (R-3023)",
         [
-            "cargo",
+            CARGO,
             "test",
             "-p",
             "spectra-runtime",
@@ -71,12 +73,20 @@ def main() -> int:
         "tensor_runtime_r3051_pool_reuse_under_load",
         "tensor_runtime_r3051_pool_recycles_after_free",
         "tensor_runtime_r3052_device_resident_counter_tracks_to_device",
+        "tensor_runtime_r3052_full_resident_matmul_matches_cpu",
+        "tensor_runtime_r3052_full_resident_chain_stays_on_device",
+        "tensor_runtime_r3052_full_resident_ml_linear_forward",
+        "tensor_runtime_r3052_full_resident_relu_matches_cpu",
+        "tensor_runtime_r3052_full_resident_binary_matches_cpu",
+        "tensor_runtime_r3052_full_resident_releases_to_free_list",
+        "tensor_runtime_r3052_full_resident_backward_accumulates_on_device",
+        "tensor_runtime_r3052_full_resident_sgd_step_updates_device_param",
         "tensor_runtime_r3080_backward_kernels_match_cpu_within_tolerance",
     ):
         run_step(
             f"device upload + pool + residency + backward ({name})",
             [
-                "cargo",
+                CARGO,
                 "test",
                 "-p",
                 "spectra-runtime",

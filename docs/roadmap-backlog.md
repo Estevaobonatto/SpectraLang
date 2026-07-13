@@ -2762,11 +2762,11 @@ the next tracked development cycle toward a broader AI/ML platform.
 | R-3021 | Real Device Upload After `to_device` | `complete` | runtime |
 | R-3023 | Typed GPU Error Kinds | `complete` | runtime |
 | R-3051 | Device Buffer Pool Reuse | `complete` | runtime |
-| R-3052 | Device Residency Full | `in_progress` | runtime |
+| R-3052 | Device Residency Full | `complete` | runtime |
 | R-3071 | f16/bf16 GPU Kernels (Mixed Precision) | `not_started` | numerics |
 | R-3080 | GPU Backward Kernels | `not_started` | numerics |
 
-R-3052 full and R-3080 are the next deliverables under R-1603. R-3071 stays a separate item pending R-703's CPU mixed-precision story.
+R-3052 full is complete: resident forward ops, MSE loss, backward accumulation, and SGD update consume `device_storage` / `device_grad` without host readback between chained ops, covered by `tensor_runtime_r3052_full_resident_*` and `scripts/validate_r1603_gpu_backend.py`. R-3071 stays a separate item pending R-703's CPU mixed-precision story.
 
 ### Status note (2026-06-25)
 
