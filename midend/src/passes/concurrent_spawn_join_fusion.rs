@@ -148,7 +148,9 @@ fn is_pure(kind: &InstructionKind) -> bool {
             | InstructionKind::Load { .. }
             | InstructionKind::Copy { .. }
             | InstructionKind::ConstInt { .. }
+            | InstructionKind::ConstIntTyped { .. }
             | InstructionKind::ConstFloat { .. }
+            | InstructionKind::ConstFloatTyped { .. }
             | InstructionKind::ConstBool { .. }
             | InstructionKind::ConstString { .. }
             | InstructionKind::Cast { .. }
@@ -193,7 +195,9 @@ fn instruction_inputs(kind: &InstructionKind) -> Vec<Value> {
         InstructionKind::Alloca { .. }
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }
+        | InstructionKind::ConstIntTyped { .. }
         | InstructionKind::ConstFloat { .. }
+        | InstructionKind::ConstFloatTyped { .. }
         | InstructionKind::ConstBool { .. }
         | InstructionKind::ConstString { .. } => Vec::new(),
     }

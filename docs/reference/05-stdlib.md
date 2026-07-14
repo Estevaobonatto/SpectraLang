@@ -11,6 +11,19 @@ A Biblioteca Padrão (stdlib) do SpectraLang é implementada como funções hosp
 **EN-US:**  
 SpectraLang's Standard Library (stdlib) is implemented as host functions registered by the runtime and called from JIT code via FFI. There are **12 modules** with over **100 functions**.
 
+## Exact-width numeric contract (R-2901)
+
+The scalar types `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`,
+`isize`, `usize`, `f32`, and `f64` are represented explicitly in semantic and
+midend IR. `int` remains the compatibility spelling for `i64`, and `float`
+for `f64`. `as` casts are checked by default; `as wrapping` is reserved for
+integer modular conversion. The exact-width contract is still `in_progress`
+until dynamic overflow diagnostics, AOT/interop evidence, and the complete
+ABI gate pass.
+
+`std.numeric.wrapping_add_*`, `wrapping_sub_*`, and `wrapping_mul_*` provide
+explicit modular operations for the supported integer widths.
+
 ---
 
 ## Sumário / Table of Contents

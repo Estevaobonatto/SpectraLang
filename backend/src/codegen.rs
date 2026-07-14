@@ -1376,12 +1376,42 @@ impl CodeGenerator {
                 .ok_or_else(|| BackendCodegenError::missing_value(v.id))
         };
 
+        // Exact-width float values may participate in an expression with a
+        // different float width.  Cranelift requires both operands of a
+        // floating-point instruction to have the same type, so promote f32 to
+        // f64 at the operation boundary when either operand is f64.  Keeping
+        // this here preserves the source-level numeric promotion without
+        // emitting an invalid f32/f64 instruction pair.
+        let promote_float_operands = |builder: &mut FunctionBuilder,
+                                      lhs: Value,
+                                      rhs: Value|
+         -> (Value, Value, bool) {
+            let lhs_ty = builder.func.dfg.value_type(lhs);
+            let rhs_ty = builder.func.dfg.value_type(rhs);
+            if lhs_ty == types::F64 || rhs_ty == types::F64 {
+                let lhs = if lhs_ty == types::F32 {
+                    builder.ins().fpromote(types::F64, lhs)
+                } else {
+                    lhs
+                };
+                let rhs = if rhs_ty == types::F32 {
+                    builder.ins().fpromote(types::F64, rhs)
+                } else {
+                    rhs
+                };
+                (lhs, rhs, true)
+            } else {
+                (lhs, rhs, lhs_ty == types::F32 && rhs_ty == types::F32)
+            }
+        };
+
         match &instr.kind {
             // Arithmetic operations
             InstructionKind::Add { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fadd(lhs_val, rhs_val)
                 } else {
                     builder.ins().iadd(lhs_val, rhs_val)
@@ -1392,7 +1422,8 @@ impl CodeGenerator {
             InstructionKind::Sub { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fsub(lhs_val, rhs_val)
                 } else {
                     builder.ins().isub(lhs_val, rhs_val)
@@ -1403,7 +1434,8 @@ impl CodeGenerator {
             InstructionKind::Mul { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fmul(lhs_val, rhs_val)
                 } else {
                     builder.ins().imul(lhs_val, rhs_val)
@@ -1414,7 +1446,8 @@ impl CodeGenerator {
             InstructionKind::Div { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fdiv(lhs_val, rhs_val)
                 } else {
                     builder.ins().sdiv(lhs_val, rhs_val)
@@ -1433,7 +1466,8 @@ impl CodeGenerator {
             InstructionKind::Eq { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fcmp(FloatCC::Equal, lhs_val, rhs_val)
                 } else {
                     builder.ins().icmp(IntCC::Equal, lhs_val, rhs_val)
@@ -1444,7 +1478,8 @@ impl CodeGenerator {
             InstructionKind::Ne { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fcmp(FloatCC::NotEqual, lhs_val, rhs_val)
                 } else {
                     builder.ins().icmp(IntCC::NotEqual, lhs_val, rhs_val)
@@ -1455,7 +1490,8 @@ impl CodeGenerator {
             InstructionKind::Lt { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder.ins().fcmp(FloatCC::LessThan, lhs_val, rhs_val)
                 } else {
                     builder.ins().icmp(IntCC::SignedLessThan, lhs_val, rhs_val)
@@ -1466,7 +1502,8 @@ impl CodeGenerator {
             InstructionKind::Le { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let result_val = if builder.func.dfg.value_type(lhs_val) == types::F64 {
+                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let result_val = if is_float {
                     builder
                         .ins()
                         .fcmp(FloatCC::LessThanOrEqual, lhs_val, rhs_val)
@@ -1540,7 +1577,7 @@ impl CodeGenerator {
                     let ptr = builder.ins().stack_addr(types::I64, slot, 0);
                     value_map.insert(result.id, ptr);
                     if let IRType::Array { element_type, size } = ty {
-                        if matches!(**element_type, IRType::Int | IRType::Char) {
+                        if matches!(**element_type, IRType::Int | IRType::Char | IRType::ExactInt { .. }) {
                             stack_array_lengths.insert(result.id, *size as i64);
                             string_literal_lengths.insert(result.id, *size as i64);
                         }
@@ -1563,7 +1600,7 @@ impl CodeGenerator {
                     }
 
                     if let IRType::Array { element_type, size } = ty {
-                        if matches!(**element_type, IRType::Int | IRType::Char) {
+                        if matches!(**element_type, IRType::Int | IRType::Char | IRType::ExactInt { .. }) {
                             string_literal_lengths.insert(result.id, *size as i64);
                         }
                     }
@@ -1600,12 +1637,7 @@ impl CodeGenerator {
                 let index_val = get_value(index)?;
 
                 // Calcular o tamanho do elemento em bytes
-                let elem_size = match element_type {
-                    IRType::Int | IRType::Float => 8,
-                    IRType::Bool => 1,
-                    IRType::Char => 4,
-                    _ => 8, // default
-                };
+                let elem_size = Self::type_size_bytes(element_type) as i64;
 
                 // offset = index * elem_size
                 let elem_size_val = builder.ins().iconst(types::I64, elem_size);
@@ -2075,6 +2107,10 @@ impl CodeGenerator {
                                 // can receive and convert them.
                                 builder.ins().bitcast(types::I64, MemFlags::new(), value)
                             }
+                            types::F32 => {
+                                let promoted = builder.ins().fpromote(types::F64, value);
+                                builder.ins().bitcast(types::I64, MemFlags::new(), promoted)
+                            }
                             other => {
                                 return Err(BackendCodegenError::unsupported_host_argument_type(
                                     other,
@@ -2153,6 +2189,28 @@ impl CodeGenerator {
                         }
                         Some(IRType::Bool) => builder.ins().ireduce(types::I8, raw_value),
                         Some(IRType::Char) => builder.ins().ireduce(types::I32, raw_value),
+                        Some(IRType::ExactInt { .. }) => {
+                            // Host calls always materialize scalar results in the
+                            // canonical i64 slot.  Do not emit `ireduce(i64,
+                            // i64)`: Cranelift rejects a same-width reduction
+                            // during verification (this surfaced for checked_i64
+                            // even though the Spectra cast itself was valid).
+                            let target = Self::ir_type_to_cranelift(result_type.as_ref().unwrap())?;
+                            if target == types::I64 {
+                                raw_value
+                            } else {
+                                builder.ins().ireduce(target, raw_value)
+                            }
+                        }
+                        Some(IRType::ExactFloat { width }) => match width {
+                            spectra_midend::ir::FloatWidth::F32 => {
+                                let f64_value = builder.ins().bitcast(types::F64, MemFlags::new(), raw_value);
+                                builder.ins().fdemote(types::F32, f64_value)
+                            }
+                            spectra_midend::ir::FloatWidth::F64 => {
+                                builder.ins().bitcast(types::F64, MemFlags::new(), raw_value)
+                            }
+                        },
                         _ => raw_value,
                     };
                     value_map.insert(result_value.id, value);
@@ -2280,6 +2338,85 @@ impl CodeGenerator {
                         types::I8 | types::I16 => builder.ins().uextend(types::I32, operand_val),
                         _ => operand_val,
                     },
+                    (IRType::ExactInt { signed, .. }, IRType::ExactFloat { width: _ }) => {
+                        let target = Self::ir_type_to_cranelift(to_ty)?;
+                        if *signed {
+                            builder.ins().fcvt_from_sint(target, operand_val)
+                        } else {
+                            builder.ins().fcvt_from_uint(target, operand_val)
+                        }
+                    }
+                    (IRType::ExactInt { signed, .. }, IRType::Float) => {
+                        if *signed {
+                            builder.ins().fcvt_from_sint(types::F64, operand_val)
+                        } else {
+                            builder.ins().fcvt_from_uint(types::F64, operand_val)
+                        }
+                    }
+                    (IRType::ExactInt { signed, .. }, IRType::Int) => {
+                        if operand_cl_ty == types::I64 { operand_val }
+                        else if *signed { builder.ins().sextend(types::I64, operand_val) }
+                        else { builder.ins().uextend(types::I64, operand_val) }
+                    }
+                    (IRType::Int, IRType::ExactInt { .. }) => {
+                        let target = Self::ir_type_to_cranelift(to_ty)?;
+                        if builder.func.dfg.value_type(operand_val) == target { operand_val }
+                        else { builder.ins().ireduce(target, operand_val) }
+                    }
+                    (IRType::Int, IRType::ExactFloat { .. }) => {
+                        builder.ins().fcvt_from_sint(Self::ir_type_to_cranelift(to_ty)?, operand_val)
+                    }
+                    (IRType::ExactFloat { .. }, IRType::ExactInt { signed, .. }) => {
+                        let target = Self::ir_type_to_cranelift(to_ty)?;
+                        if *signed {
+                            builder.ins().fcvt_to_sint_sat(target, operand_val)
+                        } else {
+                            builder.ins().fcvt_to_uint_sat(target, operand_val)
+                        }
+                    }
+                    (IRType::ExactFloat { .. }, IRType::Float) => {
+                        if operand_cl_ty == types::F32 { builder.ins().fpromote(types::F64, operand_val) }
+                        else { operand_val }
+                    }
+                    (IRType::Float, IRType::ExactFloat { .. }) => {
+                        let target = Self::ir_type_to_cranelift(to_ty)?;
+                        if target == types::F32 { builder.ins().fdemote(types::F32, operand_val) }
+                        else { operand_val }
+                    }
+                    (IRType::ExactFloat { .. }, IRType::Int) => {
+                        builder.ins().fcvt_to_sint_sat(types::I64, operand_val)
+                    }
+                    (IRType::ExactFloat { width: from_width }, IRType::ExactFloat { width: to_width }) => {
+                        match (from_width, to_width) {
+                            (spectra_midend::ir::FloatWidth::F32, spectra_midend::ir::FloatWidth::F64) => {
+                                builder.ins().fpromote(types::F64, operand_val)
+                            }
+                            (spectra_midend::ir::FloatWidth::F64, spectra_midend::ir::FloatWidth::F32) => {
+                                builder.ins().fdemote(types::F32, operand_val)
+                            }
+                            _ => operand_val,
+                        }
+                    }
+                    (IRType::ExactInt { signed: from_signed, width: _from_width }, IRType::ExactInt { signed: to_signed, width: _to_width }) => {
+                        let target = Self::ir_type_to_cranelift(to_ty)?;
+                        let source_bits = Self::type_size_bytes(from_ty) * 8;
+                        let target_bits = Self::type_size_bytes(to_ty) * 8;
+                        if source_bits > target_bits {
+                            builder.ins().ireduce(target, operand_val)
+                        } else if source_bits < target_bits {
+                            if *from_signed {
+                                builder.ins().sextend(target, operand_val)
+                            } else {
+                                builder.ins().uextend(target, operand_val)
+                            }
+                        } else if *from_signed == *to_signed {
+                            operand_val
+                        } else if *to_signed {
+                            builder.ins().sextend(target, operand_val)
+                        } else {
+                            builder.ins().uextend(target, operand_val)
+                        }
+                    }
                     _ => operand_val, // same-type or struct->dyn: pass through
                 };
                 value_map.insert(result.id, cl_val);
@@ -2369,8 +2506,27 @@ impl CodeGenerator {
                 value_map.insert(result.id, result_val);
             }
 
+            InstructionKind::ConstIntTyped { result, value, ty } => {
+                let cl_ty = Self::ir_type_to_cranelift(ty)?;
+                let result_val = builder.ins().iconst(cl_ty, *value);
+                value_map.insert(result.id, result_val);
+            }
+
             InstructionKind::ConstFloat { result, value } => {
                 let result_val = builder.ins().f64const(*value);
+                value_map.insert(result.id, result_val);
+            }
+
+            InstructionKind::ConstFloatTyped { result, value, ty } => {
+                let result_val = match Self::ir_type_to_cranelift(ty)? {
+                    types::F32 => builder.ins().f32const(*value as f32),
+                    types::F64 => builder.ins().f64const(*value),
+                    other => {
+                        return Err(BackendCodegenError::invalid_ir(format!(
+                            "floating constant requires f32/f64, got {other:?}"
+                        )))
+                    }
+                };
                 value_map.insert(result.id, result_val);
             }
 
@@ -2711,6 +2867,16 @@ impl CodeGenerator {
             IRType::Bool => Ok(types::I8),
             IRType::Int => Ok(types::I64),
             IRType::Float => Ok(types::F64),
+            IRType::ExactInt { width, .. } => Ok(match width {
+                spectra_midend::ir::IntWidth::I8 => types::I8,
+                spectra_midend::ir::IntWidth::I16 => types::I16,
+                spectra_midend::ir::IntWidth::I32 => types::I32,
+                spectra_midend::ir::IntWidth::I64 | spectra_midend::ir::IntWidth::Isize | spectra_midend::ir::IntWidth::Usize => types::I64,
+            }),
+            IRType::ExactFloat { width } => Ok(match width {
+                spectra_midend::ir::FloatWidth::F32 => types::F32,
+                spectra_midend::ir::FloatWidth::F64 => types::F64,
+            }),
             IRType::String => Ok(types::I64),
             IRType::Char => Ok(types::I32),
             IRType::Pointer(_) => Ok(types::I64),
@@ -2734,6 +2900,16 @@ impl CodeGenerator {
             IRType::Char => 4,
             IRType::Int => 8,
             IRType::Float => 8,
+            IRType::ExactInt { width, .. } => match width {
+                spectra_midend::ir::IntWidth::I8 => 1,
+                spectra_midend::ir::IntWidth::I16 => 2,
+                spectra_midend::ir::IntWidth::I32 => 4,
+                spectra_midend::ir::IntWidth::I64 | spectra_midend::ir::IntWidth::Isize | spectra_midend::ir::IntWidth::Usize => 8,
+            },
+            IRType::ExactFloat { width } => match width {
+                spectra_midend::ir::FloatWidth::F32 => 4,
+                spectra_midend::ir::FloatWidth::F64 => 8,
+            },
             IRType::String => 8,
             IRType::Pointer(_) => 8,
             IRType::Task { .. } => 8,

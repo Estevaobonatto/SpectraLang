@@ -13,13 +13,12 @@ pub fn main() -> int {
     let wide: i64 = 4;
     let unsigned: u8 = 5;
     let unsigned_wide: u64 = 6;
-    let half: f16 = 1.5;
-    let brain: bf16 = 2.5;
     let single: f32 = 3.5;
     let double: f64 = 4.5;
 
-    let float_total: f64 = half + brain + single + double + SCALE;
-    let int_total: int = tiny + small + regular + wide + unsigned + unsigned_wide + BASE;
+    let float_total: f64 = single as f64 + double + SCALE as f64;
+    let int_total: i64 = tiny as i64 + small as i64 + regular as i64 + wide
+        + unsigned as i64 + unsigned_wide as i64 + BASE as i64;
 
     if !FLAG {
         return 1;
@@ -28,9 +27,9 @@ pub fn main() -> int {
         return 2;
     }
     if int_total != 63 {
-        return int_total;
+        return int_total as int;
     }
-    if float_total as int != 54 {
+    if float_total as int != 50 {
         return float_total as int;
     }
 

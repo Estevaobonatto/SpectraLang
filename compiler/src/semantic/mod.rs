@@ -1,7 +1,8 @@
 use crate::{
     ast::{
         Attribute, AttributeArgument, BinaryOperator, Block, ConstDecl, Expression, ExpressionKind,
-        FStringPart, Function, Item, Module, Pattern, Statement, StatementKind, StaticDecl, Type,
+        CastMode, FloatWidth, FStringPart, Function, IntWidth, Item, Module, Pattern, Statement,
+        StatementKind, StaticDecl, Type,
         UnaryOperator, Visibility,
     },
     error::SemanticError,
@@ -70,8 +71,17 @@ fn is_cast_valid(from: &Type, to: &Type) -> bool {
         (a, b) if a == b => true,
         // Numeric conversions
         (Int, Float) | (Float, Int) => true,
+        (Int, ExactInt { .. }) | (ExactInt { .. }, Int)
+        | (ExactInt { .. }, ExactInt { .. })
+        | (Float, ExactFloat { .. }) | (ExactFloat { .. }, Float)
+        | (ExactFloat { .. }, ExactFloat { .. })
+        | (Int, ExactFloat { .. }) | (ExactFloat { .. }, Int)
+        | (Float, ExactInt { .. }) | (ExactInt { .. }, Float) => true,
+        (ExactFloat { .. }, ExactInt { .. })
+        | (ExactInt { .. }, ExactFloat { .. }) => true,
         // int ↔ char
         (Int, Char) | (Char, Int) => true,
+        (ExactInt { .. }, Char) | (Char, ExactInt { .. }) => true,
         // coerce concrete type to dyn Trait (validated at trait-impl level)
         (Struct { .. }, DynTrait { .. }) => true,
         _ => false,
@@ -428,6 +438,18 @@ pub fn type_name(ty: &Type) -> String {
     match ty {
         Type::Int => "int".into(),
         Type::Float => "float".into(),
+        Type::ExactInt { signed, width } => format!("{}{}", if *signed { "i" } else { "u" }, match width {
+            IntWidth::I8 => "8",
+            IntWidth::I16 => "16",
+            IntWidth::I32 => "32",
+            IntWidth::I64 => "64",
+            IntWidth::Isize => "size",
+            IntWidth::Usize => "size",
+        }),
+        Type::ExactFloat { width } => match width {
+            FloatWidth::F32 => "f32".into(),
+            FloatWidth::F64 => "f64".into(),
+        },
         Type::Bool => "bool".into(),
         Type::String => "string".into(),
         Type::Char => "char".into(),
@@ -1829,9 +1851,20 @@ impl SemanticAnalyzer {
 
     fn type_from_mangle_part(&self, part: &str) -> Type {
         match part {
-            "int" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
-            | "usize" => Type::Int,
-            "float" | "f16" | "bf16" | "f32" | "f64" => Type::Float,
+            "int" => Type::Int,
+            "float" => Type::Float,
+            "i8" => Type::ExactInt { signed: true, width: IntWidth::I8 },
+            "i16" => Type::ExactInt { signed: true, width: IntWidth::I16 },
+            "i32" => Type::ExactInt { signed: true, width: IntWidth::I32 },
+            "i64" => Type::ExactInt { signed: true, width: IntWidth::I64 },
+            "isize" => Type::ExactInt { signed: true, width: IntWidth::Isize },
+            "u8" => Type::ExactInt { signed: false, width: IntWidth::I8 },
+            "u16" => Type::ExactInt { signed: false, width: IntWidth::I16 },
+            "u32" => Type::ExactInt { signed: false, width: IntWidth::I32 },
+            "u64" => Type::ExactInt { signed: false, width: IntWidth::I64 },
+            "usize" => Type::ExactInt { signed: false, width: IntWidth::Usize },
+            "f32" => Type::ExactFloat { width: FloatWidth::F32 },
+            "f64" => Type::ExactFloat { width: FloatWidth::F64 },
             "bool" => Type::Bool,
             "string" => Type::String,
             "char" => Type::Char,
@@ -1985,6 +2018,14 @@ impl SemanticAnalyzer {
                 if let TypeAnnotationKind::Simple { segments } = &ann.kind {
                     if segments.len() == 1 {
                         let name = &segments[0];
+                        if name == "f16" || name == "bf16" {
+                            self.error_with_hint(
+                                format!("E2901: scalar type '{}' is not supported; use f32/f64 or tensor precision", name),
+                                ann.span,
+                                "f16 and bf16 remain available only as tensor precision metadata",
+                            );
+                            return resolved;
+                        }
                         // Primitive keywords and `_` are handled by the base
                         // method; reaching here means the type is truly unknown.
                         self.error_with_hint(
@@ -2257,9 +2298,20 @@ impl SemanticAnalyzer {
 
     fn primitive_numeric_alias(name: &str) -> Option<Type> {
         match name {
-            "int" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
-            | "usize" => Some(Type::Int),
-            "float" | "f16" | "bf16" | "f32" | "f64" => Some(Type::Float),
+            "int" => Some(Type::Int),
+            "float" => Some(Type::Float),
+            "i8" => Some(Type::ExactInt { signed: true, width: IntWidth::I8 }),
+            "i16" => Some(Type::ExactInt { signed: true, width: IntWidth::I16 }),
+            "i32" => Some(Type::ExactInt { signed: true, width: IntWidth::I32 }),
+            "i64" => Some(Type::ExactInt { signed: true, width: IntWidth::I64 }),
+            "isize" => Some(Type::ExactInt { signed: true, width: IntWidth::Isize }),
+            "u8" => Some(Type::ExactInt { signed: false, width: IntWidth::I8 }),
+            "u16" => Some(Type::ExactInt { signed: false, width: IntWidth::I16 }),
+            "u32" => Some(Type::ExactInt { signed: false, width: IntWidth::I32 }),
+            "u64" => Some(Type::ExactInt { signed: false, width: IntWidth::I64 }),
+            "usize" => Some(Type::ExactInt { signed: false, width: IntWidth::Usize }),
+            "f32" => Some(Type::ExactFloat { width: FloatWidth::F32 }),
+            "f64" => Some(Type::ExactFloat { width: FloatWidth::F64 }),
             _ => None,
         }
     }
@@ -2274,7 +2326,7 @@ impl SemanticAnalyzer {
     }
 
     fn is_numeric_type(ty: &Type) -> bool {
-        matches!(ty, Type::Int | Type::Float)
+        matches!(ty, Type::Int | Type::Float | Type::ExactInt { .. } | Type::ExactFloat { .. })
     }
 
     fn numeric_types_can_interact(&self, left: &Type, right: &Type) -> bool {
@@ -2290,10 +2342,14 @@ impl SemanticAnalyzer {
 
         if matches!(left, Type::Float) || matches!(right, Type::Float) {
             Type::Float
+        } else if matches!(left, Type::ExactFloat { .. }) || matches!(right, Type::ExactFloat { .. }) {
+            if left == right { left.clone() } else { Type::ExactFloat { width: FloatWidth::F64 } }
         } else if matches!(left, Type::Int) && matches!(right, Type::Int) {
             Type::Int
+        } else if matches!(left, Type::ExactInt { .. }) && left == right {
+            left.clone()
         } else {
-            Type::Unknown
+            Type::ExactInt { signed: true, width: IntWidth::I64 }
         }
     }
 
@@ -2463,6 +2519,11 @@ impl SemanticAnalyzer {
             (Type::Bool, Type::Bool) => true,
             (Type::Char, Type::Char) => true,
             (Type::Unit, Type::Unit) => true,
+            (Type::ExactInt { .. }, Type::ExactInt { .. }) => actual == expected,
+            (Type::ExactFloat { .. }, Type::ExactFloat { .. }) => actual == expected,
+            // Untyped integer/float literals are checked against an exact
+            // target at declaration/cast validation time.
+            (Type::Int, Type::ExactInt { .. }) | (Type::Float, Type::ExactFloat { .. }) => true,
 
             // Structs com mesmo nome
             (Type::Struct { name: n1 }, Type::Struct { name: n2 }) => n1 == n2,
@@ -3438,6 +3499,11 @@ impl SemanticAnalyzer {
             .map(|_| self.type_annotation_to_type_checked(&decl.ty))
             .unwrap_or_else(|| inferred.clone());
 
+        if let Err(message) = Self::const_value_fits_type(&value, &declared) {
+            self.error_coded("E2903", message, decl.span);
+            return;
+        }
+
         if !self.types_match(&inferred, &declared) {
             self.error_with_hint(
                 format!(
@@ -3460,6 +3526,32 @@ impl SemanticAnalyzer {
             );
         }
         self.const_values.insert(decl.name.clone(), value);
+    }
+
+    fn const_value_fits_type(value: &ConstValue, target: &Type) -> Result<(), String> {
+        match (value, target) {
+            (ConstValue::Int(value), Type::ExactInt { signed, width }) => {
+                let bits = match width {
+                    IntWidth::I8 => 8,
+                    IntWidth::I16 => 16,
+                    IntWidth::I32 => 32,
+                    IntWidth::I64 | IntWidth::Isize | IntWidth::Usize => 64,
+                };
+                let fits = if *signed {
+                    let min = -(1_i128 << (bits - 1));
+                    let max = (1_i128 << (bits - 1)) - 1;
+                    (*value as i128) >= min && (*value as i128) <= max
+                } else {
+                    *value >= 0 && (*value as u128) <= ((1_u128 << bits) - 1)
+                };
+                if fits { Ok(()) } else { Err(format!("E2903: constant {} does not fit in {}", value, type_name(target))) }
+            }
+            (ConstValue::Float(value), Type::ExactFloat { width: FloatWidth::F32 }) => {
+                if value.is_finite() && (*value as f32 as f64) == *value { Ok(()) } else { Err(format!("E2904: constant {} is not representable as f32", value)) }
+            }
+            (ConstValue::Float(value), Type::ExactFloat { width: FloatWidth::F64 }) if value.is_finite() => Ok(()),
+            _ => Ok(()),
+        }
     }
 
     fn analyze_static_decl(&mut self, decl: &StaticDecl) {
@@ -3528,6 +3620,8 @@ impl SemanticAnalyzer {
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
+                mode: _,
+                ..
             } => {
                 let value = self.eval_const_expression(inner)?;
                 let target = self.type_annotation_to_type(&Some(target_type.clone()));
@@ -3637,6 +3731,21 @@ impl SemanticAnalyzer {
             (ConstValue::Int(v), Type::Char) => char::from_u32(v as u32).map(ConstValue::Char),
             (ConstValue::Float(v), Type::Float) => Some(ConstValue::Float(v)),
             (ConstValue::Float(v), Type::Int) => Some(ConstValue::Int(v as i64)),
+            (ConstValue::Int(v), Type::ExactInt { signed, width }) => {
+                let bits = match width { IntWidth::I8 => 8, IntWidth::I16 => 16, IntWidth::I32 => 32, IntWidth::I64 | IntWidth::Isize | IntWidth::Usize => 64 };
+                let fits = if *signed { let min = -(1_i128 << (bits - 1)); let max = (1_i128 << (bits - 1)) - 1; (v as i128) >= min && (v as i128) <= max } else { v >= 0 && (v as u128) <= ((1_u128 << bits) - 1) };
+                fits.then_some(ConstValue::Int(v))
+            }
+            (ConstValue::Float(v), Type::ExactInt { signed, width }) if v.is_finite() && v.fract() == 0.0 => {
+                let int = v as i128;
+                let bits = match width { IntWidth::I8 => 8, IntWidth::I16 => 16, IntWidth::I32 => 32, IntWidth::I64 | IntWidth::Isize | IntWidth::Usize => 64 };
+                let fits = if *signed { let min = -(1_i128 << (bits - 1)); let max = (1_i128 << (bits - 1)) - 1; int >= min && int <= max } else { int >= 0 && (int as u128) <= ((1_u128 << bits) - 1) };
+                fits.then_some(ConstValue::Int(int as i64))
+            }
+            (ConstValue::Int(v), Type::ExactFloat { width: FloatWidth::F32 }) if (v as f32 as f64) == v as f64 => Some(ConstValue::Float(v as f32 as f64)),
+            (ConstValue::Int(v), Type::ExactFloat { width: FloatWidth::F64 }) => Some(ConstValue::Float(v as f64)),
+            (ConstValue::Float(v), Type::ExactFloat { width: FloatWidth::F32 }) if v.is_finite() && (v as f32 as f64) == v => Some(ConstValue::Float(v as f32 as f64)),
+            (ConstValue::Float(v), Type::ExactFloat { width: FloatWidth::F64 }) if v.is_finite() => Some(ConstValue::Float(v)),
             (ConstValue::Char(v), Type::Char) => Some(ConstValue::Char(v)),
             (ConstValue::Char(v), Type::Int) => Some(ConstValue::Int(v as i64)),
             (ConstValue::Bool(v), Type::Bool) => Some(ConstValue::Bool(v)),
@@ -4049,8 +4158,8 @@ impl SemanticAnalyzer {
 
     fn json_value_matches_type(&self, value: &serde_json::Value, expected: &Type) -> bool {
         match expected {
-            Type::Int => value.as_i64().is_some() || value.as_u64().is_some(),
-            Type::Float => value.as_f64().is_some(),
+            Type::Int | Type::ExactInt { .. } => value.as_i64().is_some() || value.as_u64().is_some(),
+            Type::Float | Type::ExactFloat { .. } => value.as_f64().is_some(),
             Type::Bool => value.is_boolean(),
             Type::String | Type::Char => value.is_string(),
             Type::Array { element_type, .. } => value
@@ -6219,6 +6328,8 @@ impl SemanticAnalyzer {
             | Type::Range
             | Type::Int
             | Type::Float
+            | Type::ExactInt { .. }
+            | Type::ExactFloat { .. }
             | Type::Bool
             | Type::String
             | Type::Char
@@ -6264,6 +6375,8 @@ impl SemanticAnalyzer {
             | Type::Range
             | Type::Int
             | Type::Float
+            | Type::ExactInt { .. }
+            | Type::ExactFloat { .. }
             | Type::Bool
             | Type::String
             | Type::Char
@@ -7630,13 +7743,13 @@ impl SemanticAnalyzer {
                             }
                         } else {
                             // Numeric addition
-                            if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
+                            if !Self::is_numeric_type(&left_type) && !matches!(left_type, Type::Unknown) {
                                 self.error(
                                     format!("Left operand of arithmetic operation must be numeric, found {}", type_name(&left_type)),
                                     left.span,
                                 );
                             }
-                            if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
+                            if !Self::is_numeric_type(&right_type) && !matches!(right_type, Type::Unknown) {
                                 self.error(
                                     format!("Right operand of arithmetic operation must be numeric, found {}", type_name(&right_type)),
                                     right.span,
@@ -7649,13 +7762,13 @@ impl SemanticAnalyzer {
                     | BinaryOperator::Divide
                     | BinaryOperator::Modulo => {
                         // Arithmetic operations require numeric types
-                        if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
+                        if !Self::is_numeric_type(&left_type) && !matches!(left_type, Type::Unknown) {
                             self.error(
                                 format!("Left operand of arithmetic operation must be numeric, found {}", type_name(&left_type)),
                                 left.span,
                             );
                         }
-                        if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
+                        if !Self::is_numeric_type(&right_type) && !matches!(right_type, Type::Unknown) {
                             self.error(
                                 format!("Right operand of arithmetic operation must be numeric, found {}", type_name(&right_type)),
                                 right.span,
@@ -7694,7 +7807,7 @@ impl SemanticAnalyzer {
                     | BinaryOperator::LessEqual
                     | BinaryOperator::GreaterEqual => {
                         // Comparison requires numeric types
-                        if !matches!(left_type, Type::Int | Type::Float | Type::Unknown) {
+                        if !Self::is_numeric_type(&left_type) && !matches!(left_type, Type::Unknown) {
                             self.error(
                                 format!(
                                     "Left operand of comparison must be numeric, found {}",
@@ -7703,7 +7816,7 @@ impl SemanticAnalyzer {
                                 left.span,
                             );
                         }
-                        if !matches!(right_type, Type::Int | Type::Float | Type::Unknown) {
+                        if !Self::is_numeric_type(&right_type) && !matches!(right_type, Type::Unknown) {
                             self.error(
                                 format!(
                                     "Right operand of comparison must be numeric, found {}",
@@ -9298,6 +9411,8 @@ impl SemanticAnalyzer {
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
+                mode,
+                ..
             } => {
                 self.analyze_expression(inner);
                 let from_ty = self.infer_expression_type(inner);
@@ -9313,6 +9428,18 @@ impl SemanticAnalyzer {
 
                 // Validate cast legality
                 let mut valid = is_cast_valid(&from_ty, &to_ty);
+
+                if *mode == CastMode::Wrapping
+                    && (matches!(from_ty, Type::Float | Type::ExactFloat { .. })
+                        || matches!(to_ty, Type::Float | Type::ExactFloat { .. }))
+                {
+                    self.error_coded(
+                        "E2903",
+                        "wrapping casts are only defined for integer-to-integer conversions",
+                        expr.span,
+                    );
+                    valid = false;
+                }
 
                 // For dyn Trait casts, verify that the concrete type actually implements the trait.
                 if let (
@@ -11147,6 +11274,12 @@ impl SemanticAnalyzer {
             },
             Type::Float => TypeAnnotationKind::Simple {
                 segments: vec!["float".to_string()],
+            },
+            Type::ExactInt { signed, width } => TypeAnnotationKind::Simple {
+                segments: vec![format!("{}{}", if *signed { "i" } else { "u" }, match width { IntWidth::I8 => "8", IntWidth::I16 => "16", IntWidth::I32 => "32", IntWidth::I64 => "64", IntWidth::Isize | IntWidth::Usize => "size" })],
+            },
+            Type::ExactFloat { width } => TypeAnnotationKind::Simple {
+                segments: vec![match width { FloatWidth::F32 => "f32".to_string(), FloatWidth::F64 => "f64".to_string() }],
             },
             Type::Bool => TypeAnnotationKind::Simple {
                 segments: vec!["bool".to_string()],

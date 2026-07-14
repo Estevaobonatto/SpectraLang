@@ -1,0 +1,5 @@
+module exact_width_unsupported_half_scalar;
+pub fn main() -> int {
+    let value: f16 = 1.0;
+    return 1;
+}

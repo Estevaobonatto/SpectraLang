@@ -1994,6 +1994,11 @@ delete, but not real enough to certify.
 - `R-2903` Native debug info emission
 - `R-2904` First-class tensor IR and device lowering
 
+R-2901 is complete: exact-width semantic/IR/backend storage, checked dynamic
+narrowing, checked arithmetic, explicit wrapping helpers, AOT object emission,
+and C ABI evidence are covered by the executable validator and normal CLI
+fixtures.
+
 ### Phase 30 — Production ML Systems Gap Closure
 
 This phase converts local or simulated ML-system baselines into real

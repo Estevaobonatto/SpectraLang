@@ -189,25 +189,38 @@ if (Test-Path $projectDir) {
 $errorDir = "tests\errors"
 if (Test-Path $errorDir) {
     $files = Get-ChildItem -Path $errorDir -Filter "*.spectra" | Sort-Object Name
+    $runtimeErrorFixtures = @(
+        "exact_width_float_nonfinite.spectra",
+        "exact_width_invalid_cast.spectra",
+        "exact_width_runtime_overflow.spectra"
+    )
     Write-Host ""
     Write-Host "--- $errorDir ($($files.Count) testes: devem falhar) ---" -ForegroundColor Yellow
 
     foreach ($file in $files) {
         Write-Host "  $($file.Name)" -NoNewline
-        $r = Invoke-SpectraFile $file.FullName
+        $expectsRuntimeFailure = $runtimeErrorFixtures -contains $file.Name
+        $r = if ($expectsRuntimeFailure) {
+            Invoke-SpectraCommand -commandArgs @("run", $file.FullName) -workingDir (Get-Location).Path -includeExperimental $true
+        } else {
+            Invoke-SpectraFile $file.FullName
+        }
 
         if ($r.TimedOut) {
             Write-Host " FALHOU (timeout)" -ForegroundColor Red
             $totalFailed++
-            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "timeout - deveria falhar rapidamente" }
+            $mode = if ($expectsRuntimeFailure) { "runtime" } else { "compilacao" }
+            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "timeout - erro esperado em $mode" }
         } elseif ($r.ExitCode -ne 0) {
-            Write-Host " PASSOU (erro esperado)" -ForegroundColor Green
+            $mode = if ($expectsRuntimeFailure) { "runtime" } else { "compilacao" }
+            Write-Host " PASSOU (erro esperado: $mode)" -ForegroundColor Green
             $totalPassed++
-            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "erro esperado detectado" }
+            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "PASSOU"; Detalhe = "erro esperado detectado em $mode" }
         } else {
-            Write-Host " FALHOU (deveria produzir erro, mas compilou)" -ForegroundColor Red
+            $mode = if ($expectsRuntimeFailure) { "runtime" } else { "compilacao" }
+            Write-Host " FALHOU (deveria produzir erro em $mode)" -ForegroundColor Red
             $totalFailed++
-            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "compilou sem erro - erro esperado nao detectado" }
+            $results += [PSCustomObject]@{ Diretorio = $errorDir; Teste = $file.Name; Status = "FALHOU"; Detalhe = "executou sem erro - erro esperado em $mode nao detectado" }
         }
     }
 }
@@ -1161,6 +1174,15 @@ Write-Host "--- R-3006 persistent production vector index ---" -ForegroundColor 
 $r3006VectorIndex = Invoke-HostCommand -name "validate_r3006_vector_index" -fileName "python" -arguments @("scripts\validate_r3006_vector_index.py", "--binary", $binary, "--fixture", "tests\validation\188_ml_vector_index_production.spectra", "--report", "target\r3006-vector-index\report.json") -workingDir (Get-Location).Path
 if ($r3006VectorIndex.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
 $results += [PSCustomObject]@{ Diretorio = "phase30-vector-index"; Teste = "validate_r3006_vector_index"; Status = $r3006VectorIndex.Status; Detalhe = $r3006VectorIndex.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.27h: R-2901 exact-width numeric runtime semantics
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2901 exact-width numeric runtime semantics ---" -ForegroundColor Yellow
+$r2901ExactWidth = Invoke-HostCommand -name "validate_r2901_exact_width" -fileName "python" -arguments @("scripts\validate_r2901_exact_width.py", "--binary", $binary, "--fixture", "tests\validation\189_exact_width_numeric_semantics.spectra", "--report", "target\r2901-exact-width\report.json") -workingDir (Get-Location).Path
+if ($r2901ExactWidth.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase29-exact-width"; Teste = "validate_r2901_exact_width"; Status = $r2901ExactWidth.Status; Detalhe = $r2901ExactWidth.Detail }
 
 # ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh

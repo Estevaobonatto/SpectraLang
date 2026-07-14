@@ -219,7 +219,9 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::Phi { result, .. }
         | InstructionKind::Copy { result, .. }
         | InstructionKind::ConstInt { result, .. }
+        | InstructionKind::ConstIntTyped { result, .. }
         | InstructionKind::ConstFloat { result, .. }
+        | InstructionKind::ConstFloatTyped { result, .. }
         | InstructionKind::ConstBool { result, .. }
         | InstructionKind::ConstString { result, .. }
         | InstructionKind::Cast { result, .. }
@@ -288,7 +290,9 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
         InstructionKind::Alloca { .. }
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }
+        | InstructionKind::ConstIntTyped { .. }
         | InstructionKind::ConstFloat { .. }
+        | InstructionKind::ConstFloatTyped { .. }
         | InstructionKind::ConstBool { .. }
         | InstructionKind::ConstString { .. } => Vec::new(),
     }

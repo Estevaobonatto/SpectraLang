@@ -157,8 +157,16 @@ impl IRBuilder {
         self.try_emit(func, |result| InstructionKind::ConstInt { result, value })
     }
 
+    pub fn build_const_int_typed(&self, func: &mut Function, value: i64, ty: crate::ir::Type) -> Value {
+        self.try_emit(func, |result| InstructionKind::ConstIntTyped { result, value, ty })
+    }
+
     pub fn build_const_float(&self, func: &mut Function, value: f64) -> Value {
         self.try_emit(func, |result| InstructionKind::ConstFloat { result, value })
+    }
+
+    pub fn build_const_float_typed(&self, func: &mut Function, value: f64, ty: crate::ir::Type) -> Value {
+        self.try_emit(func, |result| InstructionKind::ConstFloatTyped { result, value, ty })
     }
 
     pub fn build_const_bool(&self, func: &mut Function, value: bool) -> Value {

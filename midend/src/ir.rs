@@ -228,9 +228,19 @@ pub enum InstructionKind {
         result: Value,
         value: i64,
     },
+    ConstIntTyped {
+        result: Value,
+        value: i64,
+        ty: Type,
+    },
     ConstFloat {
         result: Value,
         value: f64,
+    },
+    ConstFloatTyped {
+        result: Value,
+        value: f64,
+        ty: Type,
     },
     ConstBool {
         result: Value,
@@ -309,6 +319,13 @@ pub enum Type {
     Void,
     Int,
     Float,
+    ExactInt {
+        signed: bool,
+        width: IntWidth,
+    },
+    ExactFloat {
+        width: FloatWidth,
+    },
     Bool,
     String,
     Char,
@@ -351,6 +368,22 @@ pub enum Type {
         trait_name: String,
         auto_traits: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntWidth {
+    I8,
+    I16,
+    I32,
+    I64,
+    Isize,
+    Usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FloatWidth {
+    F32,
+    F64,
 }
 
 /// Constant values
@@ -439,11 +472,11 @@ impl BasicBlock {
 
 impl Type {
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Int | Type::Float)
+        matches!(self, Type::Int | Type::Float | Type::ExactInt { .. } | Type::ExactFloat { .. })
     }
 
     pub fn is_integer(&self) -> bool {
-        matches!(self, Type::Int)
+        matches!(self, Type::Int | Type::ExactInt { .. })
     }
 
     pub fn is_bool(&self) -> bool {

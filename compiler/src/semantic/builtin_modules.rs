@@ -7,7 +7,7 @@ use super::module_registry::{
     ExportVisibility, ExportedFunction, ExportedSelfParamKind, ExportedTrait, ExportedTraitMethod,
     ExportedType, ModuleExports, ModuleRegistry,
 };
-use crate::ast::Type;
+use crate::ast::{FloatWidth, IntWidth, Type};
 
 pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api",
@@ -501,6 +501,7 @@ pub const STD_RANGE_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
 pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.io".to_string(), make_std_io());
     registry.register_module("std.math".to_string(), make_std_math());
+    registry.register_module("std.numeric".to_string(), make_std_numeric());
     registry.register_module("std.collections".to_string(), make_std_collections());
     registry.register_module("std.string".to_string(), make_std_string());
     registry.register_module("std.convert".to_string(), make_std_convert());
@@ -520,6 +521,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
+    registry.register_module("spectra.std.numeric".to_string(), make_std_numeric());
     registry.register_module(
         "spectra.std.collections".to_string(),
         make_std_collections(),
@@ -1623,6 +1625,39 @@ fn make_std_math() -> ModuleExports {
         .functions
         .insert("abs_f".to_string(), pub_fn(vec![Type::Float], Type::Float));
 
+    exports
+}
+
+fn make_std_numeric() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "numeric".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+    for (name, ty) in [
+        ("i8", Type::ExactInt { signed: true, width: IntWidth::I8 }),
+        ("i16", Type::ExactInt { signed: true, width: IntWidth::I16 }),
+        ("i32", Type::ExactInt { signed: true, width: IntWidth::I32 }),
+        ("i64", Type::ExactInt { signed: true, width: IntWidth::I64 }),
+        ("u8", Type::ExactInt { signed: false, width: IntWidth::I8 }),
+        ("u16", Type::ExactInt { signed: false, width: IntWidth::I16 }),
+        ("u32", Type::ExactInt { signed: false, width: IntWidth::I32 }),
+        ("u64", Type::ExactInt { signed: false, width: IntWidth::I64 }),
+    ] {
+        for op in ["add", "sub", "mul"] {
+            exports.functions.insert(
+                format!("wrapping_{op}_{name}"),
+                pub_fn(vec![ty.clone(), ty.clone()], ty.clone()),
+            );
+        }
+    }
+    exports.functions.insert(
+        "checked_f32".to_string(),
+        pub_fn(
+            vec![Type::ExactFloat { width: FloatWidth::F64 }],
+            Type::ExactFloat { width: FloatWidth::F32 },
+        ),
+    );
     exports
 }
 

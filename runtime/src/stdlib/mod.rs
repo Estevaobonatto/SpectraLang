@@ -637,10 +637,12 @@ const SERVE_RESET: &str = "spectra.std.serve.reset";
 
 // ── std.io (novos) ───────────────────────────────────────────────────────────
 const IO_INPUT: &str = "spectra.std.io.input";
+const NUMERIC_CHECKED_F32: &str = "spectra.std.numeric.checked_f32";
 
 /// Registers the standard library host functions.
 pub fn register() {
     register_math();
+    register_numeric();
     register_io();
     register_collections();
     register_map();
@@ -663,6 +665,249 @@ pub fn register() {
     // can find them at runtime. See `ffi::keep_fast_symbols` for details.
     crate::ffi::keep_fast_symbols();
 }
+
+fn numeric_binary_args(ctx: *mut SpectraHostCallContext) -> Option<([i64; 2], *mut i64)> {
+    if ctx.is_null() { return None; }
+    unsafe {
+        let c = &mut *ctx;
+        if c.arg_len != 2 || c.result_len == 0 || c.args.is_null() || c.results.is_null() { return None; }
+        let args = slice::from_raw_parts(c.args, 2);
+        Some(([args[0], args[1]], c.results))
+    }
+}
+
+fn numeric_unary_arg(ctx: *mut SpectraHostCallContext) -> Option<(i64, *mut i64)> {
+    if ctx.is_null() { return None; }
+    unsafe {
+        let c = &mut *ctx;
+        if c.arg_len != 1 || c.result_len == 0 || c.args.is_null() || c.results.is_null() { return None; }
+        Some((*c.args, c.results))
+    }
+}
+
+macro_rules! define_numeric_host {
+    ($fn_name:ident, $helper:path, $bits:expr) => {
+        extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
+            let Some((args, results_ptr)) = numeric_binary_args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let result = $helper(args[0], args[1], $bits);
+            unsafe { *results_ptr = result; }
+            HOST_STATUS_SUCCESS
+        }
+    };
+}
+
+macro_rules! define_checked_binary_host {
+    ($fn_name:ident, $path:literal, $signed:expr, $bits:expr, $op:tt) => {
+        extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
+            let Some((args, results_ptr)) = numeric_binary_args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let value = if $signed {
+                let a = args[0] as i128; let b = args[1] as i128;
+                let value = match stringify!($op) { "+" => a.checked_add(b), "-" => a.checked_sub(b), "*" => a.checked_mul(b), _ => None };
+                let Some(value) = value else { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); };
+                let min = -(1_i128 << ($bits - 1)); let max = (1_i128 << ($bits - 1)) - 1;
+                if value < min || value > max { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); }
+                value as i64
+            } else {
+                let a = args[0] as u128; let b = args[1] as u128;
+                let value = match stringify!($op) { "+" => a.checked_add(b), "-" => a.checked_sub(b), "*" => a.checked_mul(b), _ => None };
+                let Some(value) = value else { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); };
+                if value > ((1_u128 << $bits) - 1) { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); }
+                value as i64
+            };
+            unsafe { *results_ptr = value; }
+            HOST_STATUS_SUCCESS
+        }
+    };
+}
+
+define_numeric_host!(std_numeric_add_i8, crate::numeric::wrapping_add_signed, 8);
+define_numeric_host!(std_numeric_sub_i8, crate::numeric::wrapping_sub_signed, 8);
+define_numeric_host!(std_numeric_mul_i8, crate::numeric::wrapping_mul_signed, 8);
+define_numeric_host!(std_numeric_add_i16, crate::numeric::wrapping_add_signed, 16);
+define_numeric_host!(std_numeric_sub_i16, crate::numeric::wrapping_sub_signed, 16);
+define_numeric_host!(std_numeric_mul_i16, crate::numeric::wrapping_mul_signed, 16);
+define_numeric_host!(std_numeric_add_i32, crate::numeric::wrapping_add_signed, 32);
+define_numeric_host!(std_numeric_sub_i32, crate::numeric::wrapping_sub_signed, 32);
+define_numeric_host!(std_numeric_mul_i32, crate::numeric::wrapping_mul_signed, 32);
+define_numeric_host!(std_numeric_add_i64, crate::numeric::wrapping_add_signed, 64);
+define_numeric_host!(std_numeric_sub_i64, crate::numeric::wrapping_sub_signed, 64);
+define_numeric_host!(std_numeric_mul_i64, crate::numeric::wrapping_mul_signed, 64);
+define_numeric_host!(std_numeric_add_u8, crate::numeric::wrapping_add_unsigned, 8);
+define_numeric_host!(std_numeric_sub_u8, crate::numeric::wrapping_sub_unsigned, 8);
+define_numeric_host!(std_numeric_mul_u8, crate::numeric::wrapping_mul_unsigned, 8);
+define_numeric_host!(std_numeric_add_u16, crate::numeric::wrapping_add_unsigned, 16);
+define_numeric_host!(std_numeric_sub_u16, crate::numeric::wrapping_sub_unsigned, 16);
+define_numeric_host!(std_numeric_mul_u16, crate::numeric::wrapping_mul_unsigned, 16);
+define_numeric_host!(std_numeric_add_u32, crate::numeric::wrapping_add_unsigned, 32);
+define_numeric_host!(std_numeric_sub_u32, crate::numeric::wrapping_sub_unsigned, 32);
+define_numeric_host!(std_numeric_mul_u32, crate::numeric::wrapping_mul_unsigned, 32);
+define_numeric_host!(std_numeric_add_u64, crate::numeric::wrapping_add_unsigned, 64);
+define_numeric_host!(std_numeric_sub_u64, crate::numeric::wrapping_sub_unsigned, 64);
+define_numeric_host!(std_numeric_mul_u64, crate::numeric::wrapping_mul_unsigned, 64);
+define_checked_binary_host!(std_numeric_checked_add_i8, "i8", true, 8, +);
+define_checked_binary_host!(std_numeric_checked_sub_i8, "i8", true, 8, -);
+define_checked_binary_host!(std_numeric_checked_mul_i8, "i8", true, 8, *);
+define_checked_binary_host!(std_numeric_checked_add_i16, "i16", true, 16, +);
+define_checked_binary_host!(std_numeric_checked_sub_i16, "i16", true, 16, -);
+define_checked_binary_host!(std_numeric_checked_mul_i16, "i16", true, 16, *);
+define_checked_binary_host!(std_numeric_checked_add_i32, "i32", true, 32, +);
+define_checked_binary_host!(std_numeric_checked_sub_i32, "i32", true, 32, -);
+define_checked_binary_host!(std_numeric_checked_mul_i32, "i32", true, 32, *);
+define_checked_binary_host!(std_numeric_checked_add_i64, "i64", true, 64, +);
+define_checked_binary_host!(std_numeric_checked_sub_i64, "i64", true, 64, -);
+define_checked_binary_host!(std_numeric_checked_mul_i64, "i64", true, 64, *);
+define_checked_binary_host!(std_numeric_checked_add_u8, "u8", false, 8, +);
+define_checked_binary_host!(std_numeric_checked_sub_u8, "u8", false, 8, -);
+define_checked_binary_host!(std_numeric_checked_mul_u8, "u8", false, 8, *);
+define_checked_binary_host!(std_numeric_checked_add_u16, "u16", false, 16, +);
+define_checked_binary_host!(std_numeric_checked_sub_u16, "u16", false, 16, -);
+define_checked_binary_host!(std_numeric_checked_mul_u16, "u16", false, 16, *);
+define_checked_binary_host!(std_numeric_checked_add_u32, "u32", false, 32, +);
+define_checked_binary_host!(std_numeric_checked_sub_u32, "u32", false, 32, -);
+define_checked_binary_host!(std_numeric_checked_mul_u32, "u32", false, 32, *);
+define_checked_binary_host!(std_numeric_checked_add_u64, "u64", false, 64, +);
+define_checked_binary_host!(std_numeric_checked_sub_u64, "u64", false, 64, -);
+define_checked_binary_host!(std_numeric_checked_mul_u64, "u64", false, 64, *);
+
+fn register_numeric() {
+    register_host_function("spectra.std.numeric.wrapping_add_i8", std_numeric_add_i8);
+    register_host_function("spectra.std.numeric.wrapping_sub_i8", std_numeric_sub_i8);
+    register_host_function("spectra.std.numeric.wrapping_mul_i8", std_numeric_mul_i8);
+    register_host_function("spectra.std.numeric.wrapping_add_i16", std_numeric_add_i16);
+    register_host_function("spectra.std.numeric.wrapping_sub_i16", std_numeric_sub_i16);
+    register_host_function("spectra.std.numeric.wrapping_mul_i16", std_numeric_mul_i16);
+    register_host_function("spectra.std.numeric.wrapping_add_i32", std_numeric_add_i32);
+    register_host_function("spectra.std.numeric.wrapping_sub_i32", std_numeric_sub_i32);
+    register_host_function("spectra.std.numeric.wrapping_mul_i32", std_numeric_mul_i32);
+    register_host_function("spectra.std.numeric.wrapping_add_i64", std_numeric_add_i64);
+    register_host_function("spectra.std.numeric.wrapping_sub_i64", std_numeric_sub_i64);
+    register_host_function("spectra.std.numeric.wrapping_mul_i64", std_numeric_mul_i64);
+    register_host_function("spectra.std.numeric.wrapping_add_u8", std_numeric_add_u8);
+    register_host_function("spectra.std.numeric.wrapping_sub_u8", std_numeric_sub_u8);
+    register_host_function("spectra.std.numeric.wrapping_mul_u8", std_numeric_mul_u8);
+    register_host_function("spectra.std.numeric.wrapping_add_u16", std_numeric_add_u16);
+    register_host_function("spectra.std.numeric.wrapping_sub_u16", std_numeric_sub_u16);
+    register_host_function("spectra.std.numeric.wrapping_mul_u16", std_numeric_mul_u16);
+    register_host_function("spectra.std.numeric.wrapping_add_u32", std_numeric_add_u32);
+    register_host_function("spectra.std.numeric.wrapping_sub_u32", std_numeric_sub_u32);
+    register_host_function("spectra.std.numeric.wrapping_mul_u32", std_numeric_mul_u32);
+    register_host_function("spectra.std.numeric.wrapping_add_u64", std_numeric_add_u64);
+    register_host_function("spectra.std.numeric.wrapping_sub_u64", std_numeric_sub_u64);
+    register_host_function("spectra.std.numeric.wrapping_mul_u64", std_numeric_mul_u64);
+    register_host_function("spectra.std.numeric.checked_i8", std_numeric_checked_i8);
+    register_host_function("spectra.std.numeric.checked_i16", std_numeric_checked_i16);
+    register_host_function("spectra.std.numeric.checked_i32", std_numeric_checked_i32);
+    register_host_function("spectra.std.numeric.checked_i64", std_numeric_checked_i64);
+    register_host_function("spectra.std.numeric.checked_u8", std_numeric_checked_u8);
+    register_host_function("spectra.std.numeric.checked_u16", std_numeric_checked_u16);
+    register_host_function("spectra.std.numeric.checked_u32", std_numeric_checked_u32);
+    register_host_function("spectra.std.numeric.checked_u64", std_numeric_checked_u64);
+    register_host_function(NUMERIC_CHECKED_F32, std_numeric_checked_f32);
+    register_host_function("spectra.std.numeric.checked_float_i8", std_numeric_checked_float_i8);
+    register_host_function("spectra.std.numeric.checked_float_i16", std_numeric_checked_float_i16);
+    register_host_function("spectra.std.numeric.checked_float_i32", std_numeric_checked_float_i32);
+    register_host_function("spectra.std.numeric.checked_float_i64", std_numeric_checked_float_i64);
+    register_host_function("spectra.std.numeric.checked_float_u8", std_numeric_checked_float_u8);
+    register_host_function("spectra.std.numeric.checked_float_u16", std_numeric_checked_float_u16);
+    register_host_function("spectra.std.numeric.checked_float_u32", std_numeric_checked_float_u32);
+    register_host_function("spectra.std.numeric.checked_float_u64", std_numeric_checked_float_u64);
+    register_host_function("spectra.std.numeric.checked_add_i8", std_numeric_checked_add_i8);
+    register_host_function("spectra.std.numeric.checked_sub_i8", std_numeric_checked_sub_i8);
+    register_host_function("spectra.std.numeric.checked_mul_i8", std_numeric_checked_mul_i8);
+    register_host_function("spectra.std.numeric.checked_add_i16", std_numeric_checked_add_i16);
+    register_host_function("spectra.std.numeric.checked_sub_i16", std_numeric_checked_sub_i16);
+    register_host_function("spectra.std.numeric.checked_mul_i16", std_numeric_checked_mul_i16);
+    register_host_function("spectra.std.numeric.checked_add_i32", std_numeric_checked_add_i32);
+    register_host_function("spectra.std.numeric.checked_sub_i32", std_numeric_checked_sub_i32);
+    register_host_function("spectra.std.numeric.checked_mul_i32", std_numeric_checked_mul_i32);
+    register_host_function("spectra.std.numeric.checked_add_i64", std_numeric_checked_add_i64);
+    register_host_function("spectra.std.numeric.checked_sub_i64", std_numeric_checked_sub_i64);
+    register_host_function("spectra.std.numeric.checked_mul_i64", std_numeric_checked_mul_i64);
+    register_host_function("spectra.std.numeric.checked_add_u8", std_numeric_checked_add_u8);
+    register_host_function("spectra.std.numeric.checked_sub_u8", std_numeric_checked_sub_u8);
+    register_host_function("spectra.std.numeric.checked_mul_u8", std_numeric_checked_mul_u8);
+    register_host_function("spectra.std.numeric.checked_add_u16", std_numeric_checked_add_u16);
+    register_host_function("spectra.std.numeric.checked_sub_u16", std_numeric_checked_sub_u16);
+    register_host_function("spectra.std.numeric.checked_mul_u16", std_numeric_checked_mul_u16);
+    register_host_function("spectra.std.numeric.checked_add_u32", std_numeric_checked_add_u32);
+    register_host_function("spectra.std.numeric.checked_sub_u32", std_numeric_checked_sub_u32);
+    register_host_function("spectra.std.numeric.checked_mul_u32", std_numeric_checked_mul_u32);
+    register_host_function("spectra.std.numeric.checked_add_u64", std_numeric_checked_add_u64);
+    register_host_function("spectra.std.numeric.checked_sub_u64", std_numeric_checked_sub_u64);
+    register_host_function("spectra.std.numeric.checked_mul_u64", std_numeric_checked_mul_u64);
+}
+
+fn numeric_checked_error(code: &str, message: &str) -> i32 {
+    eprintln!("{code}: {message}");
+    HOST_STATUS_INVALID_ARGUMENT
+}
+
+extern "C" fn std_numeric_checked_f32(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Some((raw, results_ptr)) = numeric_unary_arg(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+    let value = f64::from_bits(raw as u64);
+    let narrowed = value as f32;
+    if !value.is_finite() || !narrowed.is_finite() || narrowed as f64 != value {
+        return numeric_checked_error("E2904", "value is not exactly representable as f32");
+    }
+    unsafe { *results_ptr = (narrowed as f64).to_bits() as i64; }
+    HOST_STATUS_SUCCESS
+}
+
+macro_rules! define_checked_int_cast {
+    ($fn_name:ident, $path:literal, $signed:expr, $bits:expr) => {
+        extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
+            let Some((value, results_ptr)) = numeric_unary_arg(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let value = value as i128;
+            let valid = if $signed {
+                let min = -(1_i128 << ($bits - 1));
+                let max = (1_i128 << ($bits - 1)) - 1;
+                value >= min && value <= max
+            } else {
+                value >= 0 && (value as u128) <= ((1_u128 << $bits) - 1)
+            };
+            if !valid { return numeric_checked_error("E2903", concat!("value is outside ", $path, " range")); }
+            unsafe { *results_ptr = value as i64; }
+            HOST_STATUS_SUCCESS
+        }
+    };
+}
+
+define_checked_int_cast!(std_numeric_checked_i8, "i8", true, 8);
+define_checked_int_cast!(std_numeric_checked_i16, "i16", true, 16);
+define_checked_int_cast!(std_numeric_checked_i32, "i32", true, 32);
+define_checked_int_cast!(std_numeric_checked_i64, "i64", true, 64);
+define_checked_int_cast!(std_numeric_checked_u8, "u8", false, 8);
+define_checked_int_cast!(std_numeric_checked_u16, "u16", false, 16);
+define_checked_int_cast!(std_numeric_checked_u32, "u32", false, 32);
+define_checked_int_cast!(std_numeric_checked_u64, "u64", false, 64);
+
+macro_rules! define_checked_float_int_cast {
+    ($fn_name:ident, $path:literal, $signed:expr, $bits:expr) => {
+        extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
+            let Some((raw, results_ptr)) = numeric_unary_arg(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let value = f64::from_bits(raw as u64);
+            let valid = value.is_finite() && value.fract() == 0.0 && if $signed {
+                let min = -(2_f64).powi(($bits - 1) as i32);
+                let max = (2_f64).powi(($bits - 1) as i32) - 1.0;
+                value >= min && value <= max
+            } else {
+                value >= 0.0 && value <= (2_f64).powi($bits as i32) - 1.0
+            };
+            if !valid { return numeric_checked_error("E2904", concat!("value is outside ", $path, " range or is non-finite")); }
+            unsafe { *results_ptr = value as i128 as i64; }
+            HOST_STATUS_SUCCESS
+        }
+    };
+}
+
+define_checked_float_int_cast!(std_numeric_checked_float_i8, "i8", true, 8);
+define_checked_float_int_cast!(std_numeric_checked_float_i16, "i16", true, 16);
+define_checked_float_int_cast!(std_numeric_checked_float_i32, "i32", true, 32);
+define_checked_float_int_cast!(std_numeric_checked_float_i64, "i64", true, 64);
+define_checked_float_int_cast!(std_numeric_checked_float_u8, "u8", false, 8);
+define_checked_float_int_cast!(std_numeric_checked_float_u16, "u16", false, 16);
+define_checked_float_int_cast!(std_numeric_checked_float_u32, "u32", false, 32);
+define_checked_float_int_cast!(std_numeric_checked_float_u64, "u64", false, 64);
 
 fn register_math() {
     register_host_function(MATH_ABS, std_math_abs);

@@ -1,0 +1,6 @@
+module exact_width_invalid_cast;
+pub fn main() -> int {
+    let value: int = 300;
+    let narrowed: i8 = value as i8;
+    return narrowed as int;
+}

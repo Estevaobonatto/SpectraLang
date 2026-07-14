@@ -286,8 +286,14 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::ConstInt { result, value } => {
                 format!("{} = const.int {}", fmt_value(*result), value)
             }
+            InstructionKind::ConstIntTyped { result, value, ty } => {
+                format!("{} = const.int<{}> {}", fmt_value(*result), fmt_type(ty), value)
+            }
             InstructionKind::ConstFloat { result, value } => {
                 format!("{} = const.float {}", fmt_value(*result), value)
+            }
+            InstructionKind::ConstFloatTyped { result, value, ty } => {
+                format!("{} = const.float<{}> {}", fmt_value(*result), fmt_type(ty), value)
             }
             InstructionKind::ConstBool { result, value } => {
                 format!("{} = const.bool {}", fmt_value(*result), value)
@@ -400,6 +406,8 @@ fn fmt_type(ty: &Type) -> String {
         Type::Void => "void".to_string(),
         Type::Int => "int".to_string(),
         Type::Float => "float".to_string(),
+        Type::ExactInt { signed, width } => format!("{}{}", if *signed { "i" } else { "u" }, match width { crate::ir::IntWidth::I8 => "8", crate::ir::IntWidth::I16 => "16", crate::ir::IntWidth::I32 => "32", crate::ir::IntWidth::I64 => "64", crate::ir::IntWidth::Isize | crate::ir::IntWidth::Usize => "size" }),
+        Type::ExactFloat { width } => match width { crate::ir::FloatWidth::F32 => "f32".to_string(), crate::ir::FloatWidth::F64 => "f64".to_string() },
         Type::Bool => "bool".to_string(),
         Type::String => "string".to_string(),
         Type::Char => "char".to_string(),

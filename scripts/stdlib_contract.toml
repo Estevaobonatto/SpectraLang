@@ -72,6 +72,11 @@ path = "tests/validation/77_concurrency_pipeline.spectra"
 covers = ["std.concurrent.*"]
 
 [[probe]]
+id = "exact-width-numeric"
+path = "tests/validation/189_exact_width_numeric_semantics.spectra"
+covers = ["std.numeric.*"]
+
+[[probe]]
 id = "api-http"
 path = "tests/validation/134_http_core_types.spectra"
 covers = ["std.api.http.*"]
@@ -149,6 +154,12 @@ prefix = "std.math"
 owner = "runtime"
 classification = "production"
 roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.numeric"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2901"
 
 [[namespace]]
 prefix = "std.string"

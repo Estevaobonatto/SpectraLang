@@ -9,6 +9,15 @@ All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.m
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
 64-bit values (`SpectraHostValue`).
 
+## Exact-width numeric ABI
+
+R-2901 adds explicit exact-width scalar representations. Host-call slots remain
+canonical 64-bit values, while the compiler/backend materialize `i8`/`i16`/
+`i32`/`i64` and `f32`/`f64` values with their declared width. Signed values are
+sign-extended and unsigned values must be zero-extended at the ABI boundary.
+The feature remains in progress until all checked narrowing and C interop
+validation gates pass.
+
 ## math namespace
 
 | Host call | Description | Arguments | Results |

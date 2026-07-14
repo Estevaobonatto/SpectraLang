@@ -1,0 +1,3 @@
+module exact_width_overflow;
+const TOO_WIDE: i8 = 128;
+pub fn main() -> int { return TOO_WIDE as int; }

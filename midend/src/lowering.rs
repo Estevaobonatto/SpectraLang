@@ -3,7 +3,8 @@
 
 use crate::builder::IRBuilder;
 use crate::ir::{
-    Function as IRFunction, Module as IRModule, Parameter, Terminator, Type as IRType, Value,
+    FloatWidth as IRFloatWidth, Function as IRFunction, IntWidth as IRIntWidth,
+    Module as IRModule, Parameter, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
     BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
@@ -607,6 +608,7 @@ impl ASTLowering {
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
+                ..
             } => {
                 let value = self.eval_const_expression(inner)?;
                 let target = self.lower_type_annotation(target_type);
@@ -718,16 +720,53 @@ impl ASTLowering {
         match (value, target) {
             (LoweredConstValue::Int(v), IRType::Int) => Some(LoweredConstValue::Int(v)),
             (LoweredConstValue::Int(v), IRType::Float) => Some(LoweredConstValue::Float(v as f64)),
+            (LoweredConstValue::Int(v), IRType::ExactInt { signed, width }) => {
+                let (min, max) = Self::exact_int_bounds(*signed, *width);
+                (min..=max).contains(&v).then_some(LoweredConstValue::Int(v))
+            }
+            (LoweredConstValue::Int(v), IRType::ExactFloat { .. }) => {
+                Some(LoweredConstValue::Float(v as f64))
+            }
             (LoweredConstValue::Int(v), IRType::Char) => {
                 char::from_u32(v as u32).map(LoweredConstValue::Char)
             }
             (LoweredConstValue::Float(v), IRType::Float) => Some(LoweredConstValue::Float(v)),
             (LoweredConstValue::Float(v), IRType::Int) => Some(LoweredConstValue::Int(v as i64)),
+            (LoweredConstValue::Float(v), IRType::ExactFloat { .. }) => {
+                Some(LoweredConstValue::Float(v))
+            }
+            (LoweredConstValue::Float(v), IRType::ExactInt { signed, width }) => {
+                if !v.is_finite() || v.fract() != 0.0 {
+                    return None;
+                }
+                let (min, max) = Self::exact_int_bounds(*signed, *width);
+                let value = v as i128;
+                (value >= min as i128 && value <= max as i128)
+                    .then_some(LoweredConstValue::Int(value as i64))
+            }
             (LoweredConstValue::Char(v), IRType::Char) => Some(LoweredConstValue::Char(v)),
             (LoweredConstValue::Char(v), IRType::Int) => Some(LoweredConstValue::Int(v as i64)),
+            (LoweredConstValue::Char(v), IRType::ExactInt { signed, width }) => {
+                let value = v as i64;
+                let (min, max) = Self::exact_int_bounds(*signed, *width);
+                (min..=max).contains(&value).then_some(LoweredConstValue::Int(value))
+            }
             (LoweredConstValue::Bool(v), IRType::Bool) => Some(LoweredConstValue::Bool(v)),
             (LoweredConstValue::String(v), IRType::String) => Some(LoweredConstValue::String(v)),
             _ => None,
+        }
+    }
+
+    fn exact_int_bounds(signed: bool, width: IRIntWidth) -> (i64, i64) {
+        match (signed, width) {
+            (true, IRIntWidth::I8) => (i8::MIN as i64, i8::MAX as i64),
+            (true, IRIntWidth::I16) => (i16::MIN as i64, i16::MAX as i64),
+            (true, IRIntWidth::I32) => (i32::MIN as i64, i32::MAX as i64),
+            (true, IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize) => (i64::MIN, i64::MAX),
+            (false, IRIntWidth::I8) => (0, u8::MAX as i64),
+            (false, IRIntWidth::I16) => (0, u16::MAX as i64),
+            (false, IRIntWidth::I32) => (0, u32::MAX as i64),
+            (false, IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize) => (0, i64::MAX),
         }
     }
 
@@ -1304,6 +1343,8 @@ impl ASTLowering {
             IRType::Void
             | IRType::Int
             | IRType::Float
+            | IRType::ExactInt { .. }
+            | IRType::ExactFloat { .. }
             | IRType::Bool
             | IRType::String
             | IRType::Char
@@ -5545,9 +5586,27 @@ impl ASTLowering {
             ExpressionKind::NumberLiteral(n) => {
                 // Try to parse as integer first, then float
                 if let Ok(int_val) = n.parse::<i64>() {
-                    self.builder.build_const_int(ir_func, int_val)
+                    if let Some(annotation) = self.current_expected_annotation.clone() {
+                        let ty = self.lower_type_annotation(&annotation);
+                        if matches!(ty, IRType::ExactInt { .. }) {
+                            self.builder.build_const_int_typed(ir_func, int_val, ty)
+                        } else {
+                            self.builder.build_const_int(ir_func, int_val)
+                        }
+                    } else {
+                        self.builder.build_const_int(ir_func, int_val)
+                    }
                 } else if let Ok(float_val) = n.parse::<f64>() {
-                    self.builder.build_const_float(ir_func, float_val)
+                    if let Some(annotation) = self.current_expected_annotation.clone() {
+                        let ty = self.lower_type_annotation(&annotation);
+                        if matches!(ty, IRType::ExactFloat { .. }) {
+                            self.builder.build_const_float_typed(ir_func, float_val, ty)
+                        } else {
+                            self.builder.build_const_float(ir_func, float_val)
+                        }
+                    } else {
+                        self.builder.build_const_float(ir_func, float_val)
+                    }
                 } else {
                     // Fallback to 0 if parsing fails
                     self.builder.build_const_int(ir_func, 0)
@@ -5627,6 +5686,31 @@ impl ASTLowering {
 
                 let lhs = self.lower_expression(left, ir_func);
                 let rhs = self.lower_expression(right, ir_func);
+
+                if let IRType::ExactInt { signed, width } = &left_ir_type {
+                    if left_ir_type == right_ir_type {
+                        let op_name = match operator {
+                            BinaryOperator::Add => Some("add"),
+                            BinaryOperator::Subtract => Some("sub"),
+                            BinaryOperator::Multiply => Some("mul"),
+                            _ => None,
+                        };
+                        if let Some(op_name) = op_name {
+                            let bits = match width {
+                                IRIntWidth::I8 => 8,
+                                IRIntWidth::I16 => 16,
+                                IRIntWidth::I32 => 32,
+                                IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize => 64,
+                            };
+                            let lhs_slot = self.builder.build_cast(ir_func, lhs, left_ir_type.clone(), IRType::Int);
+                            let rhs_slot = self.builder.build_cast(ir_func, rhs, right_ir_type.clone(), IRType::Int);
+                            let host = format!("spectra.std.numeric.checked_{op_name}_{}{}", if *signed { "i" } else { "u" }, bits);
+                            if let Some(value) = self.builder.build_typed_host_call(ir_func, host, vec![lhs_slot, rhs_slot], left_ir_type.clone(), true) {
+                                return value;
+                            }
+                        }
+                    }
+                }
 
                 match operator {
                     BinaryOperator::Add => self.builder.build_add(ir_func, lhs, rhs),
@@ -7051,6 +7135,7 @@ impl ASTLowering {
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
+                ..
             } => self.lower_cast_expression(inner, target_type, ir_func),
         }
     }
@@ -7082,6 +7167,55 @@ impl ASTLowering {
         // If same type, just copy
         if from_ty == to_ty {
             return operand;
+        }
+
+        // Checked narrowing goes through a runtime validator so dynamic values
+        // cannot silently saturate or truncate.  The host ABI receives the
+        // canonical i64/f64 representation; the result is materialized back
+        // into the exact destination type by the backend.
+        if let IRType::ExactInt { signed, width } = &to_ty {
+            let bits = match width {
+                IRIntWidth::I8 => 8,
+                IRIntWidth::I16 => 16,
+                IRIntWidth::I32 => 32,
+                IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize => 64,
+            };
+            let source_is_float = matches!(from_ty, IRType::Float | IRType::ExactFloat { .. });
+            let compatible_source = matches!(from_ty, IRType::Int | IRType::ExactInt { .. } | IRType::Float | IRType::ExactFloat { .. });
+            if compatible_source {
+                let host_operand = if source_is_float {
+                    if matches!(from_ty, IRType::ExactFloat { .. }) {
+                        self.builder.build_cast(ir_func, operand, from_ty.clone(), IRType::Float)
+                    } else { operand }
+                } else if matches!(from_ty, IRType::ExactInt { .. }) {
+                    self.builder.build_cast(ir_func, operand, from_ty.clone(), IRType::Int)
+                } else { operand };
+                let host = if source_is_float {
+                    format!("spectra.std.numeric.checked_float_{}{}", if *signed { "i" } else { "u" }, bits)
+                } else {
+                    format!("spectra.std.numeric.checked_{}{}", if *signed { "i" } else { "u" }, bits)
+                };
+                if let Some(value) = self.builder.build_typed_host_call(ir_func, host, vec![host_operand], to_ty.clone(), true) {
+                    return value;
+                }
+            }
+        }
+
+        if matches!(to_ty, IRType::ExactFloat { width: IRFloatWidth::F32 })
+            && matches!(from_ty, IRType::Float | IRType::ExactFloat { width: IRFloatWidth::F64 })
+        {
+            let host_operand = if matches!(from_ty, IRType::ExactFloat { .. }) {
+                self.builder.build_cast(ir_func, operand, from_ty.clone(), IRType::Float)
+            } else { operand };
+            if let Some(value) = self.builder.build_typed_host_call(
+                ir_func,
+                "spectra.std.numeric.checked_f32".to_string(),
+                vec![host_operand],
+                to_ty.clone(),
+                true,
+            ) {
+                return value;
+            }
         }
 
         self.builder.build_cast(ir_func, operand, from_ty, to_ty)
@@ -7593,9 +7727,20 @@ impl ASTLowering {
                 }
 
                 match type_name {
-                    "int" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32"
-                    | "u64" | "usize" => IRType::Int,
-                    "float" | "f16" | "bf16" | "f32" | "f64" => IRType::Float,
+                    "int" => IRType::Int,
+                    "float" => IRType::Float,
+                    "i8" => IRType::ExactInt { signed: true, width: IRIntWidth::I8 },
+                    "i16" => IRType::ExactInt { signed: true, width: IRIntWidth::I16 },
+                    "i32" => IRType::ExactInt { signed: true, width: IRIntWidth::I32 },
+                    "i64" => IRType::ExactInt { signed: true, width: IRIntWidth::I64 },
+                    "isize" => IRType::ExactInt { signed: true, width: IRIntWidth::Isize },
+                    "u8" => IRType::ExactInt { signed: false, width: IRIntWidth::I8 },
+                    "u16" => IRType::ExactInt { signed: false, width: IRIntWidth::I16 },
+                    "u32" => IRType::ExactInt { signed: false, width: IRIntWidth::I32 },
+                    "u64" => IRType::ExactInt { signed: false, width: IRIntWidth::I64 },
+                    "usize" => IRType::ExactInt { signed: false, width: IRIntWidth::Usize },
+                    "f32" => IRType::ExactFloat { width: IRFloatWidth::F32 },
+                    "f64" => IRType::ExactFloat { width: IRFloatWidth::F64 },
                     "bool" => IRType::Bool,
                     "string" => IRType::String,
                     "char" => IRType::Char,
@@ -7792,6 +7937,23 @@ impl ASTLowering {
         match ast_type {
             ASTType::Int => IRType::Int,
             ASTType::Float => IRType::Float,
+            ASTType::ExactInt { signed, width } => IRType::ExactInt {
+                signed: *signed,
+                width: match width {
+                    spectra_compiler::ast::IntWidth::I8 => IRIntWidth::I8,
+                    spectra_compiler::ast::IntWidth::I16 => IRIntWidth::I16,
+                    spectra_compiler::ast::IntWidth::I32 => IRIntWidth::I32,
+                    spectra_compiler::ast::IntWidth::I64 => IRIntWidth::I64,
+                    spectra_compiler::ast::IntWidth::Isize => IRIntWidth::Isize,
+                    spectra_compiler::ast::IntWidth::Usize => IRIntWidth::Usize,
+                },
+            },
+            ASTType::ExactFloat { width } => IRType::ExactFloat {
+                width: match width {
+                    spectra_compiler::ast::FloatWidth::F32 => IRFloatWidth::F32,
+                    spectra_compiler::ast::FloatWidth::F64 => IRFloatWidth::F64,
+                },
+            },
             ASTType::Bool => IRType::Bool,
             ASTType::String => IRType::String,
             ASTType::Char => IRType::Char,
@@ -8114,7 +8276,33 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
         [_, api, module, function] if api == "api" => {
             lookup_std_api_host_function(module, function)
         }
-        [_, module, function] => match (module.as_str(), function.as_str()) {
+        [_, module, function] => {
+            if module == "numeric" {
+                if function == "checked_f32" {
+                    return Some(HostFunctionDescriptor {
+                        runtime_name: "spectra.std.numeric.checked_f32",
+                        return_type: IRType::ExactFloat { width: IRFloatWidth::F32 },
+                        returns_value: true,
+                    });
+                }
+                let (signed, width): (bool, IRIntWidth) = match function.as_str() {
+                    "wrapping_add_i8" | "wrapping_sub_i8" | "wrapping_mul_i8" => (true, IRIntWidth::I8),
+                    "wrapping_add_i16" | "wrapping_sub_i16" | "wrapping_mul_i16" => (true, IRIntWidth::I16),
+                    "wrapping_add_i32" | "wrapping_sub_i32" | "wrapping_mul_i32" => (true, IRIntWidth::I32),
+                    "wrapping_add_i64" | "wrapping_sub_i64" | "wrapping_mul_i64" => (true, IRIntWidth::I64),
+                    "wrapping_add_u8" | "wrapping_sub_u8" | "wrapping_mul_u8" => (false, IRIntWidth::I8),
+                    "wrapping_add_u16" | "wrapping_sub_u16" | "wrapping_mul_u16" => (false, IRIntWidth::I16),
+                    "wrapping_add_u32" | "wrapping_sub_u32" | "wrapping_mul_u32" => (false, IRIntWidth::I32),
+                    "wrapping_add_u64" | "wrapping_sub_u64" | "wrapping_mul_u64" => (false, IRIntWidth::I64),
+                    _ => return None,
+                };
+                return Some(HostFunctionDescriptor {
+                    runtime_name: Box::leak(format!("spectra.std.numeric.{function}").into_boxed_str()),
+                    return_type: IRType::ExactInt { signed, width },
+                    returns_value: true,
+                });
+            }
+            match (module.as_str(), function.as_str()) {
             ("math", "abs") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.abs",
                 return_type: IRType::Int,
@@ -9351,6 +9539,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 returns_value: true,
             }),
             _ => None,
+            }
         },
         _ => None,
     }

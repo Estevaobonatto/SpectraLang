@@ -1640,7 +1640,7 @@ R-702 remains `in_progress`: the WGPU baseline is real and validated, but it is 
 
 ## R-703 Mixed Precision
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-702`
@@ -3627,7 +3627,7 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
   untracked failures through normal CLI/package paths.
 - The release report lists any newly-created follow-up roadmap items.
 
-### Implemented so far
+### Evidence
 
 - `scripts/validate_r2013_release_candidate.py` validates the R-2008 matrix,
   regenerates R-2001/R-2011/R-2012 reports in order, rejects stale or invalid
@@ -5249,7 +5249,7 @@ block with documented behavior.
 
 ## R-2303 Structured Logging and Request ID Tracing
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `medium`
@@ -6606,7 +6606,7 @@ exist; they are not cosmetic documentation fixes.
 
 ## R-2901 Exact-Width Numeric Runtime Semantics
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
@@ -6630,6 +6630,16 @@ exist; they are not cosmetic documentation fixes.
   boundaries, overflow, host-call ABI crossing, and struct/array storage.
 - Docs no longer describe exact-width numeric support as alpha or future
   work.
+
+### Evidence
+
+- Exact-width AST, semantic, IR, Cranelift type/size mapping, typed literal
+  materialization, checked casts, checked arithmetic, and runtime wrapping
+  helpers are implemented.
+- The positive and negative fixtures execute through the normal CLI with stable
+  `E2901`, `E2902`, `E2903`, and `E2904` evidence.
+- The validator records JIT execution, AOT object emission, and C ABI tests in
+  `target/r2901-exact-width/report.json`.
 
 ## R-2902 Range and Iterator Production Semantics
 
