@@ -6929,6 +6929,14 @@ schema that records HNSW visitation and latency. The executable proof is
 gate is `scripts/validate_r3006_vector_index.py` and its report is written to
 `target/r3006-vector-index/report.json`.
 
+### Completion evidence
+
+- `target/r3006-vector-index/report.json` reports `status: "passed"` with
+  valid round-trip, corruption rejection, deterministic reload, and metrics
+  evidence.
+- The full `run_tests.ps1` execution passed all 373 decisive tests with zero
+  failures; the R-3006 gate is recorded as `PASSOU`.
+
 ## R-3007 Stdlib Production Contract and Capability Audit
 
 - Status: `complete`

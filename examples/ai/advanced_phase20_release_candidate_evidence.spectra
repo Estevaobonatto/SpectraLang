@@ -107,6 +107,7 @@ pub fn main() -> int {
     }
 
     let index = ml.vector_index_new(8);
+    ml.vector_index_set_metadata(index, "model_version", "advanced-phase20-v1");
     ml.vector_index_insert(index, "release-evidence", ml.text_embed("release candidate conformance evidence", 8));
     let persisted = ml.vector_index_persist(index, "target/ai-examples/advanced-phase20/vector-index.json");
     if str.contains(persisted, "vector-index.json") {

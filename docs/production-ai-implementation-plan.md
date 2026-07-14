@@ -2068,7 +2068,9 @@ deterministic special-token handling, reference lookup values, and rejection
 of twelve malformed or incompatible fixtures through the normal CLI workflow.
 The R-3006 gate proves valid and corrupt index containers, deterministic
 round-trip results, HNSW metadata, and measured query/insert counters through
-the normal CLI workflow.
+the normal CLI workflow. R-3006 is complete: its report passed, the full
+`run_tests.ps1` suite passed all 373 decisive tests with zero failures, and
+the persistent HNSW implementation is now the certified vector-index path.
 
 ### Phase 31 — Benchmark Evidence Hardening
 

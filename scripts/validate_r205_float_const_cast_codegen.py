@@ -74,7 +74,8 @@ def require_semantic_invalid_cast(payload: dict[str, Any]) -> None:
         raise AssertionError(f"expected semantic diagnostic: {diagnostic}")
 
     message = diagnostic.get("message", "")
-    if "Cannot cast" not in message or "float" not in message or "string" not in message:
+    source_is_float = any(token in message for token in ("float", "f16", "f32", "f64"))
+    if "Cannot cast" not in message or not source_is_float or "string" not in message:
         raise AssertionError(f"unexpected invalid cast diagnostic: {diagnostic}")
 
 
