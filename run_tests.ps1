@@ -1145,6 +1145,24 @@ if ($r3003Artifacts.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed+
 $results += [PSCustomObject]@{ Diretorio = "phase30-ml-artifacts"; Teste = "validate_r3003_artifacts"; Status = $r3003Artifacts.Status; Detalhe = $r3003Artifacts.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27f: R-3005 production tokenization and embedding artifacts
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-3005 production tokenization and embedding artifacts ---" -ForegroundColor Yellow
+$r3005TokenizationEmbedding = Invoke-HostCommand -name "validate_r3005_tokenization_embedding" -fileName "python" -arguments @("scripts\validate_r3005_tokenization_embedding.py", "--binary", $binary, "--fixture", "tests\validation\187_ml_tokenization_embedding_artifacts.spectra", "--report", "target\r3005-tokenization-embedding\report.json") -workingDir (Get-Location).Path
+if ($r3005TokenizationEmbedding.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase30-tokenization-embedding"; Teste = "validate_r3005_tokenization_embedding"; Status = $r3005TokenizationEmbedding.Status; Detalhe = $r3005TokenizationEmbedding.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.27g: R-3006 persistent production vector index
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-3006 persistent production vector index ---" -ForegroundColor Yellow
+$r3006VectorIndex = Invoke-HostCommand -name "validate_r3006_vector_index" -fileName "python" -arguments @("scripts\validate_r3006_vector_index.py", "--binary", $binary, "--fixture", "tests\validation\188_ml_vector_index_production.spectra", "--report", "target\r3006-vector-index\report.json") -workingDir (Get-Location).Path
+if ($r3006VectorIndex.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase30-vector-index"; Teste = "validate_r3006_vector_index"; Status = $r3006VectorIndex.Status; Detalhe = $r3006VectorIndex.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""

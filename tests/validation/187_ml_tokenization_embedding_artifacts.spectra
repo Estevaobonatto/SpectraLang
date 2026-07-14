@@ -1,0 +1,36 @@
+// R-3005: production tokenizer and embedding loaders consume R-3003 artifacts.
+module ml_tokenization_embedding_artifacts;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+
+    let tokenizer = ml.tokenizer_load("tests/fixtures/r3005/tokenizer-valid.spar");
+    if tokenizer == 0 { return 1; }
+    let ids = ml.tokenizer_encode(tokenizer, "hello mystery [CLS] world");
+    if tensor.len(ids) != 4 { return 2; }
+    if tensor.get(ids, 0) != 1 { return 3; }
+    if tensor.get(ids, 1) != 0 { return 4; }
+    if tensor.get(ids, 2) != 3 { return 5; }
+    if tensor.get(ids, 3) != 2 { return 6; }
+    if ml.tokenizer_decode(tokenizer, ids) != "hello [UNK] [CLS] world" { return 7; }
+
+    let weights = ml.embedding_load(
+        "tests/fixtures/r3005/embedding-valid.spar",
+        "embedding.weight",
+    );
+    if weights == 0 { return 8; }
+    let embedded = ml.embedding_lookup(weights, ids);
+    if tensor.rows(embedded) != 4 || tensor.cols(embedded) != 4 { return 9; }
+    if tensor.get_f(embedded, 0) != 1.0 { return 10; }
+    if tensor.get_f(embedded, 1) != 0.0 { return 11; }
+    if tensor.get_f(embedded, 8) != 0.0 { return 12; }
+    if tensor.get_f(embedded, 10) != 1.0 { return 13; }
+    if tensor.get_f(embedded, 12) != 0.0 { return 14; }
+    if tensor.get_f(embedded, 13) != 1.0 { return 15; }
+
+    tensor.free_all();
+    return 0;
+}

@@ -403,14 +403,18 @@ const ML_KV_CACHE_VALUES: &str = "spectra.std.ml.kv_cache_values";
 const ML_KV_CACHE_LEN: &str = "spectra.std.ml.kv_cache_len";
 const ML_LOGITS_SAMPLE: &str = "spectra.std.ml.logits_sample";
 const ML_TOKENIZER_WORDPIECE: &str = "spectra.std.ml.tokenizer_wordpiece";
+const ML_TOKENIZER_LOAD: &str = "spectra.std.ml.tokenizer_load";
 const ML_TOKENIZER_ENCODE: &str = "spectra.std.ml.tokenizer_encode";
 const ML_TOKENIZER_DECODE: &str = "spectra.std.ml.tokenizer_decode";
 const ML_TEXT_EMBED: &str = "spectra.std.ml.text_embed";
+const ML_EMBEDDING_LOAD: &str = "spectra.std.ml.embedding_load";
 const ML_VECTOR_INDEX_NEW: &str = "spectra.std.ml.vector_index_new";
 const ML_VECTOR_INDEX_INSERT: &str = "spectra.std.ml.vector_index_insert";
 const ML_VECTOR_INDEX_QUERY: &str = "spectra.std.ml.vector_index_query";
 const ML_VECTOR_INDEX_PERSIST: &str = "spectra.std.ml.vector_index_persist";
 const ML_VECTOR_INDEX_LOAD: &str = "spectra.std.ml.vector_index_load";
+const ML_VECTOR_INDEX_SET_METADATA: &str = "spectra.std.ml.vector_index_set_metadata";
+const ML_VECTOR_INDEX_METRICS: &str = "spectra.std.ml.vector_index_metrics";
 const ML_RAG_CHUNK_TEXT: &str = "spectra.std.ml.rag_chunk_text";
 const ML_RAG_BUILD_PROMPT: &str = "spectra.std.ml.rag_build_prompt";
 const ML_RAG_EVALUATE_ANSWER: &str = "spectra.std.ml.rag_evaluate_answer";
@@ -964,14 +968,18 @@ fn register_ml() {
     register_host_function(ML_KV_CACHE_LEN, std_ml_kv_cache_len);
     register_host_function(ML_LOGITS_SAMPLE, std_ml_logits_sample);
     register_host_function(ML_TOKENIZER_WORDPIECE, std_ml_tokenizer_wordpiece);
+    register_host_function(ML_TOKENIZER_LOAD, std_ml_tokenizer_load);
     register_host_function(ML_TOKENIZER_ENCODE, std_ml_tokenizer_encode);
     register_host_function(ML_TOKENIZER_DECODE, std_ml_tokenizer_decode);
     register_host_function(ML_TEXT_EMBED, std_ml_text_embed);
+    register_host_function(ML_EMBEDDING_LOAD, std_ml_embedding_load);
     register_host_function(ML_VECTOR_INDEX_NEW, std_ml_vector_index_new);
     register_host_function(ML_VECTOR_INDEX_INSERT, std_ml_vector_index_insert);
     register_host_function(ML_VECTOR_INDEX_QUERY, std_ml_vector_index_query);
     register_host_function(ML_VECTOR_INDEX_PERSIST, std_ml_vector_index_persist);
     register_host_function(ML_VECTOR_INDEX_LOAD, std_ml_vector_index_load);
+    register_host_function(ML_VECTOR_INDEX_SET_METADATA, std_ml_vector_index_set_metadata);
+    register_host_function(ML_VECTOR_INDEX_METRICS, std_ml_vector_index_metrics);
     register_host_function(ML_RAG_CHUNK_TEXT, std_ml_rag_chunk_text);
     register_host_function(ML_RAG_BUILD_PROMPT, std_ml_rag_build_prompt);
     register_host_function(ML_RAG_EVALUATE_ANSWER, std_ml_rag_evaluate_answer);
@@ -7309,18 +7317,10 @@ struct MlWordpieceTokenizer {
     id_to_token: HashMap<i64, String>,
     unk_id: i64,
     max_token_chars: usize,
-}
-
-#[derive(Clone)]
-struct MlVectorIndexEntry {
-    id: String,
-    vector: Vec<f64>,
-}
-
-#[derive(Clone)]
-struct MlVectorIndex {
-    dim: usize,
-    entries: Vec<MlVectorIndexEntry>,
+    special_tokens: HashMap<String, i64>,
+    lowercase: bool,
+    continuation_prefix: String,
+    strict_ids: bool,
 }
 
 #[derive(Clone)]
@@ -7342,7 +7342,7 @@ struct MlRegistry {
     distributed_sessions: HashMap<usize, MlDistributedSession>,
     kv_caches: HashMap<usize, MlKvCache>,
     tokenizers: HashMap<usize, MlWordpieceTokenizer>,
-    vector_indexes: HashMap<usize, MlVectorIndex>,
+    vector_indexes: HashMap<usize, crate::vector_index::VectorIndex>,
     artifacts: HashMap<usize, MlArtifact>,
 }
 
@@ -7499,15 +7499,116 @@ fn ml_parse_wordpiece_vocab(spec: &str) -> Option<MlWordpieceTokenizer> {
         id_to_token,
         unk_id,
         max_token_chars,
+        special_tokens: HashMap::new(),
+        lowercase: true,
+        continuation_prefix: "##".to_owned(),
+        strict_ids: false,
+    })
+}
+
+fn ml_vocab_json_depth(value: &serde_json::Value, depth: usize) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    match value {
+        serde_json::Value::Array(values) => values.iter().all(|item| ml_vocab_json_depth(item, depth + 1)),
+        serde_json::Value::Object(values) => values.values().all(|item| ml_vocab_json_depth(item, depth + 1)),
+        _ => true,
+    }
+}
+
+fn ml_parse_artifact_tokenizer(data: &crate::artifact::ArtifactData) -> Option<MlWordpieceTokenizer> {
+    if data.kind != "multi_array"
+        || data.metadata.get("tokenizer_type")? != "wordpiece"
+        || data.metadata.get("tokenizer_version")? != "v1"
+    {
+        return None;
+    }
+    let vocab_source = data.metadata.get("vocab_json")?;
+    if vocab_source.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(vocab_source).ok()?;
+    if !ml_vocab_json_depth(&value, 0) {
+        return None;
+    }
+    let object = value.as_object()?;
+    let tokens = object.get("tokens")?.as_array()?;
+    if tokens.is_empty() || tokens.len() > 1_000_000 {
+        return None;
+    }
+    let mut token_to_id = HashMap::new();
+    let mut id_to_token = HashMap::new();
+    for item in tokens {
+        let item = item.as_object()?;
+        if item.keys().any(|key| key != "id" && key != "token") {
+            return None;
+        }
+        let id = i64::try_from(item.get("id")?.as_u64()?).ok()?;
+        let token = item.get("token")?.as_str()?.to_owned();
+        if token.is_empty() || token_to_id.insert(token.clone(), id).is_some() || id_to_token.insert(id, token).is_some() {
+            return None;
+        }
+    }
+    let mut ids = id_to_token.keys().copied().collect::<Vec<_>>();
+    ids.sort_unstable();
+    if ids != (0..ids.len() as i64).collect::<Vec<_>>() {
+        return None;
+    }
+    let special_object = object.get("special_tokens")?.as_object()?;
+    let mut special_tokens = HashMap::new();
+    for (name, value) in special_object {
+        let id = i64::try_from(value.as_u64()?).ok()?;
+        if !id_to_token.contains_key(&id) || special_tokens.insert(name.clone(), id).is_some() {
+            return None;
+        }
+        let token = id_to_token.get(&id)?.clone();
+        special_tokens.insert(token, id);
+    }
+    let unk_id = *special_tokens.get("unk")?;
+    let lowercase = object.get("lowercase")?.as_bool()?;
+    let continuation_prefix = object.get("continuation_prefix")?.as_str()?.to_owned();
+    if continuation_prefix.is_empty() {
+        return None;
+    }
+    let token_ids = data.tensors.iter().find(|tensor| tensor.name == "token_ids")?;
+    if token_ids.dtype != "int" || token_ids.precision != "f64" || token_ids.layout != "contiguous"
+        || token_ids.shape != vec![tokens.len()] || token_ids.bytes.len() != tokens.len() * 8
+    {
+        return None;
+    }
+    for (index, bytes) in token_ids.bytes.chunks_exact(8).enumerate() {
+        let id = i64::from_le_bytes(bytes.try_into().ok()?);
+        if id != index as i64 {
+            return None;
+        }
+    }
+    let max_token_chars = token_to_id.keys().map(|token| token.chars().count()).max().unwrap_or(1);
+    Some(MlWordpieceTokenizer {
+        token_to_id,
+        id_to_token,
+        unk_id,
+        max_token_chars,
+        special_tokens,
+        lowercase,
+        continuation_prefix,
+        strict_ids: true,
     })
 }
 
 fn ml_wordpiece_encode(tokenizer: &MlWordpieceTokenizer, text: &str) -> Vec<i64> {
     let mut ids = Vec::new();
     for word in text.split_whitespace() {
-        let normalized = word
-            .trim_matches(|ch: char| ch.is_ascii_punctuation())
-            .to_ascii_lowercase();
+        if let Some(id) = tokenizer.special_tokens.get(word) {
+            ids.push(*id);
+            continue;
+        }
+        let normalized = word.trim_matches(|ch: char| ch.is_ascii_punctuation());
+        let normalized = if tokenizer.lowercase {
+            normalized.to_ascii_lowercase()
+        } else {
+            normalized.to_owned()
+        };
         if normalized.is_empty() {
             continue;
         }
@@ -7523,7 +7624,7 @@ fn ml_wordpiece_encode(tokenizer: &MlWordpieceTokenizer, text: &str) -> Vec<i64>
                 let candidate = if start == 0 {
                     piece
                 } else {
-                    format!("##{}", piece)
+                    format!("{}{}", tokenizer.continuation_prefix, piece)
                 };
                 if let Some(id) = tokenizer.token_to_id.get(&candidate) {
                     found = Some((*id, end));
@@ -7548,15 +7649,15 @@ fn ml_wordpiece_encode(tokenizer: &MlWordpieceTokenizer, text: &str) -> Vec<i64>
     ids
 }
 
-fn ml_wordpiece_decode(tokenizer: &MlWordpieceTokenizer, ids: &[i64]) -> String {
+fn ml_wordpiece_decode(tokenizer: &MlWordpieceTokenizer, ids: &[i64]) -> Option<String> {
     let mut words = Vec::<String>::new();
     for id in ids {
         let token = tokenizer
             .id_to_token
             .get(id)
             .cloned()
-            .unwrap_or_else(|| "[UNK]".to_string());
-        if let Some(piece) = token.strip_prefix("##") {
+            .or_else(|| if tokenizer.strict_ids { None } else { Some("[UNK]".to_string()) })?;
+        if let Some(piece) = token.strip_prefix(&tokenizer.continuation_prefix) {
             if let Some(last) = words.last_mut() {
                 last.push_str(piece);
             } else {
@@ -7568,7 +7669,7 @@ fn ml_wordpiece_decode(tokenizer: &MlWordpieceTokenizer, ids: &[i64]) -> String 
             words.push(token);
         }
     }
-    words.join(" ")
+    Some(words.join(" "))
 }
 
 fn ml_hash_text_to_embedding(text: &str, dim: usize) -> Option<Vec<f64>> {
@@ -7593,81 +7694,6 @@ fn ml_hash_text_to_embedding(text: &str, dim: usize) -> Option<Vec<f64>> {
         }
     }
     Some(values)
-}
-
-fn ml_cosine_similarity(left: &[f64], right: &[f64]) -> Option<f64> {
-    if left.len() != right.len() || left.is_empty() {
-        return None;
-    }
-    let dot = left
-        .iter()
-        .zip(right.iter())
-        .map(|(a, b)| a * b)
-        .sum::<f64>();
-    let left_norm = left.iter().map(|value| value * value).sum::<f64>().sqrt();
-    let right_norm = right.iter().map(|value| value * value).sum::<f64>().sqrt();
-    if left_norm == 0.0 || right_norm == 0.0 {
-        return Some(0.0);
-    }
-    Some(dot / (left_norm * right_norm))
-}
-
-fn ml_vector_index_json(index: &MlVectorIndex) -> String {
-    let entries = index
-        .entries
-        .iter()
-        .map(|entry| {
-            let values = entry
-                .vector
-                .iter()
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            format!(
-                "{{\"id\":{},\"vector\":[{}]}}",
-                ml_json_string(&entry.id),
-                values
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        "{{\"schema\":\"spectra.ml.vector_index.v1\",\"dim\":{},\"entries\":[{}]}}",
-        index.dim, entries
-    )
-}
-
-fn ml_json_array_section(source: &str, key: &str) -> Option<String> {
-    ml_manifest_section(source, key)
-}
-
-fn ml_vector_index_from_json(source: &str) -> Option<MlVectorIndex> {
-    if !source.contains("\"schema\":\"spectra.ml.vector_index.v1\"") {
-        return None;
-    }
-    let dim = ml_checkpoint_number(source, "\"dim\"")? as usize;
-    let entries_section = ml_json_array_section(source, "\"entries\"")?;
-    let mut entries = Vec::new();
-    let mut offset = 0usize;
-    while let Some(relative_start) = entries_section[offset..].find('{') {
-        let start = offset + relative_start;
-        let end = entries_section[start..].find('}')? + start;
-        let item = &entries_section[start..=end];
-        let id = ml_checkpoint_string(item, "\"id\"")?;
-        let vector_section = ml_manifest_section(item, "\"vector\"")?;
-        let vector = vector_section
-            .trim_matches(|ch| ch == '[' || ch == ']')
-            .split(',')
-            .filter(|part| !part.trim().is_empty())
-            .map(|part| part.trim().parse::<f64>().ok())
-            .collect::<Option<Vec<_>>>()?;
-        if vector.len() != dim {
-            return None;
-        }
-        entries.push(MlVectorIndexEntry { id, vector });
-        offset = end + 1;
-    }
-    Some(MlVectorIndex { dim, entries })
 }
 
 fn ml_token_set(text: &str) -> HashSet<String> {
@@ -11441,6 +11467,29 @@ extern "C" fn std_ml_tokenizer_wordpiece(ctx: *mut SpectraHostCallContext) -> i3
     }
 }
 
+extern "C" fn std_ml_tokenizer_load(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Ok(data) = crate::artifact::read(Path::new(&path)) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(tokenizer) = ml_parse_artifact_tokenizer(&data) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.tokenizers.insert(handle, tokenizer);
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
 extern "C" fn std_ml_tokenizer_encode(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
@@ -11479,7 +11528,48 @@ extern "C" fn std_ml_tokenizer_decode(ctx: *mut SpectraHostCallContext) -> i32 {
         }) else {
             return HOST_STATUS_NOT_FOUND;
         };
+        let Some(text) = text else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
         tensor_result(ctx_ref, alloc_spectra_string(&text))
+    }
+}
+
+extern "C" fn std_ml_embedding_load(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = ml_read_path_arg(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(tensor_name) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Ok(data) = crate::artifact::read(Path::new(&path)) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if data.metadata.get("artifact_role").map(String::as_str) != Some("embedding_weights") {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(vocab_size) = data.metadata.get("vocab_size").and_then(|value| value.parse::<usize>().ok()) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(embedding_dim) = data.metadata.get("embedding_dim").and_then(|value| value.parse::<usize>().ok()) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(payload) = data.tensors.iter().find(|tensor| tensor.name == tensor_name) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        if payload.dtype != "float" || payload.precision != "f64" || payload.layout != "contiguous"
+            || payload.shape.len() != 2 || payload.shape[0] != vocab_size || payload.shape[1] != embedding_dim
+        {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        match artifact_tensor_from_payload(payload) {
+            Ok(handle) => tensor_result(ctx_ref, handle as SpectraHostValue),
+            Err(code) => code,
+        }
     }
 }
 
@@ -11509,18 +11599,12 @@ extern "C" fn std_ml_vector_index_new(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        if args[0] <= 0 {
+        let Ok(index) = crate::vector_index::VectorIndex::new(args[0] as usize) else {
             return HOST_STATUS_INVALID_ARGUMENT;
-        }
+        };
         let handle = with_ml_registry(|registry| {
             let handle = registry.next_handle();
-            registry.vector_indexes.insert(
-                handle,
-                MlVectorIndex {
-                    dim: args[0] as usize,
-                    entries: Vec::new(),
-                },
-            );
+            registry.vector_indexes.insert(handle, index);
             handle
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
@@ -11538,21 +11622,14 @@ extern "C" fn std_ml_vector_index_insert(ctx: *mut SpectraHostCallContext) -> i3
         let Some((_shape, vector, _)) = ml_tensor_float_data(args[2] as usize) else {
             return HOST_STATUS_NOT_FOUND;
         };
-        let Some(count) = with_ml_registry(|registry| {
-            let index = registry.vector_indexes.get_mut(&(args[0] as usize))?;
-            if vector.len() != index.dim {
-                return None;
-            }
-            if let Some(existing) = index.entries.iter_mut().find(|entry| entry.id == id) {
-                existing.vector = vector;
-            } else {
-                index.entries.push(MlVectorIndexEntry { id, vector });
-            }
-            Some(index.entries.len() as SpectraHostValue)
-        }) else {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        };
-        tensor_result(ctx_ref, count)
+        let result = with_ml_registry(|registry| {
+            let index = registry.vector_indexes.get_mut(&(args[0] as usize)).ok_or(HOST_STATUS_NOT_FOUND)?;
+            index.insert(id, &vector).map(|count| count as SpectraHostValue).map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
+        });
+        match result {
+            Ok(count) => tensor_result(ctx_ref, count),
+            Err(code) => code,
+        }
     }
 }
 
@@ -11567,37 +11644,17 @@ extern "C" fn std_ml_vector_index_query(ctx: *mut SpectraHostCallContext) -> i32
         let Some((_shape, query, _)) = ml_tensor_float_data(args[1] as usize) else {
             return HOST_STATUS_NOT_FOUND;
         };
-        let Some(results) = with_ml_registry(|registry| {
-            let index = registry.vector_indexes.get(&(args[0] as usize))?;
-            if query.len() != index.dim {
-                return None;
-            }
-            let mut scored = index
-                .entries
-                .iter()
-                .filter_map(|entry| {
-                    ml_cosine_similarity(&query, &entry.vector)
-                        .map(|score| (entry.id.clone(), score))
-                })
-                .collect::<Vec<_>>();
-            scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-            let top_k = (args[2] as usize).min(scored.len());
-            let json = scored
-                .into_iter()
-                .take(top_k)
-                .map(|(id, score)| {
-                    format!("{{\"id\":{},\"score\":{}}}", ml_json_string(&id), score)
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            Some(format!(
-                "{{\"schema\":\"spectra.ml.vector_query.v1\",\"results\":[{}]}}",
-                json
-            ))
-        }) else {
-            return HOST_STATUS_INVALID_ARGUMENT;
+        let result = with_ml_registry(|registry| {
+            let index = registry.vector_indexes.get_mut(&(args[0] as usize)).ok_or(HOST_STATUS_NOT_FOUND)?;
+            index.query(&query, args[2] as usize).map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
+        });
+        let evidence = match result {
+            Ok(evidence) => evidence,
+            Err(code) => return code,
         };
-        tensor_result(ctx_ref, alloc_spectra_string(&results))
+        let results = evidence.results.iter().map(|result| format!("{{\"id\":{},\"score\":{}}}", ml_json_string(&result.id), result.score)).collect::<Vec<_>>().join(",");
+        let payload = format!("{{\"schema\":\"spectra.ml.vector_query.v2\",\"algorithm\":\"hnsw\",\"metric\":\"cosine\",\"results\":[{}],\"visited_nodes\":{},\"latency_us\":{}}}", results, evidence.visited_nodes, evidence.latency_us);
+        tensor_result(ctx_ref, alloc_spectra_string(&payload))
     }
 }
 
@@ -11609,22 +11666,11 @@ extern "C" fn std_ml_vector_index_persist(ctx: *mut SpectraHostCallContext) -> i
         let Some(path) = ml_read_path_arg(args[1]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some(payload) = with_ml_registry(|registry| {
-            registry
-                .vector_indexes
-                .get(&(args[0] as usize))
-                .map(ml_vector_index_json)
-        }) else {
+        let Some(data) = with_ml_registry(|registry| registry.vector_indexes.get(&(args[0] as usize)).map(crate::vector_index::VectorIndex::artifact_data)) else {
             return HOST_STATUS_NOT_FOUND;
         };
-        if let Some(parent) = std::path::Path::new(&path).parent() {
-            if std::fs::create_dir_all(parent).is_err() {
-                return HOST_STATUS_INTERNAL_ERROR;
-            }
-        }
-        if std::fs::write(&path, payload.as_bytes()).is_err() {
-            return HOST_STATUS_INTERNAL_ERROR;
-        }
+        let data = match data { Ok(data) => data, Err(_) => return HOST_STATUS_INVALID_ARGUMENT };
+        if crate::artifact::write_atomic(std::path::Path::new(&path), &data).is_err() { return HOST_STATUS_INTERNAL_ERROR; }
         tensor_result(ctx_ref, alloc_spectra_string(&path))
     }
 }
@@ -11637,19 +11683,37 @@ extern "C" fn std_ml_vector_index_load(ctx: *mut SpectraHostCallContext) -> i32 
         let Some(path) = ml_read_path_arg(args[0]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let payload = match std::fs::read_to_string(&path) {
-            Ok(value) => value,
-            Err(_) => return HOST_STATUS_NOT_FOUND,
-        };
-        let Some(index) = ml_vector_index_from_json(&payload) else {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        };
+        let data = match crate::artifact::read(std::path::Path::new(&path)) { Ok(data) => data, Err(_) => return HOST_STATUS_INVALID_ARGUMENT };
+        let index = match crate::vector_index::VectorIndex::from_artifact(&data) { Ok(index) => index, Err(_) => return HOST_STATUS_INVALID_ARGUMENT };
         let handle = with_ml_registry(|registry| {
             let handle = registry.next_handle();
             registry.vector_indexes.insert(handle, index);
             handle
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_vector_index_set_metadata(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(key) = ml_read_path_arg(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(value) = ml_read_path_arg(args[2]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let updated = with_ml_registry(|registry| registry.vector_indexes.get_mut(&(args[0] as usize)).map(|index| index.set_metadata(&key, &value)).unwrap_or(false));
+        tensor_result(ctx_ref, if updated { 1 } else { 0 })
+    }
+}
+
+extern "C" fn std_ml_vector_index_metrics(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(payload) = with_ml_registry(|registry| registry.vector_indexes.get(&(args[0] as usize)).map(|index| {
+            let metrics = index.metrics();
+            let average_insert_us = if metrics.insert_count == 0 { 0.0 } else { metrics.total_insert_ns as f64 / metrics.insert_count as f64 / 1000.0 };
+            let average_query_us = if metrics.query_count == 0 { 0.0 } else { metrics.total_query_ns as f64 / metrics.query_count as f64 / 1000.0 };
+            format!("{{\"schema\":\"spectra.ml.vector_index_metrics.v1\",\"algorithm\":\"hnsw\",\"metric\":\"cosine\",\"insert_count\":{},\"query_count\":{},\"average_insert_us\":{},\"average_query_us\":{}}}", metrics.insert_count, metrics.query_count, average_insert_us, average_query_us)
+        })) else { return HOST_STATUS_NOT_FOUND; };
+        tensor_result(ctx_ref, alloc_spectra_string(&payload))
     }
 }
 
@@ -22440,6 +22504,7 @@ mod tests {
 
         let (status, index) = call_host(ML_VECTOR_INDEX_NEW, &[8]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(ML_VECTOR_INDEX_SET_METADATA, &[index, test_string("model_version"), test_string("r1803-runtime-test")]), (HOST_STATUS_SUCCESS, 1));
         let (status, rag_vec) = call_host(ML_TEXT_EMBED, &[test_string("rag retrieval"), 8]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, ml_vec) = call_host(ML_TEXT_EMBED, &[test_string("machine learning"), 8]);
@@ -22473,7 +22538,7 @@ mod tests {
                 .expect("system time")
                 .as_nanos()
         ));
-        let path = dir.join("index.json");
+        let path = dir.join("index.spar");
         let (status, persisted_ptr) = call_host(
             ML_VECTOR_INDEX_PERSIST,
             &[index, test_string(path.to_string_lossy().as_ref())],
@@ -24987,5 +25052,56 @@ mod tests {
         assert!(exported.contains("\"snapshot\""));
         assert!(exported.contains("\"drift\""));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn r3005_artifact_tokenizer_and_embedding_contract() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        crate::ffi::spectra_rt_manual_clear();
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/r3005");
+        let tokenizer_path = fixture_root.join("tokenizer-valid.spar");
+        let embedding_path = fixture_root.join("embedding-valid.spar");
+        let duplicate_path = fixture_root.join("tokenizer-duplicate-token.spar");
+        let shape_path = fixture_root.join("embedding-shape-invalid.spar");
+
+        let (status, tokenizer) = call_host(
+            ML_TOKENIZER_LOAD,
+            &[test_string(tokenizer_path.to_string_lossy().as_ref())],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, ids) = call_host(
+            ML_TOKENIZER_ENCODE,
+            &[tokenizer, test_string("hello mystery [CLS] world")],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_LEN, &[ids]), (HOST_STATUS_SUCCESS, 4));
+        assert_eq!(call_host(TENSOR_GET, &[ids, 0]), (HOST_STATUS_SUCCESS, 1));
+        assert_eq!(call_host(TENSOR_GET, &[ids, 1]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(call_host(TENSOR_GET, &[ids, 2]), (HOST_STATUS_SUCCESS, 3));
+        let (status, decoded_ptr) = call_host(ML_TOKENIZER_DECODE, &[tokenizer, ids]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(unsafe { read_spectra_string(decoded_ptr) }.as_deref(), Some("hello [UNK] [CLS] world"));
+
+        let invalid_ids = tensor_alloc(TensorDType::Int, vec![1], vec![999]).expect("invalid id tensor");
+        assert_eq!(call_host(ML_TOKENIZER_DECODE, &[tokenizer, invalid_ids as SpectraHostValue]).0, HOST_STATUS_INVALID_ARGUMENT);
+
+        let (status, weights) = call_host(
+            ML_EMBEDDING_LOAD,
+            &[
+                test_string(embedding_path.to_string_lossy().as_ref()),
+                test_string("embedding.weight"),
+            ],
+        );
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        let (status, embedded) = call_host(ML_EMBEDDING_LOOKUP, &[weights, ids]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_eq!(call_host(TENSOR_ROWS, &[embedded]), (HOST_STATUS_SUCCESS, 4));
+        assert_eq!(call_host(TENSOR_COLS, &[embedded]), (HOST_STATUS_SUCCESS, 4));
+        assert_eq!(call_host(ML_TOKENIZER_LOAD, &[test_string(duplicate_path.to_string_lossy().as_ref())]).0, HOST_STATUS_INVALID_ARGUMENT);
+        assert_eq!(call_host(ML_EMBEDDING_LOAD, &[test_string(shape_path.to_string_lossy().as_ref()), test_string("embedding.weight")]).0, HOST_STATUS_INVALID_ARGUMENT);
+        let _ = call_host(TENSOR_FREE_ALL, &[]);
     }
 }

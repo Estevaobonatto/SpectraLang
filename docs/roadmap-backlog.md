@@ -1640,7 +1640,7 @@ R-702 remains `in_progress`: the WGPU baseline is real and validated, but it is 
 
 ## R-703 Mixed Precision
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-702`
@@ -6840,7 +6840,7 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
 
 ## R-3005 Production Tokenization and Embedding Backends
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Risk: `high`
@@ -6866,13 +6866,25 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
 - The hash embedding path is removed from the production API or explicitly
   demoted to documented non-production compatibility behavior.
 
-R-3003 is now complete and unblocks this implementation. Current hash and
-narrow tokenizer paths remain explicitly non-production until the acceptance
-criteria above are met.
+R-3003 is complete and R-3005 is now complete for the artifact-backed
+tokenization and embedding path. Current hash and narrow tokenizer paths
+remain explicitly non-production compatibility baselines.
+
+The production path is additive: `std.ml.tokenizer_load` consumes a validated
+WordPiece vocabulary from an R-3003 artifact, while `std.ml.embedding_load`
+consumes a validated rank-2 embedding tensor. `tokenizer_encode`,
+`tokenizer_decode`, and `embedding_lookup` are production when used with those
+loaded handles. The legacy inline tokenizer and hash `text_embed` remain
+compatibility baselines and never serve as silent fallbacks.
+
+Fixtures are versioned under `tests/fixtures/r3005/`; the executable contract
+is `tests/validation/187_ml_tokenization_embedding_artifacts.spectra`, and
+`scripts/validate_r3005_tokenization_embedding.py` emits the independent gate
+report at `target/r3005-tokenization-embedding/report.json`.
 
 ## R-3006 Persistent Production Vector Index
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `ml`
 - Risk: `high`
@@ -6896,6 +6908,16 @@ criteria above are met.
   validated runtime behavior.
 - Fixtures exercise save/load and corruption handling through CLI and runtime
   paths.
+
+The completed implementation replaces the linear in-memory/JSON backend with a
+deterministic HNSW index. The public `vector_index_*` names are retained, but
+legacy `spectra.ml.vector_index.v1` JSON is rejected. Persistence uses the
+R-3003 Artifact Container v1 with `vectors`, `levels`, and padded `links`
+arrays, model metadata, SHA-256 validation, atomic replacement, and a query
+schema that records HNSW visitation and latency. The executable proof is
+`tests/validation/188_ml_vector_index_production.spectra`; the independent
+gate is `scripts/validate_r3006_vector_index.py` and its report is written to
+`target/r3006-vector-index/report.json`.
 
 ## R-3007 Stdlib Production Contract and Capability Audit
 

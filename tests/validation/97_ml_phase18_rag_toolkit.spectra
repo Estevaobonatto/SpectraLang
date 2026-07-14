@@ -24,6 +24,9 @@ pub fn main() -> int {
     }
 
     let index = ml.vector_index_new(8);
+    if !ml.vector_index_set_metadata(index, "model_version", "r1803-rag-v1") {
+        return 3;
+    }
     let rag_vec = ml.text_embed("rag retrieval", 8);
     let ml_vec = ml.text_embed("machine learning", 8);
     if ml.vector_index_insert(index, "rag-doc", rag_vec) != 1 {
@@ -44,7 +47,7 @@ pub fn main() -> int {
         return 5;
     }
 
-    let path = ml.vector_index_persist(index, "target/r1803/vector-index.json");
+    let path = ml.vector_index_persist(index, "target/r1803/vector-index.spar");
     let loaded = ml.vector_index_load(path);
     let loaded_results = ml.vector_index_query(loaded, query_vec, 1);
     if str.contains(loaded_results, "rag-doc") {

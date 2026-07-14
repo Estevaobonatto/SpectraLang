@@ -2402,6 +2402,7 @@ fn make_std_ml() -> ModuleExports {
             int.clone(),
         ),
         ("tokenizer_wordpiece", vec![Type::String], int.clone()),
+        ("tokenizer_load", vec![Type::String], int.clone()),
         (
             "tokenizer_encode",
             vec![int.clone(), Type::String],
@@ -2413,6 +2414,7 @@ fn make_std_ml() -> ModuleExports {
             Type::String,
         ),
         ("text_embed", vec![Type::String, int.clone()], int.clone()),
+        ("embedding_load", vec![Type::String, Type::String], int.clone()),
         ("vector_index_new", vec![int.clone()], int.clone()),
         (
             "vector_index_insert",
@@ -2430,6 +2432,12 @@ fn make_std_ml() -> ModuleExports {
             Type::String,
         ),
         ("vector_index_load", vec![Type::String], int.clone()),
+        (
+            "vector_index_set_metadata",
+            vec![int.clone(), Type::String, Type::String],
+            Type::Bool,
+        ),
+        ("vector_index_metrics", vec![int.clone()], Type::String),
         (
             "rag_chunk_text",
             vec![Type::String, int.clone(), int.clone()],

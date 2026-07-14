@@ -4,6 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub mod api;
 pub(crate) mod artifact;
+pub(crate) mod vector_index;
 pub mod ffi;
 #[cfg(feature = "gpu")]
 pub mod gpu;

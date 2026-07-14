@@ -13,6 +13,8 @@ docs = [
   "docs/api/std-api-handler.md",
   "docs/api/std-api-middleware.md",
   "docs/api/std-api-multipart.md",
+  "docs/api/std-ml-artifacts.md",
+  "docs/api/std-ml-tokenization-embedding.md",
   "docs/api/std-api-query.md",
   "docs/api/std-api-routing.md",
   "docs/api/std-api-server-lifecycle.md",
@@ -48,6 +50,16 @@ covers = ["std.tensor.*"]
 id = "ml-training"
 path = "tests/validation/72_ml_phase6_mlp_training.spectra"
 covers = ["std.ml.*"]
+
+[[probe]]
+id = "ml-tokenization-embedding-artifacts"
+path = "tests/validation/187_ml_tokenization_embedding_artifacts.spectra"
+covers = ["std.ml.tokenizer_load", "std.ml.tokenizer_encode", "std.ml.tokenizer_decode", "std.ml.embedding_load", "std.ml.embedding_lookup"]
+
+[[probe]]
+id = "ml-vector-index-production"
+path = "tests/validation/188_ml_vector_index_production.spectra"
+covers = ["std.ml.vector_index_new", "std.ml.vector_index_insert", "std.ml.vector_index_query", "std.ml.vector_index_persist", "std.ml.vector_index_load", "std.ml.vector_index_set_metadata", "std.ml.vector_index_metrics"]
 
 [[probe]]
 id = "serving-baseline"
@@ -257,10 +269,46 @@ roadmap = "R-3005"
 reason = "text_embed currently produces deterministic hash embeddings rather than model-backed embeddings."
 
 [[rule]]
-prefix = "std.ml.vector_index_"
+prefix = "std.ml.tokenizer_wordpiece"
 classification = "baseline"
+roadmap = "R-3005"
+reason = "tokenizer_wordpiece accepts an inline vocabulary and is retained only as a compatibility baseline."
+
+[[rule]]
+prefix = "std.ml.tokenizer_load"
+classification = "production"
+roadmap = "R-3005"
+reason = "Loads and validates a versioned WordPiece vocabulary from the R-3003 artifact container."
+
+[[rule]]
+prefix = "std.ml.tokenizer_encode"
+classification = "production"
+roadmap = "R-3005"
+reason = "Production tokenizer handles are created by tokenizer_load; the legacy inline constructor remains separately classified as baseline."
+
+[[rule]]
+prefix = "std.ml.tokenizer_decode"
+classification = "production"
+roadmap = "R-3005"
+reason = "Production tokenizer handles provide deterministic special-token and invalid-ID behavior."
+
+[[rule]]
+prefix = "std.ml.embedding_load"
+classification = "production"
+roadmap = "R-3005"
+reason = "Loads validated real embedding weights from the R-3003 artifact container without hash fallback."
+
+[[rule]]
+prefix = "std.ml.embedding_lookup"
+classification = "production"
+roadmap = "R-3005"
+reason = "Performs lookup against a real validated embedding tensor handle."
+
+[[rule]]
+prefix = "std.ml.vector_index"
+classification = "production"
 roadmap = "R-3006"
-reason = "The current vector index is an in-memory linear scan with JSON persistence."
+reason = "Uses deterministic HNSW search and persists only through the versioned R-3003 Artifact Container v1 with checksums, metadata, atomic replacement, and CLI evidence."
 
 [[rule]]
 prefix = "std.tensor.device_available"

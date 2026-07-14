@@ -2020,7 +2020,7 @@ the underlying implementation.
 
 The completed audit implementation uses typed source inventories rather than
 matching every textual `std.*` occurrence. It ran eleven namespace or external
-conformance probes, covered 640 discovered symbols, and recorded 58 tracked
+conformance probes, covered 651 discovered symbols, and recorded 58 tracked
 follow-ups without promoting the remaining ML, serving, tensor-device, or
 distributed baselines to production.
 
@@ -2036,8 +2036,9 @@ The workstream is coupled to `R-2901` exact-width numeric ABI semantics and
 `R-2904` first-class tensor/device lowering. Existing CPU transformer and LLM
 primitives are complete under `R-1802`; accelerator parity is not silently
 claimed by that item. NPY/ONNX support, single-process distributed workers,
-hash embeddings, in-process serving, and linear in-memory vector search remain
-explicit baselines until their production tasks pass their evidence gates.
+hash embeddings, and in-process serving remain explicit baselines until their
+production tasks pass their evidence gates. R-3006 is the production
+exception for vector search.
 
 R-3003 is the first implementation in this workstream. Its Spectra Artifact
 Container v1 is the shared contract for checkpoint and multi-array persistence:
@@ -2046,6 +2047,23 @@ per-array/global SHA-256 integrity, compatibility metadata, and atomic writes.
 The contract is consumed through `std.ml` handles and proven by a normal CLI
 round trip plus an independent parser and corruption suite. R-3005 and R-3006
 remain downstream consumers; they must not reintroduce JSON sidecars.
+
+R-3005 consumes this contract through additive production loaders. Versioned
+WordPiece vocabularies are validated from artifact metadata, real embedding
+weights are loaded from rank-2 tensor arrays, and encode/decode plus lookup
+are proven through the normal CLI. The previous inline tokenizer and hash
+embedding remain explicit compatibility baselines rather than hidden fallback
+paths. R-3006 replaces the former linear in-memory vector search and JSON
+sidecar with deterministic HNSW search persisted in the same Artifact Container
+v1, including model metadata, padded graph links, checksums, atomic writes,
+reload validation, and query/latency evidence. The legacy JSON index is
+rejected rather than silently migrated.
+The R-3005 gate now proves valid vocabulary and embedding artifacts,
+deterministic special-token handling, reference lookup values, and rejection
+of twelve malformed or incompatible fixtures through the normal CLI workflow.
+The R-3006 gate proves valid and corrupt index containers, deterministic
+round-trip results, HNSW metadata, and measured query/insert counters through
+the normal CLI workflow.
 
 ### Phase 31 — Benchmark Evidence Hardening
 
