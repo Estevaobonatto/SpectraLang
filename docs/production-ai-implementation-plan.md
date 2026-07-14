@@ -1007,7 +1007,7 @@ Make the language productive enough for daily engineering.
 - `spectralang run` emits an `error[runtime]` diagnostic with the source location and stack frame `0: main()` when a program exits with a non-zero status.
 - `spectralang compile --emit-object` and `--emit-exe` write a sibling `.spectra-debug.json` source map containing the artifact path, source path, entrypoint span, exported native symbol, and supported debugger workflow.
 - `scripts/validate_debugger_stack_traces.py` validates runtime stack output and AOT debug map emission.
-- Native DWARF/PDB emission is not claimed by the current production baseline; that remains a future backend enhancement if the project needs debugger-native source stepping.
+- R-2903 owns native debug emission. Windows AOT debug builds attach compiler-owned CodeView records and request linker-produced PDBs; Unix builds require DWARF sections when the target backend is available. The `.spectra-debug.json` file remains supplementary metadata and is never accepted as a replacement for the native artifact. Structural parsing is mandatory in the Phase 29 gate; interactive debugger smoke is optional when the environment provides one.
 
 ## 10.3 Profiler and Benchmark Tooling
 

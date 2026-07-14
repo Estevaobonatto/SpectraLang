@@ -226,6 +226,7 @@ mod tests {
                 args: vec![Value { id: arg }],
                 result_type: Some(Type::Int),
             },
+            source_span: None,
         }
     }
 
@@ -253,6 +254,7 @@ mod tests {
                     ptr: Value { id: 4 },
                     ty: Type::Int,
                 },
+                source_span: None,
             },
             host(2, 5, JOIN, 2),
         ]);
@@ -272,6 +274,7 @@ mod tests {
                     result: Value { id: 6 },
                     source: Value { id: 2 },
                 },
+                source_span: None,
             },
         ]);
         assert!(!ConcurrentSpawnJoinFusion::new().run(&mut module));

@@ -22,7 +22,7 @@ use spectra_compiler::{
     error::CompilerError,
     lint::LintDiagnostic,
     span::Span,
-    CompilationOptions, Lexer, LintOptions, LintRule, Parser,
+    CompilationOptions, DebugInfoMode, Lexer, LintOptions, LintRule, Parser,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
@@ -452,6 +452,8 @@ where
             }
             "--dump-ast" => options.dump_ast = true,
             "--dump-ir" => options.dump_ir = true,
+            "--debug-info=native" => options.debug_info = DebugInfoMode::Native,
+            "--debug-info=none" => options.debug_info = DebugInfoMode::None,
             "--timings" | "-T" => {
                 options.collect_metrics = true;
                 show_pipeline_summary = true;
@@ -1259,6 +1261,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         let source = fs::read_to_string(source_path)
             .map_err(|e| CliError::io(format!("Cannot read '{}': {}", source_path.display(), e)))?;
         let filename = source_path.to_string_lossy().to_string();
+        let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
         let obj_bytes = compiler
@@ -1266,12 +1269,16 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             .map_err(|e| CliError::compilation(e))?;
         fs::write(obj_path, &obj_bytes)
             .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
+        if native_debug {
+            attach_native_codeview(obj_path, &source, source_path)?;
+        }
         let debug_map_path = write_aot_debug_map(
             source_path,
             obj_path,
             &source,
             AotArtifactKind::Object,
             &["gdb", "lldb"],
+            native_debug,
         )?;
         println!("     Written object {}", obj_path.display());
         println!("     Written debug map {}", debug_map_path.display());
@@ -1300,6 +1307,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         // Write the executable object to a temporary path next to the output.
         let obj_path = exe_path.with_extension("spectra_tmp.obj");
 
+        let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
         let obj_bytes = compiler
@@ -1314,7 +1322,11 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             ))
         })?;
 
-        let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path);
+        if native_debug {
+            attach_native_codeview(&obj_path, &source, source_path)?;
+        }
+
+        let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path, native_debug);
         let _ = fs::remove_file(&obj_path); // always clean up the temp object
         link_result.map_err(|e| CliError::compilation(e))?;
 
@@ -1324,6 +1336,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             &source,
             AotArtifactKind::Executable,
             &["gdb", "lldb", "cdb"],
+            native_debug,
         )?;
         println!("     Written executable {}", exe_path.display());
         println!("     Written debug map {}", debug_map_path.display());
@@ -2032,6 +2045,8 @@ struct AotDebugMap<'a> {
     entrypoint: Option<AotDebugEntrypoint>,
     native_debuggers: &'a [&'a str],
     strategy: &'a str,
+    native_format: &'a str,
+    native_artifact: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -2060,6 +2075,7 @@ fn write_aot_debug_map(
     source: &str,
     artifact_kind: AotArtifactKind,
     native_debuggers: &'static [&'static str],
+    native_debug: bool,
 ) -> CliResult<PathBuf> {
     let entrypoint =
         if let Some((line_index, column_index, line_text)) = find_main_location_in_source(source) {
@@ -2096,7 +2112,21 @@ fn write_aot_debug_map(
         },
         entrypoint,
         native_debuggers,
-        strategy: "Break on the exported symbol in the native debugger and use this map to resolve the Spectra source span until native DWARF/PDB emission is available.",
+        strategy: if native_debug {
+            "Native debug records are embedded in the object; executable links request a real PDB/DWARF artifact. This sidecar supplements, but does not replace, native debug information."
+        } else {
+            "Native debug emission was explicitly disabled; this sidecar contains source metadata only."
+        },
+        native_format: if native_debug {
+            if cfg!(windows) { "codeview/pdb" } else { "dwarf" }
+        } else {
+            "none"
+        },
+        native_artifact: if native_debug && matches!(artifact_kind, AotArtifactKind::Executable) {
+            Some(display_path(&artifact_path.with_extension("pdb")))
+        } else {
+            None
+        },
     };
     let text = serde_json::to_string_pretty(&map)
         .map_err(|e| CliError::io(format!("Cannot serialize AOT debug map: {}", e)))?;
@@ -2114,6 +2144,70 @@ fn debug_map_path_for_artifact(artifact_path: &Path) -> PathBuf {
     let mut debug_map_path = artifact_path.as_os_str().to_os_string();
     debug_map_path.push(".spectra-debug.json");
     PathBuf::from(debug_map_path)
+}
+
+/// Add compiler-owned CodeView records to a COFF object.  The backend owns
+/// both the records and the COFF container rewrite; the sidecar is not used
+/// to synthesize native debug information.
+fn attach_native_codeview(
+    object_path: &Path,
+    source: &str,
+    source_path: &Path,
+) -> CliResult<()> {
+    let functions = source
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let rest = trimmed.strip_prefix("fn ").or_else(|| trimmed.strip_prefix("pub fn "))?;
+            rest.split(['(', '<', ' ']).next().map(str::to_string)
+        })
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+    let mut functions = functions;
+    // The AOT entry wrapper is a real backend symbol used by the executable
+    // linker.  Keep it in the native debug stream so the final PDB can be
+    // reconciled with the object symbol table as well as with user functions.
+    if functions.iter().any(|name| name == "main")
+        && !functions.iter().any(|name| name == "spectra_user_main")
+    {
+        functions.push("spectra_user_main".to_string());
+    }
+    let object_bytes = fs::read(object_path)
+        .map_err(|e| CliError::io(format!("Cannot read object for debug ranges: {}", e)))?;
+    let mut ranged_functions = spectra_backend::debug::coff_function_ranges(&object_bytes);
+    // Only symbols present in the object are eligible for native debug
+    // records.  This prevents a sidecar/source name from becoming a fake PDB
+    // procedure.  The wrapper is present only for executable objects.
+    ranged_functions.retain(|function| functions.iter().any(|name| name == &function.name));
+    if ranged_functions.is_empty() {
+        return Err(CliError::compilation(
+            "--debug-info=native found no user function symbols in the COFF object",
+        ));
+    }
+    let local_names = source
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("let "))
+        .filter_map(|rest| rest.split(['=', ':', ' ']).next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for function in &mut ranged_functions {
+        function.locals = local_names.clone();
+    }
+    let records = spectra_backend::debug::codeview_section_with_ranges(
+        &source_path.to_string_lossy(),
+        &ranged_functions,
+        source,
+    );
+    let rewritten = spectra_backend::debug::append_coff_section(
+        &object_bytes,
+        ".debug$S",
+        &records,
+        0x4230_0040,
+    )
+    .map_err(CliError::compilation)?;
+    fs::write(object_path, rewritten)
+        .map_err(|e| CliError::io(format!("Cannot write CodeView-enabled object: {}", e)))
 }
 
 fn find_main_location_in_source(source: &str) -> Option<(usize, usize, &str)> {

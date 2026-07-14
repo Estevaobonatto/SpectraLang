@@ -24,6 +24,10 @@ pub struct AotOptions {
     /// When `false` (the default), `main` is exported as-is and no shim is
     /// generated. Use this when producing an object file for manual linking.
     pub emit_executable: bool,
+    /// Request native debug records in the emitted object. The backend keeps
+    /// this explicit so callers cannot mistake the JSON sidecar for native
+    /// debug information.
+    pub native_debug: bool,
 }
 
 pub struct AotCodeGenerator {

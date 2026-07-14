@@ -3059,6 +3059,8 @@ mod tests {
             name: "stackable".to_string(),
             params: vec![],
             return_type: IRType::Int,
+            source_span: None,
+            locals: vec![],
             next_value_id: 5,
             next_block_id: 1,
             blocks: vec![IRBasicBlock {
@@ -3074,6 +3076,7 @@ mod tests {
                                 size: 4,
                             },
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -3081,6 +3084,7 @@ mod tests {
                             result: IRValue { id: 1 },
                             value: 0,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -3090,6 +3094,7 @@ mod tests {
                             index: IRValue { id: 1 },
                             element_type: IRType::Int,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 3,
@@ -3097,6 +3102,7 @@ mod tests {
                             result: IRValue { id: 3 },
                             value: 42,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 4,
@@ -3104,6 +3110,7 @@ mod tests {
                             ptr: IRValue { id: 2 },
                             value: IRValue { id: 3 },
                         },
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return {
@@ -3125,6 +3132,8 @@ mod tests {
                 element_type: Box::new(IRType::Int),
                 size: 4,
             },
+            source_span: None,
+            locals: vec![],
             next_value_id: 1,
             next_block_id: 1,
             blocks: vec![IRBasicBlock {
@@ -3139,6 +3148,7 @@ mod tests {
                             size: 4,
                         },
                     },
+                    source_span: None,
                 }],
                 terminator: Some(Terminator::Return {
                     value: Some(IRValue { id: 0 }),
@@ -3164,6 +3174,8 @@ mod tests {
             name: "contained".to_string(),
             params: vec![],
             return_type: IRType::Int,
+            source_span: None,
+            locals: vec![],
             next_value_id: 5,
             next_block_id: 1,
             blocks: vec![IRBasicBlock {
@@ -3176,6 +3188,7 @@ mod tests {
                             result: IRValue { id: 0 },
                             ty: holder_type,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -3183,6 +3196,7 @@ mod tests {
                             result: IRValue { id: 1 },
                             ty: array_type,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -3190,6 +3204,7 @@ mod tests {
                             result: IRValue { id: 2 },
                             value: 0,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 3,
@@ -3199,6 +3214,7 @@ mod tests {
                             index: IRValue { id: 2 },
                             element_type: IRType::Int,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 4,
@@ -3206,6 +3222,7 @@ mod tests {
                             ptr: IRValue { id: 3 },
                             value: IRValue { id: 1 },
                         },
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return {
@@ -3240,6 +3257,8 @@ mod tests {
                 name: "Holder".to_string(),
                 fields: vec![("items".to_string(), array_type.clone())],
             },
+            source_span: None,
+            locals: vec![],
             next_value_id: 5,
             next_block_id: 1,
             blocks: vec![IRBasicBlock {
@@ -3252,6 +3271,7 @@ mod tests {
                             result: IRValue { id: 0 },
                             ty: holder_type,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -3259,6 +3279,7 @@ mod tests {
                             result: IRValue { id: 1 },
                             ty: array_type,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -3266,6 +3287,7 @@ mod tests {
                             result: IRValue { id: 2 },
                             value: 0,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 3,
@@ -3275,6 +3297,7 @@ mod tests {
                             index: IRValue { id: 2 },
                             element_type: IRType::Int,
                         },
+                        source_span: None,
                     },
                     Instruction {
                         id: 4,
@@ -3282,6 +3305,7 @@ mod tests {
                             ptr: IRValue { id: 3 },
                             value: IRValue { id: 1 },
                         },
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return {

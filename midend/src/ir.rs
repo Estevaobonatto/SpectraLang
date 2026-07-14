@@ -3,6 +3,27 @@
 
 pub mod pretty;
 
+/// Stable source location carried from the Spectra AST into native debug
+/// generation. Lines and columns are one-based, matching compiler spans.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceSpan {
+    pub file: String,
+    pub start_line: u32,
+    pub start_column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalDebugInfo {
+    pub name: String,
+    pub ty: Type,
+    pub value_id: Option<usize>,
+    pub declaration: Option<SourceSpan>,
+    pub scope_start: Option<SourceSpan>,
+    pub scope_end: Option<SourceSpan>,
+}
+
 /// IR Module - top level container
 #[derive(Debug, Clone)]
 pub struct Module {
@@ -11,6 +32,7 @@ pub struct Module {
     pub globals: Vec<Global>,
     /// vtable definitions for dyn Trait dispatch
     pub vtables: Vec<VTableDef>,
+    pub source_file: Option<String>,
 }
 
 /// A vtable that maps a concrete type's methods for a trait.
@@ -42,6 +64,8 @@ pub struct Function {
     pub blocks: Vec<BasicBlock>,
     pub next_value_id: usize,
     pub next_block_id: usize,
+    pub source_span: Option<SourceSpan>,
+    pub locals: Vec<LocalDebugInfo>,
 }
 
 /// Function parameter
@@ -66,6 +90,7 @@ pub struct BasicBlock {
 pub struct Instruction {
     pub id: usize,
     pub kind: InstructionKind,
+    pub source_span: Option<SourceSpan>,
 }
 
 #[derive(Debug, Clone)]
@@ -404,6 +429,7 @@ impl Module {
             functions: Vec::new(),
             globals: Vec::new(),
             vtables: Vec::new(),
+            source_file: None,
         }
     }
 
@@ -426,6 +452,8 @@ impl Function {
             blocks: Vec::new(),
             next_value_id: param_count, // Start after parameters
             next_block_id: 0,
+            source_span: None,
+            locals: Vec::new(),
         }
     }
 
@@ -461,7 +489,7 @@ impl Function {
 impl BasicBlock {
     pub fn add_instruction(&mut self, kind: InstructionKind) -> usize {
         let id = self.instructions.len();
-        self.instructions.push(Instruction { id, kind });
+        self.instructions.push(Instruction { id, kind, source_span: None });
         id
     }
 

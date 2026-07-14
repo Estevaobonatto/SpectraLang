@@ -19,7 +19,8 @@ pub use lexer::Lexer;
 pub use lint::{LintDiagnostic, LintOptions, LintRule};
 pub use parser::Parser;
 pub use pipeline::{
-    BackendDriver, CompilationOptions, CompilationPipeline, CompilationResult, NoopBackend,
+    BackendDriver, CompilationOptions, CompilationPipeline, CompilationResult, DebugInfoMode,
+    NoopBackend,
 };
 pub use semantic::analyze_modules;
 pub use span::{span_union, Location, Span};

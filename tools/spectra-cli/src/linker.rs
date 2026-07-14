@@ -206,6 +206,7 @@ pub fn link_executable(
     obj_path: &Path,
     runtime_lib_path: &Path,
     output_path: &Path,
+    native_debug: bool,
 ) -> Result<(), String> {
     let linker = detect_linker().ok_or_else(|| {
         "No linker found. Install a C compiler (gcc, clang, or MSVC) or set the CC \
@@ -215,9 +216,9 @@ pub fn link_executable(
 
     match &linker {
         LinkerKind::Msvc(link_exe) => {
-            link_with_msvc(link_exe, obj_path, runtime_lib_path, output_path)
+            link_with_msvc(link_exe, obj_path, runtime_lib_path, output_path, native_debug)
         }
-        LinkerKind::Cc(cc) => link_with_cc(cc, obj_path, runtime_lib_path, output_path),
+        LinkerKind::Cc(cc) => link_with_cc(cc, obj_path, runtime_lib_path, output_path, native_debug),
     }
 }
 
@@ -226,6 +227,7 @@ fn link_with_cc(
     obj_path: &Path,
     runtime_lib_path: &Path,
     output_path: &Path,
+    native_debug: bool,
 ) -> Result<(), String> {
     let runtime_lib_dir = runtime_lib_path.parent().ok_or_else(|| {
         format!(
@@ -247,6 +249,9 @@ fn link_with_cc(
         .arg(format!("-l{}", lib_stem))
         .arg("-o")
         .arg(output_path);
+    if native_debug {
+        cmd.arg("-g");
+    }
 
     // On macOS / Linux the runtime may use pthreads and system libraries.
     #[cfg(target_os = "linux")]
@@ -262,6 +267,7 @@ fn link_with_msvc(
     obj_path: &Path,
     runtime_lib_path: &Path,
     output_path: &Path,
+    native_debug: bool,
 ) -> Result<(), String> {
     let link_name = link_exe.display().to_string();
     let mut cmd = Command::new(link_exe);
@@ -277,6 +283,12 @@ fn link_with_msvc(
             "advapi32.lib",
             "dbghelp.lib",
             "legacy_stdio_definitions.lib",
+            "ole32.lib",
+            "oleaut32.lib",
+            "user32.lib",
+            "gdi32.lib",
+            "opengl32.lib",
+            "d3dcompiler.lib",
         ])
         // Link the dynamic MSVC C runtime — provides mainCRTStartup, memcpy,
         // __CxxFrameHandler3 and other CRT symbols required by Rust's staticlib.
@@ -284,6 +296,12 @@ fn link_with_msvc(
         .arg(format!("/OUT:{}", output_path.display()))
         .arg("/SUBSYSTEM:CONSOLE")
         .arg("/NOLOGO");
+    if native_debug {
+        let pdb_path = output_path.with_extension("pdb");
+        cmd.arg("/DEBUG")
+            .arg(format!("/PDB:{}", pdb_path.display()))
+            .arg("/PDBALTPATH:%_PDB%");
+    }
 
     // Collect MSVC and Windows SDK library search paths so link.exe can find
     // system .lib files even when running outside a Developer Command Prompt.

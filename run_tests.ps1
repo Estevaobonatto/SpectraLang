@@ -1194,6 +1194,15 @@ if ($r2904TensorIr.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++
 $results += [PSCustomObject]@{ Diretorio = "phase29-tensor-ir"; Teste = "validate_r2904_tensor_ir"; Status = $r2904TensorIr.Status; Detalhe = $r2904TensorIr.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27j: R-2903 native debug information
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2903 native debug information ---" -ForegroundColor Yellow
+$r2903NativeDebug = Invoke-HostCommand -name "validate_r2903_native_debug" -fileName "python" -arguments @("scripts\validate_r2903_native_debug.py", "--binary", $binary, "--fixture", "tests\validation\191_native_debug_info.spectra", "--report", "target\r2903-native-debug\report.json") -workingDir (Get-Location).Path
+if ($r2903NativeDebug.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase29-native-debug"; Teste = "validate_r2903_native_debug"; Status = $r2903NativeDebug.Status; Detalhe = $r2903NativeDebug.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""

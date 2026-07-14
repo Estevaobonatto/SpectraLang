@@ -222,6 +222,7 @@ impl BackendDriver for FullPipelineBackend {
         options: &CompilationOptions,
     ) -> Result<Self::Artifacts, Vec<CompilerError>> {
         let mut lowering = ASTLowering::new();
+        lowering.set_source_file(format!("{}.spectra", ast.name));
         let lowering_start = Instant::now();
         let mut ir_module = match lowering.lower_module(ast) {
             Ok(module) => module,
@@ -586,7 +587,13 @@ impl SpectraCompiler {
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
 
         let aot = AotCodeGenerator::new();
-        aot.compile_to_object(&report.artifacts.ir_module, &AotOptions::default())
+        aot.compile_to_object(
+            &report.artifacts.ir_module,
+            &AotOptions {
+                native_debug: matches!(self.options.debug_info, spectra_compiler::DebugInfoMode::Native),
+                ..AotOptions::default()
+            },
+        )
             .map_err(|err| err.to_string())
     }
 
@@ -608,6 +615,7 @@ impl SpectraCompiler {
             &report.artifacts.ir_module,
             &AotOptions {
                 emit_executable: true,
+                native_debug: matches!(self.options.debug_info, spectra_compiler::DebugInfoMode::Native),
             },
         )
         .map_err(|err| err.to_string())
@@ -1172,6 +1180,7 @@ mod tests {
         "#;
 
         let options = CompilationOptions {
+            debug_info: spectra_compiler::DebugInfoMode::Native,
             optimize: true,
             opt_level: 2,
             dump_ir: false,

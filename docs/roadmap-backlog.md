@@ -6675,7 +6675,7 @@ exist; they are not cosmetic documentation fixes.
 
 ## R-2903 Native Debug Info Emission
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `backend`
 - Risk: `high`
@@ -6698,6 +6698,23 @@ exist; they are not cosmetic documentation fixes.
   supplementary, not the only production debug path.
 - CI or a gated validator records debug-info evidence without requiring
   an interactive debugger by default.
+
+### Implementation state (2026-07-14)
+
+- Completed so far: `DebugInfoMode`, CLI flags, native-debug linker switches,
+  compiler-owned CodeView C13 records, an in-Rust COFF section rewriter,
+  source-span/local metadata in the IR, sidecar strategy metadata, fixture,
+  and the fail-closed `phase29-native-debug` validator gate.
+- Windows evidence: the object contains a non-empty `.debug$S`; MSVC produces
+  a non-empty PDB whose independent `llvm-pdbutil` inspection finds the real
+  `helper`, `main`, `spectra_user_main`, `debug_value`, line subsections, and
+  non-zero symbol ranges. The normal CLI fixture and `git diff --check` pass.
+- Remaining before completion: generate and independently validate DWARF on a
+  supported Unix target; connect the emitted local names to compiler-proven
+  stack or register locations (the current frame-relative ranges are still a
+  compatibility location contract); and execute an interactive
+  source-breakpoint/local smoke when the environment provides a debugger.
+  R-2903 remains `in_progress` until those production criteria are evidenced.
 
 ## R-2904 First-Class Tensor IR and Device Lowering
 
@@ -6909,7 +6926,7 @@ report at `target/r3005-tokenization-embedding/report.json`.
 
 ## R-3006 Persistent Production Vector Index
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Risk: `high`

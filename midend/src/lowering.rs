@@ -4,7 +4,7 @@
 use crate::builder::IRBuilder;
 use crate::ir::{
     FloatWidth as IRFloatWidth, Function as IRFunction, IntWidth as IRIntWidth,
-    Module as IRModule, Parameter, Terminator, Type as IRType, Value,
+    LocalDebugInfo, Module as IRModule, Parameter, SourceSpan, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
     BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
@@ -342,6 +342,7 @@ impl MonomorphizationRequest {
 }
 
 pub struct ASTLowering {
+    source_file: String,
     builder: IRBuilder,
     current_function: Option<IRFunction>,
     value_map: ScopeStack,
@@ -410,8 +411,18 @@ pub struct ASTLowering {
 }
 
 impl ASTLowering {
+    fn source_span(&self, span: Span) -> SourceSpan {
+        SourceSpan {
+            file: self.source_file.clone(),
+            start_line: span.start_location.line as u32,
+            start_column: span.start_location.column as u32,
+            end_line: span.end_location.line as u32,
+            end_column: span.end_location.column as u32,
+        }
+    }
     pub fn new() -> Self {
         let mut lowering = Self {
+            source_file: "<unknown>".to_string(),
             builder: IRBuilder::new(),
             current_function: None,
             value_map: ScopeStack::new(),
@@ -449,6 +460,10 @@ impl ASTLowering {
         lowering.register_builtin_generic_enums();
         lowering.register_builtin_async_traits();
         lowering
+    }
+
+    pub fn set_source_file(&mut self, file: impl Into<String>) {
+        self.source_file = file.into();
     }
 
     fn register_builtin_async_traits(&mut self) {
@@ -782,6 +797,7 @@ impl ASTLowering {
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> Result<IRModule, Vec<MidendError>> {
         let mut ir_module = IRModule::new(&ast_module.name);
+        ir_module.source_file = Some(self.source_file.clone());
 
         // Populate stdlib alias map for unqualified call resolution.
         self.std_import_aliases = ast_module.std_import_aliases.iter().cloned().collect();
@@ -2998,6 +3014,20 @@ impl ASTLowering {
             .insert(ast_func.name.clone(), return_type.clone());
 
         let mut ir_func = IRFunction::new(&ast_func.name, params.clone(), return_type.clone());
+        ir_func.source_span = Some(self.source_span(ast_func.span));
+        ir_func.locals = ast_func
+            .params
+            .iter()
+            .zip(params.iter())
+            .map(|(ast_param, param)| LocalDebugInfo {
+                name: param.name.clone(),
+                ty: param.ty.clone(),
+                value_id: Some(param.id),
+                declaration: Some(self.source_span(ast_param.span)),
+                scope_start: Some(self.source_span(ast_func.body.span)),
+                scope_end: Some(self.source_span(ast_func.body.span)),
+            })
+            .collect();
 
         // Create entry block
         let entry_block = ir_func.add_block("entry");
@@ -4683,6 +4713,7 @@ impl ASTLowering {
     }
 
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
+        self.builder.set_source_span(Some(self.source_span(stmt.span)));
         match &stmt.kind {
             StatementKind::Let(let_stmt) => {
                 let binding_name = match &let_stmt.pattern {
@@ -4781,6 +4812,22 @@ impl ASTLowering {
                     }
 
                     let name = binding_name.expect("identifier pattern should be present");
+
+                    // Keep user bindings in the debug model even when the
+                    // value is represented directly in SSA.  The backend can
+                    // later map the value to a register or stack location;
+                    // the declaration and type must not be reconstructed
+                    // from the sidecar.
+                    if let Some(ty) = binding_type.clone().or_else(|| inferred_type.clone()) {
+                        ir_func.locals.push(LocalDebugInfo {
+                            name: name.clone(),
+                            ty,
+                            value_id: Some(value.id),
+                            declaration: Some(self.source_span(stmt.span)),
+                            scope_start: Some(self.source_span(stmt.span)),
+                            scope_end: None,
+                        });
+                    }
 
                     match &value_expr.kind {
                         ExpressionKind::ArrayLiteral { .. } => {
@@ -5582,6 +5629,7 @@ impl ASTLowering {
     }
 
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
+        self.builder.set_source_span(Some(self.source_span(expr.span)));
         match &expr.kind {
             ExpressionKind::NumberLiteral(n) => {
                 // Try to parse as integer first, then float
