@@ -8630,6 +8630,31 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "metrics_generation") => Some(host_string("spectra.std.ml.metrics_generation")),
             ("ml", "serving_metrics") => Some(host_string("spectra.std.ml.serving_metrics")),
             ("ml", "evaluation_report") => Some(host_string("spectra.std.ml.evaluation_report")),
+            ("ml", "artifact_new") => Some(host_int("spectra.std.ml.artifact_new")),
+            ("ml", "artifact_set_metadata") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_set_metadata",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_add_tensor") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_add_tensor",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_save") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_save",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_load") => Some(host_int("spectra.std.ml.artifact_load")),
+            ("ml", "artifact_tensor") => Some(host_int("spectra.std.ml.artifact_tensor")),
+            ("ml", "artifact_metadata") => Some(host_string("spectra.std.ml.artifact_metadata")),
+            ("ml", "artifact_validate") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_validate",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_free") => Some(host_void("spectra.std.ml.artifact_free")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),

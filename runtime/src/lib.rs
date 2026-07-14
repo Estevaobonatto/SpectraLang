@@ -3,6 +3,7 @@ use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
 pub mod api;
+pub(crate) mod artifact;
 pub mod ffi;
 #[cfg(feature = "gpu")]
 pub mod gpu;

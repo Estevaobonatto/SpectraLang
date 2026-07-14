@@ -5,7 +5,7 @@ use crate::ffi::{
 use crate::initialize;
 use crate::memory::ManualBox;
 use crate::reactor::{self, Interest, ReactorEvent};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -420,6 +420,15 @@ const ML_METRICS_RANKING: &str = "spectra.std.ml.metrics_ranking";
 const ML_METRICS_GENERATION: &str = "spectra.std.ml.metrics_generation";
 const ML_SERVING_METRICS: &str = "spectra.std.ml.serving_metrics";
 const ML_EVALUATION_REPORT: &str = "spectra.std.ml.evaluation_report";
+const ML_ARTIFACT_NEW: &str = "spectra.std.ml.artifact_new";
+const ML_ARTIFACT_SET_METADATA: &str = "spectra.std.ml.artifact_set_metadata";
+const ML_ARTIFACT_ADD_TENSOR: &str = "spectra.std.ml.artifact_add_tensor";
+const ML_ARTIFACT_SAVE: &str = "spectra.std.ml.artifact_save";
+const ML_ARTIFACT_LOAD: &str = "spectra.std.ml.artifact_load";
+const ML_ARTIFACT_TENSOR: &str = "spectra.std.ml.artifact_tensor";
+const ML_ARTIFACT_METADATA: &str = "spectra.std.ml.artifact_metadata";
+const ML_ARTIFACT_VALIDATE: &str = "spectra.std.ml.artifact_validate";
+const ML_ARTIFACT_FREE: &str = "spectra.std.ml.artifact_free";
 
 const CONCURRENT_TASK_SPAWN: &str = "spectra.std.concurrent.task_spawn";
 const CONCURRENT_TASK_JOIN: &str = "spectra.std.concurrent.task_join";
@@ -972,6 +981,15 @@ fn register_ml() {
     register_host_function(ML_METRICS_GENERATION, std_ml_metrics_generation);
     register_host_function(ML_SERVING_METRICS, std_ml_serving_metrics);
     register_host_function(ML_EVALUATION_REPORT, std_ml_evaluation_report);
+    register_host_function(ML_ARTIFACT_NEW, std_ml_artifact_new);
+    register_host_function(ML_ARTIFACT_SET_METADATA, std_ml_artifact_set_metadata);
+    register_host_function(ML_ARTIFACT_ADD_TENSOR, std_ml_artifact_add_tensor);
+    register_host_function(ML_ARTIFACT_SAVE, std_ml_artifact_save);
+    register_host_function(ML_ARTIFACT_LOAD, std_ml_artifact_load);
+    register_host_function(ML_ARTIFACT_TENSOR, std_ml_artifact_tensor);
+    register_host_function(ML_ARTIFACT_METADATA, std_ml_artifact_metadata);
+    register_host_function(ML_ARTIFACT_VALIDATE, std_ml_artifact_validate);
+    register_host_function(ML_ARTIFACT_FREE, std_ml_artifact_free);
 }
 
 fn register_concurrent() {
@@ -7305,6 +7323,15 @@ struct MlVectorIndex {
     entries: Vec<MlVectorIndexEntry>,
 }
 
+#[derive(Clone)]
+struct MlArtifact {
+    name: String,
+    model_version: String,
+    kind: String,
+    metadata: BTreeMap<String, String>,
+    tensors: HashMap<String, usize>,
+}
+
 struct MlRegistry {
     next_id: usize,
     modules: HashMap<usize, MlModule>,
@@ -7316,6 +7343,7 @@ struct MlRegistry {
     kv_caches: HashMap<usize, MlKvCache>,
     tokenizers: HashMap<usize, MlWordpieceTokenizer>,
     vector_indexes: HashMap<usize, MlVectorIndex>,
+    artifacts: HashMap<usize, MlArtifact>,
 }
 
 impl MlRegistry {
@@ -7331,6 +7359,7 @@ impl MlRegistry {
             kv_caches: HashMap::new(),
             tokenizers: HashMap::new(),
             vector_indexes: HashMap::new(),
+            artifacts: HashMap::new(),
         }
     }
 
@@ -7732,6 +7761,189 @@ extern "C" fn std_ml_module_new(ctx: *mut SpectraHostCallContext) -> i32 {
             handle
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+fn artifact_tensor_payload(handle: usize, name: &str) -> Option<crate::artifact::TensorPayload> {
+    with_tensor_registry(|registry| {
+        let tensor = registry.get(handle)?;
+        if tensor.device != TensorDevice::Cpu || tensor.shape.is_empty() {
+            return None;
+        }
+        let bytes = match tensor.dtype {
+            TensorDType::Int => tensor
+                .materialize()
+                .into_iter()
+                .flat_map(i64::to_le_bytes)
+                .collect(),
+            TensorDType::Float => tensor
+                .materialize()
+                .into_iter()
+                .flat_map(|raw| (raw as u64).to_le_bytes())
+                .collect(),
+        };
+        Some(crate::artifact::TensorPayload {
+            name: name.to_owned(),
+            dtype: tensor.dtype.name().to_owned(),
+            precision: "f64".to_owned(),
+            shape: tensor.shape.clone(),
+            layout: "contiguous".to_owned(),
+            bytes,
+        })
+    })
+}
+
+fn artifact_tensor_from_payload(
+    payload: &crate::artifact::TensorPayload,
+) -> Result<usize, i32> {
+    let values = payload
+        .bytes
+        .chunks_exact(8)
+        .map(|chunk| {
+            let bytes: [u8; 8] = chunk.try_into().expect("validated artifact element width");
+            match payload.dtype.as_str() {
+                "int" => i64::from_le_bytes(bytes),
+                "float" => u64::from_le_bytes(bytes) as i64,
+                _ => 0,
+            }
+        })
+        .collect::<Vec<_>>();
+    let dtype = match payload.dtype.as_str() {
+        "int" => TensorDType::Int,
+        "float" => TensorDType::Float,
+        _ => return Err(HOST_STATUS_INVALID_ARGUMENT),
+    };
+    tensor_alloc(dtype, payload.shape.clone(), values)
+}
+
+fn artifact_data_for_save(artifact: &MlArtifact) -> Option<crate::artifact::ArtifactData> {
+    let tensors = artifact
+        .tensors
+        .iter()
+        .map(|(name, handle)| artifact_tensor_payload(*handle, name))
+        .collect::<Option<Vec<_>>>()?;
+    Some(crate::artifact::ArtifactData {
+        name: artifact.name.clone(),
+        model_version: artifact.model_version.clone(),
+        kind: artifact.kind.clone(),
+        metadata: artifact.metadata.clone(),
+        tensors,
+    })
+}
+
+extern "C" fn std_ml_artifact_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(name) = read_spectra_string(args[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(version) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(kind) = read_spectra_string(args[2]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if name.is_empty() || version.is_empty() || !matches!(kind.as_str(), "checkpoint" | "multi_array") {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.artifacts.insert(handle, MlArtifact {
+                name, model_version: version, kind, metadata: BTreeMap::new(), tensors: HashMap::new(),
+            });
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_artifact_set_metadata(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let (Some(key), Some(value)) = (read_spectra_string(args[1]), read_spectra_string(args[2])) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if key.is_empty() { return HOST_STATUS_INVALID_ARGUMENT; }
+        let ok = with_ml_registry(|registry| registry.artifacts.get_mut(&(args[0] as usize)).map(|artifact| { artifact.metadata.insert(key, value); true }).unwrap_or(false));
+        if !ok { return HOST_STATUS_NOT_FOUND; }
+        tensor_result(ctx_ref, 1)
+    }
+}
+
+extern "C" fn std_ml_artifact_add_tensor(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(name) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if name.is_empty() { return HOST_STATUS_INVALID_ARGUMENT; }
+        if artifact_tensor_payload(args[2] as usize, &name).is_none() { return HOST_STATUS_NOT_FOUND; }
+        let ok = with_ml_registry(|registry| {
+            let Some(artifact) = registry.artifacts.get_mut(&(args[0] as usize)) else { return false; };
+            if artifact.tensors.contains_key(&name) { return false; }
+            artifact.tensors.insert(name, args[2] as usize);
+            true
+        });
+        if !ok { return HOST_STATUS_INVALID_ARGUMENT; }
+        tensor_result(ctx_ref, 1)
+    }
+}
+
+extern "C" fn std_ml_artifact_save(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(path) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(artifact) = with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).cloned()) else { return HOST_STATUS_NOT_FOUND; };
+        let Some(data) = artifact_data_for_save(&artifact) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        match crate::artifact::write_atomic(Path::new(&path), &data) {
+            Ok(()) => tensor_result(ctx_ref, 1),
+            Err(_) => HOST_STATUS_INVALID_ARGUMENT,
+        }
+    }
+}
+
+extern "C" fn std_ml_artifact_load(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(path) = read_spectra_string(args[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Ok(data) = crate::artifact::read(Path::new(&path)) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let mut tensors = HashMap::new();
+        for payload in &data.tensors {
+            let Ok(handle) = artifact_tensor_from_payload(payload) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            tensors.insert(payload.name.clone(), handle);
+        }
+        let handle = with_ml_registry(|registry| {
+            let handle = registry.next_handle();
+            registry.artifacts.insert(handle, MlArtifact { name: data.name, model_version: data.model_version, kind: data.kind, metadata: data.metadata, tensors });
+            handle
+        });
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_artifact_tensor(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(name) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(handle) = with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).and_then(|artifact| artifact.tensors.get(&name).copied())) else { return HOST_STATUS_NOT_FOUND; };
+        tensor_result(ctx_ref, handle as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_artifact_metadata(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(key) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(value) = with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).and_then(|artifact| artifact.metadata.get(&key).cloned())) else { return HOST_STATUS_NOT_FOUND; };
+        tensor_result(ctx_ref, alloc_spectra_string(&value))
+    }
+}
+
+extern "C" fn std_ml_artifact_validate(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Some(path) = read_spectra_string(args[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        tensor_result(ctx_ref, crate::artifact::validate(Path::new(&path)) as SpectraHostValue)
+    }
+}
+
+extern "C" fn std_ml_artifact_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if with_ml_registry(|registry| registry.artifacts.remove(&(args[0] as usize))).is_none() { return HOST_STATUS_NOT_FOUND; }
+        tensor_optional_result(ctx_ref, 0)
     }
 }
 

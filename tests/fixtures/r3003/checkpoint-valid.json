@@ -1,0 +1,10 @@
+{
+  "name": "checkpoint-fixture",
+  "model_version": "v1",
+  "kind": "checkpoint",
+  "metadata": {"framework": "spectralang", "purpose": "r3003"},
+  "arrays": [
+    {"name": "weights", "dtype": "float", "shape": [2, 2], "values": [1.0, 2.0, 3.0, 4.0]},
+    {"name": "bias", "dtype": "float", "shape": [2], "values": [0.5, -0.5]}
+  ]
+}

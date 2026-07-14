@@ -6781,7 +6781,7 @@ production-complete.
 
 ## R-3003 Production Model Artifact Formats
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ml`
 - Risk: `medium`
@@ -6793,6 +6793,14 @@ production-complete.
   NPY/ONNX baseline, including safe checkpoint metadata and validation.
 - Make the artifact contract reusable by tokenizer, embedding, and vector-index
   persistence instead of maintaining ad hoc JSON sidecars.
+
+The implementation uses the native Spectra Artifact Container v1: a
+little-endian binary container with canonical JSON manifest, explicit
+dtype/shape/layout, per-array and global SHA-256 checksums, compatibility
+metadata, validated bounds, and atomic replacement. The CLI fixture is
+`tests/validation/186_ml_artifact_container.spectra`; the independent gate
+`scripts/validate_r3003_artifacts.py` emits
+`target/r3003-artifacts/report.json` with corruption and determinism evidence.
 
 ### Acceptance
 
@@ -6832,7 +6840,7 @@ production-complete.
 
 ## R-3005 Production Tokenization and Embedding Backends
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `ml`
 - Risk: `high`
@@ -6857,6 +6865,10 @@ production-complete.
   and normal `spectralang run` validation.
 - The hash embedding path is removed from the production API or explicitly
   demoted to documented non-production compatibility behavior.
+
+R-3003 is now complete and unblocks this implementation. Current hash and
+narrow tokenizer paths remain explicitly non-production until the acceptance
+criteria above are met.
 
 ## R-3006 Persistent Production Vector Index
 

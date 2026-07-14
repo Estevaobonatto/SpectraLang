@@ -1136,6 +1136,15 @@ if ($r3007StdlibContract.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase30-stdlib-contract"; Teste = "validate_r3007_stdlib_contract"; Status = $r3007StdlibContract.Status; Detalhe = $r3007StdlibContract.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27e: R-3003 native production artifact container
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-3003 native production artifact container ---" -ForegroundColor Yellow
+$r3003Artifacts = Invoke-HostCommand -name "validate_r3003_artifacts" -fileName "python" -arguments @("scripts\validate_r3003_artifacts.py", "--binary", $binary, "--fixture", "tests\validation\186_ml_artifact_container.spectra", "--report", "target\r3003-artifacts\report.json") -workingDir (Get-Location).Path
+if ($r3003Artifacts.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase30-ml-artifacts"; Teste = "validate_r3003_artifacts"; Status = $r3003Artifacts.Status; Detalhe = $r3003Artifacts.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""

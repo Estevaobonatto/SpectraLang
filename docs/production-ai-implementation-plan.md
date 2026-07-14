@@ -2039,6 +2039,14 @@ claimed by that item. NPY/ONNX support, single-process distributed workers,
 hash embeddings, in-process serving, and linear in-memory vector search remain
 explicit baselines until their production tasks pass their evidence gates.
 
+R-3003 is the first implementation in this workstream. Its Spectra Artifact
+Container v1 is the shared contract for checkpoint and multi-array persistence:
+validated binary framing, canonical manifest, explicit tensor representation,
+per-array/global SHA-256 integrity, compatibility metadata, and atomic writes.
+The contract is consumed through `std.ml` handles and proven by a normal CLI
+round trip plus an independent parser and corruption suite. R-3005 and R-3006
+remain downstream consumers; they must not reintroduce JSON sidecars.
+
 ### Phase 31 — Benchmark Evidence Hardening
 
 `R-3101` and `R-3130` are complete. Reports

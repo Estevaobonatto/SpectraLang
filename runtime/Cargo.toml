@@ -16,4 +16,6 @@ bytemuck = { version = "1.16", optional = true }
 half = "2.4"
 mio = { version = "0.8", features = ["os-poll"] }
 pollster = { version = "0.3", optional = true }
+serde_json = "1.0"
+sha2 = "0.10"
 wgpu = { version = "0.20", optional = true }

@@ -2483,6 +2483,27 @@ fn make_std_ml() -> ModuleExports {
             ],
             Type::String,
         ),
+        (
+            "artifact_new",
+            vec![Type::String, Type::String, Type::String],
+            int.clone(),
+        ),
+        (
+            "artifact_set_metadata",
+            vec![int.clone(), Type::String, Type::String],
+            bool_ty.clone(),
+        ),
+        (
+            "artifact_add_tensor",
+            vec![int.clone(), Type::String, int.clone()],
+            bool_ty.clone(),
+        ),
+        ("artifact_save", vec![int.clone(), Type::String], bool_ty.clone()),
+        ("artifact_load", vec![Type::String], int.clone()),
+        ("artifact_tensor", vec![int.clone(), Type::String], int.clone()),
+        ("artifact_metadata", vec![int.clone(), Type::String], Type::String),
+        ("artifact_validate", vec![Type::String], bool_ty.clone()),
+        ("artifact_free", vec![int.clone()], unit.clone()),
     ];
 
     for (name, params, return_type) in functions {
