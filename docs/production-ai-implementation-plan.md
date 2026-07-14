@@ -1465,7 +1465,7 @@ and RAG-oriented development.
 ### Workstreams
 
 - `R-1801 ONNX Import and Export`: supported ONNX subset export/import, shape/dtype validation, and external runtime validation.
-- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling. (Reopened 2026-06-24: CPU host implementation is real; GPU forward and backward for the heavy ops was tracked under the retired R-30xx GPU plan and is no longer in the current roadmap.)
+- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling. The validated CPU host baseline is complete; accelerator parity is outside this item and belongs to the active GPU/optimization workstreams.
 - `R-1803 Tokenization, Embeddings, and RAG Toolkit`: deterministic tokenization, vector indexes, retrieval, chunking, prompt assembly, and RAG evaluation.
 
 ### Acceptance Direction
@@ -1617,7 +1617,7 @@ AI users.
 
 ### Remaining Integrated Project Certification
 
-`R-2013` continues the post-baseline certification track focused
+`R-2013` completes the post-baseline certification track focused
 on complete checked-in `.spectra` projects that combine the basic language
 surface with AI Support features. This track does not reopen the completed
 `R-2003` through `R-2007` pre-API stabilization evidence or the completed
@@ -1639,9 +1639,11 @@ The R-2013 implementation now provides the aggregate fail-closed validator
 `scripts/validate_r2013_release_candidate.py`. It regenerates the R-2001,
 R-2011, and R-2012 reports in one ordered execution and writes the versioned
 release-candidate evidence to `target/r2013-release-candidate/report.json`.
-The directed certification currently passes all eight matrix projects with
-zero untracked failures; the roadmap item remains `in_progress` until the
-repository-wide `run_tests.ps1` completion criterion is clean.
+The directed certification passes all eight matrix projects with zero
+untracked failures. The repository-wide `run_tests.ps1` also returns zero
+after the Phase 31 code-validation runner was separated from the standalone
+performance certification. `R-2013` is therefore complete; its current report
+is `target/r2013-release-candidate/report.json`.
 
 When execution of this track finds a real compiler, runtime, package, or AI
 Support defect, the defect must either be fixed in the same change with
@@ -1998,34 +2000,65 @@ This phase converts local or simulated ML-system baselines into real
 production paths. It follows the API/runtime observability work where
 networking, lifecycle, and operations are prerequisites.
 
+The phase also owns the Production Standard Library and Artifact Runtime
+workstream. Public stdlib APIs must not be marketed as production when their
+implementation is a local simulation, hash-based approximation, alias-only
+ABI, narrow sidecar format, or host-call surface without normal CLI evidence.
+The workstream requires shared versioned artifact contracts, integrity
+validation, executable capability classification, and target-perspective
+evidence for process and network boundaries.
+
+R-3007 now provides the executable evidence layer for this workstream. The
+versioned `scripts/stdlib_contract.toml` manifest reconciles semantic modules,
+runtime/API registrations, lowering sources, documentation, fixtures, and
+normal CLI probes. Its JSON report records production, baseline, simulation,
+unsupported, and incomplete claims separately, exposes source divergences, and
+fails closed for unclassified symbols or contradictory production claims. The
+initial probe is `tests/validation/185_stdlib_contract_audit.spectra`; a failed
+report is evidence for the responsible production task and does not promote
+the underlying implementation.
+
+The completed audit implementation uses typed source inventories rather than
+matching every textual `std.*` occurrence. It ran eleven namespace or external
+conformance probes, covered 640 discovered symbols, and recorded 58 tracked
+follow-ups without promoting the remaining ML, serving, tensor-device, or
+distributed baselines to production.
+
 - `R-3001` Networked ML serving runtime
 - `R-3002` Distributed training real transport
 - `R-3003` Production model artifact formats
 - `R-3004` Compiler-native autodiff lowering
+- `R-3005` Production tokenization and embedding backends
+- `R-3006` Persistent production vector index
+- `R-3007` Stdlib production contract and capability audit
+
+The workstream is coupled to `R-2901` exact-width numeric ABI semantics and
+`R-2904` first-class tensor/device lowering. Existing CPU transformer and LLM
+primitives are complete under `R-1802`; accelerator parity is not silently
+claimed by that item. NPY/ONNX support, single-process distributed workers,
+hash embeddings, in-process serving, and linear in-memory vector search remain
+explicit baselines until their production tasks pass their evidence gates.
 
 ### Phase 31 — Benchmark Evidence Hardening
 
-`R-3101` benchmark suite implementation is complete; `R-3130` remains in
-progress until its evidence gate is certified on the declared Spectra
-binary/profile. Reports
+`R-3101` and `R-3130` are complete. Reports
 must identify profile, binary, revision, host, timestamp, and sample policy;
 measurements above the 10% standard-deviation threshold are inconclusive;
 confirmed drift remains a failure; and baseline updates require repeated stable
-runs with review evidence. Official runs use three independent attempts and
-two additional confirmations only for initially regressed scenarios. This work
-does not claim a compiler or runtime regression until the same drift reproduces
-on a quiescent reference machine; the 2026-07-13 run was contaminated by a
-high-CPU `cline` process.
+runs with review evidence. Standalone performance certification uses five
+independent attempts, three warmups, twenty timed samples, and up to two
+confirmations. Repository code validation uses one execution per runtime and
+scenario with no statistical certification. This split keeps `run_tests.ps1`
+fast while preserving the full performance contract.
 
-The subsequent controlled rerun removed that competing process and made
-`async-pipeline` stable. The official Phase 31 gate now uses the optimized
-repository release binary, so the former debug-versus-Go profile mismatch is
-resolved. Final release runs nevertheless measured `async-echo` at roughly
-0.90--0.91 of Go with 6.7--7.9% variance, outside R-3131's bilateral +/-5%
-window and variance gate. This is currently a benchmark/reference-parity
-blocker, not evidence of a compiler/runtime correctness defect; the historical
-Spectra baseline remains unchanged. R-3130 still requires all scenarios to be
-stable, and R-2013 still requires the full repository gate.
+The semantic mismatch in `async-echo` was corrected with a real fan-out/fan-in
+contract: ten executable task units are registered before joining, the runtime
+uses a persistent worker pool, and diagnostics prove a maximum of ten pending
+tasks. Two complete release reports passed all 21 scenarios and the bilateral
+Go window: ratios `1.025752` and `1.048312`, with paired variation `3.4373%`
+and `2.5242%`. Their semantic comparison passed. The historical Spectra
+baseline remains unchanged. `R-3131`, `R-3130`, and the dependent `R-2013` are
+complete.
 
 R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
 run in separate serialized commands with per-step timeouts and captured output,
@@ -2036,11 +2069,10 @@ R-3132 adds the next backend/runtime optimization under this evidence rule:
 the IR proves that the handle cannot be observed or escape. The fused path has
 one registry lock, preserves task accounting, creates no observable slot, and
 has generic-host and JIT/AOT Fast ABI implementations. The historical
-33,865,050 ns baseline is intentionally unchanged while the current debug
-measurement remains above the historical target. The measured 38.9 ms result
-was accepted for R-3132 without changing the baseline; further reduction
-toward ≤1% is deferred to a future optimization item. R-3130 and R-2013 still
-require their independent full-gate criteria.
+33,865,050 ns baseline is intentionally unchanged. The measured 38.9 ms result
+was accepted for R-3132 without changing the baseline. R-3130 subsequently
+replaced the semantically unequal fixture with real fan-out/fan-in evidence;
+that gate and the dependent R-2013 certification now pass independently.
 
 ## Architectural Principles for the API Platform
 

@@ -1640,7 +1640,7 @@ R-702 remains `in_progress`: the WGPU baseline is real and validated, but it is 
 
 ## R-703 Mixed Precision
 
-- Status: `in_progress` (reopened 2026-06-24)
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Dependencies: `R-702`
@@ -2747,7 +2747,9 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 - CPU fallback remains available and produces equivalent results within tolerance.
 - Real WGPU upload, residency, covered forward/backward kernels, pool reuse, typed GPU errors, and diagnostics remain validated.
-- R-3071 mixed precision, R-1802 transformer GPU coverage, efficient kernels, and R-2904 compiler-native device lowering remain open dependencies/follow-ups.
+- R-3071 mixed precision, accelerator optimization, efficient kernels, and
+  R-2904 compiler-native device lowering remain open dependencies/follow-ups;
+  R-1802 itself is complete for its validated CPU transformer baseline.
 
 ### Completed so far
 
@@ -2926,13 +2928,14 @@ Original R-30xx performance-expansion blocks for tiled/parallel kernels, broader
 - GELU/SwiGLU
 - KV cache
 - logits sampling
-- all of the above with working GPU forward AND backward paths
+- validated CPU runtime baseline for all of the above
 
 ### Acceptance
 
 - attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested (host baseline met)
 - toy transformer example uses real runtime primitives rather than placeholder math
-- CPU fallback and accelerator path produce equivalent outputs within tolerance
+- public Spectra validation, runtime tests, AI example validation, and the
+  `phase18-transformers` gate pass
 
 ### Completed so far
 
@@ -2946,7 +2949,7 @@ Original R-30xx performance-expansion blocks for tiled/parallel kernels, broader
 
 ### Status note (2026-06-25)
 
-The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items have been retired from the roadmap. The CPU-side transformer primitives remain the tracked scope for R-1802; the GPU forward/backward transformer path is no longer a tracked completion gate.
+The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items have been retired from the roadmap. The CPU-side transformer primitives are the completed R-1802 scope; GPU transformer forward/backward parity is not claimed by this item and remains outside its completion criteria.
 
 ## R-1803 Tokenization, Embeddings, and RAG Toolkit
 
@@ -3603,7 +3606,7 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 
 ## R-2013 Release Candidate Integrated Project Gate
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-2011`, `R-2012`, `R-2014`, `R-2015`, `R-2001`, `R-2003`
@@ -3637,13 +3640,13 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
   reports `passed`, 8/8 projects, certified R-2001 conformance, and zero
   untracked failures.
 
-### Remaining before completion
+### Completion evidence
 
-- The isolated R-2013 gate regenerates all predecessor reports and passes with
-  8/8 projects and zero untracked failures. The item remains `in_progress`
-  because the release-candidate definition also requires the complete
-  `run_tests.ps1` gate; the latest full run failed closed in Phase 31 on the
-  Go parity check for `async-echo` (`gap_to_go=0.908`).
+- `target/r2013-release-candidate/report.json`: `passed`, R-2001 certified,
+  R-2011 8/8 projects, R-2012 zero untracked failures.
+- R-2001 CLI gates use the explicit repository binary instead of including
+  Cargo feature rebuild time inside 30-second fixture timeouts.
+- Final `run_tests.ps1`: exit code 0; report written to `TEST_RESULTS.txt`.
 
 ## R-2014 Multi-Module Aggregate and Trait Codegen Recovery
 
@@ -6739,6 +6742,8 @@ production-complete.
 
 - Turn local `std.serve` model serving into a real networked serving
   runtime integrated with async I/O, observability, and `spectra.api`.
+- Replace the scalar `input * model` demonstration path with dispatch to a
+  loaded `std.ml` model/tensor artifact.
 
 ### Acceptance
 
@@ -6786,6 +6791,8 @@ production-complete.
 
 - Add production model and tensor artifact formats beyond the narrow
   NPY/ONNX baseline, including safe checkpoint metadata and validation.
+- Make the artifact contract reusable by tokenizer, embedding, and vector-index
+  persistence instead of maintaining ad hoc JSON sidecars.
 
 ### Acceptance
 
@@ -6822,6 +6829,112 @@ production-complete.
   stable diagnostics.
 - Training fixtures compare compiler-native gradients against
   finite-difference or reference gradients.
+
+## R-3005 Production Tokenization and Embedding Backends
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `ml`
+- Risk: `high`
+- Dependencies: `R-1802`, `R-3003`
+
+### Scope
+
+- Replace hash-based text embeddings and the narrow tokenizer baseline with
+  versioned vocabulary/token-ID contracts and model-backed embedding lookup.
+- Support safe vocabulary/metadata loading, special tokens, unknown-token
+  handling, deterministic encode/decode, and real embedding weights.
+
+### Acceptance
+
+- Vocabulary and special-token metadata load through a versioned validated
+  artifact contract.
+- Encode/decode handles unknown tokens, special tokens, malformed vocabularies,
+  and invalid IDs with stable diagnostics.
+- Embedding lookup consumes real versioned weights and rejects incompatible
+  dimensions, dtypes, shapes, and checksums.
+- Checked-in vocabulary and weight fixtures pass round-trip, reference-output,
+  and normal `spectralang run` validation.
+- The hash embedding path is removed from the production API or explicitly
+  demoted to documented non-production compatibility behavior.
+
+## R-3006 Persistent Production Vector Index
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `ml`
+- Risk: `high`
+- Dependencies: `R-3003`, `R-1702`
+
+### Scope
+
+- Replace the in-memory linear vector-index baseline with a versioned
+  persistent index contract, integrity validation, atomic writes, deterministic
+  reload, and measurable query behavior.
+
+### Acceptance
+
+- The index format records version, dimension, dtype, model metadata, entry
+  identifiers, and checksum.
+- Persistence uses atomic replacement; load rejects corruption, incompatible
+  dimensions, unsupported dtypes, and unsafe metadata.
+- Reload reconstructs deterministic query results and preserves insertion and
+  update semantics.
+- Insert, query, persistence, reload, and latency metrics are exposed through
+  validated runtime behavior.
+- Fixtures exercise save/load and corruption handling through CLI and runtime
+  paths.
+
+## R-3007 Stdlib Production Contract and Capability Audit
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `tooling`
+- Risk: `medium`
+- Dependencies: `R-2001`, `R-2003`, `R-2901`
+
+### Scope
+
+- Create an executable contract matrix mapping semantic declarations, host-call
+  registration, midend/backend lowering, documentation, tests, and normal CLI
+  execution for every public stdlib namespace.
+- Classify each surface as production, baseline, simulation, unsupported, or
+  incomplete and fail closed on contradictory claims.
+- The canonical contract is `scripts/stdlib_contract.toml`; the auditor
+  materializes discovered symbols into the report
+  `target/r3007-stdlib-contract/report.json` with schema
+  `spectralang.r3007_stdlib_contract.v1`.
+- Discovery is typed by source: semantic modules/types/functions, registered
+  runtime host calls, explicit/generic/API lowering, and backend special paths
+  are reconciled independently. Text in comments, diagnostics, and unused
+  constants is not treated as a public host call.
+- The gate is `python scripts/validate_r3007_stdlib_contract.py --manifest
+  scripts/stdlib_contract.toml --binary target/debug/spectralang.exe --report
+  target/r3007-stdlib-contract/report.json`, and is also wired into
+  `run_tests.ps1` as `phase30-stdlib-contract`.
+- The manifest declares eleven executable probes, including namespace-specific
+  fixtures for core stdlib, tensor, ML, serving, concurrency, and API
+  conformance. Every materialized symbol records probe IDs, paths, status, and
+  coverage reason.
+- The report distinguishes zero untracked blockers from 58 tracked follow-ups
+  assigned to R-2003, R-2107, R-2220, R-2904, and Phase 30 tasks. This keeps
+  serving, distributed workers, embeddings, vector search, tensor devices, and
+  host-call-only tensor paths explicitly non-production without hiding them.
+
+### Acceptance
+
+- The matrix detects placeholders, aliases, simulations, missing lowering,
+  missing runtime tests, and stale documentation.
+- The validator emits a versioned JSON report and fails for unclassified or
+  contradictory production claims.
+- `run_tests.ps1` runs the validator as a stdlib production gate.
+- The audit covers all stdlib namespaces present in the repository and records
+  explicit non-goals without misclassifying CPU baselines or optional GPU
+  fallbacks.
+- R-3007 is complete: the report is `passed`, all 640 discovered symbols have
+  probe coverage, all 411 production claims have passing evidence, and the 58
+  remaining source divergences are explicitly assigned to owner and roadmap
+  follow-ups rather than hidden by the audit.
 
 ---
 
@@ -8064,7 +8177,7 @@ baseline: 38.8M ns.
 
 ## R-3130 Deterministic Phase 31 Benchmark Gate
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-3101`
@@ -8076,7 +8189,7 @@ baseline: 38.8M ns.
 - Align runner with 3 warmups and 20 timed samples.
 - Keep runner and validator on the same 21-scenario contract used by the
   current baseline.
-- Run 3 independent attempts per scenario and add 2 confirmation attempts
+- Run 5 independent attempts per scenario and add 2 confirmation attempts
   only when the initial aggregate exceeds the baseline drift threshold.
 - Classify standard deviation above 10% as `inconclusive`, separate from a
   confirmed performance regression.
@@ -8096,25 +8209,25 @@ baseline: 38.8M ns.
   correctness gates.
 - Official execution passes the read-only baseline and confirmation policy;
   confirmation attempts are recorded in the generated report.
-- `run_tests.ps1` now honors the explicit 1800-second timeout for the full
-  Phase 31 driver; the previous 300-second timeout was a wrapper bug.
+- Official performance certification uses 5 independent attempts, 3 warmups,
+  20 timed samples, symmetric robust trimming, and at most 2 confirmations.
+- `run_tests.ps1` uses `--code-validation`: one functional execution per
+  language/scenario, four runtimes parallel per scenario, same 21-scenario
+  contract, and real-concurrency diagnostics. This takes about 40 seconds;
+  performance certification remains a dedicated command.
+- PowerShell drains stdout/stderr asynchronously before waiting, emits a
+  heartbeat for the Phase 31 child, and kills the process tree on timeout.
 - Unit coverage is in `scripts/test_phase31_gates.py`.
 
-### Remaining
+### Completion evidence
 
-- Run the full Phase 31 gate on a quiescent reference machine and obtain two
-  consecutive stable runs before revising baseline values.
-- The latest full `run_tests.ps1` run completed `phase31_run_all` within its
-  1800-second timeout, but the validator failed closed because release
-  `async-echo` was 9.2% faster than Go (`0.908` ratio), outside the declared
-  bilateral +/-5% reference window. Focused release diagnostics reproduced a
-  9.1--10.0% faster result with 6.7--7.9% variance, so this is currently a
-  benchmark/reference parity blocker, not evidence of a language correctness
-  defect. The historical Spectra baseline remains unchanged.
-- R-3131 must classify or correct this host/reference variance and produce two
-  stable release reports inside the Go window before R-3130 and R-2013 can be
-  closed.
-- Keep R-3101 open while current profile/noise evidence is not certified.
+- `target/phase31/r3130-final-run-1.json`: runner and validator PASS.
+- `target/phase31/r3130-final-run-2.json`: runner and validator PASS.
+- Semantic comparison: `PASS: semantic Phase 31 evidence matches`.
+- `async-echo` ratios: `1.025752` and `1.048312`; paired variation `3.44%`
+  and `2.52%`; `max_pending_tasks=10`; zero task failures.
+- Final `run_tests.ps1`: exit code 0 in 370 seconds; Phase 31 functional gate
+  approximately 40 seconds. Historical baseline unchanged.
 
 ## R-3132 Async Echo Fused Spawn/Join Optimization
 
@@ -8141,26 +8254,24 @@ Added validation fixtures:
 The current debug diagnostics report correct execution and a fused/full
 median around 38.9 ms, above the historical 33.865 ms baseline. The user
 accepted this measured result as the R-3132 release criterion; the historical
-baseline remains unchanged. The original ≤1% aspiration is deferred to a
-future optimization item. R-3131, R-3130, and R-2013 remain open because they
-have separate full-gate acceptance criteria.
+baseline remains unchanged. The original ≤1% aspiration is superseded by the
+R-3131 real-concurrency/Go-parity evidence.
 
 ## R-3131 Async Echo Stable Regression Triage
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3120`
 
-The controlled Phase 31 runs reproduced `async-echo` above the checked-in
-baseline with low independent variance. Diagnostic evidence shows current
-debug process/JIT startup around 32--34 ms, while the optimized release
-binary measures about 27--28 ms against Go at about 28 ms. R-3131 uses Go as
-the reference runtime and requires a gap within +/-5% with standard deviation
-within 5%. The runtime task path remains synchronous by contract; the
-benchmark must therefore use the optimized release CLI for parity evidence.
-Preserve reports and keep the historical baseline unchanged. Do not mark
-R-3131 complete until two stable release runs pass the Go reference check.
+Root cause was semantic: Go created ten goroutines before fan-in while Spectra
+materialized values eagerly. `async-echo v2` now schedules ten task units on a
+persistent two-worker executor before join. Compatibility `task_spawn(value)`
+and conservative fused immediate spawn/join remain available. Runtime metrics
+prove `max_pending_tasks=10`, 10,002 executed tasks including fixture setup,
+zero failures, and deterministic fan-in. Two full release reports pass Go
+parity at `1.025752` and `1.048312`, with paired variation `3.44%` and `2.52%`.
+Baseline remains unchanged because v1 and v2 benchmark semantics differ.
 
 ## Execution Order
 

@@ -63,14 +63,15 @@ per-scenario speedup range and the risk of regressing other workloads.
 6. **R-3110** — leverages R-3107.
 7. **R-3111** — leverages R-3107.
 8. **R-3109** — narrow impact.
-9. **R-3131** — triage async-echo before reopening R-3113/R-3114.
+9. **R-3131** — complete; real fan-out/fan-in scheduler semantics and Go parity
+   certified in two release reports.
 10. **R-3132** — fuse proven single-use `task_spawn`/`task_join` pairs and
    measure the reset Fast ABI; keep conservative fallback and baseline
    unchanged. The ≤1% aspiration is deferred after acceptance of the measured
    R-3132 result.
 11. **R-3115 / R-3116 / R-3117** — combined compiler pass.
 12. **R-3112** — conv2d opt.
-13. **R-3113 / R-3114** — async work after R-3131 evidence.
+13. **R-3113 / R-3114** — follow-on async work, now unblocked by R-3131.
 
 ## Acceptance Gate per Item
 
@@ -104,6 +105,17 @@ dedicated fused variant, p95, standard deviation, exact command, profile,
 binary, revision, and expected fused-operation accounting. The current
 post-implementation median is about 38.9 ms versus the unchanged 33.865 ms
 baseline. This result was accepted for R-3132; no baseline update was made.
+
+## R-3130/R-3131 final result
+
+The former `async-echo` fixture compared immediate Spectra values with real Go
+goroutines. The corrected `fanout_fanin_real_concurrency.v2` contract creates
+ten executable Spectra task units before joining them. A persistent two-worker
+runtime executes the batch without one OS thread per task. Two complete release
+reports passed all 21 scenarios with Spectra/Go ratios `1.025752` and
+`1.048312`; paired variation was below 10%. The repository suite uses the
+separate `--code-validation` mode so correctness validation does not repeat
+thousands of benchmark processes. The historical baseline remains unchanged.
 
 ## Out of Scope for R-3103
 

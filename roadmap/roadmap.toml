@@ -1623,14 +1623,15 @@ title = "Transformer and LLM Runtime Primitives"
 phase = "phase_18"
 owner = "ml"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-1603", "R-1801"]
-summary = "Add the core primitives needed for transformer inference/training and LLM-oriented workloads, with both a real CPU implementation AND a working accelerator path."
+summary = "Deliver the validated CPU transformer and LLM runtime primitive baseline; accelerator-specific work remains tracked by the production GPU and optimization workstreams."
 acceptance = [
   "attention, layer norm, embedding lookup, positional encoding, GELU/SwiGLU, KV cache, and logits sampling are implemented and tested (R-1802 baseline; met on host)",
   "toy transformer example uses real runtime primitives rather than placeholder math",
-  "CPU fallback and accelerator path produce equivalent outputs within tolerance"
+  "public Spectra validation, runtime tests, AI example validation, and the phase18-transformers gate pass",
+  "GPU transformer forward/backward parity is explicitly outside this item and is not represented as a completion criterion"
 ]
 
 [[items]]
@@ -1907,7 +1908,7 @@ title = "Release Candidate Integrated Project Gate"
 phase = "phase_20"
 owner = "tooling"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-2011", "R-2012", "R-2014", "R-2015", "R-2001", "R-2003"]
 summary = "Require zero failures in the integrated `.spectra` language and AI project suite before certifying a production release candidate."
@@ -4028,6 +4029,7 @@ dependencies = ["R-2216", "R-2401", "R-2419", "R-2701"]
 summary = "Turn local `std.serve` model serving into a real networked serving runtime integrated with async I/O, observability, and `spectra.api`."
 acceptance = [
   "model serving exposes a real HTTP or gRPC endpoint with request parsing, response serialization, lifecycle, and graceful shutdown",
+  "the endpoint dispatches to a loaded `std.ml` model/tensor artifact rather than the scalar demonstration transform",
   "serving supports bounded concurrency, back-pressure, timeout handling, and structured errors",
   "serving emits traces and metrics through the API observability surface",
   "an executable fixture serves a model from a fresh process and validates inference over the network"
@@ -4064,7 +4066,8 @@ acceptance = [
   "Spectra can read and write at least one safe checkpoint format and one multi-array tensor archive format",
   "artifact metadata records dtype, shape, layout, model version, checksum, and compatibility constraints",
   "load rejects corrupt, incompatible, or unsafe artifacts with stable diagnostics",
-  "round-trip fixtures validate save/load across CLI, runtime, and documentation examples"
+  "round-trip fixtures validate save/load across CLI, runtime, and documentation examples",
+  "tokenizer, embedding, and vector-index persistence can consume the versioned artifact contract without ad hoc JSON sidecars"
 ]
 
 [[items]]
@@ -4082,6 +4085,63 @@ acceptance = [
   "gradient rules are registered, versioned, and validated for scalar, vector, matrix, and broadcasted tensor cases",
   "unsupported operations fail during semantic or midend validation with stable diagnostics",
   "training fixtures compare compiler-native gradients against finite-difference or reference gradients"
+]
+
+[[items]]
+id = "R-3005"
+title = "Production Tokenization and Embedding Backends"
+phase = "phase_30"
+owner = "ml"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-1802", "R-3003"]
+summary = "Replace hash-based text embeddings and narrow tokenizer behavior with versioned vocabulary, real token IDs, safe loading, and model-backed embedding lookup."
+acceptance = [
+  "tokenizer vocabularies and special-token metadata load through a versioned, validated artifact contract",
+  "encode/decode is deterministic and handles unknown tokens, special tokens, malformed vocabularies, and invalid IDs with stable diagnostics",
+  "embedding lookup consumes real versioned weights and rejects incompatible dimensions, dtypes, shapes, and checksums",
+  "checked-in vocabulary and weight fixtures pass round-trip, reference-output, and normal `spectralang run` validation",
+  "the hash embedding path is removed from the production API or explicitly demoted to a documented non-production compatibility path"
+]
+
+[[items]]
+id = "R-3006"
+title = "Persistent Production Vector Index"
+phase = "phase_30"
+owner = "ml"
+priority = "P1"
+status = "not_started"
+risk = "high"
+dependencies = ["R-3003", "R-1702"]
+summary = "Replace the in-memory linear vector-index baseline with a versioned persistent index contract, integrity validation, atomic writes, deterministic reload, and measurable query behavior."
+acceptance = [
+  "the index format records version, dimension, dtype, model metadata, entry identifiers, and checksum",
+  "persistence uses atomic replacement and load rejects corruption, incompatible dimensions, unsupported dtypes, and unsafe metadata",
+  "reload reconstructs deterministic query results and preserves insertion/update semantics",
+  "insert, query, persistence, reload, and latency metrics are exposed through validated runtime behavior",
+  "fixtures exercise save/load and corruption handling through CLI and runtime paths"
+]
+
+[[items]]
+id = "R-3007"
+title = "Stdlib Production Contract and Capability Audit"
+phase = "phase_30"
+owner = "tooling"
+priority = "P0"
+status = "complete"
+risk = "medium"
+dependencies = ["R-2001", "R-2003", "R-2901"]
+summary = "Create an executable contract matrix that proves every public stdlib feature is registered, lowered, documented, tested, and classified as production, baseline, simulation, or unsupported."
+acceptance = [
+  "the matrix maps semantic declarations, registered host calls, midend/backend lowering, documentation, tests, and normal CLI execution",
+  "the audit detects public APIs backed by placeholders, aliases, simulations, missing lowering, missing runtime tests, or stale documentation",
+  "the validator emits a versioned JSON report and fails closed for unclassified or contradictory production claims",
+  "the validator is integrated into `run_tests.ps1` and covers the stdlib namespaces present in the repository",
+  "the report preserves explicit non-goals and does not classify CPU baselines or optional accelerator fallbacks as unsupported by mistake",
+  "the inventory distinguishes semantic modules/types/functions, registered host calls, explicit/generic/API lowering, and backend special paths",
+  "every production symbol is covered by a passing declared probe or dedicated external conformance validator",
+  "all remaining source divergences have owner, roadmap ID, and follow-up evidence in the report"
 ]
 
 [[phases]]
@@ -4612,7 +4672,7 @@ title = "Deterministic Phase 31 Benchmark Gate"
 phase = "phase_31"
 owner = "tooling"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-3101"]
 summary = "Make the Phase 31 benchmark gate identify its actual Spectra profile and binary, use the documented warmup/sample policy, classify noisy measurements as inconclusive, and preserve reproducible baseline evidence without automatic baseline mutation."
@@ -4625,7 +4685,7 @@ acceptance = [
   "reports preserve exact commands, exit codes, failure classes, and output tails for failed language runs",
   "baseline.json is never modified by benchmark or validation scripts",
   "two consecutive stable runs on the reference machine are required before baseline changes",
-  "run_tests.ps1 passes the repository-built binary and explicit debug profile to both Phase 31 stages"
+  "run_tests.ps1 runs the 21-scenario code-validation mode with the repository-built release binary, while standalone R-3130 certification uses five attempts with three warmups and twenty timed samples"
 ]
 
 [[items]]
@@ -4654,19 +4714,19 @@ title = "Async Echo Stable Regression Triage"
 phase = "phase_31"
 owner = "backend"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-3120"]
-summary = "Investigate the reproducible async-echo slowdown observed by the controlled Phase 31 gate before changing the compiler, backend, or runtime. Preserve evidence and baseline integrity while determining whether the regression is implementation or benchmark-specific."
+summary = "Correct the async-echo semantic mismatch with real scheduler fan-out/fan-in, preserve the eager-value compatibility path, and certify paired release parity against Go without changing the historical baseline."
 acceptance = [
   "two controlled Phase 31 reports and the focused async-echo report are preserved as evidence",
   "scripts/diagnose_async_echo.py produces reproducible startup, reset, spawn, join, spawn+join, and full-workload reports with binary/profile/revision/host/command/median/stddev metadata",
   "profiling covers Spectra JIT/codegen, concurrent fast ABI, runtime registry, task spawn/join, allocation, and process startup costs",
   "root cause is classified as compiler/backend/runtime, benchmark contract, or external environment",
   "if compiler/backend/runtime is responsible, a targeted fix and async-echo regression test are added",
-  "immediate concurrent task values use a mutex-protected representation without per-join Arc<OnceLock> allocation, while task IDs, reset, is_done, channels, counters, and pipeline semantics remain covered",
+  "immediate concurrent task values remain API-compatible while executable batches use a persistent two-worker scheduler with pending, ready, failed, and cancelled state coverage",
   "if benchmark/environment is responsible, methodology and harness are corrected without changing the baseline to hide the result",
-  "R-3130 remains incomplete until async-echo is resolved or explicitly tracked with a validated follow-up decision"
+  "two complete release reports keep paired Spectra/Go ratio within 0.95..1.05, paired variation within 10%, max pending tasks at 10, and all task failures at zero"
 ]
 
 

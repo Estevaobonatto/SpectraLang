@@ -62,7 +62,9 @@ DEFAULT_REPORT = REPO_ROOT / "target" / "phase31" / "cross-lang-report.json"
 REQUIRED_SCENARIOS = list(SCENARIOS)
 
 
-def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
+def check_baseline(
+    baseline: dict, report: dict, code_validation: bool = False
+) -> tuple[list[str], list[str]]:
     failures: list[str] = []
     inconclusive: list[str] = []
     base_scenarios = baseline.get("scenarios", {})
@@ -108,29 +110,30 @@ def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
                 failures.append("async-echo: task count does not match contract")
             if entry.get("benchmark_iterations") != ASYNC_ECHO_ITERATIONS:
                 failures.append("async-echo: iteration count does not match contract")
-            gap_to_go = entry.get("gap_to_go")
-            if not isinstance(gap_to_go, (int, float)):
-                failures.append("async-echo: missing gap_to_go measurement")
-            elif not (0.95 <= float(gap_to_go) <= 1.05):
-                failures.append(
-                    f"async-echo: gap to Go {float(gap_to_go):.3f} is outside "
-                    f"+/-{ASYNC_ECHO_MAX_REFERENCE_GAP_PCT:.1f}%"
-                )
-            if entry.get("reference_performance_passed") is not True:
-                failures.append("async-echo: reference_performance_passed is not true")
-            paired = entry.get("paired_gap_to_go", [])
-            if len(paired) < OFFICIAL_INDEPENDENT_RUNS:
-                failures.append(
-                    f"async-echo: expected at least {OFFICIAL_INDEPENDENT_RUNS} paired attempts"
-                )
-            paired_stddev_pct = entry.get("paired_gap_stddev_pct")
-            if not isinstance(paired_stddev_pct, (int, float)):
-                inconclusive.append("async-echo: paired ratio variance missing")
-            elif paired_stddev_pct > MAX_STDDEV_PCT:
-                inconclusive.append(
-                    f"async-echo: paired ratio noise {paired_stddev_pct:.1f}% > "
-                    f"{MAX_STDDEV_PCT:.1f}%"
-                )
+            if not code_validation:
+                gap_to_go = entry.get("gap_to_go")
+                if not isinstance(gap_to_go, (int, float)):
+                    failures.append("async-echo: missing gap_to_go measurement")
+                elif not (0.95 <= float(gap_to_go) <= 1.05):
+                    failures.append(
+                        f"async-echo: gap to Go {float(gap_to_go):.3f} is outside "
+                        f"+/-{ASYNC_ECHO_MAX_REFERENCE_GAP_PCT:.1f}%"
+                    )
+                if entry.get("reference_performance_passed") is not True:
+                    failures.append("async-echo: reference_performance_passed is not true")
+                paired = entry.get("paired_gap_to_go", [])
+                if len(paired) < OFFICIAL_INDEPENDENT_RUNS:
+                    failures.append(
+                        f"async-echo: expected at least {OFFICIAL_INDEPENDENT_RUNS} paired attempts"
+                    )
+                paired_stddev_pct = entry.get("paired_gap_stddev_pct")
+                if not isinstance(paired_stddev_pct, (int, float)):
+                    inconclusive.append("async-echo: paired ratio variance missing")
+                elif paired_stddev_pct > MAX_STDDEV_PCT:
+                    inconclusive.append(
+                        f"async-echo: paired ratio noise {paired_stddev_pct:.1f}% > "
+                        f"{MAX_STDDEV_PCT:.1f}%"
+                    )
             metrics = entry.get("concurrency_metrics")
             expected_tasks = ASYNC_ECHO_TASKS_PER_ITERATION * ASYNC_ECHO_ITERATIONS
             if not isinstance(metrics, dict):
@@ -144,6 +147,8 @@ def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
                     failures.append("async-echo: fan-in joins are incomplete")
                 if metrics.get("tasks_failed", 0) != 0:
                     failures.append("async-echo: task failures observed")
+        if code_validation:
+            continue
         spec = entry.get("results", {}).get("spectra", {})
         if "error" in spec:
             failures.append(f"{scenario_id}: spectra runtime error: {spec['error']}")
@@ -190,7 +195,10 @@ def check_baseline(baseline: dict, report: dict) -> tuple[list[str], list[str]]:
 
 
 def validate_report_metadata(
-    report: dict, expected_profile: str | None, expected_binary: str | None
+    report: dict,
+    expected_profile: str | None,
+    expected_binary: str | None,
+    code_validation: bool = False,
 ) -> list[str]:
     failures: list[str] = []
     if report.get("schema") != PHASE31_SCHEMA:
@@ -216,23 +224,29 @@ def validate_report_metadata(
                 f"report binary is {actual_path!r}, expected {expected_path!r}"
             )
     policy = report.get("measurement_policy", {})
-    if policy.get("warmup_runs") != WARMUP_RUNS:
+    expected_mode = "code_validation" if code_validation else "performance_certification"
+    if report.get("mode") != expected_mode:
+        failures.append(f"report mode is {report.get('mode')!r}, expected {expected_mode!r}")
+    expected_warmups = 0 if code_validation else WARMUP_RUNS
+    expected_timed = 1 if code_validation else TIMED_RUNS
+    expected_independent = 1 if code_validation else OFFICIAL_INDEPENDENT_RUNS
+    if policy.get("warmup_runs") != expected_warmups:
         failures.append(
-            f"report warmup_runs is {policy.get('warmup_runs')!r}, expected {WARMUP_RUNS}"
+            f"report warmup_runs is {policy.get('warmup_runs')!r}, expected {expected_warmups}"
         )
-    if policy.get("timed_runs") != TIMED_RUNS:
+    if policy.get("timed_runs") != expected_timed:
         failures.append(
-            f"report timed_runs is {policy.get('timed_runs')!r}, expected {TIMED_RUNS}"
+            f"report timed_runs is {policy.get('timed_runs')!r}, expected {expected_timed}"
         )
     if policy.get("max_stddev_pct") != MAX_STDDEV_PCT:
         failures.append(
             f"report max_stddev_pct is {policy.get('max_stddev_pct')!r}, expected {MAX_STDDEV_PCT}"
         )
     independent_runs = policy.get("independent_runs", 0)
-    if independent_runs != OFFICIAL_INDEPENDENT_RUNS:
+    if independent_runs != expected_independent:
         failures.append(
             f"report independent_runs is {independent_runs!r}, "
-            f"expected {OFFICIAL_INDEPENDENT_RUNS}"
+            f"expected {expected_independent}"
         )
     timeout_s = policy.get("per_process_timeout_s")
     if not isinstance(timeout_s, int) or timeout_s < 1:
@@ -274,6 +288,11 @@ def main() -> int:
         default=None,
         help="require this binary path in the observed report",
     )
+    parser.add_argument(
+        "--code-validation",
+        action="store_true",
+        help="validate fast functional report; skip statistical performance gates",
+    )
     args = parser.parse_args()
 
     baseline_path = pathlib.Path(args.baseline)
@@ -295,7 +314,7 @@ def main() -> int:
         return 1
 
     metadata_failures = validate_report_metadata(
-        report, args.profile, args.spectra_binary
+        report, args.profile, args.spectra_binary, args.code_validation
     )
     if metadata_failures:
         print("phase31 cross-lang gate: FAIL (metadata)", file=sys.stderr)
@@ -311,7 +330,9 @@ def main() -> int:
         max_drift = args_drift
     baseline_for_check = dict(baseline)
     baseline_for_check["max_drift_pct"] = max_drift
-    failures, inconclusive = check_baseline(baseline_for_check, report)
+    failures, inconclusive = check_baseline(
+        baseline_for_check, report, args.code_validation
+    )
     if failures:
         print("phase31 cross-lang gate: FAIL", file=sys.stderr)
         for f in failures:

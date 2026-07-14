@@ -51,5 +51,6 @@ baseline remains unchanged.
 ## Status
 
 R-3132 is `complete` with the accepted measured result and passing regression
-coverage. Further reduction toward ≤1% is future optimization work. R-3131,
-R-3130, and R-2013 remain open.
+coverage. R-3131 later corrected the benchmark's semantic mismatch, and the
+independent R-3130 and R-2013 gates are also complete. The historical baseline
+remains unchanged.

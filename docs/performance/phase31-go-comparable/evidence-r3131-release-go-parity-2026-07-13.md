@@ -2,56 +2,31 @@
 
 ## Finding
 
-The prior failure came from comparing `target/debug/spectralang.exe` with an
-optimized Go binary. That profile mismatch is fixed: the official runner now
-uses `target/release/spectralang.exe`. One earlier focused release run was
-within the target, but the final controlled runs below did not reproduce that
-parity.
+R-3131 is complete. The blocking problem was semantic, not a compiler
+correctness defect: Go created ten real goroutines before joining, while the old
+Spectra fixture passed already-materialized values to `task_spawn`.
 
-## Reproduction
+## Correction
 
-```powershell
-cargo build --release -p spectra-cli --bin spectralang
-python scripts\diagnose_async_echo.py `
-  --binary target\release\spectralang.exe `
-  --profile release `
-  --out target\phase31\async-echo-diagnostics\r3131-release.json
-```
+The versioned `fanout_fanin_real_concurrency.v2` contract now requires ten
+executable tasks to be pending before fan-in. Spectra uses the batch scheduler
+path, a persistent two-worker executor, and explicit concurrency diagnostics.
+The compatibility API `task_spawn(value)` remains available and unchanged at
+the language surface.
 
-Measured diagnostic comparison:
+## Final evidence
 
-```json
-{
-  "reference_runtime": "go",
-  "spectra_median_ns": 27310000,
-  "go_median_ns": 28180300,
-  "gap_to_go_pct": -3.086,
-  "spectra_stddev_pct": 4.97
-}
-```
-
-Final focused release diagnostics:
-
-| report | Spectra median | Go median | ratio | Spectra stddev |
+| report | Spectra/Go ratio | paired variation | max pending | failures |
 |---|---:|---:|---:|---:|
-| `r3131-final-focused.json` | 30.013 ms | 32.999 ms | 0.910 | 7.882% |
-| `r3131-final-focused-2.json` | 29.483 ms | 32.770 ms | 0.900 | 6.724% |
+| `target/phase31/r3130-final-run-1.json` | 1.025752 | 3.4373% | 10 | 0 |
+| `target/phase31/r3130-final-run-2.json` | 1.048312 | 2.5242% | 10 | 0 |
 
-The complete Phase 31 report `target/phase31/cross-lang-report.json` recorded
-three release attempts at 27.694, 27.733, and 29.532 ms against Go at 30.104,
-30.547, and 31.504 ms, yielding `gap_to_go=0.908`. The validator correctly
-rejected this because the contract is bilateral +/-5%, not merely “Spectra is
-not slower”.
+Both release reports satisfy the bilateral ±5% Go parity window and the
+accepted variation limit of 10%. Each reports 10,002 executed task units and a
+maximum of ten simultaneously pending tasks. All 21 scenarios passed, and the
+two reports are semantically equivalent.
 
-Runtime counters for the full Spectra variant showed 10,000 fused Fast ABI
-calls, 1,000 reset calls, 11,014 registry locks, 1 slot created outside the
-fused path, and 10,000 counted tasks. Fused pairs do not allocate observable
-slots.
-
-## Decision
-
-R-3131's official performance contract uses the optimized release binary and
-Go as reference. The profile mismatch is resolved, but the current evidence
-does not satisfy the +/-5% and <=5% variance gates. No compiler/runtime change
-is justified by this evidence, and the historical Spectra baseline remains
-unchanged. R-3131 remains `in_progress`.
+The historical Spectra baseline remains unchanged. The evidence changes the
+benchmark contract only because the former cross-language workloads were not
+semantically equivalent; it does not rewrite prior measurements to hide a
+regression.

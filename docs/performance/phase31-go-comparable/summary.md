@@ -1,14 +1,16 @@
 # Phase 31 Implementation Summary
 
-Updated: 2026-06-23
-Roadmap items: `R-3101` (complete), `R-3102` (in_progress), `R-3103` (in_progress), `R-3108` (complete), `R-3130` (in_progress), `R-3104..R-3107`, `R-3109..R-3117` (not_started)
+Updated: 2026-07-13
+Roadmap items: `R-3101`, `R-3108`, `R-3130`, `R-3131`, and `R-3132`
+are complete. Remaining item statuses are tracked authoritatively in
+`roadmap/roadmap.toml`.
 
 ## What Was Built
 
 ### R-3101 Cross-Language Benchmark Suite (complete)
 
 - **21 scenarios** × **4 languages** (Spectra + Go + Java + Rust) under `benchmarks/cross-lang/`.
-- **Driver** in `scripts/phase31_run_all.py`: builds the Go/Java/Rust binaries once per scenario, runs Spectra scenarios, times 3 warmups + 20 samples, and emits `target/phase31/cross-lang-report.{json,md}`.
+- **Driver** in `scripts/phase31_run_all.py`: builds the Go/Java/Rust binaries once per scenario, supports full 3-warmup/20-sample performance certification and a fast `--code-validation` mode, and emits `target/phase31/cross-lang-report.{json,md}`.
 - **Gate** in `scripts/validate_phase31_cross_lang.py`: checks the complete 21-scenario contract, correctness, metadata, noise, and ≤ 15% drift vs checked-in baseline.
 - **Baseline helpers** in `scripts/phase31_lock_baseline.py` + `scripts/phase31_apply_baseline.py`: create a reviewed candidate; applying requires explicit `--apply`, two stable runs, matching metadata, and no inconclusive scenario.
 - **Methodology** in `docs/performance/phase31-go-comparable/methodology.md`.
@@ -65,7 +67,7 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 6. R-3110 (SIMD elementwise)
 7. R-3111 (tiled matmul)
 8. R-3109 (autodiff inference skip)
-9. R-3131 (async-echo regression triage)
+9. R-3131 (complete: real async-echo fan-out/fan-in parity)
 10. R-3115 / R-3116 / R-3117 (compiler + cranelift)
 11. R-3112 (im2col + GEMM)
 12. R-3113 / R-3114 (async)
@@ -73,8 +75,10 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 ## Acceptance Evidence
 
 - `python scripts/phase31_run_all.py` — full 21-scenario run completes.
-- `python scripts/validate_phase31_cross_lang.py` — fail-closed until current
-  async-echo evidence passes on the official debug reference environment.
+- Two release certifications pass all scenarios and the `async-echo` ±5% Go
+  parity contract; see `r3130-final-run-1.json` and `r3130-final-run-2.json`.
+- `python scripts/phase31_run_all.py --code-validation ...` plus the matching
+  validator is the repository correctness gate and completes in about 40 s.
 - `python scripts/validate_phase31_cross_lang.py --max-drift 5` — strict mode
   for CI on a pinned machine.
 - Gate wired into `run_tests.ps1` (line ~1325).
@@ -129,10 +133,8 @@ scripts/phase31_apply_baseline.py
 
 ## Next Session Suggestions
 
-1. `python scripts/phase31_lock_baseline.py --binary target/debug/spectralang.exe --profile debug` (candidate only).
-2. Review two stable candidate runs, then use `python scripts/phase31_apply_baseline.py --apply`.
-3. R-3102: run `cargo flamegraph`, `perf`, `pprof` on each scenario;
+1. Keep the historical baseline unchanged unless a separately reviewed
+   candidate has two stable release runs.
+2. R-3102: run `cargo flamegraph`, `perf`, `pprof` on each scenario;
    commit artifacts under `docs/performance/phase31-go-comparable/profiles/`.
-4. Land R-3107 (tensor buffer pool) — the next-largest gap.
-5. Land R-3104 (dense value map) — broad impact.
-6. Iterate.
+3. Land the next incomplete optimization selected by the current roadmap.

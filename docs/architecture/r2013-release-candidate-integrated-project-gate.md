@@ -149,3 +149,8 @@ R-2013 is complete only when the full validator and `run_tests.ps1` pass, all
 matrix projects pass through their declared normal CLI/package commands, the
 final report exists at `target/r2013-release-candidate/report.json`, and the
 roadmap/backlog/strategic plan describe the same evidence.
+
+This condition is satisfied as of 2026-07-13: R-2001 is certified using the
+explicit repository binary, R-2011 passes 8/8 projects, R-2012 reports zero
+untracked failures, the aggregate report is `passed`, and `run_tests.ps1`
+returns code 0.

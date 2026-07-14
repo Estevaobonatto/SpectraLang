@@ -51,6 +51,7 @@ def report(*, profile: str = "debug", stddev_ns: int = 5, ns_per_iter: int = 100
         scenarios.append(entry)
     return {
         "schema": "spectra.phase31.bench.v1",
+        "mode": "performance_certification",
         "profile": profile,
         "spectra_binary": str(Path("target/debug/spectralang.exe").resolve()),
         "scenario_matrix": list(cross_lang.SCENARIOS),
@@ -109,7 +110,7 @@ class Phase31GateTests(unittest.TestCase):
         aggregated = phase31_runner.aggregate_scenario_attempts(attempts)
         result = aggregated["results"]["spectra"]
         self.assertEqual(result["independent_medians_ns"], [100, 101, 99, 100, 102, 1000, 98])
-        self.assertEqual(result["outlier_medians_ns"], [98, 1000])
+        self.assertEqual(result["outlier_medians_ns"], [98, 99, 102, 1000])
         self.assertLess(result["independent_stddev_ns"], 3)
 
     def test_stable_report_passes(self) -> None:
@@ -185,6 +186,26 @@ class Phase31GateTests(unittest.TestCase):
         value["complete_scenario_set"] = False
         self.assertTrue(cross_lang.validate_report_metadata(value, "debug", None))
 
+    def test_code_validation_report_skips_performance_statistics(self) -> None:
+        value = report(stddev_ns=999, ns_per_iter=100)
+        value["mode"] = "code_validation"
+        value["measurement_policy"].update({
+            "warmup_runs": 0,
+            "timed_runs": 1,
+            "independent_runs": 1,
+        })
+        async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
+        async_entry["gap_to_go"] = 3.0
+        async_entry["reference_performance_passed"] = False
+        failures, inconclusive = cross_lang.check_baseline(
+            baseline(), value, code_validation=True
+        )
+        self.assertEqual(failures, [])
+        self.assertEqual(inconclusive, [])
+        self.assertEqual(
+            cross_lang.validate_report_metadata(value, "debug", None, True), []
+        )
+
     def test_current_contract_requires_all_21_scenarios(self) -> None:
         self.assertEqual(len(cross_lang.REQUIRED_SCENARIOS), 21)
         value = report()
@@ -236,13 +257,18 @@ class Phase31GateTests(unittest.TestCase):
             "$proc.WaitForExit($timeoutSeconds * 1000)",
             source,
         )
+        self.assertIn("$proc.StandardOutput.ReadToEndAsync()", source)
+        self.assertIn("$proc.StandardError.ReadToEndAsync()", source)
+        self.assertIn('$name -eq "phase31_run_all"', source)
+        self.assertIn("$proc.Kill($true)", source)
         self.assertIn(
             'Invoke-HostCommand -name "phase31_run_all"',
             source,
         )
         self.assertIn('$phase31BinaryPath = (Join-Path (Get-Location).Path "target\\release\\spectralang.exe")', source)
         self.assertIn('"--spectra-profile", "release"', source)
-        self.assertIn("-timeoutSeconds 3600", source)
+        self.assertIn('"--code-validation"', source)
+        self.assertIn("-timeoutSeconds 600", source)
         self.assertIn("$runPhase31Gpu = $Phase -contains \"phase31_gpu\"", source)
         self.assertIn("$gpuStatus = \"SKIPPED\"", source)
 

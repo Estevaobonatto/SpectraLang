@@ -21,8 +21,10 @@ report and compares Spectra performance against the checked-in baseline.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 import json
+import math
 import os
 import pathlib
 import platform
@@ -424,6 +426,7 @@ def _measure_language(
     language: str,
     spectra_binary: pathlib.Path,
     timeout_s: int,
+    code_validation: bool = False,
 ) -> dict[str, Any]:
     required_tool = {"go": "go", "java": "javac", "rust": "rustc"}.get(language)
     if required_tool and find_tool(required_tool) is None:
@@ -436,7 +439,16 @@ def _measure_language(
         }
     try:
         cmd, cwd = _language_command(scenario, language, spectra_binary)
-        result = time_runs(cmd, cwd=cwd, timeout_s=timeout_s)
+        if code_validation:
+            rc, elapsed, ok, output = time_subprocess(cmd, cwd, timeout_s)
+            result = {
+                "elapsed_ns": [int(elapsed)] if ok else [],
+                "ok": ok,
+                "last_rc": rc,
+                "output_tail": output,
+            }
+        else:
+            result = time_runs(cmd, cwd=cwd, timeout_s=timeout_s)
     except Exception as exc:
         return {
             "error": str(exc),
@@ -546,6 +558,7 @@ def run_scenario_v2(
     skip_missing: set[str],
     attempt_number: int,
     timeout_s: int,
+    code_validation: bool = False,
 ) -> dict[str, Any]:
     log(f"running {scenario} attempt {attempt_number + 1}")
     baseline_path = REPO_ROOT / "docs" / "performance" / "phase31-go-comparable" / "baseline.json"
@@ -556,7 +569,11 @@ def run_scenario_v2(
     order = ["spectra", "go"] if attempt_number % 2 == 0 else ["go", "spectra"]
     order.extend(["java", "rust"])
     results: dict[str, Any] = {}
-    if scenario == "async-echo" and not ({"spectra", "go"} & skip_missing):
+    if (
+        scenario == "async-echo"
+        and not code_validation
+        and not ({"spectra", "go"} & skip_missing)
+    ):
         log(f"  attempt {attempt_number + 1}: paired spectra/go")
         spectra_result, go_result, paired_samples = _measure_spectra_go_pair(
             scenario, spectra_binary, timeout_s, attempt_number
@@ -565,9 +582,8 @@ def run_scenario_v2(
         results["go"] = go_result
     else:
         paired_samples = []
-    for language in order:
-        if language in results:
-            continue
+    pending_languages = [language for language in order if language not in results]
+    for language in pending_languages:
         if language in skip_missing:
             results[language] = {
                 "error": "explicitly skipped",
@@ -576,11 +592,25 @@ def run_scenario_v2(
                 "command": [],
                 "output_tail": "",
             }
-            continue
-        log(f"  attempt {attempt_number + 1}: {language}")
-        results[language] = _measure_language(
-            scenario, language, spectra_binary, timeout_s
-        )
+    runnable = [language for language in pending_languages if language not in skip_missing]
+    if code_validation:
+        for language in runnable:
+            log(f"  attempt {attempt_number + 1}: {language}")
+        with ThreadPoolExecutor(max_workers=len(runnable) or 1) as executor:
+            measured = executor.map(
+                lambda language: _measure_language(
+                    scenario, language, spectra_binary, timeout_s, True
+                ),
+                runnable,
+            )
+            for language, result in zip(runnable, measured):
+                results[language] = result
+    else:
+        for language in runnable:
+            log(f"  attempt {attempt_number + 1}: {language}")
+            results[language] = _measure_language(
+                scenario, language, spectra_binary, timeout_s, False
+            )
 
     correctness = all(
         result.get("exit_code") == 0 and "error" not in result
@@ -656,7 +686,7 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
         outliers: list[int] = []
         if len(medians) >= 5:
             ordered = sorted(medians)
-            trim_count = max(1, int(len(ordered) * 0.20))
+            trim_count = max(1, math.ceil(len(ordered) * 0.20))
             candidate = ordered[trim_count:-trim_count]
             if len(candidate) >= 3:
                 stable_medians = candidate
@@ -817,6 +847,11 @@ def main() -> int:
         help="diagnostic-only override; official full-suite runs reject this flag",
     )
     parser.add_argument(
+        "--code-validation",
+        action="store_true",
+        help="fast functional gate: one execution per language, no performance certification",
+    )
+    parser.add_argument(
         "--skip",
         nargs="*",
         default=[],
@@ -884,6 +919,7 @@ def main() -> int:
 
     report = {
         "schema": PHASE31_SCHEMA,
+        "mode": "code_validation" if args.code_validation else "performance_certification",
         "scenario_matrix": list(SCENARIOS),
         "profile": profile,
         "spectra_binary": str(spectra_binary.resolve()),
@@ -903,10 +939,10 @@ def main() -> int:
         "environment_preflight": preflight,
         "complete_scenario_set": official_full_suite,
         "measurement_policy": {
-            "warmup_runs": WARMUP,
-            "timed_runs": TIMED,
-            "independent_runs": args.independent_runs,
-            "confirmation_runs": args.confirm_regressions,
+            "warmup_runs": 0 if args.code_validation else WARMUP,
+            "timed_runs": 1 if args.code_validation else TIMED,
+            "independent_runs": 1 if args.code_validation else args.independent_runs,
+            "confirmation_runs": 0 if args.code_validation else args.confirm_regressions,
             "max_stddev_pct": MAX_STDDEV_PCT,
             "per_process_timeout_s": args.timeout_seconds,
         },
@@ -932,11 +968,13 @@ def main() -> int:
 
     for scenario in args.scenarios:
         attempts: list[dict[str, Any]] = []
-        for attempt_number in range(args.independent_runs):
+        requested_runs = 1 if args.code_validation else args.independent_runs
+        for attempt_number in range(requested_runs):
             try:
                 attempts.append(run_scenario_v2(
                     scenario, spectra_binary, skip_missing, attempt_number,
                     args.timeout_seconds,
+                    args.code_validation,
                 ))
             except Exception as e:
                 log(f"scenario {scenario} attempt {attempt_number + 1} raised: {e}")
@@ -960,6 +998,8 @@ def main() -> int:
         observed_stddev = entry.get("results", {}).get("spectra", {}).get("independent_stddev_ns", entry.get("results", {}).get("spectra", {}).get("stddev_ns", 0))
         observed_stddev_pct = (observed_stddev / observed_ns * 100.0) if observed_ns else 0.0
         needs_confirmation = (
+            not args.code_validation
+            and
             args.confirm_regressions > 0
             and (
                 observed_stddev_pct > MAX_STDDEV_PCT
@@ -981,6 +1021,7 @@ def main() -> int:
                         scenario, spectra_binary, skip_missing,
                         args.independent_runs + confirmation_number,
                         args.timeout_seconds,
+                        False,
                     ))
                 except Exception as e:
                     log(
@@ -1010,19 +1051,19 @@ def main() -> int:
     failed = [s for s in report["scenarios"] if not s.get("correctness_passed", False)]
     unstable = []
     for scenario in report["scenarios"]:
-        if scenario.get("id") == "async-echo":
+        if args.code_validation or scenario.get("id") == "async-echo":
             continue
         spectra = scenario.get("results", {}).get("spectra", {})
         median_ns = spectra.get("ns_per_iter", 0)
         stddev_ns = spectra.get("independent_stddev_ns", spectra.get("stddev_ns", 0))
         if not median_ns or stddev_ns / median_ns * 100.0 > MAX_STDDEV_PCT:
             unstable.append(scenario["id"])
-    reference_failed = [
+    reference_failed = [] if args.code_validation else [
         scenario["id"] for scenario in report["scenarios"]
         if scenario["id"] == "async-echo"
         and not scenario.get("reference_performance_passed", False)
     ]
-    reference_unstable = [
+    reference_unstable = [] if args.code_validation else [
         scenario["id"] for scenario in report["scenarios"]
         if scenario["id"] == "async-echo"
         and scenario.get("paired_gap_stddev_pct", 0.0) > MAX_STDDEV_PCT

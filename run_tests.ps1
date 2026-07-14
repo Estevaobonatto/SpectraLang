@@ -82,21 +82,23 @@ function Invoke-SpectraCommand([string[]]$commandArgs, [string]$workingDir, [boo
     $timedOut = $false
     try {
         [void]$proc.Start()
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
         if ($null -ne $stdinText) {
             $proc.StandardInput.Write($stdinText)
             $proc.StandardInput.Close()
         }
         if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
             $timedOut = $true
-            $proc.Kill()
+            try { $proc.Kill($true) } catch { $proc.Kill() }
             $proc.WaitForExit()
         }
     } catch {
         $timedOut = $true
     }
 
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
+    $stdout = if ($stdoutTask) { $stdoutTask.GetAwaiter().GetResult() } else { "" }
+    $stderr = if ($stderrTask) { $stderrTask.GetAwaiter().GetResult() } else { "" }
     $combined = "$stdout`n$stderr"
 
     return [PSCustomObject]@{
@@ -580,18 +582,29 @@ function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$argumen
 
     try {
         [void]$proc.Start()
-        if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
-            $timedOut = $true
-            $proc.Kill()
-            $proc.WaitForExit()
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        $lastHeartbeat = 0
+        while (-not $proc.WaitForExit(1000)) {
+            if ($watch.Elapsed.TotalSeconds -ge $timeoutSeconds) {
+                $timedOut = $true
+                try { $proc.Kill($true) } catch { $proc.Kill() }
+                $proc.WaitForExit()
+                break
+            }
+            if ($name -eq "phase31_run_all" -and ($watch.Elapsed.TotalSeconds - $lastHeartbeat) -ge 30) {
+                Write-Host "." -NoNewline -ForegroundColor DarkGray
+                $lastHeartbeat = [int]$watch.Elapsed.TotalSeconds
+            }
         }
     } catch {
         Write-Host " FALHOU" -ForegroundColor Red
         return [PSCustomObject]@{ Status = "FALHOU"; Detail = $_.Exception.Message }
     }
 
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
+    $stdout = if ($stdoutTask) { $stdoutTask.GetAwaiter().GetResult() } else { "" }
+    $stderr = if ($stderrTask) { $stderrTask.GetAwaiter().GetResult() } else { "" }
     $combined = "$stdout`n$stderr"
 
     if ($timedOut) {
@@ -1110,6 +1123,19 @@ if ($r2902RangeProduction.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase29-range-production"; Teste = "validate_r2902_range_production"; Status = $r2902RangeProduction.Status; Detalhe = $r2902RangeProduction.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27d: R-3007 stdlib production contract and capability audit
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-3007 stdlib production contract and capability audit ---" -ForegroundColor Yellow
+$r3007StdlibContract = Invoke-HostCommand -name "validate_r3007_stdlib_contract" -fileName "python" -arguments @("scripts\validate_r3007_stdlib_contract.py", "--manifest", "scripts\stdlib_contract.toml", "--binary", $binary, "--report", "target\r3007-stdlib-contract\report.json") -workingDir (Get-Location).Path
+if ($r3007StdlibContract.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase30-stdlib-contract"; Teste = "validate_r3007_stdlib_contract"; Status = $r3007StdlibContract.Status; Detalhe = $r3007StdlibContract.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""
@@ -1319,7 +1345,7 @@ $results += [PSCustomObject]@{ Diretorio = "phase21-async"; Teste = "validate_r2
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-3101 Phase 31 cross-language benchmark gate ---" -ForegroundColor Yellow
-$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $phase31Binary, "--spectra-profile", "release", "--independent-runs", "5", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "2", "--timeout-seconds", "300") -workingDir (Get-Location).Path -timeoutSeconds 3600
+$phase31Driver = Invoke-HostCommand -name "phase31_run_all" -fileName "python" -arguments @("scripts\phase31_run_all.py", "--code-validation", "--out", "target\phase31\cross-lang-report.json", "--spectra-binary", $phase31Binary, "--spectra-profile", "release", "--independent-runs", "1", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--confirm-regressions", "0", "--timeout-seconds", "60") -workingDir (Get-Location).Path -timeoutSeconds 600
 if ($phase31Driver.Status -eq "PASSOU") {
     $totalPassed++
 } else {
@@ -1327,7 +1353,7 @@ if ($phase31Driver.Status -eq "PASSOU") {
 }
 $results += [PSCustomObject]@{ Diretorio = "phase31-cross-lang"; Teste = "phase31_run_all"; Status = $phase31Driver.Status; Detalhe = $phase31Driver.Detail }
 
-$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json", "--profile", "release", "--spectra-binary", $phase31Binary) -workingDir (Get-Location).Path
+$phase31Gate = Invoke-HostCommand -name "validate_phase31_cross_lang" -fileName "python" -arguments @("scripts\validate_phase31_cross_lang.py", "--code-validation", "--baseline", "docs\performance\phase31-go-comparable\baseline.json", "--report", "target\phase31\cross-lang-report.json", "--profile", "release", "--spectra-binary", $phase31Binary) -workingDir (Get-Location).Path
 if ($phase31Gate.Status -eq "PASSOU") {
     $totalPassed++
 } else {

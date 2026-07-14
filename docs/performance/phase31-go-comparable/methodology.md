@@ -9,8 +9,9 @@ This document defines how SpectraLang is benchmarked against Go, Java, and Rust
 on a fixed set of CPU, tensor, ML, and async scenarios. The goal is
 **reproducible, machine-readable, non-regression** evidence for the
 "Go-comparable performance" target introduced in `phase_31`. The gap between
-Spectra and the reference languages is **reported**, not used as a CI gate. The
-gate is functional regression + Spectra-vs-Spectra drift + numerical tolerance.
+Spectra and the reference languages is normally reported. `async-echo` is the
+explicit exception: its versioned real-concurrency contract uses Go parity as
+an acceptance gate.
 
 ## Hardware
 
@@ -25,7 +26,7 @@ gate is functional regression + Spectra-vs-Spectra drift + numerical tolerance.
 
 | Runtime | Version pin | Build flags |
 |---|---|---|
-| Spectra (JIT) | in-tree CLI, `cargo build -p spectra-cli` | official gate uses explicit `target/debug/spectralang.exe` and `debug` profile |
+| Spectra (JIT) | in-tree CLI | performance certification uses explicit `target/release/spectralang.exe`; repository code validation uses the same release profile |
 | Go | `go1.22+` | `go build -ldflags="-s -w"` |
 | Java | OpenJDK 21 | default G1 GC |
 | Rust | stable 1.80+ | `cargo build --release` |
@@ -69,7 +70,7 @@ Each scenario has 4 implementations under
 
 | ID | Operation | Iters | Why it matters |
 |---|---|---|---|
-| `async-echo` | 1_000 outer x 10 tasks counted by atomic | 3 | task overhead |
+| `async-echo` | 1_000 fan-out/fan-in iterations x 10 executable tasks | 3 | real scheduler/task overhead |
 | `async-pipeline` | producer/consumer through channel of size 16 | 5 | context switch + channel cost |
 
 ## Reporting Schema
@@ -108,10 +109,13 @@ summary is written to `target/phase31/cross-lang-report.md`.
 
 - 3 warmup iterations per scenario; 20 timed iterations follow.
 - `median_ns`, `p95_ns`, and `stddev_ns` come from the 20 timed iterations.
-- Official `run_tests.ps1` performs 3 complete independent measurements per
-  scenario and aggregates their medians; scenarios initially above the drift
-  threshold receive 2 additional confirmation attempts. Local diagnosis may
-  use 1 run without confirmations.
+- Standalone performance certification performs 5 complete independent
+  attempts per scenario and aggregates their medians; scenarios with initial
+  drift or instability may receive 2 additional confirmation attempts.
+- Each attempt uses symmetric robust trimming before aggregation while keeping
+  every raw sample in the report.
+- `run_tests.ps1` uses `--code-validation`: one execution of each runtime for
+  every scenario, with no performance certification or baseline decision.
 - `independent_stddev_ns` measures variation between complete attempts and is
   the stability statistic when present.
 - `ns_per_iter = median_ns / iterations`.
@@ -149,14 +153,18 @@ the declared reference runtime for R-3131.
 ## Local Development
 
 ```powershell
-python scripts\phase31_run_all.py --spectra-binary target\release\spectralang.exe --spectra-profile release --independent-runs 3 --confirm-regressions 2 --baseline docs\performance\phase31-go-comparable\baseline.json --out target\phase31\cross-lang-report.json
+python scripts\phase31_run_all.py --spectra-binary target\release\spectralang.exe --spectra-profile release --independent-runs 5 --confirm-regressions 2 --baseline docs\performance\phase31-go-comparable\baseline.json --out target\phase31\cross-lang-report.json
 python scripts\validate_phase31_cross_lang.py --baseline docs/performance/phase31-go-comparable/baseline.json --report target\phase31/cross-lang-report.json --profile release --spectra-binary target\release\spectralang.exe
 python scripts\compare_phase31_reports.py target\phase31\run-1.json target\phase31\run-2.json
 python scripts\diagnose_async_echo.py --binary target\release\spectralang.exe --profile release --out target\phase31\async-echo-diagnostics\release.json
 ```
 
-The full `run_tests.ps1` invokes the validator under the `phase31-cross-lang`
-group and includes the result in the test report.
+The full `run_tests.ps1` invokes the runner and validator once under the
+`phase31-cross-lang` group with `--code-validation`. Runtime implementations
+within one scenario execute concurrently, while scenarios remain ordered. On
+the reference workstation this reduced the Phase 31 code gate from roughly
+14 minutes to about 40 seconds. Full statistical certification remains the
+standalone command above.
 
 The optional GPU speedup benchmark is not part of the default suite. Run it
 with `run_tests.ps1 -Phase phase31_gpu`; when the adapter probe reports no WGPU

@@ -318,7 +318,15 @@ def main() -> int:
     if not errors:
         for predecessor_report in (R2001_REPORT, R2011_REPORT, R2012_REPORT):
             predecessor_report.unlink(missing_ok=True)
-        run_validator(["scripts/validate_r2001_ai_conformance.py", "--keep-going"], args.stage_timeout)
+        run_validator(
+            [
+                "scripts/validate_r2001_ai_conformance.py",
+                "--keep-going",
+                "--binary",
+                binary,
+            ],
+            args.stage_timeout,
+        )
         run_validator(
             ["scripts/validate_r2011_integrated_project_runner.py", "--binary", binary],
             args.stage_timeout,

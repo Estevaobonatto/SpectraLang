@@ -27,6 +27,8 @@ concurrent.reset() -> unit
 concurrent.task_spawn(value: int) -> int
 concurrent.task_join(task: int) -> int
 concurrent.task_is_done(task: int) -> bool
+concurrent.task_spawn_batch(first_value: int, count: int) -> int
+concurrent.task_join_batch_sum(batch: int) -> int
 
 concurrent.channel_new() -> int
 concurrent.channel_send(channel: int, value: int) -> bool
@@ -47,8 +49,17 @@ concurrent.stats_channels() -> int
 ### Contract
 
 - Handles are positive integers managed by the runtime.
-- `task_spawn(value)` starts a runtime task and stores the task under a handle.
+- `task_spawn(value)` preserves the immediate-value compatibility API while a
+  runtime worker owns completion of the task slot.
 - `task_join(task)` deterministically waits for the task and returns its value.
+- `task_spawn_batch(first_value, count)` registers all executable task units
+  before any join. `task_join_batch_sum(batch)` performs fan-in and returns the
+  deterministic sum.
+- The batch executor uses a persistent two-worker pool and does not create one
+  operating-system thread per task. Task states are pending, ready, failed, or
+  cancelled.
+- `SPECTRA_CONCURRENT_DIAGNOSTICS=1` enables opt-in scheduler counters such as
+  created/executed tasks, polls, joins, maximum pending tasks, locks, and slots.
 - Channels are FIFO and non-blocking.
 - `channel_recv(channel)` returns `-1` when the channel has no pending value.
 - `channel_send(channel, value)` returns `false` when the channel is closed.
@@ -151,7 +162,8 @@ pub fn main() -> int {
 
 ## Current Limits
 
-- There is no dedicated concurrency syntax yet.
+- The integer-only `std.concurrent` compatibility API is distinct from the
+  language's first-class `async`/`await` state-machine model.
 - Channels are non-blocking and integer-only in this baseline.
 - Serving does not include HTTP, gRPC, sockets, async I/O, or distributed model
   residency.
