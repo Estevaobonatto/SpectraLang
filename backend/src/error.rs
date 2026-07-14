@@ -12,6 +12,7 @@ pub enum BackendErrorKind {
     UnsupportedExecutionReturnType,
     UnsupportedHostArgumentType,
     UnsupportedType,
+    TensorIr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +97,10 @@ impl BackendCodegenError {
             BackendErrorKind::UnsupportedExecutionReturnType,
             format!("Execution for return type {:?} is not yet supported", ty),
         )
+    }
+
+    pub(crate) fn tensor_ir(message: impl Into<String>) -> Self {
+        Self::new(BackendErrorKind::TensorIr, message)
     }
 }
 

@@ -1185,6 +1185,15 @@ if ($r2901ExactWidth.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed
 $results += [PSCustomObject]@{ Diretorio = "phase29-exact-width"; Teste = "validate_r2901_exact_width"; Status = $r2901ExactWidth.Status; Detalhe = $r2901ExactWidth.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27i: R-2904 first-class tensor IR and device lowering
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2904 first-class tensor IR and device lowering ---" -ForegroundColor Yellow
+$r2904TensorIr = Invoke-HostCommand -name "validate_r2904_tensor_ir" -fileName "python" -arguments @("scripts\validate_r2904_tensor_ir.py", "--binary", $binary, "--fixture", "tests\validation\190_tensor_ir_device_lowering.spectra", "--report", "target\r2904-tensor-ir\report.json") -workingDir (Get-Location).Path
+if ($r2904TensorIr.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase29-tensor-ir"; Teste = "validate_r2904_tensor_ir"; Status = $r2904TensorIr.Status; Detalhe = $r2904TensorIr.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.28: R-2006 tensor/std performance refresh
 # ---------------------------------------------------------------------------
 Write-Host ""

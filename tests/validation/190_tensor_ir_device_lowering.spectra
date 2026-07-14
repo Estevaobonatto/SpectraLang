@@ -1,0 +1,56 @@
+// R-2904: public tensor operations must produce a validated Tensor IR graph
+// before execution while preserving the existing handle ABI.
+module tensor_ir_device_lowering;
+
+import std.ml as ml;
+import std.tensor as tensor;
+import std.string as str;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+
+    let left = tensor.full2_f(2, 2, 1.0);
+    let right = tensor.full2_f(2, 2, 2.0);
+    let added = tensor.add(left, right);
+    let fused = tensor.tanh_f(tensor.relu(added));
+    if tensor.len(fused) != 4 {
+        return tensor.len(fused);
+    }
+    let reshaped = tensor.reshape(added, 2, 2);
+    let transposed = tensor.transpose(reshaped);
+    let product = tensor.matmul(transposed, right);
+    let reduced = tensor.sum_f(product);
+
+    if reduced as int != 48 {
+        return reduced as int;
+    }
+    if tensor.rank(product) != 2 {
+        return tensor.rank(product);
+    }
+    if tensor.device(product) != 0 {
+        return 3;
+    }
+    if tensor.stats_kernel_ops() < 1 {
+        return 4;
+    }
+    if tensor.stats_peak_bytes() <= 0 {
+        return 5;
+    }
+
+    let memory = tensor.memory_report();
+    if !str.contains(memory, "spectra.tensor.memory_report.v1") {
+        return 6;
+    }
+
+    let input = tensor.full_f(4, 1.0);
+    let kernel = tensor.full_f(1, 2.0);
+    let bias = tensor.full_f(1, 0.0);
+    let conv = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
+    if tensor.len(conv) != 4 {
+        return tensor.len(conv);
+    }
+
+    tensor.free_all();
+    return 0;
+}

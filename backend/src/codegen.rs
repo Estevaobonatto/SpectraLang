@@ -8,6 +8,7 @@ use spectra_midend::ir::{
     BasicBlock as IRBasicBlock, Function as IRFunction, Instruction, InstructionKind,
     Module as IRModule, Terminator, Type as IRType, Value as IRValue,
 };
+use spectra_midend::{TensorDevice, TensorGraph, TensorGraphLoweringReport};
 use std::collections::{HashMap, HashSet};
 
 use crate::error::{BackendCodegenError, BackendResult};
@@ -197,6 +198,41 @@ pub struct CodeGenerator {
 pub(crate) struct PhiDescriptor {
     pub result_id: usize,
     pub incoming: HashMap<usize, usize>, // predecessor_block_id -> incoming_value_id
+}
+
+pub(crate) fn validate_tensor_ir(
+    ir_module: &IRModule,
+) -> BackendResult<TensorGraphLoweringReport> {
+    let graph = TensorGraph::from_ir_module(ir_module);
+    let backend = if graph.functions.iter().any(|function| {
+        function
+            .nodes
+            .iter()
+            .any(|node| node.output.device == TensorDevice::Wgpu)
+    }) {
+        TensorDevice::Wgpu
+    } else {
+        TensorDevice::Cpu
+    };
+    graph
+        .lower_for_backend(backend)
+        .map(|result| result.report)
+        .map_err(|errors| {
+            let details = errors
+                .iter()
+                .map(|error| {
+                    format!(
+                        "{} function='{}' node={:?}: {}",
+                        error.kind.diagnostic_code(),
+                        error.function,
+                        error.node,
+                        error.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            BackendCodegenError::tensor_ir(format!("Tensor IR legalization failed: {details}"))
+        })
 }
 
 /// Collect the Cranelift block arguments that should be passed for the PHIs
@@ -782,6 +818,7 @@ impl CodeGenerator {
 
     /// Generate code for an entire module
     pub fn generate_module(&mut self, ir_module: &IRModule) -> BackendResult<()> {
+        let _tensor_ir = validate_tensor_ir(ir_module)?;
         // First pass: declare all functions
         for func in &ir_module.functions {
             self.declare_function(func)?;
@@ -799,6 +836,7 @@ impl CodeGenerator {
 
         Ok(())
     }
+
 
     /// Declare a function signature
     fn declare_function(&mut self, ir_func: &IRFunction) -> BackendResult<FuncId> {

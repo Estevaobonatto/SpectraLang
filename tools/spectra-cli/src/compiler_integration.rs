@@ -14,6 +14,7 @@ use spectra_compiler::{
 use spectra_midend::{
     ir::{pretty::format_module, Module as IRModule},
     lowering::ASTLowering,
+    TensorDevice, TensorGraph,
     passes::{
         constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
         concurrent_spawn_join_fusion::ConcurrentSpawnJoinFusion,
@@ -248,6 +249,56 @@ impl BackendDriver for FullPipelineBackend {
             duration: verification_start.elapsed(),
             modified: false,
         });
+
+        let tensor_graph = TensorGraph::from_ir_module(&ir_module);
+        if tensor_graph.functions.iter().any(|function| !function.nodes.is_empty()) {
+            let tensor_start = Instant::now();
+            let tensor_backend = if tensor_graph.functions.iter().any(|function| {
+                function
+                    .nodes
+                    .iter()
+                    .any(|node| node.output.device == TensorDevice::Wgpu)
+            }) {
+                TensorDevice::Wgpu
+            } else {
+                TensorDevice::Cpu
+            };
+            let tensor_backend_name = match &tensor_backend {
+                TensorDevice::Cpu => "CPU",
+                TensorDevice::Wgpu => "WGPU",
+                TensorDevice::Reserved(_) => "RESERVED",
+                TensorDevice::Unknown => "UNKNOWN",
+            };
+            match tensor_graph.lower_for_backend(tensor_backend) {
+                Ok(legalized) => {
+                    if options.dump_ir {
+                        println!("=== Tensor IR ({} legalization) ===", tensor_backend_name);
+                        println!("{}", legalized.graph.stable_dump());
+                        println!("tensor_ir_report {:?}", legalized.report);
+                    }
+                }
+                Err(errors) => {
+                    let ir_errors = errors
+                        .into_iter()
+                        .map(|error| {
+                            CompilerError::Midend(MidendError::new(format!(
+                                "{}: tensor IR validation failed in function '{}' node {:?}: {}",
+                                error.kind.diagnostic_code(),
+                                error.function,
+                                error.node,
+                                error.message
+                            )))
+                        })
+                        .collect();
+                    return Err(ir_errors);
+                }
+            }
+            pass_reports.push(PassReport {
+                name: "Tensor IR Legalization (CPU)",
+                duration: tensor_start.elapsed(),
+                modified: true,
+            });
+        }
 
         if options.dump_ir {
             println!("=== IR (before optimization) ===");

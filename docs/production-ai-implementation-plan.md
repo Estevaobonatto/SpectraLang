@@ -2045,6 +2045,13 @@ hash embeddings, and in-process serving remain explicit baselines until their
 production tasks pass their evidence gates. R-3006 is the production
 exception for vector search.
 
+R-2904 is complete. The compiler materializes the existing tensor graph as a
+typed legalization boundary with deterministic fusion and memory-planning
+evidence. JIT and AOT invoke the same validation before code generation, CPU
+and WGPU use the same device-aware graph contract, and host calls remain only
+as an explicit compatibility execution backend. R-3004 may now consume this
+contract for compiler-native autodiff work.
+
 R-3003 is the first implementation in this workstream. Its Spectra Artifact
 Container v1 is the shared contract for checkpoint and multi-array persistence:
 validated binary framing, canonical manifest, explicit tensor representation,

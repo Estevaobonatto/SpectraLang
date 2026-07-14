@@ -1,0 +1,9 @@
+module tensor_ir_unsupported_op;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let value = tensor.full_f(4, 1.0);
+    let invalid = tensor.operation_not_legalized(value);
+    return invalid;
+}

@@ -10,7 +10,7 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
-use crate::codegen::{CodeGenerator, HostNameRecord, PhiDescriptor, StringLiteralRecord};
+use crate::codegen::{validate_tensor_ir, CodeGenerator, HostNameRecord, PhiDescriptor, StringLiteralRecord};
 use crate::error::{BackendCodegenError, BackendResult};
 
 /// Options that control AOT code generation.
@@ -543,6 +543,7 @@ impl AotCodeGenerator {
         opts: &AotOptions,
     ) -> BackendResult<Vec<u8>> {
         let rename_main = opts.emit_executable;
+        let _tensor_ir = validate_tensor_ir(ir_module)?;
 
         // Pre-intern all host-function names as .rodata data sections so that
         // the generated code can reference them via GlobalValues (relocatable

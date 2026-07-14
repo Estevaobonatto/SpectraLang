@@ -77,6 +77,12 @@ path = "tests/validation/189_exact_width_numeric_semantics.spectra"
 covers = ["std.numeric.*"]
 
 [[probe]]
+id = "tensor-ir-device-lowering"
+kind = "external"
+command = ["python", "scripts/validate_r2904_tensor_ir.py", "--binary", "target/debug/spectralang.exe", "--fixture", "tests/validation/190_tensor_ir_device_lowering.spectra", "--report", "target/r2904-tensor-ir/report.json"]
+covers = ["std.tensor.*"]
+
+[[probe]]
 id = "api-http"
 path = "tests/validation/134_http_core_types.spectra"
 covers = ["std.api.http.*"]
@@ -108,10 +114,46 @@ command = ["python", "scripts/validate_r2220_api_conformance_v0.py"]
 covers = ["std.api.*"]
 
 [[follow_up]]
-prefix = "std.tensor"
+prefix = "std.tensor.diff"
+owner = "ml"
+roadmap = "R-3004"
+reason = "Autodiff remains a separate compiler-native workstream; the semantic surface is intentionally tracked until gradient IR is implemented."
+
+[[follow_up]]
+prefix = "std.tensor.matrix_f"
 owner = "numerics"
-roadmap = "R-2904"
-reason = "Tensor lowering and device paths remain host-call based until compiler-native tensor IR is complete."
+roadmap = "R-2003"
+reason = "Legacy matrix constructor registration differs between semantic and runtime surfaces and requires stdlib contract reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.vector_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy vector constructor registration differs between semantic and runtime surfaces and requires stdlib contract reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy tensor literal registrations require explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal2"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy rank-2 tensor literal registrations require explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy float tensor literal registration requires explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal2_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy rank-2 float tensor literal registration requires explicit semantic/runtime reconciliation."
 
 [[follow_up]]
 prefix = "std.ml"
@@ -230,9 +272,9 @@ roadmap = "R-2902"
 [[namespace]]
 prefix = "std.tensor"
 owner = "numerics"
-classification = "baseline"
+classification = "production"
 roadmap = "R-2904"
-reason = "Tensor execution is real on the supported CPU/WGPU paths but remains host-call based until first-class tensor IR and device lowering are complete."
+reason = "Tensor operations have a compiler-owned typed Tensor IR legalization gate shared by JIT/AOT; the runtime host-call path remains an explicit execution backend."
 
 [[namespace]]
 prefix = "std.ml"

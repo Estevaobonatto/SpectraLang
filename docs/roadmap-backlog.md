@@ -6701,7 +6701,7 @@ exist; they are not cosmetic documentation fixes.
 
 ## R-2904 First-Class Tensor IR and Device Lowering
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `midend`
 - Risk: `high`
@@ -6732,6 +6732,21 @@ exist; they are not cosmetic documentation fixes.
   tests and golden IR snapshots.
 - CPU and at least one accelerator or graph-lowering path share the same
   tensor IR contract.
+
+### Current implementation
+
+- The compiler materializes a typed TensorGraph from public tensor and ML
+  boundaries, validates shape/device/dependency contracts, performs
+  deterministic fusion, and produces CPU legalization and memory-planning
+  evidence while preserving the existing tensor-handle ABI.
+- Both JIT and AOT invoke the same Tensor IR legalization gate before backend
+  code generation. Host calls remain the explicit compatibility execution
+  backend, while no tensor operation is accepted by a backend without first
+  passing the compiler-owned Tensor IR contract.
+- `tests/validation/190_tensor_ir_device_lowering.spectra` and
+  `scripts/validate_r2904_tensor_ir.py` provide the initial executable gate.
+- The WGPU probe is recorded as `skipped_environment` only when the host has
+  no adapter; CPU and WGPU use the same graph/legalization model.
 
 # Phase 30: Production ML Systems Gap Closure
 
