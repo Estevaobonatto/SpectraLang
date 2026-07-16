@@ -1332,7 +1332,7 @@ Completed:
 - Explicit `Tensor<float, rank1>` and `Tensor<float, rank2>` literals lower to runtime tensor allocation.
 - Rank, dtype, static shape, layout, and device mismatches fail during semantic analysis with stable JSON diagnostic codes `E1401` through `E1405`.
 - Static shape checks cover declared tensor compatibility, elementwise tensor operations, `tensor.matmul`, `tensor.reshape`, and `ml.linear`.
-- `diff { ... }` is available as the language-level differentiable block expression and lowers to the existing `std.tensor.backward` autograd runtime.
+- `diff { ... }` is available as the language-level differentiable block expression and lowers to the compiler-visible R-3004 graph plus the internal execution adapter; the public `std.tensor.backward` path remains compatibility-only.
 - Unsupported qualified stdlib operations inside `diff { ... }` fail with stable diagnostic `E1406`.
 - Gradient validation covers tensor math, helper calls, control flow, and `std.ml` layer/loss integration.
 
@@ -2049,8 +2049,12 @@ R-2904 is complete. The compiler materializes the existing tensor graph as a
 typed legalization boundary with deterministic fusion and memory-planning
 evidence. JIT and AOT invoke the same validation before code generation, CPU
 and WGPU use the same device-aware graph contract, and host calls remain only
-as an explicit compatibility execution backend. R-3004 may now consume this
-contract for compiler-native autodiff work.
+as an explicit compatibility execution backend. R-3004 is now in progress:
+it consumes this contract to materialize a versioned compiler-native reverse
+graph with registered gradient rules, saved-forward values, seeds, and explicit
+accumulation. The legacy runtime `tensor.backward` path remains compatibility-
+`diff` now uses the internal `spectra.internal.tensor.autodiff_execute`
+adapter during this migration and no longer emits the public backward call.
 
 R-3003 is the first implementation in this workstream. Its Spectra Artifact
 Container v1 is the shared contract for checkpoint and multi-array persistence:

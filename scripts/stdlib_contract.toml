@@ -117,7 +117,12 @@ covers = ["std.api.*"]
 prefix = "std.tensor.diff"
 owner = "ml"
 roadmap = "R-3004"
-reason = "Autodiff remains a separate compiler-native workstream; the semantic surface is intentionally tracked until gradient IR is implemented."
+reason = "Compiler-native reverse autodiff is tracked by the explicit R-3004 probe; runtime backward remains compatibility-only until the report passes."
+
+[[probe]]
+id = "compiler-native-autodiff"
+path = "tests/validation/192_compiler_native_autodiff.spectra"
+covers = ["std.tensor.diff", "std.tensor.backward", "std.tensor.grad", "std.ml.linear", "std.ml.mse_loss"]
 
 [[follow_up]]
 prefix = "std.tensor.matrix_f"

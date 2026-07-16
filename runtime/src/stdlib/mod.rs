@@ -322,6 +322,7 @@ const TENSOR_MEMORY_REPORT: &str = "spectra.std.tensor.memory_report";
 const TENSOR_RESET_STATS: &str = "spectra.std.tensor.reset_stats";
 const TENSOR_REQUIRES_GRAD: &str = "spectra.std.tensor.requires_grad";
 const TENSOR_BACKWARD: &str = "spectra.std.tensor.backward";
+const TENSOR_AUTODIFF_EXECUTE: &str = "spectra.internal.tensor.autodiff_execute";
 const TENSOR_GRAD: &str = "spectra.std.tensor.grad";
 const TENSOR_ZERO_GRAD: &str = "spectra.std.tensor.zero_grad";
 const TENSOR_SET_GRAD_ENABLED: &str = "spectra.std.tensor.set_grad_enabled";
@@ -1113,6 +1114,7 @@ fn register_tensor() {
     register_host_function(TENSOR_RESET_STATS, std_tensor_reset_stats);
     register_host_function(TENSOR_REQUIRES_GRAD, std_tensor_requires_grad);
     register_host_function(TENSOR_BACKWARD, std_tensor_backward);
+    register_host_function(TENSOR_AUTODIFF_EXECUTE, std_tensor_autodiff_execute);
     register_host_function(TENSOR_GRAD, std_tensor_grad);
     register_host_function(TENSOR_ZERO_GRAD, std_tensor_zero_grad);
     register_host_function(TENSOR_SET_GRAD_ENABLED, std_tensor_set_grad_enabled);
@@ -7369,6 +7371,24 @@ extern "C" fn std_tensor_requires_grad(ctx: *mut SpectraHostCallContext) -> i32 
 }
 
 extern "C" fn std_tensor_backward(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match tensor_backward_impl(args[0] as usize) {
+            Ok(()) => tensor_optional_result(ctx_ref, 0),
+            Err(code) => code,
+        }
+    }
+}
+
+/// Internal execution boundary for compiler-generated autodiff plans.
+///
+/// The compiler owns the graph and rule selection. This adapter deliberately
+/// reuses the proven runtime tensor executor while individual reverse kernels
+/// are migrated to backend-emitted calls. It is not part of the public stdlib
+/// contract and must not be emitted for ordinary `tensor.backward` calls.
+extern "C" fn std_tensor_autodiff_execute(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;

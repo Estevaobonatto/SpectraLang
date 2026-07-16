@@ -2569,7 +2569,9 @@ the next tracked development cycle toward a broader AI/ML platform.
 ### Completed so far
 
 - `diff { ... }` parses as a language-level differentiable block expression.
-- The block result is lowered to `std.tensor.backward(loss)` and the loss value remains usable by the surrounding expression.
+- The block result is lowered through the internal
+  `spectra.internal.tensor.autodiff_execute` adapter; public
+  `std.tensor.backward(loss)` remains available for compatibility.
 - Non-tensor differentiable block results produce an actionable semantic diagnostic.
 - Unsupported qualified stdlib operations inside `diff { ... }` produce stable diagnostic `E1406`.
 - Gradient coverage includes tensor math, helper functions, control flow, and `std.ml` loss/layer integration.
@@ -6862,7 +6864,7 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
 
 ## R-3004 Compiler-Native Autodiff Lowering
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P1`
 - Owner: `ml`
 - Risk: `high`
@@ -6873,6 +6875,10 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
 - Move autodiff beyond runtime host-call composition by adding
   compiler-visible gradient IR, differentiation rules, and validation for
   model code.
+- Keep `std.tensor.backward` as an explicit compatibility execution backend;
+  it is not the compiler's differentiation representation.
+- The first implementation emits versioned forward/backward graph evidence
+  with seed, saved values, gradient rules, and explicit accumulation nodes.
 
 ### Acceptance
 
@@ -6884,6 +6890,27 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
   stable diagnostics.
 - Training fixtures compare compiler-native gradients against
   finite-difference or reference gradients.
+
+### Implementation state (2026-07-16)
+
+- `midend/src/autodiff.rs` now builds `spectralang.r3004_autodiff_ir.v1` from
+  the first-class Tensor IR and prints the reverse graph through `--dump-ir`.
+- `diff { ... }` now emits the internal
+  `spectra.internal.tensor.autodiff_execute` boundary instead of the public
+  `spectra.std.tensor.backward` host call.
+- The graph records registered rules for elementwise operations, reductions,
+  matmul, reshape/transpose, linear, and MSE loss, plus saved values and
+  accumulation nodes.
+- The old runtime graph executor is retained behind that adapter and behind
+  the public `tensor.backward` API until individual reverse kernels are
+  emitted directly by the backend.
+- `tests/validation/192_compiler_native_autodiff.spectra` and
+  `scripts/validate_r3004_compiler_native_autodiff.py` provide the normal CLI
+  and independent report gate. Runtime backward remains compatibility-only.
+- Remaining before completion: execute compiler-generated gradient nodes rather
+  than only recording them, complete stable negative diagnostics, and prove
+  JIT/AOT equivalence without a generic backward host call as the execution
+  path.
 
 ## R-3005 Production Tokenization and Embedding Backends
 

@@ -7133,7 +7133,11 @@ impl ASTLowering {
                 };
                 self.builder.build_host_call(
                     ir_func,
-                    "spectra.std.tensor.backward".to_string(),
+                    // Compiler-native autodiff owns the plan. The runtime
+                    // adapter executes it while per-node kernel lowering is
+                    // being migrated; the public tensor.backward API is not
+                    // emitted from a `diff` block anymore.
+                    "spectra.internal.tensor.autodiff_execute".to_string(),
                     vec![loss],
                     false,
                 );

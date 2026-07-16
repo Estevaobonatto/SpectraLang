@@ -1194,6 +1194,15 @@ if ($r2904TensorIr.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++
 $results += [PSCustomObject]@{ Diretorio = "phase29-tensor-ir"; Teste = "validate_r2904_tensor_ir"; Status = $r2904TensorIr.Status; Detalhe = $r2904TensorIr.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27i1: R-3004 compiler-native autodiff lowering
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-3004 compiler-native autodiff lowering ---" -ForegroundColor Yellow
+$r3004Autodiff = Invoke-HostCommand -name "validate_r3004_compiler_native_autodiff" -fileName "python" -arguments @("scripts\validate_r3004_compiler_native_autodiff.py", "--binary", $binary, "--fixture", "tests\validation\192_compiler_native_autodiff.spectra", "--report", "target\r3004-autodiff\report.json") -workingDir (Get-Location).Path
+if ($r3004Autodiff.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase29-compiler-native-autodiff"; Teste = "validate_r3004_compiler_native_autodiff"; Status = $r3004Autodiff.Status; Detalhe = $r3004Autodiff.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27j: R-2903 native debug information
 # ---------------------------------------------------------------------------
 Write-Host ""

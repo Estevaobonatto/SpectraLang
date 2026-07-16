@@ -252,6 +252,11 @@ impl BackendDriver for FullPipelineBackend {
         });
 
         let tensor_graph = TensorGraph::from_ir_module(&ir_module);
+        let autodiff_graph = spectra_midend::AutodiffGraph::from_tensor_graph(&tensor_graph);
+        if options.dump_ir && autodiff_graph.has_gradient_nodes() {
+            println!("=== Compiler-native Autodiff IR ===");
+            println!("{}", autodiff_graph.stable_dump());
+        }
         if tensor_graph.functions.iter().any(|function| !function.nodes.is_empty()) {
             let tensor_start = Instant::now();
             let tensor_backend = if tensor_graph.functions.iter().any(|function| {
