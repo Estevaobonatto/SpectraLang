@@ -226,6 +226,25 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     None => format!("hostcall {}({})", host, arg_list),
                 }
             }
+            InstructionKind::AutodiffStep {
+                result,
+                operation,
+                output,
+                upstream,
+                inputs,
+                targets,
+            } => {
+                let upstream = upstream
+                    .map(fmt_value)
+                    .unwrap_or_else(|| "seed".to_string());
+                let inputs = inputs.iter().map(|v| fmt_value(*v)).collect::<Vec<_>>().join(", ");
+                let targets = targets.iter().map(|v| fmt_value(*v)).collect::<Vec<_>>().join(", ");
+                let text = format!("autodiff.{} output={} upstream={} inputs=[{}] targets=[{}]", operation, fmt_value(*output), upstream, inputs, targets);
+                match result {
+                    Some(value) => format!("{} = {}", fmt_value(*value), text),
+                    None => text,
+                }
+            }
             InstructionKind::Phi { result, incoming } => {
                 let incoming_str = incoming
                     .iter()

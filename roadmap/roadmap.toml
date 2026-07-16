@@ -4076,15 +4076,17 @@ title = "Compiler-Native Autodiff Lowering"
 phase = "phase_30"
 owner = "ml"
 priority = "P1"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-501", "R-2904"]
 summary = "Move autodiff beyond runtime host-call composition by adding compiler-visible gradient IR, differentiation rules, and validation for model code."
 acceptance = [
   "autodiff produces compiler-visible gradient IR for supported tensor operations",
+  "diff materializes explicit reverse steps and dispatches registered kernels without an internal autodiff adapter",
   "gradient rules are registered, versioned, and validated for scalar, vector, matrix, and broadcasted tensor cases",
   "unsupported operations fail during semantic or midend validation with stable diagnostics",
-  "training fixtures compare compiler-native gradients against finite-difference or reference gradients"
+  "training fixtures compare compiler-native gradients against finite-difference or reference gradients",
+  "JIT and AOT use the same reverse-step ABI and public tensor.backward compatibility remains passing"
 ]
 
 [[items]]

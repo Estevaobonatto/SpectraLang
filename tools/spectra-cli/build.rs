@@ -44,6 +44,8 @@ fn main() {
             "spectra_rt_ml_linear_fast",
             "spectra_rt_ml_mse_loss_fast",
             "spectra_rt_tensor_backward_fast",
+            "spectra_rt_tensor_autodiff_apply_fast",
+            "spectra_rt_tensor_grad_handle_fast",
             "spectra_rt_ml_sgd_step_fast",
             "spectra_rt_tensor_full_f_fast",
             "spectra_rt_string_len_fast",

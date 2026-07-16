@@ -48,6 +48,10 @@ def main() -> int:
         "aot_results": [],
         "finite_difference_results": [],
         "fallback_results": [],
+        "explicit_steps": [],
+        "kernel_dispatches": [],
+        "legacy_adapter_calls": [],
+        "legacy_public_backward_compatibility": {},
         "diagnostic_results": [],
         "failures": [],
         "status": "failed",
@@ -80,14 +84,33 @@ def main() -> int:
                 failures.append("reverse IR lacks explicit save, gradient, or accumulation nodes")
             if "diagnostic E3004" in output:
                 failures.append("positive fixture contains an unsupported autodiff operation")
-            if "hostcall spectra.internal.tensor.autodiff_execute" not in output:
-                failures.append("compiler-generated autodiff execution adapter was not observed")
-            else:
-                report["fallback_results"] = [{"status": "explicit_compatibility_adapter", "host": "spectra.internal.tensor.autodiff_execute"}]
+            explicit_steps = [line.strip() for line in output.splitlines() if "autodiff.grad_apply_" in line]
+            handle_steps = [line.strip() for line in output.splitlines() if "autodiff.grad_handle" in line]
+            report["explicit_steps"] = explicit_steps + handle_steps
+            report["kernel_dispatches"] = [{"operation": line.split("autodiff.", 1)[1].split(" ", 1)[0], "status": "emitted"} for line in explicit_steps]
+            if not explicit_steps or not handle_steps:
+                failures.append("compiler-native diff did not emit explicit reverse steps")
+            if "spectra.internal.tensor.autodiff_execute" in output:
+                failures.append("removed internal autodiff adapter is still present in compiled IR")
+                report["legacy_adapter_calls"] = [{"status": "observed", "host": "spectra.internal.tensor.autodiff_execute"}]
             if "hostcall spectra.std.tensor.backward" in output:
                 failures.append("diff block still emits the legacy public tensor.backward host call")
 
-        report["diagnostic_results"] = [{"status": "passed", "stable_codes": ["E3004", "E3005", "E3006", "E3007", "E3008", "E3009", "E3010"]}]
+        negative_expectations = {
+            "autodiff_unsupported_operation.spectra": "E3004",
+            "autodiff_integer_tensor.spectra": "E3006",
+            "autodiff_invalid_device.spectra": "E3010",
+            "autodiff_shape_mismatch.spectra": "E2908",
+        }
+        negative_results = []
+        for name, code in negative_expectations.items():
+            negative = run(args.binary, root, ["compile", str(root / "tests" / "errors" / name)])
+            text_output = negative.stdout + negative.stderr
+            passed = negative.returncode != 0 and code in text_output
+            negative_results.append({"fixture": name, "expected": code, "status": "passed" if passed else "failed"})
+            if not passed:
+                failures.append(f"negative autodiff fixture {name} did not produce {code}")
+        report["diagnostic_results"] = [{"status": "passed" if all(item["status"] == "passed" for item in negative_results) else "failed", "stable_codes": ["E3004", "E3005", "E3006", "E3007", "E3008", "E3009", "E3010"], "negative_fixtures": negative_results}]
 
     try:
         execution = run(args.binary, root, ["run", str(args.fixture)])
@@ -97,6 +120,18 @@ def main() -> int:
             failures.append(f"fixture execution returned {execution.returncode}: {execution.stdout[-800:]}{execution.stderr[-800:]}")
     except (OSError, subprocess.TimeoutExpired) as exc:
         failures.append(f"fixture execution failed: {exc}")
+
+    try:
+        legacy = run(args.binary, root, ["run", "tests/validation/71_tensor_phase5_autodiff.spectra"])
+        report["legacy_public_backward_compatibility"] = {
+            "status": "passed" if legacy.returncode == 0 else "failed",
+            "returncode": legacy.returncode,
+            "fixture": "tests/validation/71_tensor_phase5_autodiff.spectra",
+        }
+        if legacy.returncode != 0:
+            failures.append("public tensor.backward compatibility fixture failed")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        failures.append(f"public tensor.backward compatibility failed: {exc}")
 
     try:
         object_path = root / "target" / "r3004-autodiff" / "fixture.obj"

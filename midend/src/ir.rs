@@ -204,6 +204,18 @@ pub enum InstructionKind {
         args: Vec<Value>,
         result_type: Option<Type>,
     },
+    /// Compiler-generated reverse-mode autodiff step. Unlike `HostCall`, this
+    /// node has a closed operation contract and is dispatched by the backend
+    /// to a dedicated reverse kernel.
+    AutodiffStep {
+        result: Option<Value>,
+        operation: String,
+        /// Forward output whose saved creator/value is consumed by the reverse kernel.
+        output: Value,
+        upstream: Option<Value>,
+        inputs: Vec<Value>,
+        targets: Vec<Value>,
+    },
     /// Get the address of a named function as an opaque i64 pointer (for closures/HOF).
     FuncAddr {
         result: Value,

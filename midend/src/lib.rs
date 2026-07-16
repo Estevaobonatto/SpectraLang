@@ -9,7 +9,7 @@ pub mod passes;
 pub mod tensor_graph;
 
 pub use builder::IRBuilder;
-pub use autodiff::{AutodiffDiagnostic, AutodiffFunction, AutodiffGraph, AutodiffNode, AutodiffNodeKind};
+pub use autodiff::{materialize_autodiff_steps, AutodiffDiagnostic, AutodiffFunction, AutodiffGraph, AutodiffNode, AutodiffNodeKind};
 pub use ir::{
     BasicBlock, Function as IRFunction, Instruction, Module as IRModule, Type as IRType, Value,
 };

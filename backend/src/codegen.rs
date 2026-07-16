@@ -148,6 +148,9 @@ pub struct CodeGenerator {
     ml_mse_loss_fast_func: FuncId,
     /// Import for fast-ABI `tensor.backward`
     tensor_backward_fast_func: FuncId,
+    /// Import for explicit compiler-native reverse autodiff steps.
+    tensor_autodiff_apply_fast_func: FuncId,
+    tensor_grad_handle_fast_func: FuncId,
     /// Import for fast-ABI `ml.sgd_step`
     ml_sgd_step_fast_func: FuncId,
     tensor_full_f_fast_func: FuncId,
@@ -364,6 +367,14 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_tensor_backward_fast",
             spectra_runtime::ffi::spectra_rt_tensor_backward_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_tensor_autodiff_apply_fast",
+            spectra_runtime::ffi::spectra_rt_tensor_autodiff_apply_fast as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_tensor_grad_handle_fast",
+            spectra_runtime::ffi::spectra_rt_tensor_grad_handle_fast as *const u8,
         );
         builder.symbol(
             "spectra_rt_ml_sgd_step_fast",
@@ -628,6 +639,25 @@ impl CodeGenerator {
             )
             .expect("Failed to declare tensor_backward fast import");
 
+        let mut tensor_autodiff_apply_sig = module.make_signature();
+        for _ in 0..6 {
+            tensor_autodiff_apply_sig.params.push(AbiParam::new(types::I64));
+        }
+        tensor_autodiff_apply_sig.returns.push(AbiParam::new(types::I32));
+        let tensor_autodiff_apply_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_autodiff_apply_fast",
+                Linkage::Import,
+                &tensor_autodiff_apply_sig,
+            )
+            .expect("Failed to declare explicit autodiff import");
+        let mut tensor_grad_handle_sig = module.make_signature();
+        tensor_grad_handle_sig.params.push(AbiParam::new(types::I64));
+        tensor_grad_handle_sig.returns.push(AbiParam::new(types::I64));
+        let tensor_grad_handle_fast_func = module
+            .declare_function("spectra_rt_tensor_grad_handle_fast", Linkage::Import, &tensor_grad_handle_sig)
+            .expect("Failed to declare explicit gradient handle import");
+
         let mut ml_sgd_step_sig = module.make_signature();
         ml_sgd_step_sig.params.push(AbiParam::new(types::I64));
         ml_sgd_step_sig.params.push(AbiParam::new(types::F64));
@@ -795,6 +825,8 @@ impl CodeGenerator {
             ml_linear_fast_func,
             ml_mse_loss_fast_func,
             tensor_backward_fast_func,
+            tensor_autodiff_apply_fast_func,
+            tensor_grad_handle_fast_func,
             ml_sgd_step_fast_func,
             tensor_full_f_fast_func,
             _string_len_fast_func: string_len_fast_func,
@@ -1000,6 +1032,8 @@ impl CodeGenerator {
                 self.ml_linear_fast_func,
                 self.ml_mse_loss_fast_func,
                 self.tensor_backward_fast_func,
+                self.tensor_autodiff_apply_fast_func,
+                self.tensor_grad_handle_fast_func,
                 self.ml_sgd_step_fast_func,
                 self.tensor_full_f_fast_func,
                 self._string_len_fast_func,
@@ -1236,6 +1270,8 @@ impl CodeGenerator {
         ml_linear_fast_func: FuncId,
         ml_mse_loss_fast_func: FuncId,
         tensor_backward_fast_func: FuncId,
+        tensor_autodiff_apply_fast_func: FuncId,
+        tensor_grad_handle_fast_func: FuncId,
         ml_sgd_step_fast_func: FuncId,
         tensor_full_f_fast_func: FuncId,
         _string_len_fast_func: FuncId,
@@ -1303,6 +1339,8 @@ impl CodeGenerator {
                 ml_linear_fast_func,
                 ml_mse_loss_fast_func,
                 tensor_backward_fast_func,
+                tensor_autodiff_apply_fast_func,
+                tensor_grad_handle_fast_func,
                 ml_sgd_step_fast_func,
                 tensor_full_f_fast_func,
                 _string_len_fast_func,
@@ -1380,6 +1418,8 @@ impl CodeGenerator {
         ml_linear_fast_func: FuncId,
         ml_mse_loss_fast_func: FuncId,
         tensor_backward_fast_func: FuncId,
+        tensor_autodiff_apply_fast_func: FuncId,
+        tensor_grad_handle_fast_func: FuncId,
         ml_sgd_step_fast_func: FuncId,
         tensor_full_f_fast_func: FuncId,
         _string_len_fast_func: FuncId,
@@ -1708,6 +1748,50 @@ impl CodeGenerator {
                     if !results.is_empty() {
                         value_map.insert(result.id, results[0]);
                     }
+                }
+            }
+            InstructionKind::AutodiffStep {
+                result,
+                operation,
+                output,
+                upstream,
+                inputs,
+                targets,
+            } => {
+                let output_value = get_value(output)?;
+                if operation == "grad_handle" {
+                    let func_ref = module.declare_func_in_func(tensor_grad_handle_fast_func, builder.func);
+                    let call = builder.ins().call(func_ref, &[output_value]);
+                    if let Some(result) = result {
+                        value_map.insert(result.id, builder.inst_results(call)[0]);
+                    }
+                    return Ok(());
+                }
+                let operation_name = operation.strip_prefix("grad_apply_").ok_or_else(|| {
+                    BackendCodegenError::invalid_ir(format!("E3004: invalid autodiff step {operation}"))
+                })?;
+                let opcode = match operation_name {
+                    "add" => 0, "sub" => 1, "mul" => 2, "div" => 3,
+                    "neg" => 4, "exp" => 5, "log" => 6, "relu" => 7,
+                    "sigmoid" => 8, "sum_t" => 9, "mean_t" => 10, "dot_t" => 11,
+                    "matmul" => 12, "transpose" => 13, "reshape" => 14,
+                    "linear" => 15, "mse_loss" => 16,
+                    other => return Err(BackendCodegenError::invalid_ir(format!("E3004: no reverse kernel for {other}"))),
+                };
+                if inputs.len() > 3 || targets.len() > 3 {
+                    return Err(BackendCodegenError::invalid_ir("E3004: autodiff step has too many operands"));
+                }
+                let zero = builder.ins().iconst(types::I64, 0);
+                let upstream_value = upstream.map(|value| get_value(&value)).transpose()?.unwrap_or(zero);
+                let mut params = vec![builder.ins().iconst(types::I64, opcode), output_value, upstream_value];
+                for index in 0..3 {
+                    let value = targets.get(index).or_else(|| inputs.get(index));
+                    params.push(value.map(get_value).transpose()?.unwrap_or(zero));
+                }
+                let func_ref = module.declare_func_in_func(tensor_autodiff_apply_fast_func, builder.func);
+                builder.ins().call(func_ref, &params);
+                if result.is_some() {
+                    return Err(BackendCodegenError::invalid_ir("E3004: reverse apply step cannot produce a value"));
                 }
             }
             InstructionKind::HostCall {

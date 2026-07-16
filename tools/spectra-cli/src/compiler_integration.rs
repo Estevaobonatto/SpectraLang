@@ -237,6 +237,19 @@ impl BackendDriver for FullPipelineBackend {
 
         let mut pass_reports = Vec::new();
 
+        let autodiff_start = Instant::now();
+        let autodiff_steps = match spectra_midend::materialize_autodiff_steps(&mut ir_module) {
+            Ok(count) => count,
+            Err(message) => {
+                return Err(vec![CompilerError::Midend(MidendError::new(message))]);
+            }
+        };
+        pass_reports.push(PassReport {
+            name: "Compiler-native Autodiff Steps",
+            duration: autodiff_start.elapsed(),
+            modified: autodiff_steps > 0,
+        });
+
         let verification_start = Instant::now();
         if let Err(errors) = verify_module(&ir_module) {
             let ir_errors = errors

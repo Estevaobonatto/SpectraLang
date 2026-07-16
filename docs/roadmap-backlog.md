@@ -2569,9 +2569,8 @@ the next tracked development cycle toward a broader AI/ML platform.
 ### Completed so far
 
 - `diff { ... }` parses as a language-level differentiable block expression.
-- The block result is lowered through the internal
-  `spectra.internal.tensor.autodiff_execute` adapter; public
-  `std.tensor.backward(loss)` remains available for compatibility.
+- The block result is lowered through compiler-owned reverse steps;
+  public `std.tensor.backward(loss)` remains available for compatibility.
 - Non-tensor differentiable block results produce an actionable semantic diagnostic.
 - Unsupported qualified stdlib operations inside `diff { ... }` produce stable diagnostic `E1406`.
 - Gradient coverage includes tensor math, helper functions, control flow, and `std.ml` loss/layer integration.
@@ -6864,7 +6863,7 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
 
 ## R-3004 Compiler-Native Autodiff Lowering
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ml`
 - Risk: `high`
@@ -6877,40 +6876,47 @@ metadata, validated bounds, and atomic replacement. The CLI fixture is
   model code.
 - Keep `std.tensor.backward` as an explicit compatibility execution backend;
   it is not the compiler's differentiation representation.
-- The first implementation emits versioned forward/backward graph evidence
-  with seed, saved values, gradient rules, and explicit accumulation nodes.
+- The production path emits versioned forward/backward graph evidence with
+  seed, saved values, gradient rules, explicit accumulation nodes, and backend
+  reverse-kernel dispatches.
 
 ### Acceptance
 
 - Autodiff produces compiler-visible gradient IR for supported tensor
   operations.
+- `diff` materializes explicit reverse steps and dispatches registered kernels
+  without an internal autodiff adapter.
 - Gradient rules are registered, versioned, and validated for scalar,
   vector, matrix, and broadcasted tensor cases.
 - Unsupported operations fail during semantic or midend validation with
   stable diagnostics.
 - Training fixtures compare compiler-native gradients against
   finite-difference or reference gradients.
+- JIT and AOT use the same reverse-step ABI and public `tensor.backward`
+  compatibility remains passing.
 
 ### Implementation state (2026-07-16)
 
 - `midend/src/autodiff.rs` now builds `spectralang.r3004_autodiff_ir.v1` from
   the first-class Tensor IR and prints the reverse graph through `--dump-ir`.
-- `diff { ... }` now emits the internal
-  `spectra.internal.tensor.autodiff_execute` boundary instead of the public
-  `spectra.std.tensor.backward` host call.
+- `diff { ... }` is materialized into `AutodiffStep` instructions such as
+  `grad_apply_mul`, `grad_apply_matmul`, and `grad_apply_linear`; it no longer
+  emits an internal runtime adapter or the public backward host call.
 - The graph records registered rules for elementwise operations, reductions,
   matmul, reshape/transpose, linear, and MSE loss, plus saved values and
   accumulation nodes.
-- The old runtime graph executor is retained behind that adapter and behind
-  the public `tensor.backward` API until individual reverse kernels are
-  emitted directly by the backend.
+- The old runtime graph executor remains only behind the public
+  `tensor.backward` compatibility API. Explicit steps dispatch the shared
+  reverse formulas directly and do not traverse the runtime graph.
 - `tests/validation/192_compiler_native_autodiff.spectra` and
   `scripts/validate_r3004_compiler_native_autodiff.py` provide the normal CLI
   and independent report gate. Runtime backward remains compatibility-only.
-- Remaining before completion: execute compiler-generated gradient nodes rather
-  than only recording them, complete stable negative diagnostics, and prove
-  JIT/AOT equivalence without a generic backward host call as the execution
-  path.
+- The independent gate now proves explicit steps, direct kernel dispatch,
+  normal CLI execution, AOT object emission, and continued public backward
+  compatibility. WGPU remains an environment-dependent follow-up.
+- R-3004 is complete: `target/r3004-autodiff/report.json` is `passed`, the
+  internal adapter is no longer registered or emitted, and the public legacy
+  backward fixture remains passing.
 
 ## R-3005 Production Tokenization and Embedding Backends
 

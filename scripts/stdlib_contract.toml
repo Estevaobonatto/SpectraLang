@@ -117,7 +117,7 @@ covers = ["std.api.*"]
 prefix = "std.tensor.diff"
 owner = "ml"
 roadmap = "R-3004"
-reason = "Compiler-native reverse autodiff is tracked by the explicit R-3004 probe; runtime backward remains compatibility-only until the report passes."
+reason = "Compiler-native reverse autodiff is tracked by the explicit R-3004 probe; runtime backward remains a public compatibility API while diff uses direct reverse-kernel steps."
 
 [[probe]]
 id = "compiler-native-autodiff"

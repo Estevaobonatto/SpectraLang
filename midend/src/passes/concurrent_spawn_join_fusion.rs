@@ -152,8 +152,9 @@ fn is_pure(kind: &InstructionKind) -> bool {
             | InstructionKind::ConstFloat { .. }
             | InstructionKind::ConstFloatTyped { .. }
             | InstructionKind::ConstBool { .. }
-            | InstructionKind::ConstString { .. }
-            | InstructionKind::Cast { .. }
+        | InstructionKind::ConstString { .. }
+        | InstructionKind::Cast { .. }
+        | InstructionKind::AutodiffStep { .. }
     )
 }
 
@@ -200,6 +201,15 @@ fn instruction_inputs(kind: &InstructionKind) -> Vec<Value> {
         | InstructionKind::ConstFloatTyped { .. }
         | InstructionKind::ConstBool { .. }
         | InstructionKind::ConstString { .. } => Vec::new(),
+        InstructionKind::AutodiffStep { upstream, inputs, targets, .. } => {
+            let mut values = Vec::new();
+            if let Some(value) = upstream {
+                values.push(*value);
+            }
+            values.extend(inputs.iter().copied());
+            values.extend(targets.iter().copied());
+            values
+        }
     }
 }
 

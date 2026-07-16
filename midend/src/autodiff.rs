@@ -4,7 +4,9 @@
 //! owns the differentiation contract: which forward operations participate,
 //! which values must be retained, and which reverse rule is selected.
 
+use crate::ir::{Function, Instruction, InstructionKind, Module, SourceSpan, Value};
 use crate::tensor_graph::{TensorGraph, TensorGraphFunction, TensorGraphOp, TensorMetadata, TensorGraphSource};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutodiffGraph {
@@ -48,6 +50,186 @@ pub struct AutodiffDiagnostic {
     pub node: usize,
     pub operation: String,
     pub message: String,
+}
+
+/// Replace compiler-generated autodiff adapters with explicit reverse steps.
+/// This pass intentionally handles the straight-line SSA tensor graphs used
+/// by the first production slice; unsupported control-flow graphs fail before
+/// reaching the backend instead of silently delegating to runtime traversal.
+pub fn materialize_autodiff_steps(module: &mut Module) -> Result<usize, String> {
+    let mut materialized = 0;
+    for function in &mut module.functions {
+        let definitions = function_host_definitions(function);
+        for block_index in 0..function.blocks.len() {
+            let original = std::mem::take(&mut function.blocks[block_index].instructions);
+            let mut replacement = Vec::new();
+            for instruction in original {
+                let InstructionKind::HostCall { host, args, .. } = &instruction.kind else {
+                    replacement.push(instruction);
+                    continue;
+                };
+                if host != "spectra.compiler.autodiff_region" {
+                    replacement.push(instruction);
+                    continue;
+                }
+                let Some(loss) = args.first().copied() else {
+                    return Err("E3004: autodiff adapter has no loss operand".to_string());
+                };
+                let mut steps = Vec::new();
+                let mut visiting = HashSet::new();
+                materialize_node(
+                    function,
+                    loss,
+                    None,
+                    &definitions,
+                    instruction.source_span.clone(),
+                    &mut visiting,
+                    &mut steps,
+                )?;
+                materialized += steps.len();
+                replacement.extend(steps);
+            }
+            for (id, instruction) in replacement.iter_mut().enumerate() {
+                instruction.id = id;
+            }
+            function.blocks[block_index].instructions = replacement;
+        }
+    }
+    Ok(materialized)
+}
+
+type HostDefinition = (String, Vec<Value>, Option<SourceSpan>);
+
+fn function_host_definitions(function: &Function) -> HashMap<usize, HostDefinition> {
+    let mut definitions = HashMap::new();
+    for block in &function.blocks {
+        for instruction in &block.instructions {
+            if let InstructionKind::HostCall { result: Some(result), host, args, .. } = &instruction.kind {
+                definitions.insert(result.id, (host.clone(), args.clone(), instruction.source_span.clone()));
+            }
+        }
+    }
+    definitions
+}
+
+fn materialize_node(
+    function: &mut Function,
+    output: Value,
+    upstream: Option<Value>,
+    definitions: &HashMap<usize, HostDefinition>,
+    source: Option<SourceSpan>,
+    visiting: &mut HashSet<usize>,
+    steps: &mut Vec<Instruction>,
+) -> Result<(), String> {
+    if !visiting.insert(output.id) {
+        return Err(format!("E3004: cyclic autodiff dependency at value %{}", output.id));
+    }
+    let Some((host, args, node_source)) = definitions.get(&output.id) else {
+        visiting.remove(&output.id);
+        return Ok(());
+    };
+    let Some(operation) = autodiff_operation(host) else {
+        if host.starts_with("spectra.std.tensor.") || host.starts_with("spectra.std.ml.") {
+            if host.ends_with(".to_device") {
+                return Err(format!("E3010: device transfer is not legal inside compiler-native diff ({host})"));
+            }
+            if host.ends_with(".full") || host.ends_with(".full_i") {
+                return Err(format!("E3006: integer tensor is not differentiable ({host})"));
+            }
+            if !is_autodiff_leaf_or_auxiliary(Some(host)) {
+                return Err(format!("E3004: operation has no registered reverse kernel ({host})"));
+            }
+        }
+        visiting.remove(&output.id);
+        return Ok(());
+    };
+    let tensor_args = tensor_arguments(host, args);
+    if tensor_args.is_empty() {
+        visiting.remove(&output.id);
+        return Ok(());
+    }
+    let step_source = node_source.clone().or_else(|| source.clone());
+    let effective_upstream = if upstream.is_some() {
+        upstream
+    } else {
+        None
+    };
+    steps.push(Instruction {
+        id: 0,
+            kind: InstructionKind::AutodiffStep {
+                result: None,
+                operation: format!("grad_apply_{operation}"),
+                output,
+                upstream: effective_upstream,
+            inputs: tensor_args.clone(),
+            targets: tensor_args.clone(),
+        },
+        source_span: step_source.clone(),
+    });
+
+    for input in tensor_args {
+        if is_autodiff_leaf_or_auxiliary(definitions.get(&input.id).map(|d| d.0.as_str())) {
+            continue;
+        }
+        let grad_handle = function.next_value();
+        steps.push(Instruction {
+            id: 0,
+            kind: InstructionKind::AutodiffStep {
+                result: Some(grad_handle),
+                operation: "grad_handle".to_string(),
+                output: input,
+                upstream: None,
+                inputs: vec![input],
+                targets: vec![],
+            },
+            source_span: step_source.clone(),
+        });
+        materialize_node(
+            function,
+            input,
+            Some(grad_handle),
+            definitions,
+            step_source.clone(),
+            visiting,
+            steps,
+        )?;
+    }
+    visiting.remove(&output.id);
+    Ok(())
+}
+
+fn autodiff_operation(host: &str) -> Option<&str> {
+    let name = host.strip_prefix("spectra.std.tensor.").or_else(|| host.strip_prefix("spectra.std.ml."))?;
+    match name {
+        "add" | "sub" | "mul" | "div" | "neg" | "relu" | "sum_t" | "mean_t"
+        | "dot_t" | "matmul" | "transpose" | "reshape" | "linear" | "mse_loss" => Some(name),
+        "exp_f" => Some("exp"),
+        "log_f" => Some("log"),
+        "sigmoid_f" => Some("sigmoid"),
+        _ => None,
+    }
+}
+
+fn tensor_arguments(host: &str, args: &[Value]) -> Vec<Value> {
+    let name = host.strip_prefix("spectra.std.tensor.").or_else(|| host.strip_prefix("spectra.std.ml.")).unwrap_or("");
+    let positions: &[usize] = match name {
+        "reshape" | "transpose" | "sum_t" | "neg" | "exp_f" | "log_f" | "relu" | "sigmoid_f" => &[0],
+        "add" | "sub" | "mul" | "div" | "matmul" | "dot_t" | "mse_loss" => &[0, 1],
+        "linear" => &[0, 1, 2],
+        _ => &[],
+    };
+    positions.iter().filter_map(|index| args.get(*index).copied()).collect()
+}
+
+fn is_autodiff_leaf_or_auxiliary(host: Option<&str>) -> bool {
+    match host {
+        None => true,
+        Some(value) => value.ends_with(".requires_grad")
+            || value.ends_with(".full_f")
+            || value.ends_with(".full2_f")
+            || value.ends_with(".literal_f")
+            || value.ends_with(".literal2_f"),
+    }
 }
 
 impl AutodiffGraph {

@@ -58,6 +58,8 @@ pub struct AotCodeGenerator {
     ml_linear_fast_func: FuncId,
     ml_mse_loss_fast_func: FuncId,
     tensor_backward_fast_func: FuncId,
+    tensor_autodiff_apply_fast_func: FuncId,
+    tensor_grad_handle_fast_func: FuncId,
     ml_sgd_step_fast_func: FuncId,
     tensor_full_f_fast_func: FuncId,
     string_len_fast_func: FuncId,
@@ -351,6 +353,29 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare tensor_backward fast import");
 
+        let mut tensor_autodiff_apply_sig = module.make_signature();
+        for _ in 0..6 {
+            tensor_autodiff_apply_sig.params.push(AbiParam::new(types::I64));
+        }
+        tensor_autodiff_apply_sig.returns.push(AbiParam::new(types::I32));
+        let tensor_autodiff_apply_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_autodiff_apply_fast",
+                Linkage::Import,
+                &tensor_autodiff_apply_sig,
+            )
+            .expect("Failed to declare explicit autodiff import");
+        let mut tensor_grad_handle_sig = module.make_signature();
+        tensor_grad_handle_sig.params.push(AbiParam::new(types::I64));
+        tensor_grad_handle_sig.returns.push(AbiParam::new(types::I64));
+        let tensor_grad_handle_fast_func = module
+            .declare_function(
+                "spectra_rt_tensor_grad_handle_fast",
+                Linkage::Import,
+                &tensor_grad_handle_sig,
+            )
+            .expect("Failed to declare explicit gradient handle import");
+
         let mut ml_sgd_step_sig = module.make_signature();
         ml_sgd_step_sig.params.push(AbiParam::new(types::I64));
         ml_sgd_step_sig.params.push(AbiParam::new(types::F64));
@@ -518,6 +543,8 @@ impl AotCodeGenerator {
             ml_linear_fast_func,
             ml_mse_loss_fast_func,
             tensor_backward_fast_func,
+            tensor_autodiff_apply_fast_func,
+            tensor_grad_handle_fast_func,
             ml_sgd_step_fast_func,
             tensor_full_f_fast_func,
             string_len_fast_func,
@@ -747,6 +774,8 @@ impl AotCodeGenerator {
                 self.ml_linear_fast_func,
                 self.ml_mse_loss_fast_func,
                 self.tensor_backward_fast_func,
+                self.tensor_autodiff_apply_fast_func,
+                self.tensor_grad_handle_fast_func,
                 self.ml_sgd_step_fast_func,
                 self.tensor_full_f_fast_func,
                 self.string_len_fast_func,

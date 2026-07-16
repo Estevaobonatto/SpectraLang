@@ -229,6 +229,7 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::LoadDynDataPtr { result, .. }
         | InstructionKind::LoadDynVtablePtr { result, .. }
         | InstructionKind::LoadVtableSlot { result, .. } => Some(*result),
+        InstructionKind::AutodiffStep { result, .. } => *result,
         InstructionKind::Call { result, .. }
         | InstructionKind::HostCall { result, .. }
         | InstructionKind::CallIndirect { result, .. } => *result,
@@ -295,6 +296,15 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
         | InstructionKind::ConstFloatTyped { .. }
         | InstructionKind::ConstBool { .. }
         | InstructionKind::ConstString { .. } => Vec::new(),
+        InstructionKind::AutodiffStep { upstream, inputs, targets, .. } => {
+            let mut operands = Vec::new();
+            if let Some(value) = upstream {
+                operands.push(*value);
+            }
+            operands.extend(inputs.iter().copied());
+            operands.extend(targets.iter().copied());
+            operands
+        }
     }
 }
 

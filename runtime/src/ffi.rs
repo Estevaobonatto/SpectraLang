@@ -729,6 +729,32 @@ pub extern "C" fn spectra_rt_tensor_backward_fast(loss_h: SpectraHostValue) -> i
     crate::stdlib::tensor_backward_fast(loss_h as usize)
 }
 
+#[no_mangle]
+pub extern "C" fn spectra_rt_tensor_grad_handle_fast(
+    input_h: SpectraHostValue,
+) -> SpectraHostValue {
+    crate::stdlib::tensor_grad_handle_fast(input_h as usize) as SpectraHostValue
+}
+
+#[no_mangle]
+pub extern "C" fn spectra_rt_tensor_autodiff_apply_fast(
+    operation: SpectraHostValue,
+    output_h: SpectraHostValue,
+    upstream_h: SpectraHostValue,
+    target0: SpectraHostValue,
+    target1: SpectraHostValue,
+    target2: SpectraHostValue,
+) -> i32 {
+    crate::stdlib::tensor_autodiff_apply_fast(
+        operation,
+        output_h as usize,
+        upstream_h as usize,
+        target0 as usize,
+        target1 as usize,
+        target2 as usize,
+    )
+}
+
 /// Fast ABI entry for `ml.sgd_step(param, lr)`.
 ///
 /// Skips the generic host-call dispatch. `lr` is the raw `f64` learning

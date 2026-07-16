@@ -322,7 +322,6 @@ const TENSOR_MEMORY_REPORT: &str = "spectra.std.tensor.memory_report";
 const TENSOR_RESET_STATS: &str = "spectra.std.tensor.reset_stats";
 const TENSOR_REQUIRES_GRAD: &str = "spectra.std.tensor.requires_grad";
 const TENSOR_BACKWARD: &str = "spectra.std.tensor.backward";
-const TENSOR_AUTODIFF_EXECUTE: &str = "spectra.internal.tensor.autodiff_execute";
 const TENSOR_GRAD: &str = "spectra.std.tensor.grad";
 const TENSOR_ZERO_GRAD: &str = "spectra.std.tensor.zero_grad";
 const TENSOR_SET_GRAD_ENABLED: &str = "spectra.std.tensor.set_grad_enabled";
@@ -1114,7 +1113,6 @@ fn register_tensor() {
     register_host_function(TENSOR_RESET_STATS, std_tensor_reset_stats);
     register_host_function(TENSOR_REQUIRES_GRAD, std_tensor_requires_grad);
     register_host_function(TENSOR_BACKWARD, std_tensor_backward);
-    register_host_function(TENSOR_AUTODIFF_EXECUTE, std_tensor_autodiff_execute);
     register_host_function(TENSOR_GRAD, std_tensor_grad);
     register_host_function(TENSOR_ZERO_GRAD, std_tensor_zero_grad);
     register_host_function(TENSOR_SET_GRAD_ENABLED, std_tensor_set_grad_enabled);
@@ -2681,6 +2679,96 @@ pub fn tensor_backward_fast(loss_h: usize) -> i32 {
         Ok(()) => HOST_STATUS_SUCCESS,
         Err(code) => code,
     }
+}
+
+/// Materialize the gradient accumulated on a forward tensor.  This is an
+/// explicit SSA edge used by compiler-native autodiff; it never walks the
+/// creator graph.
+pub fn tensor_grad_handle_fast(input_h: usize) -> i64 {
+    let Some(values) = with_tensor_registry(|registry| {
+        let tensor = registry.get(input_h)?;
+        (tensor.dtype == TensorDType::Float)
+            .then(|| tensor.grad.clone().unwrap_or_else(|| vec![0.0; tensor.len()]))
+    }) else {
+        return 0;
+    };
+    tensor_alloc(TensorDType::Float, tensor_shape(input_h).unwrap_or_default(), f64_values_to_host(&values))
+        .map(|handle| handle as i64)
+        .unwrap_or(0)
+}
+
+fn tensor_shape(handle: usize) -> Option<Vec<usize>> {
+    with_tensor_registry(|registry| registry.get(handle).map(|tensor| tensor.shape.clone()))
+}
+
+/// Execute one explicitly lowered reverse step.  The compiler supplies the
+/// output, upstream value and target handles, so this function may reuse the
+/// established mathematical rule without discovering the graph topology.
+pub fn tensor_autodiff_apply_fast(
+    operation: i64,
+    output_h: usize,
+    upstream_h: usize,
+    target0: usize,
+    target1: usize,
+    target2: usize,
+) -> i32 {
+    let expected = match operation {
+        0 => AutogradOp::Add,
+        1 => AutogradOp::Sub,
+        2 => AutogradOp::Mul,
+        3 => AutogradOp::Div,
+        4 => AutogradOp::Neg,
+        5 => AutogradOp::Exp,
+        6 => AutogradOp::Log,
+        7 => AutogradOp::Relu,
+        8 => AutogradOp::Sigmoid,
+        9 => AutogradOp::SumTensor,
+        10 => AutogradOp::MeanTensor,
+        11 => AutogradOp::DotTensor,
+        12 => AutogradOp::Matmul,
+        13 => AutogradOp::Transpose,
+        14 => AutogradOp::View,
+        15 => AutogradOp::MlLinear,
+        16 => AutogradOp::MlMse,
+        _ => return HOST_STATUS_INVALID_ARGUMENT,
+    };
+    let targets = [target0, target1, target2]
+        .into_iter()
+        .filter(|handle| *handle != 0)
+        .collect::<Vec<_>>();
+    let result = with_tensor_registry(|registry| {
+        let output = registry.get(output_h)?;
+        let node = output.creator.clone()?;
+        if node.op != expected || node.parents.iter().any(|parent| !targets.contains(parent)) {
+            return None;
+        }
+        let grad = if upstream_h == 0 {
+            if output.len() != 1 { return None; }
+            vec![1.0]
+        } else {
+            let upstream = registry.get(upstream_h)?;
+            if upstream.dtype != TensorDType::Float { return None; }
+            tensor_values_as_f64(upstream)
+        };
+        let parent_grads = autograd_parent_grads(&node, &ParentGrad::Host(grad), registry)?;
+        for (parent, parent_grad) in parent_grads {
+            if !targets.contains(&parent) {
+                return None;
+            }
+            let tensor = registry.get_mut(parent)?;
+            match parent_grad {
+                ParentGrad::Host(values) => {
+                    if !accumulate_tensor_grad(tensor, &values) {
+                        return None;
+                    }
+                }
+                #[cfg(feature = "gpu")]
+                ParentGrad::Device(_) => return None,
+            }
+        }
+        Some(HOST_STATUS_SUCCESS)
+    });
+    result.unwrap_or(HOST_STATUS_INVALID_ARGUMENT)
 }
 
 /// Fast-path helper for `ml.sgd_step(param, lr)`.
@@ -7371,24 +7459,6 @@ extern "C" fn std_tensor_requires_grad(ctx: *mut SpectraHostCallContext) -> i32 
 }
 
 extern "C" fn std_tensor_backward(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe {
-        let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        };
-        match tensor_backward_impl(args[0] as usize) {
-            Ok(()) => tensor_optional_result(ctx_ref, 0),
-            Err(code) => code,
-        }
-    }
-}
-
-/// Internal execution boundary for compiler-generated autodiff plans.
-///
-/// The compiler owns the graph and rule selection. This adapter deliberately
-/// reuses the proven runtime tensor executor while individual reverse kernels
-/// are migrated to backend-emitted calls. It is not part of the public stdlib
-/// contract and must not be emitted for ordinary `tensor.backward` calls.
-extern "C" fn std_tensor_autodiff_execute(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Ok((ctx_ref, args)) = tensor_args(ctx, 1) else {
             return HOST_STATUS_INVALID_ARGUMENT;
