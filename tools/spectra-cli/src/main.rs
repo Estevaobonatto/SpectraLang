@@ -1270,7 +1270,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         fs::write(obj_path, &obj_bytes)
             .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
         if native_debug {
-            attach_native_codeview(obj_path, &source, source_path)?;
+            attach_native_debug(obj_path, &source, source_path)?;
         }
         let debug_map_path = write_aot_debug_map(
             source_path,
@@ -1323,7 +1323,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         })?;
 
         if native_debug {
-            attach_native_codeview(&obj_path, &source, source_path)?;
+            attach_native_debug(&obj_path, &source, source_path)?;
         }
 
         let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path, native_debug);
@@ -2208,6 +2208,93 @@ fn attach_native_codeview(
     .map_err(CliError::compilation)?;
     fs::write(object_path, rewritten)
         .map_err(|e| CliError::io(format!("Cannot write CodeView-enabled object: {}", e)))
+}
+
+fn attach_native_debug(object_path: &Path, source: &str, source_path: &Path) -> CliResult<()> {
+    if cfg!(windows) {
+        attach_native_codeview(object_path, source, source_path)
+    } else {
+        attach_native_dwarf(object_path, source, source_path)
+    }
+}
+
+fn attach_native_dwarf(object_path: &Path, source: &str, source_path: &Path) -> CliResult<()> {
+    let object_bytes = fs::read(object_path)
+        .map_err(|e| CliError::io(format!("Cannot read object for DWARF attachment: {e}")))?;
+    let source_functions = source
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let rest = trimmed.strip_prefix("fn ").or_else(|| trimmed.strip_prefix("pub fn "))?;
+            rest.split(['(', '<', ' ']).next().map(str::to_string)
+        })
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+    let mut functions = spectra_backend::debug::native_function_ranges(&object_bytes);
+    functions.retain(|function| source_functions.iter().any(|name| name == &function.name));
+    if functions.is_empty() {
+        return Err(CliError::compilation(
+            "--debug-info=native found no user function symbols in the Unix object",
+        ));
+    }
+    let locals = source
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("let "))
+        .filter_map(|rest| rest.split(['=', ':', ' ']).next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for function in &mut functions {
+        function.locals = locals.clone();
+    }
+    let sections = spectra_backend::dwarf::sections_for_functions(
+        &source_path.to_string_lossy(),
+        source,
+        &functions,
+    )
+    .map_err(CliError::compilation)?;
+    let objcopy = find_tool_on_path("llvm-objcopy").ok_or_else(|| {
+        CliError::compilation(
+            "--debug-info=native on Unix requires llvm-objcopy as a COFF/ELF container editor",
+        )
+    })?;
+    let mut input = object_path.to_path_buf();
+    for (index, (name, data)) in sections.iter().enumerate() {
+        let section_path = object_path.with_extension(format!("spectra-dwarf-{index}"));
+        let output_path = object_path.with_extension(format!("spectra-dwarf-out-{index}"));
+        fs::write(&section_path, data)
+            .map_err(|e| CliError::io(format!("Cannot write DWARF section {name}: {e}")))?;
+        let status = std::process::Command::new(&objcopy)
+            .args(["--add-section", &format!("{name}={}", section_path.display())])
+            .arg(&input)
+            .arg(&output_path)
+            .status()
+            .map_err(|e| CliError::compilation(format!("Cannot execute llvm-objcopy: {e}")))?;
+        let _ = fs::remove_file(&section_path);
+        if !status.success() {
+            let _ = fs::remove_file(&output_path);
+            return Err(CliError::compilation(format!("llvm-objcopy failed to attach {name}")));
+        }
+        if input != object_path {
+            let _ = fs::remove_file(&input);
+        }
+        input = output_path;
+    }
+    fs::rename(&input, object_path).map_err(|e| {
+        let _ = fs::remove_file(&input);
+        CliError::io(format!("Cannot replace object with DWARF-enabled object: {e}"))
+    })
+}
+
+fn find_tool_on_path(name: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+    for directory in env::split_paths(&path) {
+        let candidate = directory.join(name);
+        if candidate.is_file() { return Some(candidate); }
+        let candidate = directory.join(format!("{name}.exe"));
+        if candidate.is_file() { return Some(candidate); }
+    }
+    None
 }
 
 fn find_main_location_in_source(source: &str) -> Option<(usize, usize, &str)> {

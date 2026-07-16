@@ -6709,12 +6709,17 @@ exist; they are not cosmetic documentation fixes.
   a non-empty PDB whose independent `llvm-pdbutil` inspection finds the real
   `helper`, `main`, `spectra_user_main`, `debug_value`, line subsections, and
   non-zero symbol ranges. The normal CLI fixture and `git diff --check` pass.
-- Remaining before completion: generate and independently validate DWARF on a
-  supported Unix target; connect the emitted local names to compiler-proven
+- Unix progress: `backend/src/dwarf.rs` now generates DWARF v4 DIEs and line
+  programs through `gimli`, and the CLI has a Unix object attachment path;
+  independent validation still requires a real Unix target and linker/tool
+  run.
+- Remaining before completion: connect emitted local names to compiler-proven
   stack or register locations (the current frame-relative ranges are still a
-  compatibility location contract); and execute an interactive
-  source-breakpoint/local smoke when the environment provides a debugger.
-  R-2903 remains `in_progress` until those production criteria are evidenced.
+  compatibility location contract), and execute an interactive
+  source-breakpoint/local smoke. The installed Windows `lldb` cannot start
+  because `python311.dll` is unavailable, so the current report records a
+  failed smoke rather than treating tool presence as evidence. R-2903 remains
+  `in_progress` until those production criteria are evidenced.
 
 ## R-2904 First-Class Tensor IR and Device Lowering
 

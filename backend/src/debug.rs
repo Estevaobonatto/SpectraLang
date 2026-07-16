@@ -244,6 +244,37 @@ pub fn coff_function_ranges(object: &[u8]) -> Vec<CodeViewFunction> {
     result
 }
 
+/// Cross-format symbol ranges used by DWARF emission.  `object` resolves ELF,
+/// Mach-O and COFF symbol tables independently of the linker.
+pub fn native_function_ranges(bytes: &[u8]) -> Vec<CodeViewFunction> {
+    use object::{Object, ObjectSymbol, SymbolKind, SymbolSection};
+    let Ok(file) = object::File::parse(bytes) else { return Vec::new(); };
+    let mut functions = file
+        .symbols()
+        .filter(|symbol| {
+            symbol.is_definition()
+                && symbol.kind() == SymbolKind::Text
+                && !symbol.name().unwrap_or_default().starts_with('.')
+        })
+        .filter_map(|symbol| {
+            let name = symbol.name().ok()?.to_string();
+            let section = match symbol.section() {
+                SymbolSection::Section(index) => index.0.min(u16::MAX as usize) as u16,
+                _ => return None,
+            };
+            Some(CodeViewFunction {
+                name,
+                offset: symbol.address().min(u32::MAX as u64) as u32,
+                size: symbol.size().min(u32::MAX as u64) as u32,
+                section,
+                locals: Vec::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+    functions.sort_by_key(|function| (function.section, function.offset));
+    functions
+}
+
 /// Append a debug section to a COFF object while preserving the existing
 /// sections, relocations, symbols and string table.  This is intentionally a
 /// container rewrite only; the CodeView bytes are produced by this module.

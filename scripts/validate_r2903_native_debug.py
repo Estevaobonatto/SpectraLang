@@ -137,7 +137,37 @@ def main() -> int:
     debugger = next((name for name in ("cdb", "windbg", "gdb", "lldb") if find_tool(name)), None)
     debugger_smoke = {"status": "skipped_environment", "reason": "interactive debugger unavailable"}
     if debugger:
-        debugger_smoke = {"status": "available", "tool": debugger, "note": "structural gate remains authoritative"}
+        debugger_path = find_tool(debugger)
+        smoke_commands = [
+            "target create " + str(exe_path),
+            "breakpoint set --name spectra_user_main",
+            "run",
+            "frame variable debug_value",
+            "quit",
+        ]
+        smoke = subprocess.run(
+            [debugger_path, "-b", *sum((["-o", command] for command in smoke_commands), [])],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            timeout=90,
+        ) if executable.get("status") == "passed" else None
+        smoke_text = (smoke.stdout + smoke.stderr) if smoke else ""
+        smoke_ok = bool(
+            smoke
+            and smoke.returncode == 0
+            and "Breakpoint" in smoke_text
+            and "debug_value" in smoke_text
+        )
+        debugger_smoke = {
+            "status": "passed" if smoke_ok else "failed",
+            "tool": debugger,
+            "path": debugger_path,
+            "commands": smoke_commands,
+            "output_tail": smoke_text[-2000:],
+        }
+        if not smoke_ok:
+            failures.append("interactive debugger smoke did not reach spectra_user_main and inspect debug_value")
     artifact = {}
     if object_path.exists():
         artifact = {"path": str(object_path), "size": object_path.stat().st_size, "sha256": hashlib.sha256(object_path.read_bytes()).hexdigest()}
@@ -153,13 +183,22 @@ def main() -> int:
         "source": str(fixture),
     }
     local_validation = {
-        "status": "passed" if pdb_status == "passed" and "debug_value" not in (pdb_validation.get("missing") or []) else ("not_run" if pdb_status == "not_run" else "failed"),
+        "status": "failed" if pdb_status == "passed" else ("not_run" if pdb_status == "not_run" else "failed"),
         "required": ["debug_value"],
+        "location_evidence": "compatibility_frame_relative_zero",
+        "reason": "compiler-proven stack/register location is not available yet",
     }
+    if local_validation["status"] == "failed":
+        failures.append("native local location is not compiler-proven; compatibility frame-relative records are insufficient")
     native_debug_sections = {
         "status": "passed" if not object_failures else "failed",
         "required": [".debug$S"] if os.name == "nt" else [".debug_info", ".debug_line"],
         "present": sections,
+    }
+    dwarf_validation = {
+        "status": "not_applicable" if os.name == "nt" else ("passed" if not object_failures else "failed"),
+        "required": [".debug_info", ".debug_line"] if os.name != "nt" else [],
+        "parser": "llvm-dwarfdump/readelf" if os.name != "nt" else None,
     }
     result = {
         "schema": SCHEMA,
@@ -172,6 +211,7 @@ def main() -> int:
         "function_validation": function_validation,
         "line_validation": line_validation,
         "local_validation": local_validation,
+        "dwarf_validation": dwarf_validation,
         "sidecar_validation": {"path": str(sidecar), "status": "passed" if not sidecar_failures else "failed", "failures": sidecar_failures},
         "debugger_smoke": debugger_smoke,
         "executable": executable,

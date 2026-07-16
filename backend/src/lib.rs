@@ -3,6 +3,7 @@
 pub mod aot;
 pub mod codegen;
 pub mod debug;
+pub mod dwarf;
 pub mod error;
 
 pub use aot::{AotCodeGenerator, AotOptions};
