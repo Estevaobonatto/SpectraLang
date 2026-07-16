@@ -87,7 +87,7 @@ pub fn sections_for_functions(
         // A location is emitted only for a compiler-proven stack/register
         // mapping.  The current CodeView compatibility path does not provide
         // that proof, so no fabricated DW_OP_fbreg location is emitted here.
-        for local_name in &function.locals {
+        for (local_index, local_name) in function.locals.iter().enumerate() {
             let local = dwarf.unit.add(subprogram, constants::DW_TAG_variable);
             dwarf.unit.get_mut(local).set(
                 constants::DW_AT_name,
@@ -98,6 +98,12 @@ pub fn sections_for_functions(
                 AttributeValue::FileIndex(Some(file)),
             );
             dwarf.unit.get_mut(local).set(constants::DW_AT_decl_line, AttributeValue::Udata(1));
+            if let Some(Some(offset)) = function.local_offsets.get(local_index) {
+                dwarf.unit.get_mut(local).set(
+                    constants::DW_AT_location,
+                    AttributeValue::Exprloc(_location_expression(*offset)),
+                );
+            }
         }
     }
 
@@ -135,6 +141,7 @@ mod tests {
             size: 32,
             section: 1,
             locals: vec!["debug_value".to_string()],
+            local_offsets: vec![Some(-8)],
         }];
         let sections = sections_for_functions("fixture.spectra", "fn helper() {}", &functions)
             .expect("DWARF writer should accept a valid unit");

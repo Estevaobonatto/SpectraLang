@@ -3,6 +3,7 @@
 // with the Spectra runtime static library to produce standalone executables.
 
 use cranelift::prelude::*;
+use cranelift_codegen::ir::ValueLabel;
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule, ObjectProduct};
 use spectra_midend::ir::{
@@ -86,6 +87,11 @@ pub struct AotCodeGenerator {
     string_literal_storage: Vec<Box<[i64]>>,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
+    /// Locations produced by Cranelift's register allocator for labelled IR
+    /// values: (function, IR value id, CFA-relative offset).  These are
+    /// intentionally collected from compiled machine code, never guessed
+    /// from source or sidecar text.
+    debug_locations: Vec<(String, usize, i64)>,
 }
 
 impl AotCodeGenerator {
@@ -561,6 +567,7 @@ impl AotCodeGenerator {
             channel_len_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
+            debug_locations: Vec::new(),
             string_literal_data: HashMap::new(),
             string_literal_storage: Vec::new(),
         }
@@ -569,10 +576,19 @@ impl AotCodeGenerator {
     /// Compile an IR module to a native object file.
     /// Returns the raw bytes of the `.o` / `.obj` file.
     pub fn compile_to_object(
-        mut self,
+        self,
         ir_module: &IRModule,
         opts: &AotOptions,
     ) -> BackendResult<Vec<u8>> {
+        let (bytes, _) = self.compile_to_object_with_locations(ir_module, opts)?;
+        Ok(bytes)
+    }
+
+    pub fn compile_to_object_with_locations(
+        mut self,
+        ir_module: &IRModule,
+        opts: &AotOptions,
+    ) -> BackendResult<(Vec<u8>, Vec<(String, usize, i64)>)> {
         let rename_main = opts.emit_executable;
         let _tensor_ir = validate_tensor_ir(ir_module)?;
 
@@ -609,11 +625,17 @@ impl AotCodeGenerator {
         }
 
         // Emit the finished object.
+        let debug_locations = self.take_debug_locations();
         let product: ObjectProduct = self.module.finish();
 
-        Ok(product
+        let bytes = product
             .emit()
-            .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?)
+            .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?;
+        Ok((bytes, debug_locations))
+    }
+
+    pub fn take_debug_locations(&mut self) -> Vec<(String, usize, i64)> {
+        std::mem::take(&mut self.debug_locations)
     }
 
     fn declare_function(
@@ -670,6 +692,7 @@ impl AotCodeGenerator {
             .clone();
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        builder.func.collect_debug_info();
 
         let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
@@ -813,6 +836,16 @@ impl AotCodeGenerator {
             }
         }
 
+        // Attach Cranelift value labels only after all IR values have been
+        // mapped. The allocator will resolve these labels to a real register
+        // or CFA-relative location in the compiled machine code.
+        for local in &ir_func.locals {
+            if let Some(value_id) = local.value_id {
+                if let Some(&value) = value_map.get(&value_id) {
+                    builder.set_val_label(value, ValueLabel::from_u32(value_id as u32));
+                }
+            }
+        }
         builder.finalize();
 
         self.module
@@ -823,6 +856,21 @@ impl AotCodeGenerator {
                     ir_func.name, e
                 ))
             })?;
+        if let Some(compiled) = self.ctx.compiled_code() {
+            for local in &ir_func.locals {
+                let Some(value_id) = local.value_id else { continue };
+                let label = ValueLabel::from_u32(value_id as u32);
+                if let Some(ranges) = compiled.value_labels_ranges.get(&label) {
+                    for range in ranges {
+                        let rendered = format!("{:?}", range.loc);
+                        if let Some(offset) = rendered.strip_prefix("CFAOffset(").and_then(|s| s.strip_suffix(')')).and_then(|s| s.parse::<i64>().ok()) {
+                            self.debug_locations.push((ir_func.name.clone(), value_id, offset));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         self.module.clear_context(&mut self.ctx);
 
         Ok(())

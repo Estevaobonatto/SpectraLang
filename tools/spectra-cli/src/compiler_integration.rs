@@ -191,10 +191,40 @@ impl AggregateMetrics {
 
 #[derive(Debug)]
 struct FullPipelineArtifacts {
-    ir_module: IRModule,
+    pub(crate) ir_module: IRModule,
     passes: Vec<PassReport>,
     lowering_duration: Duration,
     codegen_duration: Duration,
+}
+
+/// Compiler-owned metadata consumed by native debug emitters.  Keeping this
+/// beside the IR prevents the CLI from reconstructing functions or locals by
+/// scanning source text (which was both lossy and capable of inventing PDB
+/// records for symbols that did not exist in the object).
+#[derive(Debug, Clone)]
+pub struct NativeDebugFunction {
+    pub name: String,
+    pub locals: Vec<String>,
+    pub local_offsets: Vec<Option<i64>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NativeDebugMetadata {
+    pub functions: Vec<NativeDebugFunction>,
+}
+
+fn native_debug_metadata(module: &IRModule, executable: bool) -> NativeDebugMetadata {
+    let mut functions = module.functions.iter().map(|function| NativeDebugFunction {
+        name: if executable && function.name == "main" {
+            "spectra_user_main".to_string()
+        } else {
+            function.name.clone()
+        },
+        locals: function.locals.iter().map(|local| local.name.clone()).collect(),
+        local_offsets: vec![None; function.locals.len()],
+    }).collect::<Vec<_>>();
+    functions.retain(|function| !function.name.is_empty());
+    NativeDebugMetadata { functions }
 }
 
 struct FullPipelineBackend {
@@ -600,19 +630,40 @@ impl SpectraCompiler {
         source: &str,
         filename: &str,
     ) -> Result<Vec<u8>, String> {
+        let (bytes, _) = self.compile_to_object_with_debug_metadata(source, filename)?;
+        Ok(bytes)
+    }
+
+    pub fn compile_to_object_with_debug_metadata(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<(Vec<u8>, NativeDebugMetadata), String> {
         let report = self
             .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+        let metadata = native_debug_metadata(&report.artifacts.ir_module, false);
 
         let aot = AotCodeGenerator::new();
-        aot.compile_to_object(
+        let (bytes, debug_locations) = aot.compile_to_object_with_locations(
             &report.artifacts.ir_module,
             &AotOptions {
                 native_debug: matches!(self.options.debug_info, spectra_compiler::DebugInfoMode::Native),
                 ..AotOptions::default()
             },
         )
-            .map_err(|err| err.to_string())
+            .map_err(|err| err.to_string())?;
+        let mut metadata = metadata;
+        for (function_name, value_id, offset) in debug_locations {
+            if let Some(function) = metadata.functions.iter_mut().find(|f| f.name == function_name) {
+                if let Some(ir_function) = report.artifacts.ir_module.functions.iter().find(|f| f.name == function_name) {
+                    if let Some(index) = ir_function.locals.iter().position(|local| local.value_id == Some(value_id)) {
+                        function.local_offsets[index] = Some(offset);
+                    }
+                }
+            }
+        }
+        Ok((bytes, metadata))
     }
 
     /// Compile a source file to a native object file that contains a full
@@ -624,19 +675,41 @@ impl SpectraCompiler {
         source: &str,
         filename: &str,
     ) -> Result<Vec<u8>, String> {
+        let (bytes, _) = self.compile_to_executable_object_with_debug_metadata(source, filename)?;
+        Ok(bytes)
+    }
+
+    pub fn compile_to_executable_object_with_debug_metadata(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<(Vec<u8>, NativeDebugMetadata), String> {
         let report = self
             .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+        let metadata = native_debug_metadata(&report.artifacts.ir_module, true);
 
         let aot = AotCodeGenerator::new();
-        aot.compile_to_object(
+        let (bytes, debug_locations) = aot.compile_to_object_with_locations(
             &report.artifacts.ir_module,
             &AotOptions {
                 emit_executable: true,
                 native_debug: matches!(self.options.debug_info, spectra_compiler::DebugInfoMode::Native),
             },
         )
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+        let mut metadata = metadata;
+        for (function_name, value_id, offset) in debug_locations {
+            if let Some(function) = metadata.functions.iter_mut().find(|f| f.name == function_name) {
+                let ir_name = if function_name == "spectra_user_main" { "main" } else { &function_name };
+                if let Some(ir_function) = report.artifacts.ir_module.functions.iter().find(|f| f.name == ir_name) {
+                    if let Some(index) = ir_function.locals.iter().position(|local| local.value_id == Some(value_id)) {
+                        function.local_offsets[index] = Some(offset);
+                    }
+                }
+            }
+        }
+        Ok((bytes, metadata))
     }
 
     fn compile_to_report(

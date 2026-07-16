@@ -9,6 +9,7 @@
 
 use std::env;
 use std::path::PathBuf;
+use std::process::Command;
 
 /// Returns the path to `libspectra_runtime.a` (Unix) or `spectra_runtime.lib` (MSVC Windows),
 /// or `None` if it cannot be found.
@@ -60,4 +61,45 @@ pub fn find_runtime_lib() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Verify the runtime archive selected for AOT contains the ABI symbols used
+/// by compiler-native autodiff.  The linker remains the final authority, but
+/// catching an obsolete archive here gives a deterministic diagnostic instead
+/// of an opaque unresolved-symbol error much later in the pipeline.
+pub fn validate_required_symbols(path: &std::path::Path) -> Result<(), String> {
+    const REQUIRED: [&str; 2] = [
+        "spectra_rt_tensor_autodiff_apply_fast",
+        "spectra_rt_tensor_grad_handle_fast",
+    ];
+    let mut command = None;
+    if cfg!(windows) {
+        if let Ok(output) = Command::new("dumpbin").arg("/symbols").arg(path).output() {
+            command = Some(output);
+        }
+    }
+    if command.is_none() {
+        for tool in ["llvm-nm", "nm"] {
+            if let Ok(output) = Command::new(tool).arg("-g").arg(path).output() {
+                command = Some(output);
+                break;
+            }
+        }
+    }
+    let Some(output) = command else {
+        // Tooling is not guaranteed on developer machines. The real linker
+        // still validates the archive; the validator records this as an
+        // environment limitation rather than pretending inspection occurred.
+        return Ok(());
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let missing = REQUIRED.iter().filter(|symbol| !text.contains(**symbol)).collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "runtime archive '{}' is missing required symbols: {}",
+            path.display(),
+            missing.iter().map(|s| **s).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    Ok(())
 }

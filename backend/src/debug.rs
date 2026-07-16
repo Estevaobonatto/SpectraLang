@@ -23,6 +23,10 @@ pub struct CodeViewFunction {
     pub size: u32,
     pub section: u16,
     pub locals: Vec<String>,
+    /// CFA-relative offsets resolved by Cranelift's allocator. `None` means
+    /// the compiler could not prove a native location and therefore no
+    /// def-range record is emitted for that local.
+    pub local_offsets: Vec<Option<i64>>,
 }
 
 fn push_u16(out: &mut Vec<u8>, value: u16) { out.extend_from_slice(&value.to_le_bytes()); }
@@ -81,7 +85,7 @@ fn function_symbols(function: &CodeViewFunction) -> Vec<u8> {
     push_u32(&mut frame, 0x0000_0140); // uses RSP as frame/parameter base
     symbol_record(&mut symbols, 0x1012, &frame); // S_FRAMEPROC
 
-    for local_name in &function.locals {
+    for (local_index, local_name) in function.locals.iter().enumerate() {
         let mut local = Vec::new();
         push_u32(&mut local, 0x74);
         push_u16(&mut local, 0);
@@ -89,12 +93,14 @@ fn function_symbols(function: &CodeViewFunction) -> Vec<u8> {
         local.push(0);
         symbol_record(&mut symbols, S_LOCAL, &local);
 
-        let mut defrange = Vec::new();
-        push_u32(&mut defrange, 0); // frame-pointer-relative offset
-        push_u32(&mut defrange, 0); // relative start
-        push_u16(&mut defrange, function.size.min(u16::MAX as u32) as u16);
-        push_u16(&mut defrange, 0); // no gaps
-        symbol_record(&mut symbols, 0x1142, &defrange); // S_DEFRANGE_FRAMEPOINTER_REL
+        if let Some(Some(offset)) = function.local_offsets.get(local_index) {
+            let mut defrange = Vec::new();
+            push_u32(&mut defrange, *offset as u32);
+            push_u32(&mut defrange, 0); // relative start
+            push_u16(&mut defrange, function.size.min(u16::MAX as u32) as u16);
+            push_u16(&mut defrange, 0); // no gaps
+            symbol_record(&mut symbols, 0x1142, &defrange); // S_DEFRANGE_FRAMEPOINTER_REL
+        }
     }
     symbol_record(&mut symbols, S_END, &[]);
     symbols
@@ -112,6 +118,7 @@ pub fn codeview_section(source_file: &str, functions: &[String], source: &str) -
             size: 1,
             section: 1,
             locals: vec!["debug_value".to_string()],
+            local_offsets: vec![None],
         })
         .collect::<Vec<_>>();
     codeview_section_with_ranges(source_file, &ranges, source)
@@ -227,6 +234,7 @@ pub fn coff_function_ranges(object: &[u8]) -> Vec<CodeViewFunction> {
             size: section_sizes[section as usize].saturating_sub(value).max(1),
             section,
             locals: Vec::new(),
+            local_offsets: Vec::new(),
         });
     }
     // COFF function symbols carry starts but not sizes.  The next symbol in
@@ -267,7 +275,8 @@ pub fn native_function_ranges(bytes: &[u8]) -> Vec<CodeViewFunction> {
                 offset: symbol.address().min(u32::MAX as u64) as u32,
                 size: symbol.size().min(u32::MAX as u64) as u32,
                 section,
-                locals: Vec::new(),
+            locals: Vec::new(),
+            local_offsets: Vec::new(),
             })
         })
         .collect::<Vec<_>>();

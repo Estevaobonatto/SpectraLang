@@ -9,7 +9,8 @@ mod release_channel;
 mod runtime_lib;
 
 use compiler_integration::{
-    forward_program_args, take_last_exec_exit, ModulePipelineSummary, SpectraCompiler,
+    forward_program_args, take_last_exec_exit, ModulePipelineSummary, NativeDebugMetadata,
+    SpectraCompiler,
 };
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use package::{PackageCommand, PackageInvocation};
@@ -1264,13 +1265,13 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
-        let obj_bytes = compiler
-            .compile_to_object_bytes(&source, &filename)
+        let (obj_bytes, debug_metadata) = compiler
+            .compile_to_object_with_debug_metadata(&source, &filename)
             .map_err(|e| CliError::compilation(e))?;
         fs::write(obj_path, &obj_bytes)
             .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
         if native_debug {
-            attach_native_debug(obj_path, &source, source_path)?;
+            attach_native_debug(obj_path, source_path, &debug_metadata)?;
         }
         let debug_map_path = write_aot_debug_map(
             source_path,
@@ -1303,6 +1304,8 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
                  SPECTRA_RUNTIME_LIB environment variable.",
             )
         })?;
+        runtime_lib::validate_required_symbols(&runtime_lib)
+            .map_err(CliError::compilation)?;
 
         // Write the executable object to a temporary path next to the output.
         let obj_path = exe_path.with_extension("spectra_tmp.obj");
@@ -1310,8 +1313,8 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
-        let obj_bytes = compiler
-            .compile_to_executable_object_bytes(&source, &filename)
+        let (obj_bytes, debug_metadata) = compiler
+            .compile_to_executable_object_with_debug_metadata(&source, &filename)
             .map_err(|e| CliError::compilation(e))?;
 
         fs::write(&obj_path, &obj_bytes).map_err(|e| {
@@ -1323,7 +1326,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         })?;
 
         if native_debug {
-            attach_native_debug(&obj_path, &source, source_path)?;
+            attach_native_debug(&obj_path, source_path, &debug_metadata)?;
         }
 
         let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path, native_debug);
@@ -2151,27 +2154,10 @@ fn debug_map_path_for_artifact(artifact_path: &Path) -> PathBuf {
 /// to synthesize native debug information.
 fn attach_native_codeview(
     object_path: &Path,
-    source: &str,
     source_path: &Path,
+    debug_metadata: &NativeDebugMetadata,
 ) -> CliResult<()> {
-    let functions = source
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim_start();
-            let rest = trimmed.strip_prefix("fn ").or_else(|| trimmed.strip_prefix("pub fn "))?;
-            rest.split(['(', '<', ' ']).next().map(str::to_string)
-        })
-        .filter(|name| !name.is_empty())
-        .collect::<Vec<_>>();
-    let mut functions = functions;
-    // The AOT entry wrapper is a real backend symbol used by the executable
-    // linker.  Keep it in the native debug stream so the final PDB can be
-    // reconciled with the object symbol table as well as with user functions.
-    if functions.iter().any(|name| name == "main")
-        && !functions.iter().any(|name| name == "spectra_user_main")
-    {
-        functions.push("spectra_user_main".to_string());
-    }
+    let functions = debug_metadata.functions.iter().map(|function| function.name.clone()).collect::<Vec<_>>();
     let object_bytes = fs::read(object_path)
         .map_err(|e| CliError::io(format!("Cannot read object for debug ranges: {}", e)))?;
     let mut ranged_functions = spectra_backend::debug::coff_function_ranges(&object_bytes);
@@ -2184,20 +2170,20 @@ fn attach_native_codeview(
             "--debug-info=native found no user function symbols in the COFF object",
         ));
     }
-    let local_names = source
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("let "))
-        .filter_map(|rest| rest.split(['=', ':', ' ']).next())
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
     for function in &mut ranged_functions {
-        function.locals = local_names.clone();
+        function.locals = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.locals.clone())
+            .unwrap_or_default();
+        function.local_offsets = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.local_offsets.clone())
+            .unwrap_or_default();
     }
     let records = spectra_backend::debug::codeview_section_with_ranges(
         &source_path.to_string_lossy(),
         &ranged_functions,
-        source,
+        &fs::read_to_string(source_path).map_err(|e| CliError::io(format!("Cannot read source for debug lines: {e}")))?,
     );
     let rewritten = spectra_backend::debug::append_coff_section(
         &object_bytes,
@@ -2210,26 +2196,18 @@ fn attach_native_codeview(
         .map_err(|e| CliError::io(format!("Cannot write CodeView-enabled object: {}", e)))
 }
 
-fn attach_native_debug(object_path: &Path, source: &str, source_path: &Path) -> CliResult<()> {
+fn attach_native_debug(object_path: &Path, source_path: &Path, debug_metadata: &NativeDebugMetadata) -> CliResult<()> {
     if cfg!(windows) {
-        attach_native_codeview(object_path, source, source_path)
+        attach_native_codeview(object_path, source_path, debug_metadata)
     } else {
-        attach_native_dwarf(object_path, source, source_path)
+        attach_native_dwarf(object_path, source_path, debug_metadata)
     }
 }
 
-fn attach_native_dwarf(object_path: &Path, source: &str, source_path: &Path) -> CliResult<()> {
+fn attach_native_dwarf(object_path: &Path, source_path: &Path, debug_metadata: &NativeDebugMetadata) -> CliResult<()> {
     let object_bytes = fs::read(object_path)
         .map_err(|e| CliError::io(format!("Cannot read object for DWARF attachment: {e}")))?;
-    let source_functions = source
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim_start();
-            let rest = trimmed.strip_prefix("fn ").or_else(|| trimmed.strip_prefix("pub fn "))?;
-            rest.split(['(', '<', ' ']).next().map(str::to_string)
-        })
-        .filter(|name| !name.is_empty())
-        .collect::<Vec<_>>();
+    let source_functions = debug_metadata.functions.iter().map(|function| function.name.clone()).collect::<Vec<_>>();
     let mut functions = spectra_backend::debug::native_function_ranges(&object_bytes);
     functions.retain(|function| source_functions.iter().any(|name| name == &function.name));
     if functions.is_empty() {
@@ -2237,19 +2215,21 @@ fn attach_native_dwarf(object_path: &Path, source: &str, source_path: &Path) -> 
             "--debug-info=native found no user function symbols in the Unix object",
         ));
     }
-    let locals = source
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("let "))
-        .filter_map(|rest| rest.split(['=', ':', ' ']).next())
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
     for function in &mut functions {
-        function.locals = locals.clone();
+        function.locals = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.locals.clone())
+            .unwrap_or_default();
+        function.local_offsets = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.local_offsets.clone())
+            .unwrap_or_default();
     }
+    let source = fs::read_to_string(source_path)
+        .map_err(|e| CliError::io(format!("Cannot read source for DWARF lines: {e}")))?;
     let sections = spectra_backend::dwarf::sections_for_functions(
         &source_path.to_string_lossy(),
-        source,
+        &source,
         &functions,
     )
     .map_err(CliError::compilation)?;

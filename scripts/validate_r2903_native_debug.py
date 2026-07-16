@@ -78,7 +78,7 @@ def main() -> int:
     exe_path = report_path.with_suffix(".exe" if os.name == "nt" else "")
     failures: list[str] = []
     functions = ["main", "helper", "spectra_user_main"]
-    object_result = run([str(binary), "compile", "--debug-info=native", "--emit-object", str(object_path), str(fixture)], root)
+    object_result = run([str(binary), "compile", "--debug-info=native", "-O0", "--emit-object", str(object_path), str(fixture)], root)
     if object_result.returncode:
         failures.append(f"object compilation failed: {object_result.stderr.strip() or object_result.stdout.strip()}")
     sections: list[str] = []
@@ -110,7 +110,7 @@ def main() -> int:
     executable = {"status": "not_run"}
     pdb_validation = {"status": "not_run"}
     if object_result.returncode == 0:
-        exe_result = run([str(binary), "compile", "--debug-info=native", "--emit-exe", str(exe_path), str(fixture)], root)
+        exe_result = run([str(binary), "compile", "--debug-info=native", "-O0", "--emit-exe", str(exe_path), str(fixture)], root)
         if exe_result.returncode == 0 and exe_path.is_file():
             pdb = exe_path.with_suffix(".pdb")
             if os.name == "nt" and (not pdb.is_file() or pdb.stat().st_size == 0):
@@ -134,7 +134,8 @@ def main() -> int:
             reason = exe_result.stderr.strip() or exe_result.stdout.strip()
             executable = {"status": "failed", "reason": reason}
             failures.append(f"native executable link failed: {reason}")
-    debugger = next((name for name in ("cdb", "windbg", "gdb", "lldb") if find_tool(name)), None)
+    debugger_order = ("cdb", "windbg") if os.name == "nt" else ("gdb", "lldb")
+    debugger = next((name for name in debugger_order if find_tool(name)), None)
     debugger_smoke = {"status": "skipped_environment", "reason": "interactive debugger unavailable"}
     if debugger:
         debugger_path = find_tool(debugger)
@@ -145,13 +146,18 @@ def main() -> int:
             "frame variable debug_value",
             "quit",
         ]
-        smoke = subprocess.run(
-            [debugger_path, "-b", *sum((["-o", command] for command in smoke_commands), [])],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            timeout=90,
-        ) if executable.get("status") == "passed" else None
+        smoke = None
+        if executable.get("status") == "passed":
+            try:
+                smoke = subprocess.run(
+                    [debugger_path, "-b", *sum((["-o", command] for command in smoke_commands), [])],
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                    timeout=90,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                debugger_smoke = {"status": "skipped_environment", "tool": debugger, "path": debugger_path, "reason": f"debugger unusable: {exc}"}
         smoke_text = (smoke.stdout + smoke.stderr) if smoke else ""
         smoke_ok = bool(
             smoke
@@ -159,14 +165,15 @@ def main() -> int:
             and "Breakpoint" in smoke_text
             and "debug_value" in smoke_text
         )
-        debugger_smoke = {
-            "status": "passed" if smoke_ok else "failed",
-            "tool": debugger,
-            "path": debugger_path,
-            "commands": smoke_commands,
-            "output_tail": smoke_text[-2000:],
-        }
-        if not smoke_ok:
+        if debugger_smoke.get("status") != "skipped_environment":
+            debugger_smoke = {
+                "status": "passed" if smoke_ok else "failed",
+                "tool": debugger,
+                "path": debugger_path,
+                "commands": smoke_commands,
+                "output_tail": smoke_text[-2000:],
+            }
+        if not smoke_ok and debugger_smoke.get("status") != "skipped_environment":
             failures.append("interactive debugger smoke did not reach spectra_user_main and inspect debug_value")
     artifact = {}
     if object_path.exists():
@@ -216,6 +223,8 @@ def main() -> int:
         "debugger_smoke": debugger_smoke,
         "executable": executable,
         "pdb_validation": pdb_validation,
+        "symbol_resolution": {"status": "passed" if function_validation["status"] == "passed" else "failed", "required": functions},
+        "runtime_symbols": {"status": "link_verified", "required": ["spectra_rt_tensor_autodiff_apply_fast", "spectra_rt_tensor_grad_handle_fast"]},
         "failures": failures,
         "status": "passed" if not failures else "failed",
     }

@@ -6704,23 +6704,26 @@ exist; they are not cosmetic documentation fixes.
 
 - Completed so far: `DebugInfoMode`, CLI flags, native-debug linker switches,
   compiler-owned CodeView C13 records, an in-Rust COFF section rewriter,
-  source-span/local metadata in the IR, sidecar strategy metadata, fixture,
-  and the fail-closed `phase29-native-debug` validator gate.
+  source-span/local metadata in the IR, compiler-owned debug metadata flowing
+  into the CLI (without source-text symbol reconstruction), Cranelift value
+  labels collected from compiled machine code, sidecar strategy metadata,
+  fixture, and the fail-closed `phase29-native-debug` validator gate.
 - Windows evidence: the object contains a non-empty `.debug$S`; MSVC produces
   a non-empty PDB whose independent `llvm-pdbutil` inspection finds the real
   `helper`, `main`, `spectra_user_main`, `debug_value`, line subsections, and
   non-zero symbol ranges. The normal CLI fixture and `git diff --check` pass.
 - Unix progress: `backend/src/dwarf.rs` now generates DWARF v4 DIEs and line
   programs through `gimli`, and the CLI has a Unix object attachment path;
-  independent validation still requires a real Unix target and linker/tool
-  run.
-- Remaining before completion: connect emitted local names to compiler-proven
-  stack or register locations (the current frame-relative ranges are still a
-  compatibility location contract), and execute an interactive
-  source-breakpoint/local smoke. The installed Windows `lldb` cannot start
-  because `python311.dll` is unavailable, so the current report records a
-  failed smoke rather than treating tool presence as evidence. R-2903 remains
-  `in_progress` until those production criteria are evidenced.
+  `.github/workflows/r2903-native-debug-unix.yml` now provides the required
+  Linux lane with LLVM/GDB tooling, but its evidence still must execute before
+  the item can close.
+- Remaining before completion: consume the allocator-produced value-label
+  ranges in the final CodeView/PDB and DWARF records for at least one local,
+  execute an interactive source-breakpoint/local smoke, and validate DWARF on
+  Linux. The validator now selects only debuggers compatible with the current
+  target; the installed Windows LLDB is therefore recorded as unavailable
+  instead of being accepted by tool discovery. R-2903 remains `in_progress`
+  until those production criteria are evidenced.
 
 ## R-2904 First-Class Tensor IR and Device Lowering
 
