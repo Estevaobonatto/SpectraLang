@@ -3702,7 +3702,7 @@ title = "OpenTelemetry-Compatible Tracing"
 phase = "phase_27"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-2210", "R-2107"]
 summary = "Add OpenTelemetry-compatible traces: spans, span attributes, context propagation, and an OTLP exporter."
@@ -3710,7 +3710,9 @@ acceptance = [
   "the runtime emits spans for HTTP request handling, database queries, and external calls",
   "the OTLP exporter sends spans to a local collector for tests",
   "the trace context propagates across the supported HTTP clients",
-  "tests assert span hierarchy, attributes, and context propagation"
+  "tests assert span hierarchy, attributes, and context propagation",
+  "the OTLP payload is independently decoded and confirms resource, parent IDs, timestamps, and required attributes",
+  "bounded export, retry, timeout, shutdown, invalid traceparent, and concurrent-context isolation are validated"
 ]
 
 [[items]]

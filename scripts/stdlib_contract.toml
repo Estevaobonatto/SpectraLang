@@ -18,6 +18,7 @@ docs = [
   "docs/api/std-api-query.md",
   "docs/api/std-api-routing.md",
   "docs/api/std-api-server-lifecycle.md",
+  "docs/api/std-api-trace.md",
   "docs/concurrency-serving.md",
 ]
 
@@ -40,6 +41,11 @@ documentation = "docs"
 id = "std-core"
 path = "tests/validation/185_stdlib_contract_audit.spectra"
 covers = ["std.io.*", "std.math.*", "std.string.*", "std.convert.*", "std.random.*", "std.collections.*", "std.fs.*", "std.env.*", "std.option.*", "std.result.*", "std.char.*", "std.time.*", "std.range.*"]
+
+[[probe]]
+id = "api-trace"
+path = "tests/validation/193_opentelemetry_tracing.spectra"
+covers = ["std.api.trace.*"]
 
 [[probe]]
 id = "tensor-kernels"
@@ -391,3 +397,9 @@ prefix = "std.tensor.stats_"
 classification = "baseline"
 roadmap = "R-1603"
 reason = "Metrics expose the current host-call tensor execution and optional accelerator fallback behavior."
+
+[[rule]]
+prefix = "std.api.trace."
+classification = "incomplete"
+roadmap = "R-2701"
+reason = "W3C context and OTLP/HTTP export are implemented and probed; bounded asynchronous export, failure, and concurrency evidence remain before production promotion."

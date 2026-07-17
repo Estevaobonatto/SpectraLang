@@ -611,6 +611,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
         make_std_api_middleware(prefix),
     );
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
+    registry.register_module(format!("{prefix}.trace"), make_std_api_trace(prefix));
 }
 
 fn stdlib_segments(prefix: &str) -> Vec<String> {
@@ -1480,6 +1481,32 @@ fn make_std_api_errors(prefix: &str) -> ModuleExports {
             .functions
             .insert(name.to_string(), pub_fn(params, return_type));
     }
+    exports
+}
+
+fn make_std_api_trace(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("trace"));
+    let config = api_type("TraceConfig");
+    let span = api_type("TraceSpan");
+    exports.types.insert("TraceConfig".to_string(), public_type(&[]));
+    exports.types.insert("TraceSpan".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("config_new", vec![Type::String, Type::String], config.clone()),
+        ("config_set_sample_rate", vec![config.clone(), Type::Float], Type::Bool),
+        ("config_set_batch_size", vec![config.clone(), Type::Int], Type::Bool),
+        ("config_start", vec![config.clone()], Type::Bool),
+        ("config_shutdown", vec![config.clone()], Type::Bool),
+        ("span_start", vec![Type::String, Type::Int], span.clone()),
+        ("span_set_attribute", vec![span.clone(), Type::String, Type::String], Type::Bool),
+        ("span_set_status", vec![span.clone(), Type::Int], Type::Bool),
+        ("span_end", vec![span.clone()], Type::Bool),
+        ("current", vec![], span.clone()),
+        ("parent", vec![span.clone()], span.clone()),
+        ("inject", vec![span.clone()], Type::Bool),
+        ("extract", vec![Type::String], Type::Bool),
+        ("flush", vec![], Type::Int),
+        ("last_error", vec![], Type::String),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
     exports
 }
 

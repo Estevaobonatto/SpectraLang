@@ -201,6 +201,21 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.middleware.trace_short_circuited",
     "spectra.api.errors.last_code",
     "spectra.api.errors.last_message",
+    "spectra.api.trace.config_new",
+    "spectra.api.trace.config_set_sample_rate",
+    "spectra.api.trace.config_set_batch_size",
+    "spectra.api.trace.config_start",
+    "spectra.api.trace.config_shutdown",
+    "spectra.api.trace.span_start",
+    "spectra.api.trace.span_set_attribute",
+    "spectra.api.trace.span_set_status",
+    "spectra.api.trace.span_end",
+    "spectra.api.trace.current",
+    "spectra.api.trace.parent",
+    "spectra.api.trace.inject",
+    "spectra.api.trace.extract",
+    "spectra.api.trace.flush",
+    "spectra.api.trace.last_error",
 ];
 
 pub fn required_host_call_count() -> usize {
@@ -219,6 +234,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 194);
+        assert_eq!(required_host_call_count(), 209);
     }
 }

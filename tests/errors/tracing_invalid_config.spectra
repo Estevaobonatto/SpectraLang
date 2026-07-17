@@ -1,0 +1,9 @@
+module tracing_invalid_config;
+
+import { config_new, config_start } from std.api.trace;
+
+pub fn main() -> int {
+    let config = config_new("not-an-endpoint", "");
+    if config_start(config) == true { return 1; }
+    return 0;
+}

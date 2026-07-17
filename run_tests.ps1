@@ -1149,6 +1149,15 @@ if ($r3007StdlibContract.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase30-stdlib-contract"; Teste = "validate_r3007_stdlib_contract"; Status = $r3007StdlibContract.Status; Detalhe = $r3007StdlibContract.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2701 OpenTelemetry-compatible tracing ---" -ForegroundColor Yellow
+$r2701Tracing = Invoke-HostCommand -name "validate_r2701_tracing" -fileName "python" -arguments @("scripts\validate_r2701_tracing.py", "--binary", $binary, "--fixture", "tests\validation\193_opentelemetry_tracing.spectra", "--report", "target\r2701-tracing\report.json") -workingDir (Get-Location).Path
+if ($r2701Tracing.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase27-opentelemetry-tracing"; Teste = "validate_r2701_tracing"; Status = $r2701Tracing.Status; Detalhe = $r2701Tracing.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27e: R-3003 native production artifact container
 # ---------------------------------------------------------------------------
 Write-Host ""

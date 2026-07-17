@@ -6351,7 +6351,7 @@ operable.
 
 ## R-2701 OpenTelemetry-Compatible Tracing
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
@@ -6364,6 +6364,18 @@ operable.
 - The OTLP exporter sends spans to a local collector for tests.
 - The trace context propagates across the supported HTTP clients.
 - Tests assert span hierarchy, attributes, and context propagation.
+
+### Current implementation evidence
+
+- The runtime now owns trace/span handles, W3C `traceparent` parsing, OTLP/HTTP
+  protobuf export, span attributes/status, and HTTP client/server span hooks.
+- `tests/validation/193_opentelemetry_tracing.spectra` and
+  `scripts/validate_r2701_tracing.py` exercise a real local collector process.
+- R-2701 is not complete yet. The remaining production gates are a bounded
+  asynchronous exporter with retry/timeout/shutdown evidence, full incoming
+  and outgoing HTTP propagation assertions, concurrent-context isolation, and
+  negative CLI diagnostics. A passing smoke fixture alone does not promote the
+  surface to production.
 
 ## R-2702 Prometheus-Compatible Metrics Endpoint
 

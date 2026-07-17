@@ -1,0 +1,34 @@
+module opentelemetry_tracing;
+
+import {
+    TraceConfig,
+    TraceSpan,
+    config_new,
+    config_start,
+    config_shutdown,
+    span_start,
+    span_set_attribute,
+    span_set_status,
+    span_end,
+    flush,
+} from std.api.trace;
+
+pub fn main() -> int {
+    let config: TraceConfig = config_new("http://127.0.0.1:4318/v1/traces", "spectralang-r2701");
+    if config_start(config) != true { return 10; }
+
+    let root: TraceSpan = span_start("http.server", 2);
+    if span_set_attribute(root, "http.request.method", "GET") != true { return 12; }
+    if span_set_attribute(root, "component", "fixture") != true { return 13; }
+
+    let child: TraceSpan = span_start("external.call", 3);
+    if span_set_attribute(child, "external.system", "fixture") != true { return 14; }
+    if span_set_status(child, 1) != true { return 15; }
+    if span_end(child) != true { return 16; }
+
+    if span_set_status(root, 1) != true { return 17; }
+    if span_end(root) != true { return 18; }
+    flush();
+    config_shutdown(config);
+    return 0;
+}

@@ -9803,6 +9803,21 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("middleware", "trace_short_circuited") => {
             Some(host_bool("spectra.api.middleware.trace_short_circuited"))
         }
+        ("trace", "config_new") => Some(host_int("spectra.api.trace.config_new")),
+        ("trace", "config_set_sample_rate") => Some(host_bool("spectra.api.trace.config_set_sample_rate")),
+        ("trace", "config_set_batch_size") => Some(host_bool("spectra.api.trace.config_set_batch_size")),
+        ("trace", "config_start") => Some(host_bool("spectra.api.trace.config_start")),
+        ("trace", "config_shutdown") => Some(host_bool("spectra.api.trace.config_shutdown")),
+        ("trace", "span_start") => Some(host_int("spectra.api.trace.span_start")),
+        ("trace", "span_set_attribute") => Some(host_bool("spectra.api.trace.span_set_attribute")),
+        ("trace", "span_set_status") => Some(host_bool("spectra.api.trace.span_set_status")),
+        ("trace", "span_end") => Some(host_bool("spectra.api.trace.span_end")),
+        ("trace", "current") => Some(host_int("spectra.api.trace.current")),
+        ("trace", "parent") => Some(host_int("spectra.api.trace.parent")),
+        ("trace", "inject") => Some(host_bool("spectra.api.trace.inject")),
+        ("trace", "extract") => Some(host_bool("spectra.api.trace.extract")),
+        ("trace", "flush") => Some(host_int("spectra.api.trace.flush")),
+        ("trace", "last_error") => Some(host_string("spectra.api.trace.last_error")),
         ("cors", "policy") => Some(host_int("spectra.api.cors.policy")),
         ("cors", "permissive") => Some(host_int("spectra.api.cors.permissive")),
         ("cors", "allow_origin") => Some(host_int("spectra.api.cors.allow_origin")),
@@ -9834,7 +9849,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "multipart"
                     || module == "handler"
                     || module == "cors"
-                    || module == "middleware") =>
+                    || module == "middleware"
+                    || module == "trace") =>
         {
             name.as_str()
         }
@@ -9850,7 +9866,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "multipart"
                     || module == "handler"
                     || module == "cors"
-                    || module == "middleware") =>
+                    || module == "middleware"
+                    || module == "trace") =>
         {
             name.as_str()
         }
@@ -9885,6 +9902,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "MiddlewareHandle"
             | "AsyncMiddlewareHandle"
             | "MiddlewareTrace"
+            | "TraceConfig"
+            | "TraceSpan"
             | "CorsPolicy"
     )
 }
@@ -9918,6 +9937,8 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "MiddlewareHandle"
             | "AsyncMiddlewareHandle"
             | "MiddlewareTrace"
+            | "TraceConfig"
+            | "TraceSpan"
             | "CorsPolicy"
     )
 }

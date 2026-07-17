@@ -12,6 +12,7 @@ pub mod memory;
 pub mod numeric;
 pub mod reactor;
 pub mod stdlib;
+pub mod tracing;
 
 pub use memory::{
     CollectionOutcome, HybridMemory, ManualStats, MemoryConfig, MemoryStats, TracedStats,

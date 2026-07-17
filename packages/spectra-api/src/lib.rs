@@ -23,6 +23,7 @@ pub mod query;
 pub mod routing;
 pub mod server;
 pub mod tls;
+pub mod trace;
 
 pub const HOST_PREFIX: &str = "spectra.api.";
 pub const VERSION_MAJOR: SpectraHostValue = 0;
@@ -812,6 +813,21 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         name: "spectra.api.errors.last_message",
         function: errors::last_message,
     },
+    HostCallSpec { name: "spectra.api.trace.config_new", function: trace::config_new },
+    HostCallSpec { name: "spectra.api.trace.config_set_sample_rate", function: trace::config_set_sample_rate },
+    HostCallSpec { name: "spectra.api.trace.config_set_batch_size", function: trace::config_set_batch_size },
+    HostCallSpec { name: "spectra.api.trace.config_start", function: trace::config_start },
+    HostCallSpec { name: "spectra.api.trace.config_shutdown", function: trace::config_shutdown },
+    HostCallSpec { name: "spectra.api.trace.span_start", function: trace::span_start },
+    HostCallSpec { name: "spectra.api.trace.span_set_attribute", function: trace::span_set_attribute },
+    HostCallSpec { name: "spectra.api.trace.span_set_status", function: trace::span_set_status },
+    HostCallSpec { name: "spectra.api.trace.span_end", function: trace::span_end },
+    HostCallSpec { name: "spectra.api.trace.current", function: trace::current },
+    HostCallSpec { name: "spectra.api.trace.parent", function: trace::parent },
+    HostCallSpec { name: "spectra.api.trace.inject", function: trace::inject },
+    HostCallSpec { name: "spectra.api.trace.extract", function: trace::extract },
+    HostCallSpec { name: "spectra.api.trace.flush", function: trace::flush },
+    HostCallSpec { name: "spectra.api.trace.last_error", function: trace::last_error },
 ];
 
 pub fn register() -> usize {
@@ -967,7 +983,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 194);
+        assert_eq!(HOST_CALLS.len(), 209);
     }
 
     #[test]

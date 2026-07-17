@@ -1,4 +1,5 @@
 use crate::http::{Header, Http1Parser, HttpBody, ParsedResponse, ParserConfig};
+use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
 use crate::{read_args, write_result};
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
@@ -203,6 +204,18 @@ impl HttpClient {
     }
 
     pub fn request(&self, request: ClientRequest) -> Result<ClientResponse, ClientError> {
+        let span = tracing::begin_external_span(SpanKind::Client, "http.client").ok();
+        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "http.request.method", &request.method); let _ = tracing::span_set_attribute(id, "url.full", &request.url); }
+        let mut request = request;
+        if let Some(traceparent) = tracing::current_traceparent() {
+            upsert_header(&mut request.headers, "traceparent", &traceparent);
+        }
+        let result = self.request_inner(request);
+        if let Some(id) = span { let _ = tracing::span_set_status(id, if result.is_ok() { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+        result
+    }
+
+    fn request_inner(&self, request: ClientRequest) -> Result<ClientResponse, ClientError> {
         let mut current = request;
         for redirect_count in 0..=self.config.max_redirects {
             let parsed_url = parse_http_url(&current.url)?;

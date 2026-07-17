@@ -1964,6 +1964,13 @@ baselines.
 
 ### Phase 27 — Observability and API Operations
 
+R-2701 is the operational tracing contract for the API and AI workstreams.
+Its production path is runtime-owned W3C context, real HTTP server/client
+instrumentation, and OTLP/HTTP protobuf export to a collector. Serving and
+distributed-training work may depend on this contract, but R-2701 remains
+incomplete until bounded export, failure handling, concurrency isolation, and
+independent payload validation are evidenced.
+
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint
 - `R-2703` Health, readiness, and startup probes (integrated)
