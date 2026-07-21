@@ -1,0 +1,10 @@
+[package]
+name = "spectra-db"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spectra-runtime = { path = "../../runtime" }
+
+[dev-dependencies]
+

@@ -5854,7 +5854,7 @@ ORM.
 
 ## R-2501 Connection Pool (Async-Aware)
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -5866,6 +5866,24 @@ ORM.
 - Acquisition timeout is honored with a typed error.
 - The pool integrates with the database drivers in Phase 25.
 - Tests cover happy path, exhaustion, and recovery.
+
+### Current implementation
+
+- `packages/spectra-db` now provides a generic `ConnectionFactory`, bounded
+  `ConnectionPool`, `PooledConnection`, typed pool errors and lifecycle metrics.
+- Async acquisition uses worker threads for synchronous factory creation and
+  wakers for waiters, so executor threads do not block on connection creation.
+- FIFO waiters, per-acquisition timeout, cancellation, idle reaping, broken
+  connection disposal and graceful shutdown are covered by integration tests.
+- Tests use a real local TCP server. The independent validator writes
+  `target/r2501-connection-pool/report.json` and is wired as the
+  `phase25-connection-pool` gate in `run_tests.ps1`.
+
+### Remaining before completion
+
+- Run the complete repository gate with the new workspace member.
+- Validate consumption by the real SQLite driver in R-2504; this task does not
+  expose a fake `std.api.db` surface or claim database-driver support.
 
 ## R-2502 SQL Query Builder (Type-Safe)
 

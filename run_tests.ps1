@@ -1149,6 +1149,15 @@ if ($r3007StdlibContract.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase30-stdlib-contract"; Teste = "validate_r3007_stdlib_contract"; Status = $r3007StdlibContract.Status; Detalhe = $r3007StdlibContract.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27a: R-2501 async-aware connection pool
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2501 async-aware connection pool ---" -ForegroundColor Yellow
+$r2501ConnectionPool = Invoke-HostCommand -name "validate_r2501_connection_pool" -fileName "python" -arguments @("scripts\validate_r2501_pool.py", "--report", "target\r2501-connection-pool\report.json") -workingDir (Get-Location).Path
+if ($r2501ConnectionPool.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-connection-pool"; Teste = "validate_r2501_connection_pool"; Status = $r2501ConnectionPool.Status; Detalhe = $r2501ConnectionPool.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

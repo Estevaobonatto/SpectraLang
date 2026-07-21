@@ -1929,6 +1929,14 @@ baselines.
 
 ### Phase 25 — Persistence and Database
 
+The Phase 25 foundation is the reusable async-aware connection pool in
+`packages/spectra-db`. R-2501 owns bounded capacity, FIFO acquisition,
+timeouts, cancellation, idle reaping, graceful shutdown and pool lifecycle
+telemetry. It deliberately does not expose a database API or simulate a
+driver; SQLite and the other protocols must consume the pool through their
+own real factories. R-2701 database-query tracing remains dependent on the
+pool and the first real SQLite driver.
+
 - `R-2501` Connection pool (async-aware)
 - `R-2502` SQL query builder (type-safe)
 - `R-2503` Migrations framework

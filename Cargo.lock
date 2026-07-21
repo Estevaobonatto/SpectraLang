@@ -1771,6 +1771,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "spectra-db"
+version = "0.1.0"
+dependencies = [
+ "spectra-runtime",
+]
+
+[[package]]
 name = "spectra-interop"
 version = "0.1.0"
 
