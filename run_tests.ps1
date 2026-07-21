@@ -1153,9 +1153,13 @@ $results += [PSCustomObject]@{ Diretorio = "phase30-stdlib-contract"; Teste = "v
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2701 OpenTelemetry-compatible tracing ---" -ForegroundColor Yellow
-$r2701Tracing = Invoke-HostCommand -name "validate_r2701_tracing" -fileName "python" -arguments @("scripts\validate_r2701_tracing.py", "--binary", $binary, "--fixture", "tests\validation\193_opentelemetry_tracing.spectra", "--report", "target\r2701-tracing\report.json") -workingDir (Get-Location).Path
-if ($r2701Tracing.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
-$results += [PSCustomObject]@{ Diretorio = "phase27-opentelemetry-tracing"; Teste = "validate_r2701_tracing"; Status = $r2701Tracing.Status; Detalhe = $r2701Tracing.Detail }
+$r2701Modes = @("success", "http_500", "invalid_content_type", "connection_drop", "delayed_response")
+foreach ($mode in $r2701Modes) {
+    $report = "target\r2701-tracing\$mode.json"
+    $r2701Tracing = Invoke-HostCommand -name "validate_r2701_tracing_$mode" -fileName "python" -arguments @("scripts\validate_r2701_tracing.py", "--binary", $binary, "--fixture", "tests\validation\193_opentelemetry_tracing.spectra", "--report", $report, "--mode", $mode) -workingDir (Get-Location).Path
+    if ($r2701Tracing.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+    $results += [PSCustomObject]@{ Diretorio = "phase27-opentelemetry-tracing"; Teste = "validate_r2701_tracing_$mode"; Status = $r2701Tracing.Status; Detalhe = $r2701Tracing.Detail }
+}
 
 # ---------------------------------------------------------------------------
 # Grupo 8.27e: R-3003 native production artifact container

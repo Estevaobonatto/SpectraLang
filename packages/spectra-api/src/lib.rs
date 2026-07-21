@@ -820,6 +820,8 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
     HostCallSpec { name: "spectra.api.trace.config_shutdown", function: trace::config_shutdown },
     HostCallSpec { name: "spectra.api.trace.span_start", function: trace::span_start },
     HostCallSpec { name: "spectra.api.trace.span_set_attribute", function: trace::span_set_attribute },
+    HostCallSpec { name: "spectra.api.trace.span_set_attribute_int", function: trace::span_set_attribute_int },
+    HostCallSpec { name: "spectra.api.trace.span_set_attribute_bool", function: trace::span_set_attribute_bool },
     HostCallSpec { name: "spectra.api.trace.span_set_status", function: trace::span_set_status },
     HostCallSpec { name: "spectra.api.trace.span_end", function: trace::span_end },
     HostCallSpec { name: "spectra.api.trace.current", function: trace::current },
@@ -983,7 +985,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 209);
+        assert_eq!(HOST_CALLS.len(), 211);
     }
 
     #[test]

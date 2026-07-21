@@ -3704,7 +3704,7 @@ owner = "runtime"
 priority = "P0"
 status = "in_progress"
 risk = "high"
-dependencies = ["R-2210", "R-2107"]
+dependencies = ["R-2210", "R-2107", "R-2501", "R-2504"]
 summary = "Add OpenTelemetry-compatible traces: spans, span attributes, context propagation, and an OTLP exporter."
 acceptance = [
   "the runtime emits spans for HTTP request handling, database queries, and external calls",

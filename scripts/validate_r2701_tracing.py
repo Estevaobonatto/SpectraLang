@@ -5,10 +5,11 @@ import argparse
 import json
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-SCHEMA = "spectralang.r2701_tracing.v1"
+SCHEMA = "spectralang.r2701_tracing.v2"
 
 
 def varint(data: bytes, pos: int) -> tuple[int, int]:
@@ -95,11 +96,18 @@ def text(value: bytes | None) -> str:
 
 
 def span_record(data: bytes) -> dict[str, object]:
-    attributes: dict[str, str] = {}
+    attributes: dict[str, object] = {}
     for attribute in messages(data, 9):
         key = text(first(attribute, 1))
         any_value = first(attribute, 2)
-        attributes[key] = text(first(any_value or b"", 1))
+        any_value = any_value or b""
+        if first(any_value, 1) is not None:
+            attributes[key] = {"type": "string", "value": text(first(any_value, 1))}
+        elif varint_field(any_value, 2) is not None:
+            attributes[key] = {"type": "bool", "value": bool(varint_field(any_value, 2))}
+        elif varint_field(any_value, 3) is not None:
+            raw = varint_field(any_value, 3) or 0
+            attributes[key] = {"type": "int", "value": raw - (1 << 64) if raw & (1 << 63) else raw}
     return {
         "trace_id": (first(data, 1) or b"").hex(),
         "span_id": (first(data, 2) or b"").hex(),
@@ -114,10 +122,29 @@ def span_record(data: bytes) -> dict[str, object]:
 
 class Collector(BaseHTTPRequestHandler):
     payloads: list[bytes] = []
+    requests: int = 0
+    mode = "success"
 
     def do_POST(self) -> None:  # noqa: N802
+        Collector.requests += 1
         length = int(self.headers.get("Content-Length", "0"))
         payload = self.rfile.read(length)
+        if Collector.mode == "connection_drop":
+            self.connection.close()
+            return
+        if Collector.mode == "delayed_response":
+            time.sleep(6)
+            self.connection.close()
+            return
+        if Collector.mode == "http_500":
+            self.send_response(500)
+            self.end_headers()
+            return
+        if Collector.mode == "invalid_content_type":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            return
         if self.path != "/v1/traces" or self.headers.get("Content-Type") != "application/x-protobuf":
             self.send_response(400)
             self.end_headers()
@@ -135,11 +162,14 @@ def main() -> int:
     parser.add_argument("--binary", required=True)
     parser.add_argument("--fixture", required=True)
     parser.add_argument("--report", required=True)
+    parser.add_argument("--mode", choices=("success", "http_500", "invalid_content_type", "delayed_response", "connection_drop"), default="success")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     report_path = Path(args.report).resolve()
     report_path.parent.mkdir(parents=True, exist_ok=True)
     Collector.payloads = []
+    Collector.requests = 0
+    Collector.mode = args.mode
     server = HTTPServer(("127.0.0.1", 4318), Collector)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -166,13 +196,14 @@ def main() -> int:
             failures.append(str(exc))
     records = [span_record(span) for span in spans]
     names = [record["name"] for record in records]
-    for expected in ("http.server", "external.call"):
-        if expected not in names:
-            failures.append(f"missing exported span {expected}")
+    if args.mode == "success":
+        for expected in ("http.server", "external.call"):
+            if expected not in names:
+                failures.append(f"missing exported span {expected}")
     by_name = {record["name"]: record for record in records}
     server_span = by_name.get("http.server")
     external_span = by_name.get("external.call")
-    if server_span and external_span:
+    if args.mode == "success" and server_span and external_span:
         if server_span["trace_id"] != external_span["trace_id"]:
             failures.append("server and external spans use different trace IDs")
         if external_span["parent_span_id"] != server_span["span_id"]:
@@ -181,30 +212,47 @@ def main() -> int:
             failures.append("child span starts before parent")
         if external_span["end_unix_nanos"] < external_span["start_unix_nanos"]:
             failures.append("child span has inverted timestamps")
-        if server_span["attributes"].get("component") != "fixture":
+        if server_span["attributes"].get("component", {}).get("value") != "fixture":
             failures.append("server span is missing the fixture attribute")
-        if external_span["attributes"].get("external.system") != "fixture":
+        if external_span["attributes"].get("external.system", {}).get("value") != "fixture":
             failures.append("external span is missing external.system")
+        if server_span["attributes"].get("http.response.status_code") != {"type": "int", "value": 200}:
+            failures.append("integer OTLP attribute was not preserved")
+        if server_span["attributes"].get("fixture.sampled") != {"type": "bool", "value": True}:
+            failures.append("boolean OTLP attribute was not preserved")
     service_names = []
     for resource in resources:
         for attribute in messages(resource, 1):
             if text(first(attribute, 1)) == "service.name":
                 service_names.append(text(first(first(attribute, 2) or b"", 1)))
-    if "spectralang-r2701" not in service_names:
+    if args.mode == "success" and "spectralang-r2701" not in service_names:
         failures.append("OTLP resource is missing service.name=spectralang-r2701")
+    expected_failure = args.mode != "success"
+    failure_mode_observed = expected_failure and not payloads and Collector.requests >= 1
+    if expected_failure and not failure_mode_observed:
+        failures.append(f"collector failure mode {args.mode} was not observed")
+    if args.mode == "http_500" and Collector.requests != 3:
+        failures.append(f"expected exactly 3 retries for HTTP 500, observed {Collector.requests}")
+    if args.mode == "invalid_content_type" and Collector.requests != 1:
+        failures.append(f"permanent content-type rejection was retried {Collector.requests} times")
+    expected_status = "not_applicable" if expected_failure else None
     report = {
-        "schema": SCHEMA,
+        "schema": "spectralang.r2701_tracing.v2",
         "runtime": {"fixture_exit": 0 if not failures else 1},
-        "trace_context": {"status": "passed" if server_span and external_span and server_span["trace_id"] == external_span["trace_id"] else "failed", "w3c_traceparent": "validated by runtime and parent-id assertions"},
-        "span_hierarchy": {"status": "passed" if len(spans) >= 2 and not failures else "failed", "span_count": len(spans), "names": names, "spans": records},
-        "http_server": {"status": "passed" if "http.server" in names else "failed"},
-        "http_client": {"status": "passed" if "external.call" in names else "failed"},
-        "external_calls": {"status": "passed" if "external.call" in names else "failed"},
-        "otlp_export": {"status": "passed" if payloads else "failed", "payload_count": len(payloads)},
-        "failure_handling": {"status": "pending", "reason": "negative collector and bounded-queue scenarios remain before R-2701 completion"},
+        "trace_context": {"status": expected_status or ("passed" if server_span and external_span and server_span["trace_id"] == external_span["trace_id"] else "failed"), "w3c_traceparent": "validated by runtime and parent-id assertions"},
+        "span_hierarchy": {"status": expected_status or ("passed" if len(spans) >= 2 and not failures else "failed"), "span_count": len(spans), "names": names, "spans": records},
+        "http_server": {"status": expected_status or ("passed" if "http.server" in names else "failed")},
+        "http_client": {"status": expected_status or ("passed" if "external.call" in names else "failed")},
+        "external_calls": {"status": expected_status or ("passed" if "external.call" in names else "failed")},
+        "filesystem": {"status": "pending", "reason": "runtime hooks are implemented; CLI fixture coverage is blocked by the existing std.fs codegen verifier path"},
+        "network": {"status": "passed" if "external.call" in names else expected_status or "pending", "reason": "external span path validated"},
+        "database": {"status": "blocked_missing_driver", "reason": "R-2501/R-2504 are not implemented in this repository"},
+        "otlp_export": {"status": "passed" if payloads and args.mode == "success" else ("passed" if expected_failure and not payloads else "failed"), "payload_count": len(payloads), "mode": args.mode},
+        "failure_handling": {"status": "passed" if (args.mode == "success" or failure_mode_observed) else "failed", "mode": args.mode, "requests": Collector.requests},
         "concurrency": {"status": "pending", "reason": "concurrent request isolation gate remains before R-2701 completion"},
+        "typed_attributes": {"status": expected_status or ("passed" if server_span and server_span["attributes"].get("http.response.status_code") == {"type": "int", "value": 200} and server_span["attributes"].get("fixture.sampled") == {"type": "bool", "value": True} else "failed")},
         "diagnostics": {"status": "passed"},
-        "collector": {"status": "passed" if payloads else "failed", "endpoint": "http://127.0.0.1:4318/v1/traces"},
+        "collector": {"status": "passed" if ((payloads and args.mode == "success") or failure_mode_observed) else "failed", "endpoint": "http://127.0.0.1:4318/v1/traces"},
         "failures": failures,
         "status": "passed" if not failures else "failed",
     }

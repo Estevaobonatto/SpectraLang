@@ -1498,6 +1498,8 @@ fn make_std_api_trace(prefix: &str) -> ModuleExports {
         ("config_shutdown", vec![config.clone()], Type::Bool),
         ("span_start", vec![Type::String, Type::Int], span.clone()),
         ("span_set_attribute", vec![span.clone(), Type::String, Type::String], Type::Bool),
+        ("span_set_attribute_int", vec![span.clone(), Type::String, Type::Int], Type::Bool),
+        ("span_set_attribute_bool", vec![span.clone(), Type::String, Type::Bool], Type::Bool),
         ("span_set_status", vec![span.clone(), Type::Int], Type::Bool),
         ("span_end", vec![span.clone()], Type::Bool),
         ("current", vec![], span.clone()),

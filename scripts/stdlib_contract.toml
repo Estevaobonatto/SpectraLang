@@ -314,6 +314,13 @@ roadmap = "R-3001"
 reason = "The current server is an in-process deterministic queue and scalar model demonstration, not a networked serving runtime."
 
 [[namespace]]
+prefix = "std.api.trace"
+owner = "runtime"
+classification = "incomplete"
+roadmap = "R-2701"
+reason = "Tracing core and failure probes are real; concurrent request isolation, filesystem CLI evidence, and database-driver instrumentation remain open."
+
+[[namespace]]
 prefix = "std.api"
 owner = "web"
 classification = "production"
@@ -402,4 +409,4 @@ reason = "Metrics expose the current host-call tensor execution and optional acc
 prefix = "std.api.trace."
 classification = "incomplete"
 roadmap = "R-2701"
-reason = "W3C context and OTLP/HTTP export are implemented and probed; bounded asynchronous export, failure, and concurrency evidence remain before production promotion."
+reason = "W3C context, typed attributes, bounded OTLP/HTTP export, and failure probes are implemented; concurrent isolation and real database-driver instrumentation remain before production promotion."

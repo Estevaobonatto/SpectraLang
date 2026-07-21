@@ -6355,7 +6355,7 @@ operable.
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
-- Dependencies: `R-2210`, `R-2107`
+- Dependencies: `R-2210`, `R-2107`, `R-2501`, `R-2504`
 
 ### Acceptance
 
@@ -6367,15 +6367,17 @@ operable.
 
 ### Current implementation evidence
 
-- The runtime now owns trace/span handles, W3C `traceparent` parsing, OTLP/HTTP
-  protobuf export, span attributes/status, and HTTP client/server span hooks.
+- The runtime now owns trace/span handles, W3C `traceparent` parsing, a
+  bounded asynchronous OTLP/HTTP protobuf worker with retry and shutdown,
+  typed span attributes, and HTTP client/server span hooks.
 - `tests/validation/193_opentelemetry_tracing.spectra` and
   `scripts/validate_r2701_tracing.py` exercise a real local collector process.
-- R-2701 is not complete yet. The remaining production gates are a bounded
-  asynchronous exporter with retry/timeout/shutdown evidence, full incoming
-  and outgoing HTTP propagation assertions, concurrent-context isolation, and
-  negative CLI diagnostics. A passing smoke fixture alone does not promote the
-  surface to production.
+- R-2701 is not complete yet. The remaining production gates are full
+  concurrent-context evidence and real database instrumentation. The roadmap
+  has no database driver implementation yet: SQLite tracing depends on
+  `R-2501` and `R-2504`, while PostgreSQL and Redis remain unsupported until
+  `R-2505` and `R-2507` exist. A passing smoke fixture alone does not promote
+  those surfaces to production.
 
 ## R-2702 Prometheus-Compatible Metrics Endpoint
 

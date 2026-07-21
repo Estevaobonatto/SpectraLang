@@ -5,6 +5,7 @@ use crate::ffi::{
 use crate::initialize;
 use crate::memory::ManualBox;
 use crate::reactor::{self, Interest, ReactorEvent};
+use crate::tracing::{self, SpanKind, SpanStatus};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
@@ -14703,7 +14704,12 @@ extern "C" fn std_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
             }
             Err(status) => return status,
         };
-        let content = std::fs::read_to_string(path).unwrap_or_default();
+        let path_label = path.to_string_lossy().to_string();
+        let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.read").ok();
+        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        let read = std::fs::read_to_string(&path);
+        if let Some(id) = span { let _ = tracing::span_set_status(id, if read.is_ok() { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+        let content = read.unwrap_or_default();
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = alloc_spectra_string(&content);
     }
@@ -14733,7 +14739,11 @@ extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
             Err(status) => return status,
         };
         let content = read_spectra_string(args[1]).unwrap_or_default();
+        let path_label = path.to_string_lossy().to_string();
+        let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.write").ok();
+        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
         let ok = fs_write_text(&path, &content, false);
+        if let Some(id) = span { let _ = tracing::span_set_status(id, if ok { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -14763,7 +14773,11 @@ extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
             Err(status) => return status,
         };
         let content = read_spectra_string(args[1]).unwrap_or_default();
+        let path_label = path.to_string_lossy().to_string();
+        let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.append").ok();
+        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
         let ok = fs_write_text(&path, &content, true);
+        if let Some(id) = span { let _ = tracing::span_set_status(id, if ok { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -14792,7 +14806,11 @@ extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
             }
             Err(status) => return status,
         };
+        let path_label = path.to_string_lossy().to_string();
+        let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.exists").ok();
+        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
         let exists = path.exists();
+        if let Some(id) = span { let _ = tracing::span_set_status(id, SpanStatus::Ok); let _ = tracing::span_end(id); }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = exists as SpectraHostValue;
     }
@@ -14821,7 +14839,11 @@ extern "C" fn std_fs_remove(ctx: *mut SpectraHostCallContext) -> i32 {
             }
             Err(status) => return status,
         };
-        let ok = std::fs::remove_file(path).is_ok();
+        let path_label = path.to_string_lossy().to_string();
+        let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.remove").ok();
+        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        let ok = std::fs::remove_file(&path).is_ok();
+        if let Some(id) = span { let _ = tracing::span_set_status(id, if ok { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }

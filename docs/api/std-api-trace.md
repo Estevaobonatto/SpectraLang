@@ -14,6 +14,8 @@ config_start(config)
 
 let span = span_start("operation", 1)
 span_set_attribute(span, "component", "example")
+span_set_attribute_int(span, "http.response.status_code", 200)
+span_set_attribute_bool(span, "fixture.sampled", true)
 span_set_status(span, 1)
 span_end(span)
 flush()
@@ -25,6 +27,11 @@ consumer. Status values are `0` unset, `1` ok, and `2` error. Invalid
 configuration, traceparent, handles, and closed spans are reported through the
 boolean result and the runtime error code; callers must not treat a failed
 operation as an exported span.
+
+Attributes preserve their OTLP type. Use `span_set_attribute` for strings,
+`span_set_attribute_int` for signed integers, and
+`span_set_attribute_bool` for booleans. Reusing a key replaces its previous
+value deterministically.
 
 The default is disabled. HTTP server and client instrumentation is enabled
 only when a configuration is active. Incoming `traceparent` headers are

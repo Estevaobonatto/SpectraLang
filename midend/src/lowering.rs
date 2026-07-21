@@ -9810,6 +9810,8 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("trace", "config_shutdown") => Some(host_bool("spectra.api.trace.config_shutdown")),
         ("trace", "span_start") => Some(host_int("spectra.api.trace.span_start")),
         ("trace", "span_set_attribute") => Some(host_bool("spectra.api.trace.span_set_attribute")),
+        ("trace", "span_set_attribute_int") => Some(host_bool("spectra.api.trace.span_set_attribute_int")),
+        ("trace", "span_set_attribute_bool") => Some(host_bool("spectra.api.trace.span_set_attribute_bool")),
         ("trace", "span_set_status") => Some(host_bool("spectra.api.trace.span_set_status")),
         ("trace", "span_end") => Some(host_bool("spectra.api.trace.span_end")),
         ("trace", "current") => Some(host_int("spectra.api.trace.current")),

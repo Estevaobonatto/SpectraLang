@@ -208,6 +208,8 @@ pub const REQUIRED_HOST_CALLS: &[&str] = &[
     "spectra.api.trace.config_shutdown",
     "spectra.api.trace.span_start",
     "spectra.api.trace.span_set_attribute",
+    "spectra.api.trace.span_set_attribute_int",
+    "spectra.api.trace.span_set_attribute_bool",
     "spectra.api.trace.span_set_status",
     "spectra.api.trace.span_end",
     "spectra.api.trace.current",
@@ -234,6 +236,6 @@ mod tests {
             assert!(name.starts_with(HOST_PREFIX), "{name}");
             assert!(seen.insert(*name), "{name}");
         }
-        assert_eq!(required_host_call_count(), 209);
+        assert_eq!(required_host_call_count(), 211);
     }
 }
