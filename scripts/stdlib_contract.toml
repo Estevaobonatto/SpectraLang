@@ -419,6 +419,6 @@ reason = "The R-2701 v2 collector gate independently validates OTLP payloads, ty
 
 [[rule]]
 prefix = "std.api.db.sqlite."
-classification = "incomplete"
+classification = "production"
 roadmap = "R-2504"
-reason = "Bundled SQLite driver, typed statements, transactions, file-backed fixture and CLI evidence are implemented; async reactor timing and collector-backed HTTP query-span evidence remain before production promotion."
+reason = "The v2 R-2504 gate independently validates bundled SQLite CRUD, typed statements, transactions, pool consumption, cancellation, non-blocking lock waits, and HTTP-parented OTLP query spans."

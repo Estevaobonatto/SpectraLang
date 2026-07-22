@@ -3,6 +3,7 @@ use super::error::{SqliteError, SqliteResult};
 use super::statement::SqliteStatement;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::thread;
@@ -16,6 +17,7 @@ pub struct SqliteExecuteFuture {
     pool: Arc<SqlitePool>,
     sql: String,
     state: Arc<Mutex<AsyncState<usize>>>,
+    cancelled: Arc<AtomicBool>,
     started: bool,
 }
 
@@ -28,6 +30,7 @@ impl SqliteExecuteFuture {
                 result: None,
                 waker: None,
             })),
+            cancelled: Arc::new(AtomicBool::new(false)),
             started: false,
         }
     }
@@ -47,11 +50,18 @@ impl Future for SqliteExecuteFuture {
             let pool = this.pool.clone();
             let sql = this.sql.clone();
             let shared = this.state.clone();
+            let cancelled = this.cancelled.clone();
             thread::spawn(move || {
                 let result = (|| {
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(SqliteError::cancelled());
+                    }
                     let lease = pool
                         .acquire_blocking()
                         .map_err(|error| SqliteError::new("DB2504_POOL", error.to_string()))?;
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(SqliteError::cancelled());
+                    }
                     let mut statement = SqliteStatement::prepare(
                         lease
                             .connection()
@@ -59,6 +69,9 @@ impl Future for SqliteExecuteFuture {
                             .clone(),
                         sql,
                     )?;
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(SqliteError::cancelled());
+                    }
                     statement.step()?;
                     statement.affected_rows()
                 })();
@@ -70,5 +83,13 @@ impl Future for SqliteExecuteFuture {
             });
         }
         Poll::Pending
+    }
+}
+
+impl Drop for SqliteExecuteFuture {
+    fn drop(&mut self) {
+        if self.started {
+            self.cancelled.store(true, Ordering::Release);
+        }
     }
 }

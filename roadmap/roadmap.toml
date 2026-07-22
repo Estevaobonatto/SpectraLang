@@ -3222,7 +3222,7 @@ title = "Connection Pool (Async-Aware)"
 phase = "phase_25"
 owner = "db"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-2107"]
 summary = "Implement a generic async connection pool with configurable min/max size, idle timeout, and acquisition timeout."
@@ -3230,7 +3230,8 @@ acceptance = [
   "the pool enforces the configured min/max size and idle timeout",
   "acquisition timeout is honored with a typed error",
   "the pool integrates with the database drivers in Phase 25",
-  "tests cover happy path, exhaustion, and recovery"
+  "tests cover happy path, exhaustion, and recovery",
+  "the real SQLite driver consumes the shared pool and the phase25 gates pass"
 ]
 
 [[items]]
@@ -3273,7 +3274,7 @@ title = "SQLite Driver (Sync and Async)"
 phase = "phase_25"
 owner = "db"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-2501"]
 summary = "Add a SQLite driver with both synchronous and asynchronous variants, prepared statements, transactions, and a checked-in test database."
@@ -3281,7 +3282,8 @@ acceptance = [
   "CRUD, prepared statements, and transactions work against a file-backed SQLite database",
   "the async driver is non-blocking and integrates with the connection pool",
   "the sync driver is used by the migration framework when running tests",
-  "tests cover CRUD, prepared statements, transactions, and concurrent reads"
+  "tests cover CRUD, prepared statements, transactions, and concurrent reads",
+  "the v2 independent report validates async cancellation, non-blocking lock waits, HTTP-parented SQLite OTLP spans, and the file-backed fixture"
 ]
 
 [[items]]

@@ -22,5 +22,8 @@ dedicated worker and returns a handle consumed by the existing
 `std.async.task.poll` and `std.async.task.result` protocol. It does not run
 SQLite work on the reactor thread.
 
-R-2504 remains `in_progress` until asynchronous reactor timing and
-collector-backed query-span evidence pass the production gate.
+R-2504 is complete. The independent v2 gate validates file-backed CRUD,
+prepared statements, transactions, pool consumption, cancellation, a real
+SQLite lock wait off the reactor thread, and SQLite spans parented by a real
+HTTP server span and decoded from OTLP protobuf. PostgreSQL, Redis, query
+builder, and migrations remain separate roadmap items.

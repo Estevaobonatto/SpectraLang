@@ -5854,7 +5854,7 @@ ORM.
 
 ## R-2501 Connection Pool (Async-Aware)
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -5879,11 +5879,12 @@ ORM.
   `target/r2501-connection-pool/report.json` and is wired as the
   `phase25-connection-pool` gate in `run_tests.ps1`.
 
-### Remaining before completion
+### Completion evidence
 
-- Run the complete repository gate with the new workspace member.
-- Validate consumption by the real SQLite driver in R-2504; this task does not
-  expose a fake `std.api.db` surface or claim database-driver support.
+- The real SQLite driver consumes the shared pool in synchronous and
+  asynchronous integration tests.
+- The pool gate and the R-2504 v2 gate pass without a parallel fake pool or
+  simulated connection implementation.
 
 ## R-2502 SQL Query Builder (Type-Safe)
 
@@ -5918,7 +5919,7 @@ ORM.
 
 ## R-2504 SQLite Driver (Sync and Async)
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -5947,13 +5948,13 @@ ORM.
 - Rust integration tests cover CRUD, prepared statements, transactions,
   concurrent reads and consumption of the shared R-2501 pool.
 - The `phase25-sqlite-driver` gate is registered in `run_tests.ps1`.
-
-### Remaining before completion
-
-- Complete independent async/reactor timing evidence and collector-backed
-  query-span validation through an HTTP parent request.
-- Reconcile the new public surface in the R-3007 production contract before
-  changing this item to `complete`.
+- The v2 independent report validates cancellation while the pool is
+  exhausted, a real SQLite lock wait on a worker thread, and reactor progress
+  during the wait.
+- A real HTTP server request executes SQLite operations and exports
+  `db.sqlite.*` spans to an external OTLP collector; the query span preserves
+  the HTTP parent.
+- `std.api.db.sqlite.*` is classified as `production` in the R-3007 contract.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 

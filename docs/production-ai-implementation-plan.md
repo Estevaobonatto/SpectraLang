@@ -1941,7 +1941,9 @@ R-2504 is the first real consumer: it provides bundled SQLite connections,
 typed prepared statements, transactions, concurrent file-backed reads and a
 public `spectra.api.db.sqlite` host-call surface. Query tracing is emitted by
 the driver for actual operations; PostgreSQL, Redis and the type-safe query
-builder remain separate workstreams.
+builder remain separate workstreams. Its v2 gate also certifies the
+pool-backed async path, cancellation, non-blocking SQLite lock waits, and
+HTTP-parented OTLP query spans.
 
 - `R-2501` Connection pool (async-aware)
 - `R-2502` SQL query builder (type-safe)

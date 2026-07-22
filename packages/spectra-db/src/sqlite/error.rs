@@ -28,6 +28,10 @@ impl SqliteError {
     pub fn invalid_binding(message: impl Into<String>) -> Self {
         Self::new("DB2504_INVALID_BINDING", message)
     }
+
+    pub fn cancelled() -> Self {
+        Self::new("DB2504_CANCELLED", "SQLite operation was cancelled")
+    }
 }
 
 impl fmt::Display for SqliteError {

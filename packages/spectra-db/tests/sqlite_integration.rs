@@ -4,6 +4,7 @@ use spectra_db::sqlite::{
 };
 use spectra_db::{ConnectionPool, PoolConfig};
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -231,6 +232,104 @@ fn concurrent_file_backed_reads_are_isolated() {
     for handle in handles {
         handle.join().unwrap();
     }
+    pool.shutdown().unwrap();
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn cancelled_async_operation_does_not_execute_after_waiter_cancellation() {
+    let path = database_path("cancel");
+    let seed = SqliteConnection::open(&path, Duration::from_secs(1)).unwrap();
+    seed.execute_batch("CREATE TABLE values_table(value INTEGER)")
+        .unwrap();
+    let pool = Arc::new(
+        ConnectionPool::new(
+            SqliteFactory::new(&path),
+            PoolConfig {
+                min_size: 0,
+                max_size: 1,
+                acquisition_timeout: Duration::from_millis(500),
+                ..PoolConfig::default()
+            },
+        )
+        .unwrap(),
+    );
+    let held = pool.acquire_blocking().unwrap();
+    let mut future = Box::pin(SqliteExecuteFuture::new(
+        pool.clone(),
+        "INSERT INTO values_table(value) VALUES(99)",
+    ));
+    fn noop(_: *const ()) {}
+    fn clone(_: *const ()) -> std::task::RawWaker {
+        std::task::RawWaker::new(std::ptr::null(), &VTABLE)
+    }
+    static VTABLE: std::task::RawWakerVTable =
+        std::task::RawWakerVTable::new(clone, noop, noop, noop);
+    let waker =
+        unsafe { std::task::Waker::from_raw(std::task::RawWaker::new(std::ptr::null(), &VTABLE)) };
+    let mut context = std::task::Context::from_waker(&waker);
+    assert!(matches!(
+        future.as_mut().poll(&mut context),
+        std::task::Poll::Pending
+    ));
+    drop(future);
+    drop(held);
+    thread::sleep(Duration::from_millis(100));
+    let mut query =
+        SqliteStatement::prepare(seed.clone(), "SELECT COUNT(*) FROM values_table").unwrap();
+    assert_eq!(query.step().unwrap(), StepResult::Row);
+    assert_eq!(query.column_value(0).unwrap(), SqliteValue::Integer(0));
+    pool.shutdown().unwrap();
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn async_sqlite_lock_wait_runs_off_reactor_thread() {
+    let path = database_path("async-lock");
+    let blocker = SqliteConnection::open(&path, Duration::from_secs(1)).unwrap();
+    blocker
+        .execute_batch("CREATE TABLE values_table(value INTEGER)")
+        .unwrap();
+    blocker.begin().unwrap();
+    let mut held_insert =
+        SqliteStatement::prepare(blocker.clone(), "INSERT INTO values_table(value) VALUES(1)")
+            .unwrap();
+    held_insert.step().unwrap();
+
+    let pool = Arc::new(
+        ConnectionPool::new(
+            SqliteFactory::new(&path).with_busy_timeout(Duration::from_millis(250)),
+            PoolConfig {
+                max_size: 1,
+                acquisition_timeout: Duration::from_secs(1),
+                connection_timeout: Duration::from_secs(1),
+                ..PoolConfig::default()
+            },
+        )
+        .unwrap(),
+    );
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let tick_count = ticks.clone();
+    let stop_flag = stop.clone();
+    let timer = thread::spawn(move || {
+        while !stop_flag.load(Ordering::Acquire) {
+            tick_count.fetch_add(1, Ordering::Relaxed);
+            thread::sleep(Duration::from_millis(5));
+        }
+    });
+    let result = block_on(SqliteExecuteFuture::new(
+        pool.clone(),
+        "INSERT INTO values_table(value) VALUES(2)",
+    ));
+    stop.store(true, Ordering::Release);
+    timer.join().unwrap();
+    assert!(result.is_err());
+    assert!(
+        ticks.load(Ordering::Acquire) >= 5,
+        "timer did not progress while SQLite was locked"
+    );
+    blocker.rollback().unwrap();
     pool.shutdown().unwrap();
     let _ = std::fs::remove_file(path);
 }
