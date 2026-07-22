@@ -1,23 +1,96 @@
 use spectra_db::sqlite::{SqliteConnection, SqliteStatement, SqliteValue, StepResult};
-use spectra_runtime::ffi::{HostFunction, SpectraHostCallContext, HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_SUCCESS};
+use spectra_runtime::ffi::{
+    HostFunction, SpectraHostCallContext, HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_SUCCESS,
+};
 use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-struct Store { next: u64, connections: HashMap<u64, SqliteConnection>, statements: HashMap<u64, SqliteStatement> }
-fn store() -> &'static Mutex<Store> { static STORE: OnceLock<Mutex<Store>> = OnceLock::new(); STORE.get_or_init(|| Mutex::new(Store { next: 1, connections: HashMap::new(), statements: HashMap::new() })) }
-fn last_error() -> &'static Mutex<Option<(String, String)>> { static ERROR: OnceLock<Mutex<Option<(String, String)>>> = OnceLock::new(); ERROR.get_or_init(|| Mutex::new(None)) }
-fn record_error(error: &spectra_db::sqlite::SqliteError) { if let Ok(mut slot) = last_error().lock() { *slot = Some((error.code.to_string(), error.message.clone())); } }
-fn alloc(value: &str) -> i64 { unsafe { tracing::alloc_string(value) } }
-unsafe fn string(value: i64) -> Option<String> { if value == 0 { return None; } let ptr = value as *const i64; let mut bytes = Vec::new(); for index in 0..4096 { let byte = *ptr.add(index) as u8; if byte == 0 { return String::from_utf8(bytes).ok(); } bytes.push(byte); } None }
-unsafe fn args<'a>(ctx: *mut SpectraHostCallContext) -> Option<(&'a [i64], &'a mut [i64])> { if ctx.is_null() { return None; } let context = &*ctx; let input = if context.args.is_null() { &[] } else { std::slice::from_raw_parts(context.args, context.arg_len) }; let output = if context.results.is_null() { &mut [] } else { std::slice::from_raw_parts_mut(context.results, context.result_len) }; Some((input, output)) }
-fn value(result: &mut [i64], value: i64) -> i32 { if result.is_empty() { HOST_STATUS_INVALID_ARGUMENT } else { result[0] = value; HOST_STATUS_SUCCESS } }
-fn bool_result(result: &mut [i64], flag: bool) -> i32 { value(result, flag as i64) }
-fn fail(result: &mut [i64], error: spectra_db::sqlite::SqliteError) -> i32 { record_error(&error); value(result, 0) }
+struct Store {
+    next: u64,
+    connections: HashMap<u64, SqliteConnection>,
+    statements: HashMap<u64, SqliteStatement>,
+}
+fn store() -> &'static Mutex<Store> {
+    static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
+    STORE.get_or_init(|| {
+        Mutex::new(Store {
+            next: 1,
+            connections: HashMap::new(),
+            statements: HashMap::new(),
+        })
+    })
+}
+fn last_error() -> &'static Mutex<Option<(String, String)>> {
+    static ERROR: OnceLock<Mutex<Option<(String, String)>>> = OnceLock::new();
+    ERROR.get_or_init(|| Mutex::new(None))
+}
+fn record_error(error: &spectra_db::sqlite::SqliteError) {
+    if let Ok(mut slot) = last_error().lock() {
+        *slot = Some((error.code.to_string(), error.message.clone()));
+    }
+}
+fn alloc(value: &str) -> i64 {
+    unsafe { tracing::alloc_string(value) }
+}
+unsafe fn string(value: i64) -> Option<String> {
+    if value == 0 {
+        return None;
+    }
+    let ptr = value as *const i64;
+    let mut bytes = Vec::new();
+    for index in 0..4096 {
+        let byte = *ptr.add(index) as u8;
+        if byte == 0 {
+            return String::from_utf8(bytes).ok();
+        }
+        bytes.push(byte);
+    }
+    None
+}
+unsafe fn args<'a>(ctx: *mut SpectraHostCallContext) -> Option<(&'a [i64], &'a mut [i64])> {
+    if ctx.is_null() {
+        return None;
+    }
+    let context = &*ctx;
+    let input = if context.args.is_null() {
+        &[]
+    } else {
+        std::slice::from_raw_parts(context.args, context.arg_len)
+    };
+    let output = if context.results.is_null() {
+        &mut []
+    } else {
+        std::slice::from_raw_parts_mut(context.results, context.result_len)
+    };
+    Some((input, output))
+}
+fn value(result: &mut [i64], value: i64) -> i32 {
+    if result.is_empty() {
+        HOST_STATUS_INVALID_ARGUMENT
+    } else {
+        result[0] = value;
+        HOST_STATUS_SUCCESS
+    }
+}
+fn bool_result(result: &mut [i64], flag: bool) -> i32 {
+    value(result, flag as i64)
+}
+fn fail(result: &mut [i64], error: spectra_db::sqlite::SqliteError) -> i32 {
+    record_error(&error);
+    value(result, 0)
+}
 fn finish_span(span: Option<u64>, success: bool) {
     if let Some(id) = span {
         let _ = tracing::span_set_attribute_bool(id, "db.error", !success);
-        let _ = tracing::span_set_status(id, if success { SpanStatus::Ok } else { SpanStatus::Error });
+        let _ = tracing::span_set_status(
+            id,
+            if success {
+                SpanStatus::Ok
+            } else {
+                SpanStatus::Error
+            },
+        );
         let _ = tracing::span_end(id);
     }
 }
@@ -30,36 +103,466 @@ fn operation_span(name: &str) -> Option<u64> {
     Some(span)
 }
 
-pub extern "C" fn sqlite_open(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT }; let Some(path) = string(a[0]) else { return HOST_STATUS_INVALID_ARGUMENT }; let span = operation_span("db.sqlite.open"); match SqliteConnection::open(path, std::time::Duration::from_secs(5)) { Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.connections.insert(id, connection); finish_span(span, true); value(r, id as i64) }, Err(error) => { finish_span(span, false); fail(r, error) } } } }
-pub extern "C" fn sqlite_close(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT }; let connection = store().lock().unwrap().connections.remove(&(a[0] as u64)); let Some(connection) = connection else { return fail(r, spectra_db::sqlite::SqliteError::invalid_handle()) }; let span = operation_span("db.sqlite.close"); let result = connection.close(); finish_span(span, result.is_ok()); match result { Ok(()) => bool_result(r, true), Err(error) => fail(r, error) } } }
-pub extern "C" fn sqlite_prepare(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT }; let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT }; let connection = store().lock().unwrap().connections.get(&(a[0] as u64)).cloned(); let Some(connection) = connection else { return fail(r, spectra_db::sqlite::SqliteError::invalid_handle()) }; let span = operation_span("db.sqlite.prepare"); match SqliteStatement::prepare(connection, sql) { Ok(statement) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.statements.insert(id, statement); finish_span(span, true); value(r, id as i64) }, Err(error) => { finish_span(span, false); fail(r, error) } } } }
-pub extern "C" fn sqlite_execute_async(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT }; let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT }; let connection = store().lock().unwrap().connections.get(&(a[0] as u64)).cloned(); let Some(connection) = connection else { return fail(r, spectra_db::sqlite::SqliteError::invalid_handle()) }; let task = spectra_runtime::stdlib::spawn_background_task(move || { let mut statement = SqliteStatement::prepare(connection, sql).map_err(|_| ())?; statement.step().map_err(|_| ())?; statement.affected_rows().map_err(|_| ()).map(|rows| rows as i64) }); match task { Ok(task_id) => value(r, task_id), Err(_) => value(r, 0) } } }
-fn with_statement<T>(id: u64, operation: impl FnOnce(&mut SqliteStatement) -> Result<T, spectra_db::sqlite::SqliteError>) -> Result<T, spectra_db::sqlite::SqliteError> { let mut state = store().lock().map_err(|_| spectra_db::sqlite::SqliteError::new("DB2504_LOCK", "SQLite handle store lock poisoned"))?; let statement = state.statements.get_mut(&id).ok_or_else(spectra_db::sqlite::SqliteError::invalid_handle)?; operation(statement) }
-pub extern "C" fn sqlite_bind_null(ctx: *mut SpectraHostCallContext) -> i32 { bind(ctx, SqliteValue::Null) }
-pub extern "C" fn sqlite_bind_int(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 3 { return HOST_STATUS_INVALID_ARGUMENT }; match with_statement(a[0] as u64, |statement| statement.bind(a[1] as usize, SqliteValue::Integer(a[2]))) { Ok(()) => bool_result(r, true), Err(error) => fail(r, error) } } }
-pub extern "C" fn sqlite_bind_float(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 3 { return HOST_STATUS_INVALID_ARGUMENT }; match with_statement(a[0] as u64, |statement| statement.bind(a[1] as usize, SqliteValue::Real(f64::from_bits(a[2] as u64)))) { Ok(()) => bool_result(r, true), Err(error) => fail(r, error) } } }
-pub extern "C" fn sqlite_bind_text(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 3 { return HOST_STATUS_INVALID_ARGUMENT }; let Some(text) = string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT }; match with_statement(a[0] as u64, |statement| statement.bind(a[1] as usize, SqliteValue::Text(text))) { Ok(()) => bool_result(r, true), Err(error) => fail(r, error) } } }
-pub extern "C" fn sqlite_bind_blob(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 3 { return HOST_STATUS_INVALID_ARGUMENT }; let Some(bytes) = string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT }; match with_statement(a[0] as u64, |statement| statement.bind(a[1] as usize, SqliteValue::Blob(bytes.into_bytes()))) { Ok(()) => bool_result(r, true), Err(error) => fail(r, error) } } }
-fn bind(ctx: *mut SpectraHostCallContext, value: SqliteValue) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() < 2 { return HOST_STATUS_INVALID_ARGUMENT }; match with_statement(a[0] as u64, |statement| statement.bind(a[1] as usize, value)) { Ok(()) => bool_result(r, true), Err(error) => fail(r, error) } } }
-pub extern "C" fn sqlite_step(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT }; let span = operation_span("db.sqlite.query"); match with_statement(a[0] as u64, SqliteStatement::step) { Ok(StepResult::Row) => { finish_span(span, true); value(r, 1) }, Ok(StepResult::Done) => { finish_span(span, true); value(r, 2) }, Err(error) => { finish_span(span, false); fail(r, error) } } } }
-pub extern "C" fn sqlite_column_count(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_statement(a[0] as u64, |s| s.column_count()) { Ok(count)=>value(r,count as i64),Err(error)=>fail(r,error) } } }
-pub extern "C" fn sqlite_column_type(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_statement(a[0] as u64, |s| s.column_type(a[1] as usize)) { Ok(kind)=>value(r,kind as i64),Err(error)=>fail(r,error) } } }
-pub extern "C" fn sqlite_column_int(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) { Ok(SqliteValue::Integer(v))=>value(r,v),Ok(_)=>fail(r,spectra_db::sqlite::SqliteError::invalid_state("column is not integer")),Err(error)=>fail(r,error) } } }
-pub extern "C" fn sqlite_column_float(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) { Ok(SqliteValue::Real(v))=>value(r,v.to_bits() as i64),Ok(_)=>fail(r,spectra_db::sqlite::SqliteError::invalid_state("column is not real")),Err(error)=>fail(r,error) } } }
-pub extern "C" fn sqlite_column_text(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) { Ok(SqliteValue::Text(v))=>value(r,alloc(&v)),Ok(_)=>fail(r,spectra_db::sqlite::SqliteError::invalid_state("column is not text")),Err(error)=>fail(r,error) } } }
-pub extern "C" fn sqlite_reset(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_statement(a[0] as u64, SqliteStatement::reset) { Ok(())=>bool_result(r,true),Err(error)=>fail(r,error) } } }
-pub extern "C" fn sqlite_finalize(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT }; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; let mut state=store().lock().unwrap(); let Some(mut statement)=state.statements.remove(&(a[0] as u64)) else{return fail(r,spectra_db::sqlite::SqliteError::invalid_handle())}; match statement.finalize(){Ok(())=>bool_result(r,true),Err(error)=>fail(r,error)} } }
-fn transaction(ctx: *mut SpectraHostCallContext, op: fn(&SqliteConnection) -> spectra_db::sqlite::SqliteResult<()>) -> i32 { unsafe { let Some((a, r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; let connection=store().lock().unwrap().connections.get(&(a[0] as u64)).cloned(); let Some(connection)=connection else{return fail(r,spectra_db::sqlite::SqliteError::invalid_handle())}; let span=operation_span("db.sqlite.transaction"); match op(&connection){Ok(())=>{finish_span(span,true);bool_result(r,true)},Err(error)=>{finish_span(span,false);fail(r,error)}} } }
-pub extern "C" fn sqlite_begin(ctx:*mut SpectraHostCallContext)->i32{transaction(ctx,SqliteConnection::begin)}
-pub extern "C" fn sqlite_commit(ctx:*mut SpectraHostCallContext)->i32{transaction(ctx,SqliteConnection::commit)}
-pub extern "C" fn sqlite_rollback(ctx:*mut SpectraHostCallContext)->i32{transaction(ctx,SqliteConnection::rollback)}
-pub extern "C" fn sqlite_last_error_code(ctx:*mut SpectraHostCallContext)->i32{unsafe{let Some((_,r))=args(ctx)else{return HOST_STATUS_INVALID_ARGUMENT};let code=last_error().lock().ok().and_then(|v|v.as_ref().map(|x|x.0.clone())).unwrap_or_default();value(r,alloc(&code))}}
-pub extern "C" fn sqlite_last_error_message(ctx:*mut SpectraHostCallContext)->i32{unsafe{let Some((_,r))=args(ctx)else{return HOST_STATUS_INVALID_ARGUMENT};let message=last_error().lock().ok().and_then(|v|v.as_ref().map(|x|x.1.clone())).unwrap_or_default();value(r,alloc(&message))}}
+pub extern "C" fn sqlite_open(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = string(a[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let span = operation_span("db.sqlite.open");
+        match SqliteConnection::open(path, std::time::Duration::from_secs(5)) {
+            Ok(connection) => {
+                let mut state = store().lock().unwrap();
+                let id = state.next;
+                state.next += 1;
+                state.connections.insert(id, connection);
+                finish_span(span, true);
+                value(r, id as i64)
+            }
+            Err(error) => {
+                finish_span(span, false);
+                fail(r, error)
+            }
+        }
+    }
+}
+pub extern "C" fn sqlite_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let connection = store().lock().unwrap().connections.remove(&(a[0] as u64));
+        let Some(connection) = connection else {
+            return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
+        };
+        let span = operation_span("db.sqlite.close");
+        let result = connection.close();
+        finish_span(span, result.is_ok());
+        match result {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(sql) = string(a[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let connection = store()
+            .lock()
+            .unwrap()
+            .connections
+            .get(&(a[0] as u64))
+            .cloned();
+        let Some(connection) = connection else {
+            return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
+        };
+        let span = operation_span("db.sqlite.prepare");
+        match SqliteStatement::prepare(connection, sql) {
+            Ok(statement) => {
+                let mut state = store().lock().unwrap();
+                let id = state.next;
+                state.next += 1;
+                state.statements.insert(id, statement);
+                finish_span(span, true);
+                value(r, id as i64)
+            }
+            Err(error) => {
+                finish_span(span, false);
+                fail(r, error)
+            }
+        }
+    }
+}
+pub extern "C" fn sqlite_execute_async(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(sql) = string(a[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let connection = store()
+            .lock()
+            .unwrap()
+            .connections
+            .get(&(a[0] as u64))
+            .cloned();
+        let Some(connection) = connection else {
+            return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
+        };
+        let task = spectra_runtime::stdlib::spawn_background_task(move || {
+            let mut statement = SqliteStatement::prepare(connection, sql).map_err(|_| ())?;
+            statement.step().map_err(|_| ())?;
+            statement
+                .affected_rows()
+                .map_err(|_| ())
+                .map(|rows| rows as i64)
+        });
+        match task {
+            Ok(task_id) => value(r, task_id),
+            Err(_) => value(r, 0),
+        }
+    }
+}
+fn with_statement<T>(
+    id: u64,
+    operation: impl FnOnce(&mut SqliteStatement) -> Result<T, spectra_db::sqlite::SqliteError>,
+) -> Result<T, spectra_db::sqlite::SqliteError> {
+    let mut state = store().lock().map_err(|_| {
+        spectra_db::sqlite::SqliteError::new("DB2504_LOCK", "SQLite handle store lock poisoned")
+    })?;
+    let statement = state
+        .statements
+        .get_mut(&id)
+        .ok_or_else(spectra_db::sqlite::SqliteError::invalid_handle)?;
+    operation(statement)
+}
+pub extern "C" fn sqlite_bind_null(ctx: *mut SpectraHostCallContext) -> i32 {
+    bind(ctx, SqliteValue::Null)
+}
+pub extern "C" fn sqlite_bind_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 3 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |statement| {
+            statement.bind(a[1] as usize, SqliteValue::Integer(a[2]))
+        }) {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_bind_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 3 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |statement| {
+            statement.bind(
+                a[1] as usize,
+                SqliteValue::Real(f64::from_bits(a[2] as u64)),
+            )
+        }) {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_bind_text(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 3 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(text) = string(a[2]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |statement| {
+            statement.bind(a[1] as usize, SqliteValue::Text(text))
+        }) {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_bind_blob(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 3 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(bytes) = string(a[2]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |statement| {
+            statement.bind(a[1] as usize, SqliteValue::Blob(bytes.into_bytes()))
+        }) {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+fn bind(ctx: *mut SpectraHostCallContext, value: SqliteValue) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() < 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |statement| {
+            statement.bind(a[1] as usize, value)
+        }) {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let span = operation_span("db.sqlite.query");
+        match with_statement(a[0] as u64, SqliteStatement::step) {
+            Ok(StepResult::Row) => {
+                finish_span(span, true);
+                value(r, 1)
+            }
+            Ok(StepResult::Done) => {
+                finish_span(span, true);
+                value(r, 2)
+            }
+            Err(error) => {
+                finish_span(span, false);
+                fail(r, error)
+            }
+        }
+    }
+}
+pub extern "C" fn sqlite_column_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |s| s.column_count()) {
+            Ok(count) => value(r, count as i64),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_column_type(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |s| s.column_type(a[1] as usize)) {
+            Ok(kind) => value(r, kind as i64),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_column_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) {
+            Ok(SqliteValue::Integer(v)) => value(r, v),
+            Ok(_) => fail(
+                r,
+                spectra_db::sqlite::SqliteError::invalid_state("column is not integer"),
+            ),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_column_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) {
+            Ok(SqliteValue::Real(v)) => value(r, v.to_bits() as i64),
+            Ok(_) => fail(
+                r,
+                spectra_db::sqlite::SqliteError::invalid_state("column is not real"),
+            ),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_column_text(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 2 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) {
+            Ok(SqliteValue::Text(v)) => value(r, alloc(&v)),
+            Ok(_) => fail(
+                r,
+                spectra_db::sqlite::SqliteError::invalid_state("column is not text"),
+            ),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_reset(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        match with_statement(a[0] as u64, SqliteStatement::reset) {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+pub extern "C" fn sqlite_finalize(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let mut state = store().lock().unwrap();
+        let Some(mut statement) = state.statements.remove(&(a[0] as u64)) else {
+            return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
+        };
+        match statement.finalize() {
+            Ok(()) => bool_result(r, true),
+            Err(error) => fail(r, error),
+        }
+    }
+}
+fn transaction(
+    ctx: *mut SpectraHostCallContext,
+    op: fn(&SqliteConnection) -> spectra_db::sqlite::SqliteResult<()>,
+) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if a.len() != 1 {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let connection = store()
+            .lock()
+            .unwrap()
+            .connections
+            .get(&(a[0] as u64))
+            .cloned();
+        let Some(connection) = connection else {
+            return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
+        };
+        let span = operation_span("db.sqlite.transaction");
+        match op(&connection) {
+            Ok(()) => {
+                finish_span(span, true);
+                bool_result(r, true)
+            }
+            Err(error) => {
+                finish_span(span, false);
+                fail(r, error)
+            }
+        }
+    }
+}
+pub extern "C" fn sqlite_begin(ctx: *mut SpectraHostCallContext) -> i32 {
+    transaction(ctx, SqliteConnection::begin)
+}
+pub extern "C" fn sqlite_commit(ctx: *mut SpectraHostCallContext) -> i32 {
+    transaction(ctx, SqliteConnection::commit)
+}
+pub extern "C" fn sqlite_rollback(ctx: *mut SpectraHostCallContext) -> i32 {
+    transaction(ctx, SqliteConnection::rollback)
+}
+pub extern "C" fn sqlite_last_error_code(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((_, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let code = last_error()
+            .lock()
+            .ok()
+            .and_then(|v| v.as_ref().map(|x| x.0.clone()))
+            .unwrap_or_default();
+        value(r, alloc(&code))
+    }
+}
+pub extern "C" fn sqlite_last_error_message(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((_, r)) = args(ctx) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let message = last_error()
+            .lock()
+            .ok()
+            .and_then(|v| v.as_ref().map(|x| x.1.clone()))
+            .unwrap_or_default();
+        value(r, alloc(&message))
+    }
+}
 
 pub const HOST_CALLS: &[(&str, HostFunction)] = &[
-    ("spectra.api.db.sqlite.open", sqlite_open), ("spectra.api.db.sqlite.close", sqlite_close), ("spectra.api.db.sqlite.prepare", sqlite_prepare),
+    ("spectra.api.db.sqlite.open", sqlite_open),
+    ("spectra.api.db.sqlite.close", sqlite_close),
+    ("spectra.api.db.sqlite.prepare", sqlite_prepare),
     ("spectra.api.db.sqlite.execute_async", sqlite_execute_async),
-    ("spectra.api.db.sqlite.bind_null", sqlite_bind_null), ("spectra.api.db.sqlite.bind_int", sqlite_bind_int), ("spectra.api.db.sqlite.bind_float", sqlite_bind_float), ("spectra.api.db.sqlite.bind_text", sqlite_bind_text), ("spectra.api.db.sqlite.bind_blob", sqlite_bind_blob),
-    ("spectra.api.db.sqlite.step", sqlite_step), ("spectra.api.db.sqlite.column_count", sqlite_column_count), ("spectra.api.db.sqlite.column_type", sqlite_column_type), ("spectra.api.db.sqlite.column_int", sqlite_column_int), ("spectra.api.db.sqlite.column_float", sqlite_column_float), ("spectra.api.db.sqlite.column_text", sqlite_column_text), ("spectra.api.db.sqlite.reset", sqlite_reset), ("spectra.api.db.sqlite.finalize", sqlite_finalize),
-    ("spectra.api.db.sqlite.begin", sqlite_begin), ("spectra.api.db.sqlite.commit", sqlite_commit), ("spectra.api.db.sqlite.rollback", sqlite_rollback), ("spectra.api.db.sqlite.last_error_code", sqlite_last_error_code), ("spectra.api.db.sqlite.last_error_message", sqlite_last_error_message),
+    ("spectra.api.db.sqlite.bind_null", sqlite_bind_null),
+    ("spectra.api.db.sqlite.bind_int", sqlite_bind_int),
+    ("spectra.api.db.sqlite.bind_float", sqlite_bind_float),
+    ("spectra.api.db.sqlite.bind_text", sqlite_bind_text),
+    ("spectra.api.db.sqlite.bind_blob", sqlite_bind_blob),
+    ("spectra.api.db.sqlite.step", sqlite_step),
+    ("spectra.api.db.sqlite.column_count", sqlite_column_count),
+    ("spectra.api.db.sqlite.column_type", sqlite_column_type),
+    ("spectra.api.db.sqlite.column_int", sqlite_column_int),
+    ("spectra.api.db.sqlite.column_float", sqlite_column_float),
+    ("spectra.api.db.sqlite.column_text", sqlite_column_text),
+    ("spectra.api.db.sqlite.reset", sqlite_reset),
+    ("spectra.api.db.sqlite.finalize", sqlite_finalize),
+    ("spectra.api.db.sqlite.begin", sqlite_begin),
+    ("spectra.api.db.sqlite.commit", sqlite_commit),
+    ("spectra.api.db.sqlite.rollback", sqlite_rollback),
+    (
+        "spectra.api.db.sqlite.last_error_code",
+        sqlite_last_error_code,
+    ),
+    (
+        "spectra.api.db.sqlite.last_error_message",
+        sqlite_last_error_message,
+    ),
 ];

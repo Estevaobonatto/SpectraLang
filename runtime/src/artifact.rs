@@ -99,7 +99,11 @@ fn atomic_replace(from: &Path, to: &Path) -> io::Result<()> {
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         )
     };
-    if result == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(not(windows))]
@@ -115,7 +119,9 @@ pub(crate) fn write_atomic(path: &Path, data: &ArtifactData) -> Result<(), Artif
         return Err(invalid("kind must be checkpoint or multi_array"));
     }
     if data.tensors.is_empty() || data.tensors.len() > MAX_ARRAYS {
-        return Err(invalid("artifact must contain between one and MAX_ARRAYS tensors"));
+        return Err(invalid(
+            "artifact must contain between one and MAX_ARRAYS tensors",
+        ));
     }
 
     let mut names = std::collections::HashSet::new();
@@ -143,7 +149,10 @@ pub(crate) fn write_atomic(path: &Path, data: &ArtifactData) -> Result<(), Artif
             .checked_mul(8)
             .ok_or_else(|| invalid("tensor byte length overflows usize"))?;
         if expected_bytes != tensor.bytes.len() {
-            return Err(invalid(format!("tensor {} has incompatible byte length", tensor.name)));
+            return Err(invalid(format!(
+                "tensor {} has incompatible byte length",
+                tensor.name
+            )));
         }
         let offset = checked_u64(payload.len(), "payload offset")?;
         let length = checked_u64(tensor.bytes.len(), "payload length")?;
@@ -175,12 +184,14 @@ pub(crate) fn write_atomic(path: &Path, data: &ArtifactData) -> Result<(), Artif
         "metadata": metadata_value(&data.metadata),
         "arrays": arrays,
     });
-    let manifest_bytes = serde_json::to_vec(&manifest).map_err(|error| invalid(error.to_string()))?;
+    let manifest_bytes =
+        serde_json::to_vec(&manifest).map_err(|error| invalid(error.to_string()))?;
     if manifest_bytes.len() > MAX_METADATA {
         return Err(invalid("manifest exceeds maximum size"));
     }
 
-    let mut bytes = Vec::with_capacity(HEADER_LEN + manifest_bytes.len() + payload.len() + DIGEST_LEN);
+    let mut bytes =
+        Vec::with_capacity(HEADER_LEN + manifest_bytes.len() + payload.len() + DIGEST_LEN);
     bytes.extend_from_slice(MAGIC);
     bytes.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
@@ -207,7 +218,11 @@ pub(crate) fn write_atomic(path: &Path, data: &ArtifactData) -> Result<(), Artif
 }
 
 fn expect_string(object: &Map<String, Value>, key: &str) -> Result<String, ArtifactError> {
-    object.get(key).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| invalid(format!("missing string field {key}")))
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| invalid(format!("missing string field {key}")))
 }
 
 pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
@@ -240,9 +255,21 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
     }
     let manifest: Value = serde_json::from_slice(&bytes[HEADER_LEN..HEADER_LEN + metadata_len])
         .map_err(|error| invalid(format!("invalid manifest JSON: {error}")))?;
-    let object = manifest.as_object().ok_or_else(|| invalid("manifest must be an object"))?;
+    let object = manifest
+        .as_object()
+        .ok_or_else(|| invalid("manifest must be an object"))?;
     for key in object.keys() {
-        if !matches!(key.as_str(), "schema" | "format_version" | "kind" | "name" | "model_version" | "compatibility" | "metadata" | "arrays") {
+        if !matches!(
+            key.as_str(),
+            "schema"
+                | "format_version"
+                | "kind"
+                | "name"
+                | "model_version"
+                | "compatibility"
+                | "metadata"
+                | "arrays"
+        ) {
             return Err(invalid(format!("unknown manifest field {key}")));
         }
     }
@@ -251,9 +278,13 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
     {
         return Err(invalid("manifest schema/version mismatch"));
     }
-    let compatibility = object.get("compatibility").and_then(Value::as_object).ok_or_else(|| invalid("compatibility must be an object"))?;
+    let compatibility = object
+        .get("compatibility")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("compatibility must be an object"))?;
     if compatibility.get("container").and_then(Value::as_str) != Some("spectralang.artifact.v1")
-        || compatibility.get("tensor_encoding").and_then(Value::as_str) != Some("little-endian-f64-slots")
+        || compatibility.get("tensor_encoding").and_then(Value::as_str)
+            != Some("little-endian-f64-slots")
     {
         return Err(invalid("unsupported compatibility contract"));
     }
@@ -261,12 +292,24 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
     if kind != "checkpoint" && kind != "multi_array" {
         return Err(invalid("invalid artifact kind"));
     }
-    let metadata_object = object.get("metadata").and_then(Value::as_object).ok_or_else(|| invalid("metadata must be an object"))?;
+    let metadata_object = object
+        .get("metadata")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("metadata must be an object"))?;
     let mut metadata = BTreeMap::new();
     for (key, value) in metadata_object {
-        metadata.insert(key.clone(), value.as_str().ok_or_else(|| invalid("metadata values must be strings"))?.to_owned());
+        metadata.insert(
+            key.clone(),
+            value
+                .as_str()
+                .ok_or_else(|| invalid("metadata values must be strings"))?
+                .to_owned(),
+        );
     }
-    let array_values = object.get("arrays").and_then(Value::as_array).ok_or_else(|| invalid("arrays must be an array"))?;
+    let array_values = object
+        .get("arrays")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("arrays must be an array"))?;
     if array_values.is_empty() || array_values.len() > MAX_ARRAYS {
         return Err(invalid("invalid array count"));
     }
@@ -276,9 +319,21 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
     let mut ranges = Vec::with_capacity(array_values.len());
     let mut tensors = Vec::with_capacity(array_values.len());
     for value in array_values {
-        let item = value.as_object().ok_or_else(|| invalid("array entry must be an object"))?;
+        let item = value
+            .as_object()
+            .ok_or_else(|| invalid("array entry must be an object"))?;
         for key in item.keys() {
-            if !matches!(key.as_str(), "name" | "dtype" | "precision" | "shape" | "layout" | "offset" | "length" | "checksum") {
+            if !matches!(
+                key.as_str(),
+                "name"
+                    | "dtype"
+                    | "precision"
+                    | "shape"
+                    | "layout"
+                    | "offset"
+                    | "length"
+                    | "checksum"
+            ) {
                 return Err(invalid(format!("unknown array field {key}")));
             }
         }
@@ -295,18 +350,41 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
         if dtype != "int" && dtype != "float" || precision != "f64" || layout != "contiguous" {
             return Err(invalid("unsupported array representation"));
         }
-        let shape = item.get("shape").and_then(Value::as_array).ok_or_else(|| invalid("array shape must be an array"))?.iter().map(|dim| dim.as_u64().and_then(|value| usize::try_from(value).ok()).ok_or_else(|| invalid("array shape must contain integers"))).collect::<Result<Vec<_>, _>>()?;
+        let shape = item
+            .get("shape")
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid("array shape must be an array"))?
+            .iter()
+            .map(|dim| {
+                dim.as_u64()
+                    .and_then(|value| usize::try_from(value).ok())
+                    .ok_or_else(|| invalid("array shape must contain integers"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if shape.is_empty() || shape.iter().any(|dim| *dim == 0) {
             return Err(invalid("array shape must be non-empty and non-zero"));
         }
-        let offset = item.get("offset").and_then(Value::as_u64).and_then(|value| usize::try_from(value).ok()).ok_or_else(|| invalid("invalid array offset"))?;
-        let length = item.get("length").and_then(Value::as_u64).and_then(|value| usize::try_from(value).ok()).ok_or_else(|| invalid("invalid array length"))?;
-        let end = offset.checked_add(length).ok_or_else(|| invalid("array range overflows"))?;
+        let offset = item
+            .get("offset")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| invalid("invalid array offset"))?;
+        let length = item
+            .get("length")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| invalid("invalid array length"))?;
+        let end = offset
+            .checked_add(length)
+            .ok_or_else(|| invalid("array range overflows"))?;
         if end > payload.len() {
             return Err(invalid("array range exceeds payload"));
         }
         ranges.push((offset, end, name.clone()));
-        let elements = shape.iter().try_fold(1usize, |acc, dim| acc.checked_mul(*dim)).ok_or_else(|| invalid("array shape overflows"))?;
+        let elements = shape
+            .iter()
+            .try_fold(1usize, |acc, dim| acc.checked_mul(*dim))
+            .ok_or_else(|| invalid("array shape overflows"))?;
         if elements.checked_mul(8) != Some(length) {
             return Err(invalid("array length does not match shape"));
         }
@@ -314,12 +392,22 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
         if expect_string(item, "checksum")? != digest(&array_bytes) {
             return Err(invalid(format!("checksum mismatch for array {name}")));
         }
-        tensors.push(TensorPayload { name, dtype, precision, shape, layout, bytes: array_bytes });
+        tensors.push(TensorPayload {
+            name,
+            dtype,
+            precision,
+            shape,
+            layout,
+            bytes: array_bytes,
+        });
     }
     ranges.sort_unstable_by_key(|(start, _, _)| *start);
     for window in ranges.windows(2) {
         if window[0].1 > window[1].0 {
-            return Err(invalid(format!("array ranges overlap: {} and {}", window[0].2, window[1].2)));
+            return Err(invalid(format!(
+                "array ranges overlap: {} and {}",
+                window[0].2, window[1].2
+            )));
         }
     }
     let name = expect_string(object, "name")?;
@@ -327,7 +415,13 @@ pub(crate) fn read(path: &Path) -> Result<ArtifactData, ArtifactError> {
     if name.is_empty() || model_version.is_empty() {
         return Err(invalid("name and model_version are required"));
     }
-    Ok(ArtifactData { name, model_version, kind, metadata, tensors })
+    Ok(ArtifactData {
+        name,
+        model_version,
+        kind,
+        metadata,
+        tensors,
+    })
 }
 
 pub(crate) fn validate(path: &Path) -> bool {
@@ -344,7 +438,14 @@ mod tests {
             model_version: "v1".to_string(),
             kind: "multi_array".to_string(),
             metadata: BTreeMap::from([("owner".to_string(), "test".to_string())]),
-            tensors: vec![TensorPayload { name: "weights".to_string(), dtype: "float".to_string(), precision: "f64".to_string(), shape: vec![2], layout: "contiguous".to_string(), bytes: vec![0; 16] }],
+            tensors: vec![TensorPayload {
+                name: "weights".to_string(),
+                dtype: "float".to_string(),
+                precision: "f64".to_string(),
+                shape: vec![2],
+                layout: "contiguous".to_string(),
+                bytes: vec![0; 16],
+            }],
         }
     }
 
@@ -364,7 +465,8 @@ mod tests {
 
     #[test]
     fn rejects_truncation_and_unsupported_version() {
-        let path = std::env::temp_dir().join(format!("spectra-r3003-invalid-{}.spar", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("spectra-r3003-invalid-{}.spar", std::process::id()));
         write_atomic(&path, &sample()).unwrap();
         let bytes = fs::read(&path).unwrap();
         fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();

@@ -814,45 +814,162 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         name: "spectra.api.errors.last_message",
         function: errors::last_message,
     },
-    HostCallSpec { name: "spectra.api.trace.config_new", function: trace::config_new },
-    HostCallSpec { name: "spectra.api.trace.config_set_sample_rate", function: trace::config_set_sample_rate },
-    HostCallSpec { name: "spectra.api.trace.config_set_batch_size", function: trace::config_set_batch_size },
-    HostCallSpec { name: "spectra.api.trace.config_start", function: trace::config_start },
-    HostCallSpec { name: "spectra.api.trace.config_shutdown", function: trace::config_shutdown },
-    HostCallSpec { name: "spectra.api.trace.span_start", function: trace::span_start },
-    HostCallSpec { name: "spectra.api.trace.span_set_attribute", function: trace::span_set_attribute },
-    HostCallSpec { name: "spectra.api.trace.span_set_attribute_int", function: trace::span_set_attribute_int },
-    HostCallSpec { name: "spectra.api.trace.span_set_attribute_bool", function: trace::span_set_attribute_bool },
-    HostCallSpec { name: "spectra.api.trace.span_set_status", function: trace::span_set_status },
-    HostCallSpec { name: "spectra.api.trace.span_end", function: trace::span_end },
-    HostCallSpec { name: "spectra.api.trace.current", function: trace::current },
-    HostCallSpec { name: "spectra.api.trace.parent", function: trace::parent },
-    HostCallSpec { name: "spectra.api.trace.inject", function: trace::inject },
-    HostCallSpec { name: "spectra.api.trace.extract", function: trace::extract },
-    HostCallSpec { name: "spectra.api.trace.flush", function: trace::flush },
-    HostCallSpec { name: "spectra.api.trace.last_error", function: trace::last_error },
-    HostCallSpec { name: "spectra.api.db.sqlite.open", function: db::sqlite_open },
-    HostCallSpec { name: "spectra.api.db.sqlite.close", function: db::sqlite_close },
-    HostCallSpec { name: "spectra.api.db.sqlite.prepare", function: db::sqlite_prepare },
-    HostCallSpec { name: "spectra.api.db.sqlite.execute_async", function: db::sqlite_execute_async },
-    HostCallSpec { name: "spectra.api.db.sqlite.bind_null", function: db::sqlite_bind_null },
-    HostCallSpec { name: "spectra.api.db.sqlite.bind_int", function: db::sqlite_bind_int },
-    HostCallSpec { name: "spectra.api.db.sqlite.bind_float", function: db::sqlite_bind_float },
-    HostCallSpec { name: "spectra.api.db.sqlite.bind_text", function: db::sqlite_bind_text },
-    HostCallSpec { name: "spectra.api.db.sqlite.bind_blob", function: db::sqlite_bind_blob },
-    HostCallSpec { name: "spectra.api.db.sqlite.step", function: db::sqlite_step },
-    HostCallSpec { name: "spectra.api.db.sqlite.column_count", function: db::sqlite_column_count },
-    HostCallSpec { name: "spectra.api.db.sqlite.column_type", function: db::sqlite_column_type },
-    HostCallSpec { name: "spectra.api.db.sqlite.column_int", function: db::sqlite_column_int },
-    HostCallSpec { name: "spectra.api.db.sqlite.column_float", function: db::sqlite_column_float },
-    HostCallSpec { name: "spectra.api.db.sqlite.column_text", function: db::sqlite_column_text },
-    HostCallSpec { name: "spectra.api.db.sqlite.reset", function: db::sqlite_reset },
-    HostCallSpec { name: "spectra.api.db.sqlite.finalize", function: db::sqlite_finalize },
-    HostCallSpec { name: "spectra.api.db.sqlite.begin", function: db::sqlite_begin },
-    HostCallSpec { name: "spectra.api.db.sqlite.commit", function: db::sqlite_commit },
-    HostCallSpec { name: "spectra.api.db.sqlite.rollback", function: db::sqlite_rollback },
-    HostCallSpec { name: "spectra.api.db.sqlite.last_error_code", function: db::sqlite_last_error_code },
-    HostCallSpec { name: "spectra.api.db.sqlite.last_error_message", function: db::sqlite_last_error_message },
+    HostCallSpec {
+        name: "spectra.api.trace.config_new",
+        function: trace::config_new,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_set_sample_rate",
+        function: trace::config_set_sample_rate,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_set_batch_size",
+        function: trace::config_set_batch_size,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_start",
+        function: trace::config_start,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_shutdown",
+        function: trace::config_shutdown,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_start",
+        function: trace::span_start,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_attribute",
+        function: trace::span_set_attribute,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_attribute_int",
+        function: trace::span_set_attribute_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_attribute_bool",
+        function: trace::span_set_attribute_bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_status",
+        function: trace::span_set_status,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_end",
+        function: trace::span_end,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.current",
+        function: trace::current,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.parent",
+        function: trace::parent,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.inject",
+        function: trace::inject,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.extract",
+        function: trace::extract,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.flush",
+        function: trace::flush,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.last_error",
+        function: trace::last_error,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.open",
+        function: db::sqlite_open,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.close",
+        function: db::sqlite_close,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.prepare",
+        function: db::sqlite_prepare,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.execute_async",
+        function: db::sqlite_execute_async,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_null",
+        function: db::sqlite_bind_null,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_int",
+        function: db::sqlite_bind_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_float",
+        function: db::sqlite_bind_float,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_text",
+        function: db::sqlite_bind_text,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_blob",
+        function: db::sqlite_bind_blob,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.step",
+        function: db::sqlite_step,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_count",
+        function: db::sqlite_column_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_type",
+        function: db::sqlite_column_type,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_int",
+        function: db::sqlite_column_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_float",
+        function: db::sqlite_column_float,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_text",
+        function: db::sqlite_column_text,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.reset",
+        function: db::sqlite_reset,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.finalize",
+        function: db::sqlite_finalize,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.begin",
+        function: db::sqlite_begin,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.commit",
+        function: db::sqlite_commit,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.rollback",
+        function: db::sqlite_rollback,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.last_error_code",
+        function: db::sqlite_last_error_code,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.last_error_message",
+        function: db::sqlite_last_error_message,
+    },
 ];
 
 pub fn register() -> usize {

@@ -821,7 +821,7 @@ title = "GPU Backend MVP"
 phase = "phase_7"
 owner = "numerics"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-701", "R-401"]
 summary = "Maintain the validated optional WGPU accelerator baseline for core float tensor operations while tracking kernel efficiency, native device lowering, and additional backend work as follow-ups."
@@ -3702,7 +3702,7 @@ title = "OpenTelemetry-Compatible Tracing"
 phase = "phase_27"
 owner = "runtime"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "high"
 dependencies = ["R-2210", "R-2107", "R-2501", "R-2504"]
 summary = "Add OpenTelemetry-compatible traces: spans, span attributes, context propagation, and an OTLP exporter."
@@ -3712,7 +3712,8 @@ acceptance = [
   "the trace context propagates across the supported HTTP clients",
   "tests assert span hierarchy, attributes, and context propagation",
   "the OTLP payload is independently decoded and confirms resource, parent IDs, timestamps, and required attributes",
-  "bounded export, retry, timeout, shutdown, invalid traceparent, and concurrent-context isolation are validated"
+  "bounded export, retry, timeout, shutdown, invalid traceparent, and concurrent-context isolation are validated",
+  "the R-2701 v2 report passes all collector modes and the phase27 gate"
 ]
 
 [[items]]

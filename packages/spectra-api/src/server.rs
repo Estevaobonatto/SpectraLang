@@ -421,15 +421,36 @@ fn service_connection(
                     .iter()
                     .find(|header| header.name.eq_ignore_ascii_case("traceparent"))
                     .and_then(|header| tracing::extract(&header.value).ok());
-                let trace_span = tracing::span_start_with_parent("http.server", SpanKind::Server, extracted_parent).ok();
+                let trace_span = tracing::span_start_with_parent(
+                    "http.server",
+                    SpanKind::Server,
+                    extracted_parent,
+                )
+                .ok();
                 if let Some(id) = trace_span {
                     let _ = tracing::span_set_attribute(id, "http.request.method", &method);
                     let _ = tracing::span_set_attribute(id, "url.path", &request.target);
                 }
                 let response = handler(request);
                 if let Some(id) = trace_span {
-                    let _ = tracing::span_set_attribute(id, "http.response.status_code", &response.status_code.to_string());
-                    let _ = tracing::span_set_status(id, if response.status_code < 500 { SpanStatus::Ok } else { SpanStatus::Error });
+                    let _ = tracing::span_set_attribute_int(
+                        id,
+                        "http.response.status_code",
+                        response.status_code as i64,
+                    );
+                    let _ = tracing::span_set_attribute_int(
+                        id,
+                        "http.response.body.size",
+                        response.body.bytes().len() as i64,
+                    );
+                    let _ = tracing::span_set_status(
+                        id,
+                        if response.status_code < 500 {
+                            SpanStatus::Ok
+                        } else {
+                            SpanStatus::Error
+                        },
+                    );
                     let _ = tracing::span_end(id);
                 }
                 queue_response(connection, response, method == "HEAD", close);

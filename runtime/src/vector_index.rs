@@ -85,7 +85,10 @@ fn deterministic_level(ordinal: usize) -> usize {
 }
 
 fn normalize(vector: &[f64], dimension: usize) -> Result<Vec<f64>, VectorIndexError> {
-    if vector.len() != dimension || vector.is_empty() || vector.iter().any(|value| !value.is_finite()) {
+    if vector.len() != dimension
+        || vector.is_empty()
+        || vector.iter().any(|value| !value.is_finite())
+    {
         return Err(invalid("vector must be finite and match index dimension"));
     }
     let norm = vector.iter().map(|value| value * value).sum::<f64>().sqrt();
@@ -121,7 +124,12 @@ impl VectorIndex {
             links: Vec::new(),
             entry_point: 0,
             max_level: 0,
-            metrics: VectorIndexMetrics { insert_count: 0, query_count: 0, total_insert_ns: 0, total_query_ns: 0 },
+            metrics: VectorIndexMetrics {
+                insert_count: 0,
+                query_count: 0,
+                total_insert_ns: 0,
+                total_query_ns: 0,
+            },
         })
     }
 
@@ -147,31 +155,67 @@ impl VectorIndex {
         }
         self.rebuild_graph();
         self.metrics.insert_count = self.metrics.insert_count.saturating_add(1);
-        self.metrics.total_insert_ns = self.metrics.total_insert_ns.saturating_add(started.elapsed().as_nanos());
+        self.metrics.total_insert_ns = self
+            .metrics
+            .total_insert_ns
+            .saturating_add(started.elapsed().as_nanos());
         Ok(self.entries.len())
     }
 
     fn rebuild_graph(&mut self) {
-        self.max_level = self.entries.iter().map(|entry| entry.level).max().unwrap_or(0);
-        self.entry_point = self.entries.iter().enumerate().max_by(|(_, left), (_, right)| {
-            left.level.cmp(&right.level).then_with(|| right.id.cmp(&left.id))
-        }).map(|(index, _)| index).unwrap_or(0);
-        self.links = self.entries.iter().map(|entry| vec![Vec::new(); entry.level + 1]).collect();
+        self.max_level = self
+            .entries
+            .iter()
+            .map(|entry| entry.level)
+            .max()
+            .unwrap_or(0);
+        self.entry_point = self
+            .entries
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| {
+                left.level
+                    .cmp(&right.level)
+                    .then_with(|| right.id.cmp(&left.id))
+            })
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+        self.links = self
+            .entries
+            .iter()
+            .map(|entry| vec![Vec::new(); entry.level + 1])
+            .collect();
         for index in 0..self.entries.len() {
             let level = self.entries[index].level;
             for layer in 0..=level {
                 let mut candidates = (0..index)
                     .filter(|candidate| self.entries[*candidate].level >= layer)
-                    .map(|candidate| (candidate, score(&self.entries[index].vector, &self.entries[candidate].vector)))
+                    .map(|candidate| {
+                        (
+                            candidate,
+                            score(&self.entries[index].vector, &self.entries[candidate].vector),
+                        )
+                    })
                     .collect::<Vec<_>>();
-                candidates.sort_by(|left, right| right.1.total_cmp(&left.1).then_with(|| self.entries[left.0].id.cmp(&self.entries[right.0].id)));
+                candidates.sort_by(|left, right| {
+                    right
+                        .1
+                        .total_cmp(&left.1)
+                        .then_with(|| self.entries[left.0].id.cmp(&self.entries[right.0].id))
+                });
                 for (candidate, _) in candidates.into_iter().take(M) {
                     self.links[index][layer].push(candidate);
                     self.links[candidate][layer].push(index);
                     self.links[candidate][layer].sort_unstable_by(|left, right| {
-                        score(&self.entries[candidate].vector, &self.entries[*right].vector)
-                            .total_cmp(&score(&self.entries[candidate].vector, &self.entries[*left].vector))
-                            .then_with(|| self.entries[*left].id.cmp(&self.entries[*right].id))
+                        score(
+                            &self.entries[candidate].vector,
+                            &self.entries[*right].vector,
+                        )
+                        .total_cmp(&score(
+                            &self.entries[candidate].vector,
+                            &self.entries[*left].vector,
+                        ))
+                        .then_with(|| self.entries[*left].id.cmp(&self.entries[*right].id))
                     });
                     self.links[candidate][layer].truncate(M);
                 }
@@ -182,9 +226,15 @@ impl VectorIndex {
         }
     }
 
-    pub(crate) fn query(&mut self, vector: &[f64], top_k: usize) -> Result<QueryEvidence, VectorIndexError> {
+    pub(crate) fn query(
+        &mut self,
+        vector: &[f64],
+        top_k: usize,
+    ) -> Result<QueryEvidence, VectorIndexError> {
         if top_k == 0 || self.entries.is_empty() {
-            return Err(invalid("query requires a non-empty index and positive top_k"));
+            return Err(invalid(
+                "query requires a non-empty index and positive top_k",
+            ));
         }
         let started = Instant::now();
         let query = normalize(vector, self.dimension)?;
@@ -194,9 +244,18 @@ impl VectorIndex {
             while changed {
                 changed = false;
                 let current_score = score(&query, &self.entries[current].vector);
-                for neighbor in self.links.get(current).and_then(|levels| levels.get(layer)).into_iter().flatten() {
+                for neighbor in self
+                    .links
+                    .get(current)
+                    .and_then(|levels| levels.get(layer))
+                    .into_iter()
+                    .flatten()
+                {
                     let neighbor_score = score(&query, &self.entries[*neighbor].vector);
-                    if neighbor_score > current_score || (neighbor_score == current_score && self.entries[*neighbor].id < self.entries[current].id) {
+                    if neighbor_score > current_score
+                        || (neighbor_score == current_score
+                            && self.entries[*neighbor].id < self.entries[current].id)
+                    {
                         current = *neighbor;
                         changed = true;
                     }
@@ -208,7 +267,8 @@ impl VectorIndex {
         let mut scored = Vec::new();
         while !frontier.is_empty() && visited.len() < EF_SEARCH {
             frontier.sort_unstable_by(|left, right| {
-                score(&query, &self.entries[*right].vector).total_cmp(&score(&query, &self.entries[*left].vector))
+                score(&query, &self.entries[*right].vector)
+                    .total_cmp(&score(&query, &self.entries[*left].vector))
             });
             let node = frontier.remove(0);
             if !visited.insert(node) {
@@ -221,15 +281,38 @@ impl VectorIndex {
                 }
             }
         }
-        scored.sort_by(|left, right| right.1.total_cmp(&left.1).then_with(|| self.entries[left.0].id.cmp(&self.entries[right.0].id)));
-        let results = scored.into_iter().take(top_k).map(|(index, value)| QueryResult { id: self.entries[index].id.clone(), score: value }).collect();
+        scored.sort_by(|left, right| {
+            right
+                .1
+                .total_cmp(&left.1)
+                .then_with(|| self.entries[left.0].id.cmp(&self.entries[right.0].id))
+        });
+        let results = scored
+            .into_iter()
+            .take(top_k)
+            .map(|(index, value)| QueryResult {
+                id: self.entries[index].id.clone(),
+                score: value,
+            })
+            .collect();
         self.metrics.query_count = self.metrics.query_count.saturating_add(1);
-        self.metrics.total_query_ns = self.metrics.total_query_ns.saturating_add(started.elapsed().as_nanos());
-        Ok(QueryEvidence { results, visited_nodes: visited.len(), latency_us: started.elapsed().as_micros() as u64 })
+        self.metrics.total_query_ns = self
+            .metrics
+            .total_query_ns
+            .saturating_add(started.elapsed().as_nanos());
+        Ok(QueryEvidence {
+            results,
+            visited_nodes: visited.len(),
+            latency_us: started.elapsed().as_micros() as u64,
+        })
     }
 
     pub(crate) fn artifact_data(&self) -> Result<ArtifactData, VectorIndexError> {
-        let model_version = self.metadata.get("model_version").filter(|value| !value.is_empty()).ok_or_else(|| invalid("model_version metadata is required"))?;
+        let model_version = self
+            .metadata
+            .get("model_version")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid("model_version metadata is required"))?;
         if self.entries.is_empty() {
             return Err(invalid("cannot persist an empty index"));
         }
@@ -244,7 +327,14 @@ impl VectorIndex {
             levels.extend_from_slice(&(entry.level as i64).to_le_bytes());
             for layer in 0..layers {
                 for slot in 0..M {
-                    let value = self.links.get(ids.len() - 1).and_then(|levels| levels.get(layer)).and_then(|neighbors| neighbors.get(slot)).copied().map(|value| value as i64).unwrap_or(-1);
+                    let value = self
+                        .links
+                        .get(ids.len() - 1)
+                        .and_then(|levels| levels.get(layer))
+                        .and_then(|neighbors| neighbors.get(slot))
+                        .copied()
+                        .map(|value| value as i64)
+                        .unwrap_or(-1);
                     links.extend_from_slice(&value.to_le_bytes());
                 }
             }
@@ -254,66 +344,167 @@ impl VectorIndex {
         metadata.insert("entry_count".to_owned(), self.entries.len().to_string());
         metadata.insert("max_level".to_owned(), self.max_level.to_string());
         metadata.insert("entry_point".to_owned(), self.entry_point.to_string());
-            metadata.insert("ids_json".to_owned(), serde_json::to_string(&ids).map_err(|_| invalid("unable to encode ids"))?);
+        metadata.insert(
+            "ids_json".to_owned(),
+            serde_json::to_string(&ids).map_err(|_| invalid("unable to encode ids"))?,
+        );
         Ok(ArtifactData {
-            name: metadata.get("model_name").cloned().unwrap_or_else(|| "spectra-vector-index".to_owned()),
+            name: metadata
+                .get("model_name")
+                .cloned()
+                .unwrap_or_else(|| "spectra-vector-index".to_owned()),
             model_version: model_version.clone(),
             kind: "multi_array".to_owned(),
             metadata,
             tensors: vec![
-                TensorPayload { name: "vectors".to_owned(), dtype: "float".to_owned(), precision: "f64".to_owned(), shape: vec![self.entries.len(), self.dimension], layout: "contiguous".to_owned(), bytes: vectors },
-                TensorPayload { name: "levels".to_owned(), dtype: "int".to_owned(), precision: "f64".to_owned(), shape: vec![self.entries.len()], layout: "contiguous".to_owned(), bytes: levels },
-                TensorPayload { name: "links".to_owned(), dtype: "int".to_owned(), precision: "f64".to_owned(), shape: vec![self.entries.len(), layers, M], layout: "contiguous".to_owned(), bytes: links },
+                TensorPayload {
+                    name: "vectors".to_owned(),
+                    dtype: "float".to_owned(),
+                    precision: "f64".to_owned(),
+                    shape: vec![self.entries.len(), self.dimension],
+                    layout: "contiguous".to_owned(),
+                    bytes: vectors,
+                },
+                TensorPayload {
+                    name: "levels".to_owned(),
+                    dtype: "int".to_owned(),
+                    precision: "f64".to_owned(),
+                    shape: vec![self.entries.len()],
+                    layout: "contiguous".to_owned(),
+                    bytes: levels,
+                },
+                TensorPayload {
+                    name: "links".to_owned(),
+                    dtype: "int".to_owned(),
+                    precision: "f64".to_owned(),
+                    shape: vec![self.entries.len(), layers, M],
+                    layout: "contiguous".to_owned(),
+                    bytes: links,
+                },
             ],
         })
     }
 
     pub(crate) fn from_artifact(data: &ArtifactData) -> Result<Self, VectorIndexError> {
         let metadata = &data.metadata;
-        for (key, expected) in [("artifact_role", "vector_index"), ("index_type", "hnsw"), ("index_version", INDEX_VERSION), ("metric", "cosine"), ("dtype", "f64"), ("m", "16"), ("ef_construction", "200"), ("ef_search", "64"), ("seed", "0")] {
+        for (key, expected) in [
+            ("artifact_role", "vector_index"),
+            ("index_type", "hnsw"),
+            ("index_version", INDEX_VERSION),
+            ("metric", "cosine"),
+            ("dtype", "f64"),
+            ("m", "16"),
+            ("ef_construction", "200"),
+            ("ef_search", "64"),
+            ("seed", "0"),
+        ] {
             if metadata.get(key).map(String::as_str) != Some(expected) {
                 return Err(invalid(format!("metadata {key} is incompatible")));
             }
         }
-        let dimension = metadata.get("dimension").and_then(|value| value.parse::<usize>().ok()).filter(|value| *value > 0).ok_or_else(|| invalid("invalid dimension"))?;
-        let entry_count = metadata.get("entry_count").and_then(|value| value.parse::<usize>().ok()).filter(|value| *value > 0).ok_or_else(|| invalid("invalid entry count"))?;
-        let max_level = metadata.get("max_level").and_then(|value| value.parse::<usize>().ok()).filter(|value| *value <= MAX_LEVEL).ok_or_else(|| invalid("invalid max level"))?;
-        let entry_point = metadata.get("entry_point").and_then(|value| value.parse::<usize>().ok()).filter(|value| *value < entry_count).ok_or_else(|| invalid("invalid entry point"))?;
-        if data.kind != "multi_array" || data.model_version.is_empty() || metadata.get("model_version") != Some(&data.model_version) {
+        let dimension = metadata
+            .get("dimension")
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| invalid("invalid dimension"))?;
+        let entry_count = metadata
+            .get("entry_count")
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| invalid("invalid entry count"))?;
+        let max_level = metadata
+            .get("max_level")
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value <= MAX_LEVEL)
+            .ok_or_else(|| invalid("invalid max level"))?;
+        let entry_point = metadata
+            .get("entry_point")
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value < entry_count)
+            .ok_or_else(|| invalid("invalid entry point"))?;
+        if data.kind != "multi_array"
+            || data.model_version.is_empty()
+            || metadata.get("model_version") != Some(&data.model_version)
+        {
             return Err(invalid("incompatible artifact kind or model version"));
         }
-        let arrays = data.tensors.iter().map(|tensor| (tensor.name.as_str(), tensor)).collect::<HashMap<_, _>>();
-        if arrays.len() != 3 || !arrays.contains_key("vectors") || !arrays.contains_key("levels") || !arrays.contains_key("links") {
+        let arrays = data
+            .tensors
+            .iter()
+            .map(|tensor| (tensor.name.as_str(), tensor))
+            .collect::<HashMap<_, _>>();
+        if arrays.len() != 3
+            || !arrays.contains_key("vectors")
+            || !arrays.contains_key("levels")
+            || !arrays.contains_key("links")
+        {
             return Err(invalid("vector index arrays are incomplete"));
         }
         let vectors = arrays["vectors"];
         let levels = arrays["levels"];
         let links = arrays["links"];
-        if vectors.dtype != "float" || levels.dtype != "int" || links.dtype != "int" || vectors.shape != vec![entry_count, dimension] || levels.shape != vec![entry_count] || links.shape != vec![entry_count, max_level + 1, M] {
-            return Err(invalid("vector index array shapes or dtypes are incompatible"));
+        if vectors.dtype != "float"
+            || levels.dtype != "int"
+            || links.dtype != "int"
+            || vectors.shape != vec![entry_count, dimension]
+            || levels.shape != vec![entry_count]
+            || links.shape != vec![entry_count, max_level + 1, M]
+        {
+            return Err(invalid(
+                "vector index array shapes or dtypes are incompatible",
+            ));
         }
-        let ids = metadata.get("ids_json").and_then(|value| serde_json::from_str::<Vec<String>>(value).ok()).filter(|ids| ids.len() == entry_count && ids.iter().all(|id| !id.is_empty())).ok_or_else(|| invalid("invalid ids metadata"))?;
+        let ids = metadata
+            .get("ids_json")
+            .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+            .filter(|ids| ids.len() == entry_count && ids.iter().all(|id| !id.is_empty()))
+            .ok_or_else(|| invalid("invalid ids metadata"))?;
         let mut unique = HashSet::new();
         if ids.iter().any(|id| !unique.insert(id)) {
             return Err(invalid("duplicate vector id"));
         }
-        let vector_values = vectors.bytes.chunks_exact(8).map(|chunk| f64::from_le_bytes(chunk.try_into().expect("validated f64 width"))).collect::<Vec<_>>();
-        let level_values = levels.bytes.chunks_exact(8).map(|chunk| i64::from_le_bytes(chunk.try_into().expect("validated i64 width"))).collect::<Vec<_>>();
-        if vector_values.len() != entry_count * dimension || level_values.len() != entry_count || level_values.iter().any(|level| *level < 0 || *level as usize > max_level) {
+        let vector_values = vectors
+            .bytes
+            .chunks_exact(8)
+            .map(|chunk| f64::from_le_bytes(chunk.try_into().expect("validated f64 width")))
+            .collect::<Vec<_>>();
+        let level_values = levels
+            .bytes
+            .chunks_exact(8)
+            .map(|chunk| i64::from_le_bytes(chunk.try_into().expect("validated i64 width")))
+            .collect::<Vec<_>>();
+        if vector_values.len() != entry_count * dimension
+            || level_values.len() != entry_count
+            || level_values
+                .iter()
+                .any(|level| *level < 0 || *level as usize > max_level)
+        {
             return Err(invalid("invalid vector index payload"));
         }
-        if vector_values.chunks_exact(dimension).any(|row| normalize(row, dimension).is_err()) {
+        if vector_values
+            .chunks_exact(dimension)
+            .any(|row| normalize(row, dimension).is_err())
+        {
             return Err(invalid("invalid vector values"));
         }
-        let mut links_values = links.bytes.chunks_exact(8).map(|chunk| i64::from_le_bytes(chunk.try_into().expect("validated i64 width")));
+        let mut links_values = links
+            .bytes
+            .chunks_exact(8)
+            .map(|chunk| i64::from_le_bytes(chunk.try_into().expect("validated i64 width")));
         let mut graph = vec![vec![Vec::new(); max_level + 1]; entry_count];
         for node in 0..entry_count {
             for layer in 0..=max_level {
                 for _slot in 0..M {
-                    let value = links_values.next().ok_or_else(|| invalid("truncated HNSW links"))?;
+                    let value = links_values
+                        .next()
+                        .ok_or_else(|| invalid("truncated HNSW links"))?;
                     if value >= 0 {
                         let neighbor = value as usize;
-                        if neighbor >= entry_count || neighbor == node || level_values[node] < layer as i64 || level_values[neighbor] < layer as i64 {
+                        if neighbor >= entry_count
+                            || neighbor == node
+                            || level_values[node] < layer as i64
+                            || level_values[neighbor] < layer as i64
+                        {
                             return Err(invalid("invalid HNSW link"));
                         }
                         graph[node][layer].push(neighbor);
@@ -329,11 +520,34 @@ impl VectorIndex {
         if links_values.next().is_some() {
             return Err(invalid("excess HNSW links"));
         }
-        let entries = ids.into_iter().enumerate().map(|(index, id)| VectorEntry { id, vector: vector_values[index * dimension..(index + 1) * dimension].to_vec(), level: level_values[index] as usize }).collect::<Vec<_>>();
-        Ok(Self { dimension, metadata: metadata.clone(), entries, links: graph, entry_point, max_level, metrics: VectorIndexMetrics { insert_count: 0, query_count: 0, total_insert_ns: 0, total_query_ns: 0 } })
+        let entries = ids
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| VectorEntry {
+                id,
+                vector: vector_values[index * dimension..(index + 1) * dimension].to_vec(),
+                level: level_values[index] as usize,
+            })
+            .collect::<Vec<_>>();
+        Ok(Self {
+            dimension,
+            metadata: metadata.clone(),
+            entries,
+            links: graph,
+            entry_point,
+            max_level,
+            metrics: VectorIndexMetrics {
+                insert_count: 0,
+                query_count: 0,
+                total_insert_ns: 0,
+                total_query_ns: 0,
+            },
+        })
     }
 
-    pub(crate) fn metrics(&self) -> &VectorIndexMetrics { &self.metrics }
+    pub(crate) fn metrics(&self) -> &VectorIndexMetrics {
+        &self.metrics
+    }
 }
 
 #[cfg(test)]
@@ -344,13 +558,28 @@ mod tests {
     fn hnsw_insert_query_update_is_deterministic() {
         let mut left = VectorIndex::new(3).unwrap();
         let mut right = VectorIndex::new(3).unwrap();
-        for (id, vector) in [("a", vec![1.0, 0.0, 0.0]), ("b", vec![0.0, 1.0, 0.0]), ("c", vec![0.0, 0.0, 1.0])] {
+        for (id, vector) in [
+            ("a", vec![1.0, 0.0, 0.0]),
+            ("b", vec![0.0, 1.0, 0.0]),
+            ("c", vec![0.0, 0.0, 1.0]),
+        ] {
             left.insert(id.to_owned(), &vector).unwrap();
             right.insert(id.to_owned(), &vector).unwrap();
         }
         let left_result = left.query(&[1.0, 0.0, 0.0], 2).unwrap();
         let right_result = right.query(&[1.0, 0.0, 0.0], 2).unwrap();
-        assert_eq!(left_result.results.iter().map(|result| &result.id).collect::<Vec<_>>(), right_result.results.iter().map(|result| &result.id).collect::<Vec<_>>());
+        assert_eq!(
+            left_result
+                .results
+                .iter()
+                .map(|result| &result.id)
+                .collect::<Vec<_>>(),
+            right_result
+                .results
+                .iter()
+                .map(|result| &result.id)
+                .collect::<Vec<_>>()
+        );
         left.insert("b".to_owned(), &[1.0, 0.0, 0.0]).unwrap();
         assert_eq!(left.query(&[1.0, 0.0, 0.0], 1).unwrap().results[0].id, "a");
     }

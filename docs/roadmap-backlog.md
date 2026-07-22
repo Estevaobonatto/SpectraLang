@@ -5250,7 +5250,7 @@ block with documented behavior.
 
 ## R-2303 Structured Logging and Request ID Tracing
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `web`
 - Risk: `medium`
@@ -6390,7 +6390,7 @@ operable.
 
 ## R-2701 OpenTelemetry-Compatible Tracing
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
@@ -6411,11 +6411,13 @@ operable.
   typed span attributes, and HTTP client/server span hooks.
 - `tests/validation/193_opentelemetry_tracing.spectra` and
   `scripts/validate_r2701_tracing.py` exercise a real local collector process.
-- R-2701 is not complete yet. The runtime now has a real SQLite driver
-  consumer through R-2504, but the remaining production gates still include
-  collector-backed query spans inside HTTP requests and full concurrent-context
-  evidence. PostgreSQL and Redis remain unsupported until R-2505 and R-2507
-  exist. A passing SQLite smoke fixture alone does not complete R-2701.
+- The v2 report independently decodes OTLP protobuf, validates typed
+  attributes, parent IDs, timestamps, resource metadata, retry behavior,
+  permanent collector errors, connection drops, delayed responses, bounded
+  queue overflow, HTTP client propagation, concurrent request isolation,
+  filesystem spans, and SQLite query spans.
+- R-2701 is complete for the supported boundaries. PostgreSQL and Redis are
+  intentionally not claimed; they remain separate until R-2505 and R-2507.
 
 ## R-2702 Prometheus-Compatible Metrics Endpoint
 

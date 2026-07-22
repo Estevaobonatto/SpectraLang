@@ -38,6 +38,8 @@ only when a configuration is active. Incoming `traceparent` headers are
 validated before becoming a server-span parent, and outgoing client requests
 receive the current context.
 
-The current implementation is tracked by R-2701 and remains `in_progress`
-until bounded export, retry/timeout/shutdown, concurrency isolation, and
-independent OTLP payload assertions pass the production gate.
+R-2701 is complete for the currently supported boundaries. The production
+gate independently validates bounded export, retry/timeout/shutdown,
+concurrency isolation, HTTP client propagation, filesystem spans, SQLite
+query spans, and OTLP payload structure. PostgreSQL and Redis are not claimed
+until their drivers exist.

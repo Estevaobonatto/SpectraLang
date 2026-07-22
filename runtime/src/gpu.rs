@@ -750,10 +750,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
         device,
         queue,
         &shader,
-        &[
-            (0, &input.buffer, true),
-            (1, &out.buffer, false),
-        ],
+        &[(0, &input.buffer, true), (1, &out.buffer, false)],
         [len as u32, 1, 1],
     )
 }
@@ -937,10 +934,7 @@ fn main() {{
         device,
         queue,
         &shader,
-        &[
-            (0, &input.buffer, true),
-            (1, &out.buffer, false),
-        ],
+        &[(0, &input.buffer, true), (1, &out.buffer, false)],
         [1, 1, 1],
     )
 }
@@ -955,10 +949,7 @@ pub fn sum_columns_device(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
 ) -> Result<(), GpuError> {
-    if rows == 0
-        || cols == 0
-        || input.elements != rows.saturating_mul(cols)
-        || out.elements != cols
+    if rows == 0 || cols == 0 || input.elements != rows.saturating_mul(cols) || out.elements != cols
     {
         return Err(GpuError::new(
             GpuErrorKind::ShapeMismatch,
@@ -1131,10 +1122,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
         device,
         queue,
         &shader,
-        &[
-            (0, &bias.buffer, true),
-            (1, &matmul_out.buffer, false),
-        ],
+        &[(0, &bias.buffer, true), (1, &matmul_out.buffer, false)],
         [total as u32, 1, 1],
     )
 }
@@ -1174,10 +1162,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
         device,
         queue,
         &shader,
-        &[
-            (0, &src.buffer, true),
-            (1, &dst.buffer, false),
-        ],
+        &[(0, &src.buffer, true), (1, &dst.buffer, false)],
         [len as u32, 1, 1],
     )
 }
@@ -1536,7 +1521,13 @@ pub fn readback_scalar_device(
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("spectra-runtime-gpu-scalar-readback-encoder"),
     });
-    encoder.copy_buffer_to_buffer(&buf.buffer, 0, &readback, 0, std::mem::size_of::<f32>() as u64);
+    encoder.copy_buffer_to_buffer(
+        &buf.buffer,
+        0,
+        &readback,
+        0,
+        std::mem::size_of::<f32>() as u64,
+    );
     queue.submit(Some(encoder.finish()));
     let slice = readback.slice(..);
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -1651,9 +1642,7 @@ async fn create_context() -> Result<GpuContext, GpuError> {
             force_fallback_adapter: false,
         })
         .await
-        .ok_or_else(|| {
-            GpuError::new(GpuErrorKind::Other, "no GPU adapter available")
-        })?;
+        .ok_or_else(|| GpuError::new(GpuErrorKind::Other, "no GPU adapter available"))?;
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
@@ -1664,7 +1653,12 @@ async fn create_context() -> Result<GpuContext, GpuError> {
             None,
         )
         .await
-        .map_err(|err| GpuError::new(GpuErrorKind::BufferAlloc, format!("failed to create GPU device: {err}")))?;
+        .map_err(|err| {
+            GpuError::new(
+                GpuErrorKind::BufferAlloc,
+                format!("failed to create GPU device: {err}"),
+            )
+        })?;
     Ok(GpuContext { device, queue })
 }
 
@@ -1897,7 +1891,12 @@ fn run_compute(
     receiver
         .recv()
         .map_err(|_| GpuError::new(GpuErrorKind::Readback, "gpu readback callback failed"))?
-        .map_err(|err| GpuError::new(GpuErrorKind::Readback, format!("gpu readback failed: {err:?}")))?;
+        .map_err(|err| {
+            GpuError::new(
+                GpuErrorKind::Readback,
+                format!("gpu readback failed: {err:?}"),
+            )
+        })?;
     let mapped = slice.get_mapped_range();
     let values = bytemuck::cast_slice(&mapped).to_vec();
     drop(mapped);

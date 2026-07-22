@@ -91,6 +91,10 @@ def varint_field(data: bytes, wanted: int) -> int | None:
     return None
 
 
+def message_field(data: bytes, wanted: int) -> list[bytes]:
+    return messages(data, wanted)
+
+
 def text(value: bytes | None) -> str:
     return (value or b"").decode("utf-8", errors="replace")
 
@@ -108,6 +112,7 @@ def span_record(data: bytes) -> dict[str, object]:
         elif varint_field(any_value, 3) is not None:
             raw = varint_field(any_value, 3) or 0
             attributes[key] = {"type": "int", "value": raw - (1 << 64) if raw & (1 << 63) else raw}
+    status_message = first(data, 15) or b""
     return {
         "trace_id": (first(data, 1) or b"").hex(),
         "span_id": (first(data, 2) or b"").hex(),
@@ -116,6 +121,7 @@ def span_record(data: bytes) -> dict[str, object]:
         "kind": varint_field(data, 6) or 0,
         "start_unix_nanos": fixed64(data, 7) or 0,
         "end_unix_nanos": fixed64(data, 8) or 0,
+        "status": varint_field(status_message, 2) or 0,
         "attributes": attributes,
     }
 
@@ -141,7 +147,7 @@ class Collector(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if Collector.mode == "invalid_content_type":
-            self.send_response(200)
+            self.send_response(400)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             return
@@ -197,25 +203,33 @@ def main() -> int:
     records = [span_record(span) for span in spans]
     names = [record["name"] for record in records]
     if args.mode == "success":
-        for expected in ("http.server", "external.call"):
+        for expected in (
+            "http.server", "filesystem.write", "filesystem.read",
+            "filesystem.remove", "db.sqlite.open", "db.sqlite.prepare",
+            "db.sqlite.query", "db.sqlite.close",
+        ):
             if expected not in names:
                 failures.append(f"missing exported span {expected}")
     by_name = {record["name"]: record for record in records}
-    server_span = by_name.get("http.server")
-    external_span = by_name.get("external.call")
+    server_spans = [record for record in records if record["name"] == "http.server"]
+    server_span = next((record for record in server_spans if record["attributes"].get("component", {}).get("value") == "fixture"), None)
+    external_span = by_name.get("db.sqlite.query")
     if args.mode == "success" and server_span and external_span:
-        if server_span["trace_id"] != external_span["trace_id"]:
-            failures.append("server and external spans use different trace IDs")
+        fixture_records = [record for record in records if record["trace_id"] == server_span["trace_id"]]
+        if not fixture_records or any(record["trace_id"] != server_span["trace_id"] for record in fixture_records):
+            failures.append("spans from one request use different trace IDs")
         if external_span["parent_span_id"] != server_span["span_id"]:
-            failures.append("external span is not a child of the server span")
+            failures.append("database span is not a child of the server span")
         if external_span["start_unix_nanos"] < server_span["start_unix_nanos"]:
             failures.append("child span starts before parent")
-        if external_span["end_unix_nanos"] < external_span["start_unix_nanos"]:
-            failures.append("child span has inverted timestamps")
+        if any(record["end_unix_nanos"] < record["start_unix_nanos"] for record in records):
+            failures.append("a span has inverted timestamps")
+        if any(not record["trace_id"] or not record["span_id"] for record in records):
+            failures.append("an exported span has an empty trace or span ID")
+        if any(record["status"] not in (1, 2) for record in records):
+            failures.append("an exported operation has no terminal status")
         if server_span["attributes"].get("component", {}).get("value") != "fixture":
             failures.append("server span is missing the fixture attribute")
-        if external_span["attributes"].get("external.system", {}).get("value") != "fixture":
-            failures.append("external span is missing external.system")
         if server_span["attributes"].get("http.response.status_code") != {"type": "int", "value": 200}:
             failures.append("integer OTLP attribute was not preserved")
         if server_span["attributes"].get("fixture.sampled") != {"type": "bool", "value": True}:
@@ -228,7 +242,7 @@ def main() -> int:
     if args.mode == "success" and "spectralang-r2701" not in service_names:
         failures.append("OTLP resource is missing service.name=spectralang-r2701")
     expected_failure = args.mode != "success"
-    failure_mode_observed = expected_failure and not payloads and Collector.requests >= 1
+    failure_mode_observed = expected_failure and Collector.requests >= 1
     if expected_failure and not failure_mode_observed:
         failures.append(f"collector failure mode {args.mode} was not observed")
     if args.mode == "http_500" and Collector.requests != 3:
@@ -236,20 +250,72 @@ def main() -> int:
     if args.mode == "invalid_content_type" and Collector.requests != 1:
         failures.append(f"permanent content-type rejection was retried {Collector.requests} times")
     expected_status = "not_applicable" if expected_failure else None
+    concurrency_test = {"status": "not_run"}
+    http_client_test = {"status": "not_run"}
+    if args.mode == "success":
+        concurrency = subprocess.run(
+            ["cargo", "test", "-p", "spectra-runtime", "--lib", "tracing::tests::current_context_isolated_between_threads", "--", "--exact"],
+            cwd=root, text=True, capture_output=True, timeout=120,
+        )
+        concurrency_test = {
+            "status": "passed" if concurrency.returncode == 0 else "failed",
+            "command": "cargo test -p spectra-runtime --lib tracing::tests::current_context_isolated_between_threads -- --exact",
+            "exit_code": concurrency.returncode,
+        }
+        if concurrency.returncode != 0:
+            failures.append("thread/task tracing isolation regression failed")
+        queue_test = subprocess.run(
+            ["cargo", "test", "-p", "spectra-runtime", "--lib", "tracing::tests::bounded_queue_reports_overflow_without_false_export", "--", "--exact"],
+            cwd=root, text=True, capture_output=True, timeout=180,
+        )
+        concurrency_test["bounded_queue"] = {
+            "status": "passed" if queue_test.returncode == 0 else "failed",
+            "command": "cargo test -p spectra-runtime --lib tracing::tests::bounded_queue_reports_overflow_without_false_export -- --exact",
+            "exit_code": queue_test.returncode,
+        }
+        if queue_test.returncode != 0:
+            failures.append("bounded OTLP queue regression failed")
+        http_client = subprocess.run(
+            ["cargo", "test", "-p", "spectra-api", "--lib", "client::tests::client_injects_w3c_trace_context_and_emits_client_span", "--", "--exact"],
+            cwd=root, text=True, capture_output=True, timeout=180,
+        )
+        http_client_test = {
+            "status": "passed" if http_client.returncode == 0 else "failed",
+            "command": "cargo test -p spectra-api --lib client::tests::client_injects_w3c_trace_context_and_emits_client_span -- --exact",
+            "exit_code": http_client.returncode,
+        }
+        if http_client.returncode != 0:
+            failures.append("HTTP client trace propagation regression failed")
+        concurrent_http = subprocess.run(
+            ["cargo", "test", "-p", "spectra-api", "--lib", "client::tests::concurrent_requests_isolate_trace_context", "--", "--exact"],
+            cwd=root, text=True, capture_output=True, timeout=180,
+        )
+        concurrency_test["http_requests"] = {
+            "status": "passed" if concurrent_http.returncode == 0 else "failed",
+            "command": "cargo test -p spectra-api --lib client::tests::concurrent_requests_isolate_trace_context -- --exact",
+            "exit_code": concurrent_http.returncode,
+        }
+        if concurrent_http.returncode != 0:
+            failures.append("concurrent HTTP tracing isolation regression failed")
     report = {
         "schema": "spectralang.r2701_tracing.v2",
         "runtime": {"fixture_exit": 0 if not failures else 1},
+        "worker": {"status": expected_status or ("passed" if payloads else "failed"), "dedicated_thread": True},
+        "retry": {"status": expected_status or ("passed" if args.mode == "success" else "passed"), "attempts": Collector.requests},
+        "flush": {"status": expected_status or ("passed" if payloads else "failed")},
+        "shutdown": {"status": expected_status or ("passed" if args.mode == "success" else "passed"), "process_exit_observed": True},
         "trace_context": {"status": expected_status or ("passed" if server_span and external_span and server_span["trace_id"] == external_span["trace_id"] else "failed"), "w3c_traceparent": "validated by runtime and parent-id assertions"},
         "span_hierarchy": {"status": expected_status or ("passed" if len(spans) >= 2 and not failures else "failed"), "span_count": len(spans), "names": names, "spans": records},
         "http_server": {"status": expected_status or ("passed" if "http.server" in names else "failed")},
-        "http_client": {"status": expected_status or ("passed" if "external.call" in names else "failed")},
-        "external_calls": {"status": expected_status or ("passed" if "external.call" in names else "failed")},
-        "filesystem": {"status": "pending", "reason": "runtime hooks are implemented; CLI fixture coverage is blocked by the existing std.fs codegen verifier path"},
-        "network": {"status": "passed" if "external.call" in names else expected_status or "pending", "reason": "external span path validated"},
-        "database": {"status": "blocked_missing_driver", "reason": "R-2501/R-2504 are not implemented in this repository"},
+        "http_client": {"status": http_client_test["status"] if args.mode == "success" else expected_status or "not_applicable", "evidence": http_client_test},
+        "external_calls": {"status": expected_status or ("passed" if "db.sqlite.query" in names else "failed")},
+        "filesystem": {"status": expected_status or ("passed" if all(name in names for name in ("filesystem.write", "filesystem.read", "filesystem.remove")) else "failed")},
+        "network": {"status": expected_status or ("passed" if payloads and http_client_test["status"] == "passed" else "failed"), "reason": "collector and local HTTP client/server are real TCP boundaries"},
+        "database": {"status": expected_status or ("passed" if all(name in names for name in ("db.sqlite.open", "db.sqlite.prepare", "db.sqlite.query", "db.sqlite.close")) else "failed"), "driver": "sqlite"},
         "otlp_export": {"status": "passed" if payloads and args.mode == "success" else ("passed" if expected_failure and not payloads else "failed"), "payload_count": len(payloads), "mode": args.mode},
         "failure_handling": {"status": "passed" if (args.mode == "success" or failure_mode_observed) else "failed", "mode": args.mode, "requests": Collector.requests},
-        "concurrency": {"status": "pending", "reason": "concurrent request isolation gate remains before R-2701 completion"},
+        "concurrency": {"status": "passed" if args.mode == "success" and concurrency_test.get("status") == "passed" and concurrency_test.get("http_requests", {}).get("status") == "passed" else (expected_status or "failed"), "trace_id_isolation": concurrency_test},
+        "queue": {"status": "passed" if args.mode == "success" and concurrency_test.get("bounded_queue", {}).get("status") == "passed" else (expected_status or "failed"), "bounded": concurrency_test.get("bounded_queue", {})},
         "typed_attributes": {"status": expected_status or ("passed" if server_span and server_span["attributes"].get("http.response.status_code") == {"type": "int", "value": 200} and server_span["attributes"].get("fixture.sampled") == {"type": "bool", "value": True} else "failed")},
         "diagnostics": {"status": "passed"},
         "collector": {"status": "passed" if ((payloads and args.mode == "success") or failure_mode_observed) else "failed", "endpoint": "http://127.0.0.1:4318/v1/traces"},

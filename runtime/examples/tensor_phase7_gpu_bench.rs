@@ -12,7 +12,9 @@ fn main() {
     let mut pool_bytes_resident: i64 = 0;
     let mut device_pool_tested = false;
     {
-        use spectra_runtime::ffi::{lookup_host_function, SpectraHostCallContext, HOST_STATUS_SUCCESS};
+        use spectra_runtime::ffi::{
+            lookup_host_function, SpectraHostCallContext, HOST_STATUS_SUCCESS,
+        };
         spectra_runtime::register_standard_library();
         let call = |name: &str, args: &[i64]| -> Option<i64> {
             let func = lookup_host_function(name)?;

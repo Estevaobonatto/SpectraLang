@@ -668,20 +668,28 @@ pub fn register() {
 }
 
 fn numeric_binary_args(ctx: *mut SpectraHostCallContext) -> Option<([i64; 2], *mut i64)> {
-    if ctx.is_null() { return None; }
+    if ctx.is_null() {
+        return None;
+    }
     unsafe {
         let c = &mut *ctx;
-        if c.arg_len != 2 || c.result_len == 0 || c.args.is_null() || c.results.is_null() { return None; }
+        if c.arg_len != 2 || c.result_len == 0 || c.args.is_null() || c.results.is_null() {
+            return None;
+        }
         let args = slice::from_raw_parts(c.args, 2);
         Some(([args[0], args[1]], c.results))
     }
 }
 
 fn numeric_unary_arg(ctx: *mut SpectraHostCallContext) -> Option<(i64, *mut i64)> {
-    if ctx.is_null() { return None; }
+    if ctx.is_null() {
+        return None;
+    }
     unsafe {
         let c = &mut *ctx;
-        if c.arg_len != 1 || c.result_len == 0 || c.args.is_null() || c.results.is_null() { return None; }
+        if c.arg_len != 1 || c.result_len == 0 || c.args.is_null() || c.results.is_null() {
+            return None;
+        }
         Some((*c.args, c.results))
     }
 }
@@ -689,9 +697,13 @@ fn numeric_unary_arg(ctx: *mut SpectraHostCallContext) -> Option<(i64, *mut i64)
 macro_rules! define_numeric_host {
     ($fn_name:ident, $helper:path, $bits:expr) => {
         extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
-            let Some((args, results_ptr)) = numeric_binary_args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let Some((args, results_ptr)) = numeric_binary_args(ctx) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            };
             let result = $helper(args[0], args[1], $bits);
-            unsafe { *results_ptr = result; }
+            unsafe {
+                *results_ptr = result;
+            }
             HOST_STATUS_SUCCESS
         }
     };
@@ -700,22 +712,47 @@ macro_rules! define_numeric_host {
 macro_rules! define_checked_binary_host {
     ($fn_name:ident, $path:literal, $signed:expr, $bits:expr, $op:tt) => {
         extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
-            let Some((args, results_ptr)) = numeric_binary_args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let Some((args, results_ptr)) = numeric_binary_args(ctx) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            };
             let value = if $signed {
-                let a = args[0] as i128; let b = args[1] as i128;
-                let value = match stringify!($op) { "+" => a.checked_add(b), "-" => a.checked_sub(b), "*" => a.checked_mul(b), _ => None };
-                let Some(value) = value else { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); };
-                let min = -(1_i128 << ($bits - 1)); let max = (1_i128 << ($bits - 1)) - 1;
-                if value < min || value > max { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); }
+                let a = args[0] as i128;
+                let b = args[1] as i128;
+                let value = match stringify!($op) {
+                    "+" => a.checked_add(b),
+                    "-" => a.checked_sub(b),
+                    "*" => a.checked_mul(b),
+                    _ => None,
+                };
+                let Some(value) = value else {
+                    return numeric_checked_error("E2902", concat!($path, " arithmetic overflow"));
+                };
+                let min = -(1_i128 << ($bits - 1));
+                let max = (1_i128 << ($bits - 1)) - 1;
+                if value < min || value > max {
+                    return numeric_checked_error("E2902", concat!($path, " arithmetic overflow"));
+                }
                 value as i64
             } else {
-                let a = args[0] as u128; let b = args[1] as u128;
-                let value = match stringify!($op) { "+" => a.checked_add(b), "-" => a.checked_sub(b), "*" => a.checked_mul(b), _ => None };
-                let Some(value) = value else { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); };
-                if value > ((1_u128 << $bits) - 1) { return numeric_checked_error("E2902", concat!($path, " arithmetic overflow")); }
+                let a = args[0] as u128;
+                let b = args[1] as u128;
+                let value = match stringify!($op) {
+                    "+" => a.checked_add(b),
+                    "-" => a.checked_sub(b),
+                    "*" => a.checked_mul(b),
+                    _ => None,
+                };
+                let Some(value) = value else {
+                    return numeric_checked_error("E2902", concat!($path, " arithmetic overflow"));
+                };
+                if value > ((1_u128 << $bits) - 1) {
+                    return numeric_checked_error("E2902", concat!($path, " arithmetic overflow"));
+                }
                 value as i64
             };
-            unsafe { *results_ptr = value; }
+            unsafe {
+                *results_ptr = value;
+            }
             HOST_STATUS_SUCCESS
         }
     };
@@ -736,15 +773,51 @@ define_numeric_host!(std_numeric_mul_i64, crate::numeric::wrapping_mul_signed, 6
 define_numeric_host!(std_numeric_add_u8, crate::numeric::wrapping_add_unsigned, 8);
 define_numeric_host!(std_numeric_sub_u8, crate::numeric::wrapping_sub_unsigned, 8);
 define_numeric_host!(std_numeric_mul_u8, crate::numeric::wrapping_mul_unsigned, 8);
-define_numeric_host!(std_numeric_add_u16, crate::numeric::wrapping_add_unsigned, 16);
-define_numeric_host!(std_numeric_sub_u16, crate::numeric::wrapping_sub_unsigned, 16);
-define_numeric_host!(std_numeric_mul_u16, crate::numeric::wrapping_mul_unsigned, 16);
-define_numeric_host!(std_numeric_add_u32, crate::numeric::wrapping_add_unsigned, 32);
-define_numeric_host!(std_numeric_sub_u32, crate::numeric::wrapping_sub_unsigned, 32);
-define_numeric_host!(std_numeric_mul_u32, crate::numeric::wrapping_mul_unsigned, 32);
-define_numeric_host!(std_numeric_add_u64, crate::numeric::wrapping_add_unsigned, 64);
-define_numeric_host!(std_numeric_sub_u64, crate::numeric::wrapping_sub_unsigned, 64);
-define_numeric_host!(std_numeric_mul_u64, crate::numeric::wrapping_mul_unsigned, 64);
+define_numeric_host!(
+    std_numeric_add_u16,
+    crate::numeric::wrapping_add_unsigned,
+    16
+);
+define_numeric_host!(
+    std_numeric_sub_u16,
+    crate::numeric::wrapping_sub_unsigned,
+    16
+);
+define_numeric_host!(
+    std_numeric_mul_u16,
+    crate::numeric::wrapping_mul_unsigned,
+    16
+);
+define_numeric_host!(
+    std_numeric_add_u32,
+    crate::numeric::wrapping_add_unsigned,
+    32
+);
+define_numeric_host!(
+    std_numeric_sub_u32,
+    crate::numeric::wrapping_sub_unsigned,
+    32
+);
+define_numeric_host!(
+    std_numeric_mul_u32,
+    crate::numeric::wrapping_mul_unsigned,
+    32
+);
+define_numeric_host!(
+    std_numeric_add_u64,
+    crate::numeric::wrapping_add_unsigned,
+    64
+);
+define_numeric_host!(
+    std_numeric_sub_u64,
+    crate::numeric::wrapping_sub_unsigned,
+    64
+);
+define_numeric_host!(
+    std_numeric_mul_u64,
+    crate::numeric::wrapping_mul_unsigned,
+    64
+);
 define_checked_binary_host!(std_numeric_checked_add_i8, "i8", true, 8, +);
 define_checked_binary_host!(std_numeric_checked_sub_i8, "i8", true, 8, -);
 define_checked_binary_host!(std_numeric_checked_mul_i8, "i8", true, 8, *);
@@ -804,38 +877,134 @@ fn register_numeric() {
     register_host_function("spectra.std.numeric.checked_u32", std_numeric_checked_u32);
     register_host_function("spectra.std.numeric.checked_u64", std_numeric_checked_u64);
     register_host_function(NUMERIC_CHECKED_F32, std_numeric_checked_f32);
-    register_host_function("spectra.std.numeric.checked_float_i8", std_numeric_checked_float_i8);
-    register_host_function("spectra.std.numeric.checked_float_i16", std_numeric_checked_float_i16);
-    register_host_function("spectra.std.numeric.checked_float_i32", std_numeric_checked_float_i32);
-    register_host_function("spectra.std.numeric.checked_float_i64", std_numeric_checked_float_i64);
-    register_host_function("spectra.std.numeric.checked_float_u8", std_numeric_checked_float_u8);
-    register_host_function("spectra.std.numeric.checked_float_u16", std_numeric_checked_float_u16);
-    register_host_function("spectra.std.numeric.checked_float_u32", std_numeric_checked_float_u32);
-    register_host_function("spectra.std.numeric.checked_float_u64", std_numeric_checked_float_u64);
-    register_host_function("spectra.std.numeric.checked_add_i8", std_numeric_checked_add_i8);
-    register_host_function("spectra.std.numeric.checked_sub_i8", std_numeric_checked_sub_i8);
-    register_host_function("spectra.std.numeric.checked_mul_i8", std_numeric_checked_mul_i8);
-    register_host_function("spectra.std.numeric.checked_add_i16", std_numeric_checked_add_i16);
-    register_host_function("spectra.std.numeric.checked_sub_i16", std_numeric_checked_sub_i16);
-    register_host_function("spectra.std.numeric.checked_mul_i16", std_numeric_checked_mul_i16);
-    register_host_function("spectra.std.numeric.checked_add_i32", std_numeric_checked_add_i32);
-    register_host_function("spectra.std.numeric.checked_sub_i32", std_numeric_checked_sub_i32);
-    register_host_function("spectra.std.numeric.checked_mul_i32", std_numeric_checked_mul_i32);
-    register_host_function("spectra.std.numeric.checked_add_i64", std_numeric_checked_add_i64);
-    register_host_function("spectra.std.numeric.checked_sub_i64", std_numeric_checked_sub_i64);
-    register_host_function("spectra.std.numeric.checked_mul_i64", std_numeric_checked_mul_i64);
-    register_host_function("spectra.std.numeric.checked_add_u8", std_numeric_checked_add_u8);
-    register_host_function("spectra.std.numeric.checked_sub_u8", std_numeric_checked_sub_u8);
-    register_host_function("spectra.std.numeric.checked_mul_u8", std_numeric_checked_mul_u8);
-    register_host_function("spectra.std.numeric.checked_add_u16", std_numeric_checked_add_u16);
-    register_host_function("spectra.std.numeric.checked_sub_u16", std_numeric_checked_sub_u16);
-    register_host_function("spectra.std.numeric.checked_mul_u16", std_numeric_checked_mul_u16);
-    register_host_function("spectra.std.numeric.checked_add_u32", std_numeric_checked_add_u32);
-    register_host_function("spectra.std.numeric.checked_sub_u32", std_numeric_checked_sub_u32);
-    register_host_function("spectra.std.numeric.checked_mul_u32", std_numeric_checked_mul_u32);
-    register_host_function("spectra.std.numeric.checked_add_u64", std_numeric_checked_add_u64);
-    register_host_function("spectra.std.numeric.checked_sub_u64", std_numeric_checked_sub_u64);
-    register_host_function("spectra.std.numeric.checked_mul_u64", std_numeric_checked_mul_u64);
+    register_host_function(
+        "spectra.std.numeric.checked_float_i8",
+        std_numeric_checked_float_i8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_i16",
+        std_numeric_checked_float_i16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_i32",
+        std_numeric_checked_float_i32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_i64",
+        std_numeric_checked_float_i64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_u8",
+        std_numeric_checked_float_u8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_u16",
+        std_numeric_checked_float_u16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_u32",
+        std_numeric_checked_float_u32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_float_u64",
+        std_numeric_checked_float_u64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_i8",
+        std_numeric_checked_add_i8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_i8",
+        std_numeric_checked_sub_i8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_i8",
+        std_numeric_checked_mul_i8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_i16",
+        std_numeric_checked_add_i16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_i16",
+        std_numeric_checked_sub_i16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_i16",
+        std_numeric_checked_mul_i16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_i32",
+        std_numeric_checked_add_i32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_i32",
+        std_numeric_checked_sub_i32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_i32",
+        std_numeric_checked_mul_i32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_i64",
+        std_numeric_checked_add_i64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_i64",
+        std_numeric_checked_sub_i64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_i64",
+        std_numeric_checked_mul_i64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_u8",
+        std_numeric_checked_add_u8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_u8",
+        std_numeric_checked_sub_u8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_u8",
+        std_numeric_checked_mul_u8,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_u16",
+        std_numeric_checked_add_u16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_u16",
+        std_numeric_checked_sub_u16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_u16",
+        std_numeric_checked_mul_u16,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_u32",
+        std_numeric_checked_add_u32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_u32",
+        std_numeric_checked_sub_u32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_u32",
+        std_numeric_checked_mul_u32,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_add_u64",
+        std_numeric_checked_add_u64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_sub_u64",
+        std_numeric_checked_sub_u64,
+    );
+    register_host_function(
+        "spectra.std.numeric.checked_mul_u64",
+        std_numeric_checked_mul_u64,
+    );
 }
 
 fn numeric_checked_error(code: &str, message: &str) -> i32 {
@@ -844,20 +1013,26 @@ fn numeric_checked_error(code: &str, message: &str) -> i32 {
 }
 
 extern "C" fn std_numeric_checked_f32(ctx: *mut SpectraHostCallContext) -> i32 {
-    let Some((raw, results_ptr)) = numeric_unary_arg(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+    let Some((raw, results_ptr)) = numeric_unary_arg(ctx) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
     let value = f64::from_bits(raw as u64);
     let narrowed = value as f32;
     if !value.is_finite() || !narrowed.is_finite() || narrowed as f64 != value {
         return numeric_checked_error("E2904", "value is not exactly representable as f32");
     }
-    unsafe { *results_ptr = (narrowed as f64).to_bits() as i64; }
+    unsafe {
+        *results_ptr = (narrowed as f64).to_bits() as i64;
+    }
     HOST_STATUS_SUCCESS
 }
 
 macro_rules! define_checked_int_cast {
     ($fn_name:ident, $path:literal, $signed:expr, $bits:expr) => {
         extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
-            let Some((value, results_ptr)) = numeric_unary_arg(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let Some((value, results_ptr)) = numeric_unary_arg(ctx) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            };
             let value = value as i128;
             let valid = if $signed {
                 let min = -(1_i128 << ($bits - 1));
@@ -866,8 +1041,15 @@ macro_rules! define_checked_int_cast {
             } else {
                 value >= 0 && (value as u128) <= ((1_u128 << $bits) - 1)
             };
-            if !valid { return numeric_checked_error("E2903", concat!("value is outside ", $path, " range")); }
-            unsafe { *results_ptr = value as i64; }
+            if !valid {
+                return numeric_checked_error(
+                    "E2903",
+                    concat!("value is outside ", $path, " range"),
+                );
+            }
+            unsafe {
+                *results_ptr = value as i64;
+            }
             HOST_STATUS_SUCCESS
         }
     };
@@ -885,17 +1067,28 @@ define_checked_int_cast!(std_numeric_checked_u64, "u64", false, 64);
 macro_rules! define_checked_float_int_cast {
     ($fn_name:ident, $path:literal, $signed:expr, $bits:expr) => {
         extern "C" fn $fn_name(ctx: *mut SpectraHostCallContext) -> i32 {
-            let Some((raw, results_ptr)) = numeric_unary_arg(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
-            let value = f64::from_bits(raw as u64);
-            let valid = value.is_finite() && value.fract() == 0.0 && if $signed {
-                let min = -(2_f64).powi(($bits - 1) as i32);
-                let max = (2_f64).powi(($bits - 1) as i32) - 1.0;
-                value >= min && value <= max
-            } else {
-                value >= 0.0 && value <= (2_f64).powi($bits as i32) - 1.0
+            let Some((raw, results_ptr)) = numeric_unary_arg(ctx) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
             };
-            if !valid { return numeric_checked_error("E2904", concat!("value is outside ", $path, " range or is non-finite")); }
-            unsafe { *results_ptr = value as i128 as i64; }
+            let value = f64::from_bits(raw as u64);
+            let valid = value.is_finite()
+                && value.fract() == 0.0
+                && if $signed {
+                    let min = -(2_f64).powi(($bits - 1) as i32);
+                    let max = (2_f64).powi(($bits - 1) as i32) - 1.0;
+                    value >= min && value <= max
+                } else {
+                    value >= 0.0 && value <= (2_f64).powi($bits as i32) - 1.0
+                };
+            if !valid {
+                return numeric_checked_error(
+                    "E2904",
+                    concat!("value is outside ", $path, " range or is non-finite"),
+                );
+            }
+            unsafe {
+                *results_ptr = value as i128 as i64;
+            }
             HOST_STATUS_SUCCESS
         }
     };
@@ -1224,7 +1417,10 @@ fn register_ml() {
     register_host_function(ML_VECTOR_INDEX_QUERY, std_ml_vector_index_query);
     register_host_function(ML_VECTOR_INDEX_PERSIST, std_ml_vector_index_persist);
     register_host_function(ML_VECTOR_INDEX_LOAD, std_ml_vector_index_load);
-    register_host_function(ML_VECTOR_INDEX_SET_METADATA, std_ml_vector_index_set_metadata);
+    register_host_function(
+        ML_VECTOR_INDEX_SET_METADATA,
+        std_ml_vector_index_set_metadata,
+    );
     register_host_function(ML_VECTOR_INDEX_METRICS, std_ml_vector_index_metrics);
     register_host_function(ML_RAG_CHUNK_TEXT, std_ml_rag_chunk_text);
     register_host_function(ML_RAG_BUILD_PROMPT, std_ml_rag_build_prompt);
@@ -2688,14 +2884,22 @@ pub fn tensor_backward_fast(loss_h: usize) -> i32 {
 pub fn tensor_grad_handle_fast(input_h: usize) -> i64 {
     let Some(values) = with_tensor_registry(|registry| {
         let tensor = registry.get(input_h)?;
-        (tensor.dtype == TensorDType::Float)
-            .then(|| tensor.grad.clone().unwrap_or_else(|| vec![0.0; tensor.len()]))
+        (tensor.dtype == TensorDType::Float).then(|| {
+            tensor
+                .grad
+                .clone()
+                .unwrap_or_else(|| vec![0.0; tensor.len()])
+        })
     }) else {
         return 0;
     };
-    tensor_alloc(TensorDType::Float, tensor_shape(input_h).unwrap_or_default(), f64_values_to_host(&values))
-        .map(|handle| handle as i64)
-        .unwrap_or(0)
+    tensor_alloc(
+        TensorDType::Float,
+        tensor_shape(input_h).unwrap_or_default(),
+        f64_values_to_host(&values),
+    )
+    .map(|handle| handle as i64)
+    .unwrap_or(0)
 }
 
 fn tensor_shape(handle: usize) -> Option<Vec<usize>> {
@@ -2744,11 +2948,15 @@ pub fn tensor_autodiff_apply_fast(
             return None;
         }
         let grad = if upstream_h == 0 {
-            if output.len() != 1 { return None; }
+            if output.len() != 1 {
+                return None;
+            }
             vec![1.0]
         } else {
             let upstream = registry.get(upstream_h)?;
-            if upstream.dtype != TensorDType::Float { return None; }
+            if upstream.dtype != TensorDType::Float {
+                return None;
+            }
             tensor_values_as_f64(upstream)
         };
         let parent_grads = autograd_parent_grads(&node, &ParentGrad::Host(grad), registry)?;
@@ -7847,13 +8055,19 @@ fn ml_vocab_json_depth(value: &serde_json::Value, depth: usize) -> bool {
         return false;
     }
     match value {
-        serde_json::Value::Array(values) => values.iter().all(|item| ml_vocab_json_depth(item, depth + 1)),
-        serde_json::Value::Object(values) => values.values().all(|item| ml_vocab_json_depth(item, depth + 1)),
+        serde_json::Value::Array(values) => values
+            .iter()
+            .all(|item| ml_vocab_json_depth(item, depth + 1)),
+        serde_json::Value::Object(values) => values
+            .values()
+            .all(|item| ml_vocab_json_depth(item, depth + 1)),
         _ => true,
     }
 }
 
-fn ml_parse_artifact_tokenizer(data: &crate::artifact::ArtifactData) -> Option<MlWordpieceTokenizer> {
+fn ml_parse_artifact_tokenizer(
+    data: &crate::artifact::ArtifactData,
+) -> Option<MlWordpieceTokenizer> {
     if data.kind != "multi_array"
         || data.metadata.get("tokenizer_type")? != "wordpiece"
         || data.metadata.get("tokenizer_version")? != "v1"
@@ -7882,7 +8096,10 @@ fn ml_parse_artifact_tokenizer(data: &crate::artifact::ArtifactData) -> Option<M
         }
         let id = i64::try_from(item.get("id")?.as_u64()?).ok()?;
         let token = item.get("token")?.as_str()?.to_owned();
-        if token.is_empty() || token_to_id.insert(token.clone(), id).is_some() || id_to_token.insert(id, token).is_some() {
+        if token.is_empty()
+            || token_to_id.insert(token.clone(), id).is_some()
+            || id_to_token.insert(id, token).is_some()
+        {
             return None;
         }
     }
@@ -7907,9 +8124,15 @@ fn ml_parse_artifact_tokenizer(data: &crate::artifact::ArtifactData) -> Option<M
     if continuation_prefix.is_empty() {
         return None;
     }
-    let token_ids = data.tensors.iter().find(|tensor| tensor.name == "token_ids")?;
-    if token_ids.dtype != "int" || token_ids.precision != "f64" || token_ids.layout != "contiguous"
-        || token_ids.shape != vec![tokens.len()] || token_ids.bytes.len() != tokens.len() * 8
+    let token_ids = data
+        .tensors
+        .iter()
+        .find(|tensor| tensor.name == "token_ids")?;
+    if token_ids.dtype != "int"
+        || token_ids.precision != "f64"
+        || token_ids.layout != "contiguous"
+        || token_ids.shape != vec![tokens.len()]
+        || token_ids.bytes.len() != tokens.len() * 8
     {
         return None;
     }
@@ -7919,7 +8142,11 @@ fn ml_parse_artifact_tokenizer(data: &crate::artifact::ArtifactData) -> Option<M
             return None;
         }
     }
-    let max_token_chars = token_to_id.keys().map(|token| token.chars().count()).max().unwrap_or(1);
+    let max_token_chars = token_to_id
+        .keys()
+        .map(|token| token.chars().count())
+        .max()
+        .unwrap_or(1);
     Some(MlWordpieceTokenizer {
         token_to_id,
         id_to_token,
@@ -7988,11 +8215,13 @@ fn ml_wordpiece_encode(tokenizer: &MlWordpieceTokenizer, text: &str) -> Vec<i64>
 fn ml_wordpiece_decode(tokenizer: &MlWordpieceTokenizer, ids: &[i64]) -> Option<String> {
     let mut words = Vec::<String>::new();
     for id in ids {
-        let token = tokenizer
-            .id_to_token
-            .get(id)
-            .cloned()
-            .or_else(|| if tokenizer.strict_ids { None } else { Some("[UNK]".to_string()) })?;
+        let token = tokenizer.id_to_token.get(id).cloned().or_else(|| {
+            if tokenizer.strict_ids {
+                None
+            } else {
+                Some("[UNK]".to_string())
+            }
+        })?;
         if let Some(piece) = token.strip_prefix(&tokenizer.continuation_prefix) {
             if let Some(last) = words.last_mut() {
                 last.push_str(piece);
@@ -8155,9 +8384,7 @@ fn artifact_tensor_payload(handle: usize, name: &str) -> Option<crate::artifact:
     })
 }
 
-fn artifact_tensor_from_payload(
-    payload: &crate::artifact::TensorPayload,
-) -> Result<usize, i32> {
+fn artifact_tensor_from_payload(payload: &crate::artifact::TensorPayload) -> Result<usize, i32> {
     let values = payload
         .bytes
         .chunks_exact(8)
@@ -8198,17 +8425,33 @@ extern "C" fn std_ml_artifact_new(ctx: *mut SpectraHostCallContext) -> i32 {
         let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some(name) = read_spectra_string(args[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(version) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(kind) = read_spectra_string(args[2]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        if name.is_empty() || version.is_empty() || !matches!(kind.as_str(), "checkpoint" | "multi_array") {
+        let Some(name) = read_spectra_string(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(version) = read_spectra_string(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(kind) = read_spectra_string(args[2]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if name.is_empty()
+            || version.is_empty()
+            || !matches!(kind.as_str(), "checkpoint" | "multi_array")
+        {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let handle = with_ml_registry(|registry| {
             let handle = registry.next_handle();
-            registry.artifacts.insert(handle, MlArtifact {
-                name, model_version: version, kind, metadata: BTreeMap::new(), tensors: HashMap::new(),
-            });
+            registry.artifacts.insert(
+                handle,
+                MlArtifact {
+                    name,
+                    model_version: version,
+                    kind,
+                    metadata: BTreeMap::new(),
+                    tensors: HashMap::new(),
+                },
+            );
             handle
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
@@ -8217,38 +8460,80 @@ extern "C" fn std_ml_artifact_new(ctx: *mut SpectraHostCallContext) -> i32 {
 
 extern "C" fn std_ml_artifact_set_metadata(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let (Some(key), Some(value)) = (read_spectra_string(args[1]), read_spectra_string(args[2])) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        if key.is_empty() { return HOST_STATUS_INVALID_ARGUMENT; }
-        let ok = with_ml_registry(|registry| registry.artifacts.get_mut(&(args[0] as usize)).map(|artifact| { artifact.metadata.insert(key, value); true }).unwrap_or(false));
-        if !ok { return HOST_STATUS_NOT_FOUND; }
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let (Some(key), Some(value)) = (read_spectra_string(args[1]), read_spectra_string(args[2]))
+        else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if key.is_empty() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let ok = with_ml_registry(|registry| {
+            registry
+                .artifacts
+                .get_mut(&(args[0] as usize))
+                .map(|artifact| {
+                    artifact.metadata.insert(key, value);
+                    true
+                })
+                .unwrap_or(false)
+        });
+        if !ok {
+            return HOST_STATUS_NOT_FOUND;
+        }
         tensor_result(ctx_ref, 1)
     }
 }
 
 extern "C" fn std_ml_artifact_add_tensor(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(name) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        if name.is_empty() { return HOST_STATUS_INVALID_ARGUMENT; }
-        if artifact_tensor_payload(args[2] as usize, &name).is_none() { return HOST_STATUS_NOT_FOUND; }
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(name) = read_spectra_string(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if name.is_empty() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if artifact_tensor_payload(args[2] as usize, &name).is_none() {
+            return HOST_STATUS_NOT_FOUND;
+        }
         let ok = with_ml_registry(|registry| {
-            let Some(artifact) = registry.artifacts.get_mut(&(args[0] as usize)) else { return false; };
-            if artifact.tensors.contains_key(&name) { return false; }
+            let Some(artifact) = registry.artifacts.get_mut(&(args[0] as usize)) else {
+                return false;
+            };
+            if artifact.tensors.contains_key(&name) {
+                return false;
+            }
             artifact.tensors.insert(name, args[2] as usize);
             true
         });
-        if !ok { return HOST_STATUS_INVALID_ARGUMENT; }
+        if !ok {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
         tensor_result(ctx_ref, 1)
     }
 }
 
 extern "C" fn std_ml_artifact_save(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(path) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(artifact) = with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).cloned()) else { return HOST_STATUS_NOT_FOUND; };
-        let Some(data) = artifact_data_for_save(&artifact) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = read_spectra_string(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(artifact) =
+            with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).cloned())
+        else {
+            return HOST_STATUS_NOT_FOUND;
+        };
+        let Some(data) = artifact_data_for_save(&artifact) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
         match crate::artifact::write_atomic(Path::new(&path), &data) {
             Ok(()) => tensor_result(ctx_ref, 1),
             Err(_) => HOST_STATUS_INVALID_ARGUMENT,
@@ -8258,17 +8543,34 @@ extern "C" fn std_ml_artifact_save(ctx: *mut SpectraHostCallContext) -> i32 {
 
 extern "C" fn std_ml_artifact_load(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(path) = read_spectra_string(args[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Ok(data) = crate::artifact::read(Path::new(&path)) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = read_spectra_string(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Ok(data) = crate::artifact::read(Path::new(&path)) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
         let mut tensors = HashMap::new();
         for payload in &data.tensors {
-            let Ok(handle) = artifact_tensor_from_payload(payload) else { return HOST_STATUS_INVALID_ARGUMENT; };
+            let Ok(handle) = artifact_tensor_from_payload(payload) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            };
             tensors.insert(payload.name.clone(), handle);
         }
         let handle = with_ml_registry(|registry| {
             let handle = registry.next_handle();
-            registry.artifacts.insert(handle, MlArtifact { name: data.name, model_version: data.model_version, kind: data.kind, metadata: data.metadata, tensors });
+            registry.artifacts.insert(
+                handle,
+                MlArtifact {
+                    name: data.name,
+                    model_version: data.model_version,
+                    kind: data.kind,
+                    metadata: data.metadata,
+                    tensors,
+                },
+            );
             handle
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
@@ -8277,34 +8579,67 @@ extern "C" fn std_ml_artifact_load(ctx: *mut SpectraHostCallContext) -> i32 {
 
 extern "C" fn std_ml_artifact_tensor(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(name) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(handle) = with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).and_then(|artifact| artifact.tensors.get(&name).copied())) else { return HOST_STATUS_NOT_FOUND; };
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(name) = read_spectra_string(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(handle) = with_ml_registry(|registry| {
+            registry
+                .artifacts
+                .get(&(args[0] as usize))
+                .and_then(|artifact| artifact.tensors.get(&name).copied())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
 }
 
 extern "C" fn std_ml_artifact_metadata(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(key) = read_spectra_string(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(value) = with_ml_registry(|registry| registry.artifacts.get(&(args[0] as usize)).and_then(|artifact| artifact.metadata.get(&key).cloned())) else { return HOST_STATUS_NOT_FOUND; };
+        let Ok((ctx_ref, args)) = ml_args(ctx, 2) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(key) = read_spectra_string(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(value) = with_ml_registry(|registry| {
+            registry
+                .artifacts
+                .get(&(args[0] as usize))
+                .and_then(|artifact| artifact.metadata.get(&key).cloned())
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
         tensor_result(ctx_ref, alloc_spectra_string(&value))
     }
 }
 
 extern "C" fn std_ml_artifact_validate(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(path) = read_spectra_string(args[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        tensor_result(ctx_ref, crate::artifact::validate(Path::new(&path)) as SpectraHostValue)
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(path) = read_spectra_string(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        tensor_result(
+            ctx_ref,
+            crate::artifact::validate(Path::new(&path)) as SpectraHostValue,
+        )
     }
 }
 
 extern "C" fn std_ml_artifact_free(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        if with_ml_registry(|registry| registry.artifacts.remove(&(args[0] as usize))).is_none() { return HOST_STATUS_NOT_FOUND; }
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if with_ml_registry(|registry| registry.artifacts.remove(&(args[0] as usize))).is_none() {
+            return HOST_STATUS_NOT_FOUND;
+        }
         tensor_optional_result(ctx_ref, 0)
     }
 }
@@ -11888,17 +12223,33 @@ extern "C" fn std_ml_embedding_load(ctx: *mut SpectraHostCallContext) -> i32 {
         if data.metadata.get("artifact_role").map(String::as_str) != Some("embedding_weights") {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        let Some(vocab_size) = data.metadata.get("vocab_size").and_then(|value| value.parse::<usize>().ok()) else {
+        let Some(vocab_size) = data
+            .metadata
+            .get("vocab_size")
+            .and_then(|value| value.parse::<usize>().ok())
+        else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some(embedding_dim) = data.metadata.get("embedding_dim").and_then(|value| value.parse::<usize>().ok()) else {
+        let Some(embedding_dim) = data
+            .metadata
+            .get("embedding_dim")
+            .and_then(|value| value.parse::<usize>().ok())
+        else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some(payload) = data.tensors.iter().find(|tensor| tensor.name == tensor_name) else {
+        let Some(payload) = data
+            .tensors
+            .iter()
+            .find(|tensor| tensor.name == tensor_name)
+        else {
             return HOST_STATUS_NOT_FOUND;
         };
-        if payload.dtype != "float" || payload.precision != "f64" || payload.layout != "contiguous"
-            || payload.shape.len() != 2 || payload.shape[0] != vocab_size || payload.shape[1] != embedding_dim
+        if payload.dtype != "float"
+            || payload.precision != "f64"
+            || payload.layout != "contiguous"
+            || payload.shape.len() != 2
+            || payload.shape[0] != vocab_size
+            || payload.shape[1] != embedding_dim
         {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
@@ -11959,8 +12310,14 @@ extern "C" fn std_ml_vector_index_insert(ctx: *mut SpectraHostCallContext) -> i3
             return HOST_STATUS_NOT_FOUND;
         };
         let result = with_ml_registry(|registry| {
-            let index = registry.vector_indexes.get_mut(&(args[0] as usize)).ok_or(HOST_STATUS_NOT_FOUND)?;
-            index.insert(id, &vector).map(|count| count as SpectraHostValue).map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
+            let index = registry
+                .vector_indexes
+                .get_mut(&(args[0] as usize))
+                .ok_or(HOST_STATUS_NOT_FOUND)?;
+            index
+                .insert(id, &vector)
+                .map(|count| count as SpectraHostValue)
+                .map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
         });
         match result {
             Ok(count) => tensor_result(ctx_ref, count),
@@ -11981,14 +12338,30 @@ extern "C" fn std_ml_vector_index_query(ctx: *mut SpectraHostCallContext) -> i32
             return HOST_STATUS_NOT_FOUND;
         };
         let result = with_ml_registry(|registry| {
-            let index = registry.vector_indexes.get_mut(&(args[0] as usize)).ok_or(HOST_STATUS_NOT_FOUND)?;
-            index.query(&query, args[2] as usize).map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
+            let index = registry
+                .vector_indexes
+                .get_mut(&(args[0] as usize))
+                .ok_or(HOST_STATUS_NOT_FOUND)?;
+            index
+                .query(&query, args[2] as usize)
+                .map_err(|_| HOST_STATUS_INVALID_ARGUMENT)
         });
         let evidence = match result {
             Ok(evidence) => evidence,
             Err(code) => return code,
         };
-        let results = evidence.results.iter().map(|result| format!("{{\"id\":{},\"score\":{}}}", ml_json_string(&result.id), result.score)).collect::<Vec<_>>().join(",");
+        let results = evidence
+            .results
+            .iter()
+            .map(|result| {
+                format!(
+                    "{{\"id\":{},\"score\":{}}}",
+                    ml_json_string(&result.id),
+                    result.score
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
         let payload = format!("{{\"schema\":\"spectra.ml.vector_query.v2\",\"algorithm\":\"hnsw\",\"metric\":\"cosine\",\"results\":[{}],\"visited_nodes\":{},\"latency_us\":{}}}", results, evidence.visited_nodes, evidence.latency_us);
         tensor_result(ctx_ref, alloc_spectra_string(&payload))
     }
@@ -12002,11 +12375,21 @@ extern "C" fn std_ml_vector_index_persist(ctx: *mut SpectraHostCallContext) -> i
         let Some(path) = ml_read_path_arg(args[1]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let Some(data) = with_ml_registry(|registry| registry.vector_indexes.get(&(args[0] as usize)).map(crate::vector_index::VectorIndex::artifact_data)) else {
+        let Some(data) = with_ml_registry(|registry| {
+            registry
+                .vector_indexes
+                .get(&(args[0] as usize))
+                .map(crate::vector_index::VectorIndex::artifact_data)
+        }) else {
             return HOST_STATUS_NOT_FOUND;
         };
-        let data = match data { Ok(data) => data, Err(_) => return HOST_STATUS_INVALID_ARGUMENT };
-        if crate::artifact::write_atomic(std::path::Path::new(&path), &data).is_err() { return HOST_STATUS_INTERNAL_ERROR; }
+        let data = match data {
+            Ok(data) => data,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        if crate::artifact::write_atomic(std::path::Path::new(&path), &data).is_err() {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
         tensor_result(ctx_ref, alloc_spectra_string(&path))
     }
 }
@@ -12019,8 +12402,14 @@ extern "C" fn std_ml_vector_index_load(ctx: *mut SpectraHostCallContext) -> i32 
         let Some(path) = ml_read_path_arg(args[0]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let data = match crate::artifact::read(std::path::Path::new(&path)) { Ok(data) => data, Err(_) => return HOST_STATUS_INVALID_ARGUMENT };
-        let index = match crate::vector_index::VectorIndex::from_artifact(&data) { Ok(index) => index, Err(_) => return HOST_STATUS_INVALID_ARGUMENT };
+        let data = match crate::artifact::read(std::path::Path::new(&path)) {
+            Ok(data) => data,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let index = match crate::vector_index::VectorIndex::from_artifact(&data) {
+            Ok(index) => index,
+            Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
+        };
         let handle = with_ml_registry(|registry| {
             let handle = registry.next_handle();
             registry.vector_indexes.insert(handle, index);
@@ -12032,23 +12421,41 @@ extern "C" fn std_ml_vector_index_load(ctx: *mut SpectraHostCallContext) -> i32 
 
 extern "C" fn std_ml_vector_index_set_metadata(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(key) = ml_read_path_arg(args[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(value) = ml_read_path_arg(args[2]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let updated = with_ml_registry(|registry| registry.vector_indexes.get_mut(&(args[0] as usize)).map(|index| index.set_metadata(&key, &value)).unwrap_or(false));
+        let Ok((ctx_ref, args)) = ml_args(ctx, 3) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(key) = ml_read_path_arg(args[1]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(value) = ml_read_path_arg(args[2]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let updated = with_ml_registry(|registry| {
+            registry
+                .vector_indexes
+                .get_mut(&(args[0] as usize))
+                .map(|index| index.set_metadata(&key, &value))
+                .unwrap_or(false)
+        });
         tensor_result(ctx_ref, if updated { 1 } else { 0 })
     }
 }
 
 extern "C" fn std_ml_vector_index_metrics(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
-        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let Some(payload) = with_ml_registry(|registry| registry.vector_indexes.get(&(args[0] as usize)).map(|index| {
+        let Ok((ctx_ref, args)) = ml_args(ctx, 1) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(payload) = with_ml_registry(|registry| {
+            registry.vector_indexes.get(&(args[0] as usize)).map(|index| {
             let metrics = index.metrics();
             let average_insert_us = if metrics.insert_count == 0 { 0.0 } else { metrics.total_insert_ns as f64 / metrics.insert_count as f64 / 1000.0 };
             let average_query_us = if metrics.query_count == 0 { 0.0 } else { metrics.total_query_ns as f64 / metrics.query_count as f64 / 1000.0 };
             format!("{{\"schema\":\"spectra.ml.vector_index_metrics.v1\",\"algorithm\":\"hnsw\",\"metric\":\"cosine\",\"insert_count\":{},\"query_count\":{},\"average_insert_us\":{},\"average_query_us\":{}}}", metrics.insert_count, metrics.query_count, average_insert_us, average_query_us)
-        })) else { return HOST_STATUS_NOT_FOUND; };
+        })
+        }) else {
+            return HOST_STATUS_NOT_FOUND;
+        };
         tensor_result(ctx_ref, alloc_spectra_string(&payload))
     }
 }
@@ -14706,9 +15113,21 @@ extern "C" fn std_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         let path_label = path.to_string_lossy().to_string();
         let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.read").ok();
-        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_attribute(id, "fs.path", &path_label);
+        }
         let read = std::fs::read_to_string(&path);
-        if let Some(id) = span { let _ = tracing::span_set_status(id, if read.is_ok() { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_status(
+                id,
+                if read.is_ok() {
+                    SpanStatus::Ok
+                } else {
+                    SpanStatus::Error
+                },
+            );
+            let _ = tracing::span_end(id);
+        }
         let content = read.unwrap_or_default();
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = alloc_spectra_string(&content);
@@ -14741,9 +15160,21 @@ extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
         let content = read_spectra_string(args[1]).unwrap_or_default();
         let path_label = path.to_string_lossy().to_string();
         let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.write").ok();
-        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_attribute(id, "fs.path", &path_label);
+        }
         let ok = fs_write_text(&path, &content, false);
-        if let Some(id) = span { let _ = tracing::span_set_status(id, if ok { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_status(
+                id,
+                if ok {
+                    SpanStatus::Ok
+                } else {
+                    SpanStatus::Error
+                },
+            );
+            let _ = tracing::span_end(id);
+        }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -14775,9 +15206,21 @@ extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
         let content = read_spectra_string(args[1]).unwrap_or_default();
         let path_label = path.to_string_lossy().to_string();
         let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.append").ok();
-        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_attribute(id, "fs.path", &path_label);
+        }
         let ok = fs_write_text(&path, &content, true);
-        if let Some(id) = span { let _ = tracing::span_set_status(id, if ok { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_status(
+                id,
+                if ok {
+                    SpanStatus::Ok
+                } else {
+                    SpanStatus::Error
+                },
+            );
+            let _ = tracing::span_end(id);
+        }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -14808,9 +15251,14 @@ extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         let path_label = path.to_string_lossy().to_string();
         let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.exists").ok();
-        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_attribute(id, "fs.path", &path_label);
+        }
         let exists = path.exists();
-        if let Some(id) = span { let _ = tracing::span_set_status(id, SpanStatus::Ok); let _ = tracing::span_end(id); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_status(id, SpanStatus::Ok);
+            let _ = tracing::span_end(id);
+        }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = exists as SpectraHostValue;
     }
@@ -14841,9 +15289,21 @@ extern "C" fn std_fs_remove(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         let path_label = path.to_string_lossy().to_string();
         let span = tracing::begin_external_span(SpanKind::Internal, "filesystem.remove").ok();
-        if let Some(id) = span { let _ = tracing::span_set_attribute(id, "fs.path", &path_label); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_attribute(id, "fs.path", &path_label);
+        }
         let ok = std::fs::remove_file(&path).is_ok();
-        if let Some(id) = span { let _ = tracing::span_set_status(id, if ok { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+        if let Some(id) = span {
+            let _ = tracing::span_set_status(
+                id,
+                if ok {
+                    SpanStatus::Ok
+                } else {
+                    SpanStatus::Error
+                },
+            );
+            let _ = tracing::span_end(id);
+        }
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = ok as SpectraHostValue;
     }
@@ -22890,7 +23350,17 @@ mod tests {
 
         let (status, index) = call_host(ML_VECTOR_INDEX_NEW, &[8]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(call_host(ML_VECTOR_INDEX_SET_METADATA, &[index, test_string("model_version"), test_string("r1803-runtime-test")]), (HOST_STATUS_SUCCESS, 1));
+        assert_eq!(
+            call_host(
+                ML_VECTOR_INDEX_SET_METADATA,
+                &[
+                    index,
+                    test_string("model_version"),
+                    test_string("r1803-runtime-test")
+                ]
+            ),
+            (HOST_STATUS_SUCCESS, 1)
+        );
         let (status, rag_vec) = call_host(ML_TEXT_EMBED, &[test_string("rag retrieval"), 8]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, ml_vec) = call_host(ML_TEXT_EMBED, &[test_string("machine learning"), 8]);
@@ -24541,7 +25011,10 @@ mod tests {
         .expect("worker task should be allocated");
         for _ in 0..100 {
             if call_host(ASYNC_TASK_POLL, &[task]) == (HOST_STATUS_SUCCESS, 1) {
-                assert_eq!(call_host(ASYNC_TASK_RESULT, &[task]), (HOST_STATUS_SUCCESS, 91));
+                assert_eq!(
+                    call_host(ASYNC_TASK_RESULT, &[task]),
+                    (HOST_STATUS_SUCCESS, 91)
+                );
                 return;
             }
             std::thread::sleep(Duration::from_millis(1));
@@ -25468,7 +25941,8 @@ mod tests {
         register();
         crate::ffi::spectra_rt_manual_clear();
         let _ = call_host(TENSOR_FREE_ALL, &[]);
-        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/r3005");
+        let fixture_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/r3005");
         let tokenizer_path = fixture_root.join("tokenizer-valid.spar");
         let embedding_path = fixture_root.join("embedding-valid.spar");
         let duplicate_path = fixture_root.join("tokenizer-duplicate-token.spar");
@@ -25490,10 +25964,21 @@ mod tests {
         assert_eq!(call_host(TENSOR_GET, &[ids, 2]), (HOST_STATUS_SUCCESS, 3));
         let (status, decoded_ptr) = call_host(ML_TOKENIZER_DECODE, &[tokenizer, ids]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(unsafe { read_spectra_string(decoded_ptr) }.as_deref(), Some("hello [UNK] [CLS] world"));
+        assert_eq!(
+            unsafe { read_spectra_string(decoded_ptr) }.as_deref(),
+            Some("hello [UNK] [CLS] world")
+        );
 
-        let invalid_ids = tensor_alloc(TensorDType::Int, vec![1], vec![999]).expect("invalid id tensor");
-        assert_eq!(call_host(ML_TOKENIZER_DECODE, &[tokenizer, invalid_ids as SpectraHostValue]).0, HOST_STATUS_INVALID_ARGUMENT);
+        let invalid_ids =
+            tensor_alloc(TensorDType::Int, vec![1], vec![999]).expect("invalid id tensor");
+        assert_eq!(
+            call_host(
+                ML_TOKENIZER_DECODE,
+                &[tokenizer, invalid_ids as SpectraHostValue]
+            )
+            .0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
 
         let (status, weights) = call_host(
             ML_EMBEDDING_LOAD,
@@ -25505,10 +25990,33 @@ mod tests {
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let (status, embedded) = call_host(ML_EMBEDDING_LOOKUP, &[weights, ids]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
-        assert_eq!(call_host(TENSOR_ROWS, &[embedded]), (HOST_STATUS_SUCCESS, 4));
-        assert_eq!(call_host(TENSOR_COLS, &[embedded]), (HOST_STATUS_SUCCESS, 4));
-        assert_eq!(call_host(ML_TOKENIZER_LOAD, &[test_string(duplicate_path.to_string_lossy().as_ref())]).0, HOST_STATUS_INVALID_ARGUMENT);
-        assert_eq!(call_host(ML_EMBEDDING_LOAD, &[test_string(shape_path.to_string_lossy().as_ref()), test_string("embedding.weight")]).0, HOST_STATUS_INVALID_ARGUMENT);
+        assert_eq!(
+            call_host(TENSOR_ROWS, &[embedded]),
+            (HOST_STATUS_SUCCESS, 4)
+        );
+        assert_eq!(
+            call_host(TENSOR_COLS, &[embedded]),
+            (HOST_STATUS_SUCCESS, 4)
+        );
+        assert_eq!(
+            call_host(
+                ML_TOKENIZER_LOAD,
+                &[test_string(duplicate_path.to_string_lossy().as_ref())]
+            )
+            .0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            call_host(
+                ML_EMBEDDING_LOAD,
+                &[
+                    test_string(shape_path.to_string_lossy().as_ref()),
+                    test_string("embedding.weight")
+                ]
+            )
+            .0,
+            HOST_STATUS_INVALID_ARGUMENT
+        );
         let _ = call_host(TENSOR_FREE_ALL, &[]);
     }
 }

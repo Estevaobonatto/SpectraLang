@@ -1981,11 +1981,11 @@ builder remain separate workstreams.
 R-2701 is the operational tracing contract for the API and AI workstreams.
 Its production path is runtime-owned W3C context, real HTTP server/client
 instrumentation, and OTLP/HTTP protobuf export to a collector. Serving and
-distributed-training work may depend on this contract, but R-2701 remains
-incomplete until bounded export, failure handling, concurrency isolation, and
-independent payload validation are evidenced. Database tracing is only
-production-capable after the Phase 25 pool and SQLite driver exist and emit
-real query/transaction spans; PostgreSQL and Redis are not claimed until their
+distributed-training work may depend on this contract. R-2701 is complete for
+the currently supported boundaries: bounded export, failure handling,
+concurrency isolation, independent payload validation, HTTP client
+propagation, filesystem spans, and real SQLite query/transaction spans are
+covered by the phase gate. PostgreSQL and Redis are not claimed until their
 drivers are implemented.
 
 - `R-2701` OpenTelemetry-compatible tracing

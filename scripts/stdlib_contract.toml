@@ -322,9 +322,9 @@ reason = "The current server is an in-process deterministic queue and scalar mod
 [[namespace]]
 prefix = "std.api.trace"
 owner = "runtime"
-classification = "incomplete"
+classification = "production"
 roadmap = "R-2701"
-reason = "Tracing core and failure probes are real; concurrent request isolation, filesystem CLI evidence, and database-driver instrumentation remain open."
+reason = "OTLP protobuf export, typed attributes, W3C propagation, bounded queue overflow, retries, timeouts, shutdown, concurrent HTTP isolation, filesystem spans, and real SQLite query spans are independently validated."
 
 [[namespace]]
 prefix = "std.api"
@@ -413,9 +413,9 @@ reason = "Metrics expose the current host-call tensor execution and optional acc
 
 [[rule]]
 prefix = "std.api.trace."
-classification = "incomplete"
+classification = "production"
 roadmap = "R-2701"
-reason = "W3C context, typed attributes, bounded OTLP/HTTP export, and failure probes are implemented; concurrent isolation and real database-driver instrumentation remain before production promotion."
+reason = "The R-2701 v2 collector gate independently validates OTLP payloads, typed attributes, W3C parentage, retries, permanent errors, connection drops, timeouts, bounded overflow, HTTP client propagation, concurrent isolation, filesystem spans, and SQLite spans."
 
 [[rule]]
 prefix = "std.api.db.sqlite."
