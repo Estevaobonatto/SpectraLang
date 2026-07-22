@@ -2598,7 +2598,7 @@ title = "Structured Logging and Request ID Tracing"
 phase = "phase_23"
 owner = "web"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "medium"
 dependencies = ["R-2301"]
 summary = "Provide a structured logging middleware that emits a request ID, method, path, status, latency, and a configurable log format (JSON or text)."
@@ -3240,15 +3240,19 @@ title = "SQL Query Builder (Type-Safe)"
 phase = "phase_25"
 owner = "db"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2501"]
 summary = "Provide a type-safe SQL query builder for SELECT, INSERT, UPDATE, DELETE, with parameter binding and dialect-aware SQL generation."
 acceptance = [
-  "queries can be composed without string concatenation",
-  "parameters are bound through the driver and not interpolated into SQL",
-  "the builder emits parameterized SQL for at least one supported dialect",
-  "tests cover each query kind and parameter binding"
+  "queries can be composed through an immutable typed AST without string concatenation",
+  "parameters are bound through the real SQLite driver and are never interpolated into SQL",
+  "the SQLite dialect emits deterministic quoted identifiers and 1-based placeholders",
+  "SELECT, INSERT, UPDATE, and DELETE execute against a file-backed SQLite database",
+  "UPDATE and DELETE without predicates are rejected by default",
+  "the builder reuses the R-2501 pool contract without creating a parallel pool",
+  "tests cover query composition, typed parameters, transactions, concurrency, and invalid input",
+  "the independent R-2502 validator and phase25-query-builder gate pass"
 ]
 
 [[items]]

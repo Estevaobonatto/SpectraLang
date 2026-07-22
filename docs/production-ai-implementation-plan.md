@@ -1947,6 +1947,11 @@ HTTP-parented OTLP query spans.
 
 - `R-2501` Connection pool (async-aware)
 - `R-2502` SQL query builder (type-safe)
+- `R-2502` is implemented as the shared typed Rust AST/dialect contract in
+  `spectra-db`; SQLite is the first validated dialect and drivers execute its
+  parameterized output without interpolating user values. The public
+  `spectra.api.db.sqlite` raw-statement surface remains compatible until a
+  language-level typed query contract is designed.
 - `R-2503` Migrations framework
 - `R-2504` SQLite driver (sync and async)
 - `R-2505` PostgreSQL driver (async, prepared, COPY)

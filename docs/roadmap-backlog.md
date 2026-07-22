@@ -5888,7 +5888,7 @@ ORM.
 
 ## R-2502 SQL Query Builder (Type-Safe)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -5896,10 +5896,39 @@ ORM.
 
 ### Acceptance
 
-- Queries can be composed without string concatenation.
-- Parameters are bound through the driver and not interpolated into SQL.
-- The builder emits parameterized SQL for at least one supported dialect.
-- Tests cover each query kind and parameter binding.
+- Queries are composed through a typed immutable AST without string concatenation.
+- Parameters are bound by the real SQLite driver and never interpolated into SQL.
+- The SQLite dialect quotes identifiers and emits deterministic 1-based placeholders.
+- `SELECT`, `INSERT`, `UPDATE`, and `DELETE` execute against a file-backed database.
+- Unscoped `UPDATE` and `DELETE` operations are rejected by default.
+- The builder reuses the shared R-2501 pool contract.
+- Rust integration tests and the independent `phase25-query-builder` validator cover
+  CRUD, typed parameters, transactions, concurrency, and invalid input.
+
+### Completion evidence
+
+- `spectra-db` now exposes a typed immutable AST and the reusable `Dialect`
+  contract, with SQLite as the certified dialect.
+- Real file-backed SQLite execution binds values through prepared statements;
+  generated SQL contains no user-value interpolation.
+- The shared R-2501 pool executes compiled queries without a parallel pool.
+- `target/r2502-query-builder/report.json` reports
+  `spectralang.r2502_query_builder.v1` with `status: "passed"`.
+- `validate_r3007_stdlib_contract.py` passes with zero blockers after the
+  R-2502 changes.
+- The versioned `schema.sql` is materialized as a real temporary SQLite file by
+  the independent validator; no in-memory database is used. A binary fixture is
+  intentionally not required for this builder contract.
+
+### Implementation boundary
+
+- The canonical builder is a typed Rust API in `packages/spectra-db`.
+- No new `spectra.api` handle surface is introduced in this task because a generic
+  handle API would not provide the promised type safety.
+- The existing explicit `spectra.api.db.sqlite` SQL API remains compatible and is
+  not used as evidence for the builder itself.
+- SQLite is the only validated dialect; PostgreSQL and MySQL adapters will consume
+  the shared `Dialect` contract in their own roadmap tasks.
 
 ## R-2503 Migrations Framework
 

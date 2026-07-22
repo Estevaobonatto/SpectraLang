@@ -1,4 +1,6 @@
 use super::error::{SqliteError, SqliteResult};
+use super::statement::{SqliteExecutionResult, SqliteStatement, SqliteValue, StepResult};
+use crate::query::CompiledQuery;
 use crate::{ConnectionFactory, ConnectionPool, PoolConfig};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
@@ -47,6 +49,31 @@ impl SqliteConnection {
             .connection
             .execute_batch(sql)
             .map_err(SqliteError::from)
+    }
+
+    pub fn execute_query(
+        &self,
+        query: CompiledQuery<SqliteValue>,
+    ) -> SqliteResult<SqliteExecutionResult> {
+        let mut statement = SqliteStatement::prepare(self.clone(), query.sql)?;
+        for (index, value) in query.params.into_iter().enumerate() {
+            statement.bind(index + 1, value)?;
+        }
+        let mut rows = Vec::new();
+        while statement.step()? == StepResult::Row {
+            let count = statement.column_count()?;
+            let mut row = Vec::with_capacity(count);
+            for index in 0..count {
+                row.push(statement.column_value(index)?);
+            }
+            rows.push(row);
+        }
+        let affected_rows = statement.affected_rows()?;
+        statement.finalize()?;
+        Ok(SqliteExecutionResult {
+            rows,
+            affected_rows,
+        })
     }
 
     pub fn begin(&self) -> SqliteResult<()> {

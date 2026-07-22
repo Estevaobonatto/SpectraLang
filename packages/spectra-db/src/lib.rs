@@ -8,7 +8,9 @@ mod error;
 mod metrics;
 mod pool;
 pub mod sqlite;
+pub mod query;
 
 pub use error::{PoolError, PoolResult};
 pub use metrics::PoolMetrics;
 pub use pool::{ConnectionFactory, ConnectionPool, PoolConfig, PooledConnection};
+pub use query::{CompiledQuery, Dialect, Query, QueryError, SqliteDialect};

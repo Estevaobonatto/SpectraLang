@@ -40,6 +40,12 @@ pub enum ColumnType {
     Blob = 4,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SqliteExecutionResult {
+    pub rows: Vec<Vec<SqliteValue>>,
+    pub affected_rows: usize,
+}
+
 pub struct SqliteStatement {
     connection: SqliteConnection,
     sql: String,
