@@ -1185,6 +1185,15 @@ if ($r2503Migrations.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed
 $results += [PSCustomObject]@{ Diretorio = "phase25-migrations"; Teste = "validate_r2503_migrations"; Status = $r2503Migrations.Status; Detalhe = $r2503Migrations.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27ae: R-2511 REST + SQLite CRUD real
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2511 REST + SQLite CRUD ---" -ForegroundColor Yellow
+$r2511RestSqlite = Invoke-HostCommand -name "validate_r2511_rest_sqlite" -fileName "python" -arguments @("scripts\validate_r2511_rest_sqlite.py", "--binary", $binary, "--fixture", "tests\validation\201_rest_sqlite_crud.spectra", "--database", "target\r2511-rest-sqlite\validation.sqlite", "--migrations-dir", "tests\fixtures\r2511\migrations", "--report", "target\r2511-rest-sqlite\report.json") -workingDir (Get-Location).Path
+if ($r2511RestSqlite.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-rest-sqlite-crud"; Teste = "validate_r2511_rest_sqlite"; Status = $r2511RestSqlite.Status; Detalhe = $r2511RestSqlite.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27ab: R-2505 PostgreSQL driver (requires real PostgreSQL lane)
 # ---------------------------------------------------------------------------
 Write-Host ""

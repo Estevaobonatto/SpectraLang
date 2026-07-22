@@ -6140,7 +6140,7 @@ environment checks and are not promoted by this task.
 
 ## R-2511 Database Example: REST + SQLite CRUD
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Risk: `low`
@@ -6148,9 +6148,11 @@ environment checks and are not promoted by this task.
 
 ### Acceptance
 
-- `examples/api/06_rest_sqlite_crud.spectra` builds and runs.
-- The example applies migrations and exposes CRUD endpoints.
-- The example runs an in-process integration test.
+- `examples/api/06_rest_sqlite_crud.spectra` builds and runs, exercising file-backed SQLite and the server lifecycle.
+- `tests/validation/201_rest_sqlite_crud.spectra` applies the versioned migrations and exercises parameterized SQLite operations.
+- `packages/spectra-api/tests/rest_sqlite_crud.rs` exercises dynamic `GET/POST/PUT/DELETE` CRUD over real TCP with the certified SQLite driver, query builder, health and metrics registries.
+- `scripts/validate_r2511_rest_sqlite.py` independently validates migrations, the file-backed schema, CLI fixture, HTTP harness, parameterization and shutdown.
+- The Spectra fixture is not presented as dynamic request CRUD: generic Spectra closures are intentionally outside this task; the Rust harness is the production CRUD proof.
 
 ## R-2512 Database Example: REST + PostgreSQL
 

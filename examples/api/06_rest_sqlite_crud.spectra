@@ -1,0 +1,37 @@
+module rest_sqlite_crud;
+
+// This executable fixture validates the language-facing SQLite and server
+// lifecycle. Dynamic request handlers are certified by the companion Rust
+// integration harness because Spectra handlers currently carry responses,
+// not closures.
+import {
+    SqliteConnection,
+    SqliteStatement,
+    open,
+    close,
+    prepare,
+    step,
+    finalize,
+} from std.api.db.sqlite;
+import {
+    Server,
+    new,
+    listen,
+    serve,
+    shutdown,
+} from std.api.server;
+import { Router, router } from std.api.routing;
+
+pub fn main() -> int {
+    let database: SqliteConnection = open("target/r2511-example.sqlite");
+    let schema: SqliteStatement = prepare(database, "CREATE TABLE IF NOT EXISTS todos(id INTEGER PRIMARY KEY, title TEXT NOT NULL)");
+    if step(schema) != 2 { return 1; }
+    if finalize(schema) != true { return 2; }
+    let app: Server = new();
+    let routes: Router = router();
+    if listen(app, 0) != true { return 3; }
+    if block_on(serve(app, routes)) != 1 { return 4; }
+    if shutdown(app) != true { return 5; }
+    if close(database) != true { return 6; }
+    return 0;
+}

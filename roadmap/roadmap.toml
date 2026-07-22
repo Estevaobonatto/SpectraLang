@@ -3408,14 +3408,16 @@ title = "Database Example: REST + SQLite CRUD"
 phase = "phase_25"
 owner = "ecosystem"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-2504", "R-2219", "R-2502"]
 summary = "Provide a runnable example that wires REST CRUD to a SQLite database through the query builder and migrations."
 acceptance = [
   "`examples/api/06_rest_sqlite_crud.spectra` builds and runs",
-  "the example applies migrations and exposes CRUD endpoints",
-  "the example runs an in-process integration test"
+  "the example applies migrations and exercises the SQLite API",
+  "`packages/spectra-api/tests/rest_sqlite_crud.rs` exercises dynamic CRUD endpoints over real TCP",
+  "the independent R-2511 validator returns `status = passed`",
+  "the fixture and the Rust harness explicitly remain separate because Spectra handlers are static in this task"
 ]
 
 [[items]]

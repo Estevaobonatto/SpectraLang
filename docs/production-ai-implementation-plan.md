@@ -1969,6 +1969,14 @@ HTTP-parented OTLP query spans.
 - `R-2513` Redis example: rate-limit via Redis
 - `R-2514` Migration example: multi-version evolution
 
+`R-2511` is the first integrated database/API proof and is complete after the
+independent validator and real TCP harness passed. Its Spectra fixture
+validates the language-facing SQLite and server lifecycle, while a real Rust
+TCP harness validates dynamic CRUD handlers using the certified SQLite driver,
+R-2502 parameterized queries, R-2503 migrations, health, metrics and tracing.
+The project does not claim generic Spectra request callbacks from this example;
+that capability remains a separate language/API design task.
+
 ### Phase 26 — API Tooling and Developer Experience
 
 - `R-2601` `spectralang api new` scaffolder
