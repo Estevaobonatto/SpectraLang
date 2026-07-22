@@ -1185,6 +1185,15 @@ if ($r2503Migrations.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed
 $results += [PSCustomObject]@{ Diretorio = "phase25-migrations"; Teste = "validate_r2503_migrations"; Status = $r2503Migrations.Status; Detalhe = $r2503Migrations.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27af: R-2514 multi-version migration example
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2514 multi-version migration example ---" -ForegroundColor Yellow
+$r2514MigrationExample = Invoke-HostCommand -name "validate_r2514_migrations_example" -fileName "python" -arguments @("scripts\validate_r2514_migrations_example.py", "--binary", $binary, "--fixture", "tests\validation\202_migrations_multi_version.spectra", "--database", "target\r2514-migrations-example\validation.sqlite", "--migrations-dir", "tests\fixtures\r2514\migrations", "--report", "target\r2514-migrations-example\report.json") -workingDir (Get-Location).Path
+if ($r2514MigrationExample.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-migration-example"; Teste = "validate_r2514_migrations_example"; Status = $r2514MigrationExample.Status; Detalhe = $r2514MigrationExample.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27ae: R-2511 REST + SQLite CRUD real
 # ---------------------------------------------------------------------------
 Write-Host ""

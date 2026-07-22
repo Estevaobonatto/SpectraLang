@@ -28,3 +28,4 @@ Reference pages:
 - [Middleware](std-api-middleware.md)
 - [Server lifecycle](std-api-server-lifecycle.md)
 - [REST + SQLite CRUD](std-api-sqlite-crud.md)
+- [SQLite migrations](std-api-migrations.md)

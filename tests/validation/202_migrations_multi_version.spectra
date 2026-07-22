@@ -1,0 +1,29 @@
+module migrations_multi_version_validation;
+
+import {
+    SqliteConnection,
+    SqliteStatement,
+    open,
+    close,
+    prepare,
+    step,
+    column_int,
+    column_text,
+    finalize,
+} from std.api.db.sqlite;
+
+pub fn main() -> int {
+    let database: SqliteConnection = open("target/r2514-migrations-validation.sqlite");
+    let query: SqliteStatement = prepare(database, "SELECT id,name,email FROM users ORDER BY id");
+    if step(query) != 1 { return 20; }
+    if column_int(query, 0) != 1 { return 21; }
+    if column_text(query, 1) != "Ada" { return 22; }
+    if column_text(query, 2) != "ada@example.test" { return 23; }
+    if step(query) != 1 { return 24; }
+    if column_int(query, 0) != 2 { return 25; }
+    if column_text(query, 1) != "Grace" { return 26; }
+    if column_text(query, 2) != "grace@example.test" { return 27; }
+    if finalize(query) != true { return 28; }
+    if close(database) != true { return 29; }
+    return 0;
+}

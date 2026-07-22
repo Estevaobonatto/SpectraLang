@@ -1969,6 +1969,12 @@ HTTP-parented OTLP query spans.
 - `R-2513` Redis example: rate-limit via Redis
 - `R-2514` Migration example: multi-version evolution
 
+`R-2514` is complete and certifies the migration workflow on SQLite with three versioned
+migrations. The Spectra fixture checks the resulting schema and seed rows,
+while the independent CLI validator proves rollback, re-application,
+idempotency, checksums, drift rejection, transactional failure and concurrent
+runners without introducing a parallel migration API.
+
 `R-2511` is the first integrated database/API proof and is complete after the
 independent validator and real TCP harness passed. Its Spectra fixture
 validates the language-facing SQLite and server lifecycle, while a real Rust

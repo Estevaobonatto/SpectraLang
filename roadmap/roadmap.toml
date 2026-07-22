@@ -3458,14 +3458,15 @@ title = "Migration Example: Multi-Version Evolution"
 phase = "phase_25"
 owner = "ecosystem"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-2503", "R-2504"]
 summary = "Provide a runnable example that evolves a schema through several migrations and rolls back safely."
 acceptance = [
   "`examples/api/09_migrations.spectra` builds and runs",
-  "the example applies three migrations, rolls back, and re-applies",
-  "the example verifies the final schema and seed data"
+  "the independent validator applies three migrations, rolls back, and re-applies through the real CLI",
+  "the fixture verifies the final SQLite schema and seed data",
+  "the validator proves checksums, idempotency, drift rejection, and transactional failure"
 ]
 
 [[items]]

@@ -6186,7 +6186,7 @@ environment checks and are not promoted by this task.
 
 ## R-2514 Migration Example: Multi-Version Evolution
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Risk: `low`
@@ -6194,9 +6194,11 @@ environment checks and are not promoted by this task.
 
 ### Acceptance
 
-- `examples/api/09_migrations.spectra` builds and runs.
-- The example applies three migrations, rolls back, and re-applies.
-- The example verifies the final schema and seed data.
+- `examples/api/09_migrations.spectra` builds and runs against a file-backed SQLite database.
+- `tests/validation/202_migrations_multi_version.spectra` verifies the final schema and seed data.
+- `scripts/validate_r2514_migrations_example.py` applies three migrations, rolls back, re-applies, and checks the database independently through the real CLI and Python `sqlite3`.
+- The gate proves checksums, idempotency, drift rejection, invalid-SQL atomicity, orphan rejection, and concurrent runners.
+- The fixture is not presented as directly invoking CLI migrations; that separation is required because the language has no migration command host call.
 
 ---
 
