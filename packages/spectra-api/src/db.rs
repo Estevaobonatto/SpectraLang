@@ -1,11 +1,13 @@
 use spectra_db::sqlite::{SqliteConnection, SqliteStatement, SqliteValue, StepResult};
 use spectra_db::postgres::{PostgresConnection, PostgresConfig, PostgresStatement, PostgresType, PostgresValue};
+use spectra_db::redis::{RedisConfig, RedisConnection, RedisError, RedisValue};
 use spectra_runtime::ffi::{
     HostFunction, SpectraHostCallContext, HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_SUCCESS,
 };
 use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 struct Store {
     next: u64,
@@ -13,6 +15,7 @@ struct Store {
     statements: HashMap<u64, SqliteStatement>,
     postgres_connections: HashMap<u64, PostgresConnection>,
     postgres_statements: HashMap<u64, PostgresStatement>,
+    redis_connections: HashMap<u64, RedisConnection>,
 }
 fn store() -> &'static Mutex<Store> {
     static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
@@ -23,6 +26,7 @@ fn store() -> &'static Mutex<Store> {
             statements: HashMap::new(),
             postgres_connections: HashMap::new(),
             postgres_statements: HashMap::new(),
+            redis_connections: HashMap::new(),
         })
     })
 }
@@ -117,6 +121,23 @@ fn postgres_operation_span(name: &str) -> Option<u64> {
     let _ = tracing::span_set_attribute(span, "db.system", "postgresql");
     let _ = tracing::span_set_attribute(span, "db.operation", operation);
     Some(span)
+}
+fn redis_operation_span(name: &str) -> Option<u64> {
+    let span = tracing::begin_external_span(SpanKind::Internal, name).ok()?;
+    let operation = name.strip_prefix("db.redis.").unwrap_or(name);
+    let _ = tracing::span_set_attribute(span, "db.system", "redis");
+    let _ = tracing::span_set_attribute(span, "db.operation", operation);
+    Some(span)
+}
+
+fn finish_redis_span(span: Option<u64>, success: bool) { finish_span(span, success); }
+fn annotate_redis_span(span: Option<u64>, connection: &RedisConnection) {
+    if let Some(id) = span {
+        let config = connection.config();
+        let _ = tracing::span_set_attribute(id, "server.address", &config.host);
+        let _ = tracing::span_set_attribute_int(id, "server.port", config.port as i64);
+        let _ = tracing::span_set_attribute_int(id, "db.namespace", config.database as i64);
+    }
 }
 
 pub extern "C" fn sqlite_open(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -369,6 +390,42 @@ pub const POSTGRES_HOST_CALLS: &[(&str, HostFunction)] = &[
     ("spectra.api.db.postgres.begin", postgres_begin), ("spectra.api.db.postgres.commit", postgres_commit),
     ("spectra.api.db.postgres.rollback", postgres_rollback),
 ];
+
+pub extern "C" fn redis_open(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let Some(url) = string(a[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let config = match RedisConfig::from_url(&url) { Ok(config) => config, Err(error) => return fail_redis(r, error) };
+        let span = redis_operation_span("db.redis.connect");
+        match RedisConnection::open(config) {
+            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.redis_connections.insert(id, connection); finish_redis_span(span, true); value(r, id as i64) }
+            Err(error) => { finish_redis_span(span, false); fail_redis(r, error) }
+        }
+    }
+}
+pub extern "C" fn redis_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let connection = store().lock().unwrap().redis_connections.remove(&(a[0] as u64));
+        let span = redis_operation_span("db.redis.close");
+        match connection { Some(connection) => { let result = connection.close(); finish_redis_span(span, result.is_ok()); match result { Ok(()) => bool_result(r, true), Err(error) => fail_redis(r, error) } }, None => { finish_redis_span(span, false); fail_redis(r, RedisError::invalid_handle()) } }
+    }
+}
+fn redis_connection(id: u64) -> Result<RedisConnection, RedisError> { store().lock().map_err(|_| RedisError::new("DB2507_LOCK", "Redis handle store lock poisoned"))?.redis_connections.get(&id).cloned().ok_or_else(RedisError::invalid_handle) }
+pub extern "C" fn redis_get(ctx: *mut SpectraHostCallContext) -> i32 { redis_key_op(ctx, "db.redis.get", |c, key| c.get_blocking(key).map(|value| value.map(|v| v.into_bytes().ok()).flatten())) }
+pub extern "C" fn redis_set(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } let Some(key)=string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT; }; let Some(value)=string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT; }; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.set"); let result=connection.set_blocking(&key,RedisValue::Text(value),None); finish_redis_span(span,result.is_ok()); match result {Ok(())=>bool_result(r,true),Err(e)=>fail_redis(r,e)} } }
+pub extern "C" fn redis_delete(ctx: *mut SpectraHostCallContext) -> i32 { redis_key_op(ctx, "db.redis.delete", |c, key| c.delete_blocking(key)) }
+pub extern "C" fn redis_expire(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=3{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.expire"); let result=connection.expire_blocking(&key,Duration::from_secs(a[2].max(0) as u64)); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>bool_result(r,v),Err(e)=>fail_redis(r,e)} } }
+pub extern "C" fn redis_incr(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=3{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.incr"); let result=connection.incr_blocking(&key,a[2]); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>value(r,v),Err(e)=>fail_redis(r,e)} } }
+pub extern "C" fn redis_exists(ctx: *mut SpectraHostCallContext) -> i32 { redis_key_op(ctx, "db.redis.exists", |c, key| c.exists_blocking(key)) }
+fn redis_key_op<T: IntoRedisResult>(ctx: *mut SpectraHostCallContext, span_name: &str, operation: impl FnOnce(&RedisConnection, &str) -> Result<T, RedisError>) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span(span_name); annotate_redis_span(span, &connection); let result=operation(&connection,&key); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>v.into_result(r),Err(e)=>fail_redis(r,e)} } }
+trait IntoRedisResult { fn into_result(self, result: &mut [i64]) -> i32; }
+impl IntoRedisResult for bool { fn into_result(self,r:&mut[i64])->i32{bool_result(r,self)} }
+impl IntoRedisResult for Option<Vec<u8>> { fn into_result(self,r:&mut[i64])->i32{ match self {Some(v)=>value(r,alloc(&String::from_utf8_lossy(&v))),None=>value(r,0)} } }
+fn fail_redis(result: &mut [i64], error: RedisError) -> i32 { if let Ok(mut slot)=last_error().lock(){*slot=Some((error.code.to_string(),error.message.clone()));} value(result,0) }
+pub const REDIS_HOST_CALLS: &[(&str, HostFunction)] = &[("spectra.api.db.redis.open",redis_open),("spectra.api.db.redis.close",redis_close),("spectra.api.db.redis.get",redis_get),("spectra.api.db.redis.set",redis_set),("spectra.api.db.redis.delete",redis_delete),("spectra.api.db.redis.expire",redis_expire),("spectra.api.db.redis.incr",redis_incr),("spectra.api.db.redis.exists",redis_exists)];
 pub extern "C" fn sqlite_bind_null(ctx: *mut SpectraHostCallContext) -> i32 {
     bind(ctx, SqliteValue::Null)
 }

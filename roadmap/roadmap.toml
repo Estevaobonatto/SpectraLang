@@ -3336,14 +3336,16 @@ title = "Redis Driver (with Pool)"
 phase = "phase_25"
 owner = "db"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-2501"]
-summary = "Add a Redis driver with the connection pool, basic commands (GET, SET, DEL, EXPIRE), pub/sub, and the operations needed for the cache layer."
+summary = "Add a real Redis 7 driver with the shared connection pool, async commands, typed values, pub/sub, tracing, and the backend contract required by the cache layer."
 acceptance = [
   "GET, SET, DEL, EXPIRE, INCR, and pub/sub work against a local Redis test instance",
   "the driver integrates with the connection pool and the cache layer",
-  "tests cover happy path, expiry, eviction, and concurrent access"
+  "tests cover happy path, expiry, binary values, concurrent access, cancellation, and shutdown",
+  "a Redis 7 CI lane produces an independent passed report",
+  "R-2507 remains incomplete when local validation is skipped because Redis is unavailable"
 ]
 
 [[items]]

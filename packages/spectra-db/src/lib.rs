@@ -11,6 +11,7 @@ pub mod sqlite;
 pub mod query;
 pub mod migrations;
 pub mod postgres;
+pub mod redis;
 
 pub use error::{PoolError, PoolResult};
 pub use metrics::PoolMetrics;

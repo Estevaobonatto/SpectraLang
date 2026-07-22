@@ -614,6 +614,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     registry.register_module(format!("{prefix}.trace"), make_std_api_trace(prefix));
     registry.register_module(format!("{prefix}.db.sqlite"), make_std_api_db_sqlite(prefix));
     registry.register_module(format!("{prefix}.db.postgres"), make_std_api_db_postgres(prefix));
+    registry.register_module(format!("{prefix}.db.redis"), make_std_api_db_redis(prefix));
 }
 
 fn stdlib_segments(prefix: &str) -> Vec<String> {
@@ -1573,6 +1574,23 @@ fn make_std_api_db_postgres(prefix: &str) -> ModuleExports {
         ("begin", vec![connection.clone()], Type::Bool),
         ("commit", vec![connection.clone()], Type::Bool),
         ("rollback", vec![connection.clone()], Type::Bool),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_db_redis(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(&format!("{prefix}.db.redis"), None);
+    let connection = api_type("RedisConnection");
+    exports.types.insert("RedisConnection".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("open", vec![Type::String], connection.clone()),
+        ("close", vec![connection.clone()], Type::Bool),
+        ("get", vec![connection.clone(), Type::String], Type::String),
+        ("set", vec![connection.clone(), Type::String, Type::String], Type::Bool),
+        ("delete", vec![connection.clone(), Type::String], Type::Bool),
+        ("expire", vec![connection.clone(), Type::String, Type::Int], Type::Bool),
+        ("incr", vec![connection.clone(), Type::String, Type::Int], Type::Int),
+        ("exists", vec![connection.clone(), Type::String], Type::Bool),
     ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
     exports
 }

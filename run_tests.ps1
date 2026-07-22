@@ -1194,6 +1194,15 @@ if ($r2505Postgres.Status -eq "PASSOU" -or $r2505Postgres.Detail -match "skipped
 $results += [PSCustomObject]@{ Diretorio = "phase25-postgres-driver"; Teste = "validate_r2505_postgres"; Status = $r2505Postgres.Status; Detalhe = $r2505Postgres.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27ac: R-2507 Redis driver (requires real Redis 7 lane)
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2507 Redis driver ---" -ForegroundColor Yellow
+$r2507Redis = Invoke-HostCommand -name "validate_r2507_redis" -fileName "python" -arguments @("scripts\validate_r2507_redis.py", "--binary", $binary, "--fixture", "tests\validation\196_redis_driver.spectra", "--report", "target\r2507-redis\report.json") -workingDir (Get-Location).Path
+if ($r2507Redis.Status -eq "PASSOU" -or $r2507Redis.Detail -match "skipped_environment") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-redis-driver"; Teste = "validate_r2507_redis"; Status = $r2507Redis.Status; Detalhe = $r2507Redis.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

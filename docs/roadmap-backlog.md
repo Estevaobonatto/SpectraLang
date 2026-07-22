@@ -6061,7 +6061,7 @@ ORM.
 
 ## R-2507 Redis Driver (with Pool)
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -6069,10 +6069,15 @@ ORM.
 
 ### Acceptance
 
-- GET, SET, DEL, EXPIRE, INCR, and pub/sub work against a local Redis
-  test instance.
-- The driver integrates with the connection pool and the cache layer.
-- Tests cover happy path, expiry, eviction, and concurrent access.
+- GET, SET, DEL, EXPIRE, INCR, and EXISTS use Redis 7 real.
+- The driver reuses R-2501, provides an async worker bridge, typed values,
+  tracing, and a dedicated pub/sub connection.
+- `std.api.db.redis.*` exposes only implemented command host calls; pub/sub
+  remains Rust-only until language streams can represent it correctly.
+- `tests/validation/196_redis_driver.spectra` and the independent validator
+  are integrated with `phase25-redis-driver` and `.github/workflows/r2507-redis.yml`.
+- Local absence of Redis produces `skipped_environment`; only the Redis 7 CI
+  report can promote this task to `complete`.
 
 ## R-2508 Minimal ORM: Model Trait and Typed Queries
 

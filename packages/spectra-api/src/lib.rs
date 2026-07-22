@@ -987,6 +987,14 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
     HostCallSpec { name: "spectra.api.db.postgres.begin", function: db::postgres_begin },
     HostCallSpec { name: "spectra.api.db.postgres.commit", function: db::postgres_commit },
     HostCallSpec { name: "spectra.api.db.postgres.rollback", function: db::postgres_rollback },
+    HostCallSpec { name: "spectra.api.db.redis.open", function: db::redis_open },
+    HostCallSpec { name: "spectra.api.db.redis.close", function: db::redis_close },
+    HostCallSpec { name: "spectra.api.db.redis.get", function: db::redis_get },
+    HostCallSpec { name: "spectra.api.db.redis.set", function: db::redis_set },
+    HostCallSpec { name: "spectra.api.db.redis.delete", function: db::redis_delete },
+    HostCallSpec { name: "spectra.api.db.redis.expire", function: db::redis_expire },
+    HostCallSpec { name: "spectra.api.db.redis.incr", function: db::redis_incr },
+    HostCallSpec { name: "spectra.api.db.redis.exists", function: db::redis_exists },
 ];
 
 pub fn register() -> usize {
@@ -1142,7 +1150,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 250);
+        assert_eq!(HOST_CALLS.len(), 258);
     }
 
     #[test]

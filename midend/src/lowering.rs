@@ -8327,6 +8327,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
         [_, api, db, sqlite, function] if api == "api" && db == "db" && sqlite == "sqlite" => {
             lookup_std_api_host_function("db.sqlite", function)
         }
+        [_, api, db, postgres, function] if api == "api" && db == "db" && postgres == "postgres" => {
+            lookup_std_api_host_function("db.postgres", function)
+        }
+        [_, api, db, redis, function] if api == "api" && db == "db" && redis == "redis" => {
+            lookup_std_api_host_function("db.redis", function)
+        }
         [_, api, module, function] if api == "api" => {
             lookup_std_api_host_function(module, function)
         }
@@ -9862,6 +9868,14 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("db.postgres", "begin") => Some(host_bool("spectra.api.db.postgres.begin")),
         ("db.postgres", "commit") => Some(host_bool("spectra.api.db.postgres.commit")),
         ("db.postgres", "rollback") => Some(host_bool("spectra.api.db.postgres.rollback")),
+        ("db.redis", "open") => Some(host_int("spectra.api.db.redis.open")),
+        ("db.redis", "close") => Some(host_bool("spectra.api.db.redis.close")),
+        ("db.redis", "get") => Some(host_string("spectra.api.db.redis.get")),
+        ("db.redis", "set") => Some(host_bool("spectra.api.db.redis.set")),
+        ("db.redis", "delete") => Some(host_bool("spectra.api.db.redis.delete")),
+        ("db.redis", "expire") => Some(host_bool("spectra.api.db.redis.expire")),
+        ("db.redis", "incr") => Some(host_int("spectra.api.db.redis.incr")),
+        ("db.redis", "exists") => Some(host_bool("spectra.api.db.redis.exists")),
         ("cors", "policy") => Some(host_int("spectra.api.cors.policy")),
         ("cors", "permissive") => Some(host_int("spectra.api.cors.permissive")),
         ("cors", "allow_origin") => Some(host_int("spectra.api.cors.allow_origin")),

@@ -20,6 +20,7 @@ docs = [
   "docs/api/std-api-server-lifecycle.md",
   "docs/api/std-api-trace.md",
   "docs/api/std-api-sqlite.md",
+  "docs/api/std-api-redis.md",
   "docs/concurrency-serving.md",
 ]
 
@@ -57,6 +58,11 @@ covers = ["std.api.db.sqlite.*"]
 id = "api-postgres-driver"
 path = "tests/validation/195_postgres_driver.spectra"
 covers = ["std.api.db.postgres.*"]
+
+[[probe]]
+id = "api-redis-driver"
+path = "tests/validation/196_redis_driver.spectra"
+covers = ["std.api.db.redis.*"]
 
 [[probe]]
 id = "tensor-kernels"
@@ -433,3 +439,9 @@ prefix = "std.api.db.postgres."
 classification = "incomplete"
 roadmap = "R-2505"
 reason = "PostgreSQL host calls are implemented against the real driver, but production classification waits for the PostgreSQL 16 integration lane, COPY/LISTEN evidence, and the independent R-2505 report."
+
+[[rule]]
+prefix = "std.api.db.redis."
+classification = "incomplete"
+roadmap = "R-2507"
+reason = "Redis host calls use the real driver, but production classification waits for Redis 7 command, TTL, pub/sub, tracing, and independent CI evidence."

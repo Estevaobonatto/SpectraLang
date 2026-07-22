@@ -2006,6 +2006,13 @@ that proves COPY, LISTEN/NOTIFY, async cancellation, tracing, and HTTP-parent
 propagation. Local environments without PostgreSQL record
 `skipped_environment`; they do not constitute completion evidence.
 
+R-2507 is the parallel Redis 7 workstream. It reuses the R-2501 pool,
+provides real async commands and a dedicated pub/sub connection, and supplies
+the backend contract required by the distributed cache and rate-limiting
+tracks. Redis host calls remain incomplete until the Redis 7 CI lane validates
+the fixture and independent report; no local skip is treated as production
+evidence.
+
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint
 - `R-2703` Health, readiness, and startup probes (integrated)
