@@ -838,7 +838,7 @@ title = "Mixed Precision"
 phase = "phase_7"
 owner = "ml"
 priority = "P1"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-702"]
 summary = "Track host mixed-precision training as complete while adding GPU f16/bf16 execution, autocast policy, and GPU loss scaling as future work."
@@ -3388,15 +3388,17 @@ title = "Health Checks (Liveness, Readiness, Startup)"
 phase = "phase_25"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2216"]
 summary = "Add liveness, readiness, and startup probes, with optional custom checks per dependency (database, cache, external services)."
 acceptance = [
   "the liveness endpoint always returns 200 while the process is up",
-  "the readiness endpoint returns 200 only when all required checks pass",
-  "the startup endpoint returns 200 only when startup is complete",
-  "tests cover up, degraded, and recovering scenarios"
+  "the readiness endpoint returns 200 only when all required checks pass and 503 for required failure",
+  "the startup endpoint returns 200 only after explicit startup completion and 503 before or after startup failure",
+  "checks run outside the HTTP request thread with bounded timeout and atomic snapshots",
+  "SQLite file-backed, timeout, recovery, concurrency, JSON schema, and worker shutdown are validated by the independent R-2510 report",
+  "Redis and PostgreSQL checks are only classified as environment-skipped when their real services are unavailable"
 ]
 
 [[items]]
@@ -3754,7 +3756,7 @@ title = "Health, Readiness, and Startup Probes (Integrated)"
 phase = "phase_27"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2510"]
 summary = "Integrate liveness, readiness, and startup probes with the HTTP server, and document how to wire them with Kubernetes, Docker, and systemd."
@@ -3762,7 +3764,8 @@ acceptance = [
   "the probes are served on the documented paths (`/healthz`, `/readyz`, `/startupz`)",
   "the probe results aggregate the custom checks registered through `R-2510`",
   "the documentation covers the Kubernetes, Docker, and systemd wiring",
-  "tests cover up, degraded, and recovering scenarios"
+  "tests cover up, degraded, recovering, startup and shutdown scenarios",
+  "deployment artifacts point to the real routes and pass the independent R-2703 validator"
 ]
 
 [[items]]

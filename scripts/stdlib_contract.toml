@@ -21,6 +21,7 @@ docs = [
   "docs/api/std-api-trace.md",
   "docs/api/std-api-sqlite.md",
   "docs/api/std-api-redis.md",
+  "docs/api/std-api-health.md",
   "docs/concurrency-serving.md",
 ]
 
@@ -63,6 +64,11 @@ covers = ["std.api.db.postgres.*"]
 id = "api-redis-driver"
 path = "tests/validation/196_redis_driver.spectra"
 covers = ["std.api.db.redis.*"]
+
+[[probe]]
+id = "api-health"
+path = "tests/validation/197_health_checks.spectra"
+covers = ["std.api.health.*"]
 
 [[probe]]
 id = "tensor-kernels"
@@ -445,3 +451,9 @@ prefix = "std.api.db.redis."
 classification = "incomplete"
 roadmap = "R-2507"
 reason = "Redis host calls use the real driver, but production classification waits for Redis 7 command, TTL, pub/sub, tracing, and independent CI evidence."
+
+[[rule]]
+prefix = "std.api.health."
+classification = "production"
+roadmap = "R-2510"
+reason = "R-2510 validates startup controls and the reserved health routes through a real TCP server, including required-check recovery, timeout, SQLite SELECT 1, JSON validation and worker shutdown."

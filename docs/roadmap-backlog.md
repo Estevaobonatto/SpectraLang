@@ -6017,7 +6017,7 @@ ORM.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -6112,7 +6112,7 @@ ORM.
 
 ## R-2510 Health Checks (Liveness, Readiness, Startup)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `medium`
@@ -6121,9 +6121,19 @@ ORM.
 ### Acceptance
 
 - The liveness endpoint always returns 200 while the process is up.
-- The readiness endpoint returns 200 only when all required checks pass.
-- The startup endpoint returns 200 only when startup is complete.
-- Tests cover up, degraded, and recovering scenarios.
+- The readiness endpoint returns 200 only when all required checks pass and
+  returns 503 for a required failure.
+- The startup endpoint returns 200 only after explicit startup completion.
+- Timeout, recovery, concurrency, SQLite and worker shutdown are validated.
+
+Implementation evidence: `runtime/src/health.rs` owns the bounded evaluator,
+atomic snapshots, timeouts, sanitised errors, startup state and tracing hooks.
+`spectra.api.server` reserves `/healthz`, `/readyz` and `/startupz`; the API
+integration tests exercise a real TCP server, required-check recovery, timeout,
+method rejection and shutdown. The independent gate is
+`scripts/validate_r2510_health.py` and reports
+`target/r2510-health/report.json`. Redis and PostgreSQL remain optional
+environment checks and are not promoted by this task.
 
 ## R-2511 Database Example: REST + SQLite CRUD
 
@@ -6514,7 +6524,7 @@ operable.
 
 ## R-2703 Health, Readiness, and Startup Probes (Integrated)
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `medium`
@@ -6528,6 +6538,13 @@ operable.
   `R-2510`.
 - The documentation covers the Kubernetes, Docker, and systemd wiring.
 - Tests cover up, degraded, and recovering scenarios.
+
+The integrated deployment work adds validated Kubernetes, Docker and systemd
+artifacts under `examples/deployment/`, documentation in
+`docs/deployment/health-probes.md`, and the independent gate
+`scripts/validate_r2703_health_probes.py`. The artifacts use the real health
+routes and do not enable a systemd watchdog without real `sd_notify` support.
+The report `target/r2703-health-probes/report.json` is `passed`.
 
 ## R-2704 Request and Response Audit Log (LGPD, GDPR)
 

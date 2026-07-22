@@ -2013,6 +2013,22 @@ tracks. Redis host calls remain incomplete until the Redis 7 CI lane validates
 the fixture and independent report; no local skip is treated as production
 evidence.
 
+R-2510 adds the operational health foundation without coupling liveness to
+external services. A runtime-owned bounded evaluator publishes atomic
+snapshots consumed by `/healthz`, `/readyz`, and `/startupz`; required and
+optional checks have distinct readiness semantics, real timeouts and
+sanitised diagnostics. SQLite checks are validated against a file-backed
+database, while PostgreSQL and Redis remain environment-gated until their
+real services are available. R-2703 consumes this registry for deployment
+hardening rather than implementing a second health-check system.
+
+R-2703 is the integrated deployment layer for this contract. Its Kubernetes,
+Docker and systemd examples reference the real health routes and are checked
+by an independent validator. Liveness remains dependency-independent,
+readiness controls rollout traffic, and startup gates initialization; systemd
+watchdog support remains disabled until a real `sd_notify` implementation is
+available.
+
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint
 - `R-2703` Health, readiness, and startup probes (integrated)

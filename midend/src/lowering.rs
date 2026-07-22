@@ -9829,6 +9829,8 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("trace", "extract") => Some(host_bool("spectra.api.trace.extract")),
         ("trace", "flush") => Some(host_int("spectra.api.trace.flush")),
         ("trace", "last_error") => Some(host_string("spectra.api.trace.last_error")),
+        ("health", "startup_complete") => Some(host_bool("spectra.api.health.startup_complete")),
+        ("health", "startup_failed") => Some(host_bool("spectra.api.health.startup_failed")),
         ("db.sqlite", "open") => Some(host_int("spectra.api.db.sqlite.open")),
         ("db.sqlite", "close") => Some(host_bool("spectra.api.db.sqlite.close")),
         ("db.sqlite", "prepare") => Some(host_int("spectra.api.db.sqlite.prepare")),

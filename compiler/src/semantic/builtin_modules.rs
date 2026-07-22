@@ -612,6 +612,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     );
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
     registry.register_module(format!("{prefix}.trace"), make_std_api_trace(prefix));
+    registry.register_module(format!("{prefix}.health"), make_std_api_health(prefix));
     registry.register_module(format!("{prefix}.db.sqlite"), make_std_api_db_sqlite(prefix));
     registry.register_module(format!("{prefix}.db.postgres"), make_std_api_db_postgres(prefix));
     registry.register_module(format!("{prefix}.db.redis"), make_std_api_db_redis(prefix));
@@ -1514,6 +1515,13 @@ fn make_std_api_trace(prefix: &str) -> ModuleExports {
         ("flush", vec![], Type::Int),
         ("last_error", vec![], Type::String),
     ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_health(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("health"));
+    exports.functions.insert("startup_complete".into(), pub_fn(vec![], Type::Bool));
+    exports.functions.insert("startup_failed".into(), pub_fn(vec![Type::String], Type::Bool));
     exports
 }
 

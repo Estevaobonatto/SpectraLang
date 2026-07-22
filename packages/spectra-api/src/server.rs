@@ -172,6 +172,7 @@ pub struct HttpServer {
     shutdown: Arc<AtomicBool>,
     stats: Arc<Mutex<ServerStats>>,
     join: Option<JoinHandle<()>>,
+    health: Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
 }
 
 impl HttpServer {
@@ -183,16 +184,25 @@ impl HttpServer {
         let stats = Arc::new(Mutex::new(ServerStats::default()));
         let loop_shutdown = Arc::clone(&shutdown);
         let loop_stats = Arc::clone(&stats);
+        let health = Arc::new(Mutex::new(spectra_runtime::health::global()));
+        let loop_health = Arc::clone(&health);
         let join = thread::Builder::new()
             .name("spectra-api-http1-server".to_string())
-            .spawn(move || run_accept_loop(listener, config, handler, loop_shutdown, loop_stats))?;
+            .spawn(move || run_accept_loop(listener, config, handler, loop_shutdown, loop_stats, loop_health))?;
 
         Ok(Self {
             local_addr,
             shutdown,
             stats,
             join: Some(join),
+            health,
         })
+    }
+
+    /// Replaces the registry used by the reserved health routes.
+    pub fn with_health_registry(self, registry: spectra_runtime::health::HealthRegistry) -> Self {
+        *self.health.lock().unwrap_or_else(|e| e.into_inner()) = registry;
+        self
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -256,6 +266,7 @@ fn run_accept_loop(
     handler: Handler,
     shutdown: Arc<AtomicBool>,
     stats: Arc<Mutex<ServerStats>>,
+    health: Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
 ) {
     let mut connections = Vec::<Connection>::new();
     let parser_config = config.parser_config();
@@ -269,13 +280,14 @@ fn run_accept_loop(
             &shutdown,
             &mut connections,
             false,
+            &health,
         );
         thread::sleep(config.poll_interval);
     }
 
     let drain_deadline = Instant::now() + config.shutdown_grace_period;
     while !connections.is_empty() && Instant::now() < drain_deadline {
-        service_connections(&config, &handler, &stats, &shutdown, &mut connections, true);
+        service_connections(&config, &handler, &stats, &shutdown, &mut connections, true, &health);
         if !connections.is_empty() {
             thread::sleep(config.poll_interval);
         }
@@ -285,6 +297,28 @@ fn run_accept_loop(
         let _ = connection.stream.shutdown(Shutdown::Both);
         record_cancel(&stats);
     }
+}
+
+fn reserved_health_response(
+    request: &ParsedRequest,
+    health: &Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
+) -> Option<ServerResponse> {
+    let path = request.target.split('?').next().unwrap_or(request.target.as_str());
+    if !matches!(path, "/healthz" | "/readyz" | "/startupz") { return None; }
+    let span = tracing::span_start("health.request", SpanKind::Server).ok();
+    if request.method != "GET" {
+        let mut response = ServerResponse::text(405, "method not allowed");
+        response.headers.push(Header { name: "Allow".into(), value: "GET".into() });
+        if let Some(id) = span { let _ = tracing::span_set_status(id, SpanStatus::Error); let _ = tracing::span_end(id); }
+        return Some(response);
+    }
+    let registry = health.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let endpoint = path.trim_start_matches('/');
+    let status = match endpoint { "healthz" => 200, "startupz" if registry.startup() == spectra_runtime::health::HealthState::Healthy => 200, "readyz" if registry.readiness() != spectra_runtime::health::HealthState::Unavailable => 200, _ => 503 };
+    let mut response = ServerResponse::bytes(status, registry.json(endpoint).into_bytes());
+    response.headers.push(Header { name: "Content-Type".into(), value: "application/json".into() });
+    if let Some(id) = span { let _ = tracing::span_set_attribute(id, "health.endpoint", endpoint); let _ = tracing::span_set_attribute_int(id, "http.response.status_code", status as i64); let _ = tracing::span_set_status(id, if status == 200 { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+    Some(response)
 }
 
 fn accept_ready_connections(
@@ -330,10 +364,11 @@ fn service_connections(
     shutdown: &Arc<AtomicBool>,
     connections: &mut Vec<Connection>,
     draining: bool,
+    health: &Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
 ) {
     let mut idx = 0usize;
     while idx < connections.len() {
-        let action = service_connection(config, handler, stats, &mut connections[idx], draining);
+        let action = service_connection(config, handler, stats, &mut connections[idx], draining, health);
         if action == ConnectionAction::Close {
             let connection = connections.swap_remove(idx);
             let graceful = draining || shutdown.load(Ordering::SeqCst);
@@ -365,6 +400,7 @@ fn service_connection(
     stats: &Arc<Mutex<ServerStats>>,
     connection: &mut Connection,
     draining: bool,
+    health: &Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
 ) -> ConnectionAction {
     if write_pending(connection).is_err() {
         return ConnectionAction::Close;
@@ -431,7 +467,8 @@ fn service_connection(
                     let _ = tracing::span_set_attribute(id, "http.request.method", &method);
                     let _ = tracing::span_set_attribute(id, "url.path", &request.target);
                 }
-                let response = handler(request);
+                let response = reserved_health_response(&request, health)
+                    .unwrap_or_else(|| handler(request));
                 if let Some(id) = trace_span {
                     let _ = tracing::span_set_attribute_int(
                         id,

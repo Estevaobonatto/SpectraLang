@@ -1203,6 +1203,24 @@ if ($r2507Redis.Status -eq "PASSOU" -or $r2507Redis.Detail -match "skipped_envir
 $results += [PSCustomObject]@{ Diretorio = "phase25-redis-driver"; Teste = "validate_r2507_redis"; Status = $r2507Redis.Status; Detalhe = $r2507Redis.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27ad: R-2510 real health checks
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2510 health checks ---" -ForegroundColor Yellow
+$r2510Health = Invoke-HostCommand -name "validate_r2510_health" -fileName "python" -arguments @("scripts\validate_r2510_health.py", "--binary", $binary, "--fixture", "tests\validation\197_health_checks.spectra", "--report", "target\r2510-health\report.json") -workingDir (Get-Location).Path
+if ($r2510Health.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-health-checks"; Teste = "validate_r2510_health"; Status = $r2510Health.Status; Detalhe = $r2510Health.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.27ae: R-2703 integrated deployment health probes
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2703 integrated health probes ---" -ForegroundColor Yellow
+$r2703Health = Invoke-HostCommand -name "validate_r2703_health_probes" -fileName "python" -arguments @("scripts\validate_r2703_health_probes.py", "--binary", $binary, "--fixture", "tests\validation\198_health_probes_deployment.spectra", "--report", "target\r2703-health-probes\report.json") -workingDir (Get-Location).Path
+if ($r2703Health.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase27-integrated-health-probes"; Teste = "validate_r2703_health_probes"; Status = $r2703Health.Status; Detalhe = $r2703Health.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

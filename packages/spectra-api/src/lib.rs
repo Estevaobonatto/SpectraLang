@@ -15,6 +15,7 @@ pub mod cors;
 pub mod db;
 pub mod errors;
 pub mod form;
+pub mod health;
 pub mod handler;
 pub mod http;
 pub mod json;
@@ -50,6 +51,8 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         name: "spectra.api.version.patch",
         function: api_version_patch,
     },
+    HostCallSpec { name: "spectra.api.health.startup_complete", function: health::startup_complete },
+    HostCallSpec { name: "spectra.api.health.startup_failed", function: health::startup_failed },
     HostCallSpec {
         name: "spectra.api.http.method_name",
         function: http::method_name,
@@ -1150,7 +1153,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 258);
+        assert_eq!(HOST_CALLS.len(), 260);
     }
 
     #[test]
