@@ -36,7 +36,13 @@ Version handling:
 - versions must use exact semver `MAJOR.MINOR.PATCH`
 - prerelease suffixes such as `1.2.3-alpha.1` are accepted
 - semver ranges are future work; catalog lookup currently chooses the newest
-  matching exact semver version when the user does not pin one
+  compatible exact semver version when the user does not pin one
+- compatibility is checked against the CLI's `spectralang-0.1` release
+  compatibility (or the compiled `SPECTRA_COMPATIBILITY_LEVEL` value); a
+  package with another compatibility level is rejected before installation or
+  compilation
+- `package@version` always requests that exact version; an unavailable exact
+  version is an error and is never silently replaced by another version
 
 Git packages use this manifest shape after install:
 
@@ -163,10 +169,26 @@ owner = "org"
 ```
 
 `spectralang package add <name>` searches configured catalogs, chooses the newest
-matching semver version unless the user pins `name@version`, clones/fetches the
-Git repo, checks out the selected ref, copies the package payload into
+compatible semver version unless the user pins `name@version`, clones/fetches
+the Git repo, checks out the selected ref, copies the package payload into
 `.spectra/packages`, writes the dependency into `spectra.toml`, and refreshes
 `spectra.lock`.
+
+Resolver determinism rules:
+
+- catalog entries are validated before version ordering;
+- identical entries for the same package/version are coalesced;
+- conflicting entries for the same package/version fail and report both
+  catalog origins;
+- catalog order and filesystem order do not affect the selected version;
+- duplicate workspace package names fail with both package roots;
+- dependency cycles fail with the complete package chain, such as
+  `a -> b -> c -> a`.
+
+The R-905 resolver policy is covered by
+`scripts/validate_r905_package_resolver.py`, which uses local Git repositories
+and validates exact pins, prereleases, compatibility rejection, conflicts,
+duplicates, cycle chains, and deterministic lockfiles.
 
 Default tests use local Git fixtures so package validation never depends on a
 public network by default.

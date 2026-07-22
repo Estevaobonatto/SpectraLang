@@ -662,6 +662,16 @@ function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$argumen
 }
 
 Write-Host ""
+Write-Host "--- R-905 deterministic package resolver ---" -ForegroundColor Yellow
+Write-Host "  validate_r905_package_resolver" -NoNewline
+$r905PackageResolver = Invoke-HostCommand -name "validate_r905_package_resolver" -fileName "python" -arguments @("scripts\validate_r905_package_resolver.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r905PackageResolver.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "package"; Teste = "validate_r905_package_resolver"; Status = $r905PackageResolver.Status; Detalhe = $r905PackageResolver.Detail }
+
 Write-Host "--- R-914 package catalog Git flow ---" -ForegroundColor Yellow
 Write-Host "  validate_r914_package_catalog_git" -NoNewline
 $r914PackageCatalogGit = Invoke-HostCommand -name "validate_r914_package_catalog_git" -fileName "python" -arguments @("scripts\validate_r914_package_catalog_git.py", "--binary", $binary) -workingDir (Get-Location).Path

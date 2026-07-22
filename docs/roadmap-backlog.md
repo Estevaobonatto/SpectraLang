@@ -1847,7 +1847,7 @@ Host quantization and loss scaling are complete. GPU-side f16/bf16 execution, au
 
 ## R-905 Package Resolver and Version Policy
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Risk: `high`
@@ -1862,12 +1862,32 @@ Host quantization and loss scaling are complete. GPU-side f16/bf16 execution, au
 ### Completed so far
 
 - Catalog lookup resolves the newest matching semver package.
-- Existing duplicate-package and cyclic-dependency guards still apply.
+- Compatibility is now enforced against the CLI release compatibility before
+  catalog selection, Git installation, or workspace acceptance.
+- Catalog entries with the same name/version are deterministically coalesced
+  when identical and rejected with both origins when conflicting.
+- Duplicate workspace diagnostics include both package roots; cycle
+  diagnostics include the complete dependency chain.
+- Unit tests pass with `cargo test -p spectra-cli package`.
+- `scripts/validate_r905_package_resolver.py` passes using local Git fixtures
+  and validates exact pins, prereleases, invalid versions, compatibility,
+  conflicts, duplicates, cycles, and deterministic lockfiles.
 
 ### Remaining before completion
 
-- Enforce compatibility metadata as a hard resolver gate.
-- Improve duplicate-module diagnostics with package origin.
+None. Duplicate-module diagnostics with semantic package origin remain tracked
+under `R-906` and are not part of the completed `R-905` scope.
+
+### Completion evidence
+
+- `cargo test -p spectra-cli package` — 6 tests passed.
+- `cargo build -p spectra-cli` — passed with the existing unrelated dead-code
+  warning.
+- `python scripts/validate_r905_package_resolver.py --binary target/debug/spectralang.exe` — passed.
+- `python scripts/validate_r914_package_catalog_git.py --binary target/debug/spectralang.exe` — passed.
+- `run_tests.ps1` package gates — package workspace, deterministic lock,
+  registry flow, R-905 and R-914 passed.
+- `roadmap/roadmap.toml` parses and keeps `R-906` as `in_progress`.
 
 ## R-906 Package Import Integration
 

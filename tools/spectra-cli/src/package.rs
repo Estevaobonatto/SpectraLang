@@ -1,5 +1,5 @@
 use crate::discovery;
-use crate::release_channel::ReleaseMetadata;
+use crate::release_channel::{cli_compatibility_level, ReleaseMetadata};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -176,7 +176,24 @@ pub enum PackageError {
     Serialize(toml::ser::Error),
     MissingManifest(PathBuf),
     MissingPackage(String),
-    DuplicatePackage(String),
+    DuplicatePackage {
+        name: String,
+        first: PathBuf,
+        second: PathBuf,
+    },
+    IncompatiblePackage {
+        name: String,
+        required: String,
+        found: String,
+        source: String,
+    },
+    ConflictingCatalogPackage {
+        name: String,
+        version: String,
+        first: String,
+        second: String,
+    },
+    DependencyCycle(Vec<String>),
     InvalidManifest {
         path: PathBuf,
         message: String,
@@ -201,11 +218,42 @@ impl fmt::Display for PackageError {
                 write!(f, "no spectra.toml manifest found at '{}'", path.display())
             }
             PackageError::MissingPackage(name) => write!(f, "package '{}' was not found", name),
-            PackageError::DuplicatePackage(name) => {
+            PackageError::DuplicatePackage {
+                name,
+                first,
+                second,
+            } => write!(
+                f,
+                "package '{}' appears more than once in the workspace: '{}' and '{}'",
+                name,
+                first.display(),
+                second.display()
+            ),
+            PackageError::IncompatiblePackage {
+                name,
+                required,
+                found,
+                source,
+            } => write!(
+                f,
+                "package '{}' is incompatible with CLI compatibility '{}': found '{}' at {}",
+                name, required, found, source
+            ),
+            PackageError::ConflictingCatalogPackage {
+                name,
+                version,
+                first,
+                second,
+            } => write!(
+                f,
+                "catalog entries for '{}' version '{}' conflict: '{}' and '{}'",
+                name, version, first, second
+            ),
+            PackageError::DependencyCycle(chain) => {
                 write!(
                     f,
-                    "package '{}' appears more than once in the workspace",
-                    name
+                    "cyclic package dependency detected: {}",
+                    chain.join(" -> ")
                 )
             }
             PackageError::InvalidManifest { path, message } => {
@@ -354,6 +402,8 @@ struct CatalogPackage {
     modules: Vec<String>,
     #[serde(default)]
     owner: String,
+    #[serde(skip)]
+    origin: String,
 }
 
 struct InstalledGitPackage {
@@ -393,6 +443,7 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
     let mut visited = HashSet::new();
     let mut by_name = BTreeMap::new();
     let mut ordered = Vec::new();
+    let mut active = Vec::new();
 
     for package_root in package_roots {
         collect_package(
@@ -404,6 +455,7 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
             &mut visited,
             &mut by_name,
             &mut ordered,
+            &mut active,
         )?;
     }
 
@@ -793,17 +845,30 @@ fn collect_package(
     visited: &mut HashSet<PathBuf>,
     by_name: &mut BTreeMap<String, PathBuf>,
     ordered: &mut Vec<ResolvedPackage>,
+    active: &mut Vec<String>,
 ) -> Result<(), PackageError> {
     let root = canonicalize_existing(root)?;
+    let manifest_path = find_manifest(&root)?;
+    let loaded = load_package(&manifest_path)?;
+    validate_package_compatibility(&loaded.name, &loaded.release, &loaded.root)?;
+
+    if let Some(index) = active.iter().position(|name| name == &loaded.name) {
+        let mut chain = active[index..].to_vec();
+        chain.push(loaded.name);
+        return Err(PackageError::DependencyCycle(chain));
+    }
     if !visited.insert(root.clone()) {
         return Ok(());
     }
 
-    let manifest_path = find_manifest(&root)?;
-    let loaded = load_package(&manifest_path)?;
-    if by_name.insert(loaded.name.clone(), root.clone()).is_some() {
-        return Err(PackageError::DuplicatePackage(loaded.name));
+    if let Some(first) = by_name.insert(loaded.name.clone(), root.clone()) {
+        return Err(PackageError::DuplicatePackage {
+            name: loaded.name,
+            first,
+            second: root,
+        });
     }
+    active.push(loaded.name.clone());
 
     let mut dependencies = BTreeMap::new();
     for (dep_name, spec) in &loaded.dependency_specs {
@@ -891,6 +956,7 @@ fn collect_package(
             visited,
             by_name,
             ordered,
+            active,
         )?;
         let dep_manifest = load_package(&find_manifest(&dep_root)?)?;
         let version = match spec {
@@ -945,6 +1011,8 @@ fn collect_package(
         checksum,
     });
 
+    active.pop();
+
     Ok(())
 }
 
@@ -968,9 +1036,11 @@ fn topo_sort(packages: Vec<ResolvedPackage>) -> Result<Vec<ResolvedPackage>, Pac
             .map(|(name, _)| name.clone());
 
         let Some(name) = ready_name else {
-            return Err(PackageError::Registry(
-                "cyclic package dependency detected".to_string(),
-            ));
+            let mut chain = remaining.keys().cloned().collect::<Vec<_>>();
+            if let Some(first) = chain.first().cloned() {
+                chain.push(first);
+            }
+            return Err(PackageError::DependencyCycle(chain));
         };
         let package = remaining.remove(&name).expect("ready package exists");
         emitted.insert(name);
@@ -1034,6 +1104,23 @@ fn load_package(manifest_path: &Path) -> Result<LoadedPackage, PackageError> {
         dependency_specs: manifest.dependencies,
         manifest_hash: stable_hash_hex(text.as_bytes()),
     })
+}
+
+fn validate_package_compatibility(
+    name: &str,
+    release: &ReleaseMetadata,
+    root: &Path,
+) -> Result<(), PackageError> {
+    let required = cli_compatibility_level();
+    if release.compatibility != required {
+        return Err(PackageError::IncompatiblePackage {
+            name: name.to_string(),
+            required: required.to_string(),
+            found: release.compatibility.clone(),
+            source: root.display().to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn install_from_registry(
@@ -1134,6 +1221,7 @@ fn install_from_git(
     let resolved = git_output(&["rev-parse", "HEAD"], &clone_dir)?;
     let manifest_path = find_manifest(&clone_dir)?;
     let loaded = load_package(&manifest_path)?;
+    validate_package_compatibility(&loaded.name, &loaded.release, &clone_dir)?;
     let version = requested_version
         .map(str::to_string)
         .unwrap_or_else(|| loaded.version.clone());
@@ -1539,7 +1627,10 @@ fn load_catalogs(
                 ))
             })?;
         }
-        packages.extend(catalog.packages);
+        packages.extend(catalog.packages.into_iter().map(|mut package| {
+            package.origin = path.display().to_string();
+            package
+        }));
     }
     Ok(packages)
 }
@@ -1551,18 +1642,72 @@ fn resolve_catalog_entry(
     explicit: Option<&Path>,
 ) -> Result<CatalogPackage, PackageError> {
     let packages = load_catalogs(root, explicit)?;
-    let mut matches = packages
+    let matches = packages
         .into_iter()
         .filter(|package| package.name == name)
         .collect::<Vec<_>>();
-    if let Some(version) = version {
-        matches.retain(|package| package.version == version);
-    }
     if matches.is_empty() {
         return Err(PackageError::MissingPackage(name.to_string()));
     }
-    matches.sort_by(|left, right| compare_versions(&left.version, &right.version));
-    Ok(matches.pop().expect("non-empty catalog matches"))
+
+    let mut unique = BTreeMap::<String, CatalogPackage>::new();
+    for package in matches {
+        if let Some(existing) = unique.get(&package.version) {
+            if !catalog_entries_match(existing, &package) {
+                return Err(PackageError::ConflictingCatalogPackage {
+                    name: name.to_string(),
+                    version: package.version,
+                    first: existing.origin.clone(),
+                    second: package.origin,
+                });
+            }
+            continue;
+        }
+        unique.insert(package.version.clone(), package);
+    }
+
+    let requested = version.map(str::to_string);
+    if let Some(requested_version) = requested.as_deref() {
+        if !unique.contains_key(requested_version) {
+            return Err(PackageError::MissingPackage(format!(
+                "{}@{}",
+                name, requested_version
+            )));
+        }
+    }
+    let mut compatible = unique
+        .into_values()
+        .filter(|package| {
+            requested
+                .as_deref()
+                .map_or(true, |requested| package.version == requested)
+        })
+        .filter(|package| package.compatibility == cli_compatibility_level())
+        .collect::<Vec<_>>();
+
+    if compatible.is_empty() {
+        let requested_version = requested.as_deref().unwrap_or("any");
+        let found = if requested_version == "any" {
+            "no compatible catalog entry".to_string()
+        } else {
+            load_catalogs(root, explicit)?
+                .into_iter()
+                .find(|package| package.name == name && package.version == requested_version)
+                .map(|package| package.compatibility)
+                .unwrap_or_else(|| "no compatible catalog entry".to_string())
+        };
+        return Err(PackageError::IncompatiblePackage {
+            name: name.to_string(),
+            required: cli_compatibility_level().to_string(),
+            found,
+            source: requested_version.to_string(),
+        });
+    }
+
+    compatible.sort_by(|left, right| compare_versions(&left.version, &right.version));
+    Ok(compatible
+        .pop()
+        .expect("non-empty compatible catalog matches"))
 }
 
 fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
@@ -1680,6 +1825,7 @@ pub fn write_metadata(
         license: String::new(),
         modules: exported_modules(&manifest.src_dirs)?,
         owner: String::new(),
+        origin: String::new(),
     };
     validate_catalog_package(&entry, true).map_err(|message| {
         PackageError::Registry(format!("refusing to publish package metadata: {}", message))
@@ -1755,6 +1901,7 @@ pub fn register(
         license: String::new(),
         modules: exported_modules(&manifest.src_dirs)?,
         owner: String::new(),
+        origin: String::new(),
     };
     validate_catalog_package(&entry, true).map_err(|message| {
         PackageError::Registry(format!("refusing to register package: {}", message))
@@ -2074,6 +2221,7 @@ pub fn deprecation_warnings(workspace: &ResolvedWorkspace) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn stable_hash_is_deterministic() {
@@ -2093,5 +2241,89 @@ mod tests {
     fn toml_key_quotes_dotted_package_names() {
         assert_eq!(toml_key("spectra-api"), "spectra-api");
         assert_eq!(toml_key("spectra.api"), "\"spectra.api\"");
+    }
+
+    fn temp_catalog(contents: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("spectralang-r905-{}.toml", nonce));
+        fs::write(&path, contents).expect("catalog write");
+        path
+    }
+
+    #[test]
+    fn catalog_resolution_deduplicates_and_selects_highest_compatible_version() {
+        let catalog = temp_catalog(
+            r#"
+schema = "spectra-package-catalog-v1"
+
+[[packages]]
+name = "demo"
+version = "1.0.0"
+git = "C:\\packages\\demo-1"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "1.1.0"
+git = "C:\\packages\\demo-11"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "1.1.0"
+git = "C:\\packages\\demo-11"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "2.0.0"
+git = "C:\\packages\\demo-2"
+compatibility = "spectralang-0.2"
+"#,
+        );
+        let resolved = resolve_catalog_entry(Path::new("."), "demo", None, Some(&catalog))
+            .expect("compatible catalog entry");
+        assert_eq!(resolved.version, "1.1.0");
+        assert_eq!(resolved.git, "C:\\packages\\demo-11");
+        let _ = fs::remove_file(catalog);
+    }
+
+    #[test]
+    fn catalog_resolution_reports_conflicting_same_version_entries() {
+        let catalog = temp_catalog(
+            r#"
+[[packages]]
+name = "demo"
+version = "1.0.0"
+git = "C:\\packages\\one"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "1.0.0"
+git = "C:\\packages\\two"
+compatibility = "spectralang-0.1"
+"#,
+        );
+        let error = resolve_catalog_entry(Path::new("."), "demo", None, Some(&catalog))
+            .expect_err("conflicting entries must fail");
+        assert!(error.to_string().contains("version '1.0.0' conflict"));
+        let _ = fs::remove_file(catalog);
+    }
+
+    #[test]
+    fn package_diagnostics_include_origins_and_cycle_chain() {
+        let duplicate = PackageError::DuplicatePackage {
+            name: "demo".to_string(),
+            first: PathBuf::from("one"),
+            second: PathBuf::from("two"),
+        };
+        assert!(duplicate.to_string().contains("'one' and 'two'"));
+        let cycle =
+            PackageError::DependencyCycle(vec!["a".to_string(), "b".to_string(), "a".to_string()]);
+        assert!(cycle.to_string().contains("a -> b -> a"));
     }
 }
