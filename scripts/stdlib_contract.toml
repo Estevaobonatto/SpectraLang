@@ -19,6 +19,7 @@ docs = [
   "docs/api/std-api-routing.md",
   "docs/api/std-api-server-lifecycle.md",
   "docs/api/std-api-trace.md",
+  "docs/api/std-api-sqlite.md",
   "docs/concurrency-serving.md",
 ]
 
@@ -46,6 +47,11 @@ covers = ["std.io.*", "std.math.*", "std.string.*", "std.convert.*", "std.random
 id = "api-trace"
 path = "tests/validation/193_opentelemetry_tracing.spectra"
 covers = ["std.api.trace.*"]
+
+[[probe]]
+id = "api-sqlite-driver"
+path = "tests/validation/194_sqlite_driver.spectra"
+covers = ["std.api.db.sqlite.*"]
 
 [[probe]]
 id = "tensor-kernels"
@@ -410,3 +416,9 @@ prefix = "std.api.trace."
 classification = "incomplete"
 roadmap = "R-2701"
 reason = "W3C context, typed attributes, bounded OTLP/HTTP export, and failure probes are implemented; concurrent isolation and real database-driver instrumentation remain before production promotion."
+
+[[rule]]
+prefix = "std.api.db.sqlite."
+classification = "incomplete"
+roadmap = "R-2504"
+reason = "Bundled SQLite driver, typed statements, transactions, file-backed fixture and CLI evidence are implemented; async reactor timing and collector-backed HTTP query-span evidence remain before production promotion."

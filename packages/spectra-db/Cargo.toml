@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 spectra-runtime = { path = "../../runtime" }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
-

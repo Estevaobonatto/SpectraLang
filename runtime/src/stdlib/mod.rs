@@ -17530,6 +17530,35 @@ fn lock_async_task_registry() -> Result<std::sync::MutexGuard<'static, AsyncTask
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)
 }
 
+/// Runs blocking external work off the reactor and exposes completion through
+/// the existing `std.async.task.*` protocol.
+pub fn spawn_background_task<F>(work: F) -> Result<SpectraHostValue, i32>
+where
+    F: FnOnce() -> Result<SpectraHostValue, ()> + Send + 'static,
+{
+    let task_id = {
+        let mut registry = lock_async_task_registry()?;
+        registry.allocate_task_with_completion(0, None, None, None, false, false)
+    };
+    std::thread::Builder::new()
+        .name("spectra-background-task".to_string())
+        .spawn(move || {
+            let result = work();
+            if let Ok(mut registry) = async_task_registry().lock() {
+                match result {
+                    Ok(value) => {
+                        let _ = registry.complete_task(task_id, value);
+                    }
+                    Err(()) => {
+                        let _ = registry.fail_task(task_id);
+                    }
+                }
+            }
+        })
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    Ok(task_id)
+}
+
 fn async_last_reactor_event() -> &'static Mutex<Option<ReactorEvent>> {
     static LAST: OnceLock<Mutex<Option<ReactorEvent>>> = OnceLock::new();
     LAST.get_or_init(|| Mutex::new(None))
@@ -24497,6 +24526,27 @@ mod tests {
             call_host(ASYNC_TASK_JOIN, &[cancelled_task]),
             (HOST_STATUS_SUCCESS, -1)
         );
+    }
+
+    #[test]
+    fn background_task_completes_through_async_protocol() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let task = spawn_background_task(|| {
+            std::thread::sleep(Duration::from_millis(5));
+            Ok(91)
+        })
+        .expect("worker task should be allocated");
+        for _ in 0..100 {
+            if call_host(ASYNC_TASK_POLL, &[task]) == (HOST_STATUS_SUCCESS, 1) {
+                assert_eq!(call_host(ASYNC_TASK_RESULT, &[task]), (HOST_STATUS_SUCCESS, 91));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("background task did not complete");
     }
 
     #[test]

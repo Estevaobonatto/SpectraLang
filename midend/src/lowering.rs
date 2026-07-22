@@ -8324,6 +8324,9 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
     match path {
         [] => None,
         [first, ..] if first != "std" => None,
+        [_, api, db, sqlite, function] if api == "api" && db == "db" && sqlite == "sqlite" => {
+            lookup_std_api_host_function("db.sqlite", function)
+        }
         [_, api, module, function] if api == "api" => {
             lookup_std_api_host_function(module, function)
         }
@@ -9820,6 +9823,28 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("trace", "extract") => Some(host_bool("spectra.api.trace.extract")),
         ("trace", "flush") => Some(host_int("spectra.api.trace.flush")),
         ("trace", "last_error") => Some(host_string("spectra.api.trace.last_error")),
+        ("db.sqlite", "open") => Some(host_int("spectra.api.db.sqlite.open")),
+        ("db.sqlite", "close") => Some(host_bool("spectra.api.db.sqlite.close")),
+        ("db.sqlite", "prepare") => Some(host_int("spectra.api.db.sqlite.prepare")),
+        ("db.sqlite", "execute_async") => Some(host_int("spectra.api.db.sqlite.execute_async")),
+        ("db.sqlite", "bind_null") => Some(host_bool("spectra.api.db.sqlite.bind_null")),
+        ("db.sqlite", "bind_int") => Some(host_bool("spectra.api.db.sqlite.bind_int")),
+        ("db.sqlite", "bind_float") => Some(host_bool("spectra.api.db.sqlite.bind_float")),
+        ("db.sqlite", "bind_text") => Some(host_bool("spectra.api.db.sqlite.bind_text")),
+        ("db.sqlite", "bind_blob") => Some(host_bool("spectra.api.db.sqlite.bind_blob")),
+        ("db.sqlite", "step") => Some(host_int("spectra.api.db.sqlite.step")),
+        ("db.sqlite", "column_count") => Some(host_int("spectra.api.db.sqlite.column_count")),
+        ("db.sqlite", "column_type") => Some(host_int("spectra.api.db.sqlite.column_type")),
+        ("db.sqlite", "column_int") => Some(host_int("spectra.api.db.sqlite.column_int")),
+        ("db.sqlite", "column_float") => Some(host_float("spectra.api.db.sqlite.column_float")),
+        ("db.sqlite", "column_text") => Some(host_string("spectra.api.db.sqlite.column_text")),
+        ("db.sqlite", "reset") => Some(host_bool("spectra.api.db.sqlite.reset")),
+        ("db.sqlite", "finalize") => Some(host_bool("spectra.api.db.sqlite.finalize")),
+        ("db.sqlite", "begin") => Some(host_bool("spectra.api.db.sqlite.begin")),
+        ("db.sqlite", "commit") => Some(host_bool("spectra.api.db.sqlite.commit")),
+        ("db.sqlite", "rollback") => Some(host_bool("spectra.api.db.sqlite.rollback")),
+        ("db.sqlite", "last_error_code") => Some(host_string("spectra.api.db.sqlite.last_error_code")),
+        ("db.sqlite", "last_error_message") => Some(host_string("spectra.api.db.sqlite.last_error_message")),
         ("cors", "policy") => Some(host_int("spectra.api.cors.policy")),
         ("cors", "permissive") => Some(host_int("spectra.api.cors.permissive")),
         ("cors", "allow_origin") => Some(host_int("spectra.api.cors.allow_origin")),

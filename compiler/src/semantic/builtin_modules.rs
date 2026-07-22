@@ -612,6 +612,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     );
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
     registry.register_module(format!("{prefix}.trace"), make_std_api_trace(prefix));
+    registry.register_module(format!("{prefix}.db.sqlite"), make_std_api_db_sqlite(prefix));
 }
 
 fn stdlib_segments(prefix: &str) -> Vec<String> {
@@ -639,6 +640,8 @@ fn make_std_api_root(prefix: &str) -> ModuleExports {
         "Server",
         "Client",
         "TlsConfig",
+        "SqliteConnection",
+        "SqliteStatement",
     ] {
         exports.types.insert(name.to_string(), public_type(&[]));
     }
@@ -1508,6 +1511,39 @@ fn make_std_api_trace(prefix: &str) -> ModuleExports {
         ("extract", vec![Type::String], Type::Bool),
         ("flush", vec![], Type::Int),
         ("last_error", vec![], Type::String),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_db_sqlite(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(&format!("{prefix}.db.sqlite"), None);
+    let connection = api_type("SqliteConnection");
+    let statement = api_type("SqliteStatement");
+    exports.types.insert("SqliteConnection".to_string(), public_type(&[]));
+    exports.types.insert("SqliteStatement".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("open", vec![Type::String], connection.clone()),
+        ("close", vec![connection.clone()], Type::Bool),
+        ("prepare", vec![connection.clone(), Type::String], statement.clone()),
+        ("execute_async", vec![connection.clone(), Type::String], Type::Int),
+        ("bind_null", vec![statement.clone(), Type::Int], Type::Bool),
+        ("bind_int", vec![statement.clone(), Type::Int, Type::Int], Type::Bool),
+        ("bind_float", vec![statement.clone(), Type::Int, Type::Float], Type::Bool),
+        ("bind_text", vec![statement.clone(), Type::Int, Type::String], Type::Bool),
+        ("bind_blob", vec![statement.clone(), Type::Int, Type::String], Type::Bool),
+        ("step", vec![statement.clone()], Type::Int),
+        ("column_count", vec![statement.clone()], Type::Int),
+        ("column_type", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_int", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_float", vec![statement.clone(), Type::Int], Type::Float),
+        ("column_text", vec![statement.clone(), Type::Int], Type::String),
+        ("reset", vec![statement.clone()], Type::Bool),
+        ("finalize", vec![statement.clone()], Type::Bool),
+        ("begin", vec![connection.clone()], Type::Bool),
+        ("commit", vec![connection.clone()], Type::Bool),
+        ("rollback", vec![connection.clone()], Type::Bool),
+        ("last_error_code", vec![], Type::String),
+        ("last_error_message", vec![], Type::String),
     ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
     exports
 }

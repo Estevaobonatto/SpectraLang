@@ -1937,6 +1937,12 @@ driver; SQLite and the other protocols must consume the pool through their
 own real factories. R-2701 database-query tracing remains dependent on the
 pool and the first real SQLite driver.
 
+R-2504 is the first real consumer: it provides bundled SQLite connections,
+typed prepared statements, transactions, concurrent file-backed reads and a
+public `spectra.api.db.sqlite` host-call surface. Query tracing is emitted by
+the driver for actual operations; PostgreSQL, Redis and the type-safe query
+builder remain separate workstreams.
+
 - `R-2501` Connection pool (async-aware)
 - `R-2502` SQL query builder (type-safe)
 - `R-2503` Migrations framework

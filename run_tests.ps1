@@ -1158,6 +1158,15 @@ if ($r2501ConnectionPool.Status -eq "PASSOU") { $totalPassed++ } else { $totalFa
 $results += [PSCustomObject]@{ Diretorio = "phase25-connection-pool"; Teste = "validate_r2501_connection_pool"; Status = $r2501ConnectionPool.Status; Detalhe = $r2501ConnectionPool.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27ab: R-2504 SQLite driver sync and async
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2504 SQLite driver sync and async ---" -ForegroundColor Yellow
+$r2504Sqlite = Invoke-HostCommand -name "validate_r2504_sqlite" -fileName "python" -arguments @("scripts\validate_r2504_sqlite.py", "--binary", $binary, "--fixture", "tests\validation\194_sqlite_driver.spectra", "--database", "tests\fixtures\r2504\reference.sqlite", "--report", "target\r2504-sqlite\report.json") -workingDir (Get-Location).Path
+if ($r2504Sqlite.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-sqlite-driver"; Teste = "validate_r2504_sqlite"; Status = $r2504Sqlite.Status; Detalhe = $r2504Sqlite.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

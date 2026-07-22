@@ -1,0 +1,3 @@
+module sqlite_invalid_binding;
+import { bind_int } from std.api.db.sqlite;
+pub fn main() -> int { bind_int(); return 0; }

@@ -12,6 +12,7 @@ use spectra_runtime::ffi::{
 pub mod client;
 pub mod conformance;
 pub mod cors;
+pub mod db;
 pub mod errors;
 pub mod form;
 pub mod handler;
@@ -830,6 +831,28 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
     HostCallSpec { name: "spectra.api.trace.extract", function: trace::extract },
     HostCallSpec { name: "spectra.api.trace.flush", function: trace::flush },
     HostCallSpec { name: "spectra.api.trace.last_error", function: trace::last_error },
+    HostCallSpec { name: "spectra.api.db.sqlite.open", function: db::sqlite_open },
+    HostCallSpec { name: "spectra.api.db.sqlite.close", function: db::sqlite_close },
+    HostCallSpec { name: "spectra.api.db.sqlite.prepare", function: db::sqlite_prepare },
+    HostCallSpec { name: "spectra.api.db.sqlite.execute_async", function: db::sqlite_execute_async },
+    HostCallSpec { name: "spectra.api.db.sqlite.bind_null", function: db::sqlite_bind_null },
+    HostCallSpec { name: "spectra.api.db.sqlite.bind_int", function: db::sqlite_bind_int },
+    HostCallSpec { name: "spectra.api.db.sqlite.bind_float", function: db::sqlite_bind_float },
+    HostCallSpec { name: "spectra.api.db.sqlite.bind_text", function: db::sqlite_bind_text },
+    HostCallSpec { name: "spectra.api.db.sqlite.bind_blob", function: db::sqlite_bind_blob },
+    HostCallSpec { name: "spectra.api.db.sqlite.step", function: db::sqlite_step },
+    HostCallSpec { name: "spectra.api.db.sqlite.column_count", function: db::sqlite_column_count },
+    HostCallSpec { name: "spectra.api.db.sqlite.column_type", function: db::sqlite_column_type },
+    HostCallSpec { name: "spectra.api.db.sqlite.column_int", function: db::sqlite_column_int },
+    HostCallSpec { name: "spectra.api.db.sqlite.column_float", function: db::sqlite_column_float },
+    HostCallSpec { name: "spectra.api.db.sqlite.column_text", function: db::sqlite_column_text },
+    HostCallSpec { name: "spectra.api.db.sqlite.reset", function: db::sqlite_reset },
+    HostCallSpec { name: "spectra.api.db.sqlite.finalize", function: db::sqlite_finalize },
+    HostCallSpec { name: "spectra.api.db.sqlite.begin", function: db::sqlite_begin },
+    HostCallSpec { name: "spectra.api.db.sqlite.commit", function: db::sqlite_commit },
+    HostCallSpec { name: "spectra.api.db.sqlite.rollback", function: db::sqlite_rollback },
+    HostCallSpec { name: "spectra.api.db.sqlite.last_error_code", function: db::sqlite_last_error_code },
+    HostCallSpec { name: "spectra.api.db.sqlite.last_error_message", function: db::sqlite_last_error_message },
 ];
 
 pub fn register() -> usize {
@@ -985,7 +1008,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 211);
+        assert_eq!(HOST_CALLS.len(), 233);
     }
 
     #[test]

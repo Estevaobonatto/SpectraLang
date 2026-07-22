@@ -5918,7 +5918,7 @@ ORM.
 
 ## R-2504 SQLite Driver (Sync and Async)
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -5933,6 +5933,27 @@ ORM.
 - The sync driver is used by the migration framework when running tests.
 - Tests cover CRUD, prepared statements, transactions, and concurrent
   reads.
+
+### Current implementation
+
+- `packages/spectra-db` now contains a real bundled-SQLite driver with
+  file-backed connections, typed prepared values, row iteration, reset/
+  finalize semantics, transactions and automatic rollback on drop.
+- `spectra.api.db.sqlite` is registered through real host calls for open,
+  prepare, bind, step, typed column reads, reset, finalize and transactions.
+- `tests/validation/194_sqlite_driver.spectra` passes through the normal CLI
+  and `tests/fixtures/r2504/reference.sqlite` is independently checked with
+  Python's SQLite parser.
+- Rust integration tests cover CRUD, prepared statements, transactions,
+  concurrent reads and consumption of the shared R-2501 pool.
+- The `phase25-sqlite-driver` gate is registered in `run_tests.ps1`.
+
+### Remaining before completion
+
+- Complete independent async/reactor timing evidence and collector-backed
+  query-span validation through an HTTP parent request.
+- Reconcile the new public surface in the R-3007 production contract before
+  changing this item to `complete`.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
@@ -6390,12 +6411,11 @@ operable.
   typed span attributes, and HTTP client/server span hooks.
 - `tests/validation/193_opentelemetry_tracing.spectra` and
   `scripts/validate_r2701_tracing.py` exercise a real local collector process.
-- R-2701 is not complete yet. The remaining production gates are full
-  concurrent-context evidence and real database instrumentation. The roadmap
-  has no database driver implementation yet: SQLite tracing depends on
-  `R-2501` and `R-2504`, while PostgreSQL and Redis remain unsupported until
-  `R-2505` and `R-2507` exist. A passing smoke fixture alone does not promote
-  those surfaces to production.
+- R-2701 is not complete yet. The runtime now has a real SQLite driver
+  consumer through R-2504, but the remaining production gates still include
+  collector-backed query spans inside HTTP requests and full concurrent-context
+  evidence. PostgreSQL and Redis remain unsupported until R-2505 and R-2507
+  exist. A passing SQLite smoke fixture alone does not complete R-2701.
 
 ## R-2702 Prometheus-Compatible Metrics Endpoint
 

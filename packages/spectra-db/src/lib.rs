@@ -7,6 +7,7 @@
 mod error;
 mod metrics;
 mod pool;
+pub mod sqlite;
 
 pub use error::{PoolError, PoolResult};
 pub use metrics::PoolMetrics;

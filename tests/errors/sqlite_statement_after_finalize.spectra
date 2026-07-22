@@ -1,0 +1,3 @@
+module sqlite_statement_after_finalize;
+import { finalize } from std.api.db.sqlite;
+pub fn main() -> int { finalize(); return 0; }
