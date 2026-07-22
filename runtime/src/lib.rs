@@ -9,6 +9,7 @@ pub mod health;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod memory;
+pub mod metrics;
 pub mod numeric;
 pub mod reactor;
 pub mod stdlib;

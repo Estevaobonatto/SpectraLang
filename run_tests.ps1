@@ -1221,6 +1221,15 @@ if ($r2703Health.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
 $results += [PSCustomObject]@{ Diretorio = "phase27-integrated-health-probes"; Teste = "validate_r2703_health_probes"; Status = $r2703Health.Status; Detalhe = $r2703Health.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27af: R-2702 Prometheus-compatible metrics
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2702 Prometheus-compatible metrics ---" -ForegroundColor Yellow
+$r2702Metrics = Invoke-HostCommand -name "validate_r2702_metrics" -fileName "python" -arguments @("scripts\validate_r2702_metrics.py", "--binary", $binary, "--fixture", "tests\validation\199_prometheus_metrics.spectra", "--report", "target\r2702-metrics\report.json") -workingDir (Get-Location).Path
+if ($r2702Metrics.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase27-prometheus-metrics"; Teste = "validate_r2702_metrics"; Status = $r2702Metrics.Status; Detalhe = $r2702Metrics.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

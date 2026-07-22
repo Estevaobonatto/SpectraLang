@@ -2029,6 +2029,16 @@ readiness controls rollout traffic, and startup gates initialization; systemd
 watchdog support remains disabled until a real `sd_notify` implementation is
 available.
 
+R-2702 provides the operational metrics contract consumed by the API server.
+`HttpServer` shares a thread-safe Rust `MetricsRegistry` and reserves
+`/metrics` for deterministic Prometheus text exposition. HTTP request count,
+duration, errors, active/accepted connections, and timeouts are recorded from
+real server activity; custom counters and histograms use bounded, validated
+labels. An independent parser validates the payload produced by a real TCP
+server, including concurrent updates and rejection of sensitive or
+non-finite values. This first version intentionally has no Spectra host calls;
+R-2707 will consume the registry for the integrated OTel/Prometheus example.
+
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint
 - `R-2703` Health, readiness, and startup probes (integrated)

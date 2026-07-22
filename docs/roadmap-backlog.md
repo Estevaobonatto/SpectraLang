@@ -6520,7 +6520,17 @@ operable.
 - Default metrics cover request count, latency histogram, and error
   count.
 - Custom counters and histograms can be registered and incremented.
-- Tests assert the metric shape and a known Prometheus parser round-trip.
+- Tests assert the metric shape through an independent parser and a real TCP
+  server.
+- Labels, high-cardinality names, NaN/infinity, and sensitive values are
+  rejected; concurrent updates preserve all increments.
+- Evidence: `target/r2702-metrics/report.json` (`status: passed`) and the
+  `phase27-prometheus-metrics` gate.
+
+The runtime registry is Rust/API infrastructure; no incomplete Spectra host
+calls were added. HTTP defaults include request counters, duration histogram,
+error counters, active/accepted connections, and timeouts. The route is
+reserved by `HttpServer` and uses the Prometheus text exposition format.
 
 ## R-2703 Health, Readiness, and Startup Probes (Integrated)
 

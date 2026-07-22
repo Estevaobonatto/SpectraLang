@@ -3739,15 +3739,17 @@ title = "Prometheus-Compatible Metrics Endpoint"
 phase = "phase_27"
 owner = "runtime"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "medium"
 dependencies = ["R-2210"]
-summary = "Expose a `/metrics` endpoint in the Prometheus exposition format with default metrics (request count, latency histogram, error count) and the ability to add custom counters and histograms."
+summary = "Expose a real `/metrics` endpoint backed by a thread-safe registry, deterministic Prometheus exposition, default HTTP metrics, custom counters/histograms, and independent parser validation."
 acceptance = [
   "the `/metrics` endpoint returns a valid Prometheus exposition payload",
   "default metrics cover request count, latency histogram, and error count",
   "custom counters and histograms can be registered and incremented",
-  "tests assert the metric shape and a known Prometheus parser round-trip"
+  "tests assert the metric shape and an independent Prometheus parser round-trip",
+  "labels, cardinality, NaN/infinity, and sensitive values are rejected",
+  "concurrent updates preserve all increments and real server shutdown leaves no metric worker"
 ]
 
 [[items]]
