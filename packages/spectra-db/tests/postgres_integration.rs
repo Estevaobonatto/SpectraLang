@@ -1,6 +1,21 @@
-use spectra_db::postgres::{PostgresConfig, PostgresConnection, PostgresValue};
+use spectra_db::postgres::{open_pool, PostgresConfig, PostgresConnection, PostgresValue};
+use spectra_db::PoolConfig;
 use spectra_db::query::{Dialect, PostgresDialect};
 use std::env;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use std::thread;
+use std::time::Duration;
+
+fn noop_waker() -> Waker {
+    unsafe fn clone(_: *const ()) -> RawWaker { RawWaker::new(std::ptr::null(), &VTABLE) }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+    unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) }
+}
 
 #[test]
 fn postgres_config_parses_without_exposing_secret() {
@@ -78,20 +93,19 @@ fn real_postgres_transactions_copy_and_notify_when_configured() {
         .unwrap();
     assert_eq!(count.rows.len(), 1);
 
+    let rows = (3..=1026)
+        .map(|id| vec![PostgresValue::Int64(id), PostgresValue::Text(format!("copy-{id}"))])
+        .collect::<Vec<_>>();
     let copied = connection
-        .copy_in_rows(
-            "COPY spectra_r2505_copy (id, name) FROM STDIN",
-            vec![vec![
-                PostgresValue::Int64(3),
-                PostgresValue::Text("copy".into()),
-            ]],
-        )
+        .copy_in_rows("COPY spectra_r2505_copy (id, name) FROM STDIN", rows)
         .unwrap();
-    assert_eq!(copied, 1);
+    assert_eq!(copied, 1024);
     let bytes = connection
         .copy_out_bytes("COPY (SELECT id, name FROM spectra_r2505_copy ORDER BY id) TO STDOUT")
         .unwrap();
-    assert!(String::from_utf8(bytes).unwrap().contains("copy"));
+    let output = String::from_utf8(bytes).unwrap();
+    assert!(output.contains("copy-3"));
+    assert!(output.contains("copy-1026"));
 
     let listener = connection.listen("spectra_r2505_channel").unwrap();
     let publisher = PostgresConnection::open(PostgresConfig::from_url(&url).unwrap()).unwrap();
@@ -106,4 +120,33 @@ fn real_postgres_transactions_copy_and_notify_when_configured() {
     assert_eq!(notification.payload, "payload");
     publisher.close().unwrap();
     connection.close().unwrap();
+}
+
+#[test]
+fn real_postgres_pool_and_async_bridge_when_configured() {
+    let Ok(url) = env::var("SPECTRA_POSTGRES_URL") else {
+        eprintln!("skipped_environment: SPECTRA_POSTGRES_URL is not configured");
+        return;
+    };
+    let config = PostgresConfig::from_url(&url).unwrap();
+    let pool = open_pool(config, PoolConfig { max_size: 2, ..PoolConfig::default() }).unwrap();
+    let lease = pool.acquire_blocking().unwrap();
+    lease.connection().unwrap().health_check().unwrap();
+    lease.release().unwrap();
+    let connection = PostgresConnection::open(PostgresConfig::from_url(&url).unwrap()).unwrap();
+    let mut future = Box::pin(connection.query_async(spectra_db::CompiledQuery {
+        sql: "SELECT 1".into(),
+        params: vec![],
+    }));
+    let waker = noop_waker();
+    let mut context = Context::from_waker(&waker);
+    let result = loop {
+        match Future::poll(Pin::as_mut(&mut future), &mut context) {
+            Poll::Ready(result) => break result,
+            Poll::Pending => thread::sleep(Duration::from_millis(2)),
+        }
+    };
+    assert_eq!(result.unwrap().rows.len(), 1);
+    connection.close().unwrap();
+    pool.shutdown().unwrap();
 }

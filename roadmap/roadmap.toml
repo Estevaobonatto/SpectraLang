@@ -3311,6 +3311,7 @@ acceptance = [
   "LISTEN/NOTIFY is exposed through a typed channel",
   "tests run against a real PostgreSQL 16 instance and are gated by environment",
   "the pool, PostgresDialect, async bridge, tracing, API registration, and independent phase25-postgres-driver gate are integrated",
+  "the v2 report proves COPY, LISTEN/NOTIFY, async non-blocking behavior, OTLP decoding, and HTTP-parent propagation",
   "R-2505 remains incomplete until a CI lane produces a passed report"
 ]
 

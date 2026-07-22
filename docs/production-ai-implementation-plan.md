@@ -2001,10 +2001,11 @@ drivers are implemented.
 
 R-2505 is now the active Phase 25 workstream. Its PostgreSQL driver reuses the
 R-2501 pool and R-2502 query contract, exposes real prepared statements and
-transactions, and reserves production promotion for a PostgreSQL 16 CI lane
-that proves COPY, LISTEN/NOTIFY, async cancellation, tracing, and HTTP-parent
-propagation. Local environments without PostgreSQL record
-`skipped_environment`; they do not constitute completion evidence.
+transactions, and reserves production promotion for the v2 PostgreSQL 16 CI
+report. That report must prove COPY, LISTEN/NOTIFY, async cancellation,
+independent OTLP decoding, tracing, and HTTP-parent propagation. Local
+environments without PostgreSQL record `skipped_environment`; they do not
+constitute completion evidence, and R-2505 remains `in_progress`.
 
 R-2507 is the parallel Redis 7 workstream. It reuses the R-2501 pool,
 provides real async commands and a dedicated pub/sub connection, and supplies

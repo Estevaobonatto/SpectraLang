@@ -120,7 +120,16 @@ fn postgres_operation_span(name: &str) -> Option<u64> {
     let operation = name.strip_prefix("db.postgres.").unwrap_or(name);
     let _ = tracing::span_set_attribute(span, "db.system", "postgresql");
     let _ = tracing::span_set_attribute(span, "db.operation", operation);
+    let _ = tracing::span_set_attribute(span, "db.namespace", "postgresql");
     Some(span)
+}
+
+fn annotate_postgres_span(span: Option<u64>, connection: &PostgresConnection) {
+    if let Some(span) = span {
+        let _ = tracing::span_set_attribute(span, "server.address", &connection.server_address());
+        let _ = tracing::span_set_attribute_int(span, "server.port", connection.server_port() as i64);
+        let _ = tracing::span_set_attribute(span, "db.namespace", &connection.database_name());
+    }
 }
 fn redis_operation_span(name: &str) -> Option<u64> {
     let span = tracing::begin_external_span(SpanKind::Internal, name).ok()?;
@@ -291,7 +300,7 @@ pub extern "C" fn postgres_open(ctx: *mut SpectraHostCallContext) -> i32 {
         let config = match PostgresConfig::from_url(&url) { Ok(config) => config, Err(error) => return fail_postgres(r, error) };
         let span = postgres_operation_span("db.postgres.connect");
         match PostgresConnection::open(config) {
-            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_connections.insert(id, connection); finish_span(span, true); value(r, id as i64) }
+            Ok(connection) => { annotate_postgres_span(span, &connection); let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_connections.insert(id, connection); finish_span(span, true); value(r, id as i64) }
             Err(error) => { finish_span(span, false); fail_postgres(r, error) },
         }
     }
@@ -315,6 +324,7 @@ pub extern "C" fn postgres_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
         let connection = store().lock().unwrap().postgres_connections.get(&(a[0] as u64)).cloned();
         let Some(connection) = connection else { return fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()); };
         let span = postgres_operation_span("db.postgres.prepare");
+        annotate_postgres_span(span, &connection);
         match connection.prepare(sql) {
             Ok(statement) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_statements.insert(id, statement); finish_span(span, true); value(r, id as i64) }
             Err(error) => { finish_span(span, false); fail_postgres(r, error) },
@@ -340,6 +350,7 @@ pub extern "C" fn postgres_step(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
         let span = postgres_operation_span("db.postgres.query");
+        if let Some(connection) = store().lock().unwrap().postgres_connections.get(&(a[0] as u64)).cloned() { annotate_postgres_span(span, &connection); }
         match with_postgres_statement(a[0] as u64, |s| s.step()) {
             Ok(state) => { finish_span(span, true); value(r, state as i64) }
             Err(error) => { finish_span(span, false); fail_postgres(r, error) }

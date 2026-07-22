@@ -1189,7 +1189,9 @@ $results += [PSCustomObject]@{ Diretorio = "phase25-migrations"; Teste = "valida
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-2505 PostgreSQL driver ---" -ForegroundColor Yellow
-$r2505Postgres = Invoke-HostCommand -name "validate_r2505_postgres" -fileName "python" -arguments @("scripts\validate_r2505_postgres.py", "--binary", $binary, "--fixture", "tests\validation\195_postgres_driver.spectra", "--report", "target\r2505-postgres\report.json") -workingDir (Get-Location).Path
+$r2505Arguments = @("scripts\validate_r2505_postgres.py", "--binary", $binary, "--fixture", "tests\validation\195_postgres_driver.spectra", "--report", "target\r2505-postgres\report.json")
+if ($env:SPECTRA_POSTGRES_URL) { $r2505Arguments += @("--database-url", $env:SPECTRA_POSTGRES_URL) }
+$r2505Postgres = Invoke-HostCommand -name "validate_r2505_postgres" -fileName "python" -arguments $r2505Arguments -workingDir (Get-Location).Path
 if ($r2505Postgres.Status -eq "PASSOU" -or $r2505Postgres.Detail -match "skipped_environment") { $totalPassed++ } else { $totalFailed++ }
 $results += [PSCustomObject]@{ Diretorio = "phase25-postgres-driver"; Teste = "validate_r2505_postgres"; Status = $r2505Postgres.Status; Detalhe = $r2505Postgres.Detail }
 

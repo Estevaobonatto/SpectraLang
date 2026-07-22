@@ -6017,7 +6017,7 @@ ORM.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -6029,8 +6029,9 @@ ORM.
   PostgreSQL.
 - COPY IN/OUT round-trips a large dataset within tolerance.
 - LISTEN/NOTIFY is exposed through a typed channel.
-- Tests run against a local PostgreSQL test instance and are gated by
-  environment.
+- Tests run against a real PostgreSQL 16 service and are gated by environment.
+- The v2 validator must prove async non-blocking execution, COPY streaming,
+  LISTEN/NOTIFY, OTLP export, and HTTP-parent propagation before promotion.
 
 ### Current implementation
 
@@ -6039,8 +6040,10 @@ ORM.
   notification listener, pool factory, and `$1`-based dialect.
 - `spectra.api.db.postgres` is wired only to real host calls; it has no SQLite
   fallback and does not expose credentials in diagnostics.
-- The independent validator records `skipped_environment` without
-  `SPECTRA_POSTGRES_URL`; completion requires the PostgreSQL 16 CI lane.
+- The independent validator writes
+  `target/r2505-postgres/report.json` with schema
+  `spectralang.r2505_postgres.v2`; without `SPECTRA_POSTGRES_URL` it records
+  `skipped_environment` and the task remains in progress.
 - COPY, LISTEN/NOTIFY, async non-blocking behavior, tracing, and HTTP-parent
   evidence remain acceptance gates and are not promoted to production yet.
 

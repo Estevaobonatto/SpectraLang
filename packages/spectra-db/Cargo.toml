@@ -15,5 +15,6 @@ chrono = { version = "0.4", features = ["clock"] }
 fallible-iterator = "0.2"
 redis = { version = "0.27", features = ["tls-native-tls"] }
 url = "2"
+percent-encoding = "2"
 
 [dev-dependencies]

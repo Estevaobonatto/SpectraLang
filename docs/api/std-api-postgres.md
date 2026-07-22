@@ -6,7 +6,10 @@ typed bindings, row iteration, transactions, and pool-backed connections.
 
 The implementation is currently `in_progress` under R-2505. SQLite is not a
 fallback. PostgreSQL production status requires the PostgreSQL 16 integration
-lane and the independent report at `target/r2505-postgres/report.json`.
+lane and the independent v2 report at `target/r2505-postgres/report.json`.
+The report must include an independent `psql` version probe, real COPY and
+LISTEN/NOTIFY effects, controlled async execution, and an external OTLP
+collector proving that a PostgreSQL span is a child of an HTTP server span.
 
 COPY and LISTEN/NOTIFY are available in the Rust driver contract while the
 language stream-handle contract is still being certified. Passwords, complete

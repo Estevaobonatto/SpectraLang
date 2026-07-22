@@ -74,35 +74,62 @@ impl Default for PostgresConfig {
 
 impl PostgresConfig {
     pub fn from_url(url: &str) -> PostgresResult<Self> {
-        let parsed = url
-            .strip_prefix("postgres://")
-            .or_else(|| url.strip_prefix("postgresql://"))
-            .ok_or_else(|| {
-                PostgresError::invalid_argument("PostgreSQL URL must use postgres://")
-            })?;
-        let (authority, database) = parsed
-            .split_once('/')
-            .ok_or_else(|| PostgresError::invalid_argument("PostgreSQL URL requires a database"))?;
-        let (credentials, host_port) = authority.rsplit_once('@').ok_or_else(|| {
-            PostgresError::invalid_argument("PostgreSQL URL requires user credentials")
-        })?;
-        let (user, password) = credentials.split_once(':').unwrap_or((credentials, ""));
-        let (host, port) = host_port
-            .rsplit_once(':')
-            .map_or((host_port, 5432), |(host, port)| {
-                (host, port.parse().unwrap_or(0))
-            });
-        if user.is_empty() || host.is_empty() || database.is_empty() || port == 0 {
+        let parsed = url::Url::parse(url)
+            .map_err(|_| PostgresError::invalid_argument("invalid PostgreSQL URL"))?;
+        if parsed.scheme() != "postgres" && parsed.scheme() != "postgresql" {
+            return Err(PostgresError::invalid_argument(
+                "PostgreSQL URL must use postgres://",
+            ));
+        }
+        let user = percent_encoding::percent_decode_str(parsed.username())
+            .decode_utf8()
+            .map_err(|_| PostgresError::invalid_argument("invalid PostgreSQL username"))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| PostgresError::invalid_argument("PostgreSQL URL requires a host"))?;
+        let database = parsed.path().trim_start_matches('/');
+        if user.is_empty() || host.is_empty() || database.is_empty() {
             return Err(PostgresError::invalid_argument("invalid PostgreSQL URL"));
         }
-        Ok(Self {
+        let mut config = Self {
             host: host.to_owned(),
-            port,
-            database: database.split('?').next().unwrap_or(database).to_owned(),
-            user: user.to_owned(),
-            password: password.into(),
+            port: parsed.port().unwrap_or(5432),
+            database: database.to_owned(),
+            user: user.into_owned(),
+            password: percent_encoding::percent_decode_str(parsed.password().unwrap_or_default())
+                .decode_utf8()
+                .map_err(|_| PostgresError::invalid_argument("invalid PostgreSQL password"))?
+                .into_owned()
+                .into(),
             ..Self::default()
-        })
+        };
+        for (key, value) in parsed.query_pairs() {
+            match key.as_ref() {
+                "sslmode" => {
+                    config.ssl_mode = match value.as_ref() {
+                        "disable" => SslMode::Disable,
+                        "prefer" => SslMode::Prefer,
+                        "require" => SslMode::Require,
+                        _ => return Err(PostgresError::invalid_argument("invalid sslmode")),
+                    }
+                }
+                "connect_timeout" => {
+                    let seconds = value
+                        .parse::<u64>()
+                        .map_err(|_| PostgresError::invalid_argument("invalid connect_timeout"))?;
+                    config.connect_timeout = Duration::from_secs(seconds);
+                }
+                "statement_timeout" => {
+                    let millis = value
+                        .parse::<u64>()
+                        .map_err(|_| PostgresError::invalid_argument("invalid statement_timeout"))?;
+                    config.statement_timeout = Some(Duration::from_millis(millis));
+                }
+                _ => {}
+            }
+        }
+        config.validate()?;
+        Ok(config)
     }
 
     fn validate(&self) -> PostgresResult<()> {
@@ -171,6 +198,20 @@ impl std::fmt::Debug for PostgresConnection {
 }
 
 impl PostgresConnection {
+    /// Sanitized connection metadata used for observability. Credentials and
+    /// the original DSN are intentionally not exposed.
+    pub fn server_address(&self) -> String {
+        self.config.host.clone()
+    }
+
+    pub fn server_port(&self) -> u16 {
+        self.config.port
+    }
+
+    pub fn database_name(&self) -> String {
+        self.config.database.clone()
+    }
+
     pub fn open(config: PostgresConfig) -> PostgresResult<Self> {
         let mut client = config.connect()?;
         if let Some(timeout) = config.statement_timeout {

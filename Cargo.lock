@@ -2383,6 +2383,7 @@ dependencies = [
  "chrono",
  "fallible-iterator 0.2.0",
  "native-tls",
+ "percent-encoding",
  "postgres",
  "postgres-native-tls",
  "redis",
