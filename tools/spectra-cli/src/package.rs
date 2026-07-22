@@ -1,4 +1,5 @@
 use crate::discovery;
+use crate::project::ProjectSourceEntry;
 use crate::release_channel::{cli_compatibility_level, ReleaseMetadata};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,7 @@ pub struct ResolvedWorkspace {
 }
 
 impl ResolvedWorkspace {
+    #[allow(dead_code)]
     pub fn source_entries(&self) -> Vec<PathBuf> {
         let mut entries = Vec::new();
         let mut seen = BTreeSet::new();
@@ -109,6 +111,25 @@ impl ResolvedWorkspace {
             for src in &package.src_dirs {
                 if seen.insert(src.clone()) {
                     entries.push(src.clone());
+                }
+            }
+        }
+
+        entries
+    }
+
+    pub fn source_entries_with_origins(&self) -> Vec<ProjectSourceEntry> {
+        let mut entries = Vec::new();
+        let mut seen = BTreeSet::new();
+
+        for package in &self.packages {
+            for src in &package.src_dirs {
+                if seen.insert(src.clone()) {
+                    entries.push(ProjectSourceEntry {
+                        path: src.clone(),
+                        package_name: Some(package.name.clone()),
+                        package_root: Some(package.root.clone()),
+                    });
                 }
             }
         }

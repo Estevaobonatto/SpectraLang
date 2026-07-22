@@ -560,6 +560,10 @@ impl SpectraCompiler {
         self.pipeline.package_name = Some(name.into());
     }
 
+    pub fn set_current_package_name(&mut self, name: Option<String>) {
+        self.pipeline.package_name = name;
+    }
+
     /// Compile source code to native code
     pub fn compile(&mut self, source: &str, filename: &str) -> Result<(), String> {
         let report = self

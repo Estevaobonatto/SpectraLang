@@ -218,6 +218,20 @@ Catalog publication is intentionally stricter than direct `--git` installs:
 
 Normal `spectralang compile <project-dir>` also understands multi-package manifests and includes dependency sources when a project manifest contains workspace/path dependencies.
 
+## Package-aware imports and diagnostics
+
+Package commands preserve the package name and canonical package root for every
+source module. Imports keep their fully qualified module name, for example
+`gitmath.core`, and are checked before lowering. A missing module reports the
+importing package, the requested package when it is known, and the relevant
+source root. If two packages declare the same module name, resolution fails
+before compilation and reports both package names and roots.
+
+The semantic compiler also switches package context for each module. `internal`
+symbols are therefore available between modules of the same package and are
+rejected when imported from a different package. The reproducible integration
+coverage is provided by `scripts/validate_r906_package_imports.py`.
+
 Installed Git package modules are included in normal package command source
 resolution, so code can use normal imports after install:
 

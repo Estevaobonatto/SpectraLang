@@ -1891,7 +1891,7 @@ under `R-906` and are not part of the completed `R-905` scope.
 
 ## R-906 Package Import Integration
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `semantic`
 - Risk: `high`
@@ -1907,11 +1907,23 @@ under `R-906` and are not part of the completed `R-905` scope.
 
 - Installed Git package source roots are included in normal package check/run/test/doc flows.
 - `scripts/validate_r914_package_catalog_git.py` validates named imports from installed package modules.
+- `ProjectSourceEntry` preserves package name and canonical package root through project planning.
+- Semantic compilation switches package context per module, preserving same-package `internal` visibility and rejecting cross-package access.
+- Missing imports report importer package, requested package when known, and source root.
+- Duplicate modules fail before lowering with both package names and roots.
+- `cargo test -p spectra-cli package` passes with 9 package/project tests.
+- `scripts/validate_r906_package_imports.py --binary target/debug/spectralang.exe` passes with transitive imports, missing modules, duplicates, and visibility boundaries.
+- `cargo test -p spectra-compiler semantic` and `cargo build -p spectra-cli` pass.
 
 ### Remaining before completion
 
-- Preserve package origin in semantic module diagnostics.
-- Add duplicate module detection that reports both package names.
+None. Package security hardening remains tracked independently under `R-912`.
+
+### Completion evidence
+
+- R-906 validator passes using temporary multi-package workspaces and real CLI execution.
+- R-914 catalog/Git certification remains green after the integration changes.
+- Roadmap TOML IDs and dependencies validate; `git diff --check` is clean.
 
 ## R-907 One-Command Package Add
 

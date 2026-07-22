@@ -14,7 +14,7 @@ use compiler_integration::{
 };
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use package::{PackageCommand, PackageInvocation};
-use project::ProjectPlan;
+use project::{ProjectPlan, ProjectSourceEntry};
 use release_channel::{cli_channel, cli_compatibility_level};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -1493,17 +1493,24 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
                     );
                 }
                 match package::resolve(root) {
-                    Ok(workspace) if workspace.packages.len() > 1 => {
-                        (workspace.source_entries(), workspace.root_package_name())
-                    }
+                    Ok(workspace) if workspace.packages.len() > 1 => (
+                        workspace.source_entries_with_origins(),
+                        workspace.root_package_name(),
+                    ),
                     _ => {
                         let src_dirs = cfg.src_dirs(root);
                         let sources = discovery::discover_sources(&src_dirs);
-                        (sources, Some(cfg.name().to_string()))
+                        (
+                            sources.into_iter().map(ProjectSourceEntry::plain).collect(),
+                            Some(cfg.name().to_string()),
+                        )
                     }
                 }
             }
-            Ok(None) => (entries, None),
+            Ok(None) => (
+                entries.into_iter().map(ProjectSourceEntry::plain).collect(),
+                None,
+            ),
             Err(err) => {
                 return Err(CliError::io(format!(
                     "Failed to load spectra.toml: {}",
@@ -1512,10 +1519,13 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             }
         }
     } else {
-        (entries, None)
+        (
+            entries.into_iter().map(ProjectSourceEntry::plain).collect(),
+            None,
+        )
     };
 
-    execute_plan_with_options(
+    execute_plan_with_sources(
         kind,
         options,
         final_entries,
@@ -1560,6 +1570,9 @@ fn compile_plan(
         }
 
         let filename = module.path.to_string_lossy().to_string();
+        if module.package_name.is_some() {
+            compiler.set_current_package_name(module.package_name.clone());
+        }
         match fs::read_to_string(&module.path) {
             Ok(source) => {
                 // When the source file has no explicit `module` declaration the
@@ -2007,7 +2020,32 @@ fn execute_plan_with_options(
     verbose: bool,
     bench_json: Option<PathBuf>,
 ) -> CliResult<()> {
-    let plan = ProjectPlan::build(entries).map_err(|error| CliError::io(error.to_string()))?;
+    execute_plan_with_sources(
+        kind,
+        options,
+        entries.into_iter().map(ProjectSourceEntry::plain).collect(),
+        package_name,
+        show_pipeline_summary,
+        show_aggregate_summary,
+        print_success,
+        verbose,
+        bench_json,
+    )
+}
+
+fn execute_plan_with_sources(
+    kind: BuildCommand,
+    options: CompilationOptions,
+    entries: Vec<ProjectSourceEntry>,
+    package_name: Option<String>,
+    show_pipeline_summary: bool,
+    show_aggregate_summary: bool,
+    print_success: bool,
+    verbose: bool,
+    bench_json: Option<PathBuf>,
+) -> CliResult<()> {
+    let plan = ProjectPlan::build_with_sources(entries)
+        .map_err(|error| CliError::io(error.to_string()))?;
 
     if plan.modules().is_empty() {
         return Err(CliError::usage("No Spectra source files found to compile."));
@@ -2998,9 +3036,9 @@ fn run_async_test_case(
         };
     }
 
-    let mut entries = workspace.source_entries();
-    entries.push(wrapper_path);
-    let plan = match ProjectPlan::build(entries) {
+    let mut entries = workspace.source_entries_with_origins();
+    entries.push(ProjectSourceEntry::plain(wrapper_path));
+    let plan = match ProjectPlan::build_with_sources(entries) {
         Ok(plan) => plan,
         Err(error) => {
             return PackageTestCaseReport {
@@ -3096,12 +3134,12 @@ fn execute_package_tests(root: &Path, options: package::PackageTestOptions) -> C
     }
 
     if cases.is_empty() {
-        let mut entries = workspace.source_entries();
-        entries.extend(test_entries);
+        let mut entries = workspace.source_entries_with_origins();
+        entries.extend(test_entries.into_iter().map(ProjectSourceEntry::plain));
         if !options.json {
             println!("     Locked {}", lock_path.display());
         }
-        return execute_plan_with_options(
+        return execute_plan_with_sources(
             BuildCommand::Check,
             CompilationOptions::default(),
             entries,
@@ -3185,7 +3223,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             emit_package_deprecation_warnings(&workspace);
             let lock_path = package::write_lockfile(&workspace)
                 .map_err(|error| CliError::io(error.to_string()))?;
-            let entries = workspace.source_entries();
+            let entries = workspace.source_entries_with_origins();
             let kind = match invocation.command {
                 PackageCommand::Build => BuildCommand::Compile,
                 PackageCommand::Check => BuildCommand::Check,
@@ -3197,7 +3235,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 options.run_jit = true;
             }
             println!("     Locked {}", lock_path.display());
-            execute_plan_with_options(
+            execute_plan_with_sources(
                 kind,
                 options,
                 entries,
@@ -3217,13 +3255,13 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             let lock_path = package::write_lockfile(&workspace)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Locked {}", lock_path.display());
-            execute_plan_with_options(
+            execute_plan_with_sources(
                 BuildCommand::Bench,
                 CompilationOptions {
                     collect_metrics: true,
                     ..CompilationOptions::default()
                 },
-                workspace.source_entries(),
+                workspace.source_entries_with_origins(),
                 workspace.root_package_name(),
                 true,
                 true,
