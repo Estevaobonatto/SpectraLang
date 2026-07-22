@@ -1,4 +1,5 @@
 use spectra_db::sqlite::{SqliteConnection, SqliteStatement, SqliteValue, StepResult};
+use spectra_db::postgres::{PostgresConnection, PostgresConfig, PostgresStatement, PostgresType, PostgresValue};
 use spectra_runtime::ffi::{
     HostFunction, SpectraHostCallContext, HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_SUCCESS,
 };
@@ -10,6 +11,8 @@ struct Store {
     next: u64,
     connections: HashMap<u64, SqliteConnection>,
     statements: HashMap<u64, SqliteStatement>,
+    postgres_connections: HashMap<u64, PostgresConnection>,
+    postgres_statements: HashMap<u64, PostgresStatement>,
 }
 fn store() -> &'static Mutex<Store> {
     static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
@@ -18,6 +21,8 @@ fn store() -> &'static Mutex<Store> {
             next: 1,
             connections: HashMap::new(),
             statements: HashMap::new(),
+            postgres_connections: HashMap::new(),
+            postgres_statements: HashMap::new(),
         })
     })
 }
@@ -80,6 +85,10 @@ fn fail(result: &mut [i64], error: spectra_db::sqlite::SqliteError) -> i32 {
     record_error(&error);
     value(result, 0)
 }
+fn fail_postgres(result: &mut [i64], error: spectra_db::postgres::PostgresError) -> i32 {
+    if let Ok(mut slot) = last_error().lock() { *slot = Some((error.code.to_string(), error.message.clone())); }
+    value(result, 0)
+}
 fn finish_span(span: Option<u64>, success: bool) {
     if let Some(id) = span {
         let _ = tracing::span_set_attribute_bool(id, "db.error", !success);
@@ -100,6 +109,13 @@ fn operation_span(name: &str) -> Option<u64> {
     let _ = tracing::span_set_attribute(span, "db.system", "sqlite");
     let _ = tracing::span_set_attribute(span, "db.operation", operation);
     let _ = tracing::span_set_attribute(span, "db.connection.mode", "file");
+    Some(span)
+}
+fn postgres_operation_span(name: &str) -> Option<u64> {
+    let span = tracing::begin_external_span(SpanKind::Internal, name).ok()?;
+    let operation = name.strip_prefix("db.postgres.").unwrap_or(name);
+    let _ = tracing::span_set_attribute(span, "db.system", "postgresql");
+    let _ = tracing::span_set_attribute(span, "db.operation", operation);
     Some(span)
 }
 
@@ -236,6 +252,123 @@ fn with_statement<T>(
         .ok_or_else(spectra_db::sqlite::SqliteError::invalid_handle)?;
     operation(statement)
 }
+
+fn with_postgres_statement<T>(
+    id: u64,
+    operation: impl FnOnce(&mut PostgresStatement) -> Result<T, spectra_db::postgres::PostgresError>,
+) -> Result<T, spectra_db::postgres::PostgresError> {
+    let mut state = store().lock().map_err(|_| spectra_db::postgres::PostgresError::new("DB2505_LOCK", "PostgreSQL handle store lock poisoned"))?;
+    let statement = state.postgres_statements.get_mut(&id).ok_or_else(spectra_db::postgres::PostgresError::invalid_handle)?;
+    operation(statement)
+}
+
+pub extern "C" fn postgres_open(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let Some(url) = string(a[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let config = match PostgresConfig::from_url(&url) { Ok(config) => config, Err(error) => return fail_postgres(r, error) };
+        let span = postgres_operation_span("db.postgres.connect");
+        match PostgresConnection::open(config) {
+            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_connections.insert(id, connection); finish_span(span, true); value(r, id as i64) }
+            Err(error) => { finish_span(span, false); fail_postgres(r, error) },
+        }
+    }
+}
+
+pub extern "C" fn postgres_close(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let connection = store().lock().unwrap().postgres_connections.remove(&(a[0] as u64));
+        let span = postgres_operation_span("db.postgres.close");
+        match connection { Some(connection) => { let ok = connection.close().is_ok(); finish_span(span, ok); bool_result(r, ok) }, None => { finish_span(span, false); fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()) } }
+    }
+}
+
+pub extern "C" fn postgres_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
+        let connection = store().lock().unwrap().postgres_connections.get(&(a[0] as u64)).cloned();
+        let Some(connection) = connection else { return fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()); };
+        let span = postgres_operation_span("db.postgres.prepare");
+        match connection.prepare(sql) {
+            Ok(statement) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_statements.insert(id, statement); finish_span(span, true); value(r, id as i64) }
+            Err(error) => { finish_span(span, false); fail_postgres(r, error) },
+        }
+    }
+}
+
+pub extern "C" fn postgres_bind_null(ctx: *mut SpectraHostCallContext) -> i32 { postgres_bind(ctx, PostgresValue::Null) }
+pub extern "C" fn postgres_bind_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, PostgresValue::Int64(a[2])) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+}
+pub extern "C" fn postgres_bind_float(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, PostgresValue::Float64(f64::from_bits(a[2] as u64))) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+}
+pub extern "C" fn postgres_bind_text(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } let Some(text)=string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT; }; match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, PostgresValue::Text(text)) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+}
+fn postgres_bind(ctx: *mut SpectraHostCallContext, bound: PostgresValue) -> i32 {
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=2 { return HOST_STATUS_INVALID_ARGUMENT; }; match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, bound) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+}
+pub extern "C" fn postgres_step(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
+        if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let span = postgres_operation_span("db.postgres.query");
+        match with_postgres_statement(a[0] as u64, |s| s.step()) {
+            Ok(state) => { finish_span(span, true); value(r, state as i64) }
+            Err(error) => { finish_span(span, false); fail_postgres(r, error) }
+        }
+    }
+}
+pub extern "C" fn postgres_column_count(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| Ok(s.column_count())) {Ok(count)=>value(r,count as i64),Err(e)=>fail_postgres(r,e)} }
+}
+pub extern "C" fn postgres_column_type(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| s.column_type(a[1] as usize).map(|t| match t {PostgresType::Null=>0,PostgresType::Bool=>1,PostgresType::Int16|PostgresType::Int32|PostgresType::Int64=>2,PostgresType::Float32|PostgresType::Float64=>3,PostgresType::Text=>4,PostgresType::Bytes=>5,PostgresType::Uuid|PostgresType::Timestamp=>6})) {Ok(kind)=>value(r,kind),Err(e)=>fail_postgres(r,e)} }
+}
+pub extern "C" fn postgres_column_int(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| s.column_value(a[1] as usize).map(|v| match v {PostgresValue::Int16(x)=>x as i64,PostgresValue::Int32(x)=>x as i64,PostgresValue::Int64(x)=>x,PostgresValue::Bool(x)=>x as i64,_=>0})) {Ok(value_)=>value(r,value_),Err(e)=>fail_postgres(r,e)} }
+}
+pub extern "C" fn postgres_column_text(ctx: *mut SpectraHostCallContext) -> i32 {
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| s.column_value(a[1] as usize).map(|v| match v {PostgresValue::Text(x)=>x,PostgresValue::Uuid(x)=>x.to_string(),PostgresValue::Timestamp(x)=>x.to_rfc3339(),_=>String::new()})) {Ok(value_)=>value(r,alloc(&value_)),Err(e)=>fail_postgres(r,e)} }
+}
+pub extern "C" fn postgres_reset(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| {s.reset();Ok(())}) {Ok(())=>bool_result(r,true),Err(e)=>fail_postgres(r,e)} } }
+pub extern "C" fn postgres_finalize(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; let removed=store().lock().unwrap().postgres_statements.remove(&(a[0] as u64)); bool_result(r,removed.is_some()) } }
+pub extern "C" fn postgres_begin(ctx: *mut SpectraHostCallContext) -> i32 { postgres_transaction(ctx, "db.postgres.transaction", |c| c.execute_batch("BEGIN")) }
+pub extern "C" fn postgres_commit(ctx: *mut SpectraHostCallContext) -> i32 { postgres_transaction(ctx, "db.postgres.commit", |c| c.execute_batch("COMMIT")) }
+pub extern "C" fn postgres_rollback(ctx: *mut SpectraHostCallContext) -> i32 { postgres_transaction(ctx, "db.postgres.rollback", |c| c.execute_batch("ROLLBACK")) }
+fn postgres_transaction(ctx: *mut SpectraHostCallContext, span_name: &str, operation: impl FnOnce(&PostgresConnection)->Result<(), spectra_db::postgres::PostgresError>) -> i32 {
+    unsafe {
+        let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
+        if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
+        let span = postgres_operation_span(span_name);
+        let c = store().lock().unwrap().postgres_connections.get(&(a[0] as u64)).cloned();
+        match c {
+            Some(c) => match operation(&c) {
+                Ok(()) => { finish_span(span, true); bool_result(r, true) }
+                Err(error) => { finish_span(span, false); fail_postgres(r, error) }
+            },
+            None => { finish_span(span, false); fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()) }
+        }
+    }
+}
+
+pub const POSTGRES_HOST_CALLS: &[(&str, HostFunction)] = &[
+    ("spectra.api.db.postgres.open", postgres_open), ("spectra.api.db.postgres.close", postgres_close),
+    ("spectra.api.db.postgres.prepare", postgres_prepare), ("spectra.api.db.postgres.bind_null", postgres_bind_null),
+    ("spectra.api.db.postgres.bind_int", postgres_bind_int), ("spectra.api.db.postgres.bind_float", postgres_bind_float),
+    ("spectra.api.db.postgres.bind_text", postgres_bind_text), ("spectra.api.db.postgres.step", postgres_step),
+    ("spectra.api.db.postgres.column_count", postgres_column_count), ("spectra.api.db.postgres.column_type", postgres_column_type),
+    ("spectra.api.db.postgres.column_int", postgres_column_int), ("spectra.api.db.postgres.column_text", postgres_column_text),
+    ("spectra.api.db.postgres.reset", postgres_reset), ("spectra.api.db.postgres.finalize", postgres_finalize),
+    ("spectra.api.db.postgres.begin", postgres_begin), ("spectra.api.db.postgres.commit", postgres_commit),
+    ("spectra.api.db.postgres.rollback", postgres_rollback),
+];
 pub extern "C" fn sqlite_bind_null(ctx: *mut SpectraHostCallContext) -> i32 {
     bind(ctx, SqliteValue::Null)
 }

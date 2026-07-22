@@ -6,5 +6,12 @@ edition = "2021"
 [dependencies]
 spectra-runtime = { path = "../../runtime" }
 rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+postgres = { version = "0.19", features = ["with-uuid-1", "with-chrono-0_4"] }
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["clock"] }
+fallible-iterator = "0.2"
 
 [dev-dependencies]

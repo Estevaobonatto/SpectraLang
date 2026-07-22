@@ -1176,6 +1176,24 @@ if ($r2502QueryBuilder.Status -eq "PASSOU") { $totalPassed++ } else { $totalFail
 $results += [PSCustomObject]@{ Diretorio = "phase25-query-builder"; Teste = "validate_r2502_query_builder"; Status = $r2502QueryBuilder.Status; Detalhe = $r2502QueryBuilder.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27ad: R-2503 migrations framework
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2503 migrations framework ---" -ForegroundColor Yellow
+$r2503Migrations = Invoke-HostCommand -name "validate_r2503_migrations" -fileName "python" -arguments @("scripts\validate_r2503_migrations.py", "--binary", $binary, "--database", "target\r2503-migrations\validation.sqlite", "--migrations-dir", "tests\fixtures\r2503\migrations", "--report", "target\r2503-migrations\report.json") -workingDir (Get-Location).Path
+if ($r2503Migrations.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-migrations"; Teste = "validate_r2503_migrations"; Status = $r2503Migrations.Status; Detalhe = $r2503Migrations.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.27ab: R-2505 PostgreSQL driver (requires real PostgreSQL lane)
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2505 PostgreSQL driver ---" -ForegroundColor Yellow
+$r2505Postgres = Invoke-HostCommand -name "validate_r2505_postgres" -fileName "python" -arguments @("scripts\validate_r2505_postgres.py", "--binary", $binary, "--fixture", "tests\validation\195_postgres_driver.spectra", "--report", "target\r2505-postgres\report.json") -workingDir (Get-Location).Path
+if ($r2505Postgres.Status -eq "PASSOU" -or $r2505Postgres.Detail -match "skipped_environment") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase25-postgres-driver"; Teste = "validate_r2505_postgres"; Status = $r2505Postgres.Status; Detalhe = $r2505Postgres.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

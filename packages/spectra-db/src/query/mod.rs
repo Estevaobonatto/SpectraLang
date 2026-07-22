@@ -13,5 +13,5 @@ pub use ast::{
     Real, Select, SqlType, Text, Update, Value,
 };
 pub use compile::{CompiledQuery, QueryOutput};
-pub use dialect::{Dialect, SqliteDialect};
+pub use dialect::{Dialect, PostgresDialect, SqliteDialect};
 pub use error::QueryError;

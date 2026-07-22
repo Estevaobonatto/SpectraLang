@@ -1953,6 +1953,10 @@ HTTP-parented OTLP query spans.
   `spectra.api.db.sqlite` raw-statement surface remains compatible until a
   language-level typed query contract is designed.
 - `R-2503` Migrations framework
+- `R-2503` is implemented first against the certified SQLite driver, with
+  paired up/down files, deterministic SHA-256 drift detection, atomic
+  application and rollback, and a real `spectralang db` CLI. Future drivers
+  consume the Rust migration contract after their own production gates pass.
 - `R-2504` SQLite driver (sync and async)
 - `R-2505` PostgreSQL driver (async, prepared, COPY)
 - `R-2506` MySQL driver
@@ -1994,6 +1998,13 @@ concurrency isolation, independent payload validation, HTTP client
 propagation, filesystem spans, and real SQLite query/transaction spans are
 covered by the phase gate. PostgreSQL and Redis are not claimed until their
 drivers are implemented.
+
+R-2505 is now the active Phase 25 workstream. Its PostgreSQL driver reuses the
+R-2501 pool and R-2502 query contract, exposes real prepared statements and
+transactions, and reserves production promotion for a PostgreSQL 16 CI lane
+that proves COPY, LISTEN/NOTIFY, async cancellation, tracing, and HTTP-parent
+propagation. Local environments without PostgreSQL record
+`skipped_environment`; they do not constitute completion evidence.
 
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint

@@ -25,5 +25,7 @@ SQLite work on the reactor thread.
 R-2504 is complete. The independent v2 gate validates file-backed CRUD,
 prepared statements, transactions, pool consumption, cancellation, a real
 SQLite lock wait off the reactor thread, and SQLite spans parented by a real
-HTTP server span and decoded from OTLP protobuf. PostgreSQL, Redis, query
-builder, and migrations remain separate roadmap items.
+HTTP server span and decoded from OTLP protobuf. PostgreSQL and Redis remain
+separate roadmap items. The type-safe query builder and SQLite migration
+framework are available in the Rust `spectra-db` package; they do not add new
+`spectra.api` host calls in this compatibility surface.

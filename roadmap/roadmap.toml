@@ -3261,7 +3261,7 @@ title = "Migrations Framework"
 phase = "phase_25"
 owner = "db"
 priority = "P0"
-status = "not_started"
+status = "complete"
 risk = "high"
 dependencies = ["R-2502"]
 summary = "Add a migrations framework with up/down migrations, version tracking, checksum validation, and a CLI integration."
@@ -3269,7 +3269,12 @@ acceptance = [
   "migrations are applied in order and recorded in a tracking table",
   "checksum validation refuses to run if a previously-applied migration has changed",
   "down migrations roll back the schema and the tracking table",
-  "tests cover up, down, partial state, and checksum mismatch"
+  "each migration is applied atomically and later migrations are not applied after a failure",
+  "the CLI supports db migrate, db rollback, and db status --json against SQLite",
+  "invalid pairs, duplicate versions, drift, and out-of-order state are rejected",
+  "concurrent runners do not duplicate migrations",
+  "tests cover up, down, partial state, checksum mismatch, and concurrent runners",
+  "the independent phase25-migrations gate passes"
 ]
 
 [[items]]
@@ -3296,7 +3301,7 @@ title = "PostgreSQL Driver (Async, Prepared, COPY)"
 phase = "phase_25"
 owner = "db"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-2501"]
 summary = "Add a fully async PostgreSQL driver with prepared statements, COPY IN/OUT, transactions with savepoints, and LISTEN/NOTIFY."
@@ -3304,7 +3309,9 @@ acceptance = [
   "CRUD, prepared statements, transactions, and savepoints work against PostgreSQL",
   "COPY IN/OUT round-trips a large dataset within tolerance",
   "LISTEN/NOTIFY is exposed through a typed channel",
-  "tests run against a local PostgreSQL test instance and are gated by environment"
+  "tests run against a real PostgreSQL 16 instance and are gated by environment",
+  "the pool, PostgresDialect, async bridge, tracing, API registration, and independent phase25-postgres-driver gate are integrated",
+  "R-2505 remains incomplete until a CI lane produces a passed report"
 ]
 
 [[items]]

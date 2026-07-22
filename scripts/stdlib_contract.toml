@@ -54,6 +54,11 @@ path = "tests/validation/194_sqlite_driver.spectra"
 covers = ["std.api.db.sqlite.*"]
 
 [[probe]]
+id = "api-postgres-driver"
+path = "tests/validation/195_postgres_driver.spectra"
+covers = ["std.api.db.postgres.*"]
+
+[[probe]]
 id = "tensor-kernels"
 path = "tests/validation/68_tensor_phase4_kernels.spectra"
 covers = ["std.tensor.*"]
@@ -422,3 +427,9 @@ prefix = "std.api.db.sqlite."
 classification = "production"
 roadmap = "R-2504"
 reason = "The v2 R-2504 gate independently validates bundled SQLite CRUD, typed statements, transactions, pool consumption, cancellation, non-blocking lock waits, and HTTP-parented OTLP query spans."
+
+[[rule]]
+prefix = "std.api.db.postgres."
+classification = "incomplete"
+roadmap = "R-2505"
+reason = "PostgreSQL host calls are implemented against the real driver, but production classification waits for the PostgreSQL 16 integration lane, COPY/LISTEN evidence, and the independent R-2505 report."

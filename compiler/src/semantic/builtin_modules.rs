@@ -613,6 +613,7 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
     registry.register_module(format!("{prefix}.trace"), make_std_api_trace(prefix));
     registry.register_module(format!("{prefix}.db.sqlite"), make_std_api_db_sqlite(prefix));
+    registry.register_module(format!("{prefix}.db.postgres"), make_std_api_db_postgres(prefix));
 }
 
 fn stdlib_segments(prefix: &str) -> Vec<String> {
@@ -1544,6 +1545,34 @@ fn make_std_api_db_sqlite(prefix: &str) -> ModuleExports {
         ("rollback", vec![connection.clone()], Type::Bool),
         ("last_error_code", vec![], Type::String),
         ("last_error_message", vec![], Type::String),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_db_postgres(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(&format!("{prefix}.db.postgres"), None);
+    let connection = api_type("PostgresConnection");
+    let statement = api_type("PostgresStatement");
+    exports.types.insert("PostgresConnection".to_string(), public_type(&[]));
+    exports.types.insert("PostgresStatement".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("open", vec![Type::String], connection.clone()),
+        ("close", vec![connection.clone()], Type::Bool),
+        ("prepare", vec![connection.clone(), Type::String], statement.clone()),
+        ("bind_null", vec![statement.clone(), Type::Int], Type::Bool),
+        ("bind_int", vec![statement.clone(), Type::Int, Type::Int], Type::Bool),
+        ("bind_float", vec![statement.clone(), Type::Int, Type::Float], Type::Bool),
+        ("bind_text", vec![statement.clone(), Type::Int, Type::String], Type::Bool),
+        ("step", vec![statement.clone()], Type::Int),
+        ("column_count", vec![statement.clone()], Type::Int),
+        ("column_type", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_int", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_text", vec![statement.clone(), Type::Int], Type::String),
+        ("reset", vec![statement.clone()], Type::Bool),
+        ("finalize", vec![statement.clone()], Type::Bool),
+        ("begin", vec![connection.clone()], Type::Bool),
+        ("commit", vec![connection.clone()], Type::Bool),
+        ("rollback", vec![connection.clone()], Type::Bool),
     ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
     exports
 }

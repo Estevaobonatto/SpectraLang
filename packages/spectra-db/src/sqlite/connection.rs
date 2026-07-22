@@ -77,13 +77,21 @@ impl SqliteConnection {
     }
 
     pub fn begin(&self) -> SqliteResult<()> {
+        self.begin_with_mode("BEGIN")
+    }
+
+    pub fn begin_immediate(&self) -> SqliteResult<()> {
+        self.begin_with_mode("BEGIN IMMEDIATE")
+    }
+
+    fn begin_with_mode(&self, statement: &str) -> SqliteResult<()> {
         let mut state = self.lock()?;
         if state.in_transaction {
             return Err(SqliteError::invalid_state("transaction already active"));
         }
         state
             .connection
-            .execute_batch("BEGIN")
+            .execute_batch(statement)
             .map_err(SqliteError::from)?;
         state.in_transaction = true;
         Ok(())

@@ -5932,7 +5932,7 @@ ORM.
 
 ## R-2503 Migrations Framework
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -5944,7 +5944,37 @@ ORM.
 - Checksum validation refuses to run if a previously-applied migration has
   changed.
 - Down migrations roll back the schema and the tracking table.
-- Tests cover up, down, partial state, and checksum mismatch.
+- Each migration is applied atomically and later migrations are not applied
+  after a failure.
+- The CLI supports `db migrate`, `db rollback`, and `db status --json` against
+  SQLite.
+- Invalid pairs, duplicate versions, drift, and out-of-order state are rejected.
+- Concurrent runners do not duplicate migrations.
+- Tests cover up, down, partial state, checksum mismatch, and concurrent
+  runners.
+- The independent `phase25-migrations` gate passes.
+
+### Implementation boundary
+
+- The first certified backend is the existing file-backed SQLite driver.
+- Migration files use paired `NNNN_name.up.sql` and `NNNN_name.down.sql`
+  files with normalized SHA-256 checksums.
+- The framework is a Rust API in `packages/spectra-db`; it does not add
+  `spectra.api` host calls or a fake Spectra handle surface.
+- PostgreSQL, MySQL, Redis, and the cross-driver transaction abstraction
+  remain separate roadmap work.
+
+### Completion evidence
+
+- `scripts/validate_r2503_migrations.py` produced
+  `target/r2503-migrations/report.json` with schema
+  `spectralang.r2503_migrations.v1` and `status: "passed"`.
+- The independent gate verified real file-backed SQLite execution,
+  deterministic checksums, atomic failure handling, reverse rollback, drift
+  rejection, JSON CLI status, and two-process concurrency without duplicate
+  application.
+- `cargo test -p spectra-db -- --test-threads=1` passed all migration,
+  discovery, checksum, drift, rollback, and concurrency tests.
 
 ## R-2504 SQLite Driver (Sync and Async)
 
@@ -5987,7 +6017,7 @@ ORM.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -6001,6 +6031,18 @@ ORM.
 - LISTEN/NOTIFY is exposed through a typed channel.
 - Tests run against a local PostgreSQL test instance and are gated by
   environment.
+
+### Current implementation
+
+- `packages/spectra-db` contains the real PostgreSQL configuration, typed
+  values, prepared statements, transactions, savepoints, COPY operations,
+  notification listener, pool factory, and `$1`-based dialect.
+- `spectra.api.db.postgres` is wired only to real host calls; it has no SQLite
+  fallback and does not expose credentials in diagnostics.
+- The independent validator records `skipped_environment` without
+  `SPECTRA_POSTGRES_URL`; completion requires the PostgreSQL 16 CI lane.
+- COPY, LISTEN/NOTIFY, async non-blocking behavior, tracing, and HTTP-parent
+  evidence remain acceptance gates and are not promoted to production yet.
 
 ## R-2506 MySQL Driver
 

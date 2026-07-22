@@ -970,6 +970,23 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         name: "spectra.api.db.sqlite.last_error_message",
         function: db::sqlite_last_error_message,
     },
+    HostCallSpec { name: "spectra.api.db.postgres.open", function: db::postgres_open },
+    HostCallSpec { name: "spectra.api.db.postgres.close", function: db::postgres_close },
+    HostCallSpec { name: "spectra.api.db.postgres.prepare", function: db::postgres_prepare },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_null", function: db::postgres_bind_null },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_int", function: db::postgres_bind_int },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_float", function: db::postgres_bind_float },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_text", function: db::postgres_bind_text },
+    HostCallSpec { name: "spectra.api.db.postgres.step", function: db::postgres_step },
+    HostCallSpec { name: "spectra.api.db.postgres.column_count", function: db::postgres_column_count },
+    HostCallSpec { name: "spectra.api.db.postgres.column_type", function: db::postgres_column_type },
+    HostCallSpec { name: "spectra.api.db.postgres.column_int", function: db::postgres_column_int },
+    HostCallSpec { name: "spectra.api.db.postgres.column_text", function: db::postgres_column_text },
+    HostCallSpec { name: "spectra.api.db.postgres.reset", function: db::postgres_reset },
+    HostCallSpec { name: "spectra.api.db.postgres.finalize", function: db::postgres_finalize },
+    HostCallSpec { name: "spectra.api.db.postgres.begin", function: db::postgres_begin },
+    HostCallSpec { name: "spectra.api.db.postgres.commit", function: db::postgres_commit },
+    HostCallSpec { name: "spectra.api.db.postgres.rollback", function: db::postgres_rollback },
 ];
 
 pub fn register() -> usize {
@@ -1125,7 +1142,7 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 233);
+        assert_eq!(HOST_CALLS.len(), 250);
     }
 
     #[test]

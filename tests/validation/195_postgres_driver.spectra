@@ -1,0 +1,39 @@
+module postgres_driver;
+
+import {
+    PostgresConnection,
+    PostgresStatement,
+    open,
+    close,
+    prepare,
+    bind_int,
+    bind_text,
+    step,
+    column_count,
+    column_int,
+    column_text,
+    finalize,
+} from std.api.db.postgres;
+
+pub fn main() -> int {
+    let database: PostgresConnection = open("__SPECTRA_POSTGRES_URL__");
+    if database == 0 { return 10; }
+    let schema: PostgresStatement = prepare(database, "CREATE TEMP TABLE spectra_r2505_fixture(id BIGINT PRIMARY KEY, name TEXT NOT NULL)");
+    if schema == 0 { return 11; }
+    if step(schema) != 2 { return 12; }
+    if finalize(schema) != true { return 13; }
+    let insert: PostgresStatement = prepare(database, "INSERT INTO spectra_r2505_fixture(id, name) VALUES($1, $2)");
+    if bind_int(insert, 1, 1) != true { return 14; }
+    if bind_text(insert, 2, "postgres") != true { return 15; }
+    if step(insert) != 2 { return 16; }
+    if finalize(insert) != true { return 17; }
+    let query: PostgresStatement = prepare(database, "SELECT id, name FROM spectra_r2505_fixture ORDER BY id");
+    if step(query) != 1 { return 18; }
+    if column_count(query) != 2 { return 19; }
+    if column_int(query, 0) != 1 { return 20; }
+    if column_text(query, 1) != "postgres" { return 21; }
+    if step(query) != 2 { return 22; }
+    if finalize(query) != true { return 23; }
+    if close(database) != true { return 24; }
+    return 0;
+}

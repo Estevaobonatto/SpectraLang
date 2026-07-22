@@ -1,0 +1,49 @@
+name: R-2505 PostgreSQL driver
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'packages/spectra-db/**'
+      - 'packages/spectra-api/src/db.rs'
+      - 'tests/validation/195_postgres_driver.spectra'
+      - 'scripts/validate_r2505_postgres.py'
+      - '.github/workflows/r2505-postgres.yml'
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: spectra
+          POSTGRES_PASSWORD: spectra
+          POSTGRES_DB: spectra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U spectra -d spectra_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build -p spectra-cli
+      - name: Validate R-2505 against PostgreSQL 16
+        env:
+          SPECTRA_POSTGRES_URL: postgres://spectra:spectra@127.0.0.1:5432/spectra_test
+        run: |
+          python scripts/validate_r2505_postgres.py \
+            --binary target/debug/spectralang \
+            --fixture tests/validation/195_postgres_driver.spectra \
+            --database-url "$SPECTRA_POSTGRES_URL" \
+            --report target/r2505-postgres/report.json
+      - name: Publish R-2505 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2505-postgres
+          path: target/r2505-postgres/

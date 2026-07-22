@@ -109,7 +109,9 @@ fn pool(server: &TestServer, min_size: usize, max_size: usize) -> Arc<Connection
             PoolConfig {
                 min_size,
                 max_size,
-                acquisition_timeout: Duration::from_millis(100),
+                // Keep enough scheduling headroom for the real TCP server and
+                // connection worker on loaded CI hosts.
+                acquisition_timeout: Duration::from_millis(500),
                 connection_timeout: Duration::from_secs(1),
                 idle_timeout: Duration::from_millis(20),
                 shutdown_timeout: Duration::from_millis(200),
@@ -235,7 +237,7 @@ fn async_waiters_are_fifo_and_cancellation_does_not_leak() {
         thread::sleep(Duration::from_millis(20));
         drop(lease);
     });
-    thread::sleep(Duration::from_millis(10));
+    wait_for_waiters(&pool, 1);
     let second_pool = pool.clone();
     let second_order = order.clone();
     let second = thread::spawn(move || {
@@ -243,13 +245,21 @@ fn async_waiters_are_fifo_and_cancellation_does_not_leak() {
         second_order.lock().unwrap().push(2);
         drop(lease);
     });
-    thread::sleep(Duration::from_millis(10));
+    wait_for_waiters(&pool, 2);
     drop(held);
     first.join().unwrap();
     second.join().unwrap();
     assert_eq!(*order.lock().unwrap(), vec![1, 2]);
     assert_eq!(pool.metrics().waiters, 0);
     pool.shutdown().unwrap();
+}
+
+fn wait_for_waiters<F: ConnectionFactory>(pool: &ConnectionPool<F>, expected: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while pool.metrics().waiters < expected {
+        assert!(std::time::Instant::now() < deadline, "waiter did not register");
+        thread::yield_now();
+    }
 }
 
 #[test]

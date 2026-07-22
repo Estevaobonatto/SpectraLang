@@ -25,6 +25,7 @@ use spectra_compiler::{
     span::Span,
     CompilationOptions, DebugInfoMode, Lexer, LintOptions, LintRule, Parser,
 };
+use spectra_db::{migrations::SqliteMigrator, sqlite::SqliteConnection};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -135,6 +136,18 @@ struct ReleaseInfoOptions {
 }
 
 #[derive(Debug)]
+struct DbInvocation {
+    command: DbCommand,
+    database: PathBuf,
+    migrations_dir: PathBuf,
+    steps: usize,
+    json: bool,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum DbCommand { Migrate, Rollback, Status }
+
+#[derive(Debug)]
 enum CliAction {
     Help(HelpTopic),
     ListExperimental,
@@ -147,6 +160,7 @@ enum CliAction {
     ReleaseInfo(ReleaseInfoOptions),
     Package(PackageInvocation),
     Format(FormatOptions),
+    Db(DbInvocation),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -159,6 +173,7 @@ enum HelpTopic {
     Package,
     Format,
     Lint,
+    Db,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -238,6 +253,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
                 HelpTopic::NewProject => print_new_help(),
                 HelpTopic::ReleaseInfo => print_release_info_help(),
                 HelpTopic::Package => print_package_help(),
+                HelpTopic::Db => print_db_help(),
                 HelpTopic::Format => print_format_help(),
                 HelpTopic::Lint => print_lint_help(),
             }
@@ -253,6 +269,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
         CliAction::ReleaseInfo(options) => execute_release_info(options),
         CliAction::Package(invocation) => execute_package_command(invocation),
         CliAction::Format(options) => execute_format(options),
+        CliAction::Db(invocation) => execute_db_command(invocation),
     }
 }
 
@@ -275,6 +292,7 @@ fn parse_cli() -> CliResult<CliAction> {
                     "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
                     "release-info" | "release" => Ok(CliAction::Help(HelpTopic::ReleaseInfo)),
                     "package" | "pkg" => Ok(CliAction::Help(HelpTopic::Package)),
+                    "db" | "database" => Ok(CliAction::Help(HelpTopic::Db)),
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
                     "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
                     "lint" => Ok(CliAction::Help(HelpTopic::Lint)),
@@ -346,6 +364,16 @@ fn parse_cli() -> CliResult<CliAction> {
             let invocation = parse_package_invocation(&mut args)?;
             return Ok(CliAction::Package(invocation));
         }
+        Some("db") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::Db));
+                }
+            }
+            return Ok(CliAction::Db(parse_db_invocation(&mut args)?));
+        }
         Some("fmt") | Some("format") => {
             args.next();
             if let Some(flag) = args.peek() {
@@ -412,6 +440,83 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
         "bench" => Some(BuildCommand::Bench),
         _ => None,
     }
+}
+
+fn parse_db_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<DbInvocation>
+where
+    I: Iterator<Item = String>,
+{
+    let command = match args.next().as_deref() {
+        Some("migrate") => DbCommand::Migrate,
+        Some("rollback") => DbCommand::Rollback,
+        Some("status") => DbCommand::Status,
+        Some(other) => return Err(usage_error(&format!("Unknown db subcommand '{other}'."))),
+        None => return Err(usage_error("Missing db subcommand. Use migrate, rollback, or status.")),
+    };
+    let mut database = None;
+    let mut migrations_dir = None;
+    let mut steps = 1;
+    let mut json = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--database" => database = Some(PathBuf::from(args.next().ok_or_else(|| usage_error("Missing path after --database."))?)),
+            "--migrations-dir" => migrations_dir = Some(PathBuf::from(args.next().ok_or_else(|| usage_error("Missing path after --migrations-dir."))?)),
+            "--steps" => {
+                let value = args.next().ok_or_else(|| usage_error("Missing number after --steps."))?;
+                steps = value.parse::<usize>().map_err(|_| usage_error("--steps must be a non-negative integer."))?;
+            }
+            "--json" => json = true,
+            "--help" | "-h" => return Err(usage_error("Use 'spectralang help db' for database command help.")),
+            other => return Err(usage_error(&format!("Unknown db option '{other}'."))),
+        }
+    }
+    if json && !matches!(command, DbCommand::Status) {
+        return Err(usage_error("--json is currently supported only by 'db status'."));
+    }
+    Ok(DbInvocation {
+        command,
+        database: database.ok_or_else(|| usage_error("--database is required."))?,
+        migrations_dir: migrations_dir.ok_or_else(|| usage_error("--migrations-dir is required."))?,
+        steps,
+        json,
+    })
+}
+
+fn execute_db_command(invocation: DbInvocation) -> CliResult<()> {
+    let connection = SqliteConnection::open(&invocation.database, std::time::Duration::from_secs(5))
+        .map_err(|error| CliError::io(error.to_string()))?;
+    let migrator = SqliteMigrator::from_directory(connection, &invocation.migrations_dir)
+        .map_err(|error| CliError::compilation(error.to_string()))?;
+    match invocation.command {
+        DbCommand::Migrate => {
+            let entries = migrator.migrate().map_err(|error| CliError::compilation(error.to_string()))?;
+            for entry in entries {
+                println!("applied {} {}", entry.version, entry.name);
+            }
+        }
+        DbCommand::Rollback => {
+            let entries = migrator.rollback(invocation.steps).map_err(|error| CliError::compilation(error.to_string()))?;
+            for entry in entries {
+                println!("rolled back {} {}", entry.version, entry.name);
+            }
+        }
+        DbCommand::Status => {
+            let status = migrator.status().map_err(|error| CliError::compilation(error.to_string()))?;
+            if invocation.json {
+                let value = json!({
+                    "applied": status.applied.iter().map(|entry| json!({"version": entry.version, "name": entry.name, "checksum": entry.checksum, "applied_at": entry.applied_at})).collect::<Vec<_>>(),
+                    "pending": status.pending.iter().map(|entry| json!({"version": entry.version, "name": entry.name, "checksum": entry.checksum})).collect::<Vec<_>>(),
+                    "drift": status.drift.iter().map(|entry| json!({"version": entry.version, "reason": entry.reason})).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&value).map_err(|error| CliError::io(error.to_string()))?);
+            } else {
+                println!("applied: {}", status.applied.len());
+                println!("pending: {}", status.pending.len());
+                for entry in status.drift { println!("drift {}: {}", entry.version, entry.reason); }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_compilation_invocation<I>(
@@ -3826,6 +3931,7 @@ fn print_global_help() {
     println!("    new        Scaffold a new Spectra project");
     println!("    release-info  Report CLI and package release channel metadata");
     println!("    package    Resolve, lock, build, publish, and consume packages");
+    println!("    db         Apply, inspect, and roll back database migrations");
     println!("    fmt        Format Spectra source files");
     println!("    help       Print this help message");
     println!();
@@ -3846,6 +3952,7 @@ fn print_global_help() {
     println!("    spectralang release-info --json --root .");
     println!("    spectralang package build --root .");
     println!("    spectralang package add math --path ../math");
+    println!("    spectralang db migrate --database app.sqlite --migrations-dir migrations");
     println!("    spectralang --list-experimental");
     println!("    spectralang fmt src/");
     println!("    spectralang fmt --stdin < file.spectra");
@@ -3960,6 +4067,24 @@ fn print_release_info_help() {
     println!("Examples:");
     println!("    spectralang release-info --root .");
     println!("    spectralang release-info --json --root tests/projects/valid/package_workspace");
+}
+
+fn print_db_help() {
+    println!("SpectraLang CLI - 'db' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectralang db <migrate|rollback|status> [OPTIONS]");
+    println!();
+    println!("OPTIONS:");
+    println!("    --database <path>          SQLite database path");
+    println!("    --migrations-dir <path>    Migration files directory");
+    println!("    --steps <count>            Number of migrations to roll back (default: 1)");
+    println!("    --json                     Emit JSON (status only)");
+    println!();
+    println!("EXAMPLES:");
+    println!("    spectralang db migrate --database app.sqlite --migrations-dir migrations");
+    println!("    spectralang db rollback --database app.sqlite --migrations-dir migrations --steps 1");
+    println!("    spectralang db status --database app.sqlite --migrations-dir migrations --json");
 }
 
 fn print_package_help() {
