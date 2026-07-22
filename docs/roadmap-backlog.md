@@ -7330,23 +7330,26 @@ between Spectra and Go/Java/Rust is reported per scenario, not gated.
 Linguagens de comparação: **Go**, **Java**, **Rust** (todas disponíveis no
 ambiente do usuário). C, Node, Python ficam fora desta iteração.
 
-Cenários cobertos (11):
+Cenários cobertos (21):
 
 - CPU: `cpu-loop-sum`, `cpu-fibs`, `cpu-string-build`, `cpu-hashmap`
 - Tensor: `tensor-create`, `tensor-elementwise`, `tensor-reduce`, `tensor-matmul`
 - ML: `ml-mlp-step`
 - Async: `async-echo`, `async-pipeline`
+- Adicionais: `sort-int`, `binary-search`, `sieve`, `matrix-transpose`,
+  `string-reverse`, `count-primes`, `gcd`, `pow-fast`, `word-count`,
+  `digit-sum`
 
 ## R-3101 Cross-Language Performance Benchmark Suite
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Dependencies: `R-1501`, `R-1003`, `R-2111`
 
 ### Scope
 
-- 11 cenários equivalentes em 4 linguagens (Spectra, Go, Java, Rust).
+- 21 cenários equivalentes em 4 linguagens (Spectra, Go, Java, Rust).
 - Driver Rust em `runtime/examples/phase31_cross_lang_bench.rs`.
 - Runner Python em `scripts/phase31_run_all.py`.
 - Gate `scripts/validate_phase31_cross_lang.py`, integrado em `run_tests.ps1`
@@ -7357,7 +7360,7 @@ Cenários cobertos (11):
 
 ### Acceptance
 
-- 11 cenários implementados em 4 linguagens com mesma entrada e iterações.
+- 21 cenários implementados em 4 linguagens com mesma entrada e iterações.
 - Gate falha se qualquer cenário Spectra regredir > 5% vs baseline checkado.
 - Gate falha se tolerância numérica for violada.
 - Gate falha se suite funcional existente regredir.
@@ -7396,6 +7399,11 @@ Cenários cobertos (11):
   já foi produzido a partir das métricas existentes; resta o conjunto
   completo de artefatos de profiling (`profiles/`, SVGs, callgrind/perf
   summaries) que esse item é o dono de entregar.
+- O orquestrador `scripts/phase31_profile.py` e o teste
+  `scripts/test_phase31_profile.py` validam o contrato dos oito cenários
+  CPU/tensor, os metadados e a regra de que o baseline não pode ser alterado.
+- A captura real permanece pendente enquanto o WSL2 não consegue anexar a
+  distribuição Linux configurada (`ERROR_PATH_NOT_FOUND`).
 
 ## R-3103 Optimization Implementation Plan
 

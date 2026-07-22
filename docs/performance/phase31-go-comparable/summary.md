@@ -17,9 +17,13 @@ are complete. Remaining item statuses are tracked authoritatively in
 - **Findings** in `docs/performance/phase31-go-comparable/findings-r3101-initial.md`.
 - **Wired into `run_tests.ps1`** as `phase31_run_all` + `validate_phase31_cross_lang`.
 
-### R-3102 Profiling (initial, in_progress)
+### R-3102 Profiling (in_progress)
 
-- **Not** run yet (`cargo flamegraph` and `perf` are environment-dependent and were out of scope for this session). The R-3101 findings doc is the initial input to R-3103 and the eventual R-3102 profile.
+- O orquestrador reproduzível é `scripts/phase31_profile.py` e o teste de
+  contrato é `scripts/test_phase31_profile.py`.
+- A captura oficial permanece pendente porque a distribuição WSL2 configurada
+  não consegue anexar seu VHDX (`ERROR_PATH_NOT_FOUND`). Nenhum flamegraph
+  sintético ou attribution baseada apenas em benchmark foi aceito.
 - The first R-3101 pass itself surfaced the most important finding: **string concatenation is 50x slower than Go** in `cpu-string-build`.
 
 ### R-3103 Optimization Plan (in_progress)
