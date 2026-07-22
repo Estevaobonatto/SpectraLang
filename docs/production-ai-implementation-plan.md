@@ -2006,12 +2006,17 @@ that capability remains a separate language/API design task.
 R-2701 is the operational tracing contract for the API and AI workstreams.
 Its production path is runtime-owned W3C context, real HTTP server/client
 instrumentation, and OTLP/HTTP protobuf export to a collector. Serving and
-distributed-training work may depend on this contract. R-2701 is complete for
-the currently supported boundaries: bounded export, failure handling,
-concurrency isolation, independent payload validation, HTTP client
-propagation, filesystem spans, and real SQLite query/transaction spans are
-covered by the phase gate. PostgreSQL and Redis are not claimed until their
-drivers are implemented.
+distributed-training work may depend on this contract. R-2701 remains
+in-progress until the integrated phase gate is observed passing. Its focused
+runtime/API and independent validator evidence covers the currently supported
+boundaries: bounded export, failure handling, concurrency isolation,
+independent payload validation, HTTP client propagation, filesystem spans, and
+real SQLite query/transaction spans. PostgreSQL and Redis are not claimed
+until their drivers are implemented.
+
+The exporter lifecycle regression was closed by making shutdown drain the
+queue once, clearing active state after export failure, and using a shared
+test guard with ephemeral collectors for HTTP tracing isolation.
 
 R-2505 is now the active Phase 25 workstream. Its PostgreSQL driver reuses the
 R-2501 pool and R-2502 query contract, exposes real prepared statements and

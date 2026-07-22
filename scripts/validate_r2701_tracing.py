@@ -144,7 +144,10 @@ class Collector(BaseHTTPRequestHandler):
             return
         if Collector.mode == "http_500":
             self.send_response(500)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
             self.end_headers()
+            self.close_connection = True
             return
         if Collector.mode == "invalid_content_type":
             self.send_response(400)
@@ -246,7 +249,7 @@ def main() -> int:
     if expected_failure and not failure_mode_observed:
         failures.append(f"collector failure mode {args.mode} was not observed")
     if args.mode == "http_500" and Collector.requests != 3:
-        failures.append(f"expected exactly 3 retries for HTTP 500, observed {Collector.requests}")
+        failures.append(f"expected exactly 3 total attempts for HTTP 500, observed {Collector.requests}")
     if args.mode == "invalid_content_type" and Collector.requests != 1:
         failures.append(f"permanent content-type rejection was retried {Collector.requests} times")
     expected_status = "not_applicable" if expected_failure else None

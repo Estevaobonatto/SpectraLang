@@ -6484,7 +6484,7 @@ operable.
 
 ## R-2701 OpenTelemetry-Compatible Tracing
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `runtime`
 - Risk: `high`
@@ -6510,8 +6510,15 @@ operable.
   permanent collector errors, connection drops, delayed responses, bounded
   queue overflow, HTTP client propagation, concurrent request isolation,
   filesystem spans, and SQLite query spans.
-- R-2701 is complete for the supported boundaries. PostgreSQL and Redis are
-  intentionally not claimed; they remain separate until R-2505 and R-2507.
+- The lifecycle regression is closed: shutdown drains the exporter once,
+  clears active state after export failure, and HTTP tracing tests share one
+  lifecycle guard with ephemeral collectors.
+- Focused R-2701 runtime/API regressions and the independent v2 validator pass,
+  but the full `run_tests.ps1` execution did not reach this gate because
+  earlier repository gates failed or exceeded the environment timeout.
+  R-2701 remains `in_progress` until the integrated gate is observed passing.
+  PostgreSQL and Redis are intentionally not claimed; they remain separate
+  until R-2505 and R-2507.
 
 ## R-2702 Prometheus-Compatible Metrics Endpoint
 

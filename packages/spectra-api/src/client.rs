@@ -819,6 +819,36 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
+    static TRACE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn spawn_test_collector(listener: TcpListener) -> thread::JoinHandle<Vec<u8>> {
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("collector request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let body_start = loop {
+                let read = stream.read(&mut buffer).expect("collector read");
+                assert!(read > 0, "collector request truncated");
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break index + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..body_start]);
+            let content_length = headers.lines().find_map(|line| {
+                line.strip_prefix("Content-Length:")
+                    .or_else(|| line.strip_prefix("content-length:"))
+            }).and_then(|value| value.trim().parse::<usize>().ok()).expect("content length");
+            while request.len() < body_start + content_length {
+                let read = stream.read(&mut buffer).expect("collector body read");
+                assert!(read > 0, "collector body truncated");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("collector response");
+            request[body_start..body_start + content_length].to_vec()
+        })
+    }
+
     fn start_client_test_server() -> HttpServer {
         HttpServer::start(
             ServerConfig {
@@ -920,8 +950,7 @@ mod tests {
 
     #[test]
     fn client_injects_w3c_trace_context_and_emits_client_span() {
-        static TRACE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = TRACE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = TRACE_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
         let collector_addr = collector.local_addr().expect("collector address");
         let collector_thread = thread::spawn(move || {
@@ -986,13 +1015,14 @@ mod tests {
 
     #[test]
     fn concurrent_requests_isolate_trace_context() {
-        static TRACE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = TRACE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = TRACE_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
+        let collector_addr = collector.local_addr().expect("collector address");
+        let collector_thread = spawn_test_collector(collector);
         let config = tracing::config_new(
-            "http://127.0.0.1:4318/v1/traces",
+            &format!("http://{collector_addr}/v1/traces"),
             "spectra-api-concurrency-test",
-        )
-        .expect("trace config");
+        ).expect("trace config");
         tracing::config_start(config).expect("trace worker");
         let mut server = start_client_test_server();
         let address = server.local_addr();
@@ -1030,8 +1060,9 @@ mod tests {
             assert!(propagated.starts_with(&expected[..35]));
             assert_ne!(propagated, expected);
         }
-        let _ = tracing::flush();
-        let _ = tracing::config_shutdown(config);
+        tracing::flush().expect("concurrent trace flush");
+        tracing::config_shutdown(config).expect("concurrent trace shutdown");
+        assert!(!collector_thread.join().expect("collector thread").is_empty());
         let _ = server.shutdown();
     }
 

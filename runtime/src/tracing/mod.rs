@@ -221,7 +221,7 @@ pub fn config_set_batch_size(id: u64, size: usize) -> Result<(), &'static str> {
 pub fn config_start(id: u64) -> Result<(), &'static str> {
     let config = {
         let mut s = state().lock().unwrap();
-        if s.active_config.is_some() {
+        if s.active_config.is_some() || s.exporter.is_some() {
             return Err("E2701");
         }
         let config = s.configs.get(&id).cloned().ok_or("E2701")?;
@@ -261,14 +261,13 @@ pub fn config_shutdown(id: u64) -> Result<(), &'static str> {
     if state().lock().unwrap().active_config != Some(id) {
         return Err("E2701");
     }
-    let flush_result = flush();
     let mut exporter = state().lock().unwrap().exporter.take().ok_or("E2707")?;
     let (ack_tx, ack_rx) = mpsc::sync_channel(1);
-    exporter
+    let send_result = exporter
         .sender
         .send(WorkerCommand::Shutdown(ack_tx))
-        .map_err(|_| "E2707")?;
-    let shutdown_result = ack_rx.recv_timeout(exporter.timeout).map_err(|_| "E2707");
+        .map_err(|_| "E2707");
+    let shutdown_result = send_result.and_then(|_| ack_rx.recv_timeout(exporter.timeout).map_err(|_| "E2707"));
     let join_result = exporter
         .join
         .take()
@@ -276,9 +275,9 @@ pub fn config_shutdown(id: u64) -> Result<(), &'static str> {
         .unwrap_or(Ok(()));
     let mut s = state().lock().unwrap();
     s.active_config = None;
-    if flush_result.is_err() || shutdown_result.is_err() || join_result.is_err() {
+    if shutdown_result.is_err() || join_result.is_err() {
         s.last_error = Some(
-            if shutdown_result.is_err() || join_result.is_err() {
+            if join_result.is_err() || shutdown_result == Err("E2707") {
                 "E2707"
             } else {
                 "E2706"
@@ -286,9 +285,7 @@ pub fn config_shutdown(id: u64) -> Result<(), &'static str> {
             .into(),
         );
     }
-    flush_result
-        .map(|_| ())
-        .and(shutdown_result)
+    shutdown_result
         .and(join_result)
 }
 
@@ -822,5 +819,21 @@ mod tests {
         }
         assert!(overflow, "bounded exporter queue must reject excess spans");
         let _ = config_shutdown(id);
+    }
+
+    #[test]
+    fn shutdown_clears_active_exporter_after_export_failure() {
+        let _guard = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let failed = config_new("http://127.0.0.1:1/v1/traces", "shutdown-failure").unwrap();
+        config_start(failed).unwrap();
+        let span = span_start("failed.export", SpanKind::Internal).unwrap();
+        span_end(span).unwrap();
+        let failed_result = config_shutdown(failed);
+        assert!(failed_result == Err("E2706") || failed_result == Err("E2707"));
+
+        let recovered = config_new("http://127.0.0.1:1/v1/traces", "shutdown-recovery").unwrap();
+        config_start(recovered).unwrap();
+        let recovery_result = config_shutdown(recovered);
+        assert!(recovery_result.is_ok() || recovery_result == Err("E2706"));
     }
 }
