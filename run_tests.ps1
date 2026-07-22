@@ -49,6 +49,30 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase27_tracing") {
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "scripts\run_phase27_tracing.ps1") -Binary $binary
+    exit $LASTEXITCODE
+}
+
+# Run the focused R-2701 gate before any broad test collection. This makes the
+# global report observable even when an unrelated later phase is slow or fails.
+Write-Host ""
+Write-Host "--- R-2701 OpenTelemetry-compatible tracing (early integrated gate) ---" -ForegroundColor Yellow
+& powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "scripts\run_phase27_tracing.ps1") -Binary $binary
+$r2701EarlyExitCode = $LASTEXITCODE
+if ($r2701EarlyExitCode -eq 0) { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase27-opentelemetry-tracing"; Teste = "r2701_integrated_early_gate"; Status = $(if ($r2701EarlyExitCode -eq 0) { "PASSOU" } else { "FALHOU" }); Detalhe = "scripts/run_phase27_tracing.ps1 exit code $r2701EarlyExitCode" }
+$r2701GlobalEvidence = [ordered]@{
+    schema = "spectralang.r2701_global_gate.v1"
+    phase = "phase27-opentelemetry-tracing"
+    status = $(if ($r2701EarlyExitCode -eq 0) { "passed" } else { "failed" })
+    exit_code = $r2701EarlyExitCode
+    reports = @("success", "http_500", "invalid_content_type", "connection_drop", "delayed_response") | ForEach-Object { "target/r2701-tracing/$_.json" }
+}
+New-Item -ItemType Directory -Force -Path "target\r2701-tracing" | Out-Null
+$r2701GlobalEvidence | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "target\r2701-tracing\global-gate.json" -Encoding UTF8
+Add-Content -LiteralPath "TEST_RESULTS.txt" -Value ("phase27-opentelemetry-tracing r2701_integrated_early_gate " + $(if ($r2701EarlyExitCode -eq 0) { "PASSOU" } else { "FALHOU" }))
+
 # ---------------------------------------------------------------------------
 # Funcao auxiliar: compila um arquivo .spectra com timeout e retorna o resultado
 # ---------------------------------------------------------------------------
@@ -1257,19 +1281,6 @@ Write-Host "--- R-2707 OTel and Prometheus exporters example ---" -ForegroundCol
 $r2707Exporters = Invoke-HostCommand -name "validate_r2707_exporters_example" -fileName "python" -arguments @("scripts\validate_r2707_exporters_example.py", "--binary", $binary, "--fixture", "tests\validation\200_otel_prometheus_example.spectra", "--report", "target\r2707-otel-prometheus\report.json") -workingDir (Get-Location).Path
 if ($r2707Exporters.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
 $results += [PSCustomObject]@{ Diretorio = "phase27-otel-prometheus-example"; Teste = "validate_r2707_exporters_example"; Status = $r2707Exporters.Status; Detalhe = $r2707Exporters.Detail }
-
-# ---------------------------------------------------------------------------
-# Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
-# ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host "--- R-2701 OpenTelemetry-compatible tracing ---" -ForegroundColor Yellow
-$r2701Modes = @("success", "http_500", "invalid_content_type", "connection_drop", "delayed_response")
-foreach ($mode in $r2701Modes) {
-    $report = "target\r2701-tracing\$mode.json"
-    $r2701Tracing = Invoke-HostCommand -name "validate_r2701_tracing_$mode" -fileName "python" -arguments @("scripts\validate_r2701_tracing.py", "--binary", $binary, "--fixture", "tests\validation\193_opentelemetry_tracing.spectra", "--report", $report, "--mode", $mode) -workingDir (Get-Location).Path
-    if ($r2701Tracing.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
-    $results += [PSCustomObject]@{ Diretorio = "phase27-opentelemetry-tracing"; Teste = "validate_r2701_tracing_$mode"; Status = $r2701Tracing.Status; Detalhe = $r2701Tracing.Detail }
-}
 
 # ---------------------------------------------------------------------------
 # Grupo 8.27e: R-3003 native production artifact container

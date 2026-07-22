@@ -830,6 +830,7 @@ mod tests {
         span_end(span).unwrap();
         let failed_result = config_shutdown(failed);
         assert!(failed_result == Err("E2706") || failed_result == Err("E2707"));
+        assert_eq!(config_shutdown(failed), Err("E2701"));
 
         let recovered = config_new("http://127.0.0.1:1/v1/traces", "shutdown-recovery").unwrap();
         config_start(recovered).unwrap();

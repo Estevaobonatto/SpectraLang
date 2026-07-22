@@ -6017,7 +6017,7 @@ ORM.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -6513,12 +6513,11 @@ operable.
 - The lifecycle regression is closed: shutdown drains the exporter once,
   clears active state after export failure, and HTTP tracing tests share one
   lifecycle guard with ephemeral collectors.
-- Focused R-2701 runtime/API regressions and the independent v2 validator pass,
-  but the full `run_tests.ps1` execution did not reach this gate because
-  earlier repository gates failed or exceeded the environment timeout.
-  R-2701 remains `in_progress` until the integrated gate is observed passing.
-  PostgreSQL and Redis are intentionally not claimed; they remain separate
-  until R-2505 and R-2507.
+- Focused R-2701 runtime/API regressions and the independent v2 validator pass.
+  The new early integrated gate runs before the long repository phases and
+  records `PASSOU` in `TEST_RESULTS.txt`; the global evidence is stored in
+  `target/r2701-tracing/global-gate.json`. PostgreSQL and Redis are
+  intentionally not claimed; they remain separate until R-2505 and R-2507.
 
 ## R-2702 Prometheus-Compatible Metrics Endpoint
 
