@@ -3827,14 +3827,14 @@ title = "OTel and Prometheus Exporters Example"
 phase = "phase_27"
 owner = "ecosystem"
 priority = "P1"
-status = "not_started"
+status = "complete"
 risk = "low"
 dependencies = ["R-2701", "R-2702"]
-summary = "Provide a runnable example that wires OpenTelemetry traces and Prometheus metrics into the API server, with a local collector."
+summary = "Provide a runnable example that wires OpenTelemetry traces and Prometheus metrics into the API server, with a real local OTLP collector and independent payload validation."
 acceptance = [
   "`examples/api/10_otel_prometheus.spectra` builds and runs",
-  "the example starts a local OTel collector and Prometheus endpoint",
-  "the example asserts that the expected spans and metrics are emitted"
+  "the external harness starts a real OTLP collector and scrapes the real Prometheus endpoint",
+  "the independent report validates HTTP spans, typed attributes, metrics, histogram series, flush, shutdown, and process cleanup"
 ]
 
 [[items]]

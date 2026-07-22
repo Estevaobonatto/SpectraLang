@@ -1230,6 +1230,15 @@ if ($r2702Metrics.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ 
 $results += [PSCustomObject]@{ Diretorio = "phase27-prometheus-metrics"; Teste = "validate_r2702_metrics"; Status = $r2702Metrics.Status; Detalhe = $r2702Metrics.Detail }
 
 # ---------------------------------------------------------------------------
+# Grupo 8.27ag: R-2707 integrated OTel + Prometheus example
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-2707 OTel and Prometheus exporters example ---" -ForegroundColor Yellow
+$r2707Exporters = Invoke-HostCommand -name "validate_r2707_exporters_example" -fileName "python" -arguments @("scripts\validate_r2707_exporters_example.py", "--binary", $binary, "--fixture", "tests\validation\200_otel_prometheus_example.spectra", "--report", "target\r2707-otel-prometheus\report.json") -workingDir (Get-Location).Path
+if ($r2707Exporters.Status -eq "PASSOU") { $totalPassed++ } else { $totalFailed++ }
+$results += [PSCustomObject]@{ Diretorio = "phase27-otel-prometheus-example"; Teste = "validate_r2707_exporters_example"; Status = $r2707Exporters.Status; Detalhe = $r2707Exporters.Detail }
+
+# ---------------------------------------------------------------------------
 # Grupo 8.27aa: R-2701 OpenTelemetry-compatible tracing
 # ---------------------------------------------------------------------------
 Write-Host ""

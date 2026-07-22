@@ -6605,7 +6605,7 @@ The report `target/r2703-health-probes/report.json` is `passed`.
 
 ## R-2707 OTel and Prometheus Exporters Example
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `ecosystem`
 - Risk: `low`
@@ -6614,8 +6614,20 @@ The report `target/r2703-health-probes/report.json` is `passed`.
 ### Acceptance
 
 - `examples/api/10_otel_prometheus.spectra` builds and runs.
-- The example starts a local OTel collector and Prometheus endpoint.
-- The example asserts that the expected spans and metrics are emitted.
+- The external harness starts a real OTLP collector and scrapes the real
+  Prometheus endpoint.
+- The independent report validates HTTP spans, typed attributes, metrics,
+  histogram series, flush, shutdown, and process cleanup.
+
+Implementation evidence:
+
+- `examples/api/10_otel_prometheus.spectra` and
+  `tests/validation/200_otel_prometheus_example.spectra` run through the normal
+  CLI with a real HTTP listener.
+- `tests/fixtures/r2707/collector.py` receives OTLP/HTTP protobuf in a separate
+  process; the validator decodes it independently and parses Prometheus text
+  independently.
+- `target/r2707-otel-prometheus/report.json` is `passed`.
 
 ## R-2708 Audit Log Example with PII Redaction
 

@@ -1,0 +1,99 @@
+module otel_prometheus_example;
+
+import { env_get } from std.env;
+import { string_to_int_or } from std.convert;
+import { sleep_ms } from std.time;
+import {
+    TraceConfig,
+    TraceSpan,
+    config_new,
+    config_set_batch_size,
+    config_start,
+    config_shutdown,
+    span_start,
+    span_set_attribute,
+    span_set_attribute_int,
+    span_set_attribute_bool,
+    span_set_status,
+    span_end,
+    flush,
+} from std.api.trace;
+import {
+    Server,
+    new,
+    listen,
+    serve,
+    shutdown,
+} from std.api.server;
+import {
+    Router,
+    Route,
+    router,
+    get,
+    route_id,
+} from std.api.routing;
+import {
+    HandlerHandle,
+    text,
+    register_sync,
+} from std.api.handler;
+
+pub fn main() -> int {
+    let endpoint = env_get("SPECTRA_R2707_OTLP_ENDPOINT");
+    if endpoint == "" {
+        return 1;
+    }
+    let config: TraceConfig = config_new(endpoint, "spectralang-r2707");
+    if config_set_batch_size(config, 1) != true {
+        return 2;
+    }
+    if config_start(config) != true {
+        return 3;
+    }
+
+    let routes: Router = router();
+    let demo: Route = get(routes, "/demo");
+    if route_id(demo) == 0 {
+        return 4;
+    }
+    let handler: HandlerHandle = register_sync(route_id(demo), text("otel-prometheus-ok"));
+
+    let server: Server = new();
+    let port = string_to_int_or(env_get("SPECTRA_R2707_PORT"), 0);
+    if listen(server, port) != true {
+        return 5;
+    }
+    if block_on(serve(server, routes)) != 1 {
+        return 6;
+    }
+
+    let example_span: TraceSpan = span_start("example.operation", 1);
+    if span_set_attribute(example_span, "example.component", "otel-prometheus") != true {
+        return 7;
+    }
+    if span_set_attribute_int(example_span, "example.request_count", 2) != true {
+        return 8;
+    }
+    if span_set_attribute_bool(example_span, "example.sampled", true) != true {
+        return 9;
+    }
+
+    // The harness sends real requests while this process owns the listener.
+    sleep_ms(6000);
+    if span_set_status(example_span, 1) != true {
+        return 10;
+    }
+    if span_end(example_span) != true {
+        return 11;
+    }
+    if shutdown(server) != true {
+        return 12;
+    }
+    if flush() == -1 {
+        return 13;
+    }
+    if config_shutdown(config) != true {
+        return 14;
+    }
+    return 0;
+}

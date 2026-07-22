@@ -2039,6 +2039,14 @@ server, including concurrent updates and rejection of sensitive or
 non-finite values. This first version intentionally has no Spectra host calls;
 R-2707 will consume the registry for the integrated OTel/Prometheus example.
 
+R-2707 certifies the integrated observability example without expanding the
+language surface: the Spectra fixture configures `std.api.trace`, serves a
+real HTTP route, and the external harness scrapes the existing `/metrics`
+route. A separate OTLP collector process receives and independently decodes
+protobuf, while a separate parser validates Prometheus exposition. The
+evidence includes typed attributes, real HTTP spans, request/error metrics,
+histogram series, flush, shutdown, process cleanup, and secret absence.
+
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint
 - `R-2703` Health, readiness, and startup probes (integrated)
