@@ -683,6 +683,17 @@ if ($r906PackageImports.Status -eq "PASSOU") {
 }
 $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "validate_r906_package_imports"; Status = $r906PackageImports.Status; Detalhe = $r906PackageImports.Detail }
 
+Write-Host ""
+Write-Host "--- R-912 package security and integrity ---" -ForegroundColor Yellow
+Write-Host "  validate_r912_package_security" -NoNewline
+$r912PackageSecurity = Invoke-HostCommand -name "validate_r912_package_security" -fileName "python" -arguments @("scripts\validate_r912_package_security.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r912PackageSecurity.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "package"; Teste = "validate_r912_package_security"; Status = $r912PackageSecurity.Status; Detalhe = $r912PackageSecurity.Detail }
+
 Write-Host "--- R-914 package catalog Git flow ---" -ForegroundColor Yellow
 Write-Host "  validate_r914_package_catalog_git" -NoNewline
 $r914PackageCatalogGit = Invoke-HostCommand -name "validate_r914_package_catalog_git" -fileName "python" -arguments @("scripts\validate_r914_package_catalog_git.py", "--binary", $binary) -workingDir (Get-Location).Path

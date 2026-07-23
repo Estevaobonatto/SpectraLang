@@ -78,6 +78,22 @@ The lockfile records:
 
 The lockfile is generated with deterministic package ordering so repeated resolution produces stable output for the same manifests.
 
+Use `--locked` with package build/check/run/test/bench/doc/fetch commands to
+require an existing lockfile whose package graph, sources, revisions, checksums,
+manifest hashes, and dependencies exactly match the current resolution. Missing
+or changed lockfiles fail before compilation. Without `--locked`, the normal
+workflow refreshes `spectra.lock`.
+
+Package downloads and vendor copies are staged beside their final destinations
+and published only after validation. Existing valid caches are preserved when a
+download, checksum, path, or copy operation fails. Payload symlinks and paths
+that escape the package root are rejected.
+
+Remote Git hosts can be restricted with the opt-in environment variable
+`SPECTRA_PACKAGE_ALLOWED_HOSTS=github.com,gitlab.com`. Local Git paths and local
+registries remain available for development and offline fixtures; remote hosts
+must match the allowlist exactly when the variable is set.
+
 ## Commands
 
 ```powershell

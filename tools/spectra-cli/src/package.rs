@@ -11,6 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 use toml_edit::{value, DocumentMut, Item, Table};
 
 const MANIFEST_NAMES: &[&str] = &["spectra.toml", "Spectra.toml"];
@@ -92,6 +93,7 @@ pub struct PackageTestOptions {
 pub struct PackageInvocation {
     pub root: PathBuf,
     pub command: PackageCommand,
+    pub locked: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -215,6 +217,29 @@ pub enum PackageError {
         second: String,
     },
     DependencyCycle(Vec<String>),
+    HostNotAllowed {
+        host: String,
+        locator: String,
+    },
+    UnsafePath {
+        path: PathBuf,
+        reason: String,
+    },
+    AtomicWrite {
+        path: PathBuf,
+        message: String,
+    },
+    CacheCorrupt {
+        package: String,
+        path: PathBuf,
+        reason: String,
+    },
+    LockfileMissing(PathBuf),
+    LockfileTampered {
+        path: PathBuf,
+        package: String,
+        field: String,
+    },
     InvalidManifest {
         path: PathBuf,
         message: String,
@@ -277,6 +302,47 @@ impl fmt::Display for PackageError {
                     chain.join(" -> ")
                 )
             }
+            PackageError::HostNotAllowed { host, locator } => write!(
+                f,
+                "package host '{}' is not allowed for locator '{}'",
+                host, locator
+            ),
+            PackageError::UnsafePath { path, reason } => {
+                write!(f, "unsafe package path '{}': {}", path.display(), reason)
+            }
+            PackageError::AtomicWrite { path, message } => write!(
+                f,
+                "atomic package write for '{}' failed: {}",
+                path.display(),
+                message
+            ),
+            PackageError::CacheCorrupt {
+                package,
+                path,
+                reason,
+            } => write!(
+                f,
+                "package cache for '{}' at '{}' is corrupt: {}",
+                package,
+                path.display(),
+                reason
+            ),
+            PackageError::LockfileMissing(path) => write!(
+                f,
+                "locked package operation requires lockfile '{}', but it does not exist",
+                path.display()
+            ),
+            PackageError::LockfileTampered {
+                path,
+                package,
+                field,
+            } => write!(
+                f,
+                "lockfile '{}' differs for package '{}' in field '{}'",
+                path.display(),
+                package,
+                field
+            ),
             PackageError::InvalidManifest { path, message } => {
                 write!(f, "invalid manifest '{}': {}", path.display(), message)
             }
@@ -338,14 +404,14 @@ enum DependencySpec {
     },
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct Lockfile {
     version: u32,
     root: String,
     packages: Vec<LockPackage>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct LockPackage {
     name: String,
     version: String,
@@ -356,14 +422,17 @@ struct LockPackage {
     source: String,
     source_kind: String,
     checksum: String,
+    #[serde(default)]
     git_url: Option<String>,
+    #[serde(default)]
     git_ref: Option<String>,
+    #[serde(default)]
     resolved_rev: Option<String>,
     manifest_hash: String,
     dependencies: Vec<LockDependency>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct LockDependency {
     name: String,
     version: String,
@@ -489,7 +558,15 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
 }
 
 pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError> {
-    let lockfile = Lockfile {
+    let path = workspace.root.join(LOCKFILE_NAME);
+    let lockfile = lockfile_for_workspace(workspace);
+    let text = toml::to_string_pretty(&lockfile).map_err(PackageError::Serialize)?;
+    atomic_write_file(&path, text.as_bytes())?;
+    Ok(path)
+}
+
+fn lockfile_for_workspace(workspace: &ResolvedWorkspace) -> Lockfile {
+    Lockfile {
         version: 2,
         root: workspace
             .root_package_name()
@@ -523,14 +600,53 @@ pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageE
                     .collect(),
             })
             .collect(),
-    };
+    }
+}
 
-    let text = toml::to_string_pretty(&lockfile).map_err(PackageError::Serialize)?;
+pub fn verify_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError> {
     let path = workspace.root.join(LOCKFILE_NAME);
-    fs::write(&path, text).map_err(|error| PackageError::Io {
+    if !path.is_file() {
+        return Err(PackageError::LockfileMissing(path));
+    }
+    let text = fs::read_to_string(&path).map_err(|error| PackageError::Io {
         path: path.clone(),
         error,
     })?;
+    let actual: Lockfile = toml::from_str(&text).map_err(|error| PackageError::AtomicWrite {
+        path: path.clone(),
+        message: format!("invalid lockfile: {}", error),
+    })?;
+    let expected = lockfile_for_workspace(workspace);
+    if actual.version != expected.version {
+        return Err(PackageError::LockfileTampered {
+            path,
+            package: expected.root.clone(),
+            field: "version".to_string(),
+        });
+    }
+    if actual.root != expected.root {
+        return Err(PackageError::LockfileTampered {
+            path,
+            package: expected.root.clone(),
+            field: "root".to_string(),
+        });
+    }
+    if actual.packages.len() != expected.packages.len() {
+        return Err(PackageError::LockfileTampered {
+            path,
+            package: expected.root.clone(),
+            field: "packages".to_string(),
+        });
+    }
+    for (actual_package, expected_package) in actual.packages.iter().zip(&expected.packages) {
+        if actual_package != expected_package {
+            return Err(PackageError::LockfileTampered {
+                path,
+                package: expected_package.name.clone(),
+                field: "package graph, source, checksum, or dependencies".to_string(),
+            });
+        }
+    }
     Ok(path)
 }
 
@@ -1150,6 +1266,7 @@ fn install_from_registry(
     name: &str,
     version: &str,
 ) -> Result<InstalledRegistryPackage, PackageError> {
+    validate_package_identity(name, version)?;
     let registry_package = registry_package_dir(registry, name, version);
     let metadata_path = registry_package.join("package.toml");
     let metadata_text = fs::read_to_string(&metadata_path).map_err(|error| PackageError::Io {
@@ -1168,6 +1285,9 @@ fn install_from_registry(
         )));
     }
     let payload = registry_package.join("package");
+    let registry_root = canonicalize_existing(registry)?;
+    let payload = canonicalize_existing(&payload)?;
+    ensure_within_root(&registry_root, &payload)?;
     let checksum = directory_checksum(&payload)?;
     if checksum != metadata.checksum {
         return Err(PackageError::Registry(format!(
@@ -1181,17 +1301,26 @@ fn install_from_registry(
         name.replace('/', "_"),
         version
     ));
-    if vendor_dir.exists() {
-        fs::remove_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-            path: vendor_dir.clone(),
+    if let Some(parent) = vendor_dir.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
             error,
         })?;
     }
-    fs::create_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-        path: vendor_dir.clone(),
-        error,
-    })?;
-    copy_package_payload(&payload, &vendor_dir)?;
+    let _lock = acquire_cache_lock(&vendor_dir)?;
+    let staging = staging_path(&vendor_dir, "dir");
+    let result = (|| {
+        fs::create_dir_all(&staging).map_err(|error| PackageError::Io {
+            path: staging.clone(),
+            error,
+        })?;
+        copy_package_payload(&payload, &staging)?;
+        atomic_replace(&staging, &vendor_dir)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result?;
     Ok(InstalledRegistryPackage {
         canonical_name: metadata.name,
         version: metadata.version,
@@ -1209,72 +1338,115 @@ fn install_from_git(
     branch: Option<&str>,
     offline: bool,
 ) -> Result<InstalledGitPackage, PackageError> {
+    validate_package_name(name)?;
+    check_git_locator_allowed(git)?;
+    if let Some(value) = tag {
+        validate_git_ref_text("tag", value).map_err(PackageError::Registry)?;
+    }
+    if let Some(value) = rev {
+        validate_git_ref_text("rev", value).map_err(PackageError::Registry)?;
+    }
+    if let Some(value) = branch {
+        validate_git_ref_text("branch", value).map_err(PackageError::Registry)?;
+    }
     let cache_root = workspace_root.join(".spectra").join("git");
     let clone_dir = cache_root.join(sanitize_package_component(name));
-    if !clone_dir.join(".git").is_dir() {
-        if offline {
-            return Err(PackageError::Registry(format!(
-                "package '{}' is not in git cache and --offline was used",
-                name
-            )));
-        }
-        fs::create_dir_all(&cache_root).map_err(|error| PackageError::Io {
-            path: cache_root.clone(),
-            error,
-        })?;
-        let clone_target = git_path_arg(&clone_dir);
+    if offline && !clone_dir.join(".git").is_dir() {
+        return Err(PackageError::CacheCorrupt {
+            package: name.to_string(),
+            path: clone_dir,
+            reason: "Git cache is missing or is not a repository while offline".to_string(),
+        });
+    }
+
+    fs::create_dir_all(&cache_root).map_err(|error| PackageError::Io {
+        path: cache_root.clone(),
+        error,
+    })?;
+    let _cache_lock = acquire_cache_lock(&clone_dir)?;
+    let staging = staging_path(&clone_dir, "git");
+    let clone_target = git_path_arg(&staging);
+    let clone_result = if offline {
+        let source = git_path_arg(&clone_dir);
+        run_git(
+            &[
+                "clone",
+                "--quiet",
+                "--local",
+                source.as_str(),
+                clone_target.as_str(),
+            ],
+            workspace_root,
+        )
+    } else {
         run_git(
             &["clone", "--quiet", git, clone_target.as_str()],
             workspace_root,
-        )?;
-    } else if !offline {
-        run_git(&["fetch", "--quiet", "--tags", "--force"], &clone_dir)?;
+        )
+    };
+    let result = (|| {
+        clone_result?;
+        if let Some(rev) = rev {
+            run_git(&["checkout", "--quiet", rev], &staging)?;
+        } else if let Some(tag) = tag {
+            run_git(&["checkout", "--quiet", tag], &staging)?;
+        } else if let Some(branch) = branch {
+            run_git(&["checkout", "--quiet", branch], &staging)?;
+        }
+        reject_git_symlinks(&staging, name)?;
+        let resolved = git_output(&["rev-parse", "HEAD"], &staging)?;
+        let manifest_path = find_manifest(&staging)?;
+        let loaded = load_package(&manifest_path)?;
+        validate_package_compatibility(&loaded.name, &loaded.release, &staging)?;
+        let version = requested_version
+            .map(str::to_string)
+            .unwrap_or_else(|| loaded.version.clone());
+        if loaded.name != name {
+            return Err(PackageError::Registry(format!(
+                "git package manifest name '{}' does not match requested '{}'",
+                loaded.name, name
+            )));
+        }
+        if loaded.version != version {
+            return Err(PackageError::Registry(format!(
+                "git package '{}' version '{}' does not match requested '{}'",
+                name, loaded.version, version
+            )));
+        }
+        atomic_replace(&staging, &clone_dir)?;
+        Ok((resolved, loaded, version))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
     }
-
-    if let Some(rev) = rev {
-        run_git(&["checkout", "--quiet", rev], &clone_dir)?;
-    } else if let Some(tag) = tag {
-        run_git(&["checkout", "--quiet", tag], &clone_dir)?;
-    } else if let Some(branch) = branch {
-        run_git(&["checkout", "--quiet", branch], &clone_dir)?;
-    }
-
-    let resolved = git_output(&["rev-parse", "HEAD"], &clone_dir)?;
-    let manifest_path = find_manifest(&clone_dir)?;
-    let loaded = load_package(&manifest_path)?;
-    validate_package_compatibility(&loaded.name, &loaded.release, &clone_dir)?;
-    let version = requested_version
-        .map(str::to_string)
-        .unwrap_or_else(|| loaded.version.clone());
-    if loaded.name != name {
-        return Err(PackageError::Registry(format!(
-            "git package manifest name '{}' does not match requested '{}'",
-            loaded.name, name
-        )));
-    }
-    if loaded.version != version {
-        return Err(PackageError::Registry(format!(
-            "git package '{}' version '{}' does not match requested '{}'",
-            name, loaded.version, version
-        )));
-    }
+    let (resolved, loaded, version) = result?;
 
     let vendor_dir = workspace_root
         .join(".spectra")
         .join("packages")
         .join(format!("{}-{}", sanitize_package_component(name), version));
-    if vendor_dir.exists() {
-        fs::remove_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-            path: vendor_dir.clone(),
+    if let Some(parent) = vendor_dir.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
             error,
         })?;
     }
-    fs::create_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-        path: vendor_dir.clone(),
-        error,
-    })?;
-    copy_package_payload(&clone_dir, &vendor_dir)?;
-    let checksum = directory_checksum(&vendor_dir)?;
+    let _vendor_lock = acquire_cache_lock(&vendor_dir)?;
+    let vendor_staging = staging_path(&vendor_dir, "dir");
+    let vendor_result = (|| {
+        fs::create_dir_all(&vendor_staging).map_err(|error| PackageError::Io {
+            path: vendor_staging.clone(),
+            error,
+        })?;
+        copy_package_payload(&clone_dir, &vendor_staging)?;
+        let checksum = directory_checksum(&vendor_staging)?;
+        atomic_replace(&vendor_staging, &vendor_dir)?;
+        Ok(checksum)
+    })();
+    if vendor_result.is_err() {
+        let _ = fs::remove_dir_all(&vendor_staging);
+    }
+    let checksum = vendor_result?;
     Ok(InstalledGitPackage {
         name: loaded.name,
         version,
@@ -1321,6 +1493,21 @@ fn git_output(args: &[&str], cwd: &Path) -> Result<String, PackageError> {
             String::from_utf8_lossy(&output.stderr).trim()
         )))
     }
+}
+
+fn reject_git_symlinks(root: &Path, package: &str) -> Result<(), PackageError> {
+    let entries = git_output(&["ls-files", "-s"], root)?;
+    for line in entries.lines() {
+        let mut fields = line.split_whitespace();
+        if fields.next() == Some("120000") {
+            let path = fields.nth(2).unwrap_or(".");
+            return Err(PackageError::UnsafePath {
+                path: root.join(path),
+                reason: format!("package '{}' contains a Git symbolic link", package),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn git_requested_ref(tag: Option<&str>, rev: Option<&str>, branch: Option<&str>) -> String {
@@ -1545,6 +1732,81 @@ fn is_allowed_git_locator(value: &str) -> bool {
         || value.starts_with(".\\")
         || value.contains('/')
         || value.contains('\\')
+}
+
+fn validate_package_name(name: &str) -> Result<(), PackageError> {
+    if !is_valid_package_name(name) || name.contains('/') || name.contains('\\') {
+        return Err(PackageError::UnsafePath {
+            path: PathBuf::from(name),
+            reason: "package name contains an invalid or escaping component".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_package_identity(name: &str, version: &str) -> Result<(), PackageError> {
+    validate_package_name(name)?;
+    if !is_valid_semver(version) {
+        return Err(PackageError::UnsafePath {
+            path: PathBuf::from(version),
+            reason: "package version is not an exact semver value".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_within_root(root: &Path, path: &Path) -> Result<(), PackageError> {
+    let root = canonicalize_existing(root)?;
+    let path = canonicalize_existing(path)?;
+    if !path.starts_with(&root) {
+        return Err(PackageError::UnsafePath {
+            path,
+            reason: format!("path escapes package root '{}'", root.display()),
+        });
+    }
+    Ok(())
+}
+
+fn remote_git_host(locator: &str) -> Option<String> {
+    if let Some(rest) = locator.strip_prefix("git@") {
+        return rest.split(':').next().map(str::to_ascii_lowercase);
+    }
+    if locator.starts_with("https://") || locator.starts_with("ssh://") {
+        let rest = locator.split_once("://")?.1;
+        return rest
+            .split(['/', '?', '#'])
+            .next()
+            .filter(|host| !host.is_empty())
+            .map(str::to_ascii_lowercase);
+    }
+    None
+}
+
+fn check_git_locator_allowed(locator: &str) -> Result<(), PackageError> {
+    let Some(host) = remote_git_host(locator) else {
+        return Ok(());
+    };
+    let Ok(raw) = env::var("SPECTRA_PACKAGE_ALLOWED_HOSTS") else {
+        return Ok(());
+    };
+    if host_is_allowed(&host, &raw) {
+        Ok(())
+    } else {
+        Err(PackageError::HostNotAllowed {
+            host,
+            locator: locator.to_string(),
+        })
+    }
+}
+
+fn host_is_allowed(host: &str, raw: &str) -> bool {
+    let allowed = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    allowed.contains(host)
 }
 
 fn is_hex_sha(value: &str, min_len: usize) -> bool {
@@ -2113,6 +2375,7 @@ fn pathdiff(path: &Path, base: &Path) -> Option<PathBuf> {
 }
 
 fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
+    ensure_destination_is_safe(to)?;
     for entry in fs::read_dir(from).map_err(|error| PackageError::Io {
         path: from.to_path_buf(),
         error,
@@ -2124,6 +2387,16 @@ fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
         let path = entry.path();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| PackageError::Io {
+            path: path.clone(),
+            error,
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(PackageError::UnsafePath {
+                path,
+                reason: "symbolic links are not allowed in package payloads".to_string(),
+            });
+        }
         if matches!(
             name_text.as_ref(),
             "target" | ".git" | ".spectra" | LOCKFILE_NAME
@@ -2131,6 +2404,16 @@ fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
             continue;
         }
         let dest = to.join(&name);
+        if dest.file_name().is_none()
+            || dest
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(PackageError::UnsafePath {
+                path: dest,
+                reason: "payload destination escapes staging root".to_string(),
+            });
+        }
         if path.is_dir() {
             fs::create_dir_all(&dest).map_err(|error| PackageError::Io {
                 path: dest.clone(),
@@ -2178,6 +2461,16 @@ fn collect_files(
         let path = entry.path();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| PackageError::Io {
+            path: path.clone(),
+            error,
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(PackageError::UnsafePath {
+                path,
+                reason: "symbolic links are not allowed in package checksums".to_string(),
+            });
+        }
         if matches!(name_text.as_ref(), "target" | ".git" | ".spectra") {
             continue;
         }
@@ -2191,10 +2484,177 @@ fn collect_files(
     Ok(())
 }
 
+fn ensure_destination_is_safe(path: &Path) -> Result<(), PackageError> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.exists() {
+            let metadata = fs::symlink_metadata(candidate).map_err(|error| PackageError::Io {
+                path: candidate.to_path_buf(),
+                error,
+            })?;
+            if metadata.file_type().is_symlink() {
+                return Err(PackageError::UnsafePath {
+                    path: candidate.to_path_buf(),
+                    reason: "destination contains a symbolic link".to_string(),
+                });
+            }
+        }
+        current = candidate.parent();
+    }
+    Ok(())
+}
+
 fn stable_hash_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+fn staging_path(destination: &Path, label: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("package");
+    destination.with_file_name(format!(
+        ".{}.{}.{}.{}",
+        file_name,
+        label,
+        std::process::id(),
+        nonce
+    ))
+}
+
+struct CacheLock {
+    path: PathBuf,
+}
+
+impl Drop for CacheLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_cache_lock(destination: &Path) -> Result<CacheLock, PackageError> {
+    let path = PathBuf::from(format!("{}.lock", destination.display()));
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: if error.kind() == io::ErrorKind::AlreadyExists {
+                "another package operation is already using this cache destination".to_string()
+            } else {
+                error.to_string()
+            },
+        })?;
+    Ok(CacheLock { path })
+}
+
+fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), PackageError> {
+    let parent = path.parent().ok_or_else(|| PackageError::AtomicWrite {
+        path: path.to_path_buf(),
+        message: "destination has no parent directory".to_string(),
+    })?;
+    fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+        path: parent.to_path_buf(),
+        error,
+    })?;
+    let _lock = acquire_cache_lock(path)?;
+    let staging = staging_path(path, "file");
+    let result = (|| {
+        fs::write(&staging, bytes).map_err(|error| PackageError::Io {
+            path: staging.clone(),
+            error,
+        })?;
+        atomic_replace(&staging, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&staging);
+    }
+    result
+}
+
+fn atomic_replace(source: &Path, destination: &Path) -> Result<(), PackageError> {
+    if destination.is_dir() && source.is_dir() {
+        let backup = staging_path(destination, "backup");
+        fs::rename(destination, &backup).map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: error.to_string(),
+        })?;
+        match fs::rename(source, destination) {
+            Ok(()) => {
+                let _ = fs::remove_dir_all(&backup);
+                return Ok(());
+            }
+            Err(error) => {
+                let _ = fs::rename(&backup, destination);
+                return Err(PackageError::AtomicWrite {
+                    path: destination.to_path_buf(),
+                    message: error.to_string(),
+                });
+            }
+        }
+    }
+    if !destination.exists() {
+        return fs::rename(source, destination).map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: error.to_string(),
+        });
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let source_text = source.to_string_lossy();
+        let source_text = source_text.strip_prefix(r"\\?\").unwrap_or(&source_text);
+        let destination_text = destination.to_string_lossy();
+        let destination_text = destination_text
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&destination_text);
+        let source_wide: Vec<u16> = std::ffi::OsStr::new(source_text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let destination_wide: Vec<u16> = std::ffi::OsStr::new(destination_text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let success = unsafe {
+            MoveFileExW(
+                source_wide.as_ptr(),
+                destination_wide.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if success == 0 {
+            return Err(PackageError::AtomicWrite {
+                path: destination.to_path_buf(),
+                message: io::Error::last_os_error().to_string(),
+            });
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        fs::rename(source, destination).map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: error.to_string(),
+        })
+    }
+}
+
+#[cfg(windows)]
+const MOVEFILE_REPLACE_EXISTING: u32 = 0x00000001;
+#[cfg(windows)]
+const MOVEFILE_WRITE_THROUGH: u32 = 0x00000008;
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
 }
 
 fn is_valid_semver(version: &str) -> bool {
@@ -2262,6 +2722,30 @@ mod tests {
     fn toml_key_quotes_dotted_package_names() {
         assert_eq!(toml_key("spectra-api"), "spectra-api");
         assert_eq!(toml_key("spectra.api"), "\"spectra.api\"");
+    }
+
+    #[test]
+    fn security_rejects_escaping_names_and_matches_hosts_exactly() {
+        assert!(validate_package_name("../escape").is_err());
+        assert!(validate_package_name("safe-package").is_ok());
+        assert_eq!(
+            remote_git_host("https://GitHub.com/org/pkg.git"),
+            Some("github.com".to_string())
+        );
+        assert!(host_is_allowed("github.com", "github.com,gitlab.com"));
+        assert!(!host_is_allowed("evil.github.com", "github.com"));
+    }
+
+    #[test]
+    fn lockfile_v2_round_trips_for_semantic_comparison() {
+        let lockfile = Lockfile {
+            version: 2,
+            root: "root".to_string(),
+            packages: Vec::new(),
+        };
+        let text = toml::to_string_pretty(&lockfile).expect("serialize lockfile");
+        let decoded: Lockfile = toml::from_str(&text).expect("deserialize lockfile");
+        assert_eq!(decoded, lockfile);
     }
 
     fn temp_catalog(contents: &str) -> PathBuf {

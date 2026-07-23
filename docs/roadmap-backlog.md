@@ -2005,7 +2005,7 @@ None. Package security hardening remains tracked independently under `R-912`.
 
 ## R-912 Package Security and Integrity
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `ecosystem`
 - Risk: `high`
@@ -2026,10 +2026,31 @@ None. Package security hardening remains tracked independently under `R-912`.
 - Catalog registration and metadata publishing now require immutable tag/rev refs,
   record resolved commit SHA, validate catalog entry shape, and refuse unsafe
   same-version overwrites.
+- Git and registry installs now stage payloads and publish them only after
+  checksum/path validation, preserving the previous valid cache on failure.
+- Symlinks, escaping package names, unsafe destinations, and Git symlink entries
+  are rejected before a package reaches the final cache.
+- `SPECTRA_PACKAGE_ALLOWED_HOSTS` provides exact opt-in remote host filtering.
+- `--locked` verifies lockfile version, roots, sources, revisions, checksums,
+  manifest hashes, and dependency graph before compilation.
+- `scripts/validate_r912_package_security.py` covers local Git/registry fixtures,
+  checksum failures, cache preservation, traversal, symlinks, host filtering,
+  lockfile tampering, and mutable publication refs.
 
 ### Remaining before completion
 
-- Add atomic cache writes, host allowlist policy, and explicit lockfile tamper mode.
+None. Offline CI cache restoration and broader reproducible-build workflows
+remain tracked under `R-913`.
+
+### Completion evidence
+
+- `cargo test -p spectra-cli package`: 11 tests passed.
+- `scripts/validate_r912_package_security.py` passed with local Git/registry fixtures.
+- `scripts/validate_r905_package_resolver.py` and
+  `scripts/validate_r914_package_catalog_git.py` remained green.
+- `cargo build -p spectra-cli`, roadmap TOML validation, and `git diff --check` passed.
+- `run_tests.ps1` recorded R-905, R-906, R-912, and R-914 as `PASSOU`; its
+  full execution later timed out in R-2013 and retained unrelated R-2903/R-2007 failures.
 
 ## R-913 Offline and Reproducible Package Builds
 
