@@ -2054,7 +2054,7 @@ remain tracked under `R-913`.
 
 ## R-913 Offline and Reproducible Package Builds
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `tooling`
 - Risk: `medium`
@@ -2068,11 +2068,20 @@ remain tracked under `R-913`.
 
 ### Completed so far
 
-- Added `spectralang package fetch --offline` over cached package state.
+- Added explicit offline resolution for package fetch/build/check/run/test/bench/doc.
+- Locked operations now resolve from `.spectra/git` and `.spectra/packages` only,
+  validate the existing lockfile before compilation, and never rewrite it.
+- Added a reproducible local Git validator covering cache restoration, offline
+  check, missing/corrupt cache, lockfile drift, and deterministic lock output.
 
-### Remaining before completion
+### Completion evidence
 
-- Add `--locked` enforcement and documented CI cache restore flow.
+- `scripts/validate_r913_offline_reproducible.py` passes using only local Git fixtures.
+- `cargo test -p spectra-cli package` and `cargo build -p spectra-cli` pass.
+- CI documentation restores `spectra.lock`, `.spectra/git`, and `.spectra/packages`
+  before running the offline locked gate.
+- `run_tests.ps1` includes the R-913 validator alongside the package security and
+  catalog gates.
 
 ## R-914 Package Catalog and Git Certification
 

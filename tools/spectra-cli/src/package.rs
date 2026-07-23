@@ -93,7 +93,13 @@ pub struct PackageTestOptions {
 pub struct PackageInvocation {
     pub root: PathBuf,
     pub command: PackageCommand,
+    pub offline: bool,
     pub locked: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ResolveOptions {
+    pub offline: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -519,6 +525,13 @@ fn catalog_schema() -> String {
 }
 
 pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
+    resolve_with_options(root, ResolveOptions::default())
+}
+
+pub fn resolve_with_options(
+    root: &Path,
+    options: ResolveOptions,
+) -> Result<ResolvedWorkspace, PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest_path = find_manifest(&root)?;
     let root_package = load_package(&manifest_path)?;
@@ -546,6 +559,7 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
             &mut by_name,
             &mut ordered,
             &mut active,
+            options,
         )?;
     }
 
@@ -983,6 +997,7 @@ fn collect_package(
     by_name: &mut BTreeMap<String, PathBuf>,
     ordered: &mut Vec<ResolvedPackage>,
     active: &mut Vec<String>,
+    options: ResolveOptions,
 ) -> Result<(), PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest_path = find_manifest(&root)?;
@@ -1054,7 +1069,7 @@ fn collect_package(
                     tag.as_deref(),
                     rev.as_deref(),
                     branch.as_deref(),
-                    false,
+                    options.offline,
                 )?;
                 (
                     installed.path.clone(),
@@ -1094,6 +1109,7 @@ fn collect_package(
             by_name,
             ordered,
             active,
+            options,
         )?;
         let dep_manifest = load_package(&find_manifest(&dep_root)?)?;
         let version = match spec {
@@ -2251,19 +2267,13 @@ fn exported_modules(src_dirs: &[PathBuf]) -> Result<Vec<String>, PackageError> {
     Ok(modules)
 }
 
-pub fn fetch(root: &Path, offline: bool) -> Result<PathBuf, PackageError> {
-    let workspace = resolve(root)?;
-    if offline {
-        for package in &workspace.packages {
-            if matches!(package.source, PackageSource::Git { .. }) && !package.root.is_dir() {
-                return Err(PackageError::Registry(format!(
-                    "package '{}' missing from offline cache",
-                    package.name
-                )));
-            }
-        }
+pub fn fetch(root: &Path, offline: bool, locked: bool) -> Result<PathBuf, PackageError> {
+    let workspace = resolve_with_options(root, ResolveOptions { offline })?;
+    if locked {
+        verify_lockfile(&workspace)
+    } else {
+        write_lockfile(&workspace)
     }
-    write_lockfile(&workspace)
 }
 
 pub fn dependency_tree(root: &Path) -> Result<Vec<String>, PackageError> {
@@ -2830,5 +2840,53 @@ compatibility = "spectralang-0.1"
         let cycle =
             PackageError::DependencyCycle(vec!["a".to_string(), "b".to_string(), "a".to_string()]);
         assert!(cycle.to_string().contains("a -> b -> a"));
+    }
+
+    #[test]
+    fn offline_git_resolution_rejects_missing_cache_before_git() {
+        let root = std::env::temp_dir().join(format!(
+            "spectralang-r913-cache-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("cache root");
+        let result = install_from_git(
+            &root,
+            "missing-package",
+            Some("1.0.0"),
+            "https://example.invalid/missing.git",
+            Some("v1.0.0"),
+            None,
+            None,
+            true,
+        );
+        let error = match result {
+            Ok(_) => panic!("offline resolution must not use a missing cache"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("cache") || error.to_string().contains("offline"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn locked_fetch_requires_an_existing_lockfile() {
+        let root = std::env::temp_dir().join(format!(
+            "spectralang-r913-lock-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("src")).expect("workspace root");
+        fs::write(
+            root.join("spectra.toml"),
+            "[project]\nname = \"r913_root\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("manifest");
+        let error = fetch(&root, true, true).expect_err("locked fetch must require a lockfile");
+        assert!(error.to_string().contains("lockfile"));
+        let _ = fs::remove_dir_all(root);
     }
 }

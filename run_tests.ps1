@@ -694,6 +694,18 @@ if ($r912PackageSecurity.Status -eq "PASSOU") {
 }
 $results += [PSCustomObject]@{ Diretorio = "package"; Teste = "validate_r912_package_security"; Status = $r912PackageSecurity.Status; Detalhe = $r912PackageSecurity.Detail }
 
+Write-Host ""
+Write-Host "--- R-913 offline reproducible package flow ---" -ForegroundColor Yellow
+Write-Host "  validate_r913_offline_reproducible" -NoNewline
+$r913OfflineReproducible = Invoke-HostCommand -name "validate_r913_offline_reproducible" -fileName "python" -arguments @("scripts\validate_r913_offline_reproducible.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($r913OfflineReproducible.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "package"; Teste = "validate_r913_offline_reproducible"; Status = $r913OfflineReproducible.Status; Detalhe = $r913OfflineReproducible.Detail }
+
+Write-Host ""
 Write-Host "--- R-914 package catalog Git flow ---" -ForegroundColor Yellow
 Write-Host "  validate_r914_package_catalog_git" -NoNewline
 $r914PackageCatalogGit = Invoke-HostCommand -name "validate_r914_package_catalog_git" -fileName "python" -arguments @("scripts\validate_r914_package_catalog_git.py", "--binary", $binary) -workingDir (Get-Location).Path

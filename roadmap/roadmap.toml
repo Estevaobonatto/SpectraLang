@@ -1093,14 +1093,15 @@ title = "Offline and Reproducible Package Builds"
 phase = "phase_9"
 owner = "tooling"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-904", "R-912"]
 summary = "Support deterministic offline and CI package workflows."
 acceptance = [
   "`spectralang package fetch --offline` validates cached Git packages",
   "`--locked` fails when manifest and lockfile diverge",
-  "CI can restore package caches and build without network access"
+  "CI can restore package caches and build without network access",
+  "offline package commands reject missing or corrupt Git caches before compilation"
 ]
 
 [[items]]

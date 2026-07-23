@@ -1236,6 +1236,7 @@ where
     Ok(PackageInvocation {
         root,
         command,
+        offline,
         locked,
     })
 }
@@ -3103,9 +3104,14 @@ fn run_async_test_case(
 fn execute_package_tests(
     root: &Path,
     options: package::PackageTestOptions,
+    offline: bool,
     locked: bool,
 ) -> CliResult<()> {
-    let workspace = package::resolve(root).map_err(|error| CliError::io(error.to_string()))?;
+    let workspace = package::resolve_with_options(
+        root,
+        package::ResolveOptions { offline: offline || locked },
+    )
+    .map_err(|error| CliError::io(error.to_string()))?;
     emit_package_deprecation_warnings(&workspace);
     let test_entries = package::discover_test_entries(&workspace);
     let all_cases = discover_async_test_cases(&test_entries)?;
@@ -3229,10 +3235,14 @@ fn write_or_verify_package_lockfile(
 }
 
 fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
+    let offline = invocation.offline;
     let locked = invocation.locked;
     match invocation.command {
         PackageCommand::Lock | PackageCommand::Update => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
             let path = write_or_verify_package_lockfile(&workspace, locked)?;
@@ -3240,7 +3250,10 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             Ok(())
         }
         PackageCommand::Build | PackageCommand::Check | PackageCommand::Run => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
             let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
@@ -3268,9 +3281,14 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 None,
             )
         }
-        PackageCommand::Test(options) => execute_package_tests(&invocation.root, options, locked),
+        PackageCommand::Test(options) => {
+            execute_package_tests(&invocation.root, options, offline, locked)
+        }
         PackageCommand::Bench => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
             let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
@@ -3291,7 +3309,10 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             )
         }
         PackageCommand::Doc => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
             let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
@@ -3302,15 +3323,8 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             Ok(())
         }
         PackageCommand::Fetch { offline } => {
-            let workspace = package::resolve(&invocation.root)
+            let lock_path = package::fetch(&invocation.root, offline || invocation.offline, locked)
                 .map_err(|error| CliError::io(error.to_string()))?;
-            let lock_path = if locked {
-                package::verify_lockfile(&workspace)
-                    .map_err(|error| CliError::io(error.to_string()))?
-            } else {
-                package::fetch(&invocation.root, offline)
-                    .map_err(|error| CliError::io(error.to_string()))?
-            };
             println!("     Fetched {}", lock_path.display());
             Ok(())
         }
@@ -4190,7 +4204,7 @@ fn print_package_help() {
     println!("    --branch <name>        Git branch for package source");
     println!("    --catalog <path>       Catalog index/directory for search/add/register");
     println!("    --out <path>           Output path for 'publish-metadata'");
-    println!("    --offline              Use cached Git packages only for 'fetch'");
+    println!("    --offline              Use only restored package caches (package commands)");
     println!("    --locked               Require an existing, unmodified spectra.lock");
     println!("    --list                 List async tests for 'test'");
     println!("    --filter <text>        Run or list async tests whose name/path contains text");

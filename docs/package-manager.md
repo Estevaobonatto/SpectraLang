@@ -84,6 +84,21 @@ manifest hashes, and dependencies exactly match the current resolution. Missing
 or changed lockfiles fail before compilation. Without `--locked`, the normal
 workflow refreshes `spectra.lock`.
 
+Use `--offline` with package build/check/run/test/bench/doc/fetch when the
+workspace must use only restored caches. In locked workflows, `--locked` also
+forces cache-only resolution, so Git clone/fetch is never attempted before the
+lockfile comparison. Restore `spectra.lock`, `.spectra/git`, and
+`.spectra/packages` as one cache unit, then run:
+
+```powershell
+spectralang package fetch --offline --locked --root .
+spectralang package check --offline --locked --root .
+```
+
+Offline resolution fails with a package-aware cache diagnostic when a Git
+repository is missing, is not a repository, or cannot produce the revision and
+payload described by the lockfile. It does not rewrite `spectra.lock`.
+
 Package downloads and vendor copies are staged beside their final destinations
 and published only after validation. Existing valid caches are preserved when a
 download, checksum, path, or copy operation fails. Payload symlinks and paths
