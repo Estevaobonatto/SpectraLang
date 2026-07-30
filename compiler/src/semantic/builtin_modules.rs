@@ -1562,8 +1562,12 @@ fn make_std_api_db_postgres(prefix: &str) -> ModuleExports {
     let mut exports = api_module(&format!("{prefix}.db.postgres"), None);
     let connection = api_type("PostgresConnection");
     let statement = api_type("PostgresStatement");
+    let notification_channel = api_type("PostgresNotificationChannel");
+    let notification = api_type("PostgresNotification");
     exports.types.insert("PostgresConnection".to_string(), public_type(&[]));
     exports.types.insert("PostgresStatement".to_string(), public_type(&[]));
+    exports.types.insert("PostgresNotificationChannel".to_string(), public_type(&[]));
+    exports.types.insert("PostgresNotification".to_string(), public_type(&[]));
     for (name, params, return_type) in [
         ("open", vec![Type::String], connection.clone()),
         ("close", vec![connection.clone()], Type::Bool),
@@ -1582,6 +1586,23 @@ fn make_std_api_db_postgres(prefix: &str) -> ModuleExports {
         ("begin", vec![connection.clone()], Type::Bool),
         ("commit", vec![connection.clone()], Type::Bool),
         ("rollback", vec![connection.clone()], Type::Bool),
+        ("execute_async", vec![connection.clone(), Type::String], api_task(Type::Int)),
+        ("step_async", vec![statement.clone()], api_task(Type::Int)),
+        ("savepoint", vec![connection.clone(), Type::String], Type::Bool),
+        ("rollback_to", vec![connection.clone(), Type::String], Type::Bool),
+        ("release_savepoint", vec![connection.clone(), Type::String], Type::Bool),
+        ("copy_in_text_async", vec![connection.clone(), Type::String, Type::String], api_task(Type::Int)),
+        ("copy_out_text_async", vec![connection.clone(), Type::String], api_task(Type::String)),
+        ("listen", vec![connection.clone(), Type::String], notification_channel.clone()),
+        ("notify_async", vec![connection.clone(), Type::String, Type::String], api_task(Type::Bool)),
+        ("notification_next_async", vec![notification_channel.clone(), Type::Int], api_task(notification.clone())),
+        ("notification_channel", vec![notification.clone()], Type::String),
+        ("notification_payload", vec![notification.clone()], Type::String),
+        ("notification_process_id", vec![notification.clone()], Type::Int),
+        ("notification_free", vec![notification], Type::Bool),
+        ("notification_close", vec![notification_channel], Type::Bool),
+        ("last_error_code", vec![], Type::String),
+        ("last_error_message", vec![], Type::String),
     ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
     exports
 }

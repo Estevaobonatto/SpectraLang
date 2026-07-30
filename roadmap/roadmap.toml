@@ -1059,7 +1059,7 @@ title = "Catalog Sync and Cache Management"
 phase = "phase_9"
 owner = "tooling"
 priority = "P1"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-908"]
 summary = "Manage local catalog references and cache synchronization for offline-friendly package discovery."
@@ -3312,6 +3312,7 @@ acceptance = [
   "LISTEN/NOTIFY is exposed through a typed channel",
   "tests run against a real PostgreSQL 16 instance and are gated by environment",
   "the pool, PostgresDialect, async bridge, tracing, API registration, and independent phase25-postgres-driver gate are integrated",
+  "the public Spectra API exposes cancellable Task operations, savepoints, COPY, and typed LISTEN/NOTIFY handles without a SQLite fallback",
   "the v2 report proves COPY, LISTEN/NOTIFY, async non-blocking behavior, OTLP decoding, and HTTP-parent propagation",
   "R-2505 remains incomplete until a CI lane produces a passed report"
 ]

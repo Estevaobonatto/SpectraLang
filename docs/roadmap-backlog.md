@@ -1983,7 +1983,7 @@ None. Package security hardening remains tracked independently under `R-912`.
 
 ## R-911 Catalog Sync and Cache Management
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `tooling`
 - Risk: `medium`
@@ -1997,11 +1997,19 @@ None. Package security hardening remains tracked independently under `R-912`.
 
 ### Completed so far
 
-- Added local `package catalog add/list/sync/remove` command plumbing.
+- Added deterministic catalog configuration and real `catalog add/list/sync/remove`
+  operations.
+- Git and local catalogs are staged, validated, atomically published and tracked
+  in `.spectra/catalogs/catalogs.lock`.
+- Offline/locked sync validates existing catalog caches without network access;
+  catalog queries use cached validated indexes only.
 
-### Remaining before completion
+### Completion evidence
 
-- Implement real remote Git-hosted catalog sync and cache refresh.
+- `scripts/validate_r911_catalog_sync.py` passes with local Git catalog/package fixtures.
+- The validator covers initial sync, revision refresh, cached search/info/versions/add,
+  invalid catalog rejection, cache preservation, offline validation and missing cache.
+- Unit tests cover deterministic configuration ordering and catalog state round trips.
 
 ## R-912 Package Security and Integrity
 
@@ -6079,7 +6087,7 @@ ORM.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -6092,6 +6100,8 @@ ORM.
 - COPY IN/OUT round-trips a large dataset within tolerance.
 - LISTEN/NOTIFY is exposed through a typed channel.
 - Tests run against a real PostgreSQL 16 service and are gated by environment.
+- The public Spectra API exposes cancellable `Task<T>` operations, savepoints,
+  COPY, and typed LISTEN/NOTIFY handles without a SQLite fallback.
 - The v2 validator must prove async non-blocking execution, COPY streaming,
   LISTEN/NOTIFY, OTLP export, and HTTP-parent propagation before promotion.
 
@@ -6100,14 +6110,28 @@ ORM.
 - `packages/spectra-db` contains the real PostgreSQL configuration, typed
   values, prepared statements, transactions, savepoints, COPY operations,
   notification listener, pool factory, and `$1`-based dialect.
+- The async bridge uses bounded shared workers, never blocks `Future::poll`,
+  and arms each cancellation token only while its exact operation owns the
+  backend session. Queued cancellation cannot affect another query.
+- `std.api.db.postgres` now exposes async execute/step/COPY/NOTIFY tasks,
+  savepoint operations, typed notification handles, and stable last-error
+  accessors while preserving the existing synchronous compatibility surface.
+- PostgreSQL spans are driver-owned and propagate the caller context into
+  worker threads; tests no longer manufacture a database span.
 - `spectra.api.db.postgres` is wired only to real host calls; it has no SQLite
   fallback and does not expose credentials in diagnostics.
 - The independent validator writes
   `target/r2505-postgres/report.json` with schema
   `spectralang.r2505_postgres.v2`; without `SPECTRA_POSTGRES_URL` it records
   `skipped_environment` and the task remains in progress.
-- COPY, LISTEN/NOTIFY, async non-blocking behavior, tracing, and HTTP-parent
-  evidence remain acceptance gates and are not promoted to production yet.
+- A local PostgreSQL 16.14 run produced a certifying v2 `passed` report with
+  six exact named capability tests, including the public Task bridge,
+  100,000-row COPY, cross-query-safe cancellation, cancellable notification
+  waits, the executable Spectra fixture, independently decoded OTLP with real
+  timestamps, HTTP-parent propagation, and no credential or SQL leakage.
+- The validator's `--require-database` mode fails closed. R-2505 remains
+  `in_progress` until the checked-in PostgreSQL 16 CI lane reproduces and
+  publishes the passed report.
 
 ## R-2506 MySQL Driver
 

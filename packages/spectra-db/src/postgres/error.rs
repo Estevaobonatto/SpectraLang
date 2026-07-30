@@ -23,6 +23,13 @@ impl PostgresError {
     pub fn invalid_handle() -> Self {
         Self::new("DB2505_INVALID_HANDLE", "invalid PostgreSQL handle")
     }
+
+    pub fn cancelled() -> Self {
+        Self::new(
+            "DB2505_CANCELLED_OR_TIMEOUT",
+            "PostgreSQL operation was cancelled",
+        )
+    }
 }
 
 impl fmt::Display for PostgresError {

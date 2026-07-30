@@ -5839,6 +5839,16 @@ impl ASTLowering {
                                 _ => IRType::Void,
                             })
                             .unwrap_or(IRType::Void);
+                        let _ = self
+                            .builder
+                            .build_typed_host_call(
+                                ir_func,
+                                "spectra.async.task.block_on".to_string(),
+                                vec![task],
+                                output_type.clone(),
+                                output_type != IRType::Void,
+                            )
+                            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
                         return self
                             .builder
                             .build_typed_host_call(
@@ -7038,28 +7048,20 @@ impl ASTLowering {
                 };
                 let state = self.next_async_state();
                 self.builder.build_async_suspend(ir_func, task, state);
-                let poll = self
-                    .builder
-                    .build_typed_host_call(
-                        ir_func,
-                        "spectra.async.task.poll".to_string(),
-                        vec![task],
-                        IRType::Bool,
-                        true,
-                    )
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 1));
-                let not_cancelled = self
-                    .builder
-                    .build_typed_host_call(
-                        ir_func,
-                        "spectra.async.task.is_cancelled".to_string(),
-                        vec![task],
-                        IRType::Bool,
-                        true,
-                    )
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
-                let _ = poll;
-                let _ = not_cancelled;
+                let _ = self.builder.build_typed_host_call(
+                    ir_func,
+                    "spectra.async.task.poll".to_string(),
+                    vec![task],
+                    IRType::Bool,
+                    true,
+                );
+                let _ = self.builder.build_typed_host_call(
+                    ir_func,
+                    "spectra.async.task.is_cancelled".to_string(),
+                    vec![task],
+                    IRType::Bool,
+                    true,
+                );
                 self.builder.build_async_resume(ir_func, task, state);
                 self.builder
                     .build_typed_host_call(
@@ -9870,6 +9872,23 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("db.postgres", "begin") => Some(host_bool("spectra.api.db.postgres.begin")),
         ("db.postgres", "commit") => Some(host_bool("spectra.api.db.postgres.commit")),
         ("db.postgres", "rollback") => Some(host_bool("spectra.api.db.postgres.rollback")),
+        ("db.postgres", "execute_async") => Some(host_task_int("spectra.api.db.postgres.execute_async")),
+        ("db.postgres", "step_async") => Some(host_task_int("spectra.api.db.postgres.step_async")),
+        ("db.postgres", "savepoint") => Some(host_bool("spectra.api.db.postgres.savepoint")),
+        ("db.postgres", "rollback_to") => Some(host_bool("spectra.api.db.postgres.rollback_to")),
+        ("db.postgres", "release_savepoint") => Some(host_bool("spectra.api.db.postgres.release_savepoint")),
+        ("db.postgres", "copy_in_text_async") => Some(host_task_int("spectra.api.db.postgres.copy_in_text_async")),
+        ("db.postgres", "copy_out_text_async") => Some(host_task_string("spectra.api.db.postgres.copy_out_text_async")),
+        ("db.postgres", "listen") => Some(host_int("spectra.api.db.postgres.listen")),
+        ("db.postgres", "notify_async") => Some(host_task_bool("spectra.api.db.postgres.notify_async")),
+        ("db.postgres", "notification_next_async") => Some(host_task_int("spectra.api.db.postgres.notification_next_async")),
+        ("db.postgres", "notification_channel") => Some(host_string("spectra.api.db.postgres.notification_channel")),
+        ("db.postgres", "notification_payload") => Some(host_string("spectra.api.db.postgres.notification_payload")),
+        ("db.postgres", "notification_process_id") => Some(host_int("spectra.api.db.postgres.notification_process_id")),
+        ("db.postgres", "notification_free") => Some(host_bool("spectra.api.db.postgres.notification_free")),
+        ("db.postgres", "notification_close") => Some(host_bool("spectra.api.db.postgres.notification_close")),
+        ("db.postgres", "last_error_code") => Some(host_string("spectra.api.db.postgres.last_error_code")),
+        ("db.postgres", "last_error_message") => Some(host_string("spectra.api.db.postgres.last_error_message")),
         ("db.redis", "open") => Some(host_int("spectra.api.db.redis.open")),
         ("db.redis", "close") => Some(host_bool("spectra.api.db.redis.close")),
         ("db.redis", "get") => Some(host_string("spectra.api.db.redis.get")),
@@ -9965,6 +9984,10 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "TraceConfig"
             | "TraceSpan"
             | "CorsPolicy"
+            | "PostgresConnection"
+            | "PostgresStatement"
+            | "PostgresNotificationChannel"
+            | "PostgresNotification"
     )
 }
 
@@ -10016,6 +10039,26 @@ fn host_task_int(runtime_name: &'static str) -> HostFunctionDescriptor {
         runtime_name,
         return_type: IRType::Task {
             output: Box::new(IRType::Int),
+        },
+        returns_value: true,
+    }
+}
+
+fn host_task_bool(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Task {
+            output: Box::new(IRType::Bool),
+        },
+        returns_value: true,
+    }
+}
+
+fn host_task_string(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Task {
+            output: Box::new(IRType::String),
         },
         returns_value: true,
     }
@@ -10185,6 +10228,7 @@ mod tests {
         assert!(pretty.contains("async.ready"));
         assert!(pretty.contains("spectra.async.task.ready"));
         assert!(pretty.contains("spectra.async.task.poll"));
+        assert!(!pretty.contains("spectra.async.task.block_on"));
         assert!(pretty.contains("spectra.async.task.result"));
     }
 

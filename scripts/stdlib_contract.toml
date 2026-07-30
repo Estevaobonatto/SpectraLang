@@ -444,7 +444,7 @@ reason = "The v2 R-2504 gate independently validates bundled SQLite CRUD, typed 
 prefix = "std.api.db.postgres."
 classification = "incomplete"
 roadmap = "R-2505"
-reason = "PostgreSQL host calls are implemented against the real driver, but production classification waits for the PostgreSQL 16 integration lane, COPY/LISTEN evidence, and the independent R-2505 report."
+reason = "PostgreSQL host calls include cancellable tasks, savepoints, COPY, and typed notifications, and a local PostgreSQL 16.14 v2 report passes; production classification waits for the checked-in CI lane to reproduce and publish that evidence."
 
 [[rule]]
 prefix = "std.api.db.redis."

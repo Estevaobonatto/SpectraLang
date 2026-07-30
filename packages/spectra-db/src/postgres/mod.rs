@@ -10,7 +10,8 @@ mod value;
 
 pub use async_ops::{PostgresExecuteFuture, PostgresPrepareFuture, PostgresQueryFuture};
 pub use connection::{
-    open_pool, Notification, PostgresColumn, PostgresConfig, PostgresConnection, PostgresFactory,
+    open_pool, Notification, NotificationListener, PostgresColumn, PostgresConfig,
+    PostgresCancellation, PostgresConnection, PostgresFactory, PostgresOperationCancellation,
     PostgresPool, PostgresStatement, PostgresTransaction, SecretString, SslMode,
 };
 pub use error::{PostgresError, PostgresResult};

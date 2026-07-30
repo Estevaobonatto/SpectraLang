@@ -1207,7 +1207,10 @@ where
                     })?,
                 }),
                 Some("list") | None => PackageCommand::Catalog(package::CatalogCommand::List),
-                Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync),
+                Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync {
+                    offline,
+                    locked,
+                }),
                 Some("remove") => PackageCommand::Catalog(package::CatalogCommand::Remove {
                     name: extra_positionals.get(0).cloned().ok_or_else(|| {
                         usage_error("package catalog remove requires a catalog name.")
@@ -3442,51 +3445,35 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
 }
 
 fn execute_package_catalog_command(root: &Path, command: package::CatalogCommand) -> CliResult<()> {
-    let catalog_config = root.join(".spectra").join("catalogs").join("catalogs.toml");
     match command {
         package::CatalogCommand::Add { name, source } => {
-            if let Some(parent) = catalog_config.parent() {
-                fs::create_dir_all(parent).map_err(|error| CliError::io(error.to_string()))?;
-            }
-            let mut text = if catalog_config.is_file() {
-                fs::read_to_string(&catalog_config)
-                    .map_err(|error| CliError::io(error.to_string()))?
-            } else {
-                String::from("# Spectra package catalogs\n")
-            };
-            text.push_str(&format!(
-                "{} = \"{}\"\n",
-                name,
-                source.replace('\\', "\\\\")
-            ));
-            fs::write(&catalog_config, text).map_err(|error| CliError::io(error.to_string()))?;
+            package::catalog_add(root, &name, &source)
+                .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Added catalog {} -> {}", name, source);
             Ok(())
         }
-        package::CatalogCommand::List | package::CatalogCommand::Sync => {
-            if catalog_config.is_file() {
-                let text = fs::read_to_string(&catalog_config)
-                    .map_err(|error| CliError::io(error.to_string()))?;
-                print!("{}", text);
+        package::CatalogCommand::List => {
+            for row in package::catalog_list(root)
+                .map_err(|error| CliError::io(error.to_string()))?
+            {
+                println!("{}", row);
             }
-            if matches!(command, package::CatalogCommand::Sync) {
-                println!("     Synced local catalog cache");
+            Ok(())
+        }
+        package::CatalogCommand::Sync { offline, locked } => {
+            let entries = package::catalog_sync(root, offline, locked)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            for entry in entries {
+                println!(
+                    "     Synced {} ({})",
+                    entry.name,
+                    entry.resolved_rev.as_deref().unwrap_or("local")
+                );
             }
             Ok(())
         }
         package::CatalogCommand::Remove { name } => {
-            if !catalog_config.is_file() {
-                return Ok(());
-            }
-            let text = fs::read_to_string(&catalog_config)
-                .map_err(|error| CliError::io(error.to_string()))?;
-            let prefix = format!("{} =", name);
-            let filtered = text
-                .lines()
-                .filter(|line| !line.trim_start().starts_with(&prefix))
-                .collect::<Vec<_>>()
-                .join("\n");
-            fs::write(&catalog_config, format!("{}\n", filtered))
+            package::catalog_remove(root, &name)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Removed catalog {}", name);
             Ok(())

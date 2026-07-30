@@ -142,6 +142,26 @@ spectralang package versions gitmath --root .
 spectralang package tree --root .
 ```
 
+Catalog references and synchronization:
+
+```powershell
+spectralang package catalog add official https://github.com/org/catalog.git --root .
+spectralang package catalog list --root .
+spectralang package catalog sync --root .
+spectralang package catalog sync --offline --locked --root .
+spectralang package catalog remove official --root .
+```
+
+References are stored in `.spectra/catalogs/catalogs.toml`. Synchronization
+processes catalog names in lexical order, validates the complete
+`package.index.toml`, and publishes each catalog through a staging directory.
+The cache is stored under `.spectra/catalogs/<name>` and its validated source,
+Git revision, index hash, and informational synchronization timestamp are
+recorded in `.spectra/catalogs/catalogs.lock`. A failed sync leaves the prior
+valid cache untouched. `--offline` validates only existing caches; `--locked`
+also requires the cached state to match `catalogs.lock`. Search and package
+addition never synchronize remote catalogs implicitly.
+
 Developer registration:
 
 ```powershell

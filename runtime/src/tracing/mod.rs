@@ -448,6 +448,28 @@ pub fn current_traceparent() -> Option<String> {
         .and_then(|id| context(id).ok())
         .map(|ctx| ctx.traceparent())
 }
+
+/// Runs `work` with an explicitly propagated parent context.
+///
+/// Background executors use this helper to preserve request parentage without
+/// manufacturing a placeholder span on the worker thread.
+pub fn with_context<T>(parent: Option<TraceContext>, work: impl FnOnce() -> T) -> T {
+    if let Some(context) = parent {
+        CONTEXT_STACK.with(|stack| stack.borrow_mut().push(context));
+        struct ContextGuard;
+        impl Drop for ContextGuard {
+            fn drop(&mut self) {
+                CONTEXT_STACK.with(|stack| {
+                    stack.borrow_mut().pop();
+                });
+            }
+        }
+        let _guard = ContextGuard;
+        work()
+    } else {
+        work()
+    }
+}
 pub fn last_error() -> Option<String> {
     state().lock().unwrap().last_error.clone()
 }

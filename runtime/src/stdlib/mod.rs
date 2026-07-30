@@ -543,6 +543,7 @@ const ASYNC_TASK_READY_BATCH: &str = "spectra.async.task.ready_batch";
 const ASYNC_TASK_BATCH_CHECKSUM: &str = "spectra.async.task.batch_checksum";
 const ASYNC_TASK_POLL: &str = "spectra.async.task.poll";
 const ASYNC_TASK_RESULT: &str = "spectra.async.task.result";
+const ASYNC_TASK_BLOCK_ON: &str = "spectra.async.task.block_on";
 const ASYNC_TASK_JOIN: &str = "spectra.async.task.join";
 const ASYNC_TASK_JOIN_STATUS: &str = "spectra.async.task.join_status";
 const ASYNC_TASK_CANCEL: &str = "spectra.async.task.cancel";
@@ -1475,6 +1476,7 @@ fn register_async() {
     register_host_function(ASYNC_TASK_BATCH_CHECKSUM, std_async_task_batch_checksum);
     register_host_function(ASYNC_TASK_POLL, std_async_task_poll);
     register_host_function(ASYNC_TASK_RESULT, std_async_task_result);
+    register_host_function(ASYNC_TASK_BLOCK_ON, std_async_task_block_on);
     register_host_function(ASYNC_TASK_JOIN, std_async_task_join);
     register_host_function(ASYNC_TASK_JOIN_STATUS, std_async_task_join_status);
     register_host_function(ASYNC_TASK_CANCEL, std_async_task_cancel);
@@ -17153,7 +17155,11 @@ impl AsyncTaskRegistry {
     }
 
     fn clear(&mut self) {
+        let next_task = self.next_task;
+        let next_cancel_handle = self.next_cancel_handle;
         *self = Self::new();
+        self.next_task = next_task;
+        self.next_cancel_handle = next_cancel_handle;
     }
 
     fn allocate_task(
@@ -17215,11 +17221,15 @@ impl AsyncTaskRegistry {
     fn complete_task(&mut self, task_id: SpectraHostValue, value: SpectraHostValue) -> Option<()> {
         let task = self.tasks.get_mut(&task_id)?;
         if task.cancelled {
+            lock_unpoisoned(background_cancel_hooks()).remove(&task_id);
+            notify_async_task_completion();
             return Some(());
         }
         task.value = value;
         task.completed = true;
+        lock_unpoisoned(background_cancel_hooks()).remove(&task_id);
         reactor::global().wake_task(task_id);
+        notify_async_task_completion();
         Some(())
     }
 
@@ -17227,7 +17237,9 @@ impl AsyncTaskRegistry {
         let task = self.tasks.get_mut(&task_id)?;
         task.failed = true;
         task.completed = true;
+        lock_unpoisoned(background_cancel_hooks()).remove(&task_id);
         reactor::global().wake_task(task_id);
+        notify_async_task_completion();
         Some(())
     }
 
@@ -17301,7 +17313,11 @@ impl AsyncTaskRegistry {
         if let Some(inner) = inner {
             let _ = self.cancel_task(inner);
         }
+        if let Some(cancel) = lock_unpoisoned(background_cancel_hooks()).remove(&task_id) {
+            cancel();
+        }
         reactor::global().wake_task(task_id);
+        notify_async_task_completion();
         Some(())
     }
 
@@ -17979,9 +17995,84 @@ fn fold_stream_value(
     }
 }
 
+type BackgroundJob = Box<dyn FnOnce() + Send + 'static>;
+type BackgroundCancelHook = Arc<dyn Fn() + Send + Sync + 'static>;
+
+struct BackgroundWorkerQueue {
+    sender: mpsc::SyncSender<BackgroundJob>,
+}
+
+fn background_worker_queue() -> &'static BackgroundWorkerQueue {
+    static QUEUE: OnceLock<BackgroundWorkerQueue> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::sync_channel::<BackgroundJob>(128);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for index in 0..4 {
+            let receiver = Arc::clone(&receiver);
+            thread::Builder::new()
+                .name(format!("spectra-background-{index}"))
+                .spawn(move || loop {
+                    let job = lock_unpoisoned(&receiver).recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    }
+                })
+                .expect("background worker thread");
+        }
+        BackgroundWorkerQueue { sender }
+    })
+}
+
+fn background_io_worker_queue() -> &'static BackgroundWorkerQueue {
+    static QUEUE: OnceLock<BackgroundWorkerQueue> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::sync_channel::<BackgroundJob>(128);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for index in 0..4 {
+            let receiver = Arc::clone(&receiver);
+            thread::Builder::new()
+                .name(format!("spectra-background-io-{index}"))
+                .spawn(move || loop {
+                    let job = lock_unpoisoned(&receiver).recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    }
+                })
+                .expect("background I/O worker thread");
+        }
+        BackgroundWorkerQueue { sender }
+    })
+}
+
+fn background_cancel_hooks(
+) -> &'static Mutex<HashMap<SpectraHostValue, BackgroundCancelHook>> {
+    static HOOKS: OnceLock<Mutex<HashMap<SpectraHostValue, BackgroundCancelHook>>> =
+        OnceLock::new();
+    HOOKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn background_task_lifecycle() -> &'static Mutex<()> {
+    static LIFECYCLE: OnceLock<Mutex<()>> = OnceLock::new();
+    LIFECYCLE.get_or_init(|| Mutex::new(()))
+}
+
 fn async_task_registry() -> &'static Mutex<AsyncTaskRegistry> {
     static REGISTRY: OnceLock<Mutex<AsyncTaskRegistry>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(AsyncTaskRegistry::new()))
+}
+
+fn async_task_completion_signal() -> &'static (Mutex<u64>, Condvar) {
+    static SIGNAL: OnceLock<(Mutex<u64>, Condvar)> = OnceLock::new();
+    SIGNAL.get_or_init(|| (Mutex::new(0), Condvar::new()))
+}
+
+fn notify_async_task_completion() {
+    let (epoch, ready) = async_task_completion_signal();
+    let mut epoch = lock_unpoisoned(epoch);
+    *epoch = epoch.wrapping_add(1);
+    ready.notify_all();
 }
 
 fn lock_async_task_registry() -> Result<std::sync::MutexGuard<'static, AsyncTaskRegistry>, i32> {
@@ -17996,14 +18087,65 @@ pub fn spawn_background_task<F>(work: F) -> Result<SpectraHostValue, i32>
 where
     F: FnOnce() -> Result<SpectraHostValue, ()> + Send + 'static,
 {
+    spawn_background_task_internal(work, None, background_worker_queue())
+}
+
+/// Runs blocking work on the bounded background executor and wires a
+/// non-blocking cancellation hook into the normal `Task<T>` protocol.
+pub fn spawn_cancellable_background_task<F, C>(
+    work: F,
+    cancel: C,
+) -> Result<SpectraHostValue, i32>
+where
+    F: FnOnce() -> Result<SpectraHostValue, ()> + Send + 'static,
+    C: Fn() + Send + Sync + 'static,
+{
+    spawn_background_task_internal(work, Some(Arc::new(cancel)), background_worker_queue())
+}
+
+/// Runs a cancellable long-lived I/O wait without consuming the general
+/// blocking-work executor used by database queries and file operations.
+pub fn spawn_cancellable_io_task<F, C>(
+    work: F,
+    cancel: C,
+) -> Result<SpectraHostValue, i32>
+where
+    F: FnOnce() -> Result<SpectraHostValue, ()> + Send + 'static,
+    C: Fn() + Send + Sync + 'static,
+{
+    spawn_background_task_internal(
+        work,
+        Some(Arc::new(cancel)),
+        background_io_worker_queue(),
+    )
+}
+
+fn spawn_background_task_internal<F>(
+    work: F,
+    cancel: Option<BackgroundCancelHook>,
+    queue: &'static BackgroundWorkerQueue,
+) -> Result<SpectraHostValue, i32>
+where
+    F: FnOnce() -> Result<SpectraHostValue, ()> + Send + 'static,
+{
+    let parent = tracing::current().and_then(|id| tracing::context(id).ok());
     let task_id = {
+        let _lifecycle = lock_unpoisoned(background_task_lifecycle());
         let mut registry = lock_async_task_registry()?;
-        registry.allocate_task_with_completion(0, None, None, None, false, false)
+        let task_id =
+            registry.allocate_task_with_completion(0, None, None, None, false, false);
+        if let Some(cancel) = cancel {
+            lock_unpoisoned(background_cancel_hooks()).insert(task_id, cancel);
+        }
+        task_id
     };
-    std::thread::Builder::new()
-        .name("spectra-background-task".to_string())
-        .spawn(move || {
-            let result = work();
+    let job: BackgroundJob = Box::new(move || {
+        let cancelled = async_task_registry()
+            .lock()
+            .map(|registry| registry.task_is_cancelled(task_id))
+            .unwrap_or(true);
+        if !cancelled {
+            let result = tracing::with_context(parent, work);
             if let Ok(mut registry) = async_task_registry().lock() {
                 match result {
                     Ok(value) => {
@@ -18014,8 +18156,18 @@ where
                     }
                 }
             }
-        })
-        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+        }
+    });
+    if queue.sender.try_send(job).is_err() {
+        let _lifecycle = lock_unpoisoned(background_task_lifecycle());
+        if let Ok(mut registry) = async_task_registry().lock() {
+            lock_unpoisoned(background_cancel_hooks()).remove(&task_id);
+            if let Some(task) = registry.tasks.remove(&task_id) {
+                registry.cancel_handles.remove(&task.cancel_handle);
+            }
+        }
+        return Err(HOST_STATUS_INTERNAL_ERROR);
+    }
     Ok(task_id)
 }
 
@@ -18138,11 +18290,50 @@ extern "C" fn std_async_task_result(ctx: *mut SpectraHostCallContext) -> i32 {
     let Some(task) = registry.tasks.get(&args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
-    if task.cancelled || task.failed {
+    if task.cancelled || task.failed || !task.completed {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
     results[0] = task.value;
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_async_task_block_on(ctx: *mut SpectraHostCallContext) -> i32 {
+    let (args, results) = match host_call_args(ctx, 1) {
+        Ok(parts) => parts,
+        Err(status) => return status,
+    };
+    loop {
+        let observed_epoch = {
+            let (epoch, _) = async_task_completion_signal();
+            *lock_unpoisoned(epoch)
+        };
+        {
+            let mut registry = match lock_async_task_registry() {
+                Ok(registry) => registry,
+                Err(status) => return status,
+            };
+            registry.process_due_timeouts();
+            registry.drive_pending_io_for_task(args[0]);
+            let Some(task) = registry.tasks.get(&args[0]) else {
+                return HOST_STATUS_NOT_FOUND;
+            };
+            if task.cancelled || task.failed {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            if task.completed {
+                results[0] = task.value;
+                return HOST_STATUS_SUCCESS;
+            }
+        }
+
+        let (epoch, ready) = async_task_completion_signal();
+        let guard = lock_unpoisoned(epoch);
+        if *guard == observed_epoch {
+            let _ = ready
+                .wait_timeout(guard, Duration::from_millis(10))
+                .unwrap_or_else(|error| error.into_inner());
+        }
+    }
 }
 
 fn async_task_join_status(task: &AsyncTask) -> SpectraHostValue {
@@ -19375,11 +19566,22 @@ extern "C" fn std_async_task_reset(ctx: *mut SpectraHostCallContext) -> i32 {
         Err(status) => return status,
     };
     let _ = args;
-    let mut registry = match lock_async_task_registry() {
-        Ok(registry) => registry,
-        Err(status) => return status,
+    let cancellation_hooks = {
+        let _lifecycle = lock_unpoisoned(background_task_lifecycle());
+        let mut registry = match lock_async_task_registry() {
+            Ok(registry) => registry,
+            Err(status) => return status,
+        };
+        let cancellation_hooks = {
+            let mut hooks = lock_unpoisoned(background_cancel_hooks());
+            hooks.drain().map(|(_, hook)| hook).collect::<Vec<_>>()
+        };
+        registry.clear();
+        cancellation_hooks
     };
-    registry.clear();
+    for cancel in cancellation_hooks {
+        cancel();
+    }
     reactor::global().reset();
     if set_async_last_reactor_event(None).is_err() {
         return HOST_STATUS_INTERNAL_ERROR;
@@ -25009,6 +25211,28 @@ mod tests {
             Ok(91)
         })
         .expect("worker task should be allocated");
+        assert_eq!(
+            call_host(ASYNC_TASK_RESULT, &[task]).0,
+            HOST_STATUS_INVALID_ARGUMENT,
+            "result must reject a task that is still pending"
+        );
+        assert_eq!(
+            call_host(ASYNC_TASK_BLOCK_ON, &[task]),
+            (HOST_STATUS_SUCCESS, 91)
+        );
+    }
+
+    #[test]
+    fn background_task_poll_and_result_remain_compatible() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let task = spawn_background_task(|| {
+            std::thread::sleep(Duration::from_millis(5));
+            Ok(91)
+        })
+        .expect("worker task should be allocated");
         for _ in 0..100 {
             if call_host(ASYNC_TASK_POLL, &[task]) == (HOST_STATUS_SUCCESS, 1) {
                 assert_eq!(
@@ -25020,6 +25244,93 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         panic!("background task did not complete");
+    }
+
+    #[test]
+    fn async_task_reset_does_not_reuse_ids_owned_by_running_jobs() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let (started, started_wait) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let old_task = spawn_background_task(move || {
+            started.send(()).map_err(|_| ())?;
+            wait.recv().map_err(|_| ())?;
+            Ok(999)
+        })
+        .expect("old task");
+        started_wait
+            .recv_timeout(Duration::from_secs(1))
+            .expect("old task should be running before reset");
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let (status, new_task) = call_host(ASYNC_TASK_READY, &[77]);
+        assert_eq!(status, HOST_STATUS_SUCCESS);
+        assert_ne!(old_task, new_task, "reset must preserve monotonic task IDs");
+        release.send(()).unwrap();
+        thread::sleep(Duration::from_millis(10));
+        assert_eq!(
+            call_host(ASYNC_TASK_RESULT, &[new_task]),
+            (HOST_STATUS_SUCCESS, 77),
+            "an old completion must not corrupt a post-reset task"
+        );
+    }
+
+    #[test]
+    fn async_task_reset_invokes_running_io_cancellation_hooks() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let work_cancelled = Arc::clone(&cancelled);
+        let hook_cancelled = Arc::clone(&cancelled);
+        spawn_cancellable_io_task(
+            move || {
+                while !work_cancelled.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(())
+            },
+            move || {
+                hook_cancelled.store(true, Ordering::Release);
+            },
+        )
+        .expect("cancellable I/O task");
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        assert!(
+            cancelled.load(Ordering::Acquire),
+            "reset must invoke cancellation hooks before discarding tasks"
+        );
+    }
+
+    #[test]
+    fn cancellable_background_task_invokes_driver_hook() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+        assert_eq!(call_host(ASYNC_TASK_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancel_flag = Arc::clone(&cancelled);
+        let task = spawn_cancellable_background_task(
+            || {
+                thread::sleep(Duration::from_millis(50));
+                Ok(7)
+            },
+            move || {
+                cancel_flag.store(true, Ordering::Release);
+            },
+        )
+        .expect("cancellable task should be allocated");
+        assert_eq!(
+            call_host(ASYNC_TASK_CANCEL, &[task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
+        assert!(cancelled.load(Ordering::Acquire));
+        assert_eq!(
+            call_host(ASYNC_TASK_JOIN_STATUS, &[task]),
+            (HOST_STATUS_SUCCESS, 1)
+        );
     }
 
     #[test]

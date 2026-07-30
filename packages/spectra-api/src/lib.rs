@@ -990,6 +990,23 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
     HostCallSpec { name: "spectra.api.db.postgres.begin", function: db::postgres_begin },
     HostCallSpec { name: "spectra.api.db.postgres.commit", function: db::postgres_commit },
     HostCallSpec { name: "spectra.api.db.postgres.rollback", function: db::postgres_rollback },
+    HostCallSpec { name: "spectra.api.db.postgres.execute_async", function: db::postgres_execute_async },
+    HostCallSpec { name: "spectra.api.db.postgres.step_async", function: db::postgres_step_async },
+    HostCallSpec { name: "spectra.api.db.postgres.savepoint", function: db::postgres_savepoint },
+    HostCallSpec { name: "spectra.api.db.postgres.rollback_to", function: db::postgres_rollback_to },
+    HostCallSpec { name: "spectra.api.db.postgres.release_savepoint", function: db::postgres_release_savepoint },
+    HostCallSpec { name: "spectra.api.db.postgres.copy_in_text_async", function: db::postgres_copy_in_text_async },
+    HostCallSpec { name: "spectra.api.db.postgres.copy_out_text_async", function: db::postgres_copy_out_text_async },
+    HostCallSpec { name: "spectra.api.db.postgres.listen", function: db::postgres_listen },
+    HostCallSpec { name: "spectra.api.db.postgres.notify_async", function: db::postgres_notify_async },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_next_async", function: db::postgres_notification_next_async },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_channel", function: db::postgres_notification_channel },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_payload", function: db::postgres_notification_payload },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_process_id", function: db::postgres_notification_process_id },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_free", function: db::postgres_notification_free },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_close", function: db::postgres_notification_close },
+    HostCallSpec { name: "spectra.api.db.postgres.last_error_code", function: db::sqlite_last_error_code },
+    HostCallSpec { name: "spectra.api.db.postgres.last_error_message", function: db::sqlite_last_error_message },
     HostCallSpec { name: "spectra.api.db.redis.open", function: db::redis_open },
     HostCallSpec { name: "spectra.api.db.redis.close", function: db::redis_close },
     HostCallSpec { name: "spectra.api.db.redis.get", function: db::redis_get },
@@ -1153,7 +1170,14 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 260);
+        assert_eq!(HOST_CALLS.len(), 277);
+        let registered_names: HashSet<_> = HOST_CALLS.iter().map(|spec| spec.name).collect();
+        for (name, _) in db::POSTGRES_HOST_CALLS {
+            assert!(
+                registered_names.contains(name),
+                "PostgreSQL host call missing from the canonical API registry: {name}"
+            );
+        }
     }
 
     #[test]

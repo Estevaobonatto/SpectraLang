@@ -9,17 +9,76 @@ import {
     bind_int,
     bind_text,
     step,
+    step_async,
     column_count,
     column_int,
     column_text,
     finalize,
+    begin,
+    commit,
+    savepoint,
+    rollback_to,
+    release_savepoint,
+    copy_in_text_async,
+    copy_out_text_async,
+    listen,
+    notify_async,
+    notification_next_async,
+    notification_channel,
+    notification_payload,
+    notification_process_id,
+    notification_free,
+    notification_close,
+    PostgresNotificationChannel,
+    PostgresNotification,
 } from std.api.db.postgres;
+
+async fn exercise_async(database: PostgresConnection, publisher: PostgresConnection) -> int {
+    let async_insert: PostgresStatement = prepare(database, "INSERT INTO spectra_r2505_fixture(id, name) VALUES($1, $2)");
+    if bind_int(async_insert, 1, 2) != true { return 30; }
+    if bind_text(async_insert, 2, "async") != true { return 31; }
+    if block_on(step_async(async_insert)) != 2 { return 32; }
+    if finalize(async_insert) != true { return 33; }
+
+    if begin(database) != true { return 34; }
+    if savepoint(database, "fixture_nested") != true { return 35; }
+    let rolled_back: PostgresStatement = prepare(database, "INSERT INTO spectra_r2505_fixture(id, name) VALUES(3, 'rollback')");
+    if block_on(step_async(rolled_back)) != 2 { return 36; }
+    if finalize(rolled_back) != true { return 37; }
+    if rollback_to(database, "fixture_nested") != true { return 38; }
+    if release_savepoint(database, "fixture_nested") != true { return 39; }
+    if commit(database) != true { return 40; }
+
+    let copy_schema: PostgresStatement = prepare(database, "CREATE TEMP TABLE spectra_r2505_copy_fixture(id BIGINT, name TEXT)");
+    if block_on(step_async(copy_schema)) != 2 { return 41; }
+    if finalize(copy_schema) != true { return 42; }
+    let copied: int = block_on(copy_in_text_async(
+        database,
+        "COPY spectra_r2505_copy_fixture(id, name) FROM STDIN",
+        "10\tcopy-a\n11\tcopy-b\n"
+    ));
+    if copied != 2 { return 43; }
+    let copy_text: string = block_on(copy_out_text_async(
+        database,
+        "COPY (SELECT id, name FROM spectra_r2505_copy_fixture ORDER BY id) TO STDOUT"
+    ));
+    if copy_text != "10\tcopy-a\n11\tcopy-b\n" { return 44; }
+
+    let channel: PostgresNotificationChannel = listen(database, "spectra_r2505_fixture");
+    if block_on(notify_async(publisher, "spectra_r2505_fixture", "typed-payload")) != true { return 46; }
+    let notification: PostgresNotification = block_on(notification_next_async(channel, 3000));
+    if notification_channel(notification) != "spectra_r2505_fixture" { return 48; }
+    if notification_payload(notification) != "typed-payload" { return 49; }
+    if notification_process_id(notification) <= 0 { return 50; }
+    if notification_free(notification) != true { return 52; }
+    if notification_close(channel) != true { return 51; }
+    return 0;
+}
 
 pub fn main() -> int {
     let database: PostgresConnection = open("__SPECTRA_POSTGRES_URL__");
-    if database == 0 { return 10; }
+    let publisher: PostgresConnection = open("__SPECTRA_POSTGRES_URL__");
     let schema: PostgresStatement = prepare(database, "CREATE TEMP TABLE spectra_r2505_fixture(id BIGINT PRIMARY KEY, name TEXT NOT NULL)");
-    if schema == 0 { return 11; }
     if step(schema) != 2 { return 12; }
     if finalize(schema) != true { return 13; }
     let insert: PostgresStatement = prepare(database, "INSERT INTO spectra_r2505_fixture(id, name) VALUES($1, $2)");
@@ -34,6 +93,9 @@ pub fn main() -> int {
     if column_text(query, 1) != "postgres" { return 21; }
     if step(query) != 2 { return 22; }
     if finalize(query) != true { return 23; }
+    let async_result = block_on(exercise_async(database, publisher));
+    if async_result != 0 { return async_result; }
+    if close(publisher) != true { return 25; }
     if close(database) != true { return 24; }
     return 0;
 }

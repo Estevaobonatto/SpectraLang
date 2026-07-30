@@ -2020,10 +2020,14 @@ test guard with ephemeral collectors for HTTP tracing isolation.
 
 R-2505 is now the active Phase 25 workstream. Its PostgreSQL driver reuses the
 R-2501 pool and R-2502 query contract, exposes real prepared statements and
-transactions, and reserves production promotion for the v2 PostgreSQL 16 CI
-report. That report must prove COPY, LISTEN/NOTIFY, async cancellation,
-independent OTLP decoding, tracing, and HTTP-parent propagation. Local
-environments without PostgreSQL record `skipped_environment`; they do not
+transactions, and now provides bounded cancellable async tasks, incremental
+COPY, typed LISTEN/NOTIFY handles, and driver-owned tracing across the public
+Spectra API. A local PostgreSQL 16.14 run now produces a certifying v2
+`passed` report proving named capability tests, 100,000-row COPY,
+LISTEN/NOTIFY, async cancellation, independent OTLP decoding, tracing, and
+HTTP-parent propagation. Production promotion remains reserved for the
+checked-in PostgreSQL 16 CI lane reproducing and publishing that report.
+Environments without PostgreSQL record `skipped_environment`; they do not
 constitute completion evidence, and R-2505 remains `in_progress`.
 
 R-2507 is the parallel Redis 7 workstream. It reuses the R-2501 pool,

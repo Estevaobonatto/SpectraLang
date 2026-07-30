@@ -1,9 +1,14 @@
-use spectra_db::postgres::{open_pool, PostgresConfig, PostgresConnection, PostgresValue};
+use spectra_db::postgres::{
+    open_pool, PostgresConfig, PostgresConnection, PostgresOperationCancellation, PostgresValue,
+};
 use spectra_db::PoolConfig;
 use spectra_db::query::{Dialect, PostgresDialect};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::future::Future;
+use std::io::Write;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
 use std::time::Duration;
@@ -129,7 +134,7 @@ fn real_postgres_pool_and_async_bridge_when_configured() {
         return;
     };
     let config = PostgresConfig::from_url(&url).unwrap();
-    let pool = open_pool(config, PoolConfig { max_size: 2, ..PoolConfig::default() }).unwrap();
+    let pool = Arc::new(open_pool(config, PoolConfig { max_size: 4, ..PoolConfig::default() }).unwrap());
     let lease = pool.acquire_blocking().unwrap();
     lease.connection().unwrap().health_check().unwrap();
     lease.release().unwrap();
@@ -148,5 +153,174 @@ fn real_postgres_pool_and_async_bridge_when_configured() {
     };
     assert_eq!(result.unwrap().rows.len(), 1);
     connection.close().unwrap();
-    pool.shutdown().unwrap();
+    let readers = (0..8)
+        .map(|expected| {
+            let pool = Arc::clone(&pool);
+            thread::spawn(move || {
+                let lease = pool.acquire_blocking().unwrap();
+                let result = lease
+                    .connection()
+                    .unwrap()
+                    .execute_query(spectra_db::CompiledQuery {
+                        sql: format!("SELECT {expected}::BIGINT"),
+                        params: vec![],
+                    })
+                    .unwrap();
+                assert_eq!(result.rows[0][0], PostgresValue::Int64(expected));
+                lease.release().unwrap();
+            })
+        })
+        .collect::<Vec<_>>();
+    for reader in readers {
+        reader.join().unwrap();
+    }
+    Arc::try_unwrap(pool).ok().unwrap().shutdown().unwrap();
+}
+
+#[test]
+fn real_postgres_async_cancel_is_non_blocking_when_configured() {
+    let Ok(url) = env::var("SPECTRA_POSTGRES_URL") else {
+        eprintln!("skipped_environment: SPECTRA_POSTGRES_URL is not configured");
+        return;
+    };
+    let connection = PostgresConnection::open(PostgresConfig::from_url(&url).unwrap()).unwrap();
+    let mut future = Box::pin(connection.query_async(spectra_db::CompiledQuery {
+        sql: "SELECT pg_sleep(10)::TEXT".into(),
+        params: vec![],
+    }));
+    let waker = noop_waker();
+    let mut context = Context::from_waker(&waker);
+    let started = std::time::Instant::now();
+    assert!(matches!(
+        Future::poll(Pin::as_mut(&mut future), &mut context),
+        Poll::Pending
+    ));
+    assert!(
+        started.elapsed() < Duration::from_millis(50),
+        "poll blocked the caller for {:?}",
+        started.elapsed()
+    );
+    thread::sleep(Duration::from_millis(150));
+    assert!(future.cancel());
+    let cancelled_at = std::time::Instant::now();
+    let error = loop {
+        match Future::poll(Pin::as_mut(&mut future), &mut context) {
+            Poll::Ready(Err(error)) => break error,
+            Poll::Ready(Ok(_)) => panic!("cancelled query completed successfully"),
+            Poll::Pending if cancelled_at.elapsed() < Duration::from_secs(3) => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Poll::Pending => panic!("PostgreSQL cancellation did not complete within 3s"),
+        }
+    };
+    assert_eq!(error.code, "DB2505_CANCELLED_OR_TIMEOUT");
+    connection.health_check().unwrap();
+
+    let mut running = Box::pin(connection.query_async(spectra_db::CompiledQuery {
+        sql: "SELECT pg_sleep(0.5), 42::BIGINT".into(),
+        params: vec![],
+    }));
+    assert!(matches!(
+        Future::poll(Pin::as_mut(&mut running), &mut context),
+        Poll::Pending
+    ));
+    thread::sleep(Duration::from_millis(100));
+    let mut queued = Box::pin(connection.query_async(spectra_db::CompiledQuery {
+        sql: "SELECT pg_sleep(10)::TEXT".into(),
+        params: vec![],
+    }));
+    assert!(
+        queued.cancel(),
+        "cancelling a queued operation should be accepted"
+    );
+    let running_result = loop {
+        match Future::poll(Pin::as_mut(&mut running), &mut context) {
+            Poll::Ready(result) => break result,
+            Poll::Pending => thread::sleep(Duration::from_millis(10)),
+        }
+    };
+    assert_eq!(
+        running_result.unwrap().rows[0][1],
+        PostgresValue::Int64(42),
+        "cancelling a queued task must not cancel the active query"
+    );
+    let queued_error = loop {
+        match Future::poll(Pin::as_mut(&mut queued), &mut context) {
+            Poll::Ready(Err(error)) => break error,
+            Poll::Ready(Ok(_)) => panic!("queued cancelled query completed successfully"),
+            Poll::Pending => thread::sleep(Duration::from_millis(2)),
+        }
+    };
+    assert_eq!(queued_error.code, "DB2505_CANCELLED_OR_TIMEOUT");
+    connection.close().unwrap();
+}
+
+struct HashWriter {
+    bytes: u64,
+    hash: Sha256,
+}
+
+impl Write for HashWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.bytes += buffer.len() as u64;
+        self.hash.update(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn real_postgres_copy_streams_100k_rows_when_configured() {
+    let Ok(url) = env::var("SPECTRA_POSTGRES_URL") else {
+        eprintln!("skipped_environment: SPECTRA_POSTGRES_URL is not configured");
+        return;
+    };
+    let connection = PostgresConnection::open(PostgresConfig::from_url(&url).unwrap()).unwrap();
+    connection
+        .execute_batch("CREATE TEMP TABLE spectra_r2505_stream(id BIGINT, name TEXT)")
+        .unwrap();
+    let rows = (0..100_000).map(|id| {
+        vec![
+            PostgresValue::Int64(id),
+            PostgresValue::Text(format!("stream-{id:06}")),
+        ]
+    });
+    assert_eq!(
+        connection
+            .copy_in_rows("COPY spectra_r2505_stream (id, name) FROM STDIN", rows)
+            .unwrap(),
+        100_000
+    );
+    let mut expected = Sha256::new();
+    let mut expected_bytes = 0u64;
+    for id in 0..100_000 {
+        let line = format!("{id}\tstream-{id:06}\n");
+        expected_bytes += line.len() as u64;
+        expected.update(line.as_bytes());
+    }
+    let mut writer = HashWriter {
+        bytes: 0,
+        hash: Sha256::new(),
+    };
+    let copied = connection
+        .copy_out_to(
+            "COPY (SELECT id, name FROM spectra_r2505_stream ORDER BY id) TO STDOUT",
+            &mut writer,
+        )
+        .unwrap();
+    assert_eq!(copied, expected_bytes);
+    assert_eq!(writer.bytes, expected_bytes);
+    assert_eq!(writer.hash.finalize(), expected.finalize());
+    let limit_error = connection
+        .copy_out_bytes_cancellable_limited(
+            "COPY (SELECT repeat('x', 1024)) TO STDOUT",
+            &PostgresOperationCancellation::new(),
+            16,
+        )
+        .unwrap_err();
+    assert_eq!(limit_error.code, "DB2505_COPY_LIMIT");
+    connection.close().unwrap();
 }

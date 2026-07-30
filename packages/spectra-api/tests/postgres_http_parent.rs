@@ -1,6 +1,6 @@
 use spectra_api::server::{Handler, HttpServer, ServerConfig, ServerResponse};
 use spectra_db::postgres::{PostgresConfig, PostgresConnection};
-use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
+use spectra_runtime::tracing::{self, SpanKind};
 use std::env;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -14,19 +14,9 @@ fn postgres_span_is_child_of_real_http_server_span() {
     let config = tracing::config_new(&endpoint, "spectralang-r2505").unwrap();
     tracing::config_start(config).unwrap();
     let postgres = PostgresConfig::from_url(&url).unwrap();
+    let connection = PostgresConnection::open(postgres).unwrap();
     let handler: Handler = Arc::new(move |_| {
-        let connection = PostgresConnection::open(postgres.clone());
-        let span = tracing::begin_external_span(SpanKind::Internal, "db.postgres.query").ok();
-        let success = connection.as_ref().is_ok_and(|c| c.health_check().is_ok());
-        if let Some(span) = span {
-            let _ = tracing::span_set_attribute(span, "db.system", "postgresql");
-            let _ = tracing::span_set_attribute(span, "db.operation", "SELECT");
-            let _ = tracing::span_set_attribute(span, "server.address", &postgres.host);
-            let _ = tracing::span_set_attribute_int(span, "server.port", postgres.port as i64);
-            let _ = tracing::span_set_attribute(span, "db.namespace", &postgres.database);
-            let _ = tracing::span_set_status(span, if success { SpanStatus::Ok } else { SpanStatus::Error });
-            let _ = tracing::span_end(span);
-        }
+        let success = connection.health_check().is_ok();
         ServerResponse::text(if success { 200 } else { 500 }, "postgres")
     });
     let mut server = HttpServer::start(ServerConfig::default(), handler).unwrap();
