@@ -467,6 +467,10 @@ struct ConcurrentDiagnostics {
     task_polls: AtomicU64,
     task_wakeups: AtomicU64,
     task_joins: AtomicU64,
+    batch_spawn_fast_abi_calls: AtomicU64,
+    batch_join_fast_abi_calls: AtomicU64,
+    batches_created: AtomicU64,
+    batches_joined: AtomicU64,
     tasks_cancelled: AtomicU64,
     tasks_failed: AtomicU64,
     pending_tasks: AtomicU64,
@@ -490,6 +494,10 @@ impl ConcurrentDiagnostics {
             task_polls: AtomicU64::new(0),
             task_wakeups: AtomicU64::new(0),
             task_joins: AtomicU64::new(0),
+            batch_spawn_fast_abi_calls: AtomicU64::new(0),
+            batch_join_fast_abi_calls: AtomicU64::new(0),
+            batches_created: AtomicU64::new(0),
+            batches_joined: AtomicU64::new(0),
             tasks_cancelled: AtomicU64::new(0),
             tasks_failed: AtomicU64::new(0),
             pending_tasks: AtomicU64::new(0),
@@ -515,10 +523,12 @@ fn concurrent_diagnostics() -> Option<&'static ConcurrentDiagnostics> {
 pub fn concurrent_diagnostics_report_json() -> Option<String> {
     let data = concurrent_diagnostics()?;
     Some(format!(
-        "{{\"fused_fast_abi_calls\":{},\"spawn_fast_abi_calls\":{},\"join_fast_abi_calls\":{},\"reset_fast_abi_calls\":{},\"locks_acquired\":{},\"slots_created\":{},\"tasks_counted\":{},\"tasks_created\":{},\"tasks_executed\":{},\"task_polls\":{},\"task_wakeups\":{},\"task_joins\":{},\"tasks_cancelled\":{},\"tasks_failed\":{},\"pending_tasks\":{},\"max_pending_tasks\":{},\"scheduler_ns\":{},\"execution_ns\":{},\"executor_workers\":{}}}",
+        "{{\"fused_fast_abi_calls\":{},\"spawn_fast_abi_calls\":{},\"join_fast_abi_calls\":{},\"batch_spawn_fast_abi_calls\":{},\"batch_join_fast_abi_calls\":{},\"reset_fast_abi_calls\":{},\"locks_acquired\":{},\"slots_created\":{},\"tasks_counted\":{},\"tasks_created\":{},\"tasks_executed\":{},\"task_polls\":{},\"task_wakeups\":{},\"task_joins\":{},\"batches_created\":{},\"batches_joined\":{},\"tasks_cancelled\":{},\"tasks_failed\":{},\"pending_tasks\":{},\"max_pending_tasks\":{},\"scheduler_ns\":{},\"execution_ns\":{},\"executor_workers\":{}}}",
         data.fused_fast_abi_calls.load(Ordering::Relaxed),
         data.spawn_fast_abi_calls.load(Ordering::Relaxed),
         data.join_fast_abi_calls.load(Ordering::Relaxed),
+        data.batch_spawn_fast_abi_calls.load(Ordering::Relaxed),
+        data.batch_join_fast_abi_calls.load(Ordering::Relaxed),
         data.reset_fast_abi_calls.load(Ordering::Relaxed),
         data.locks_acquired.load(Ordering::Relaxed),
         data.slots_created.load(Ordering::Relaxed),
@@ -528,6 +538,8 @@ pub fn concurrent_diagnostics_report_json() -> Option<String> {
         data.task_polls.load(Ordering::Relaxed),
         data.task_wakeups.load(Ordering::Relaxed),
         data.task_joins.load(Ordering::Relaxed),
+        data.batches_created.load(Ordering::Relaxed),
+        data.batches_joined.load(Ordering::Relaxed),
         data.tasks_cancelled.load(Ordering::Relaxed),
         data.tasks_failed.load(Ordering::Relaxed),
         data.pending_tasks.load(Ordering::Relaxed),
@@ -19767,11 +19779,17 @@ pub fn concurrent_spawn_batch_fast(
     first_value: SpectraHostValue,
     count: SpectraHostValue,
 ) -> SpectraHostValue {
+    if let Some(data) = concurrent_diagnostics() {
+        data.batch_spawn_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
+    }
     spawn_concurrent_batch(first_value, count).unwrap_or(0)
 }
 
 /// Fast ABI for joining every task owned by a batch and summing results.
 pub fn concurrent_join_batch_sum_fast(batch_id: SpectraHostValue) -> SpectraHostValue {
+    if let Some(data) = concurrent_diagnostics() {
+        data.batch_join_fast_abi_calls.fetch_add(1, Ordering::Relaxed);
+    }
     join_concurrent_batch_sum(batch_id).unwrap_or(0)
 }
 
@@ -20326,6 +20344,9 @@ impl ConcurrentRegistry {
         self.tasks_spawned = self.tasks_spawned.saturating_add(count as SpectraHostValue);
         let batch = Arc::new(ConcurrentBatch::new(count));
         self.batches.insert(batch_id, Arc::clone(&batch));
+        if let Some(data) = concurrent_diagnostics() {
+            data.batches_created.fetch_add(1, Ordering::Relaxed);
+        }
         (batch_id, batch)
     }
 
@@ -20339,7 +20360,11 @@ impl ConcurrentRegistry {
     fn release_batch(&mut self, batch_id: SpectraHostValue) -> Result<(), i32> {
         self.batches
             .remove(&batch_id)
-            .map(|_| ())
+            .map(|_| {
+                if let Some(data) = concurrent_diagnostics() {
+                    data.batches_joined.fetch_add(1, Ordering::Relaxed);
+                }
+            })
             .ok_or(HOST_STATUS_NOT_FOUND)
     }
 }
@@ -25077,6 +25102,27 @@ mod tests {
             call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
             (HOST_STATUS_SUCCESS, 10)
         );
+    }
+
+    #[test]
+    fn concurrent_batch_contract_repeats_without_leaking_batches() {
+        let _lock = test_guard();
+        clear_host_functions();
+        register();
+
+        assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
+        let total = (0..10)
+            .map(|_| {
+                let batch = concurrent_spawn_batch_fast(1, 10);
+                assert!(batch > 0);
+                concurrent_join_batch_sum_fast(batch)
+            })
+            .sum::<i64>();
+        assert_eq!(total, 550);
+        let registry = lock_concurrent_registry().expect("registry should not be poisoned");
+        assert!(registry.batches.is_empty(), "joined batches must be released");
+        drop(registry);
+        assert_eq!(call_host(CONCURRENT_PIPELINE_SUM, &[1, 100, 4]), (HOST_STATUS_SUCCESS, 5050));
     }
 
     #[test]

@@ -4748,10 +4748,10 @@ title = "Async Echo Stable Regression Triage"
 phase = "phase_31"
 owner = "backend"
 priority = "P0"
-status = "complete"
+status = "in_progress"
 risk = "high"
 dependencies = ["R-3120"]
-summary = "Correct the async-echo semantic mismatch with real scheduler fan-out/fan-in, preserve the eager-value compatibility path, and certify paired release parity against Go without changing the historical baseline."
+summary = "Historical async-echo triage remains preserved, but its parity acceptance is reopened because current-revision reports must be reconciled against the real batch contract by R-3133."
 acceptance = [
   "two controlled Phase 31 reports and the focused async-echo report are preserved as evidence",
   "scripts/diagnose_async_echo.py produces reproducible startup, reset, spawn, join, spawn+join, and full-workload reports with binary/profile/revision/host/command/median/stddev metadata",
@@ -4760,7 +4760,27 @@ acceptance = [
   "if compiler/backend/runtime is responsible, a targeted fix and async-echo regression test are added",
   "immediate concurrent task values remain API-compatible while executable batches use a persistent two-worker scheduler with pending, ready, failed, and cancelled state coverage",
   "if benchmark/environment is responsible, methodology and harness are corrected without changing the baseline to hide the result",
-  "two complete release reports keep paired Spectra/Go ratio within 0.95..1.05, paired variation within 10%, max pending tasks at 10, and all task failures at zero"
+  "historical evidence remains marked historical and a current-revision reconciliation proves paired Spectra/Go ratio within 0.95..1.05, paired variation within 10%, max pending tasks at 10, and all task failures at zero"
+]
+
+[[items]]
+id = "R-3133"
+title = "Async Echo Current-Revision Parity Reconciliation"
+phase = "phase_31"
+owner = "backend"
+priority = "P0"
+status = "in_progress"
+risk = "high"
+dependencies = ["R-3130", "R-3131", "R-3132"]
+summary = "Renew async-echo evidence at the current Git revision using the real task_spawn_batch/task_join_batch_sum workload, classify the discrepancy without changing the baseline, and close only after reproducible batch diagnostics and strict parity gates pass."
+acceptance = [
+  "scripts/diagnose_async_echo.py publishes spectra.phase31.async_echo_diagnostics.v2 with legacy variants plus batch-reset-only, batch-spawn-only, batch-join-only, batch-full, and batch-full-no-reset",
+  "diagnostics record fanout_fanin_real_concurrency.v2, current revision, release binary/profile, commands, warmups, samples, median, p95, dispersion, locks, scheduler_ns, execution_ns, task, and batch metrics",
+  "two current-revision release reports are semantically compatible, all 21 scenarios pass correctness, async-echo is within 0.95..1.05 against Go, paired dispersion is at most 10%, and async-pipeline drift is at most 5%",
+  "the deterministic cause classification is benchmark_process_startup, benchmark_contract, external_noise, compiler_backend_lowering, or runtime_batch_path and never claims causal profiling without an official perf artifact",
+  "baseline.json remains byte-for-byte unchanged and historical R-3131/R-3132 evidence remains preserved and explicitly historical",
+  "the focused gate run_tests.ps1 -Phase phase31_r3133_async_echo executes unit tests, roadmap/report validation, evidence generation, and git diff --check",
+  "R-3103 remains in_progress until tensor-create is conclusive and R-3104 remains not_started until R-3103 passes its gates"
 ]
 
 

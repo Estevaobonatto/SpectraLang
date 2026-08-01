@@ -55,6 +55,21 @@ or a report failure. Therefore a blocked evidence file is still useful: it
 describes the exact remaining gate without silently upgrading a hypothesis to
 fact.
 
+## R-3133 async-echo reconciliation
+
+R-3133 renews the async evidence independently of this optimization matrix.
+The current reports at revision `95b04bdead6e60207c0fdf9688ef6de774dc87a1`
+use the real `fanout_fanin_real_concurrency.v2` batch path and are preserved in
+`evidence-r3133-async-echo.{json,md}`. They are semantically compatible, but
+currently blocked at `1.149x` and `1.137x` against Go; paired dispersion is
+`4.087%` and `2.358%`. The v2 diagnostic confirms 1,000 batch spawns and
+joins, 10,002 executed tasks, `max_pending_tasks=10`, and zero task failures.
+The deterministic classification is `runtime_batch_path` (hypothesis only;
+no causal profiler claim). `async-pipeline` is faster than its immutable
+baseline in both reports, so it does not count as a regression. This does not
+authorize R-3104 or a baseline change. Historical R-3131
+and R-3132 evidence remains preserved and explicitly historical.
+
 ## Prioritized implementation matrix
 
 | ID | Cenário(s) afetado(s) | Evidência atual | Hipótese de gargalo (confiança) | Intervenção planejada | Métrica primária | Ganho esperado | Risco de rejeição | Critério de rollback | Dependências | Comando de validação |

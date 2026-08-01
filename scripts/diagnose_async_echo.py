@@ -110,6 +110,94 @@ pub fn main() -> int {{
     }}
     return 0;
 }}""",
+    # These variants exercise the exact batch API used by the current
+    # fanout_fanin_real_concurrency.v2 benchmark.  The setup-only variants
+    # deliberately document their cleanup semantics instead of pretending
+    # that a batch can be spawned without being released or cancelled.
+    "batch-reset-only": f"""module async_echo_batch_reset_only;
+import std.concurrent as concurrent;
+pub fn main() -> int {{
+    let i = 0;
+    while i < {OUTER * INNER} {{ concurrent.reset(); i = i + 1; }}
+    return 0;
+}}""",
+    "batch-spawn-only": f"""module async_echo_batch_spawn_only;
+import std.concurrent as concurrent;
+pub fn main() -> int {{
+    let i = 0;
+    while i < {OUTER} {{
+        concurrent.reset();
+        let batch = concurrent.task_spawn_batch(1, {INNER});
+        concurrent.reset();
+        if batch < 0 {{ return 1; }}
+        i = i + 1;
+    }}
+    return 0;
+}}""",
+    "batch-join-only": f"""module async_echo_batch_join_only;
+import std.concurrent as concurrent;
+pub fn main() -> int {{
+    let i = 0;
+    while i < {OUTER} {{
+        let batch = concurrent.task_spawn_batch(1, {INNER});
+        if concurrent.task_join_batch_sum(batch) != 55 {{ return 1; }}
+        i = i + 1;
+    }}
+    return 0;
+}}""",
+    "batch-full": f"""module async_echo_batch_full;
+import std.concurrent as concurrent;
+pub fn main() -> int {{
+    let iters = {OUTER};
+    let total = 0;
+    let i = 0;
+    while i < iters {{
+        concurrent.reset();
+        let batch = concurrent.task_spawn_batch(1, {INNER});
+        let local = concurrent.task_join_batch_sum(batch);
+        total = total + local;
+        i = i + 1;
+    }}
+    if total == {OUTER * 55} {{ return 0; }}
+    return 1;
+}}""",
+    "batch-full-no-reset": f"""module async_echo_batch_full_no_reset;
+import std.concurrent as concurrent;
+pub fn main() -> int {{
+    let iters = {OUTER};
+    let total = 0;
+    let i = 0;
+    while i < iters {{
+        let batch = concurrent.task_spawn_batch(1, {INNER});
+        let local = concurrent.task_join_batch_sum(batch);
+        total = total + local;
+        i = i + 1;
+    }}
+    if total == {OUTER * 55} {{ return 0; }}
+    return 1;
+}}""",
+}
+
+BATCH_VARIANTS = {
+    "batch-reset-only",
+    "batch-spawn-only",
+    "batch-join-only",
+    "batch-full",
+    "batch-full-no-reset",
+}
+
+DIAGNOSTIC_VARIANTS = {
+    "spawn-only",
+    "join-only",
+    "spawn-join",
+    "fused",
+    "full",
+    *BATCH_VARIANTS,
+}
+
+VARIANT_CONTRACTS = {
+    **{name: "legacy_single_task" for name in FIXTURES if name not in BATCH_VARIANTS},
+    **{name: "fanout_fanin_real_concurrency.v2" for name in BATCH_VARIANTS},
 }
 
 
@@ -191,18 +279,22 @@ def main() -> int:
         ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout.strip() or "unknown"
     report = {
-        "schema": "spectra.phase31.async_echo_diagnostics.v1",
+        "schema": "spectra.phase31.async_echo_diagnostics.v2",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "git_revision": revision,
         "spectra_binary": str(binary.resolve()),
         "profile": args.profile,
         "reference_runtime": "go",
+        "workload_contract": "fanout_fanin_real_concurrency.v2",
         "host": {"platform": platform.platform(), "processor": platform.processor()},
         "workload": {"outer": OUTER, "inner": INNER, "task_pairs": OUTER * INNER},
         "expected_diagnostics": {
-            "fused_fast_abi_calls": OUTER * INNER,
-            "task_slots_created_by_fused_path": 0,
-            "tasks_counted": OUTER * INNER,
+            "legacy_fused_fast_abi_calls": OUTER * INNER,
+            "batch_fast_abi_calls": OUTER,
+            "batch_tasks_per_iteration": INNER,
+            "batch_expected_result": OUTER * 55,
+            "task_slots_created_by_batch_path": 1,
+            "tasks_counted": OUTER * INNER + 2,
         },
         "measurement_policy": {"warmup_runs": WARMUPS, "timed_runs": SAMPLES},
         "variants": {},
@@ -211,9 +303,11 @@ def main() -> int:
         fixture = OUT_DIR / f"{name}.spectra"
         fixture.write_text(source + "\n", encoding="utf-8")
         cmd = [str(binary.resolve()), "run", str(fixture.resolve())]
-        result = measure(cmd, args.timeout, diagnostics=name in {"spawn-only", "join-only", "spawn-join", "fused", "full"})
+        result = measure(cmd, args.timeout, diagnostics=name in DIAGNOSTIC_VARIANTS)
         result["command"] = cmd
         result["fixture"] = str(fixture.relative_to(ROOT))
+        result["contract"] = VARIANT_CONTRACTS[name]
+        result["process_inclusive"] = True
         report["variants"][name] = result
         print(f"[async-echo] {name}: {result.get('median_ns', 'FAILED')} ns", flush=True)
 
@@ -224,7 +318,7 @@ def main() -> int:
     if go_binary.exists():
         go_result = measure([str(go_binary.resolve())], args.timeout)
         report["go"] = {"binary": str(go_binary.resolve()), **go_result}
-        full = report["variants"].get("full", {})
+        full = report["variants"].get("batch-full", {})
         if go_result.get("median_ns") and full.get("median_ns"):
             report["comparison"] = {
                 "reference_runtime": "go",

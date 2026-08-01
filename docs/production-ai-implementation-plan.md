@@ -2208,11 +2208,11 @@ fast while preserving the full performance contract.
 The semantic mismatch in `async-echo` was corrected with a real fan-out/fan-in
 contract: ten executable task units are registered before joining, the runtime
 uses a persistent worker pool, and diagnostics prove a maximum of ten pending
-tasks. Two complete release reports passed all 21 scenarios and the bilateral
-Go window: ratios `1.025752` and `1.048312`, with paired variation `3.4373%`
-and `2.5242%`. Their semantic comparison passed. The historical Spectra
-baseline remains unchanged. `R-3131`, `R-3130`, and the dependent `R-2013` are
-complete.
+tasks. The earlier `R-3131` reports (`1.025752` and `1.048312`) are preserved
+as historical evidence from revision `bd48a6b`, but current reports at the
+later HEAD contradicted that parity window. `R-3131` is therefore reopened by
+`R-3133`, while `R-3130` and the dependent `R-2013` remain complete. The
+historical Spectra baseline remains unchanged.
 
 The Phase 31 work now distinguishes two independent evidence products. R-3103
 certifies functional/performance repeatability and an executable optimization
@@ -2223,6 +2223,21 @@ hotspot. R-3102 remains `in_progress` as the later Linux `perf`/FlameGraph
 attribution track; its environmental blocker does not prevent R-3103 from
 closing once the benchmark and IR gates pass. The baseline is immutable, and
 the five-independent-attempt policy is retained for standalone certification.
+
+`R-3133` is the current-revision reconciliation gate for this contract. It
+measures the exact `task_spawn_batch`/`task_join_batch_sum` path through
+`batch-reset-only`, `batch-spawn-only`, `batch-join-only`, `batch-full`, and
+`batch-full-no-reset`, while preserving the legacy diagnostic variants. Its
+versioned schema records process-inclusive medians, p95, dispersion, revision,
+commands, and internal locks/scheduler/execution/task/batch counters. The
+classification is deterministic (`compiler_backend_lowering`,
+`runtime_batch_path`, `benchmark_process_startup`, `external_noise`, or
+`benchmark_contract`); benchmark timing is hypothesis evidence, never causal
+profiler attribution. A runtime/backend finding may receive only a narrow fix
+with a regression fixture. Startup, contract, and noise findings remain
+follow-up work without baseline or silent 5% contract changes. `R-3104` stays
+not started until `R-3103` has passed its benchmark+IR gates, including a
+conclusive `tensor-create` result.
 
 R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
 run in separate serialized commands with per-step timeouts and captured output,

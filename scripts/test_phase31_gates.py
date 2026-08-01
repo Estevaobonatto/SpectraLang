@@ -275,7 +275,19 @@ class Phase31GateTests(unittest.TestCase):
     def test_async_echo_diagnostic_contract_has_required_variants(self) -> None:
         self.assertEqual(
             set(async_echo_diagnostics.FIXTURES),
-        {"startup", "reset-only", "spawn-only", "join-only", "spawn-join", "fused", "full"},
+            {
+                "startup", "reset-only", "spawn-only", "join-only", "spawn-join",
+                "fused", "full", "batch-reset-only", "batch-spawn-only",
+                "batch-join-only", "batch-full", "batch-full-no-reset",
+            },
+        )
+        self.assertEqual(async_echo_diagnostics.BATCH_VARIANTS, {
+            "batch-reset-only", "batch-spawn-only", "batch-join-only",
+            "batch-full", "batch-full-no-reset",
+        })
+        self.assertEqual(
+            async_echo_diagnostics.VARIANT_CONTRACTS["batch-full"],
+            "fanout_fanin_real_concurrency.v2",
         )
         self.assertEqual(
             async_echo_diagnostics.OUTER * async_echo_diagnostics.INNER,

@@ -8658,8 +8658,10 @@ baseline: 38.8M ns.
 - `target/phase31/r3130-final-run-1.json`: runner and validator PASS.
 - `target/phase31/r3130-final-run-2.json`: runner and validator PASS.
 - Semantic comparison: `PASS: semantic Phase 31 evidence matches`.
-- `async-echo` ratios: `1.025752` and `1.048312`; paired variation `3.44%`
-  and `2.52%`; `max_pending_tasks=10`; zero task failures.
+- Historical `async-echo` ratios: `1.025752` and `1.048312`; paired variation
+  `3.44%` and `2.52%`; `max_pending_tasks=10`; zero task failures. These
+  values are retained as R-3131/R-3132 context and are superseded for the
+  current revision by R-3133.
 - Final `run_tests.ps1`: exit code 0 in 370 seconds; Phase 31 functional gate
   approximately 40 seconds. Historical baseline unchanged.
 
@@ -8693,7 +8695,7 @@ R-3131 real-concurrency/Go-parity evidence.
 
 ## R-3131 Async Echo Stable Regression Triage
 
-- Status: `complete`
+- Status: `in_progress` (historical acceptance reopened by R-3133)
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3120`
@@ -8701,11 +8703,42 @@ R-3131 real-concurrency/Go-parity evidence.
 Root cause was semantic: Go created ten goroutines before fan-in while Spectra
 materialized values eagerly. `async-echo v2` now schedules ten task units on a
 persistent two-worker executor before join. Compatibility `task_spawn(value)`
-and conservative fused immediate spawn/join remain available. Runtime metrics
-prove `max_pending_tasks=10`, 10,002 executed tasks including fixture setup,
-zero failures, and deterministic fan-in. Two full release reports pass Go
-parity at `1.025752` and `1.048312`, with paired variation `3.44%` and `2.52%`.
-Baseline remains unchanged because v1 and v2 benchmark semantics differ.
+and conservative fused immediate spawn/join remain available. The checked-in
+reports at the historical `bd48a6b` revision remain preserved, but their
+`1.025752`/`1.048312` parity claim is not current evidence: R-3133 must rerun
+the real `task_spawn_batch`/`task_join_batch_sum` contract at the current HEAD.
+The baseline remains unchanged; no current parity claim is promoted until the
+reconciliation gate passes.
+
+## R-3133 Async Echo Current-Revision Parity Reconciliation
+
+- Status: `in_progress`
+- Priority: `P0`
+- Owner: `backend`
+- Risk: `high`
+- Dependencies: `R-3130`, `R-3131`, `R-3132`
+
+R-3133 separates current evidence reconciliation from the historical R-3131
+triage. It extends `scripts/diagnose_async_echo.py` with the exact batch
+variants used by the benchmark (`batch-reset-only`, `batch-spawn-only`,
+`batch-join-only`, `batch-full`, and `batch-full-no-reset`) and publishes
+`spectra.phase31.async_echo_diagnostics.v2`. Every diagnostic and release report
+must identify the current Git revision, release binary/profile, commands,
+measurement policy, medians/p95/dispersion, and batch scheduler metrics.
+
+The deterministic classification is one of `compiler_backend_lowering`,
+`runtime_batch_path`, `benchmark_process_startup`, `external_noise`, or
+`benchmark_contract`. Timing is evidence for a hypothesis only; it is not a
+causal profiler claim. A runtime/backend result may receive only a narrow batch
+fix with a regression fixture. Startup, contract, or noise findings open a
+follow-up without changing optimization code or `baseline.json`.
+
+Acceptance requires two semantically compatible five-attempt release reports,
+all 21 scenarios correct, `async-echo` in `0.95..1.05` against Go, paired
+dispersion at most 10%, `async-pipeline` drift at most 5%, current-revision
+metadata everywhere, and byte-for-byte baseline preservation. The focused gate
+is `run_tests.ps1 -Phase phase31_r3133_async_echo`. R-3103 remains `in_progress`
+until `tensor-create` is conclusive, and R-3104 remains `not_started`.
 
 ## Execution Order
 
@@ -8713,13 +8746,15 @@ Baseline remains unchanged because v1 and v2 benchmark semantics differ.
 2. **R-3102** (profiling): precisa de R-3101 pronto.
 3. **R-3103** (plano benchmark + IR): precisa de R-3101; profiling causal de
    R-3102 permanece paralelo e `in_progress`.
-4. **Fase B (R-3104, R-3105)**: backend hot path.
-5. **Fase C (R-3106, R-3107)**: midend + buffer reuse.
-6. **Fase D (R-3108, R-3109)**: string + autodiff inference.
-7. **Fase E (R-3110, R-3111, R-3112)**: SIMD + matmul + conv.
-8. **Fase F (R-3113, R-3114)**: reactor async.
-9. **Fase G (R-3115, R-3116, R-3117)**: compiler opts.
-10. **Final**: re-run todos os gates e publicar parity report; o baseline só
+4. **R-3133**: reconcile current async-echo batch evidence before selecting
+   the next optimization.
+5. **Fase B (R-3104, R-3105)**: backend hot path, only after R-3103 passes.
+6. **Fase C (R-3106, R-3107)**: midend + buffer reuse.
+7. **Fase D (R-3108, R-3109)**: string + autodiff inference.
+8. **Fase E (R-3110, R-3111, R-3112)**: SIMD + matmul + conv.
+9. **Fase F (R-3113, R-3114)**: reactor async.
+10. **Fase G (R-3115, R-3116, R-3117)**: compiler opts.
+11. **Final**: re-run todos os gates e publicar parity report; o baseline só
     pode ser atualizado em uma mudança posterior, explicitamente aprovada e
     com evidência de estabilidade.
 

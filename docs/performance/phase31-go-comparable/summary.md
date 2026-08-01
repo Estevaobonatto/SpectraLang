@@ -1,8 +1,9 @@
 # Phase 31 Implementation Summary
 
-Updated: 2026-07-13
-Roadmap items: `R-3101`, `R-3108`, `R-3130`, `R-3131`, and `R-3132`
-are complete. Remaining item statuses are tracked authoritatively in
+Updated: 2026-08-01
+Roadmap items: `R-3101`, `R-3108`, `R-3130`, and `R-3132` are complete.
+`R-3131` is reopened as `in_progress` for current-revision reconciliation by
+`R-3133`; remaining item statuses are tracked authoritatively in
 `roadmap/roadmap.toml`.
 
 ## What Was Built
@@ -40,8 +41,10 @@ are complete. Remaining item statuses are tracked authoritatively in
 
 Values below are checked-in historical reference values, not a claim that the
 current working tree passes the gate. Current controlled evidence is recorded
-in `evidence-r3130-controlled-2026-07-13.md` and diagnostic JSON under
-`target/phase31/async-echo-diagnostics/`.
+in the versioned R-3133 artifacts `evidence-r3133-async-echo.{json,md}` once
+its focused gate passes. Diagnostic JSON is under
+`target/phase31/async-echo-diagnostics/`. The earlier R-3131 and R-3132
+reports remain historical evidence and are not silently rewritten.
 
 | scenario | gap vs Go | gap vs Rust |
 |---|---:|---:|
@@ -71,7 +74,7 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 6. R-3110 (SIMD elementwise)
 7. R-3111 (tiled matmul)
 8. R-3109 (autodiff inference skip)
-9. R-3131 (complete: real async-echo fan-out/fan-in parity)
+9. R-3133 (current async-echo batch reconciliation; R-3131 historical evidence)
 10. R-3115 / R-3116 / R-3117 (compiler + cranelift)
 11. R-3112 (im2col + GEMM)
 12. R-3113 / R-3114 (async)
@@ -79,12 +82,16 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 ## Acceptance Evidence
 
 - `python scripts/phase31_run_all.py` — full 21-scenario run completes.
-- Two release certifications pass all scenarios and the `async-echo` ±5% Go
-  parity contract; see `r3130-final-run-1.json` and `r3130-final-run-2.json`.
+- Historical release certifications are retained as context only. The current
+  R-3133 reports are `r3133-release-run-1.json` and
+  `r3133-release-run-2.json`; their evidence is blocked by async-echo parity.
+  `async-pipeline` is faster than its immutable baseline in both reports and
+  is not a regression; neither report is a passing certification overall.
 - `python scripts/phase31_run_all.py --code-validation ...` plus the matching
   validator is the repository correctness gate and completes in about 40 s.
-- `python scripts/validate_phase31_cross_lang.py --max-drift 5` — strict mode
-  for CI on a pinned machine.
+- `python scripts/validate_phase31_cross_lang.py --strict --max-drift 5` —
+  strict mode for CI on a pinned machine; the current R-3133 reports document
+  the failed async-echo and async-pipeline gates without changing the baseline.
 - Gate wired into `run_tests.ps1` (line ~1325).
 - `run_tests.ps1` continues to run all other gates (R-1501, R-2006, R-2111,
   etc.) without regression.
