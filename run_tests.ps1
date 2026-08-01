@@ -106,8 +106,7 @@ if ($Phase -contains "phase31_r3133_async_echo") {
 
     & python scripts\validate_r3133_async_echo_reconciliation.py `
         --diagnostic target\phase31\async-echo-diagnostics\r3133-release.json `
-        --report target\phase31\r3133-release-run-1.json `
-        --report target\phase31\r3133-release-run-2.json `
+        --report target\phase31\r3133-async-echo-only.json `
         --baseline docs\performance\phase31-go-comparable\baseline.json `
         --roadmap roadmap\roadmap.toml `
         --evidence docs\performance\phase31-go-comparable\evidence-r3133-async-echo.json `

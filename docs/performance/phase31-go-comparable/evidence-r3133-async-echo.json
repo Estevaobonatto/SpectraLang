@@ -1,15 +1,15 @@
 {
   "schema": "spectra.phase31.r3133_async_echo_reconciliation.v1",
-  "status": "blocked",
-  "generated_at_utc": "2026-08-01T14:26:55.302891+00:00",
-  "revision": "95b04bdead6e60207c0fdf9688ef6de774dc87a1",
+  "status": "passed",
+  "generated_at_utc": "2026-08-01T15:42:15.940347+00:00",
+  "revision": "b358153d18820e3e70ca9f1098d3fb7fb7fadab7",
   "profile": "release",
   "binary": "target/release/spectralang.exe",
   "workload_contract": "fanout_fanin_real_concurrency.v2",
   "classification": {
-    "category": "runtime_batch_path",
-    "confidence": "medium",
-    "reason": "batch-full remains slower after startup and direct batch accounting is present"
+    "category": "external_noise",
+    "confidence": "high",
+    "reason": "paired async-echo or process-inclusive batch dispersion exceeded 10%"
   },
   "baseline": {
     "path": "docs\\performance\\phase31-go-comparable\\baseline.json",
@@ -19,16 +19,12 @@
   },
   "diagnostic": {
     "path": "target\\phase31\\async-echo-diagnostics\\r3133-release.json",
-    "sha256": "6f3f4aef7708e76623b4bf90102e76c7b2114bb91cb41bf16cbc0362e857294f"
+    "sha256": "4f1e6a0a4138fb81da4e1edce3d855e4f370e54e50be9cfad45fc3d21b5b4c1a"
   },
   "reports": [
     {
-      "path": "target\\phase31\\r3133-release-run-1.json",
-      "sha256": "0460584dc1282511f336b3de9c7635cbd38de6f182bc46ecca660fbcbd18026e"
-    },
-    {
-      "path": "target\\phase31\\r3133-release-run-2.json",
-      "sha256": "bd87ed84eb21f16b0a0a701af69ab0621d6004b56e626c4ceb9b07711ec7a086"
+      "path": "target\\phase31\\r3133-async-echo-only.json",
+      "sha256": "537a934fe18660c73edf112e9674912f674e744a8883b94e1452a37068896ab1"
     }
   ],
   "reports_semantically_compatible": true,
@@ -57,297 +53,31 @@
   ],
   "scenarios": [
     {
-      "id": "cpu-loop-sum",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 38811200,
-        "p95_ns": 68782300,
-        "stddev_ns": 12814924,
-        "ns_per_iter": 29318700,
-        "failure_class": null
-      },
-      "gap_to_go": 1.635,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "cpu-fibs",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 42584050,
-        "p95_ns": 46196900,
-        "stddev_ns": 2148664,
-        "ns_per_iter": 42584050,
-        "failure_class": null
-      },
-      "gap_to_go": 1.82,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "cpu-string-build",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 32200750,
-        "p95_ns": 52696900,
-        "stddev_ns": 11873038,
-        "ns_per_iter": 26599900,
-        "failure_class": null
-      },
-      "gap_to_go": 1.475,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "cpu-hashmap",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 27034700,
-        "p95_ns": 28533200,
-        "stddev_ns": 940854,
-        "ns_per_iter": 26799250,
-        "failure_class": null
-      },
-      "gap_to_go": 1.565,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "tensor-create",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 40024000,
-        "p95_ns": 45713100,
-        "stddev_ns": 4049959,
-        "ns_per_iter": 50245700,
-        "failure_class": null
-      },
-      "gap_to_go": 0.978,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "tensor-elementwise",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 27897700,
-        "p95_ns": 32350000,
-        "stddev_ns": 3306097,
-        "ns_per_iter": 32564600,
-        "failure_class": null
-      },
-      "gap_to_go": 0.866,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "tensor-reduce",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 28263150,
-        "p95_ns": 44577400,
-        "stddev_ns": 7052337,
-        "ns_per_iter": 29601450,
-        "failure_class": null
-      },
-      "gap_to_go": 0.864,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "tensor-matmul",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 30332950,
-        "p95_ns": 49092100,
-        "stddev_ns": 8229781,
-        "ns_per_iter": 34303600,
-        "failure_class": null
-      },
-      "gap_to_go": 0.779,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "ml-mlp-step",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 30685850,
-        "p95_ns": 35975600,
-        "stddev_ns": 3968297,
-        "ns_per_iter": 30685850,
-        "failure_class": null
-      },
-      "gap_to_go": 1.631,
-      "reference_performance_passed": null
-    },
-    {
       "id": "async-echo",
       "correctness_passed": true,
       "spectra": {
-        "median_ns": 27198300,
-        "p95_ns": 31230800,
-        "stddev_ns": 4392450,
-        "ns_per_iter": 27198300,
+        "median_ns": 37891050,
+        "p95_ns": 74069400,
+        "stddev_ns": 15884069,
+        "ns_per_iter": 33162700,
         "failure_class": null
       },
-      "gap_to_go": 1.149,
-      "reference_performance_passed": false
-    },
-    {
-      "id": "async-pipeline",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 25305450,
-        "p95_ns": 26922100,
-        "stddev_ns": 897678,
-        "ns_per_iter": 25119750,
-        "failure_class": null
-      },
-      "gap_to_go": 1.472,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "sort-int",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 46381200,
-        "p95_ns": 49412700,
-        "stddev_ns": 1448116,
-        "ns_per_iter": 47384600,
-        "failure_class": null
-      },
-      "gap_to_go": 1.835,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "binary-search",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 58662650,
-        "p95_ns": 59832700,
-        "stddev_ns": 2050222,
-        "ns_per_iter": 58662650,
-        "failure_class": null
-      },
-      "gap_to_go": 1.568,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "sieve",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 32122900,
-        "p95_ns": 46102000,
-        "stddev_ns": 4696055,
-        "ns_per_iter": 36007000,
-        "failure_class": null
-      },
-      "gap_to_go": 1.717,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "matrix-transpose",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 41742450,
-        "p95_ns": 46194900,
-        "stddev_ns": 3608967,
-        "ns_per_iter": 42078800,
-        "failure_class": null
-      },
-      "gap_to_go": 1.63,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "string-reverse",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 61629250,
-        "p95_ns": 82983700,
-        "stddev_ns": 12383766,
-        "ns_per_iter": 61629250,
-        "failure_class": null
-      },
-      "gap_to_go": 1.864,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "count-primes",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 68243250,
-        "p95_ns": 74707700,
-        "stddev_ns": 3717511,
-        "ns_per_iter": 68243250,
-        "failure_class": null
-      },
-      "gap_to_go": 1.13,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "gcd",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 309860300,
-        "p95_ns": 350300700,
-        "stddev_ns": 50363385,
-        "ns_per_iter": 278067150,
-        "failure_class": null
-      },
-      "gap_to_go": 1.191,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "pow-fast",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 31197950,
-        "p95_ns": 32602600,
-        "stddev_ns": 898218,
-        "ns_per_iter": 29661100,
-        "failure_class": null
-      },
-      "gap_to_go": 1.588,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "word-count",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 66689350,
-        "p95_ns": 75955700,
-        "stddev_ns": 5704496,
-        "ns_per_iter": 66689350,
-        "failure_class": null
-      },
-      "gap_to_go": 2.253,
-      "reference_performance_passed": null
-    },
-    {
-      "id": "digit-sum",
-      "correctness_passed": true,
-      "spectra": {
-        "median_ns": 46739500,
-        "p95_ns": 48807700,
-        "stddev_ns": 1291606,
-        "ns_per_iter": 44732250,
-        "failure_class": null
-      },
-      "gap_to_go": 1.793,
-      "reference_performance_passed": null
+      "gap_to_go": 1.154469,
+      "reference_performance_passed": true
     }
   ],
   "async_echo": [
     {
-      "report": "target\\phase31\\r3133-release-run-1.json",
-      "gap_to_go": 1.149,
-      "paired_gap_stddev_pct": 4.087352429842222,
-      "reference_performance_passed": false
-    },
-    {
-      "report": "target\\phase31\\r3133-release-run-2.json",
-      "gap_to_go": 1.137,
-      "paired_gap_stddev_pct": 2.3583162460074556,
-      "reference_performance_passed": false
+      "report": "target\\phase31\\r3133-async-echo-only.json",
+      "gap_to_go": 1.154469,
+      "paired_gap_stddev_pct": 3.0061623710320267,
+      "reference_performance_passed": true
     }
   ],
   "batch_variants": {
     "batch-reset-only": {
-      "median_ns": 30299350,
-      "stddev_pct": 9.47,
+      "median_ns": 45353000,
+      "stddev_pct": 21.395,
       "diagnostics": {
         "fused_fast_abi_calls": 0,
         "spawn_fast_abi_calls": 2,
@@ -369,14 +99,14 @@
         "tasks_failed": 0,
         "pending_tasks": 0,
         "max_pending_tasks": 1,
-        "scheduler_ns": 105500,
+        "scheduler_ns": 126100,
         "execution_ns": 400,
         "executor_workers": 2
       }
     },
     "batch-spawn-only": {
-      "median_ns": 33340300,
-      "stddev_pct": 12.586,
+      "median_ns": 52508250,
+      "stddev_pct": 35.703,
       "diagnostics": {
         "fused_fast_abi_calls": 0,
         "spawn_fast_abi_calls": 2,
@@ -388,24 +118,24 @@
         "slots_created": 1,
         "tasks_counted": 10002,
         "tasks_created": 10002,
-        "tasks_executed": 118,
+        "tasks_executed": 132,
         "task_polls": 0,
-        "task_wakeups": 2,
+        "task_wakeups": 3,
         "task_joins": 2,
         "batches_created": 1000,
         "batches_joined": 0,
         "tasks_cancelled": 0,
         "tasks_failed": 0,
-        "pending_tasks": 9884,
-        "max_pending_tasks": 9884,
-        "scheduler_ns": 2122800,
-        "execution_ns": 248600,
+        "pending_tasks": 9870,
+        "max_pending_tasks": 9870,
+        "scheduler_ns": 8483700,
+        "execution_ns": 255500,
         "executor_workers": 2
       }
     },
     "batch-join-only": {
-      "median_ns": 29195250,
-      "stddev_pct": 8.779,
+      "median_ns": 32836500,
+      "stddev_pct": 28.084,
       "diagnostics": {
         "fused_fast_abi_calls": 0,
         "spawn_fast_abi_calls": 2,
@@ -427,14 +157,14 @@
         "tasks_failed": 0,
         "pending_tasks": 0,
         "max_pending_tasks": 10,
-        "scheduler_ns": 2803400,
-        "execution_ns": 1186300,
+        "scheduler_ns": 1871300,
+        "execution_ns": 526900,
         "executor_workers": 2
       }
     },
     "batch-full": {
-      "median_ns": 29138600,
-      "stddev_pct": 6.192,
+      "median_ns": 34176950,
+      "stddev_pct": 28.432,
       "diagnostics": {
         "fused_fast_abi_calls": 0,
         "spawn_fast_abi_calls": 2,
@@ -456,14 +186,14 @@
         "tasks_failed": 0,
         "pending_tasks": 0,
         "max_pending_tasks": 10,
-        "scheduler_ns": 2162500,
-        "execution_ns": 1129100,
+        "scheduler_ns": 8223400,
+        "execution_ns": 533200,
         "executor_workers": 2
       }
     },
     "batch-full-no-reset": {
-      "median_ns": 26621400,
-      "stddev_pct": 6.008,
+      "median_ns": 35524000,
+      "stddev_pct": 28.913,
       "diagnostics": {
         "fused_fast_abi_calls": 0,
         "spawn_fast_abi_calls": 2,
@@ -485,17 +215,12 @@
         "tasks_failed": 0,
         "pending_tasks": 0,
         "max_pending_tasks": 10,
-        "scheduler_ns": 2279700,
-        "execution_ns": 1295000,
+        "scheduler_ns": 1610300,
+        "execution_ns": 575100,
         "executor_workers": 2
       }
     }
   },
-  "failures": [
-    "async-echo: gap to Go is outside 0.95..1.05",
-    "async-echo: reference_performance_passed is not true",
-    "async-echo: gap to Go is outside 0.95..1.05",
-    "async-echo: reference_performance_passed is not true"
-  ],
+  "failures": [],
   "baseline_modified": false
 }

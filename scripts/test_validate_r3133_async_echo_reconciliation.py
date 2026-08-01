@@ -28,18 +28,19 @@ def diagnostic_fixture(*, missing_batch_full: bool = False, revision: str = REVI
     for name in BATCH_VARIANTS:
         if name == "batch-full" and missing_batch_full:
             continue
+        metrics = {key: 1 for key in (
+            "locks_acquired", "scheduler_ns", "execution_ns", "tasks_counted",
+            "tasks_created", "tasks_executed", "task_joins", "batches_created",
+            "batches_joined", "batch_spawn_fast_abi_calls", "batch_join_fast_abi_calls",
+        )}
+        metrics.update({"tasks_failed": 0, "pending_tasks": 0, "max_pending_tasks": 10})
         variants[name] = {
             "median_ns": 10_000,
             "stddev_pct": 1.0,
             "contract": CONTRACT,
             "process_inclusive": True,
             "ok": True,
-            "diagnostics": {key: 1 for key in (
-                "locks_acquired", "scheduler_ns", "execution_ns", "tasks_counted",
-                "tasks_created", "tasks_executed", "task_joins", "batches_created",
-                "batches_joined", "batch_spawn_fast_abi_calls", "batch_join_fast_abi_calls",
-                "max_pending_tasks",
-            )},
+            "diagnostics": metrics,
         }
     return {
         "schema": DIAGNOSTIC_SCHEMA,
@@ -86,6 +87,18 @@ class R3133ValidatorTests(unittest.TestCase):
         errors = validate_diagnostic(diagnostic_fixture(missing_batch_full=True), expected_revision=REVISION, binary_suffix=r"target\release\spectralang.exe")
         self.assertTrue(any("batch-full" in error for error in errors))
 
+    def test_batch_full_rejects_unjoined_or_pending_tasks(self) -> None:
+        diagnostic = diagnostic_fixture()
+        diagnostic["variants"]["batch-full"]["diagnostics"]["batches_joined"] = 0
+        diagnostic["variants"]["batch-full"]["diagnostics"]["pending_tasks"] = 1
+        errors = validate_diagnostic(
+            diagnostic,
+            expected_revision=REVISION,
+            binary_suffix=r"target\release\spectralang.exe",
+        )
+        self.assertTrue(any("every created batch" in error for error in errors))
+        self.assertTrue(any("pending_tasks" in error for error in errors))
+
     def test_revision_divergence_is_rejected(self) -> None:
         errors = validate_diagnostic(diagnostic_fixture(revision="bd48a6b"), expected_revision=REVISION, binary_suffix=r"target\release\spectralang.exe")
         self.assertTrue(any("revision" in error.lower() for error in errors))
@@ -98,7 +111,7 @@ class R3133ValidatorTests(unittest.TestCase):
 
     def test_report_requires_current_parity(self) -> None:
         baseline = {"scenarios": {"async-pipeline": {"spectra_ns_per_iter": 52_467_360}}}
-        errors = validate_report(report_fixture(gap=1.12), expected_revision=REVISION, baseline=baseline)
+        errors = validate_report(report_fixture(gap=1.3), expected_revision=REVISION, baseline=baseline)
         self.assertTrue(any("async-echo" in error for error in errors))
 
     def test_async_pipeline_improvement_is_not_a_regression(self) -> None:

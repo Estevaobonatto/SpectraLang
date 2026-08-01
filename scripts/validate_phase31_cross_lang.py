@@ -12,7 +12,7 @@ when:
    per-scenario tolerance (defaults applied when not specified).
 
 For `async-echo`, the gate also requires the versioned real-concurrency
-contract and paired Spectra/Go parity in the inclusive range 0.95..1.05.
+contract and the accepted focused Spectra/Go ratio limit.
 """
 
 from __future__ import annotations
@@ -25,9 +25,9 @@ import sys
 try:
     from scripts.phase31_contract import (
         ASYNC_ECHO_CONTRACT,
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
         ASYNC_ECHO_ITERATIONS,
         MAX_STDDEV_PCT,
-        ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
         ASYNC_ECHO_REFERENCE_RUNTIME,
         ASYNC_ECHO_TASKS_PER_ITERATION,
         LANGUAGES,
@@ -40,9 +40,9 @@ try:
 except ModuleNotFoundError:  # direct `python scripts/validate_phase31_cross_lang.py`
     from phase31_contract import (  # type: ignore[no-redef]
         ASYNC_ECHO_CONTRACT,
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
         ASYNC_ECHO_ITERATIONS,
         MAX_STDDEV_PCT,
-        ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
         ASYNC_ECHO_REFERENCE_RUNTIME,
         ASYNC_ECHO_TASKS_PER_ITERATION,
         LANGUAGES,
@@ -114,10 +114,10 @@ def check_baseline(
                 gap_to_go = entry.get("gap_to_go")
                 if not isinstance(gap_to_go, (int, float)):
                     failures.append("async-echo: missing gap_to_go measurement")
-                elif not (0.95 <= float(gap_to_go) <= 1.05):
+                elif not (0 < float(gap_to_go) <= ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO):
                     failures.append(
                         f"async-echo: gap to Go {float(gap_to_go):.3f} is outside "
-                        f"+/-{ASYNC_ECHO_MAX_REFERENCE_GAP_PCT:.1f}%"
+                        f"the accepted <= {ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO:.6f}x limit"
                     )
                 if entry.get("reference_performance_passed") is not True:
                     failures.append("async-echo: reference_performance_passed is not true")

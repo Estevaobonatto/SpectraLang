@@ -5,7 +5,7 @@ Roadmap items: `R-3101`, `R-3102`, `R-3103`, `R-3104..R-3117`, `R-3130`
 
 ## Purpose
 
-This document defines how SpectraLang is benchmarked against Go, Java, and Rust
+This document defines how SpectraLang is benchmarked against Go and Rust
 on a fixed set of CPU, tensor, ML, and async scenarios. The goal is
 **reproducible, machine-readable, non-regression** evidence for the
 "Go-comparable performance" target introduced in `phase_31`. The gap between
@@ -28,19 +28,19 @@ an acceptance gate.
 |---|---|---|
 | Spectra (JIT) | in-tree CLI | performance certification uses explicit `target/release/spectralang.exe`; repository code validation uses the same release profile |
 | Go | `go1.22+` | `go build -ldflags="-s -w"` |
-| Java | OpenJDK 21 | default G1 GC |
 | Rust | stable 1.80+ | `cargo build --release` |
 
 The Rust driver for cross-language execution lives in
 `runtime/examples/phase31_cross_lang_bench.rs`. The Python runner
-`scripts/phase31_run_all.py` shells out to the Rust driver and the Go, Java, and
-Rust binaries for each scenario.
+`scripts/phase31_run_all.py` shells out to the Go and Rust binaries for each
+scenario. Java benchmark fixtures are retained only as historical reference
+material and are excluded from the active matrix.
 
 ## Scenarios
 
 21 scenarios across CPU, tensor, ML, async, and additional workload domains.
-Each scenario has 4 implementations under
-`benchmarks/cross-lang/<scenario>/{spectra,go,java,rust}/`.
+Each active scenario has 3 implementations under
+`benchmarks/cross-lang/<scenario>/{spectra,go,rust}/`.
 
 ### CPU
 
@@ -82,7 +82,7 @@ The driver emits JSON in this shape:
   "schema": "spectra.phase31.bench.v1",
   "profile": "release",
   "host": "...",
-  "runtimes": {"go": "...", "java": "...", "rust": "..."},
+  "runtimes": {"go": "...", "rust": "..."},
   "scenarios": [
     {
       "id": "cpu-loop-sum",
@@ -91,7 +91,6 @@ The driver emits JSON in this shape:
       "results": {
         "spectra": {"median_ns": ..., "p95_ns": ..., "stddev_ns": ..., "ns_per_iter": ...},
         "go":      {"median_ns": ..., "p95_ns": ..., "stddev_ns": ..., "ns_per_iter": ...},
-        "java":    {"median_ns": ..., "p95_ns": ..., "stddev_ns": ..., "ns_per_iter": ...},
         "rust":    {"median_ns": ..., "p95_ns": ..., "stddev_ns": ..., "ns_per_iter": ...}
       },
       "gap_to_go": 1.42,
@@ -146,7 +145,7 @@ The gate fails when:
    per-scenario tolerance (defaults to 1e-9 for float sums, 1e-6 for elementwise
    chains, 1e-4 for matmul).
 
-The gate keeps Java/Rust gaps diagnostic. `async-echo` is the exception:
+The gate keeps Rust gaps diagnostic. `async-echo` is the exception:
 `gap_to_go` is an acceptance metric and must remain within +/-5% because Go is
 the declared reference runtime for R-3131.
 

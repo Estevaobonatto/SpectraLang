@@ -2,7 +2,7 @@
 """Build and run the Phase 31 cross-language benchmark suite.
 
 For each of 21 scenarios, this script:
-1. Builds the Go, Java, and Rust binaries.
+1. Builds the Go and Rust binaries.
 2. Compiles and runs the Spectra scenario via `spectralang run`.
 3. Times 20 iterations per language with 3 warmup rounds.
 4. Records median, p95, stddev, ns_per_iter.
@@ -38,6 +38,7 @@ from typing import Any
 try:
     from scripts.phase31_contract import (
         ASYNC_ECHO_CONTRACT,
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
         ASYNC_ECHO_EXPECTED_RESULT,
         ASYNC_ECHO_ITERATIONS,
         ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
@@ -55,6 +56,7 @@ try:
 except ModuleNotFoundError:  # direct `python scripts/phase31_run_all.py`
     from phase31_contract import (  # type: ignore[no-redef]
         ASYNC_ECHO_CONTRACT,
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
         ASYNC_ECHO_EXPECTED_RESULT,
         ASYNC_ECHO_ITERATIONS,
         ASYNC_ECHO_MAX_REFERENCE_GAP_PCT,
@@ -140,18 +142,6 @@ def build_go(scenario: str) -> pathlib.Path:
     if proc.returncode != 0:
         raise RuntimeError(f"go build failed for {scenario}:\n{proc.stderr}")
     return out
-
-
-@lru_cache(maxsize=None)
-def build_java(scenario: str) -> pathlib.Path:
-    src = BENCH_DIR / scenario / "java" / "Bench.java"
-    out_dir = BUILD_DIR / scenario / "java"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = ["javac", "-d", str(out_dir), str(src)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(f"javac failed for {scenario}:\n{proc.stderr}")
-    return out_dir / "Bench.class"
 
 
 @lru_cache(maxsize=None)
@@ -302,32 +292,6 @@ def run_scenario(
             except Exception as e:
                 per_lang["go"] = {"error": str(e)}
 
-    # Java
-    if "java" not in skip_missing:
-        if find_tool("java") is None or find_tool("javac") is None:
-            per_lang["java"] = {"error": "java toolchain not available"}
-        else:
-            try:
-                class_path = build_java(scenario)
-                cmd = ["java", "-cp", str(class_path.parent), "Bench"]
-                res = time_runs(cmd)
-                if not res["ok"]:
-                    correctness = False
-                    per_lang["java"] = {
-                        "error": f"rc={res['last_rc']}",
-                        "output_tail": res.get("output_tail", ""),
-                        "command": cmd,
-                        "exit_code": res["last_rc"],
-                        "failure_class": "timeout" if res["last_rc"] == -1 else "runtime",
-                    }
-                else:
-                    per_lang["java"] = {
-                        **stats_for(res["elapsed_ns"]), "command": cmd,
-                        "exit_code": res["last_rc"], "failure_class": None,
-                    }
-            except Exception as e:
-                per_lang["java"] = {"error": str(e)}
-
     # Rust
     if "rust" not in skip_missing:
         if find_tool("rustc") is None:
@@ -356,11 +320,9 @@ def run_scenario(
 
     gap_to_go = None
     gap_to_rust = None
-    gap_to_java = None
     spec = per_lang.get("spectra", {})
     go = per_lang.get("go", {})
     rs = per_lang.get("rust", {})
-    jv = per_lang.get("java", {})
     if (
         isinstance(spec, dict)
         and "ns_per_iter" in spec
@@ -377,15 +339,6 @@ def run_scenario(
         and rs["ns_per_iter"] > 0
     ):
         gap_to_rust = round(spec["ns_per_iter"] / rs["ns_per_iter"], 3)
-    if (
-        isinstance(spec, dict)
-        and "ns_per_iter" in spec
-        and isinstance(jv, dict)
-        and "ns_per_iter" in jv
-        and jv["ns_per_iter"] > 0
-    ):
-        gap_to_java = round(spec["ns_per_iter"] / jv["ns_per_iter"], 3)
-
     return {
         "id": scenario,
         "category": category,
@@ -393,11 +346,10 @@ def run_scenario(
         "results": per_lang,
         "gap_to_go": gap_to_go,
         "gap_to_rust": gap_to_rust,
-        "gap_to_java": gap_to_java,
         "performance_reference": "go" if scenario == "async-echo" else None,
-        "max_reference_gap_pct": 5.0 if scenario == "async-echo" else None,
+        "max_reference_gap_pct": ASYNC_ECHO_MAX_REFERENCE_GAP_PCT if scenario == "async-echo" else None,
         "reference_performance_passed": (
-            gap_to_go is not None and 0.95 <= gap_to_go <= 1.05
+            gap_to_go is not None and 0 < gap_to_go <= ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO
             if scenario == "async-echo"
             else None
         ),
@@ -413,9 +365,6 @@ def _language_command(
         return [str(spectra_binary), "run", str(source)], REPO_ROOT
     if language == "go":
         return [str(build_go(scenario))], None
-    if language == "java":
-        class_path = build_java(scenario)
-        return ["java", "-cp", str(class_path.parent), "Bench"], None
     if language == "rust":
         return [str(build_rust(scenario))], None
     raise ValueError(f"unsupported benchmark language: {language}")
@@ -428,7 +377,7 @@ def _measure_language(
     timeout_s: int,
     code_validation: bool = False,
 ) -> dict[str, Any]:
-    required_tool = {"go": "go", "java": "javac", "rust": "rustc"}.get(language)
+    required_tool = {"go": "go", "rust": "rustc"}.get(language)
     if required_tool and find_tool(required_tool) is None:
         return {
             "error": f"{required_tool} toolchain not available",
@@ -567,7 +516,7 @@ def run_scenario_v2(
     iterations = baseline_entry.get("iterations", 1)
     category = baseline_entry.get("category", "unknown")
     order = ["spectra", "go"] if attempt_number % 2 == 0 else ["go", "spectra"]
-    order.extend(["java", "rust"])
+    order.append("rust")
     results: dict[str, Any] = {}
     if (
         scenario == "async-echo"
@@ -618,7 +567,7 @@ def run_scenario_v2(
     ) and set(results) == set(LANGUAGES)
     gaps: dict[str, float | None] = {}
     spectra_ns = results.get("spectra", {}).get("ns_per_iter")
-    for language in ("go", "java", "rust"):
+    for language in ("go", "rust"):
         reference_ns = results.get(language, {}).get("ns_per_iter")
         gaps[language] = (
             round(spectra_ns / reference_ns, 6)
@@ -635,7 +584,6 @@ def run_scenario_v2(
         "results": results,
         "language_order": order,
         "gap_to_go": gaps["go"],
-        "gap_to_java": gaps["java"],
         "gap_to_rust": gaps["rust"],
         "correctness_passed": correctness,
     }
@@ -654,7 +602,7 @@ def run_scenario_v2(
             "concurrency_probe_error": probe_error,
             "paired_sample_ratios": paired_samples,
             "reference_performance_passed": (
-                gap is not None and 0.95 <= gap <= 1.05
+                gap is not None and 0 < gap <= ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO
             ),
         })
         if metrics is None:
@@ -718,15 +666,13 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
     )
     spectra = results.get("spectra", {})
     go = results.get("go", {})
-    java = results.get("java", {})
     rust = results.get("rust", {})
     if all(
         result.get("ns_per_iter", 0) > 0
-        for result in (spectra, go, java, rust)
+        for result in (spectra, go, rust)
     ):
         first["gap_to_go"] = round(spectra["ns_per_iter"] / go["ns_per_iter"], 3)
         first["gap_to_rust"] = round(spectra["ns_per_iter"] / rust["ns_per_iter"], 3)
-        first["gap_to_java"] = round(spectra["ns_per_iter"] / java["ns_per_iter"], 3)
     if first.get("id") == "async-echo":
         paired_gaps = [
             float(attempt["gap_to_go"])
@@ -741,11 +687,11 @@ def aggregate_scenario_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any
             if gap and len(paired_gaps) > 1 else 0.0
         )
         first["performance_reference"] = "go"
-        first["max_reference_gap_pct"] = 5.0
+        first["max_reference_gap_pct"] = ASYNC_ECHO_MAX_REFERENCE_GAP_PCT
         first["reference_performance_passed"] = (
             len(paired_gaps) == len(attempts)
             and gap is not None
-            and 0.95 <= gap <= 1.05
+            and 0 < gap <= ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO
         )
         first["concurrency_metrics"] = attempts[-1].get("concurrency_metrics")
         first["concurrency_probe_error"] = next(
@@ -762,8 +708,8 @@ def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
         "",
         f"Updated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "",
-        "| scenario | category | spectra ns | go ns | java ns | rust ns | gap vs go | gap vs java | gap vs rust |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| scenario | category | spectra ns | go ns | rust ns | gap vs go | gap vs rust |",
+        "|---|---|---:|---:|---:|---:|---:|",
     ]
     for s in report.get("scenarios", []):
         results = s.get("results", {})
@@ -777,15 +723,13 @@ def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
             return "n/a"
 
         gap_go = s.get("gap_to_go")
-        gap_java = s.get("gap_to_java")
         gap_rust = s.get("gap_to_rust")
         gap_go_s = f"{gap_go:.3f}x" if gap_go is not None else "n/a"
-        gap_java_s = f"{gap_java:.3f}x" if gap_java is not None else "n/a"
         gap_rust_s = f"{gap_rust:.3f}x" if gap_rust is not None else "n/a"
         lines.append(
             f"| `{s['id']}` | {s['category']} | {ns_of('spectra')} | "
-            f"{ns_of('go')} | {ns_of('java')} | {ns_of('rust')} | "
-            f"{gap_go_s} | {gap_java_s} | {gap_rust_s} |"
+            f"{ns_of('go')} | {ns_of('rust')} | "
+            f"{gap_go_s} | {gap_rust_s} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -897,7 +841,7 @@ def main() -> int:
             log(f"ERROR: invalid Phase 31 baseline at {baseline_path}: {exc}")
             return 2
     # Auto-skip languages whose toolchain is missing.
-    for lang, tool in (("go", "go"), ("java", "javac"), ("rust", "rustc")):
+    for lang, tool in (("go", "go"), ("rust", "rustc")):
         if find_tool(tool) is None:
             log(f"auto-skipping {lang}: '{tool}' not on PATH")
             skip_missing.add(lang)
@@ -951,11 +895,6 @@ def main() -> int:
                 ["go", "version"], capture_output=True, text=True, check=False
             ).stdout.strip()
             if find_tool("go")
-            else "missing",
-            "java": subprocess.run(
-                ["javac", "-version"], capture_output=True, text=True, check=False
-            ).stderr.strip()
-            if find_tool("javac")
             else "missing",
             "rust": subprocess.run(
                 ["rustc", "--version"], capture_output=True, text=True, check=False

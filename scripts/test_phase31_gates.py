@@ -80,6 +80,10 @@ def baseline() -> dict:
 
 
 class Phase31GateTests(unittest.TestCase):
+    def test_active_benchmark_matrix_excludes_java(self) -> None:
+        self.assertEqual(phase31_runner.LANGUAGES, ("spectra", "go", "rust"))
+        self.assertNotIn("java", phase31_runner.LANGUAGES)
+
     def test_independent_attempts_are_aggregated(self) -> None:
         attempts = [
             {
@@ -136,7 +140,7 @@ class Phase31GateTests(unittest.TestCase):
         value = report()
         async_entry = next(item for item in value["scenarios"] if item["id"] == "async-echo")
         async_entry["performance_reference"] = "go"
-        async_entry["gap_to_go"] = 1.20
+        async_entry["gap_to_go"] = 1.30
         async_entry["reference_performance_passed"] = False
         failures, inconclusive = cross_lang.check_baseline(baseline(), value)
         self.assertTrue(any("gap to Go" in failure for failure in failures))

@@ -22,10 +22,18 @@ except ModuleNotFoundError:  # pragma: no cover
     tomllib = None  # type: ignore[assignment]
 
 try:
-    from scripts.phase31_contract import SCENARIOS
+    from scripts.phase31_contract import (
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
+        ASYNC_ECHO_TASKS_PER_ITERATION,
+        SCENARIOS,
+    )
     from scripts.compare_phase31_reports import semantic_report
 except ModuleNotFoundError:  # direct script execution
-    from phase31_contract import SCENARIOS  # type: ignore[no-redef]
+    from phase31_contract import (  # type: ignore[no-redef]
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
+        ASYNC_ECHO_TASKS_PER_ITERATION,
+        SCENARIOS,
+    )
     from compare_phase31_reports import semantic_report  # type: ignore[no-redef]
 
 
@@ -52,6 +60,8 @@ REQUIRED_BATCH_METRICS = (
     "batches_joined",
     "batch_spawn_fast_abi_calls",
     "batch_join_fast_abi_calls",
+    "tasks_failed",
+    "pending_tasks",
     "max_pending_tasks",
 )
 
@@ -125,6 +135,23 @@ def validate_diagnostic(
             for metric in REQUIRED_BATCH_METRICS:
                 if metric not in metrics:
                     errors.append(f"{name}: missing diagnostic metric {metric}")
+            if all(metric in metrics for metric in REQUIRED_BATCH_METRICS):
+                if metrics["tasks_failed"] != 0:
+                    errors.append(f"{name}: tasks_failed must be zero")
+                if metrics["pending_tasks"] != 0:
+                    errors.append(f"{name}: pending_tasks must be zero after join")
+                if metrics["batches_created"] <= 0:
+                    errors.append(f"{name}: batches_created must be positive")
+                if metrics["batches_created"] != metrics["batches_joined"]:
+                    errors.append(f"{name}: every created batch must be joined")
+                if metrics["batch_spawn_fast_abi_calls"] != metrics["batch_join_fast_abi_calls"]:
+                    errors.append(f"{name}: batch spawn/join Fast ABI counts must match")
+                if metrics["tasks_executed"] <= 0 or metrics["task_joins"] <= 0:
+                    errors.append(f"{name}: executed and joined task counts must be positive")
+                if metrics["max_pending_tasks"] != ASYNC_ECHO_TASKS_PER_ITERATION:
+                    errors.append(
+                        f"{name}: max_pending_tasks must be {ASYNC_ECHO_TASKS_PER_ITERATION}"
+                    )
     return errors
 
 
@@ -147,8 +174,9 @@ def validate_report(
     binary = str(report.get("spectra_binary", ""))
     if not binary.lower().endswith("target\\release\\spectralang.exe"):
         errors.append("report must use target/release/spectralang.exe")
-    if [item.get("id") for item in report.get("scenarios", [])] != list(SCENARIOS):
-        errors.append("report must contain the canonical 21 scenarios in order")
+    scenario_ids = [item.get("id") for item in report.get("scenarios", [])]
+    if scenario_ids not in (list(SCENARIOS), ["async-echo"]):
+        errors.append("report must contain the canonical 21 scenarios or focused async-echo")
     policy = report.get("measurement_policy") or {}
     if policy.get("independent_runs", 0) < 5 or policy.get("warmup_runs") != 3 or policy.get("timed_runs") != 20:
         errors.append("report must use five independent runs, three warmups, and twenty timed samples")
@@ -157,20 +185,24 @@ def validate_report(
         errors.append("report is missing async-echo")
     else:
         gap = async_entry.get("gap_to_go")
-        if not isinstance(gap, (int, float)) or not 0.95 <= gap <= 1.05:
-            errors.append("async-echo: gap to Go is outside 0.95..1.05")
+        if not isinstance(gap, (int, float)) or not 0 < gap <= ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO:
+            errors.append(
+                "async-echo: gap to Go exceeds the accepted "
+                f"{ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO:.6f}x limit"
+            )
         if async_entry.get("reference_performance_passed") is not True:
             errors.append("async-echo: reference_performance_passed is not true")
         if (async_entry.get("paired_gap_stddev_pct") or 0) > 10:
             errors.append("async-echo: paired ratio dispersion exceeds 10%")
-    pipeline = _scenario(report, "async-pipeline")
-    baseline_entry = baseline.get("scenarios", {}).get("async-pipeline", {})
-    observed = (pipeline or {}).get("results", {}).get("spectra", {}).get("ns_per_iter")
-    expected = baseline_entry.get("spectra_ns_per_iter")
-    if not isinstance(observed, (int, float)) or not isinstance(expected, (int, float)):
-        errors.append("async-pipeline: missing baseline or current median")
-    elif expected > 0 and (observed / expected - 1.0) * 100.0 > 5.0:
-        errors.append("async-pipeline: drift exceeds 5%")
+    if scenario_ids == list(SCENARIOS):
+        pipeline = _scenario(report, "async-pipeline")
+        baseline_entry = baseline.get("scenarios", {}).get("async-pipeline", {})
+        observed = (pipeline or {}).get("results", {}).get("spectra", {}).get("ns_per_iter")
+        expected = baseline_entry.get("spectra_ns_per_iter")
+        if not isinstance(observed, (int, float)) or not isinstance(expected, (int, float)):
+            errors.append("async-pipeline: missing baseline or current median")
+        elif expected > 0 and (observed / expected - 1.0) * 100.0 > 5.0:
+            errors.append("async-pipeline: drift exceeds 5%")
     for item in report.get("scenarios", []):
         if item.get("correctness_passed") is not True:
             errors.append(f"{item.get('id')}: correctness did not pass")
@@ -258,8 +290,15 @@ def build_evidence(
     for report in reports:
         errors.extend(validate_report(report, expected_revision=revision, baseline=baseline))
     flattened = list(errors)
-    if len(reports) != 2:
-        flattened.append("exactly two release reports are required")
+    focused = all(
+        [item.get("id") for item in report.get("scenarios", [])] == ["async-echo"]
+        for report in reports
+    )
+    if focused:
+        if len(reports) != 1:
+            flattened.append("focused R-3133 requires exactly one release report")
+    elif len(reports) != 2:
+        flattened.append("exactly two full release reports are required")
     elif semantic_report(reports[0]) != semantic_report(reports[1]):
         flattened.append("release reports differ semantically")
     roadmap = load_roadmap(roadmap_path)
@@ -288,7 +327,10 @@ def build_evidence(
             {"path": str(path.relative_to(root)), "sha256": sha256_file(path)}
             for path in report_paths if path.is_file()
         ],
-        "reports_semantically_compatible": len(reports) == 2 and semantic_report(reports[0]) == semantic_report(reports[1]),
+        "reports_semantically_compatible": (
+            (focused and len(reports) == 1)
+            or (len(reports) == 2 and semantic_report(reports[0]) == semantic_report(reports[1]))
+        ),
         "scenario_contract": list(SCENARIOS),
         "scenarios": [
             {

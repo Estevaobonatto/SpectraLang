@@ -20031,9 +20031,12 @@ impl ConcurrentBatch {
         }
     }
 
-    fn finish_task(&self, value: SpectraHostValue) -> bool {
-        self.total.fetch_add(value, Ordering::Relaxed);
-        self.remaining.fetch_sub(1, Ordering::AcqRel) == 1
+    fn finish_lane(&self, lane_total: SpectraHostValue, completed: usize) -> bool {
+        if completed == 0 {
+            return false;
+        }
+        self.total.fetch_add(lane_total, Ordering::Relaxed);
+        self.remaining.fetch_sub(completed, Ordering::AcqRel) == completed
     }
 
     fn join_sum(&self) -> Result<SpectraHostValue, i32> {
@@ -20136,19 +20139,21 @@ impl ConcurrentExecutor {
                             queued_at,
                         } => {
                             let execution_started = StdInstant::now();
-                            let mut completed_last = false;
+                            let mut lane_total: SpectraHostValue = 0;
+                            let mut completed = 0usize;
                             for offset in (lane..count).step_by(lanes) {
                                 if batch.cancelled.load(Ordering::Acquire) {
                                     break;
                                 }
+                                let value = first_value.saturating_add(offset as SpectraHostValue);
+                                lane_total = lane_total.wrapping_add(value);
+                                completed += 1;
                                 if let Some(data) = concurrent_diagnostics() {
                                     data.tasks_executed.fetch_add(1, Ordering::Relaxed);
                                     data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
                                 }
-                                completed_last = batch.finish_task(
-                                    first_value.saturating_add(offset as SpectraHostValue),
-                                );
                             }
+                            let completed_last = batch.finish_lane(lane_total, completed);
                             if let Some(data) = concurrent_diagnostics() {
                                 data.scheduler_ns.fetch_add(
                                     queued_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
@@ -25102,6 +25107,17 @@ mod tests {
             call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
             (HOST_STATUS_SUCCESS, 10)
         );
+    }
+
+    #[test]
+    fn concurrent_batch_lane_aggregation_preserves_sum_and_completion() {
+        let batch = ConcurrentBatch::new(4);
+
+        assert!(!batch.finish_lane(1 + 3, 2));
+        assert_eq!(batch.remaining.load(Ordering::Acquire), 2);
+        assert!(batch.finish_lane(2 + 4, 2));
+        assert_eq!(batch.remaining.load(Ordering::Acquire), 0);
+        assert_eq!(batch.join_sum(), Ok(10));
     }
 
     #[test]

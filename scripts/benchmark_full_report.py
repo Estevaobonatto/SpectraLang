@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Comprehensive cross-language benchmark runner for SpectraLang.
 
-Runs all 31 benchmark scenarios (21 existing + 10 new) in 4 languages
-(Spectra, Go, Java, Rust), times them, and produces a JSON + Markdown report.
+Runs all 31 benchmark scenarios (21 existing + 10 new) in 3 languages
+(Spectra, Go, Rust), times them, and produces a JSON + Markdown report.
 
 Usage:
     python scripts/benchmark_full_report.py [--warmup N] [--timed N] [--out DIR]
@@ -60,7 +60,7 @@ ALL_SCENARIOS = [
     "concurrent-fanout",
     "producer-consumer-bounded",
 ]
-LANGUAGES = ("spectra", "go", "java", "rust")
+LANGUAGES = ("spectra", "go", "rust")
 WARMUP_DEFAULT = 1
 TIMED_DEFAULT = 5
 DEFAULT_TIMEOUT_S = 300
@@ -94,19 +94,6 @@ def build_go(scenario: str) -> pathlib.Path:
     if proc.returncode != 0:
         raise RuntimeError(f"go build failed for {scenario}:\n{proc.stderr}")
     return out
-
-
-def build_java(scenario: str) -> pathlib.Path:
-    src = BENCH_DIR / scenario / "java" / "Bench.java"
-    out_dir = BUILD_DIR / scenario / "java"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(
-        ["javac", "-d", str(out_dir), str(src)],
-        capture_output=True, text=True, check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"javac failed for {scenario}:\n{proc.stderr}")
-    return out_dir / "Bench.class"
 
 
 def build_rust(scenario: str) -> pathlib.Path:
@@ -213,23 +200,6 @@ def run_scenario(scenario: str, warmup: int, timed: int,
             except Exception as e:
                 per_lang["go"] = {"error": str(e)}
 
-    # Java
-    if "java" not in skip_missing:
-        if find_tool("java") is None or find_tool("javac") is None:
-            per_lang["java"] = {"error": "java toolchain not available"}
-        else:
-            try:
-                class_path = build_java(scenario)
-                cmd = ["java", "-cp", str(class_path.parent), "Bench"]
-                res = time_runs(cmd, None, warmup, timed, DEFAULT_TIMEOUT_S)
-                if not res["ok"]:
-                    correctness = False
-                    per_lang["java"] = {"error": f"rc={res['last_rc']}"}
-                else:
-                    per_lang["java"] = stats_for(res["elapsed_ns"])
-            except Exception as e:
-                per_lang["java"] = {"error": str(e)}
-
     # Rust
     if "rust" not in skip_missing:
         if find_tool("rustc") is None:
@@ -247,7 +217,7 @@ def run_scenario(scenario: str, warmup: int, timed: int,
             except Exception as e:
                 per_lang["rust"] = {"error": str(e)}
 
-    # Compute gaps vs Go / Java / Rust
+    # Compute gaps vs Go / Rust
     def gap_to(lang: str) -> float | None:
         spec = per_lang.get("spectra", {})
         other = per_lang.get(lang, {})
@@ -263,7 +233,6 @@ def run_scenario(scenario: str, warmup: int, timed: int,
         "id": scenario,
         "results": per_lang,
         "gap_to_go": gap_to("go"),
-        "gap_to_java": gap_to("java"),
         "gap_to_rust": gap_to("rust"),
         "correctness_passed": correctness,
     }
@@ -281,8 +250,8 @@ def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
     lines.append("")
     lines.append("## Summary table (median ns/iter, lower is better)")
     lines.append("")
-    lines.append("| # | scenario | spectra ns | go ns | java ns | rust ns | vs go | vs java | vs rust |")
-    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| # | scenario | spectra ns | go ns | rust ns | vs go | vs rust |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|")
     for i, s in enumerate(report["scenarios"], 1):
         r = s["results"]
         def cell(k):
@@ -293,7 +262,7 @@ def write_markdown(report: dict[str, Any], path: pathlib.Path) -> None:
         def g(k):
             v = s.get(k)
             return f"{v:.2f}x" if v is not None else "—"
-        lines.append(f"| {i} | `{s['id']}` | {cell('spectra')} | {cell('go')} | {cell('java')} | {cell('rust')} | {g('gap_to_go')} | {g('gap_to_java')} | {g('gap_to_rust')} |")
+        lines.append(f"| {i} | `{s['id']}` | {cell('spectra')} | {cell('go')} | {cell('rust')} | {g('gap_to_go')} | {g('gap_to_rust')} |")
     lines.append("")
     lines.append("## Spectra vs Go baseline (sorted by gap)")
     lines.append("")
@@ -334,7 +303,7 @@ def main() -> int:
     parser.add_argument("--scenarios", type=str, nargs="*", default=None,
                         help="Subset of scenarios to run (default: all 31)")
     parser.add_argument("--skip", type=str, nargs="*", default=[],
-                        help="Languages to skip (spectra, go, java, rust)")
+                        help="Languages to skip (spectra, go, rust)")
     args = parser.parse_args()
 
     out_dir = pathlib.Path(args.out)
@@ -351,7 +320,7 @@ def main() -> int:
         subprocess.run(["cargo", "build", "-p", "spectra-cli", "--release"],
                        cwd=REPO_ROOT, check=True)
 
-    log(f"Running {len(scenarios)} scenarios x 4 languages, warmup={args.warmup}, timed={args.timed}")
+    log(f"Running {len(scenarios)} scenarios x 3 languages, warmup={args.warmup}, timed={args.timed}")
     started = time.time()
     results = []
     for s in scenarios:

@@ -1,17 +1,16 @@
 # Phase 31 Implementation Summary
 
 Updated: 2026-08-01
-Roadmap items: `R-3101`, `R-3108`, `R-3130`, and `R-3132` are complete.
-`R-3131` is reopened as `in_progress` for current-revision reconciliation by
-`R-3133`; remaining item statuses are tracked authoritatively in
+Roadmap items: `R-3101`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and `R-3133`
+are complete. Remaining item statuses are tracked authoritatively in
 `roadmap/roadmap.toml`.
 
 ## What Was Built
 
 ### R-3101 Cross-Language Benchmark Suite (complete)
 
-- **21 scenarios** × **4 languages** (Spectra + Go + Java + Rust) under `benchmarks/cross-lang/`.
-- **Driver** in `scripts/phase31_run_all.py`: builds the Go/Java/Rust binaries once per scenario, supports full 3-warmup/20-sample performance certification and a fast `--code-validation` mode, and emits `target/phase31/cross-lang-report.{json,md}`.
+- **21 scenarios** × **3 active languages** (Spectra + Go + Rust) under `benchmarks/cross-lang/`.
+- **Driver** in `scripts/phase31_run_all.py`: builds the Go/Rust binaries once per scenario, supports full 3-warmup/20-sample performance certification and a fast `--code-validation` mode, and emits `target/phase31/cross-lang-report.{json,md}`. Java fixtures remain historical and are not executed.
 - **Gate** in `scripts/validate_phase31_cross_lang.py`: checks the complete 21-scenario contract, correctness, metadata, noise, and ≤ 15% drift vs checked-in baseline.
 - **Baseline helpers** in `scripts/phase31_lock_baseline.py` + `scripts/phase31_apply_baseline.py`: create a reviewed candidate; applying requires explicit `--apply`, two stable runs, matching metadata, and no inconclusive scenario.
 - **Methodology** in `docs/performance/phase31-go-comparable/methodology.md`.
@@ -82,11 +81,11 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 ## Acceptance Evidence
 
 - `python scripts/phase31_run_all.py` — full 21-scenario run completes.
-- Historical release certifications are retained as context only. The current
-  R-3133 reports are `r3133-release-run-1.json` and
-  `r3133-release-run-2.json`; their evidence is blocked by async-echo parity.
-  `async-pipeline` is faster than its immutable baseline in both reports and
-  is not a regression; neither report is a passing certification overall.
+- Historical release certifications are retained as context only. The accepted
+  current R-3133 release evidence is the focused
+  `r3133-async-echo-only.json` report; it records `async-echo = 1.154469x`
+  against Go with `3.0062%` paired dispersion. The fast 21-scenario
+  code-validation report is `r3133-code-validation.json`.
 - `python scripts/phase31_run_all.py --code-validation ...` plus the matching
   validator is the repository correctness gate and completes in about 40 s.
 - `python scripts/validate_phase31_cross_lang.py --strict --max-drift 5` —
@@ -104,17 +103,7 @@ docs/performance/phase31-go-comparable/baseline.json
 docs/performance/phase31-go-comparable/findings-r3101-initial.md
 docs/performance/phase31-go-comparable/optimization-plan.md
 docs/performance/phase31-go-comparable/summary.md
-benchmarks/cross-lang/cpu-loop-sum/{spectra,go,java,rust}/...
-benchmarks/cross-lang/cpu-fibs/{spectra,go,java,rust}/...
-benchmarks/cross-lang/cpu-string-build/{spectra,go,java,rust}/...
-benchmarks/cross-lang/cpu-hashmap/{spectra,go,java,rust}/...
-benchmarks/cross-lang/tensor-create/{spectra,go,java,rust}/...
-benchmarks/cross-lang/tensor-elementwise/{spectra,go,java,rust}/...
-benchmarks/cross-lang/tensor-reduce/{spectra,go,java,rust}/...
-benchmarks/cross-lang/tensor-matmul/{spectra,go,java,rust}/...
-benchmarks/cross-lang/ml-mlp-step/{spectra,go,java,rust}/...
-benchmarks/cross-lang/async-echo/{spectra,go,java,rust}/...
-benchmarks/cross-lang/async-pipeline/{spectra,go,java,rust}/...
+benchmarks/cross-lang/<scenario>/{spectra,go,rust}/...
 scripts/phase31_run_all.py
 scripts/validate_phase31_cross_lang.py
 scripts/phase31_lock_baseline.py

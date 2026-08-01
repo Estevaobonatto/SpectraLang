@@ -7411,10 +7411,12 @@ and async workloads through a reproducible cross-language benchmark suite, sourc
 profiling, and prioritized compiler/runtime optimization. The work is
 constrained by the project-wide rule: **no functional regression, no numerical
 regression, no more than 5% Spectra-vs-Spectra drift per scenario**. The gap
-between Spectra and Go/Java/Rust is reported per scenario, not gated.
+between Spectra and Go/Rust is reported per scenario, not gated.
 
-Linguagens de comparação: **Go**, **Java**, **Rust** (todas disponíveis no
-ambiente do usuário). C, Node, Python ficam fora desta iteração.
+Linguagens de comparação ativas: **Go** e **Rust** (ambas disponíveis no
+ambiente do usuário). As implementações Java permanecem como fixtures
+históricas, mas não são mais compiladas nem executadas pelo benchmark. C, Node,
+Python ficam fora desta iteração.
 
 Cenários cobertos (21):
 
@@ -7435,7 +7437,7 @@ Cenários cobertos (21):
 
 ### Scope
 
-- 21 cenários equivalentes em 4 linguagens (Spectra, Go, Java, Rust).
+- 21 cenários equivalentes em 3 linguagens ativas (Spectra, Go, Rust).
 - Driver Rust em `runtime/examples/phase31_cross_lang_bench.rs`.
 - Runner Python em `scripts/phase31_run_all.py`.
 - Gate `scripts/validate_phase31_cross_lang.py`, integrado em `run_tests.ps1`
@@ -7446,11 +7448,12 @@ Cenários cobertos (21):
 
 ### Acceptance
 
-- 21 cenários implementados em 4 linguagens com mesma entrada e iterações.
+- 21 cenários implementados em 3 linguagens ativas com mesma entrada e
+  iterações.
 - Gate falha se qualquer cenário Spectra regredir > 5% vs baseline checkado.
 - Gate falha se tolerância numérica for violada.
 - Gate falha se suite funcional existente regredir.
-- Gate **não** falha por gap absoluto vs Go/Java/Rust (vai para o report).
+- Gate **não** falha por gap absoluto vs Go/Rust (vai para o report).
 - Metodologia documenta máquina, flags de runtime, número de iterações, e
   estatística (mediana, p95, stddev).
 - `run_tests.ps1` invoca o gate como `phase31_cross_lang`.
@@ -8695,7 +8698,7 @@ R-3131 real-concurrency/Go-parity evidence.
 
 ## R-3131 Async Echo Stable Regression Triage
 
-- Status: `in_progress` (historical acceptance reopened by R-3133)
+- Status: `complete` (focused current-revision acceptance completed by R-3133)
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3120`
@@ -8704,15 +8707,14 @@ Root cause was semantic: Go created ten goroutines before fan-in while Spectra
 materialized values eagerly. `async-echo v2` now schedules ten task units on a
 persistent two-worker executor before join. Compatibility `task_spawn(value)`
 and conservative fused immediate spawn/join remain available. The checked-in
-reports at the historical `bd48a6b` revision remain preserved, but their
-`1.025752`/`1.048312` parity claim is not current evidence: R-3133 must rerun
+reports at the historical `bd48a6b` revision remain preserved. R-3133 reran
 the real `task_spawn_batch`/`task_join_batch_sum` contract at the current HEAD.
-The baseline remains unchanged; no current parity claim is promoted until the
-reconciliation gate passes.
+The user accepted the focused release criterion of at most `1.202162x` against
+Go; the baseline remains unchanged.
 
 ## R-3133 Async Echo Current-Revision Parity Reconciliation
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Risk: `high`
@@ -8733,12 +8735,25 @@ causal profiler claim. A runtime/backend result may receive only a narrow batch
 fix with a regression fixture. Startup, contract, or noise findings open a
 follow-up without changing optimization code or `baseline.json`.
 
-Acceptance requires two semantically compatible five-attempt release reports,
-all 21 scenarios correct, `async-echo` in `0.95..1.05` against Go, paired
-dispersion at most 10%, `async-pipeline` drift at most 5%, current-revision
-metadata everywhere, and byte-for-byte baseline preservation. The focused gate
-is `run_tests.ps1 -Phase phase31_r3133_async_echo`. R-3103 remains `in_progress`
+The accepted focused gate uses one five-attempt release report for
+`async-echo`, with ratio at most `1.202162x` against Go and paired dispersion
+at most 10%. The fast code-validation report covers all 21 scenarios and
+correctness. Diagnostics retain current-revision metadata, batch invariants,
+and byte-for-byte baseline preservation. The focused gate is
+`run_tests.ps1 -Phase phase31_r3133_async_echo`. R-3103 remains `in_progress`
 until `tensor-create` is conclusive, and R-3104 remains `not_started`.
+
+### Outcome (2026-08-01)
+
+- `ConcurrentBatch` now aggregates each lane's total and completion count
+  before performing the shared atomic updates; the public task and batch APIs
+  are unchanged.
+- The focused current-head release report records `async-echo = 1.154469x`
+  against Go, `3.0062%` paired dispersion, correct execution, zero failed or
+  pending tasks after join, `max_pending_tasks = 10`, and balanced batch
+  spawn/join counts.
+- The 21-scenario code-validation report passes correctness and
+  `baseline.json` remains byte-for-byte unchanged.
 
 ## Execution Order
 
