@@ -7482,9 +7482,9 @@ Cenários cobertos (21):
 - `docs/performance/phase31-go-comparable/findings-r3101-initial.md` cobre
   o gap inicial vs Go/Java/Rust.
 - `docs/performance/phase31-go-comparable/optimization-plan.md` (R-3103)
-  já foi produzido a partir das métricas existentes; resta o conjunto
-  completo de artefatos de profiling (`profiles/`, SVGs, callgrind/perf
-  summaries) que esse item é o dono de entregar.
+  é o plano benchmark + IR independente descrito abaixo; os artefatos causais
+  (`profiles/`, SVGs, callgrind/perf summaries) continuam sendo entregáveis
+  exclusivos de R-3102 e não bloqueiam o fechamento de R-3103.
 - O orquestrador `scripts/phase31_profile.py` e o teste
   `scripts/test_phase31_profile.py` validam o contrato dos oito cenários
   CPU/tensor, os metadados e a regra de que o baseline não pode ser alterado.
@@ -7496,18 +7496,50 @@ Cenários cobertos (21):
 - Status: `in_progress`
 - Priority: `P0`
 - Owner: `backend`
-- Dependencies: `R-3102`
+- Dependencies: `R-3101`
 
 ### Scope
 
-- Cruzar profiling + IR dumps + métricas de runtime.
-- Emitir lista priorizada (impacto × risco × esforço) que direciona
-  R-3104..R-3117.
+- Fechar um plano executável a partir de duas medições release repetíveis,
+  validação funcional dos 21 cenários e snapshots O0/O3 de IR.
+- Emitir uma matriz priorizada (impacto × risco × esforço) que direciona
+  R-3104..R-3117, sempre com métrica, risco de rejeição, rollback e comando de
+  validação.
+- A classificação da evidência é `benchmark_and_ir_hypothesis`: benchmark e IR
+  sustentam hipóteses de intervenção, mas não provam causalidade de gargalo.
 
 ### Acceptance
 
-- Ranking em `docs/performance/phase31-go-comparable/optimization-plan.md`.
-- Cada item mapeia para R-3104..R-3117 com target mensurável.
+- Dois relatórios release semanticamente compatíveis, na revisão Git atual,
+  passam pelo gate funcional completo e pelo gate estrito com drift máximo de
+  5%.
+- `docs/performance/phase31-go-comparable/evidence-r3103-benchmark-ir.json` e
+  `.md` versionam hashes dos relatórios e dos snapshots O0/O3 dos 21 cenários;
+  o baseline permanece byte-a-byte inalterado.
+- Cada ID R-3104..R-3117 possui uma linha auditável em
+  `optimization-plan.md`, incluindo métrica primária e critério de rejeição.
+- O validador focado e seus testes passam via
+  `run_tests.ps1 -Phase phase31_r3103_plan`.
+
+### Contract decision
+
+R-3103 foi separado de R-3102 para que o plano possa ser fechado no ambiente
+Windows oficial sem fabricar flamegraphs. R-3102 continua `in_progress` e
+aguarda a captura causal oficial com `perf`/FlameGraph no Linux/WSL2; esse
+profiling é complementar e não bloqueia o plano benchmark + IR. R-2505 também
+continua aguardando o relatório remoto do PostgreSQL 16.
+
+### Current evidence (2026-08-01)
+
+- `cargo build --release -p spectra-cli` e o code-validation dos 21 cenários
+  passaram na revisão `bd48a6b9a13631eeac9dd3b906b38e3595a4b19a`.
+- Os dois relatórios release com cinco tentativas são semanticamente
+  compatíveis e o baseline permanece byte-a-byte inalterado.
+- O fechamento estrito está bloqueado de forma explícita: `async-echo` falha a
+  janela de paridade Go nos dois relatórios (1,179x e 1,132x), e o primeiro
+  relatório classifica `tensor-create` como inconclusivo por dispersão acima
+  de 10%. O JSON/Markdown de evidência preserva essas classes; R-3103 não é
+  marcado como `complete`.
 
 ## R-3104 Cranelift Value Map and Codegen Hot Path
 
@@ -8679,14 +8711,17 @@ Baseline remains unchanged because v1 and v2 benchmark semantics differ.
 
 1. **R-3101** (suite): desbloqueia todos os outros itens.
 2. **R-3102** (profiling): precisa de R-3101 pronto.
-3. **R-3103** (plano priorizado): precisa de R-3102.
+3. **R-3103** (plano benchmark + IR): precisa de R-3101; profiling causal de
+   R-3102 permanece paralelo e `in_progress`.
 4. **Fase B (R-3104, R-3105)**: backend hot path.
 5. **Fase C (R-3106, R-3107)**: midend + buffer reuse.
 6. **Fase D (R-3108, R-3109)**: string + autodiff inference.
 7. **Fase E (R-3110, R-3111, R-3112)**: SIMD + matmul + conv.
 8. **Fase F (R-3113, R-3114)**: reactor async.
 9. **Fase G (R-3115, R-3116, R-3117)**: compiler opts.
-10. **Final**: re-run todos os gates, atualizar baseline, publicar parity report.
+10. **Final**: re-run todos os gates e publicar parity report; o baseline só
+    pode ser atualizado em uma mudança posterior, explicitamente aprovada e
+    com evidência de estabilidade.
 
 ## Validação Final (gate de paridade)
 

@@ -2214,6 +2214,16 @@ and `2.5242%`. Their semantic comparison passed. The historical Spectra
 baseline remains unchanged. `R-3131`, `R-3130`, and the dependent `R-2013` are
 complete.
 
+The Phase 31 work now distinguishes two independent evidence products. R-3103
+certifies functional/performance repeatability and an executable optimization
+plan from current release benchmarks plus O0/O3 IR snapshots. Its hypotheses
+are explicitly classified as `benchmark_and_ir_hypothesis`: they guide the
+next implementation items but do not claim that a measured gap is a causal
+hotspot. R-3102 remains `in_progress` as the later Linux `perf`/FlameGraph
+attribution track; its environmental blocker does not prevent R-3103 from
+closing once the benchmark and IR gates pass. The baseline is immutable, and
+the five-independent-attempt policy is retained for standalone certification.
+
 R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
 run in separate serialized commands with per-step timeouts and captured output,
 while adapter absence remains an explicit supported skip condition.

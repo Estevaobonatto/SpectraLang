@@ -59,6 +59,42 @@ if ($Phase -contains "phase25_postgres") {
     exit $LASTEXITCODE
 }
 
+if ($Phase -contains "phase31_r3103_plan") {
+    Write-Host "--- R-3103 benchmark + IR optimization-plan gate ---" -ForegroundColor Yellow
+    & python -m unittest -v scripts.test_validate_r3103_optimization_plan
+    $unitExit = $LASTEXITCODE
+    if ($unitExit -ne 0) {
+        Write-Host "R-3103 validator unit tests failed." -ForegroundColor Red
+        exit $unitExit
+    }
+
+    & python scripts\validate_r3103_optimization_plan.py `
+        --report target\phase31\r3103-release-run-1.json `
+        --report target\phase31\r3103-release-run-2.json `
+        --baseline docs\performance\phase31-go-comparable\baseline.json `
+        --ir-root target\phase31\r3103-ir `
+        --roadmap roadmap\roadmap.toml `
+        --plan docs\performance\phase31-go-comparable\optimization-plan.md `
+        --write-evidence
+    $validatorExit = $LASTEXITCODE
+
+    & git diff --check -- `
+        roadmap/roadmap.toml `
+        docs/roadmap-backlog.md `
+        docs/production-ai-implementation-plan.md `
+        docs/performance/phase31-go-comparable/optimization-plan.md `
+        docs/performance/phase31-go-comparable/evidence-r3103-benchmark-ir.md `
+        scripts/validate_r3103_optimization_plan.py `
+        scripts/test_validate_r3103_optimization_plan.py
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-3103 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-3103 focused gate passed." -ForegroundColor Green
+    exit 0
+}
+
 # Run the focused R-2701 gate before any broad test collection. This makes the
 # global report observable even when an unrelated later phase is slow or fails.
 Write-Host ""

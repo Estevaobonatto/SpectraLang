@@ -4225,12 +4225,15 @@ owner = "backend"
 priority = "P0"
 status = "in_progress"
 risk = "medium"
-dependencies = ["R-3102"]
-summary = "Convert profiling results into a prioritized list of concrete optimizations (impact x risk x effort) that drives R-3104..R-3117. Plan document `docs/performance/phase31-go-comparable/optimization-plan.md` exists, but the supporting R-3102 profiling artifacts (flamegraph SVGs, callgrind/perf summaries, IR dumps, top-5 bottleneck document under `docs/performance/phase31-go-comparable/profiles/`) are still missing. Tracked as in_progress until the profiling evidence catches up; will be promoted to complete when the plan can be validated against the on-disk profiling deliverables."
+dependencies = ["R-3101"]
+summary = "Close a repeatable optimization plan for R-3104..R-3117 from current release benchmarks and versioned O0/O3 IR snapshots. The evidence is explicitly classified as benchmark_and_ir_hypothesis: it prioritizes measurable work but does not claim causal profiler attribution. R-3102 remains the separate in_progress Linux perf/flamegraph workstream and is complementary, not a blocker for this plan."
 acceptance = [
-  "ranked list of optimizations is committed to `docs/performance/phase31-go-comparable/optimization-plan.md`",
-  "each item maps to one of R-3104..R-3117 with measurable target",
-  "each item estimates speedup and rejection risk per scenario"
+  "two semantically compatible release reports use the current Git revision, five independent attempts, three warmups, and twenty timed samples",
+  "the complete 21-scenario code-validation and strict cross-language gates pass without modifying `docs/performance/phase31-go-comparable/baseline.json`",
+  "`docs/performance/phase31-go-comparable/evidence-r3103-benchmark-ir.json` and `.md` record report hashes, scenario medians/dispersion/failure classes, O0/O3 IR hashes and structural counts, and `baseline_modified = false`",
+  "`docs/performance/phase31-go-comparable/optimization-plan.md` contains one executable matrix row for every ID R-3104..R-3117, including metric, expected gain, rejection risk, rollback criterion, dependency, and validation command",
+  "the evidence classification is `benchmark_and_ir_hypothesis` and contains no causal profiling claim; causal attribution remains R-3102",
+  "`scripts/validate_r3103_optimization_plan.py` and its focused unit tests pass, while R-3102 remains explicitly `in_progress`"
 ]
 
 [[items]]

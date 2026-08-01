@@ -1,124 +1,106 @@
 # Phase 31 Optimization Plan (R-3103)
 
-Updated: 2026-07-13
+Updated: 2026-08-01
 Roadmap item: `R-3103 Optimization Implementation Plan`
-Source data: `docs/performance/phase31-go-comparable/findings-r3101-initial.md`
+Truth owner: `backend`
+Evidence class: `benchmark_and_ir_hypothesis`
 
-## Prioritized List
+## Contract and evidence boundary
 
-Priority is `(impact × feasibility) / risk`. Each item lists estimated
-per-scenario speedup range and the risk of regressing other workloads.
+This document is the executable plan for R-3104–R-3117. It is based on the
+current release binary, the 21-scenario Phase 31 contract, two independent
+release reports, and O0/O3 IR snapshots. The machine-readable evidence is
+`evidence-r3103-benchmark-ir.json`; its report and IR hashes are the audit
+anchors.
 
-### Tier 1 — Close the largest single-scenario gap
+The measurements identify where an intervention is worth testing. They are not
+causal profiler attribution: no row below claims a `perf`, FlameGraph, or
+callgrind result. Causal attribution remains R-3102, which is intentionally
+`in_progress` while the Linux/WSL2 environment is unavailable. A row can only
+be promoted after its implementation supplies a fresh benchmark, correctness
+regression coverage, and an explicit rollback comparison.
 
-| ID | Title | Target scenarios | Estimated speedup | Status |
-|---|---|---|---|---|
-| R-3108 | String Materialization Optimization | `cpu-string-build` (was 71.7x) | 5-20x | **complete** (3.85x measured) |
-| R-3107 | Tensor Cross-Call Buffer Reuse | `tensor-create` (5.1x) | 2-5x | not_started |
+The checked-in baseline is immutable. The official standalone contract uses a
+release build, five independent attempts, three warmups, twenty timed samples,
+and at most two confirmation attempts. Repository code validation is a separate
+single-run functional gate. The plan is not complete while either release
+report is semantically incompatible, a scenario is inconclusive, or strict
+cross-language drift exceeds 5%.
 
-### Tier 2 — Broad backend hot-path
+## Current gate decision (2026-08-01)
 
-| ID | Title | Estimated speedup | Risk | Notes |
-|---|---|---|---|---|
-| R-3104 | Cranelift Value Map Dense Indexing | 1.2-1.5x on all scenarios | low | `Vec<Option<Value>>` indexed by `ValueId`. Split JIT/AOT into separate files. |
-| R-3105 | Host Call Batching and Name Precompute | 1.1-1.3x on tensor/ML | low | Pre-compute host name records at module load. |
-| R-3106 | Alloca Hoisting | 1.05-1.1x where relevant | low | Lifting of loop-invariant allocas. |
+The release reports are semantically compatible and all 21 code-validation
+scenarios pass. The current strict gate is still **blocked**: report 1 marks
+`tensor-create` inconclusive because dispersion exceeds 10%, and both reports
+reject `async-echo` because its Spectra/Go ratio is outside the certified 5%
+window (1.179x and 1.132x). These are recorded as failure classes in the
+evidence JSON; R-3103 remains `in_progress` until a future measurement or a
+separate implementation resolves them.
 
-### Tier 3 — Numerics
+## Current evidence inputs
 
-| ID | Title | Target scenarios | Estimated speedup | Risk |
-|---|---|---|---|---|
-| R-3110 | SIMD Elementwise Kernels | `tensor-elementwise` (2.7x vs Rust) | 2-4x | medium |
-| R-3111 | Tiled Register-Blocked Matmul | `tensor-matmul` (2.5x vs Rust) | 2-4x | medium |
-| R-3112 | Im2col + GEMM Conv2D | future conv workloads | 1.5-2x | medium |
+- Binary: `target/release/spectralang.exe`, built with
+  `cargo build --release -p spectra-cli` at the current Git revision.
+- Functional report: `target/phase31/r3103-code-validation.json`.
+- Statistical reports: `target/phase31/r3103-release-run-1.json` and
+  `target/phase31/r3103-release-run-2.json`.
+- Baseline: `baseline.json`; the validator records its SHA-256 before and after
+  the gate and requires `baseline_modified: false`.
+- IR root: `target/phase31/r3103-ir/<scenario>/{o0,o3}.txt`; the five highest-
+  priority snapshots are copied to `ir/r3103/` for review.
 
-### Tier 4 — Async
+The evidence generator records the current Git revision and fails closed on a
+revision mismatch, missing scenario, duplicate scenario, inconclusive sample,
+or a report failure. Therefore a blocked evidence file is still useful: it
+describes the exact remaining gate without silently upgrading a hypothesis to
+fact.
 
-| ID | Title | Target scenarios | Estimated speedup | Risk |
-|---|---|---|---|---|
-| R-3113 | Work-Stealing Task Pool | `async-echo` vs Rust (2.4x) | 1.5-2x | high |
-| R-3114 | Zero-Alloc Async Hot Path | `async-echo`, `async-pipeline` | 1.1-1.3x | medium |
+## Prioritized implementation matrix
 
-### Tier 5 — Compiler and Cranelift Tuning
+| ID | Cenário(s) afetado(s) | Evidência atual | Hipótese de gargalo (confiança) | Intervenção planejada | Métrica primária | Ganho esperado | Risco de rejeição | Critério de rollback | Dependências | Comando de validação |
+|---|---|---|---|---|---|---|---|---|---|---|
+| R-3104 | `cpu-loop-sum`, `cpu-fibs`, `cpu-hashmap`, workloads tensor | Medianas/dispersion dos dois reports + contagens O0/O3; lookup/codegen aparece no IR, sem atribuição causal | Mapa esparso e lookup de host podem dominar lowering (média) | Trocar mapa por `Vec<Option<Value>>` denso, pré-computar `HostNameRecord`, separar JIT/AOT | ns/iter e tempo de lowering; lookup count | 1.2–1.5x nos cenários CPU, sem piora tensor | Mudança de ordem/ABI, picos em módulos grandes | Reverter se qualquer cenário correto exceder +5% ou se o IR mudar sem ganho | R-3103 | `cargo test -p spectra-backend`; `python scripts/phase31_run_all.py ... --independent-runs 5`; strict cross-lang |
+| R-3105 | `ml-mlp-step`, `tensor-elementwise`, `async-pipeline` | Host-call count e materialização de nomes nos snapshots; mediana atual registrada no JSON | Alocações e `to_string()` na fronteira hostcall são custo repetido (média) | Cache de nomes, batching de hostcalls consecutivos quando semântico, remover conversões por chamada | host calls/iter, alocações e ns/iter | 1.1–1.3x em ML/tensor/async | Reordenação de efeitos ou lifetime de handles | Reverter se hostcall count não cair ou surgir divergência numérica/async | R-3103, R-3104 (se o cache compartilhar o path) | `cargo test -p spectra-midend -p spectra-runtime`; Phase 31 strict |
+| R-3106 | Loops CPU e criação de tensores | Contagem de `alloca` O0/O3 por cenário e lifetime visível no IR | Slots temporários não são reutilizados entre iterações (média-baixa) | Hoist de allocas invariantes, fusão de slots e reuse por lifetime não sobreposto | allocas/função e bytes alocados | 1.05–1.10x onde allocas dominam | Alias/lifetime incorreto e regressão numérica | Reverter se allocas não reduzirem ou sanitizer/fixtures falharem | R-3103, R-1502 | `cargo test -p spectra-midend`; snapshots O0/O3; strict cross-lang |
+| R-3107 | `tensor-create` e passos de materialização | Evidência concluída em `181_phase31_buffer_pool.spectra`, pool hit/miss e gate tensor; apontar para `roadmap.toml` | Pool tipado elimina zero-fill/intermediários (alta; já validada) | Manter buffer reuse type/lifetime-safe; só ampliar cobertura se novo benchmark exigir | allocations, bytes e mediana `tensor-create` | Resultado já aceito: redução de alocação e gap release invertido | Reuso de shape/dtype/layout incompatível | Reverter qualquer mudança que altere contagem ativa, bytes ou tolerância R-1503 | R-1502 | `cargo test -p spectra-runtime`; `spectralang run tests/validation/181_phase31_buffer_pool.spectra`; Phase 31 gate |
+| R-3108 | `cpu-string-build` | Regressão `180_phase31_string_builder.spectra` e medição aceita de string builder; snapshot textual versionado | Materialização repetida de strings cria cópias no ABI (alta; já validada) | Preservar builder/ABI otimizado e medir novas mudanças contra o artefato aceito | ns/iter e bytes/cópias por string | Resultado já aceito: melhoria medida sem regressão R-109 | Quebra de string cross-module ou ownership | Reverter se R-109 ou o cenário de string regredir >5% | R-109 | `cargo test -p spectra-runtime`; `spectralang run tests/validation/180_phase31_string_builder.spectra`; strict |
+| R-3109 | `ml-mlp-step` | Host-call/IR count e mediana do caminho de inference; training fixtures permanecem controle | Construção/retenção de grafo em inference é desnecessária (média) | Pular graph build/free somente em inference mode, mantendo training path | ns/step e graph nodes/step | 1.1–1.2x em serving | Misturar inference e training ou perder gradientes | Reverter se training output mudar ou graph nodes não caírem | R-503, R-3103 | ML regression suite + Phase 31 strict |
+| R-3110 | `tensor-elementwise`, `tensor-matmul` | Throughput e tolerância R-1503; snapshots identificam operações relevantes | Kernels escalares deixam unidades SIMD ociosas (média) | SSE2/AVX2/NEON com CPUID dispatch e fallback escalar | elementos/s e erro numérico | 2–4x em elementwise | CPU dispatch não determinístico, NaN/rounding | Reverter se erro exceder R-1503 ou fallback não for funcional | R-3103, R-1503 | kernel conformance + dedicated benchmark + strict |
+| R-3111 | `tensor-matmul` | IR/mediana atual; shapes 256–2048 devem ser medidos no item de implementação | Tiles register-blocked reduzem cache miss e chamadas auxiliares (média) | Matmul tiled/register-blocked, com benchmark dedicado para 256, 512, 1024, 2048 | GFLOP/s, mediana e erro relativo | 2–4x contra o caminho atual | Tiling ruim para shapes pequenos, overflow/tolerância | Reverter se qualquer shape perder >5% ou erro exceder R-1503 | R-3103, R-1503 | benchmark matmul dedicado + numerical suite + strict |
+| R-3112 | Conv2D dedicado (a criar pelo próprio item) | Nenhum cenário canônico ainda; o plano exige fixture/benchmark e tolerância desde o início | Im2col+GEMM pode superar loops diretos (baixa, a confirmar) | Criar benchmark Conv2D com shapes, dtype e tolerância documentados; só então implementar | images/s, mediana e erro máximo | 1.5–2x após baseline dedicado | Im2col aumenta memória e piora batch pequeno | Reverter se memória ou latência exceder baseline dedicado | R-3103, R-3110 | novo Conv2D fixture/benchmark + numerical gate + strict |
+| R-3113 | `async-echo` | Task counts, mediana e parity; causalidade ainda não alegada | Scheduler/fila pode pagar custo por task (média-baixa) | Work-stealing/pool somente com semântica fanout/fanin preservada | task creation ns e throughput | 1.5–2x no async fanout | Ordem, fairness ou starvation | Reverter se task accounting, resultado ou parity mudar | R-3103, R-3131 | async regression + dedicated benchmark + strict |
+| R-3114 | `async-echo`, `async-pipeline` | Host calls/allocas e mediana no caminho assíncrono | Handles/futures alocam em cada await (média) | Remover alocações no hot path sem alterar ownership/observabilidade | allocs/task e ns/task | 1.1–1.3x | Use-after-free ou cancelamento incorreto | Reverter se allocs não caírem ou cancel/error tests falharem | R-3103, R-3131 | async cancellation suite + benchmark + strict |
+| R-3115 | Cenários CPU pequenos | O3 snapshots e tamanho de IR; impacto esperado pequeno (média-baixa) | Constantes não são reduzidas antes do codegen (média-baixa) | Propagação agressiva com limites de custo e overflow explícitos | tamanho IR e ns/iter | 1.0–1.05x | Code size explosion ou overflow de avaliação | Reverter se IR crescer sem ganho ou diagnostics mudarem | R-3103 | midend tests + IR diff + Phase 31 strict |
+| R-3116 | Cenários CPU/ML | O0/O3 mostram instruções/blocks não consumidos; sem profiler causal (baixa) | DCE deixa instruções mortas em paths com efeitos modelados conservadoramente | Estender DCE apenas para operações comprovadamente puras | instruções/blocks e ns/iter | 1.0–1.05x | Remover efeitos observáveis/host calls | Reverter se qualquer fixture mudar saída ou host-call count esperado | R-3103 | midend regression + IR diff + strict |
+| R-3117 | Loops quentes | Comparação controlada O0/O3 e mediana por cenário; Cranelift é hipótese (média) | Nível de otimização atual pode deixar passes quentes desativados | Comparar níveis Cranelift em experimento controlado, mantendo ABI e baseline | ns/iter, code size e compile time | 1.1–1.3x em loops quentes | Compile time/code size ou regressão de cold path | Reverter se ganho não superar ruído ou compile time exceder limite | R-3103 | controlled O0/O3/Cranelift benchmark + strict |
 
-| ID | Title | Estimated speedup | Risk |
-|---|---|---|---|
-| R-3115 | Aggressive Const Propagation | 1.0-1.05x on small programs | low |
-| R-3116 | Extended DCE | 1.0-1.05x | low |
-| R-3117 | Cranelift Opt-Level Tuning | 1.1-1.3x on hot loops | low |
+## Gate and rollback protocol
 
-### Tier 6 — Inference ML
+For every implementation row, preserve the baseline and run a focused
+correctness test before measuring. Record the command, revision, binary,
+profile, sample policy, median, p95, dispersion, numerical tolerance, and
+failure class. Reject the change when correctness fails, dispersion is
+inconclusive, any accepted scenario drifts beyond 5%, or the row's primary
+metric does not improve within its stated noise envelope. Roll back to the
+previous implementation and keep the row `in_progress`; do not rewrite the
+baseline to make a regression disappear.
 
-| ID | Title | Estimated speedup | Risk |
-|---|---|---|---|
-| R-3109 | Autodiff Inference-Mode Graph Skipping | 1.1-1.2x on inference paths | medium |
+The R-3103 focused gate is:
 
-## Recommended Execution Order (updated)
+```powershell
+.\run_tests.ps1 -Phase phase31_r3103_plan
+```
 
-1. **R-3108** — complete. 3.85x on cpu-string-build.
-2. **R-3107** — next; highest leverage after R-3108.
-3. **R-3104** — benefits all scenarios; clean refactor.
-4. **R-3105** — small surgery on top of R-3104.
-5. **R-3106** — supports R-3107.
-6. **R-3110** — leverages R-3107.
-7. **R-3111** — leverages R-3107.
-8. **R-3109** — narrow impact.
-9. **R-3131** — complete; real fan-out/fan-in scheduler semantics and Go parity
-   certified in two release reports.
-10. **R-3132** — fuse proven single-use `task_spawn`/`task_join` pairs and
-   measure the reset Fast ABI; keep conservative fallback and baseline
-   unchanged. The ≤1% aspiration is deferred after acceptance of the measured
-   R-3132 result.
-11. **R-3115 / R-3116 / R-3117** — combined compiler pass.
-12. **R-3112** — conv2d opt.
-13. **R-3113 / R-3114** — follow-on async work, now unblocked by R-3131.
+It runs validator unit tests, TOML/dependency validation, report and IR hash
+validation, matrix coverage checks, and `git diff --check`. Linux profiling is
+deliberately absent from this command and remains the R-3102 follow-up.
 
-## Acceptance Gate per Item
+## Out of scope
 
-Each item must:
-
-- Pass `run_tests.ps1` (zero failed expected tests).
-- Pass `validate_phase31_cross_lang.py` (no > 5% Spectra drift).
-- Pass `validate_r1501_bench.py` (numerical perf baseline).
-- Pass `validate_r2006_performance_refresh.py`.
-- Pass `validate_r2111_async_bench.py`.
-- Add a regression `.spectra` test under `tests/validation/` or `tests/errors/`.
-- Update `docs/performance/phase31-go-comparable/findings-r3101-initial.md`
-  with the new numbers.
-- Update `docs/performance/phase31-go-comparable/baseline.json` only if the
-  improvement is intentional and accepted.
-
-## R-3132 measurement contract
-
-The `async-echo` path is process-inclusive and uses the optimized release
-binary for official cross-language comparison. R-3132
-adds `ConcurrentSpawnJoinFusion` after lowering and before DCE. It accepts only
-same-block pairs whose handle has one use and whose gap is pure; all other
-handles use the existing spawn/join ABI. The runtime keeps
-`Vec<Option<SpectraHostValue>>`, increments task statistics once for a fused
-pair, and does not create a visible slot. `concurrent.reset()` is also emitted
-through a direct Fast ABI call.
-
-Diagnostic output is written to
-`target/phase31/async-echo-diagnostics/r3132-debug*.json` and includes a
-dedicated fused variant, p95, standard deviation, exact command, profile,
-binary, revision, and expected fused-operation accounting. The current
-post-implementation median is about 38.9 ms versus the unchanged 33.865 ms
-baseline. This result was accepted for R-3132; no baseline update was made.
-
-## R-3130/R-3131 final result
-
-The former `async-echo` fixture compared immediate Spectra values with real Go
-goroutines. The corrected `fanout_fanin_real_concurrency.v2` contract creates
-ten executable Spectra task units before joining them. A persistent two-worker
-runtime executes the batch without one OS thread per task. Two complete release
-reports passed all 21 scenarios with Spectra/Go ratios `1.025752` and
-`1.048312`; paired variation was below 10%. The repository suite uses the
-separate `--code-validation` mode so correctness validation does not repeat
-thousands of benchmark processes. The historical baseline remains unchanged.
-
-## Out of Scope for R-3103
-
-- Goroutine-style M:N scheduler (would be a separate workstream).
-- AOT cross-compile perf.
-- WebAssembly backend.
+- Implementing R-3104 or any optimization listed in the matrix.
+- Fixing WSL2, installing `perf`, FlameGraph, or Valgrind.
+- Repairing the independent `data_file`/`folded_file` bug in
+  `scripts/phase31_profile.py`.
+- Synthetic flamegraphs or causal claims without official profiler artifacts.
+- Mutating the Phase 31 baseline or closing R-2505 before the remote
+  PostgreSQL 16 report arrives.

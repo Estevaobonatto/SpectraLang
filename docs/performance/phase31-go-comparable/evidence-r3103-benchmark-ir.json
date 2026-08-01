@@ -1,0 +1,1001 @@
+{
+  "schema": "spectra.phase31.r3103_evidence.v1",
+  "status": "blocked",
+  "generated_at_utc": "2026-08-01T13:31:11.787930+00:00",
+  "revision": "bd48a6b9a13631eeac9dd3b906b38e3595a4b19a",
+  "profile": "release",
+  "binary": "target/release/spectralang.exe",
+  "baseline": {
+    "path": "docs\\performance\\phase31-go-comparable\\baseline.json",
+    "sha256": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b",
+    "sha256_before": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b",
+    "sha256_after": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b"
+  },
+  "classification": "benchmark_and_ir_hypothesis",
+  "profiling_causal_claim": false,
+  "reports": [
+    {
+      "path": "target\\phase31\\r3103-release-run-1.json",
+      "sha256": "122317bbe8751bd1f43abe9a6e471f28583c477ebbc087d7bb9f694a1da952ad"
+    },
+    {
+      "path": "target\\phase31\\r3103-release-run-2.json",
+      "sha256": "21f4d5f7789bd3ea9da133d16ce45ad16e8de0fda6ac4851bf333026a76b8d96"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "cpu-loop-sum",
+      "correctness_passed": true,
+      "median_ns": 29973600,
+      "p95_ns": 38995600,
+      "stddev_ns": 5209002,
+      "independent_stddev_ns": 1139558,
+      "dispersion_pct": 3.8018723143032536,
+      "gap_to_go": 1.604,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "cpu-fibs",
+      "correctness_passed": true,
+      "median_ns": 41150300,
+      "p95_ns": 47083900,
+      "stddev_ns": 2901144,
+      "independent_stddev_ns": 796865,
+      "dispersion_pct": 2.0875477767910238,
+      "gap_to_go": 1.741,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "cpu-string-build",
+      "correctness_passed": true,
+      "median_ns": 27363050,
+      "p95_ns": 60475100,
+      "stddev_ns": 19724305,
+      "independent_stddev_ns": 816085,
+      "dispersion_pct": 2.982434341200999,
+      "gap_to_go": 1.633,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "cpu-hashmap",
+      "correctness_passed": true,
+      "median_ns": 29409550,
+      "p95_ns": 45016000,
+      "stddev_ns": 6828677,
+      "independent_stddev_ns": 637754,
+      "dispersion_pct": 2.3999443058362218,
+      "gap_to_go": 1.445,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "tensor-create",
+      "correctness_passed": true,
+      "median_ns": 39185350,
+      "p95_ns": 45192600,
+      "stddev_ns": 3934386,
+      "independent_stddev_ns": 8757918,
+      "dispersion_pct": 14.49842399761613,
+      "gap_to_go": 1.004,
+      "reference_performance_passed": null,
+      "failure_class": "inconclusive"
+    },
+    {
+      "id": "tensor-elementwise",
+      "correctness_passed": true,
+      "median_ns": 28525350,
+      "p95_ns": 31351500,
+      "stddev_ns": 1815248,
+      "independent_stddev_ns": 541625,
+      "dispersion_pct": 2.0735708488384557,
+      "gap_to_go": 0.912,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "tensor-reduce",
+      "correctness_passed": true,
+      "median_ns": 27052300,
+      "p95_ns": 29857800,
+      "stddev_ns": 1350187,
+      "independent_stddev_ns": 424929,
+      "dispersion_pct": 1.6160283555780357,
+      "gap_to_go": 0.849,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "tensor-matmul",
+      "correctness_passed": true,
+      "median_ns": 25900200,
+      "p95_ns": 30235000,
+      "stddev_ns": 1639079,
+      "independent_stddev_ns": 1931919,
+      "dispersion_pct": 7.459089119002941,
+      "gap_to_go": 1.139,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "ml-mlp-step",
+      "correctness_passed": true,
+      "median_ns": 26786050,
+      "p95_ns": 29973800,
+      "stddev_ns": 1381727,
+      "independent_stddev_ns": 665619,
+      "dispersion_pct": 2.3155750679241476,
+      "gap_to_go": 1.552,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "async-echo",
+      "correctness_passed": true,
+      "median_ns": 29199450,
+      "p95_ns": 33703700,
+      "stddev_ns": 2451371,
+      "independent_stddev_ns": 1193000,
+      "dispersion_pct": 4.0856933949098355,
+      "gap_to_go": 1.179,
+      "reference_performance_passed": false,
+      "failure_class": "reference_parity_failure"
+    },
+    {
+      "id": "async-pipeline",
+      "correctness_passed": true,
+      "median_ns": 28278250,
+      "p95_ns": 34277200,
+      "stddev_ns": 2730763,
+      "independent_stddev_ns": 642330,
+      "dispersion_pct": 2.3434832100170744,
+      "gap_to_go": 1.579,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "sort-int",
+      "correctness_passed": true,
+      "median_ns": 55564150,
+      "p95_ns": 87446500,
+      "stddev_ns": 12717778,
+      "independent_stddev_ns": 3146440,
+      "dispersion_pct": 5.6627159778382286,
+      "gap_to_go": 1.878,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "binary-search",
+      "correctness_passed": true,
+      "median_ns": 61346900,
+      "p95_ns": 65042800,
+      "stddev_ns": 3257313,
+      "independent_stddev_ns": 1280390,
+      "dispersion_pct": 2.087130727062003,
+      "gap_to_go": 1.628,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "sieve",
+      "correctness_passed": true,
+      "median_ns": 38671050,
+      "p95_ns": 62904700,
+      "stddev_ns": 8887254,
+      "independent_stddev_ns": 945831,
+      "dispersion_pct": 2.8206060316882824,
+      "gap_to_go": 1.823,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "matrix-transpose",
+      "correctness_passed": true,
+      "median_ns": 41792800,
+      "p95_ns": 48866100,
+      "stddev_ns": 3248268,
+      "independent_stddev_ns": 485466,
+      "dispersion_pct": 1.1836231645546473,
+      "gap_to_go": 1.558,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "string-reverse",
+      "correctness_passed": true,
+      "median_ns": 57872950,
+      "p95_ns": 60496200,
+      "stddev_ns": 2265250,
+      "independent_stddev_ns": 301611,
+      "dispersion_pct": 0.5187239443595988,
+      "gap_to_go": 1.68,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "count-primes",
+      "correctness_passed": true,
+      "median_ns": 84997550,
+      "p95_ns": 126261700,
+      "stddev_ns": 22023227,
+      "independent_stddev_ns": 1158593,
+      "dispersion_pct": 1.8566407035598649,
+      "gap_to_go": 1.383,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "gcd",
+      "correctness_passed": true,
+      "median_ns": 284222150,
+      "p95_ns": 290076200,
+      "stddev_ns": 3894409,
+      "independent_stddev_ns": 1364785,
+      "dispersion_pct": 0.4735881812632881,
+      "gap_to_go": 1.205,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "pow-fast",
+      "correctness_passed": true,
+      "median_ns": 40398950,
+      "p95_ns": 55193000,
+      "stddev_ns": 8287392,
+      "independent_stddev_ns": 2165026,
+      "dispersion_pct": 6.629846198602084,
+      "gap_to_go": 1.613,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "word-count",
+      "correctness_passed": true,
+      "median_ns": 64846750,
+      "p95_ns": 67941700,
+      "stddev_ns": 1665186,
+      "independent_stddev_ns": 452486,
+      "dispersion_pct": 0.6926742646327182,
+      "gap_to_go": 2.19,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    },
+    {
+      "id": "digit-sum",
+      "correctness_passed": true,
+      "median_ns": 47633050,
+      "p95_ns": 55836500,
+      "stddev_ns": 3387558,
+      "independent_stddev_ns": 138592,
+      "dispersion_pct": 0.29166456218327524,
+      "gap_to_go": 1.885,
+      "reference_performance_passed": null,
+      "failure_class": "none"
+    }
+  ],
+  "ir": {
+    "root": "target\\phase31\\r3103-ir",
+    "scenarios": {
+      "cpu-loop-sum": {
+        "o0": {
+          "sha256": "10cda48ba57ef3f4e29ff8d842aed039446a26c8e1c8ae0b539954a879f37407",
+          "bytes": 3103,
+          "lines": 134,
+          "blocks": 0,
+          "allocas": 8,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "3ad5a987b7965175a765fc6b2a49c7d918ad22df2d2a785daf454b366c7bad15",
+          "bytes": 3077,
+          "lines": 133,
+          "blocks": 0,
+          "allocas": 8,
+          "host_calls": 0
+        }
+      },
+      "cpu-fibs": {
+        "o0": {
+          "sha256": "34e97567badd55e45deaec46c5959a35f8272ff9e0eadce875e343a9c8a973c1",
+          "bytes": 3345,
+          "lines": 144,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "e7897c0d6b12b8040d38a7c8a80580c457ad3479d8a7fbf035c04517a450c309",
+          "bytes": 3319,
+          "lines": 143,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 0
+        }
+      },
+      "cpu-string-build": {
+        "o0": {
+          "sha256": "844d4c12488043760cbba8bafc90395b39a76c6587f27297e8faf1e3b25664c3",
+          "bytes": 3315,
+          "lines": 132,
+          "blocks": 0,
+          "allocas": 6,
+          "host_calls": 16
+        },
+        "o3": {
+          "sha256": "200713800a402b7abd79035a9f3cb0199780c2d0d6b07cb842ee0a3be9960cc3",
+          "bytes": 3263,
+          "lines": 130,
+          "blocks": 0,
+          "allocas": 6,
+          "host_calls": 16
+        }
+      },
+      "cpu-hashmap": {
+        "o0": {
+          "sha256": "334c93f2182d435ea49e3fc80d0fa33cb5a17577859319bfd3ecb4724cc85708",
+          "bytes": 5541,
+          "lines": 220,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 20
+        },
+        "o3": {
+          "sha256": "d165a439c3b09e362bb967e8abbc33e2c4b92cbb6dfc04b2f55988e09bc8d6c0",
+          "bytes": 5411,
+          "lines": 215,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 20
+        }
+      },
+      "tensor-create": {
+        "o0": {
+          "sha256": "807a00b5519066d16c6b1ea051435efe584e95d7056ad10be689c1ae3d4b50c8",
+          "bytes": 2985,
+          "lines": 111,
+          "blocks": 0,
+          "allocas": 4,
+          "host_calls": 16
+        },
+        "o3": {
+          "sha256": "cc7d48c1901aaed5d07d829e733482ae7ab6c8277349f425477034a33d984170",
+          "bytes": 2907,
+          "lines": 108,
+          "blocks": 0,
+          "allocas": 4,
+          "host_calls": 16
+        }
+      },
+      "tensor-elementwise": {
+        "o0": {
+          "sha256": "16ff0bcc7cf92ca857b62daa0577ff22fc4da3ea68d74be83daff54c4c8871e4",
+          "bytes": 1899,
+          "lines": 62,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 16
+        },
+        "o3": {
+          "sha256": "ac929660ebf72e5da28f0ea1adc3c17899ba928eb5e0c90b18d220cb821b6414",
+          "bytes": 1873,
+          "lines": 61,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 16
+        }
+      },
+      "tensor-reduce": {
+        "o0": {
+          "sha256": "55865bdc174ab2570016f43ef3df8c1dfe19014b74990f9681d40d1a5ee90b5f",
+          "bytes": 1938,
+          "lines": 71,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 12
+        },
+        "o3": {
+          "sha256": "c5d8f07acaf31c72f85eee43783f6172200b19a03e5ce5311fe229e8ac5aa400",
+          "bytes": 1886,
+          "lines": 69,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 12
+        }
+      },
+      "tensor-matmul": {
+        "o0": {
+          "sha256": "391567a617f14ae484c838c431bb0808564af87d7423b90a4c6c8f1a0c60db80",
+          "bytes": 2696,
+          "lines": 77,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 28
+        },
+        "o3": {
+          "sha256": "9a2597f6caca3bbc4fc08ffde70f1d1192ce09eb60fc4013fd29e6804bedb47e",
+          "bytes": 2674,
+          "lines": 76,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 28
+        }
+      },
+      "ml-mlp-step": {
+        "o0": {
+          "sha256": "81e7d3b0b9e507eeeb81f5ce288ef30e1956dd53f7e3935bf359ba85c9301f16",
+          "bytes": 8273,
+          "lines": 214,
+          "blocks": 0,
+          "allocas": 2,
+          "host_calls": 76
+        },
+        "o3": {
+          "sha256": "06ed89e80eef8de68e610a6f32d56f19e6a1a9037236fc2df581e7f9fa39f8d2",
+          "bytes": 8146,
+          "lines": 209,
+          "blocks": 0,
+          "allocas": 2,
+          "host_calls": 76
+        }
+      },
+      "async-echo": {
+        "o0": {
+          "sha256": "0add86c4a9a2b66a0ed6c03b14ae14a8ca267bce926f5f5846bccbedcb75078d",
+          "bytes": 2445,
+          "lines": 98,
+          "blocks": 0,
+          "allocas": 4,
+          "host_calls": 12
+        },
+        "o3": {
+          "sha256": "71027456714fd7dec6188cedfbea0e5d96cc4cf9bfccc999d9b9be7e5467a9a6",
+          "bytes": 2394,
+          "lines": 96,
+          "blocks": 0,
+          "allocas": 4,
+          "host_calls": 12
+        }
+      },
+      "async-pipeline": {
+        "o0": {
+          "sha256": "e6f7f1beced26ec4a2b353d48ef2bf9e8138e94ed1f8ad9c233757f91d3750b1",
+          "bytes": 4937,
+          "lines": 198,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 20
+        },
+        "o3": {
+          "sha256": "8b7784f22ffb4affd0da4bd38e66c0f9a2e00c5ca6cfa01349c0894de8bf634b",
+          "bytes": 4779,
+          "lines": 192,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 20
+        }
+      },
+      "sort-int": {
+        "o0": {
+          "sha256": "b265a7f19f07f2574893ce149c5686188ad30c4607efd01512b86f576a634293",
+          "bytes": 10397,
+          "lines": 402,
+          "blocks": 0,
+          "allocas": 14,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "aeba79b2e27da9ffa145664a90006e073423bf19cb07d2fb2f3ba540e3c75cb5",
+          "bytes": 10291,
+          "lines": 398,
+          "blocks": 0,
+          "allocas": 14,
+          "host_calls": 0
+        }
+      },
+      "binary-search": {
+        "o0": {
+          "sha256": "1fd102f90c5487b09aa3dfc3371ebe71c06bce02058cb4bc55bbdf2086641733",
+          "bytes": 10727,
+          "lines": 416,
+          "blocks": 0,
+          "allocas": 18,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "bc88a445c7929fd6960a214642d683145dae8a0b4780fd70b9719491c4409706",
+          "bytes": 10540,
+          "lines": 409,
+          "blocks": 0,
+          "allocas": 18,
+          "host_calls": 0
+        }
+      },
+      "sieve": {
+        "o0": {
+          "sha256": "dba8a00db685886f644b4a63bafba4076c98f8d4ada770021368fd6ecf43b972",
+          "bytes": 54641,
+          "lines": 1920,
+          "blocks": 0,
+          "allocas": 16,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "5af8656c0f5662697b4ab35be09b0713032bd6cc7d0a0584cb4b9e6b182acc90",
+          "bytes": 54506,
+          "lines": 1915,
+          "blocks": 0,
+          "allocas": 16,
+          "host_calls": 0
+        }
+      },
+      "matrix-transpose": {
+        "o0": {
+          "sha256": "8cda28fa4baf227c0872901837ace8b5089eaee1b83c36650f73bff0dc713998",
+          "bytes": 65499,
+          "lines": 2242,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "2576ed681c30b196201214751e6e655a8302889a9af66f38b4a72b667de4f270",
+          "bytes": 65446,
+          "lines": 2240,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 0
+        }
+      },
+      "string-reverse": {
+        "o0": {
+          "sha256": "5723dd42303fe7a574a59c427d3a15e9d11ae234e4c0c83e7f4f2b5d4c937aa7",
+          "bytes": 15705,
+          "lines": 568,
+          "blocks": 0,
+          "allocas": 14,
+          "host_calls": 4
+        },
+        "o3": {
+          "sha256": "20ec933ea3462c958f10dbde758bd9cb67c4f70d7a25c2a6eb479310f2174a3e",
+          "bytes": 15654,
+          "lines": 566,
+          "blocks": 0,
+          "allocas": 14,
+          "host_calls": 4
+        }
+      },
+      "count-primes": {
+        "o0": {
+          "sha256": "69e05f926bf49b41ecb2382fb00f9098c342b50c94272b502f99f9e99de7d63e",
+          "bytes": 5359,
+          "lines": 226,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "1ba46f857f90327f575da852c9ab2ccf89bb7d81a63652a96c439aca9206a004",
+          "bytes": 5256,
+          "lines": 222,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 0
+        }
+      },
+      "gcd": {
+        "o0": {
+          "sha256": "f7d94d2538c3d05524c05872a7b782b3f72e5830308637f16ef0efc06ac6cd6e",
+          "bytes": 9249,
+          "lines": 358,
+          "blocks": 0,
+          "allocas": 16,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "4e2bf9fe0834df23ec3d2595218632c8d47e9fdacd5a3371d76550af492d99ad",
+          "bytes": 9198,
+          "lines": 356,
+          "blocks": 0,
+          "allocas": 16,
+          "host_calls": 0
+        }
+      },
+      "pow-fast": {
+        "o0": {
+          "sha256": "e3228dc9080740e7daca275d52b584f47b7c1e9ad8ee08e5005eda75634bab6d",
+          "bytes": 10231,
+          "lines": 396,
+          "blocks": 0,
+          "allocas": 18,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "49a7032470fa6ea8b991db0d7f5f60f994887532135ca4011200dce3c9e9932e",
+          "bytes": 10152,
+          "lines": 393,
+          "blocks": 0,
+          "allocas": 18,
+          "host_calls": 0
+        }
+      },
+      "word-count": {
+        "o0": {
+          "sha256": "2cc779360c3a30c51e3590f95b3d1dfd38e06cef879826a2439da0e87df7dbe9",
+          "bytes": 5259,
+          "lines": 216,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 8
+        },
+        "o3": {
+          "sha256": "0a82d495467afd6f8d7c332dbbce913172f1c33136f6737ac3ebceaec0df8357",
+          "bytes": 5132,
+          "lines": 211,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 8
+        }
+      },
+      "digit-sum": {
+        "o0": {
+          "sha256": "10fb9367abc71a602f507ae603263d80aaac7df49dbbc300d8e4bcaf7078cb7d",
+          "bytes": 4609,
+          "lines": 194,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 0
+        },
+        "o3": {
+          "sha256": "ed00892acb1a7741b1383a202d09b084253c5bf00853d818a7ac564e482b49e9",
+          "bytes": 4557,
+          "lines": 192,
+          "blocks": 0,
+          "allocas": 12,
+          "host_calls": 0
+        }
+      }
+    },
+    "tracked_textual_snapshots": {
+      "cpu-string-build": {
+        "o0": {
+          "sha256": "844d4c12488043760cbba8bafc90395b39a76c6587f27297e8faf1e3b25664c3",
+          "bytes": 3315,
+          "lines": 132,
+          "blocks": 0,
+          "allocas": 6,
+          "host_calls": 16
+        },
+        "o3": {
+          "sha256": "200713800a402b7abd79035a9f3cb0199780c2d0d6b07cb842ee0a3be9960cc3",
+          "bytes": 3263,
+          "lines": 130,
+          "blocks": 0,
+          "allocas": 6,
+          "host_calls": 16
+        }
+      },
+      "tensor-create": {
+        "o0": {
+          "sha256": "807a00b5519066d16c6b1ea051435efe584e95d7056ad10be689c1ae3d4b50c8",
+          "bytes": 2985,
+          "lines": 111,
+          "blocks": 0,
+          "allocas": 4,
+          "host_calls": 16
+        },
+        "o3": {
+          "sha256": "cc7d48c1901aaed5d07d829e733482ae7ab6c8277349f425477034a33d984170",
+          "bytes": 2907,
+          "lines": 108,
+          "blocks": 0,
+          "allocas": 4,
+          "host_calls": 16
+        }
+      },
+      "cpu-hashmap": {
+        "o0": {
+          "sha256": "334c93f2182d435ea49e3fc80d0fa33cb5a17577859319bfd3ecb4724cc85708",
+          "bytes": 5541,
+          "lines": 220,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 20
+        },
+        "o3": {
+          "sha256": "d165a439c3b09e362bb967e8abbc33e2c4b92cbb6dfc04b2f55988e09bc8d6c0",
+          "bytes": 5411,
+          "lines": 215,
+          "blocks": 0,
+          "allocas": 10,
+          "host_calls": 20
+        }
+      },
+      "tensor-matmul": {
+        "o0": {
+          "sha256": "391567a617f14ae484c838c431bb0808564af87d7423b90a4c6c8f1a0c60db80",
+          "bytes": 2696,
+          "lines": 77,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 28
+        },
+        "o3": {
+          "sha256": "9a2597f6caca3bbc4fc08ffde70f1d1192ce09eb60fc4013fd29e6804bedb47e",
+          "bytes": 2674,
+          "lines": 76,
+          "blocks": 0,
+          "allocas": 0,
+          "host_calls": 28
+        }
+      },
+      "ml-mlp-step": {
+        "o0": {
+          "sha256": "81e7d3b0b9e507eeeb81f5ce288ef30e1956dd53f7e3935bf359ba85c9301f16",
+          "bytes": 8273,
+          "lines": 214,
+          "blocks": 0,
+          "allocas": 2,
+          "host_calls": 76
+        },
+        "o3": {
+          "sha256": "06ed89e80eef8de68e610a6f32d56f19e6a1a9037236fc2df581e7f9fa39f8d2",
+          "bytes": 8146,
+          "lines": 209,
+          "blocks": 0,
+          "allocas": 2,
+          "host_calls": 76
+        }
+      }
+    }
+  },
+  "coverage": {
+    "R-3104": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3104",
+        "scenarios": "`cpu-loop-sum`, `cpu-fibs`, `cpu-hashmap`, workloads tensor",
+        "evidence": "Medianas/dispersion dos dois reports + contagens O0/O3; lookup/codegen aparece no IR, sem atribui\u00e7\u00e3o causal",
+        "hypothesis": "Mapa esparso e lookup de host podem dominar lowering (m\u00e9dia)",
+        "intervention": "Trocar mapa por `Vec<Option<Value>>` denso, pr\u00e9-computar `HostNameRecord`, separar JIT/AOT",
+        "metric": "ns/iter e tempo de lowering; lookup count",
+        "expected_gain": "1.2\u20131.5x nos cen\u00e1rios CPU, sem piora tensor",
+        "rejection_risk": "Mudan\u00e7a de ordem/ABI, picos em m\u00f3dulos grandes",
+        "rollback": "Reverter se qualquer cen\u00e1rio correto exceder +5% ou se o IR mudar sem ganho",
+        "dependencies": "R-3103",
+        "validation_command": "`cargo test -p spectra-backend`; `python scripts/phase31_run_all.py ... --independent-runs 5`; strict cross-lang"
+      }
+    },
+    "R-3105": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3105",
+        "scenarios": "`ml-mlp-step`, `tensor-elementwise`, `async-pipeline`",
+        "evidence": "Host-call count e materializa\u00e7\u00e3o de nomes nos snapshots; mediana atual registrada no JSON",
+        "hypothesis": "Aloca\u00e7\u00f5es e `to_string()` na fronteira hostcall s\u00e3o custo repetido (m\u00e9dia)",
+        "intervention": "Cache de nomes, batching de hostcalls consecutivos quando sem\u00e2ntico, remover convers\u00f5es por chamada",
+        "metric": "host calls/iter, aloca\u00e7\u00f5es e ns/iter",
+        "expected_gain": "1.1\u20131.3x em ML/tensor/async",
+        "rejection_risk": "Reordena\u00e7\u00e3o de efeitos ou lifetime de handles",
+        "rollback": "Reverter se hostcall count n\u00e3o cair ou surgir diverg\u00eancia num\u00e9rica/async",
+        "dependencies": "R-3103, R-3104 (se o cache compartilhar o path)",
+        "validation_command": "`cargo test -p spectra-midend -p spectra-runtime`; Phase 31 strict"
+      }
+    },
+    "R-3106": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3106",
+        "scenarios": "Loops CPU e cria\u00e7\u00e3o de tensores",
+        "evidence": "Contagem de `alloca` O0/O3 por cen\u00e1rio e lifetime vis\u00edvel no IR",
+        "hypothesis": "Slots tempor\u00e1rios n\u00e3o s\u00e3o reutilizados entre itera\u00e7\u00f5es (m\u00e9dia-baixa)",
+        "intervention": "Hoist de allocas invariantes, fus\u00e3o de slots e reuse por lifetime n\u00e3o sobreposto",
+        "metric": "allocas/fun\u00e7\u00e3o e bytes alocados",
+        "expected_gain": "1.05\u20131.10x onde allocas dominam",
+        "rejection_risk": "Alias/lifetime incorreto e regress\u00e3o num\u00e9rica",
+        "rollback": "Reverter se allocas n\u00e3o reduzirem ou sanitizer/fixtures falharem",
+        "dependencies": "R-3103, R-1502",
+        "validation_command": "`cargo test -p spectra-midend`; snapshots O0/O3; strict cross-lang"
+      }
+    },
+    "R-3107": {
+      "roadmap_status": "complete",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3107",
+        "scenarios": "`tensor-create` e passos de materializa\u00e7\u00e3o",
+        "evidence": "Evid\u00eancia conclu\u00edda em `181_phase31_buffer_pool.spectra`, pool hit/miss e gate tensor; apontar para `roadmap.toml`",
+        "hypothesis": "Pool tipado elimina zero-fill/intermedi\u00e1rios (alta; j\u00e1 validada)",
+        "intervention": "Manter buffer reuse type/lifetime-safe; s\u00f3 ampliar cobertura se novo benchmark exigir",
+        "metric": "allocations, bytes e mediana `tensor-create`",
+        "expected_gain": "Resultado j\u00e1 aceito: redu\u00e7\u00e3o de aloca\u00e7\u00e3o e gap release invertido",
+        "rejection_risk": "Reuso de shape/dtype/layout incompat\u00edvel",
+        "rollback": "Reverter qualquer mudan\u00e7a que altere contagem ativa, bytes ou toler\u00e2ncia R-1503",
+        "dependencies": "R-1502",
+        "validation_command": "`cargo test -p spectra-runtime`; `spectralang run tests/validation/181_phase31_buffer_pool.spectra`; Phase 31 gate"
+      }
+    },
+    "R-3108": {
+      "roadmap_status": "complete",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3108",
+        "scenarios": "`cpu-string-build`",
+        "evidence": "Regress\u00e3o `180_phase31_string_builder.spectra` e medi\u00e7\u00e3o aceita de string builder; snapshot textual versionado",
+        "hypothesis": "Materializa\u00e7\u00e3o repetida de strings cria c\u00f3pias no ABI (alta; j\u00e1 validada)",
+        "intervention": "Preservar builder/ABI otimizado e medir novas mudan\u00e7as contra o artefato aceito",
+        "metric": "ns/iter e bytes/c\u00f3pias por string",
+        "expected_gain": "Resultado j\u00e1 aceito: melhoria medida sem regress\u00e3o R-109",
+        "rejection_risk": "Quebra de string cross-module ou ownership",
+        "rollback": "Reverter se R-109 ou o cen\u00e1rio de string regredir >5%",
+        "dependencies": "R-109",
+        "validation_command": "`cargo test -p spectra-runtime`; `spectralang run tests/validation/180_phase31_string_builder.spectra`; strict"
+      }
+    },
+    "R-3109": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3109",
+        "scenarios": "`ml-mlp-step`",
+        "evidence": "Host-call/IR count e mediana do caminho de inference; training fixtures permanecem controle",
+        "hypothesis": "Constru\u00e7\u00e3o/reten\u00e7\u00e3o de grafo em inference \u00e9 desnecess\u00e1ria (m\u00e9dia)",
+        "intervention": "Pular graph build/free somente em inference mode, mantendo training path",
+        "metric": "ns/step e graph nodes/step",
+        "expected_gain": "1.1\u20131.2x em serving",
+        "rejection_risk": "Misturar inference e training ou perder gradientes",
+        "rollback": "Reverter se training output mudar ou graph nodes n\u00e3o ca\u00edrem",
+        "dependencies": "R-503, R-3103",
+        "validation_command": "ML regression suite + Phase 31 strict"
+      }
+    },
+    "R-3110": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3110",
+        "scenarios": "`tensor-elementwise`, `tensor-matmul`",
+        "evidence": "Throughput e toler\u00e2ncia R-1503; snapshots identificam opera\u00e7\u00f5es relevantes",
+        "hypothesis": "Kernels escalares deixam unidades SIMD ociosas (m\u00e9dia)",
+        "intervention": "SSE2/AVX2/NEON com CPUID dispatch e fallback escalar",
+        "metric": "elementos/s e erro num\u00e9rico",
+        "expected_gain": "2\u20134x em elementwise",
+        "rejection_risk": "CPU dispatch n\u00e3o determin\u00edstico, NaN/rounding",
+        "rollback": "Reverter se erro exceder R-1503 ou fallback n\u00e3o for funcional",
+        "dependencies": "R-3103, R-1503",
+        "validation_command": "kernel conformance + dedicated benchmark + strict"
+      }
+    },
+    "R-3111": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3111",
+        "scenarios": "`tensor-matmul`",
+        "evidence": "IR/mediana atual; shapes 256\u20132048 devem ser medidos no item de implementa\u00e7\u00e3o",
+        "hypothesis": "Tiles register-blocked reduzem cache miss e chamadas auxiliares (m\u00e9dia)",
+        "intervention": "Matmul tiled/register-blocked, com benchmark dedicado para 256, 512, 1024, 2048",
+        "metric": "GFLOP/s, mediana e erro relativo",
+        "expected_gain": "2\u20134x contra o caminho atual",
+        "rejection_risk": "Tiling ruim para shapes pequenos, overflow/toler\u00e2ncia",
+        "rollback": "Reverter se qualquer shape perder >5% ou erro exceder R-1503",
+        "dependencies": "R-3103, R-1503",
+        "validation_command": "benchmark matmul dedicado + numerical suite + strict"
+      }
+    },
+    "R-3112": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3112",
+        "scenarios": "Conv2D dedicado (a criar pelo pr\u00f3prio item)",
+        "evidence": "Nenhum cen\u00e1rio can\u00f4nico ainda; o plano exige fixture/benchmark e toler\u00e2ncia desde o in\u00edcio",
+        "hypothesis": "Im2col+GEMM pode superar loops diretos (baixa, a confirmar)",
+        "intervention": "Criar benchmark Conv2D com shapes, dtype e toler\u00e2ncia documentados; s\u00f3 ent\u00e3o implementar",
+        "metric": "images/s, mediana e erro m\u00e1ximo",
+        "expected_gain": "1.5\u20132x ap\u00f3s baseline dedicado",
+        "rejection_risk": "Im2col aumenta mem\u00f3ria e piora batch pequeno",
+        "rollback": "Reverter se mem\u00f3ria ou lat\u00eancia exceder baseline dedicado",
+        "dependencies": "R-3103, R-3110",
+        "validation_command": "novo Conv2D fixture/benchmark + numerical gate + strict"
+      }
+    },
+    "R-3113": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3113",
+        "scenarios": "`async-echo`",
+        "evidence": "Task counts, mediana e parity; causalidade ainda n\u00e3o alegada",
+        "hypothesis": "Scheduler/fila pode pagar custo por task (m\u00e9dia-baixa)",
+        "intervention": "Work-stealing/pool somente com sem\u00e2ntica fanout/fanin preservada",
+        "metric": "task creation ns e throughput",
+        "expected_gain": "1.5\u20132x no async fanout",
+        "rejection_risk": "Ordem, fairness ou starvation",
+        "rollback": "Reverter se task accounting, resultado ou parity mudar",
+        "dependencies": "R-3103, R-3131",
+        "validation_command": "async regression + dedicated benchmark + strict"
+      }
+    },
+    "R-3114": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3114",
+        "scenarios": "`async-echo`, `async-pipeline`",
+        "evidence": "Host calls/allocas e mediana no caminho ass\u00edncrono",
+        "hypothesis": "Handles/futures alocam em cada await (m\u00e9dia)",
+        "intervention": "Remover aloca\u00e7\u00f5es no hot path sem alterar ownership/observabilidade",
+        "metric": "allocs/task e ns/task",
+        "expected_gain": "1.1\u20131.3x",
+        "rejection_risk": "Use-after-free ou cancelamento incorreto",
+        "rollback": "Reverter se allocs n\u00e3o ca\u00edrem ou cancel/error tests falharem",
+        "dependencies": "R-3103, R-3131",
+        "validation_command": "async cancellation suite + benchmark + strict"
+      }
+    },
+    "R-3115": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3115",
+        "scenarios": "Cen\u00e1rios CPU pequenos",
+        "evidence": "O3 snapshots e tamanho de IR; impacto esperado pequeno (m\u00e9dia-baixa)",
+        "hypothesis": "Constantes n\u00e3o s\u00e3o reduzidas antes do codegen (m\u00e9dia-baixa)",
+        "intervention": "Propaga\u00e7\u00e3o agressiva com limites de custo e overflow expl\u00edcitos",
+        "metric": "tamanho IR e ns/iter",
+        "expected_gain": "1.0\u20131.05x",
+        "rejection_risk": "Code size explosion ou overflow de avalia\u00e7\u00e3o",
+        "rollback": "Reverter se IR crescer sem ganho ou diagnostics mudarem",
+        "dependencies": "R-3103",
+        "validation_command": "midend tests + IR diff + Phase 31 strict"
+      }
+    },
+    "R-3116": {
+      "roadmap_status": "not_started",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3116",
+        "scenarios": "Cen\u00e1rios CPU/ML",
+        "evidence": "O0/O3 mostram instru\u00e7\u00f5es/blocks n\u00e3o consumidos; sem profiler causal (baixa)",
+        "hypothesis": "DCE deixa instru\u00e7\u00f5es mortas em paths com efeitos modelados conservadoramente",
+        "intervention": "Estender DCE apenas para opera\u00e7\u00f5es comprovadamente puras",
+        "metric": "instru\u00e7\u00f5es/blocks e ns/iter",
+        "expected_gain": "1.0\u20131.05x",
+        "rejection_risk": "Remover efeitos observ\u00e1veis/host calls",
+        "rollback": "Reverter se qualquer fixture mudar sa\u00edda ou host-call count esperado",
+        "dependencies": "R-3103",
+        "validation_command": "midend regression + IR diff + strict"
+      }
+    },
+    "R-3117": {
+      "roadmap_status": "complete",
+      "present_in_plan": true,
+      "matrix": {
+        "id": "R-3117",
+        "scenarios": "Loops quentes",
+        "evidence": "Compara\u00e7\u00e3o controlada O0/O3 e mediana por cen\u00e1rio; Cranelift \u00e9 hip\u00f3tese (m\u00e9dia)",
+        "hypothesis": "N\u00edvel de otimiza\u00e7\u00e3o atual pode deixar passes quentes desativados",
+        "intervention": "Comparar n\u00edveis Cranelift em experimento controlado, mantendo ABI e baseline",
+        "metric": "ns/iter, code size e compile time",
+        "expected_gain": "1.1\u20131.3x em loops quentes",
+        "rejection_risk": "Compile time/code size ou regress\u00e3o de cold path",
+        "rollback": "Reverter se ganho n\u00e3o superar ru\u00eddo ou compile time exceder limite",
+        "dependencies": "R-3103",
+        "validation_command": "controlled O0/O3/Cranelift benchmark + strict"
+      }
+    }
+  },
+  "failures": [
+    "tensor-create: measurement is inconclusive (dispersion > 10%)",
+    "async-echo: Go reference parity is outside the certified window",
+    "async-echo: Go reference parity is outside the certified window"
+  ],
+  "baseline_modified": false
+}
