@@ -320,6 +320,31 @@ Usa **Cranelift ObjectModule** (`cranelift_object`):
 - Pre-interna nomes de host functions como seções `.rodata` para endereços relocáveis.
 - Suporta modo `--emit-exe`: renomeia `main` para `spectra_user_main` e sintetiza um shim C `main(argc, argv)` que inicializa o runtime e chama a entry point Spectra.
 
+#### 2.8.3 Seam HostCall/ABI
+
+O contrato de imports nativos usado por JIT e AOT tem uma única fonte no
+catálogo interno `runtime/src/abi.rs` (`RuntimeImport`, `FastHostCall` e
+`HostCallClass`). O catálogo é parte do toolchain, está oculto da documentação
+pública e contém, para cada import, nome Spectra quando aplicável, símbolo
+nativo, assinatura Cranelift, aridade e endereço JIT.
+
+`backend/src/hostcall_abi.rs` é o adapter comum dos dois backends:
+
+- `RuntimeBindings` mantém os `FuncId`s em uma tabela indexada pelo enum, sem
+  `HashMap` no caminho de geração;
+- `HostCallLoweringContext` agrupa bindings, nomes/literais internados, estado
+  do planner de batching e estatísticas;
+- JIT registra os endereços e AOT declara os mesmos símbolos por meio do mesmo
+  catálogo e da mesma tradução de assinatura.
+
+O lowering classifica um nome uma vez em `FastHostCall`. A aridade é validada
+antes da interceptação: nome conhecido com aridade incorreta e nome desconhecido
+seguem o `spectra_rt_host_invoke` genérico. Fast paths nunca são enviados ao
+batch genérico; dependências entre resultados, o limite de oito chamadas e o
+orçamento de 4096 bytes permanecem política do backend. O runtime continua
+owner do registry, do contexto, de `catch_unwind` e do dispatch dinâmico; a
+remoção de lookup/lock/`catch_unwind` repetidos fica para uma fase posterior.
+
 ### 2.9 Fase 8 — Runtime e Execução
 
 **Arquivo principal:** `runtime/src/lib.rs`
