@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
+pub mod abi;
 pub mod api;
 pub(crate) mod artifact;
 pub mod ffi;
