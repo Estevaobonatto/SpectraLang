@@ -1,16 +1,16 @@
 {
   "schema": "spectra.phase31.r3105_hostcall_batching_evidence.v1",
-  "status": "passed",
-  "generated_at_utc": "2026-08-02T17:28:38.512957+00:00",
+  "status": "blocked",
+  "generated_at_utc": "2026-08-02T21:52:20.081257+00:00",
   "task": "R-3105",
-  "git_revision": "2830c5fefa8b25d62c837d6e6b2fa77fd36aa8bf",
+  "git_revision": "171458d4faab00db9380fd80746e0634a109c413",
   "profile": "release",
   "classification": "benchmark_and_ir_hypothesis",
   "profiling_causal_claim": false,
   "benchmark": {
     "path": "target\\phase31\\r3105-hostcall-benchmark.json",
-    "sha256": "2e8bbde87db4900273e1a73920a8ea6fde7bdb9c3e135a1b616f61fd55ad4a8f",
-    "candidate_to_control_ratio": 0.5148435145916628,
+    "sha256": "30dbde2ce7404dce5db1c9185b39b133d14b737d1b3db26f3a371df1d2062251",
+    "candidate_to_control_ratio": 0.605769996486708,
     "candidate_batch_stats": {
       "batched_sites": 1,
       "batched_hostcalls": 3,
@@ -18,83 +18,83 @@
       "argument_arena_bytes": 40,
       "result_arena_bytes": 24
     },
-    "candidate_binary_sha256": "28db02e1331ed1a83cc4e2534584e8064c03e8570d01608cf90cc10ba77e4e76",
+    "candidate_binary_sha256": "89242ac1c4f6554f037b30cd7c51a8c8ad4907169ac0f9b8d42a2fc68e4205d1",
     "control_binary_sha256": "7e46162552aeb594cfac0cdac27cc7da0c174f1066c0daaa0c83a629ed88c5bf"
   },
   "code_validation": {
     "path": "target\\phase31\\r3105-code-validation.json",
-    "sha256": "b82801941c3fad77ff816956ee694ea7e917c65f20d2e9e34bb8e57a5f9556b1"
+    "sha256": "c22174818225ac9170fb3e4ef35592f2e161f39c0581e48b3af28da4235b3539"
   },
   "release_reports": [
     {
       "path": "target\\phase31\\r3105-release-run-1.json",
-      "sha256": "88e975719262cf7346745818b11e6f7dcc048b23c047497d7624abb0ad1b7fca"
+      "sha256": "6d18f8940ec3fccf970795c4f61891610f41588149de2dfd30a5f12685eb1d50"
     },
     {
       "path": "target\\phase31\\r3105-release-run-2.json",
-      "sha256": "174df1850ec090828d3e8dbe121633498ceb6279ffbb5043b35a2d956f50cd7b"
+      "sha256": "71227e424a569c60d0e00c2c3c4992bc480c4649529b70d770f9b3bf1f829733"
     }
   ],
   "release_reports_semantically_compatible": true,
-  "release_reports_functional": true,
+  "release_reports_functional": false,
   "steady_state": {
     "scenarios": {
       "cpu-loop-sum": {
-        "median_ns": 10877600,
-        "spectra_to_go": 1.0396303145862305,
-        "spectra_to_rust": 1.3432120718184288,
-        "candidate_to_control": 0.9635147703618406,
-        "control_median_ns": 11289500,
-        "baseline_regression_pct": -68.58702094925381
+        "median_ns": 14283800,
+        "spectra_to_go": 1.0328687383625288,
+        "spectra_to_rust": 1.3756844087238336,
+        "candidate_to_control": 1.011135100697271,
+        "control_median_ns": 14126500,
+        "baseline_regression_pct": -58.75039437329481
       },
       "cpu-fibs": {
-        "median_ns": 16426550,
-        "spectra_to_go": 1.0483336737038267,
-        "spectra_to_rust": 1.9977683050672246,
-        "candidate_to_control": 0.8275527656798265,
-        "control_median_ns": 19849550,
-        "baseline_regression_pct": -67.15933019352175
+        "median_ns": 22818300,
+        "spectra_to_go": 1.2429689670387136,
+        "spectra_to_rust": 2.283405549829382,
+        "candidate_to_control": 0.9949854578277003,
+        "control_median_ns": 22933300,
+        "baseline_regression_pct": -54.38066691757171
       },
       "cpu-hashmap": {
-        "median_ns": 11273000,
-        "spectra_to_go": 1.0728986727958847,
-        "spectra_to_rust": 1.26702070864593,
-        "candidate_to_control": 0.9940347334588405,
-        "control_median_ns": 11340650,
-        "baseline_regression_pct": -91.6235316566675
+        "median_ns": 13406750,
+        "spectra_to_go": 1.0592443647338605,
+        "spectra_to_rust": 1.2414749445553082,
+        "candidate_to_control": 0.9997911935896432,
+        "control_median_ns": 13409550,
+        "baseline_regression_pct": -90.03803628475356
       },
       "tensor-create": {
-        "median_ns": 19368850,
-        "spectra_to_go": 0.462071285347749,
-        "spectra_to_rust": 2.3116772291644287,
-        "candidate_to_control": 1.0276805777000766,
-        "control_median_ns": 18847150,
-        "baseline_regression_pct": -89.63716418098106
+        "median_ns": 32583050,
+        "spectra_to_go": 0.6330063042147901,
+        "spectra_to_rust": 3.01339159788213,
+        "candidate_to_control": 1.0521692096552837,
+        "control_median_ns": 30967500,
+        "baseline_regression_pct": -82.56722533176286
       },
       "tensor-elementwise": {
-        "median_ns": 10807350,
-        "spectra_to_go": 0.5396524604898509,
-        "spectra_to_rust": 0.9867157863021954,
-        "candidate_to_control": 1.0125593771373427,
-        "control_median_ns": 10673300,
-        "baseline_regression_pct": -75.04400409877469
+        "median_ns": 13465700,
+        "spectra_to_go": 0.5347967163242531,
+        "spectra_to_rust": 0.9660414447182556,
+        "candidate_to_control": 0.9771951277036564,
+        "control_median_ns": 13779950,
+        "baseline_regression_pct": -68.90542510355179
       },
       "tensor-matmul": {
-        "median_ns": 10187050,
-        "spectra_to_go": 0.680463570629394,
-        "spectra_to_rust": 0.8133990202849717,
-        "candidate_to_control": 1.0016321795004155,
-        "control_median_ns": 10170450,
-        "baseline_regression_pct": -82.03667835884428
+        "median_ns": 12962300,
+        "spectra_to_go": 0.6662794433236099,
+        "spectra_to_rust": 0.848704089883815,
+        "candidate_to_control": 0.9981749576466964,
+        "control_median_ns": 12986000,
+        "baseline_regression_pct": -77.14294480647953
       }
     },
     "runtime_regressions": {
-      "cpu-loop-sum": -68.58702094925381,
-      "cpu-fibs": -67.15933019352175,
-      "cpu-hashmap": -91.6235316566675,
-      "tensor-create": -89.63716418098106,
-      "tensor-elementwise": -75.04400409877469,
-      "tensor-matmul": -82.03667835884428
+      "cpu-loop-sum": -58.75039437329481,
+      "cpu-fibs": -54.38066691757171,
+      "cpu-hashmap": -90.03803628475356,
+      "tensor-create": -82.56722533176286,
+      "tensor-elementwise": -68.90542510355179,
+      "tensor-matmul": -77.14294480647953
     }
   },
   "fixture": {
@@ -176,5 +176,24 @@
   "async_echo_gate": {
     "max_gap_to_go": 1.202162
   },
-  "errors": []
+  "errors": [
+    "release-1: cpu-loop-sum: measurement is inconclusive (dispersion > 10%)",
+    "release-1: cpu-fibs: measurement is inconclusive (dispersion > 10%)",
+    "release-1: tensor-create: measurement is inconclusive (dispersion > 10%)",
+    "release-1: tensor-elementwise: measurement is inconclusive (dispersion > 10%)",
+    "release-1: async-echo: Go parity gap must be within 0 < gap_to_go <= 1.202162x",
+    "release-1: async-echo: Go reference parity is outside the accepted window",
+    "release-1/cpu-loop-sum: baseline regression exceeds 5%",
+    "release-1/async-echo: baseline regression exceeds 5%",
+    "release-2: cpu-loop-sum: measurement is inconclusive (dispersion > 10%)",
+    "release-2: cpu-fibs: measurement is inconclusive (dispersion > 10%)",
+    "release-2: cpu-hashmap: measurement is inconclusive (dispersion > 10%)",
+    "release-2: tensor-matmul: measurement is inconclusive (dispersion > 10%)",
+    "release-2: ml-mlp-step: measurement is inconclusive (dispersion > 10%)",
+    "release-2: async-echo: reference measurement is inconclusive (paired dispersion > 10%)",
+    "release-2: async-echo: Go parity gap must be within 0 < gap_to_go <= 1.202162x",
+    "release-2: async-echo: Go reference parity is outside the accepted window",
+    "release-2/async-echo: baseline regression exceeds 5%",
+    "steady-state: steady-state tensor-create: candidate/control runtime regression is 5.217% (> 5%)"
+  ]
 }

@@ -319,7 +319,7 @@ def build_markdown(evidence: dict[str, Any]) -> str:
         "",
         f"- Status: **{status}**",
         f"- Revision: `{evidence.get('git_revision', '')}`",
-        f"- Dedicated candidate/control: `{ratio}` (gate `<= 0.90x`) ",
+        f"- Dedicated candidate/control: `{ratio}` (gate `<= 0.90x`)",
         f"- Functional matrix: `{evidence.get('release_reports_functional', False)}` (Spectra + Go + Rust, 21 scenarios)",
         f"- JIT/AOT fixture: `{evidence.get('fixture', {}).get('jit_aot_equivalent', False)}`",
         f"- Baseline unchanged: `{evidence.get('baseline', {}).get('sha256_before') == evidence.get('baseline', {}).get('sha256_after')}`",
