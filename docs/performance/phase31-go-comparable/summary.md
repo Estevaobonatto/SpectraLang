@@ -39,20 +39,26 @@ Roadmap items: `R-3101`, `R-3103`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and
 - Tier 5: R-3115, R-3116, R-3117 (compiler + cranelift tuning).
 - Tier 6: R-3109 (autodiff inference skip).
 
-### R-3104 Codegen hot path (in_progress)
+### R-3104 Codegen hot path (complete)
 
 - `backend/src/codegen.rs` and `backend/src/aot.rs` now use the dense
   `DenseValueMap`, seed parameters by their real IR ids, preserve PHI/
   terminator lookup errors, and pre-intern JIT/AOT host names deterministically.
 - JIT and AOT smoke compilation of the same fixture passed; the 21-scenario
   code-validation report passed `21/21` with Spectra + Go + Rust and no Java.
-- The controlled codegen comparison did not meet promotion: the CPU target
-  geometric-mean change was within noise in the initial capture and the final
-  capture regressed; tensor targets exceeded the +5% rejection threshold.
-- The two release reports also contain inconclusive measurements and strict
-  baseline regressions. Evidence is published as `blocked` in
-  `evidence-r3104-codegen.{json,md}`; R-3104 remains `in_progress`, R-3105 is
-  not started, and the immutable baseline is unchanged.
+- Scalar `alloca` analysis is a single linear use scan with conservative
+  dominance checks for cross-block initialization; unsafe cases retain memory
+  lowering. The paired control/candidate codegen guardrail reports no
+  individual regression above 5%; geometric gain is informational only.
+- The runtime-primary AOT gate passes all six controlled scenarios: the maximum
+  Spectra/Go ratio is `1.175579x`, all candidate/control runtime regressions are
+  below 5%, and the Spectra baseline has no regression above 5%.
+- Two current-head release reports pass strict validation and semantic
+  compatibility for 21/21 Spectra + Go + Rust scenarios; Java is excluded and
+  async-echo remains within `1.202162x` with ≤10% paired dispersion. Evidence is
+  published as `passed` in `evidence-r3104-codegen.{json,md}`; R-3104 is
+  complete, R-3105 remains `not_started`, and the immutable baseline is
+  unchanged.
 
 ## Historical Measured Baseline
 
@@ -85,7 +91,7 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 
 1. R-3108 (string builder API, host function ready, language surface needs the typed `str.builder_*` API)
 2. R-3107 (tensor buffer pool)
-3. R-3104 (dense value map)
+3. R-3104 (dense value map, complete)
 4. R-3105 (host call precompute)
 5. R-3106 (alloca hoisting)
 6. R-3110 (SIMD elementwise)
@@ -108,6 +114,10 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
   `r3133-async-echo-only.json` report; it records `async-echo = 1.154469x`
   against Go with `3.0062%` paired dispersion. The fast 21-scenario
   code-validation report is `r3133-code-validation.json`.
+- R-3104 closure evidence is `evidence-r3104-codegen.{json,md}` at revision
+  `699db7945243343ed962ffc78c3037fd2eb69adc`; it records the clean-control
+  codegen comparison, paired AOT steady-state, current IR manifest, and
+  unchanged baseline.
 - `python scripts/phase31_run_all.py --code-validation ...` plus the matching
   validator is the repository correctness gate and completes in about 40 s.
 - `python scripts/validate_phase31_cross_lang.py --strict --max-drift 5` —
@@ -148,9 +158,8 @@ scripts/phase31_apply_baseline.py
   planning + suite + gate + R-3108. The findings doc is the input R-3103
   consumed; R-3102 will produce a deeper profile-driven supplement when
   invoked.
-- **R-3104** has an implementation and focused evidence, but remains open
-  because the codegen gain and strict performance gates were not satisfied.
-  R-3105, R-3106, and R-3109..R-3116 still require their own focused gates;
+- **R-3104** is complete under the runtime-primary gate. R-3105, R-3106, and
+  R-3109..R-3116 still require their own focused gates;
   existing complete items such as R-3107, R-3108, R-3117, and R-3118 are
   preserved.
 

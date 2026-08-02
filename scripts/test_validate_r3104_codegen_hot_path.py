@@ -28,6 +28,14 @@ REVISION = "f7ba1dbb3295084342fc002c7816eadf096adafb"
 
 
 def timing_fixture(label: str, codegen_ns: float = 100.0) -> dict:
+    results = {
+        scenario: {
+            "warmup_runs": 3,
+            "timed_runs": 20,
+            "timings": {"codegen": {"median_ns": codegen_ns}},
+        }
+        for scenario in CODEGEN_SCENARIOS
+    }
     return {
         "schema": CODEGEN_SCHEMA,
         "task": "R-3104",
@@ -37,11 +45,17 @@ def timing_fixture(label: str, codegen_ns: float = 100.0) -> dict:
         "source_tree_fingerprint": f"{label}-tree",
         "profile": "release",
         "scenarios": list(CODEGEN_SCENARIOS),
-        "measurement_policy": {"warmup_runs": 3, "timed_runs": 20},
-        "results": {
-            scenario: {"timings": {"codegen": {"median_ns": codegen_ns}}}
-            for scenario in CODEGEN_SCENARIOS
+        "measurement_policy": {
+            "warmup_runs": 3,
+            "timed_runs": 20,
+            "independent_runs": 5,
+            "aggregation": "median_of_group_medians",
         },
+        "groups": [
+            {"independent_run": index, "results": results}
+            for index in range(1, 6)
+        ],
+        "results": results,
     }
 
 
@@ -65,12 +79,32 @@ def steady_state_fixture(*, spectra_ns: int = 90, java: bool = False) -> dict:
                 "successful_independent_runs": 5,
                 "median_of_group_medians_ns": median_ns,
             }
+        control_groups = [
+            {
+                "warmup_runs": 3,
+                "timed_runs": 20,
+                "exit_code": 0,
+                "failure_class": None,
+                "median_ns": 90,
+            }
+            for _ in range(5)
+        ]
         results[scenario] = {
             "aot_compile": {"exit_code": 0},
+            "control_aot_compile": {"exit_code": 0},
             "languages": languages,
+            "control_languages": {
+                "spectra": {
+                    "groups": control_groups,
+                    "successful_independent_runs": 5,
+                    "median_of_group_medians_ns": 90,
+                }
+            },
             "ratios": {"spectra_to_go": spectra_ns / 100, "spectra_to_rust": spectra_ns / 95},
             "correctness_passed": True,
+            "control_correctness_passed": True,
         }
+        results[scenario]["ratios"]["candidate_spectra_to_control_spectra"] = spectra_ns / 90
     return {
         "schema": "spectra.phase31.r3104_steady_state.v1",
         "task": "R-3104",
@@ -79,6 +113,10 @@ def steady_state_fixture(*, spectra_ns: int = 90, java: bool = False) -> dict:
         "source_tree_fingerprint": "steady-tree",
         "profile": "release",
         "binary_sha256": "release-sha",
+        "control": {
+            "binary_sha256": "control-sha",
+            "source_tree_fingerprint": "control-tree",
+        },
         "benchmark_languages": ["spectra", "go", "rust"],
         "java_excluded": not java,
         "scenarios": list(STEADY_STATE_SCENARIOS),
@@ -88,17 +126,18 @@ def steady_state_fixture(*, spectra_ns: int = 90, java: bool = False) -> dict:
 
 
 class R3104ValidatorTests(unittest.TestCase):
-    def test_codegen_cpu_group_requires_five_percent_gain(self) -> None:
+    def test_codegen_cpu_group_is_a_reported_guardrail_without_minimum_gain(self) -> None:
         summary, errors = validate_codegen_timing(
             timing_fixture("before", 100.0), timing_fixture("after", 90.0), expected_revision=REVISION
         )
         self.assertEqual([], errors)
         self.assertAlmostEqual(10.0, summary["cpu_target_geometric_mean_improvement_pct"])
 
-        _, errors = validate_codegen_timing(
+        summary, errors = validate_codegen_timing(
             timing_fixture("before", 100.0), timing_fixture("after", 100.0), expected_revision=REVISION
         )
-        self.assertTrue(any("geometric mean" in error for error in errors))
+        self.assertEqual([], errors)
+        self.assertEqual(0.0, summary["cpu_target_geometric_mean_improvement_pct"])
 
     def test_codegen_regression_and_policy_are_rejected(self) -> None:
         after = timing_fixture("after", 100.0)
@@ -165,6 +204,37 @@ class R3104ValidatorTests(unittest.TestCase):
                 baseline={"scenarios": {scenario: {"spectra_ns_per_iter": 100} for scenario in STEADY_STATE_SCENARIOS}},
             )
             self.assertTrue(any("baseline regression" in error for error in errors))
+
+    def test_steady_state_rejects_spectra_go_gap_above_125x(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "spectralang.exe"
+            binary.write_bytes(b"release")
+            payload = steady_state_fixture(spectra_ns=126)
+            payload["binary_sha256"] = __import__("hashlib").sha256(binary.read_bytes()).hexdigest()
+            _, errors = validate_steady_state(
+                payload,
+                expected_revision=REVISION,
+                binary=binary,
+                baseline={"scenarios": {}},
+            )
+            self.assertTrue(any("1.25x" in error for error in errors))
+
+    def test_steady_state_rejects_candidate_control_regression_and_invalid_aot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "spectralang.exe"
+            binary.write_bytes(b"release")
+            payload = steady_state_fixture()
+            payload["binary_sha256"] = __import__("hashlib").sha256(binary.read_bytes()).hexdigest()
+            payload["results"]["cpu-loop-sum"]["ratios"]["candidate_spectra_to_control_spectra"] = 1.06
+            payload["results"]["cpu-loop-sum"]["control_aot_compile"]["exit_code"] = 1
+            _, errors = validate_steady_state(
+                payload,
+                expected_revision=REVISION,
+                binary=binary,
+                baseline={"scenarios": {}},
+            )
+            self.assertTrue(any("candidate/control" in error for error in errors))
+            self.assertTrue(any("clean control AOT compile" in error for error in errors))
 
     def test_roadmap_allows_active_r3104_but_keeps_followups_closed(self) -> None:
         items = [

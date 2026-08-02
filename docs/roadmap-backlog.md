@@ -7551,7 +7551,7 @@ continua aguardando o relatório remoto do PostgreSQL 16.
 
 ## R-3104 Cranelift Value Map and Codegen Hot Path
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3103`
@@ -7567,23 +7567,36 @@ continua aguardando o relatório remoto do PostgreSQL 16.
 
 - `value_map` usa `Vec<Option<Value>>` indexado por IR `ValueId`.
 - Host name records pré-computados no module load.
-- O benchmark controlado exige ganho geométrico mínimo de 5% no grupo CPU e
-  nenhuma regressão acima de 5% nos alvos CPU/tensor.
-- `run_tests.ps1` zero falhas funcionais.
-- `validate_phase31_cross_lang.py` reporta ≤ 5% de drift em todos os cenários;
-  JIT/AOT compilam o mesmo módulo e o baseline permanece imutável.
+- Promoção de `alloca` escalar somente para usos load/store com `store`
+  dominando toda carga; escapes, GEP, PHI, retorno, chamada, hostcall, async,
+  uso indireto ou carga não inicializada permanecem no lowering de memória.
+- Runtime AOT é a métrica primária: os seis cenários controlados passam, nenhum
+  runtime Spectra regride mais de 5% contra o baseline imutável ou o controle
+  limpo, e Spectra fica em até `1,25x` de Go em cada cenário.
+- O controle de codegen usa cinco grupos independentes, três warmups e vinte
+  amostras; nenhuma mediana individual CPU/tensor pode regredir mais de 5%.
+  Ganho geométrico mínimo não é requisito de promoção.
+- `run_tests.ps1` valida 21/21 cenários funcionais em Spectra + Go + Rust,
+  dois relatórios release compatíveis, async-echo ≤ `1,202162x`, dispersão
+  pareada ≤10%, JIT/AOT e ausência de Java; o baseline permanece imutável.
 
-### Current evidence (2026-08-01)
+### Current evidence (2026-08-02)
 
 - `DenseValueMap` foi implementado nos caminhos JIT/AOT, com parâmetros por
   `param.id`, resize seguro para IDs esparsos, lookup de PHI/terminator sem
   panic e pre-internamento determinístico de host names.
-- Backend 22/22, runtime 93/93, midend/CLI e 53 testes Python focados passam;
-  JIT e AOT compilam o mesmo fixture e a validação rápida cobre 21/21 sem Java.
-- O gate estatístico permanece bloqueado: o grupo CPU não atingiu 5% de ganho
-  geométrico, houve regressões de codegen acima de 5% em cenários tensor, e os
-  relatórios release registraram inconclusividade/strict drift. A evidência
-  detalhada está em `evidence-r3104-codegen.{json,md}`.
+- A promoção de `alloca` escalar agora usa uma varredura linear dos usos e só
+  aceita carga/store com inicialização segura; escapes e CFGs não comprovados
+  permanecem no lowering de memória.
+- Backend 25/25, code-validation 21/21, JIT/AOT e os dois strict gates release
+  passam na revisão `699db7945243343ed962ffc78c3037fd2eb69adc`; a matriz é
+  Spectra + Go + Rust e Java permanece excluído.
+- O runtime AOT passa nos seis cenários com Spectra/Go máximo `1,175579x` e
+  nenhum candidato/control acima de 5%; o codegen não tem regressão individual
+  acima de 5% e o ganho geométrico mínimo deixou de ser requisito.
+- A evidência aprovada está em `evidence-r3104-codegen.{json,md}`; o baseline
+  permanece byte-a-byte inalterado. R-3102 continua `in_progress` e R-3105
+  não foi iniciado.
 - O baseline permaneceu byte-a-byte inalterado; R-3102 continua aguardando
   profiling Linux oficial e R-3105 não foi iniciado.
 

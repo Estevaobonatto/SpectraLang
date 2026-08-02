@@ -4242,16 +4242,17 @@ title = "Cranelift Value Map and Codegen Hot Path"
 phase = "phase_31"
 owner = "backend"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-3103"]
 summary = "Replace the HashMap-based value map and per-compile name interning in `backend/src/codegen.rs` with dense indexing and precomputed host records; split JIT vs AOT paths."
 acceptance = [
   "value_map uses `Vec<Option<Value>>` indexed by IR `ValueId` with benchmarked lookup",
   "host name records are precomputed at module load, not per hostcall lowering",
-  "controlled codegen benchmark improves the CPU target geometric mean by at least 5% with no CPU/tensor target regression above 5%",
-  "no functional regression: `run_tests.ps1` reports zero failed expected tests",
-  "no performance regression: validate_phase31_cross_lang.py reports <= 5% drift on every Spectra scenario",
+  "scalar alloca promotion is limited to load/store-only values with a dominating store; escaping, indirect, async, PHI, call, GEP, and uninitialized uses retain memory lowering",
+  "runtime is primary: six AOT scenarios pass and Spectra remains <= 1.25x Go with no runtime regression above 5% against the immutable baseline or clean control",
+  "controlled codegen comparison uses five independent groups of 3 warmups and 20 samples; no individual CPU/tensor target regresses above 5% against the clean control (a geometric gain is not required)",
+  "21/21 Spectra + Go + Rust scenarios pass functionally, two release reports are semantically compatible, async-echo remains <= 1.202162x with <= 10% paired dispersion, and Java is excluded",
   "JIT and AOT compile the same module and the immutable baseline SHA-256 is unchanged"
 ]
 

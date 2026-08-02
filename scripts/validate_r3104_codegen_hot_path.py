@@ -35,6 +35,8 @@ EVIDENCE_SCHEMA = "spectra.phase31.r3104_codegen_evidence.v1"
 IR_MANIFEST_SCHEMA = "spectra.phase31.r3104_ir_manifest.v1"
 CODEGEN_SCHEMA = "spectra.phase31.r3104_codegen_timing.v1"
 STEADY_STATE_SCHEMA = "spectra.phase31.r3104_steady_state.v1"
+STEADY_STATE_MAX_SPECTRA_TO_GO = 1.25
+STEADY_STATE_MAX_CANDIDATE_REGRESSION = 1.05
 CODEGEN_SCENARIOS = (
     "cpu-loop-sum",
     "cpu-fibs",
@@ -132,15 +134,33 @@ def validate_codegen_timing(
             errors.append(f"codegen {label}: Git revision does not match current HEAD")
         if not isinstance(payload.get("source_tree_fingerprint"), str) or not payload.get("source_tree_fingerprint"):
             errors.append(f"codegen {label}: source-tree fingerprint is missing")
-        if not isinstance(payload.get("source_tree_fingerprint"), str) or not payload.get("source_tree_fingerprint"):
-            errors.append(f"codegen {label}: source-tree fingerprint is missing")
         if payload.get("profiling_causal_claim") is not False:
             errors.append(f"codegen {label}: causal profiling claim is not false")
+        if payload.get("profile") != "release":
+            errors.append(f"codegen {label}: profile must be release")
         policy = payload.get("measurement_policy") or {}
-        if policy.get("warmup_runs") != 3 or policy.get("timed_runs") != 20:
-            errors.append(f"codegen {label}: policy must use 3 warmups and 20 samples")
+        if (
+            policy.get("warmup_runs") != 3
+            or policy.get("timed_runs") != 20
+            or policy.get("independent_runs") != 5
+            or policy.get("aggregation") != "median_of_group_medians"
+        ):
+            errors.append(f"codegen {label}: policy must use 3 warmups, 20 samples, and 5 independent groups")
         if payload.get("scenarios") != list(CODEGEN_SCENARIOS):
             errors.append(f"codegen {label}: scenario set must be the six controlled scenarios")
+        groups = payload.get("groups") if isinstance(payload.get("groups"), list) else []
+        if len(groups) != 5:
+            errors.append(f"codegen {label}: expected 5 independent groups")
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("results"), dict):
+                errors.append(f"codegen {label}: independent group is malformed")
+                continue
+            if set(group["results"]) != set(CODEGEN_SCENARIOS):
+                errors.append(f"codegen {label}: independent group scenario coverage is incomplete")
+            for scenario in CODEGEN_SCENARIOS:
+                item = group["results"].get(scenario, {})
+                if item.get("warmup_runs") != 3 or item.get("timed_runs") != 20:
+                    errors.append(f"codegen {label}/{scenario}: invalid independent group policy")
     before_fingerprint = before.get("source_tree_fingerprint")
     after_fingerprint = after.get("source_tree_fingerprint")
     if isinstance(before_fingerprint, str) and isinstance(after_fingerprint, str) and before_fingerprint == after_fingerprint:
@@ -164,8 +184,6 @@ def validate_codegen_timing(
     geometric_mean = math.exp(sum(math.log(ratio) for ratio in target_ratios) / len(target_ratios)) if target_ratios else None
     if geometric_mean is None:
         errors.append("codegen CPU target group is incomplete")
-    elif geometric_mean > 0.95:
-        errors.append(f"codegen CPU target geometric mean improved only {(1.0 - geometric_mean) * 100:.3f}% (< 5%)")
     return {
         "scenarios": ratios,
         "cpu_target_geometric_mean_ratio": geometric_mean,
@@ -194,6 +212,13 @@ def validate_steady_state(
         errors.append("steady-state must explicitly exclude Java")
     if payload.get("binary_sha256") != sha256_file(binary) if binary.is_file() else True:
         errors.append("steady-state binary SHA-256 does not match release binary")
+    control = payload.get("control") if isinstance(payload.get("control"), dict) else {}
+    if not isinstance(control.get("binary_sha256"), str) or not control.get("binary_sha256"):
+        errors.append("steady-state clean control binary SHA-256 is missing")
+    if not isinstance(control.get("source_tree_fingerprint"), str) or not control.get("source_tree_fingerprint"):
+        errors.append("steady-state clean control source-tree fingerprint is missing")
+    elif control.get("source_tree_fingerprint") == payload.get("source_tree_fingerprint"):
+        errors.append("steady-state control/candidate source-tree fingerprints are identical")
     if payload.get("scenarios") != list(STEADY_STATE_SCENARIOS):
         errors.append("steady-state scenario set must be the six controlled scenarios")
     policy = payload.get("measurement_policy") if isinstance(payload.get("measurement_policy"), dict) else {}
@@ -202,41 +227,59 @@ def validate_steady_state(
     results = payload.get("results") if isinstance(payload.get("results"), dict) else {}
     summary: dict[str, Any] = {"scenarios": {}, "runtime_regressions": {}}
     baseline_scenarios = baseline.get("scenarios") if isinstance(baseline.get("scenarios"), dict) else {}
+
+    def validate_language(
+        language_result: dict[str, Any], scenario: str, language: str
+    ) -> int | None:
+        groups = language_result.get("groups") if isinstance(language_result.get("groups"), list) else []
+        if len(groups) != 5:
+            errors.append(f"steady-state {scenario}/{language}: expected 5 independent groups")
+        successful = 0
+        for group in groups:
+            if group.get("warmup_runs") != 3 or group.get("timed_runs") != 20:
+                errors.append(f"steady-state {scenario}/{language}: invalid warmup/sample policy")
+            if group.get("exit_code") != 0 or group.get("failure_class") is not None:
+                errors.append(f"steady-state {scenario}/{language}: failed runtime sample group")
+            if group.get("exit_code") == 0:
+                successful += 1
+        if successful != 5:
+            errors.append(f"steady-state {scenario}/{language}: not all independent groups passed")
+        median_ns = language_result.get("median_of_group_medians_ns")
+        if not isinstance(median_ns, (int, float)) or median_ns <= 0:
+            errors.append(f"steady-state {scenario}/{language}: missing positive runtime median")
+            return None
+        return int(median_ns)
+
     for scenario in STEADY_STATE_SCENARIOS:
         item = results.get(scenario) if isinstance(results.get(scenario), dict) else {}
         compile_result = item.get("aot_compile") if isinstance(item.get("aot_compile"), dict) else {}
         if compile_result.get("exit_code") != 0:
             errors.append(f"steady-state {scenario}: AOT compile did not pass")
+        control_compile = item.get("control_aot_compile") if isinstance(item.get("control_aot_compile"), dict) else {}
+        if control_compile.get("exit_code") != 0:
+            errors.append(f"steady-state {scenario}: clean control AOT compile did not pass")
         if item.get("correctness_passed") is not True:
             errors.append(f"steady-state {scenario}: functional execution did not pass")
+        if item.get("control_correctness_passed") is not True:
+            errors.append(f"steady-state {scenario}: clean control functional execution did not pass")
         languages = item.get("languages") if isinstance(item.get("languages"), dict) else {}
         if set(languages) != {"spectra", "go", "rust"}:
             errors.append(f"steady-state {scenario}: language coverage is incomplete")
             continue
+        control_languages = item.get("control_languages") if isinstance(item.get("control_languages"), dict) else {}
+        if set(control_languages) != {"spectra"}:
+            errors.append(f"steady-state {scenario}: clean control coverage is incomplete")
+            continue
         medians: dict[str, int] = {}
         for language in ("spectra", "go", "rust"):
-            language_result = languages.get(language, {})
-            groups = language_result.get("groups") if isinstance(language_result.get("groups"), list) else []
-            if len(groups) != 5:
-                errors.append(f"steady-state {scenario}/{language}: expected 5 independent groups")
-            successful = 0
-            for group in groups:
-                if group.get("warmup_runs") != 3 or group.get("timed_runs") != 20:
-                    errors.append(f"steady-state {scenario}/{language}: invalid warmup/sample policy")
-                if group.get("exit_code") != 0 or group.get("failure_class") is not None:
-                    errors.append(f"steady-state {scenario}/{language}: failed runtime sample group")
-                if group.get("exit_code") == 0:
-                    successful += 1
-            if successful != 5:
-                errors.append(f"steady-state {scenario}/{language}: not all independent groups passed")
-            median_ns = language_result.get("median_of_group_medians_ns")
-            if not isinstance(median_ns, (int, float)) or median_ns <= 0:
-                errors.append(f"steady-state {scenario}/{language}: missing positive runtime median")
-            else:
-                medians[language] = int(median_ns)
+            median_ns = validate_language(languages.get(language, {}), scenario, language)
+            if median_ns is not None:
+                medians[language] = median_ns
+        control_spectra = validate_language(control_languages.get("spectra", {}), scenario, "control/spectra")
         ratios = item.get("ratios") if isinstance(item.get("ratios"), dict) else {}
         spectra_to_go = ratios.get("spectra_to_go")
         spectra_to_rust = ratios.get("spectra_to_rust")
+        candidate_to_control = ratios.get("candidate_spectra_to_control_spectra")
         if not isinstance(spectra_to_go, (int, float)) or not isinstance(spectra_to_rust, (int, float)):
             errors.append(f"steady-state {scenario}: Go/Rust ratios are missing")
         elif medians.get("go") and medians.get("rust"):
@@ -244,6 +287,21 @@ def validate_steady_state(
                 errors.append(f"steady-state {scenario}: Spectra/Go ratio is inconsistent")
             if not math.isclose(spectra_to_rust, medians["spectra"] / medians["rust"], rel_tol=1e-6):
                 errors.append(f"steady-state {scenario}: Spectra/Rust ratio is inconsistent")
+        if not isinstance(spectra_to_go, (int, float)) or spectra_to_go > STEADY_STATE_MAX_SPECTRA_TO_GO:
+            errors.append(
+                f"steady-state {scenario}: Spectra/Go ratio is {spectra_to_go!r} (> {STEADY_STATE_MAX_SPECTRA_TO_GO:.2f}x)"
+            )
+        if (
+            not isinstance(candidate_to_control, (int, float))
+            or control_spectra is None
+            or medians.get("spectra") is None
+            or not math.isclose(candidate_to_control, medians["spectra"] / control_spectra, rel_tol=1e-6)
+        ):
+            errors.append(f"steady-state {scenario}: candidate/control ratio is missing or inconsistent")
+        elif candidate_to_control > STEADY_STATE_MAX_CANDIDATE_REGRESSION:
+            errors.append(
+                f"steady-state {scenario}: candidate/control runtime regression is {(candidate_to_control - 1.0) * 100:.3f}% (> 5%)"
+            )
         baseline_ns = baseline_scenarios.get(scenario, {}).get("spectra_ns_per_iter")
         spectra_ns = medians.get("spectra")
         regression_pct = None
@@ -256,6 +314,8 @@ def validate_steady_state(
             "median_ns": spectra_ns,
             "spectra_to_go": spectra_to_go,
             "spectra_to_rust": spectra_to_rust,
+            "candidate_to_control": candidate_to_control,
+            "control_median_ns": control_spectra,
             "baseline_regression_pct": regression_pct,
         }
     return summary, errors

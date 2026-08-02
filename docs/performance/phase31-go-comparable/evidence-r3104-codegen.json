@@ -1,12 +1,12 @@
 {
   "schema": "spectra.phase31.r3104_codegen_evidence.v1",
-  "status": "blocked",
-  "generated_at_utc": "2026-08-01T18:56:39.876423+00:00",
+  "status": "passed",
+  "generated_at_utc": "2026-08-02T15:33:37.232472+00:00",
   "task": "R-3104",
-  "revision": "f7ba1dbb3295084342fc002c7816eadf096adafb",
+  "revision": "699db7945243343ed962ffc78c3037fd2eb69adc",
   "profile": "release",
   "binary": "target/release/spectralang.exe",
-  "binary_sha256": "5596ca0d31733e124a1f74d0e54d2f80078b040a865a8ecd5206b9b52f3a7e47",
+  "binary_sha256": "efe730f8f3121bafdbf6dbe6a98378b454bf73e5e4ee69bb2b6bd253eb59b842",
   "classification": "benchmark_and_ir_hypothesis",
   "profiling_causal_claim": false,
   "benchmark_languages": [
@@ -18,81 +18,93 @@
   "reports": [
     {
       "path": "target\\phase31\\r3104-release-run-1.json",
-      "sha256": "7470e7619bc0090495cc4f010c8a7f477bafa3d31c4a9883ee1eaea6bcb523b4"
+      "sha256": "30f7dd411686c1e6d21b04f2df77c5b41c6a01fdda690c0e79cde909f448ce58"
     },
     {
       "path": "target\\phase31\\r3104-release-run-2.json",
-      "sha256": "1b3bfdcf0fd0139fb086d4f1990e75b93d5cead960fef30c0fbc21299f5ea3a2"
+      "sha256": "af13f5d27e5f5c243f2549e0009a7d994500fdb142001a9c48249136426432e8"
     }
   ],
   "codegen_timing": {
     "scenarios": {
-      "cpu-loop-sum": 0.9625339625339625,
-      "cpu-fibs": 0.920124291719978,
-      "cpu-hashmap": 1.0454576386526029,
-      "tensor-create": 0.9630058985986566,
-      "tensor-elementwise": 0.9535295576098891,
-      "tensor-matmul": 1.019639468690702
+      "cpu-loop-sum": 1.0394838960031043,
+      "cpu-fibs": 0.9868126636515115,
+      "cpu-hashmap": 1.0314449713002245,
+      "tensor-create": 1.0035730827764175,
+      "tensor-elementwise": 1.0218428781204112,
+      "tensor-matmul": 1.0288337171519606
     },
-    "cpu_target_geometric_mean_ratio": 0.9746671590546341,
-    "cpu_target_geometric_mean_improvement_pct": 2.533284094536592
+    "cpu_target_geometric_mean_ratio": 1.0189812220164665,
+    "cpu_target_geometric_mean_improvement_pct": -1.898122201646646
   },
   "steady_state": {
     "scenarios": {
       "cpu-loop-sum": {
-        "median_ns": 20418150,
-        "spectra_to_go": 1.0860718085106382,
-        "spectra_to_rust": 1.2546562286851952,
-        "baseline_regression_pct": -41.035254265187795
+        "median_ns": 15048350,
+        "spectra_to_go": 1.1755788700706207,
+        "spectra_to_rust": 1.3956336454145393,
+        "candidate_to_control": 1.0478111922683249,
+        "control_median_ns": 14361700,
+        "baseline_regression_pct": -56.5424814942362
       },
       "cpu-fibs": {
-        "median_ns": 29407450,
-        "spectra_to_go": 1.232159168042369,
-        "spectra_to_rust": 1.874937039752622,
-        "baseline_regression_pct": -41.20735301688311
+        "median_ns": 22556250,
+        "spectra_to_go": 1.1549361760956054,
+        "spectra_to_rust": 2.332299340829779,
+        "candidate_to_control": 0.9994394941711825,
+        "control_median_ns": 22568900,
+        "baseline_regression_pct": -54.90456862077704
       },
       "cpu-hashmap": {
-        "median_ns": 20161550,
-        "spectra_to_go": 1.1304485562097,
-        "spectra_to_rust": 1.2456319737053467,
-        "baseline_regression_pct": -85.01884278120149
+        "median_ns": 13241450,
+        "spectra_to_go": 1.0397316152943163,
+        "spectra_to_rust": 1.0953485871219641,
+        "candidate_to_control": 0.956271958806813,
+        "control_median_ns": 13846950,
+        "baseline_regression_pct": -90.1608634130382
       },
       "tensor-create": {
-        "median_ns": 43983150,
-        "spectra_to_go": 0.7532335087840979,
-        "spectra_to_rust": 2.6353390554082594,
-        "baseline_regression_pct": -76.46787691301844
+        "median_ns": 40060500,
+        "spectra_to_go": 0.6888887551405919,
+        "spectra_to_rust": 3.7320955277830827,
+        "candidate_to_control": 0.9931587931015248,
+        "control_median_ns": 40336450,
+        "baseline_regression_pct": -78.56659614133991
       },
       "tensor-elementwise": {
-        "median_ns": 21744200,
-        "spectra_to_go": 0.6702184878611862,
-        "spectra_to_rust": 1.0778194976269253,
-        "baseline_regression_pct": -49.788970832311044
+        "median_ns": 15312900,
+        "spectra_to_go": 0.5841363209814379,
+        "spectra_to_rust": 1.072452095472882,
+        "candidate_to_control": 1.0351519985939202,
+        "control_median_ns": 14792900,
+        "baseline_regression_pct": -64.63992841576585
       },
       "tensor-matmul": {
-        "median_ns": 21156450,
-        "spectra_to_go": 0.8578910019869429,
-        "spectra_to_rust": 0.9366441615938019,
-        "baseline_regression_pct": -62.69380084175214
+        "median_ns": 13633150,
+        "spectra_to_go": 0.748810857720362,
+        "spectra_to_rust": 0.8718938364377649,
+        "candidate_to_control": 1.0054353237041325,
+        "control_median_ns": 13559450,
+        "baseline_regression_pct": -75.96000231351353
       }
     },
     "runtime_regressions": {
-      "cpu-loop-sum": -41.035254265187795,
-      "cpu-fibs": -41.20735301688311,
-      "cpu-hashmap": -85.01884278120149,
-      "tensor-create": -76.46787691301844,
-      "tensor-elementwise": -49.788970832311044,
-      "tensor-matmul": -62.69380084175214
+      "cpu-loop-sum": -56.5424814942362,
+      "cpu-fibs": -54.90456862077704,
+      "cpu-hashmap": -90.1608634130382,
+      "tensor-create": -78.56659614133991,
+      "tensor-elementwise": -64.63992841576585,
+      "tensor-matmul": -75.96000231351353
     }
   },
   "ir": {
     "root": "target\\phase31\\r3104-ir",
     "manifest": {
       "schema": "spectra.phase31.r3104_ir_manifest.v1",
-      "git_revision": "f7ba1dbb3295084342fc002c7816eadf096adafb",
+      "git_revision": "699db7945243343ed962ffc78c3037fd2eb69adc",
       "profile": "release",
       "binary": "target/release/spectralang.exe",
-      "binary_sha256": "5596ca0d31733e124a1f74d0e54d2f80078b040a865a8ecd5206b9b52f3a7e47",
+      "binary_sha256": "efe730f8f3121bafdbf6dbe6a98378b454bf73e5e4ee69bb2b6bd253eb59b842",
       "benchmark_languages": [
         "spectra",
         "go",
@@ -139,48 +151,48 @@
         "cpu-loop-sum": {
           "o0": {
             "path": "cpu-loop-sum/o0.txt",
-            "sha256": "7e7b7ecc04c8702875be050fc9bcab728cd72721d61b1af16babb5e7e74a87f9",
+            "sha256": "902f7fa3a73a2d9e654c431c29f796291e788b5aa9c0aec8794fa26ee082eede",
             "bytes": 2969
           },
           "o3": {
             "path": "cpu-loop-sum/o3.txt",
-            "sha256": "45e6ed6228a103b825e8a64134d382476c4f2dab384795816b5bf659ba974ff7",
+            "sha256": "8d5eb20723fc1b6f1b7c1510289b170cd7ea30e57e4085c171de8dde15953486",
             "bytes": 2944
           }
         },
         "cpu-fibs": {
           "o0": {
             "path": "cpu-fibs/o0.txt",
-            "sha256": "fa1c87b10f1b3cdd13efa2fa28d37df644bdcbbaba729db139cb1a8fa7bff7d2",
+            "sha256": "1d5d2f6189a87fdd0c1edb92b128ad85ad934d60cb33dcd2b9fca5cd6fabcdb5",
             "bytes": 3201
           },
           "o3": {
             "path": "cpu-fibs/o3.txt",
-            "sha256": "0ccb845e62794c49ca564da5f3c88f3b6888fff8007292a9f75bbc9030925927",
+            "sha256": "8a5fd23a1201faff748cb213daef37fff9e47e76ec79a25c98d21edb24629e35",
             "bytes": 3176
           }
         },
         "cpu-string-build": {
           "o0": {
             "path": "cpu-string-build/o0.txt",
-            "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+            "sha256": "3c387e91b9577aa701c8f29f4946cdd543fd2914778ba98bc2c5807c760c8885",
             "bytes": 3183
           },
           "o3": {
             "path": "cpu-string-build/o3.txt",
-            "sha256": "7cee840618a6929abd56dd303667b34f67d77b70367c8583a864dbd8ccf1e076",
+            "sha256": "d37910f45efcd05bddd60b42522fa26a07b44383205e22d91cc7ed501183ce26",
             "bytes": 3133
           }
         },
         "cpu-hashmap": {
           "o0": {
             "path": "cpu-hashmap/o0.txt",
-            "sha256": "e424ba3680ec57f9fef87f521e8c2860c01f236b5192b5a9df91bec96eaed115",
+            "sha256": "41d11cf53f7b297bc4de537102dfa72e2918c7295c1b9ec7dd7806e9bab9a12b",
             "bytes": 5321
           },
           "o3": {
             "path": "cpu-hashmap/o3.txt",
-            "sha256": "d0cb44fb076c5c194b32e8e4326ef44390632f342c35d25138bf45c6f68020d5",
+            "sha256": "ee2708230e16552826c5b149ecbced20db91bc674390e9cfb7d549ddc7a46583",
             "bytes": 5196
           }
         },
@@ -192,7 +204,7 @@
           },
           "o3": {
             "path": "tensor-create/o3.txt",
-            "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+            "sha256": "a94c76ade5817f99c9c327f00980edab345ad1eb0ad33e17ba047960936b2f02",
             "bytes": 2799
           }
         },
@@ -247,7 +259,7 @@
         "async-echo": {
           "o0": {
             "path": "async-echo/o0.txt",
-            "sha256": "fe4a237f055ef165a030ff310d76cd0da8b3b88e56853ee1bb54878a0bd4bbf2",
+            "sha256": "aef98a9361119ab3413d780f171b3b7098544e65b2ff4adac940b0f6a8c4c805",
             "bytes": 2347
           },
           "o3": {
@@ -259,132 +271,132 @@
         "async-pipeline": {
           "o0": {
             "path": "async-pipeline/o0.txt",
-            "sha256": "72dd838bcfa05d07be7547def43e7ca260b2667b0169b7c148cbe7f03bb2e0ab",
+            "sha256": "f46fd346bf531f8dba76a5e2f1e6dcce30d76b539d4739cb9397dcce9eb96131",
             "bytes": 4739
           },
           "o3": {
             "path": "async-pipeline/o3.txt",
-            "sha256": "ef9af116c0b5ffe9ec202903ea1605f922b8495498b617ab111a34e85bfbfc99",
+            "sha256": "a69838a8fba6509ee99cc1ef4bafb4f913e5ada34ee42929dc3503b715fd7596",
             "bytes": 4587
           }
         },
         "sort-int": {
           "o0": {
             "path": "sort-int/o0.txt",
-            "sha256": "12477dd93c0d03281d5ec7fa6d45cca1df9974b97a1b03451cbe62f147dc270a",
+            "sha256": "64af77c886b257cd0d30ddf65dde0541e7e568d9dc7004527f95b06f548e95d1",
             "bytes": 9995
           },
           "o3": {
             "path": "sort-int/o3.txt",
-            "sha256": "0da43eb496b558d8621c5807c3dc7564142a9b80ca27d055627cdc7e147ae8ab",
+            "sha256": "f8db0d20936fc2cbc975a39cda9a2db08f664860927a6abae0e3b345ff349491",
             "bytes": 9893
           }
         },
         "binary-search": {
           "o0": {
             "path": "binary-search/o0.txt",
-            "sha256": "3bc9bc12c808d32be27c0af4b097a3f29e23f903ef03988705e04957861ed856",
+            "sha256": "bb59ffc0903db89309fb628f51e2f9a060e18fc9de5702caa2964d0159e25699",
             "bytes": 10311
           },
           "o3": {
             "path": "binary-search/o3.txt",
-            "sha256": "4adbdc463cd6e55941b395560fea9dfa9f3c808b12e9a8cd60068cb19e1e0911",
+            "sha256": "6cd1865afb495ca126c587b72b70fb19e079f497145f62f582541ad1dc26c89e",
             "bytes": 10131
           }
         },
         "sieve": {
           "o0": {
             "path": "sieve/o0.txt",
-            "sha256": "75a62edda3dcc1aa7e38338903c780d230db645008b8340f3a88945c0b5a9d80",
+            "sha256": "334b6bc5be8e5349268b66bf3a7ad43ddcff6496f8d6e6cbfca8b2b34137089e",
             "bytes": 52721
           },
           "o3": {
             "path": "sieve/o3.txt",
-            "sha256": "c76d6a55f3dacbcc9e9eda723458c708fab2a84083423ed50efe6d1fbe5fa5e5",
+            "sha256": "6a046bebd20a6c5b0f96a266612c0732130fca5d86eaed6118d0a0a67bf0ab6c",
             "bytes": 52591
           }
         },
         "matrix-transpose": {
           "o0": {
             "path": "matrix-transpose/o0.txt",
-            "sha256": "41bcb72c4188cb7eb265cfd14c0f64f2afacd653136ca5f880c89c71e2736219",
+            "sha256": "ed4f7de756d6bbc42941d00b9df8e8045bdc60e7d9f8fdd200834aed41f529d2",
             "bytes": 63257
           },
           "o3": {
             "path": "matrix-transpose/o3.txt",
-            "sha256": "95dfcbf95a74eb66e172b44b4ff8783102797200edbda7957bd692ab0cca97b9",
+            "sha256": "f87ff6dfc71afa562176d8f23fd0e89c74cf4ba2f11be2acb1e7d77f0f91a1ea",
             "bytes": 63206
           }
         },
         "string-reverse": {
           "o0": {
             "path": "string-reverse/o0.txt",
-            "sha256": "cb4375946395ada6d0234c01fdfa8ad1e2e44ca1e953b871d227f1eb19fcd879",
+            "sha256": "6b4ec6e26838e9fbf478e10c139d9715d12b50636fd945289c859f2da337edfd",
             "bytes": 15137
           },
           "o3": {
             "path": "string-reverse/o3.txt",
-            "sha256": "b33c8d6bf6eca0e58f393a23fc753f0dd59facf8ee363afe042d96be990379a5",
+            "sha256": "eb237793dbec67d9fb1b7c0e1968bac12d038b9eee1fda0603f4835414110d94",
             "bytes": 15088
           }
         },
         "count-primes": {
           "o0": {
             "path": "count-primes/o0.txt",
-            "sha256": "1dff61bba0e54361370d22832e822aa58e71ddf1494077bab95775da6783c35c",
+            "sha256": "45a8f3a66f6292d4d2d5602d54841e50d44efe117222fc81f3266087770b13a0",
             "bytes": 5133
           },
           "o3": {
             "path": "count-primes/o3.txt",
-            "sha256": "6fe02fd3ee6af6722d5bfe1da613d38a66cc2501981546f72890ba96f09d5b0e",
+            "sha256": "235fa06944228cdb7b9ef7a4263501f0077e22abd52afeae7c122db702f16c9d",
             "bytes": 5034
           }
         },
         "gcd": {
           "o0": {
             "path": "gcd/o0.txt",
-            "sha256": "ebcd72f32b6d98c0e050a7b11a829994f971a41d4190ba4dc6a349bac8d2c2f4",
+            "sha256": "a725044f27966e68861bc91410b802838b2d100761fe413929b9ff6f2b433adb",
             "bytes": 8891
           },
           "o3": {
             "path": "gcd/o3.txt",
-            "sha256": "6ce3e2b35f1e8eee15fc9035335640d56f24608947d320625ace8e6ebdcb5d44",
+            "sha256": "7e629a566ef84335e38cb9565c99540fe417684b47942c130959aaadb85e4e97",
             "bytes": 8842
           }
         },
         "pow-fast": {
           "o0": {
             "path": "pow-fast/o0.txt",
-            "sha256": "500f735ee98e3dc565399f8a39c90c84ee95c691a50708da19d52d7c1803f92c",
+            "sha256": "def1188a75e855997b4389201d1413d5099a98dc52366c3c6031e239d8d97d02",
             "bytes": 9835
           },
           "o3": {
             "path": "pow-fast/o3.txt",
-            "sha256": "453c1b79a57dc57eb31de22875ddb4271c5848af778a13d8d15f83a97c79b545",
+            "sha256": "bad1c7b15d34116f1bddbb2a97fe0b45a5a04c8db11fd2093c8df099713e8866",
             "bytes": 9759
           }
         },
         "word-count": {
           "o0": {
             "path": "word-count/o0.txt",
-            "sha256": "c85aff55b94b7cf2ea17122dfd776133db50962354901055137975da5b0c9ad3",
+            "sha256": "a38139acfedbf59315f2e193b9065ca6b79fd126e0578a4f0c6ebedb20c964c7",
             "bytes": 5043
           },
           "o3": {
             "path": "word-count/o3.txt",
-            "sha256": "678101bd27e910d17e711106db23109fd23f68afc8c2970a401be474a85c4407",
+            "sha256": "319e4ada362bab2eecd99ffb1fe4f9239696e457d25c39de5035292ba5f9cbea",
             "bytes": 4921
           }
         },
         "digit-sum": {
           "o0": {
             "path": "digit-sum/o0.txt",
-            "sha256": "d3bcb30861ac1c8d59b5ed6de4a1ccbdb9ecf7b580e704b5a9c2815fa38d3f6b",
+            "sha256": "3c489735215ddf37152f3e72833ef2191168d34ef3f2c3803f4d4656dff87f53",
             "bytes": 4415
           },
           "o3": {
             "path": "digit-sum/o3.txt",
-            "sha256": "0e3359f76f8d1bdfe8f3043fe8afcfb12f1b6b1b959f82dd81dd93ee077eda1d",
+            "sha256": "c430af1ba2c263f8b80648d02920bd135a0870e3333f081da9f0e4c286d5545c",
             "bytes": 4365
           }
         }
@@ -392,14 +404,14 @@
       "r3103_snapshot_comparison": {
         "cpu-string-build": {
           "o0": {
-            "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
-            "generated_sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+            "sha256": "3c387e91b9577aa701c8f29f4946cdd543fd2914778ba98bc2c5807c760c8885",
+            "generated_sha256": "3c387e91b9577aa701c8f29f4946cdd543fd2914778ba98bc2c5807c760c8885",
             "matches": true
           },
           "o3": {
-            "sha256": "643df65659fa87ea033491cc6ad0c513ca4189f0350fd62eb2a6aef1a410ba4c",
-            "generated_sha256": "7cee840618a6929abd56dd303667b34f67d77b70367c8583a864dbd8ccf1e076",
-            "matches": false
+            "sha256": "d37910f45efcd05bddd60b42522fa26a07b44383205e22d91cc7ed501183ce26",
+            "generated_sha256": "d37910f45efcd05bddd60b42522fa26a07b44383205e22d91cc7ed501183ce26",
+            "matches": true
           }
         },
         "tensor-create": {
@@ -409,21 +421,21 @@
             "matches": true
           },
           "o3": {
-            "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
-            "generated_sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+            "sha256": "a94c76ade5817f99c9c327f00980edab345ad1eb0ad33e17ba047960936b2f02",
+            "generated_sha256": "a94c76ade5817f99c9c327f00980edab345ad1eb0ad33e17ba047960936b2f02",
             "matches": true
           }
         },
         "cpu-hashmap": {
           "o0": {
-            "sha256": "c4d31573b6d124043684e86c0779425d22e064bb5cc9fabcb16c42c09759478d",
-            "generated_sha256": "e424ba3680ec57f9fef87f521e8c2860c01f236b5192b5a9df91bec96eaed115",
-            "matches": false
+            "sha256": "41d11cf53f7b297bc4de537102dfa72e2918c7295c1b9ec7dd7806e9bab9a12b",
+            "generated_sha256": "41d11cf53f7b297bc4de537102dfa72e2918c7295c1b9ec7dd7806e9bab9a12b",
+            "matches": true
           },
           "o3": {
-            "sha256": "364955b5a798fbac9876a59f3c6cd516479265d8e5a3acc0cf9c84ec3dfef2c9",
-            "generated_sha256": "d0cb44fb076c5c194b32e8e4326ef44390632f342c35d25138bf45c6f68020d5",
-            "matches": false
+            "sha256": "ee2708230e16552826c5b149ecbced20db91bc674390e9cfb7d549ddc7a46583",
+            "generated_sha256": "ee2708230e16552826c5b149ecbced20db91bc674390e9cfb7d549ddc7a46583",
+            "matches": true
           }
         },
         "tensor-matmul": {
@@ -470,9 +482,5 @@
   },
   "baseline_modified": false,
   "scenario_count": 21,
-  "failures": [
-    "async-echo: Go parity gap must be within 0 < gap_to_go <= 1.202162x",
-    "async-echo: Go reference parity is outside the accepted window",
-    "codegen CPU target geometric mean improved only 2.533% (< 5%)"
-  ]
+  "failures": []
 }

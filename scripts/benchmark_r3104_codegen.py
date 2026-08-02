@@ -147,9 +147,28 @@ def summarize(samples: list[dict[str, float]]) -> dict[str, Any]:
     return metrics
 
 
-def capture(
+def summarize_group_medians(groups: list[dict[str, Any]], scenario: str) -> dict[str, Any]:
+    """Aggregate independent groups by the median of their medians."""
+    metrics: dict[str, Any] = {}
+    for name in ("lowering", "codegen", "total", "process_total"):
+        values = [
+            group["results"][scenario]["timings"][name]["median_ns"]
+            for group in groups
+        ]
+        metrics[name] = {
+            "median_ns": median(values),
+            "mean_ns": mean(values),
+            "stddev_ns": pstdev(values) if len(values) > 1 else 0.0,
+            "min_ns": min(values),
+            "max_ns": max(values),
+            "group_medians_ns": values,
+        }
+    return metrics
+
+
+def capture_group(
     *, root: Path, source_root: Path | None = None, binary: Path, label: str, profile: str,
-    scenarios: tuple[str, ...], warmups: int, samples: int
+    scenarios: tuple[str, ...], warmups: int, samples: int, independent_run: int
 ) -> dict[str, Any]:
     source_root = (source_root or root).resolve()
     binary = binary.resolve()
@@ -178,6 +197,48 @@ def capture(
             "timed_runs": samples,
             "timings": summarize(measured),
         }
+    return {"independent_run": independent_run, "results": scenario_results}
+
+
+def capture(
+    *, root: Path, source_root: Path | None = None, binary: Path, label: str, profile: str,
+    scenarios: tuple[str, ...], warmups: int, samples: int, independent_runs: int
+) -> dict[str, Any]:
+    source_root = (source_root or root).resolve()
+    binary = binary.resolve()
+    if not binary.is_file():
+        raise RuntimeError(f"release binary does not exist: {binary}")
+    revision_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=source_root, capture_output=True, text=True, check=False
+    )
+    if revision_result.returncode != 0 or not revision_result.stdout.strip():
+        raise RuntimeError("unable to resolve current Git revision")
+    revision = revision_result.stdout.strip()
+    groups = [
+        capture_group(
+            root=root,
+            source_root=source_root,
+            binary=binary,
+            label=label,
+            profile=profile,
+            scenarios=scenarios,
+            warmups=warmups,
+            samples=samples,
+            independent_run=independent_run,
+        )
+        for independent_run in range(1, independent_runs + 1)
+    ]
+    scenario_results: dict[str, Any] = {}
+    for scenario in scenarios:
+        first = groups[0]["results"][scenario]
+        scenario_results[scenario] = {
+            "source": first["source"],
+            "source_sha256": first["source_sha256"],
+            "warmup_runs": warmups,
+            "timed_runs": samples,
+            "independent_runs": independent_runs,
+            "timings": summarize_group_medians(groups, scenario),
+        }
     return {
         "schema": "spectra.phase31.r3104_codegen_timing.v1",
         "task": "R-3104",
@@ -189,8 +250,14 @@ def capture(
         "profile": profile,
         "binary": binary.relative_to(root).as_posix() if binary.is_relative_to(root) else str(binary),
         "binary_sha256": sha256_file(binary),
-        "measurement_policy": {"warmup_runs": warmups, "timed_runs": samples},
+        "measurement_policy": {
+            "warmup_runs": warmups,
+            "timed_runs": samples,
+            "independent_runs": independent_runs,
+            "aggregation": "median_of_group_medians",
+        },
         "scenarios": list(scenarios),
+        "groups": groups,
         "results": scenario_results,
     }
 
@@ -204,14 +271,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--samples", type=int, default=20)
+    parser.add_argument("--independent-runs", type=int, default=5)
     parser.add_argument("--scenarios", nargs="+", default=list(DEFAULT_SCENARIOS))
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.warmups < 3 or args.samples < 20:
-        print("R-3104 codegen benchmark: BLOCKED: requires at least 3 warmups and 20 samples", file=sys.stderr)
+    if args.warmups < 3 or args.samples < 20 or args.independent_runs < 5:
+        print(
+            "R-3104 codegen benchmark: BLOCKED: requires at least 3 warmups, 20 samples, and 5 independent groups",
+            file=sys.stderr,
+        )
         return 1
     try:
         payload = capture(
@@ -223,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
             scenarios=tuple(args.scenarios),
             warmups=args.warmups,
             samples=args.samples,
+            independent_runs=args.independent_runs,
         )
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")

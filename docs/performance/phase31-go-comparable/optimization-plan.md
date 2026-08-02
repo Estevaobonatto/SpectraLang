@@ -1,6 +1,6 @@
 # Phase 31 Optimization Plan (R-3103)
 
-Updated: 2026-08-01
+Updated: 2026-08-02
 Roadmap item: `R-3103 Optimization Implementation Plan`
 Truth owner: `backend`
 Evidence class: `benchmark_and_ir_hypothesis`
@@ -60,9 +60,10 @@ after validation. The evidence remains classified
   `target/phase31/r3103-ir/manifest.json`; the five highest-priority snapshots
   are copied to `ir/r3103/` for review.
 - R-3104 inputs: `target/phase31/r3104-codegen-{before,after}.json`,
-  `target/phase31/r3104-ir/manifest.json`, and the blocked evidence in
-  `evidence-r3104-codegen.{json,md}`. The implementation passed JIT/AOT smoke
-  compilation, but did not satisfy the codegen and strict gates.
+  `target/phase31/r3104-steady-state.json`,
+  `target/phase31/r3104-ir/manifest.json`, and
+  `evidence-r3104-codegen.{json,md}`. Runtime AOT is the primary promotion
+  metric; controlled codegen is an individual-regression guardrail.
 
 The evidence generator records the current Git revision and fails closed on a
 revision mismatch, missing scenario, duplicate scenario, inconclusive sample,
@@ -81,14 +82,30 @@ joins, 10,002 executed tasks, `max_pending_tasks=10`, zero task failures, and
 balanced batch accounting. The deterministic classification is
 `runtime_batch_path` (hypothesis only; no causal profiler claim). The user
 accepted this focused criterion; the immutable baseline and historical R-3131
-and R-3132 evidence remain preserved. R-3104 is now in progress; this does not
+and R-3132 evidence remain preserved. R-3104 is now complete; this does not
 authorize R-3105 or later work.
+
+## R-3104 runtime-oriented closure (2026-08-02)
+
+R-3104 is **complete** at revision
+`699db7945243343ed962ffc78c3037fd2eb69adc`. The dense JIT/AOT value map and
+deterministic host-name pre-interning remain intact, while scalar `alloca`
+promotion now uses a single linear use scan and rejects uninitialized or
+unproven CFG cases conservatively. The runtime gate is primary: all six AOT
+scenarios pass, the largest Spectra/Go ratio is `1.175579x`, and no
+candidate/control runtime comparison exceeds 5%. The codegen guardrail has no
+individual regression above 5%; its CPU geometric mean is reported but is not
+a promotion requirement. The two release reports are compatible, 21/21
+scenarios pass with Spectra + Go + Rust, Java is excluded, async-echo remains
+within `1.202162x` and 10% dispersion, and the baseline SHA-256 is unchanged.
+The evidence remains `benchmark_and_ir_hypothesis`; no causal profiling claim
+was made and R-3102 stays `in_progress`.
 
 ## Prioritized implementation matrix
 
 | ID | Cenário(s) afetado(s) | Evidência atual | Hipótese de gargalo (confiança) | Intervenção planejada | Métrica primária | Ganho esperado | Risco de rejeição | Critério de rollback | Dependências | Comando de validação |
 |---|---|---|---|---|---|---|---|---|---|---|
-| R-3104 | `cpu-loop-sum`, `cpu-fibs`, `cpu-hashmap`, workloads tensor | Medianas/dispersion dos dois reports + contagens O0/O3; lookup/codegen aparece no IR, sem atribuição causal | Mapa esparso e lookup de host podem dominar lowering (média) | Trocar mapa por `Vec<Option<Value>>` denso, pré-computar `HostNameRecord`, separar JIT/AOT | ns/iter e tempo de lowering; lookup count | 1.2–1.5x nos cenários CPU, sem piora tensor | Mudança de ordem/ABI, picos em módulos grandes | Reverter se qualquer cenário correto exceder +5% ou se o IR mudar sem ganho | R-3103 | `cargo test -p spectra-backend`; `python scripts/phase31_run_all.py ... --independent-runs 5`; strict cross-lang |
+| R-3104 | `cpu-loop-sum`, `cpu-fibs`, `cpu-hashmap`, `tensor-create`, `tensor-elementwise`, `tensor-matmul` | Medianas AOT controle/candidato + reports e IR O0/O3; lookup/codegen aparece no IR, sem atribuição causal | Mapa esparso, internamento tardio e análise repetida de `alloca` podem dominar lowering (média) | Preservar `DenseValueMap`, pré-computar `HostNameRecord`, fazer varredura linear de usos, promover somente escalares com `store` dominando `load`, separar JIT/AOT | runtime AOT Spectra/Go e drift contra baseline; codegen por cenário como guardrail | Spectra ≤1,25x Go nos seis cenários, sem regressão >5%; ganho geométrico não é exigido | Mudança de ordem/ABI, `use_var` antes de `def_var`, picos em módulos grandes | Reverter se qualquer cenário correto falhar, runtime exceder +5% contra baseline/controle, codegen individual exceder +5%, ou o IR mudar sem ganho | R-3103 | `cargo test -p spectra-backend`; benchmark AOT controle/candidato com 5 grupos; `phase31_run_all.py`; strict cross-lang |
 | R-3105 | `ml-mlp-step`, `tensor-elementwise`, `async-pipeline` | Host-call count e materialização de nomes nos snapshots; mediana atual registrada no JSON | Alocações e `to_string()` na fronteira hostcall são custo repetido (média) | Cache de nomes, batching de hostcalls consecutivos quando semântico, remover conversões por chamada | host calls/iter, alocações e ns/iter | 1.1–1.3x em ML/tensor/async | Reordenação de efeitos ou lifetime de handles | Reverter se hostcall count não cair ou surgir divergência numérica/async | R-3103, R-3104 (se o cache compartilhar o path) | `cargo test -p spectra-midend -p spectra-runtime`; Phase 31 strict |
 | R-3106 | Loops CPU e criação de tensores | Contagem de `alloca` O0/O3 por cenário e lifetime visível no IR | Slots temporários não são reutilizados entre iterações (média-baixa) | Hoist de allocas invariantes, fusão de slots e reuse por lifetime não sobreposto | allocas/função e bytes alocados | 1.05–1.10x onde allocas dominam | Alias/lifetime incorreto e regressão numérica | Reverter se allocas não reduzirem ou sanitizer/fixtures falharem | R-3103, R-1502 | `cargo test -p spectra-midend`; snapshots O0/O3; strict cross-lang |
 | R-3107 | `tensor-create` e passos de materialização | Evidência concluída em `181_phase31_buffer_pool.spectra`, pool hit/miss e gate tensor; apontar para `roadmap.toml` | Pool tipado elimina zero-fill/intermediários (alta; já validada) | Manter buffer reuse type/lifetime-safe; só ampliar cobertura se novo benchmark exigir | allocations, bytes e mediana `tensor-create` | Resultado já aceito: redução de alocação e gap release invertido | Reuso de shape/dtype/layout incompatível | Reverter qualquer mudança que altere contagem ativa, bytes ou tolerância R-1503 | R-1502 | `cargo test -p spectra-runtime`; `spectralang run tests/validation/181_phase31_buffer_pool.spectra`; Phase 31 gate |
