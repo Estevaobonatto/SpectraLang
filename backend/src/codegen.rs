@@ -1077,7 +1077,7 @@ impl CodeGenerator {
         else {
             return start;
         };
-        if matches!(classify_host_call(host), HostCallClass::Fast(_)) {
+        if !classify_host_call(host).batch_eligible() {
             return start;
         }
 
@@ -1494,7 +1494,7 @@ impl CodeGenerator {
 
             let instr = &ir_block.instructions[instruction_index];
             if let InstructionKind::HostCall { host, .. } = &instr.kind {
-                if !matches!(classify_host_call(host), HostCallClass::Fast(_)) {
+                if classify_host_call(host).batch_eligible() {
                     hostcall.batch_stats.fallback_hostcalls += 1;
                 }
             }

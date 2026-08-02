@@ -444,6 +444,19 @@ impl FastHostCall {
     pub const fn arity(self) -> usize {
         self.runtime_import().signature().params.len()
     }
+
+    pub const fn symbol(self) -> &'static str {
+        self.runtime_import().symbol()
+    }
+
+    pub const fn result_form(self) -> &'static [AbiScalar] {
+        self.runtime_import().signature().returns
+    }
+
+    /// Fast ABIs are deliberately excluded from the generic hostcall batch.
+    pub const fn batch_eligible(self) -> bool {
+        false
+    }
 }
 
 /// Classification used by the backend before lowering a host call.
@@ -452,6 +465,14 @@ impl FastHostCall {
 pub enum HostCallClass {
     Generic,
     Fast(FastHostCall),
+}
+
+impl HostCallClass {
+    /// Generic hostcalls may enter the backend batch planner; dedicated fast
+    /// ABIs already have their own direct lowering and must stay out of it.
+    pub const fn batch_eligible(self) -> bool {
+        matches!(self, Self::Generic)
+    }
 }
 
 /// Classifies only the host names that have a dedicated lowering path.
@@ -512,7 +533,14 @@ mod tests {
             );
             assert_eq!(FastHostCall::ALL[fast.index()], *fast);
             assert_eq!(fast.arity(), fast.runtime_import().signature().params.len());
+            assert_eq!(fast.symbol(), fast.runtime_import().symbol());
+            assert_eq!(
+                fast.result_form(),
+                fast.runtime_import().signature().returns
+            );
+            assert!(!fast.batch_eligible());
         }
+        assert!(HostCallClass::Generic.batch_eligible());
     }
 
     #[test]
