@@ -13,6 +13,35 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::{BackendCodegenError, BackendResult};
 
+/// Dense SSA value lookup used by both JIT and AOT lowering.
+///
+/// IR values are assigned monotonically by `IRFunction::next_value_id`, so a
+/// vector avoids hashing on the hot path while still handling synthetic IR
+/// with sparse or late-created ids safely.
+#[derive(Debug, Default)]
+pub(crate) struct DenseValueMap {
+    values: Vec<Option<Value>>,
+}
+
+impl DenseValueMap {
+    pub(crate) fn with_capacity(next_value_id: usize) -> Self {
+        Self {
+            values: vec![None; next_value_id],
+        }
+    }
+
+    pub(crate) fn insert(&mut self, id: usize, value: Value) {
+        if id >= self.values.len() {
+            self.values.resize_with(id + 1, || None);
+        }
+        self.values[id] = Some(value);
+    }
+
+    pub(crate) fn get(&self, id: usize) -> Option<Value> {
+        self.values.get(id).copied().flatten()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct HostNameRecord {
     pub(crate) ptr: u64,
@@ -244,7 +273,7 @@ fn get_phi_args(
     target_block: usize,
     current_block: usize,
     phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
-    value_map: &HashMap<usize, Value>,
+    value_map: &DenseValueMap,
 ) -> BackendResult<Vec<cranelift_codegen::ir::BlockArg>> {
     let mut args = Vec::new();
     if let Some(phis) = phi_map.get(&target_block) {
@@ -253,8 +282,7 @@ fn get_phi_args(
                 BackendCodegenError::missing_phi_incoming(current_block, target_block)
             })?;
             let val = value_map
-                .get(incoming_id)
-                .copied()
+                .get(*incoming_id)
                 .ok_or_else(|| BackendCodegenError::missing_value(*incoming_id))?;
             args.push(val.into());
         }
@@ -851,6 +879,7 @@ impl CodeGenerator {
     /// Generate code for an entire module
     pub fn generate_module(&mut self, ir_module: &IRModule) -> BackendResult<()> {
         let _tensor_ir = validate_tensor_ir(ir_module)?;
+        self.pre_intern_host_names(ir_module);
         // First pass: declare all functions
         for func in &ir_module.functions {
             self.declare_function(func)?;
@@ -869,6 +898,37 @@ impl CodeGenerator {
         Ok(())
     }
 
+    /// Pre-intern every host-call name once per module before lowering starts.
+    /// Sorting keeps allocation order deterministic across equivalent IR
+    /// modules and prevents the normal lowering path from allocating names.
+    fn pre_intern_host_names(&mut self, ir_module: &IRModule) {
+        let mut names = ir_module
+            .functions
+            .iter()
+            .flat_map(|func| func.blocks.iter())
+            .flat_map(|block| block.instructions.iter())
+            .filter_map(|instr| match &instr.kind {
+                InstructionKind::HostCall { host, .. } => Some(host.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            intern_host_name(
+                &mut self.host_name_data,
+                &mut self.host_name_storage,
+                &name,
+            );
+        }
+    }
+
+    #[cfg(test)]
+    fn pre_intern_host_names_for_test(&mut self, ir_func: &IRFunction) {
+        let mut module = IRModule::new("test_host_names");
+        module.functions.push(ir_func.clone());
+        self.pre_intern_host_names(&module);
+    }
 
     /// Declare a function signature
     fn declare_function(&mut self, ir_func: &IRFunction) -> BackendResult<FuncId> {
@@ -930,12 +990,21 @@ impl CodeGenerator {
         builder.seal_block(entry_block);
 
         // Create value and block mappings
-        let mut value_map: HashMap<usize, Value> = HashMap::new();
+        let mut value_map = DenseValueMap::with_capacity(ir_func.next_value_id);
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = Self::collect_stack_allocas(ir_func);
+        let scalar_alloca_types = Self::collect_promotable_scalar_allocas_with_stack_allocas(
+            ir_func,
+            &stack_allocas,
+        );
+        let mut scalar_alloca_vars = HashMap::with_capacity(scalar_alloca_types.len());
+        for (alloca_id, ty) in &scalar_alloca_types {
+            let variable = builder.declare_var(Self::ir_type_to_cranelift(ty)?);
+            scalar_alloca_vars.insert(*alloca_id, variable);
+        }
         let manual_frame_active = Self::function_needs_manual_frame(ir_func, &stack_allocas);
         let frame_token = if manual_frame_active {
             let frame_enter_ref = self
@@ -951,8 +1020,8 @@ impl CodeGenerator {
         builder.def_var(frame_var, frame_token);
         // Map function parameters to Cranelift values
         let params = builder.block_params(entry_block).to_vec();
-        for (idx, &cl_value) in params.iter().enumerate() {
-            value_map.insert(idx, cl_value);
+        for (param, &cl_value) in ir_func.params.iter().zip(params.iter()) {
+            value_map.insert(param.id, cl_value);
         }
 
         // Create all basic blocks
@@ -1056,6 +1125,7 @@ impl CodeGenerator {
                 &mut stack_array_lengths,
                 &mut string_literal_lengths,
                 &stack_allocas,
+                &scalar_alloca_vars,
                 frame_var,
                 manual_frame_active,
                 ir_block.id,
@@ -1204,6 +1274,124 @@ impl CodeGenerator {
             .collect()
     }
 
+    /// Return scalar stack allocas that can be represented by Cranelift
+    /// variables instead of memory.  This is deliberately conservative: the
+    /// promotion is allowed only when the alloca's value is used exclusively as
+    /// the pointer of a load/store pair.  Any pointer arithmetic, copy,
+    /// control-flow transport, return, or call argument keeps the original
+    /// address-based lowering.
+    #[cfg(test)]
+    pub(crate) fn collect_promotable_scalar_allocas(
+        ir_func: &IRFunction,
+    ) -> HashMap<usize, IRType> {
+        let stack_allocas = Self::collect_stack_allocas(ir_func);
+        Self::collect_promotable_scalar_allocas_with_stack_allocas(ir_func, &stack_allocas)
+    }
+
+    pub(crate) fn collect_promotable_scalar_allocas_with_stack_allocas(
+        ir_func: &IRFunction,
+        stack_allocas: &HashSet<usize>,
+    ) -> HashMap<usize, IRType> {
+        let mut candidates = HashMap::new();
+        for block in &ir_func.blocks {
+            for instruction in &block.instructions {
+                if let InstructionKind::Alloca { result, ty } = &instruction.kind {
+                    if stack_allocas.contains(&result.id)
+                        && matches!(ty, IRType::Int | IRType::Float | IRType::Bool | IRType::Char)
+                    {
+                        candidates.insert(result.id, ty.clone());
+                    }
+                }
+            }
+        }
+
+        for block in &ir_func.blocks {
+            for instruction in &block.instructions {
+                candidates.retain(|id, _| !Self::scalar_alloca_escapes(*id, &instruction.kind));
+            }
+            if let Some(terminator) = &block.terminator {
+                candidates.retain(|id, _| !Self::scalar_alloca_escapes_terminator(*id, terminator));
+            }
+        }
+
+        candidates
+    }
+
+    fn scalar_alloca_escapes(id: usize, kind: &InstructionKind) -> bool {
+        let contains = |values: &[IRValue]| values.iter().any(|value| value.id == id);
+        match kind {
+            InstructionKind::Load { .. } => false,
+            InstructionKind::Store { value, .. } => value.id == id,
+            InstructionKind::GetElementPtr { ptr, .. } => ptr.id == id,
+            InstructionKind::Call { args, .. }
+            | InstructionKind::HostCall { args, .. } => contains(args),
+            InstructionKind::AutodiffStep {
+                output,
+                upstream,
+                inputs,
+                targets,
+                ..
+            } => {
+                output.id == id
+                    || upstream.is_some_and(|value| value.id == id)
+                    || contains(inputs)
+                    || contains(targets)
+            }
+            InstructionKind::CallIndirect { fn_ptr, args, .. } => {
+                fn_ptr.id == id || contains(args)
+            }
+            InstructionKind::AsyncSuspend { task, .. }
+            | InstructionKind::AsyncResume { task, .. } => task.id == id,
+            InstructionKind::AsyncReady { value, .. } => {
+                value.is_some_and(|value| value.id == id)
+            }
+            InstructionKind::Phi { incoming, .. } => {
+                incoming.iter().any(|(value, _)| value.id == id)
+            }
+            InstructionKind::Copy { source, .. }
+            | InstructionKind::Cast { operand: source, .. }
+            | InstructionKind::LoadDynDataPtr { fat_ptr: source, .. }
+            | InstructionKind::LoadDynVtablePtr { fat_ptr: source, .. } => source.id == id,
+            InstructionKind::MakeDynFatPtr {
+                data_ptr,
+                vtable_ptr,
+                ..
+            } => data_ptr.id == id || vtable_ptr.id == id,
+            InstructionKind::LoadVtableSlot { vtable_ptr, .. } => vtable_ptr.id == id,
+            InstructionKind::Add { lhs, rhs, .. }
+            | InstructionKind::Sub { lhs, rhs, .. }
+            | InstructionKind::Mul { lhs, rhs, .. }
+            | InstructionKind::Div { lhs, rhs, .. }
+            | InstructionKind::Rem { lhs, rhs, .. }
+            | InstructionKind::Eq { lhs, rhs, .. }
+            | InstructionKind::Ne { lhs, rhs, .. }
+            | InstructionKind::Lt { lhs, rhs, .. }
+            | InstructionKind::Le { lhs, rhs, .. }
+            | InstructionKind::Gt { lhs, rhs, .. }
+            | InstructionKind::Ge { lhs, rhs, .. }
+            | InstructionKind::And { lhs, rhs, .. }
+            | InstructionKind::Or { lhs, rhs, .. } => lhs.id == id || rhs.id == id,
+            InstructionKind::Not { operand, .. } => operand.id == id,
+            InstructionKind::Alloca { .. }
+            | InstructionKind::FuncAddr { .. }
+            | InstructionKind::ConstInt { .. }
+            | InstructionKind::ConstIntTyped { .. }
+            | InstructionKind::ConstFloat { .. }
+            | InstructionKind::ConstFloatTyped { .. }
+            | InstructionKind::ConstBool { .. }
+            | InstructionKind::ConstString { .. } => false,
+        }
+    }
+
+    fn scalar_alloca_escapes_terminator(id: usize, terminator: &Terminator) -> bool {
+        match terminator {
+            Terminator::Return { value } => value.is_some_and(|value| value.id == id),
+            Terminator::CondBranch { condition, .. } => condition.id == id,
+            Terminator::Switch { value, .. } => value.id == id,
+            Terminator::Branch { .. } | Terminator::Unreachable => false,
+        }
+    }
+
     pub(crate) fn function_needs_manual_frame(
         ir_func: &IRFunction,
         stack_allocas: &HashSet<usize>,
@@ -1244,8 +1432,8 @@ impl CodeGenerator {
     pub(crate) fn generate_block<M: Module>(
         module: &mut M,
         function_map: &HashMap<String, FuncId>,
-        host_name_data: &mut HashMap<String, HostNameRecord>,
-        host_name_storage: &mut Vec<Box<[u8]>>,
+        host_name_data: &HashMap<String, HostNameRecord>,
+        _host_name_storage: &mut Vec<Box<[u8]>>,
         string_literal_data: &mut HashMap<String, StringLiteralRecord>,
         string_literal_storage: &mut Vec<Box<[i64]>>,
         manual_alloc_func: FuncId,
@@ -1288,12 +1476,13 @@ impl CodeGenerator {
         channel_len_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
-        value_map: &mut HashMap<usize, Value>,
+        value_map: &mut DenseValueMap,
         block_map: &HashMap<usize, Block>,
         allocation_vars: &mut Vec<Variable>,
         stack_array_lengths: &mut HashMap<usize, i64>,
         string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
+        scalar_alloca_vars: &HashMap<usize, Variable>,
         frame_var: Variable,
         manual_frame_active: bool,
         current_block_id: usize,
@@ -1316,7 +1505,7 @@ impl CodeGenerator {
                 module,
                 function_map,
                 host_name_data,
-                host_name_storage,
+                _host_name_storage,
                 string_literal_data,
                 string_literal_storage,
                 manual_alloc_func,
@@ -1362,6 +1551,7 @@ impl CodeGenerator {
                 stack_array_lengths,
                 string_literal_lengths,
                 stack_allocas,
+                scalar_alloca_vars,
                 track_allocations,
                 ir_block.id,
                 block_map,
@@ -1394,8 +1584,8 @@ impl CodeGenerator {
     pub(crate) fn generate_instruction<M: Module>(
         module: &mut M,
         function_map: &HashMap<String, FuncId>,
-        host_name_data: &mut HashMap<String, HostNameRecord>,
-        host_name_storage: &mut Vec<Box<[u8]>>,
+        host_name_data: &HashMap<String, HostNameRecord>,
+        _host_name_storage: &mut Vec<Box<[u8]>>,
         string_literal_data: &mut HashMap<String, StringLiteralRecord>,
         string_literal_storage: &mut Vec<Box<[i64]>>,
         manual_alloc_func: FuncId,
@@ -1436,11 +1626,12 @@ impl CodeGenerator {
         channel_len_fast_func: FuncId,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
-        value_map: &mut HashMap<usize, Value>,
+        value_map: &mut DenseValueMap,
         allocation_vars: &mut Vec<Variable>,
         stack_array_lengths: &mut HashMap<usize, i64>,
         string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
+        scalar_alloca_vars: &HashMap<usize, Variable>,
         track_allocations: bool,
         current_block_id: usize,
         block_map: &HashMap<usize, Block>,
@@ -1449,8 +1640,7 @@ impl CodeGenerator {
         // Helper to get value from map
         let get_value = |v: &IRValue| -> BackendResult<Value> {
             value_map
-                .get(&v.id)
-                .copied()
+                .get(v.id)
                 .ok_or_else(|| BackendCodegenError::missing_value(v.id))
         };
 
@@ -1644,6 +1834,11 @@ impl CodeGenerator {
 
             // Memory operations
             InstructionKind::Alloca { result, ty } => {
+                if scalar_alloca_vars.contains_key(&result.id) {
+                    // The address is proven not to escape; loads/stores use the
+                    // Cranelift variable directly and no pointer value is needed.
+                    return Ok(());
+                }
                 let size_bytes = Self::type_size_bytes(ty) as i64;
                 if stack_allocas.contains(&result.id) {
                     let slot =
@@ -1690,6 +1885,11 @@ impl CodeGenerator {
             }
 
             InstructionKind::Load { result, ptr, ty } => {
+                if let Some(variable) = scalar_alloca_vars.get(&ptr.id) {
+                    let result_val = builder.use_var(*variable);
+                    value_map.insert(result.id, result_val);
+                    return Ok(());
+                }
                 let ptr_val = get_value(ptr)?;
                 let cranelift_ty = Self::ir_type_to_cranelift(ty)?;
                 let result_val = builder
@@ -1699,6 +1899,11 @@ impl CodeGenerator {
             }
 
             InstructionKind::Store { ptr, value } => {
+                if let Some(variable) = scalar_alloca_vars.get(&ptr.id) {
+                    let value_val = get_value(value)?;
+                    builder.def_var(*variable, value_val);
+                    return Ok(());
+                }
                 let ptr_val = get_value(ptr)?;
                 let value_val = get_value(value)?;
                 builder.ins().store(MemFlags::new(), value_val, ptr_val, 0);
@@ -2190,7 +2395,12 @@ impl CodeGenerator {
                     return Ok(());
                 }
 
-                let record = intern_host_name(host_name_data, host_name_storage, host);
+                let record = host_name_data.get(host).copied().ok_or_else(|| {
+                    BackendCodegenError::cranelift(format!(
+                        "host call name '{}' was not pre-interned",
+                        host
+                    ))
+                })?;
                 let name_ptr = if let Some(data_id) = record.data_id {
                     // AOT mode: the name lives in a .rodata section; get its address
                     // via a GlobalValue so the linker patches it correctly.
@@ -2840,7 +3050,7 @@ impl CodeGenerator {
     pub(crate) fn generate_terminator_static<M: Module>(
         builder: &mut FunctionBuilder,
         terminator: &Terminator,
-        value_map: &HashMap<usize, Value>,
+        value_map: &DenseValueMap,
         block_map: &HashMap<usize, Block>,
         module: &mut M,
         manual_free_func: FuncId,
@@ -2854,8 +3064,7 @@ impl CodeGenerator {
         // Helper to get value from map
         let get_value = |v: &IRValue| -> BackendResult<Value> {
             value_map
-                .get(&v.id)
-                .copied()
+                .get(v.id)
                 .ok_or_else(|| BackendCodegenError::missing_value(v.id))
         };
 
@@ -3132,6 +3341,74 @@ mod tests {
     use spectra_midend::ir::Parameter;
 
     #[test]
+    fn r3104_dense_value_map_handles_dense_and_missing_ids() {
+        let mut values = DenseValueMap::with_capacity(3);
+        assert!(values.get(0).is_none());
+
+        let value = cranelift::prelude::Value::from_u32(1);
+        values.insert(2, value);
+        assert_eq!(values.get(2), Some(value));
+        assert!(values.get(1).is_none());
+        assert!(values.get(99).is_none());
+    }
+
+    #[test]
+    fn r3104_dense_value_map_resizes_for_sparse_synthetic_ids() {
+        let mut values = DenseValueMap::with_capacity(1);
+        let value = cranelift::prelude::Value::from_u32(2);
+        values.insert(17, value);
+        assert_eq!(values.get(17), Some(value));
+        assert!(values.get(16).is_none());
+    }
+
+    #[test]
+    fn r3104_jit_preinterns_duplicate_host_names_once() {
+        let mut codegen = CodeGenerator::new();
+        let mut module = IRModule::new("r3104_host_names");
+        let mut function = IRFunction::new("main", vec![], IRType::Void);
+        let entry = function.add_block("entry");
+        let block = function.get_block_mut(entry).unwrap();
+        for _ in 0..2 {
+            block.add_instruction(InstructionKind::HostCall {
+                result: None,
+                host: "spectra.std.test.duplicate".to_string(),
+                args: vec![],
+                result_type: None,
+            });
+        }
+        block.set_terminator(Terminator::Return { value: None });
+        module.add_function(function);
+
+        codegen.pre_intern_host_names(&module);
+        assert_eq!(codegen.host_name_data.len(), 1);
+        assert!(codegen.host_name_data.contains_key("spectra.std.test.duplicate"));
+    }
+
+    #[test]
+    fn r3104_parameter_lookup_uses_actual_ir_id() {
+        let mut codegen = CodeGenerator::new();
+        let mut function = IRFunction::new(
+            "sparse_parameter",
+            vec![Parameter {
+                id: 7,
+                name: "value".to_string(),
+                ty: IRType::Int,
+            }],
+            IRType::Int,
+        );
+        let entry = function.add_block("entry");
+        function
+            .get_block_mut(entry)
+            .unwrap()
+            .set_terminator(Terminator::Return {
+                value: Some(IRValue { id: 7 }),
+            });
+
+        assert!(codegen.declare_function(&function).is_ok());
+        assert!(codegen.define_function(&function).is_ok());
+    }
+
+    #[test]
     fn test_codegen_creation() {
         let codegen = CodeGenerator::new();
         assert!(codegen.function_map.is_empty());
@@ -3205,6 +3482,104 @@ mod tests {
 
         let stack_allocas = CodeGenerator::collect_stack_allocas(&function);
         assert!(stack_allocas.contains(&0));
+    }
+
+    #[test]
+    fn scalar_alloca_promotion_requires_load_store_only_access() {
+        let function = IRFunction {
+            name: "promotable_scalar".to_string(),
+            params: vec![],
+            return_type: IRType::Int,
+            source_span: None,
+            locals: vec![],
+            next_value_id: 3,
+            next_block_id: 1,
+            blocks: vec![IRBasicBlock {
+                id: 0,
+                label: "entry".to_string(),
+                instructions: vec![
+                    Instruction {
+                        id: 0,
+                        kind: InstructionKind::Alloca {
+                            result: IRValue { id: 0 },
+                            ty: IRType::Int,
+                        },
+                        source_span: None,
+                    },
+                    Instruction {
+                        id: 1,
+                        kind: InstructionKind::ConstInt {
+                            result: IRValue { id: 1 },
+                            value: 42,
+                        },
+                        source_span: None,
+                    },
+                    Instruction {
+                        id: 2,
+                        kind: InstructionKind::Store {
+                            ptr: IRValue { id: 0 },
+                            value: IRValue { id: 1 },
+                        },
+                        source_span: None,
+                    },
+                    Instruction {
+                        id: 3,
+                        kind: InstructionKind::Load {
+                            result: IRValue { id: 2 },
+                            ptr: IRValue { id: 0 },
+                            ty: IRType::Int,
+                        },
+                        source_span: None,
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: Some(IRValue { id: 2 }),
+                }),
+            }],
+        };
+
+        let promoted = CodeGenerator::collect_promotable_scalar_allocas(&function);
+        assert!(promoted.contains_key(&0));
+    }
+
+    #[test]
+    fn scalar_alloca_promotion_rejects_escaping_pointer() {
+        let function = IRFunction {
+            name: "escaping_scalar".to_string(),
+            params: vec![],
+            return_type: IRType::Void,
+            source_span: None,
+            locals: vec![],
+            next_value_id: 1,
+            next_block_id: 1,
+            blocks: vec![IRBasicBlock {
+                id: 0,
+                label: "entry".to_string(),
+                instructions: vec![
+                    Instruction {
+                        id: 0,
+                        kind: InstructionKind::Alloca {
+                            result: IRValue { id: 0 },
+                            ty: IRType::Int,
+                        },
+                        source_span: None,
+                    },
+                    Instruction {
+                        id: 1,
+                        kind: InstructionKind::Call {
+                            result: None,
+                            function: "consume_pointer".to_string(),
+                            args: vec![IRValue { id: 0 }],
+                        },
+                        source_span: None,
+                    },
+                ],
+                terminator: Some(Terminator::Return { value: None }),
+            }],
+        };
+
+        let promoted = CodeGenerator::collect_promotable_scalar_allocas(&function);
+        assert!(!promoted.contains_key(&0));
     }
 
     #[test]
@@ -3676,6 +4051,7 @@ mod tests {
             value: Some(cast_result),
         });
 
+        codegen.pre_intern_host_names_for_test(&func);
         assert!(codegen.declare_function(&func).is_ok());
         assert!(codegen.define_function(&func).is_ok());
     }

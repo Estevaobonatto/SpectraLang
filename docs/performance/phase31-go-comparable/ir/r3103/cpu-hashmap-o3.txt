@@ -12,52 +12,52 @@ module bench_cpu_hashmap {
       %v5 = const.int 200
       %v6 = const.int 30
       %v7 = const.int 0
-      store %v3, %v7
+      store %v0, %v7
       %v8 = const.int 0
-      store %v2, %v8
+      store %v1, %v8
       br bb1
     while.header:
-      %v9 = load(int) %v2
+      %v9 = load(int) %v1
       %v10 = lt %v9, %v6
       br.if %v10 -> bb2, else bb3
     while.body:
       %v11 = hostcall spectra.std.collections.map_new()
       %v12 = const.int 0
-      store %v0, %v12
+      store %v4, %v12
       br bb4
     while.exit:
-      %v51 = load(int) %v3
+      %v51 = load(int) %v0
       %v52 = const.int 6000
       %v53 = eq %v51, %v52
       br.if %v53 -> bb14, else bb15
     while.header:
-      %v13 = load(int) %v0
+      %v13 = load(int) %v4
       %v14 = lt %v13, %v5
       br.if %v14 -> bb5, else bb6
     while.body:
-      %v15 = load(int) %v0
+      %v15 = load(int) %v4
       %v16 = const.int 7
       %v17 = mul %v15, %v16
-      %v18 = load(int) %v0
+      %v18 = load(int) %v4
       hostcall spectra.std.collections.map_set(%v11, %v17, %v18)
       %v19 = const.int 0
-      %v20 = load(int) %v0
+      %v20 = load(int) %v4
       %v21 = const.int 1
       %v22 = add %v20, %v21
-      store %v0, %v22
+      store %v4, %v22
       br bb4
     while.exit:
       %v23 = const.int 0
-      store %v1, %v23
+      store %v3, %v23
       %v24 = const.int 0
-      store %v4, %v24
+      store %v2, %v24
       br bb7
     while.header:
-      %v25 = load(int) %v4
+      %v25 = load(int) %v2
       %v26 = lt %v25, %v5
       br.if %v26 -> bb8, else bb9
     while.body:
-      %v27 = load(int) %v4
+      %v27 = load(int) %v2
       %v28 = const.int 7
       %v29 = mul %v27, %v28
       %v30 = hostcall spectra.std.collections.map_contains(%v11, %v29)
@@ -69,17 +69,17 @@ module bench_cpu_hashmap {
       %v41 = ne %v40, %v5
       br.if %v41 -> bb12, else bb13
     if.then:
-      %v33 = load(int) %v1
+      %v33 = load(int) %v3
       %v34 = const.int 1
       %v35 = add %v33, %v34
-      store %v1, %v35
+      store %v3, %v35
       br bb11
     if.merge:
       %v36 = const.int 0
-      %v37 = load(int) %v4
+      %v37 = load(int) %v2
       %v38 = const.int 1
       %v39 = add %v37, %v38
-      store %v4, %v39
+      store %v2, %v39
       br bb7
     if.then:
       %v42 = const.int 2
@@ -88,14 +88,14 @@ module bench_cpu_hashmap {
       %v43 = const.int 0
       hostcall spectra.std.collections.map_free(%v11)
       %v44 = const.int 0
-      %v45 = load(int) %v3
-      %v46 = load(int) %v1
+      %v45 = load(int) %v0
+      %v46 = load(int) %v3
       %v47 = add %v45, %v46
-      store %v3, %v47
-      %v48 = load(int) %v2
+      store %v0, %v47
+      %v48 = load(int) %v1
       %v49 = const.int 1
       %v50 = add %v48, %v49
-      store %v2, %v50
+      store %v1, %v50
       br bb1
     if.then:
       %v54 = const.int 0
@@ -121,51 +121,51 @@ module bench_cpu_hashmap {
       %v5 = const.int 200
       %v6 = const.int 30
       %v7 = const.int 0
-      store %v3, %v7
+      store %v0, %v7
       %v8 = const.int 0
-      store %v2, %v8
+      store %v1, %v8
       br bb1
     while.header:
-      %v9 = load(int) %v2
+      %v9 = load(int) %v1
       %v10 = lt %v9, %v6
       br.if %v10 -> bb2, else bb3
     while.body:
       %v11 = hostcall spectra.std.collections.map_new()
       %v12 = const.int 0
-      store %v0, %v12
+      store %v4, %v12
       br bb4
     while.exit:
-      %v51 = load(int) %v3
+      %v51 = load(int) %v0
       %v52 = const.int 6000
       %v53 = eq %v51, %v52
       br.if %v53 -> bb14, else bb15
     while.header:
-      %v13 = load(int) %v0
+      %v13 = load(int) %v4
       %v14 = lt %v13, %v5
       br.if %v14 -> bb5, else bb6
     while.body:
-      %v15 = load(int) %v0
+      %v15 = load(int) %v4
       %v16 = const.int 7
       %v17 = mul %v15, %v16
-      %v18 = load(int) %v0
+      %v18 = load(int) %v4
       hostcall spectra.std.collections.map_set(%v11, %v17, %v18)
-      %v20 = load(int) %v0
+      %v20 = load(int) %v4
       %v21 = const.int 1
       %v22 = add %v20, %v21
-      store %v0, %v22
+      store %v4, %v22
       br bb4
     while.exit:
       %v23 = const.int 0
-      store %v1, %v23
+      store %v3, %v23
       %v24 = const.int 0
-      store %v4, %v24
+      store %v2, %v24
       br bb7
     while.header:
-      %v25 = load(int) %v4
+      %v25 = load(int) %v2
       %v26 = lt %v25, %v5
       br.if %v26 -> bb8, else bb9
     while.body:
-      %v27 = load(int) %v4
+      %v27 = load(int) %v2
       %v28 = const.int 7
       %v29 = mul %v27, %v28
       %v30 = hostcall spectra.std.collections.map_contains(%v11, %v29)
@@ -177,30 +177,30 @@ module bench_cpu_hashmap {
       %v41 = ne %v40, %v5
       br.if %v41 -> bb12, else bb13
     if.then:
-      %v33 = load(int) %v1
+      %v33 = load(int) %v3
       %v34 = const.int 1
       %v35 = add %v33, %v34
-      store %v1, %v35
+      store %v3, %v35
       br bb11
     if.merge:
-      %v37 = load(int) %v4
+      %v37 = load(int) %v2
       %v38 = const.int 1
       %v39 = add %v37, %v38
-      store %v4, %v39
+      store %v2, %v39
       br bb7
     if.then:
       %v42 = const.int 2
       ret %v42
     if.merge:
       hostcall spectra.std.collections.map_free(%v11)
-      %v45 = load(int) %v3
-      %v46 = load(int) %v1
+      %v45 = load(int) %v0
+      %v46 = load(int) %v3
       %v47 = add %v45, %v46
-      store %v3, %v47
-      %v48 = load(int) %v2
+      store %v0, %v47
+      %v48 = load(int) %v1
       %v49 = const.int 1
       %v50 = add %v48, %v49
-      store %v2, %v50
+      store %v1, %v50
       br bb1
     if.then:
       %v54 = const.int 0

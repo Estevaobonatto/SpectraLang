@@ -4223,7 +4223,7 @@ title = "Optimization Implementation Plan"
 phase = "phase_31"
 owner = "backend"
 priority = "P0"
-status = "in_progress"
+status = "complete"
 risk = "medium"
 dependencies = ["R-3101"]
 summary = "Close a repeatable optimization plan for R-3104..R-3117 from current release benchmarks and versioned O0/O3 IR snapshots. The evidence is explicitly classified as benchmark_and_ir_hypothesis: it prioritizes measurable work but does not claim causal profiler attribution. R-3102 remains the separate in_progress Linux perf/flamegraph workstream and is complementary, not a blocker for this plan."
@@ -4242,15 +4242,17 @@ title = "Cranelift Value Map and Codegen Hot Path"
 phase = "phase_31"
 owner = "backend"
 priority = "P0"
-status = "not_started"
+status = "in_progress"
 risk = "medium"
 dependencies = ["R-3103"]
 summary = "Replace the HashMap-based value map and per-compile name interning in `backend/src/codegen.rs` with dense indexing and precomputed host records; split JIT vs AOT paths."
 acceptance = [
   "value_map uses `Vec<Option<Value>>` indexed by IR `ValueId` with benchmarked lookup",
   "host name records are precomputed at module load, not per hostcall lowering",
+  "controlled codegen benchmark improves the CPU target geometric mean by at least 5% with no CPU/tensor target regression above 5%",
   "no functional regression: `run_tests.ps1` reports zero failed expected tests",
-  "no performance regression: validate_phase31_cross_lang.py reports <= 5% drift on every Spectra scenario"
+  "no performance regression: validate_phase31_cross_lang.py reports <= 5% drift on every Spectra scenario",
+  "JIT and AOT compile the same module and the immutable baseline SHA-256 is unchanged"
 ]
 
 [[items]]
@@ -4781,7 +4783,7 @@ acceptance = [
   "the deterministic cause classification is benchmark_process_startup, benchmark_contract, external_noise, compiler_backend_lowering, or runtime_batch_path and never claims causal profiling without an official perf artifact",
   "baseline.json remains byte-for-byte unchanged and historical R-3131/R-3132 evidence remains preserved and explicitly historical",
   "the focused gate run_tests.ps1 -Phase phase31_r3133_async_echo executes unit tests, roadmap/report validation, evidence generation, and git diff --check",
-  "R-3103 remains in_progress until tensor-create is conclusive and R-3104 remains not_started until R-3103 passes its gates"
+  "R-3103 is complete; R-3104 may be in_progress or complete only after its own backend codegen and baseline gates pass"
 ]
 
 

@@ -262,10 +262,10 @@ def validate_roadmap(roadmap: dict[str, Any]) -> list[str]:
     r3104 = items.get("R-3104")
     if not r3131 or r3131.get("status") not in {"complete", "in_progress"}:
         errors.append("R-3131 must be complete or in_progress")
-    if not r3103 or r3103.get("status") != "in_progress":
-        errors.append("R-3103 must remain in_progress")
-    if not r3104 or r3104.get("status") != "not_started":
-        errors.append("R-3104 must remain not_started")
+    if not r3103 or r3103.get("status") not in {"in_progress", "complete"}:
+        errors.append("R-3103 must be in_progress or complete")
+    if not r3104 or r3104.get("status") not in {"not_started", "in_progress", "complete"}:
+        errors.append("R-3104 must be not_started, in_progress, or complete")
     r3133 = items.get("R-3133")
     if not r3133:
         errors.append("R-3133 is missing")

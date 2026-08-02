@@ -24,15 +24,26 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     tomllib = None  # type: ignore[assignment]
 
 try:
-    from scripts.phase31_contract import SCENARIOS
+    from scripts.phase31_contract import (
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
+        LANGUAGES,
+        OFFICIAL_INDEPENDENT_RUNS,
+        SCENARIOS,
+    )
 except ModuleNotFoundError:
-    from phase31_contract import SCENARIOS  # type: ignore[no-redef]
+    from phase31_contract import (  # type: ignore[no-redef]
+        ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO,
+        LANGUAGES,
+        OFFICIAL_INDEPENDENT_RUNS,
+        SCENARIOS,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAN_ITEM_IDS = tuple(f"R-{number}" for number in range(3104, 3118))
 EVIDENCE_SCHEMA = "spectra.phase31.r3103_evidence.v1"
 REPORT_SCHEMA = "spectra.phase31.bench.v1"
+IR_MANIFEST_SCHEMA = "spectra.phase31.r3103_ir_manifest.v1"
 TOP_SNAPSHOT_SCENARIOS = (
     "cpu-string-build",
     "tensor-create",
@@ -154,35 +165,62 @@ def validate_report(
     if ids != list(SCENARIOS):
         errors.append("report must contain the canonical 21 scenarios exactly once")
     policy = report.get("measurement_policy") or {}
-    if policy.get("independent_runs", 0) < 5:
-        errors.append("report independent_runs must be at least 5")
+    if policy.get("independent_runs") != OFFICIAL_INDEPENDENT_RUNS:
+        errors.append(f"report independent_runs must be exactly {OFFICIAL_INDEPENDENT_RUNS}")
     if policy.get("timed_runs") != 20 or policy.get("warmup_runs") != 3:
         errors.append("report must use 3 warmups and 20 timed samples")
+    if report.get("complete_scenario_set") is not True:
+        errors.append("report must declare complete_scenario_set=true")
     if baseline_hash == "":
         errors.append("baseline hash is unavailable")
     for item in report.get("scenarios", []):
         scenario_id = item.get("id")
         if item.get("correctness_passed") is not True:
             errors.append(f"{scenario_id}: correctness did not pass")
-        for language, result in item.get("results", {}).items():
-            if result.get("exit_code") not in (0, None):
+        results = item.get("results") if isinstance(item.get("results"), dict) else {}
+        languages = set(results)
+        missing_languages = set(LANGUAGES) - languages
+        extra_languages = languages - set(LANGUAGES)
+        if missing_languages:
+            errors.append(
+                f"{scenario_id}: missing active benchmark languages "
+                f"{', '.join(sorted(missing_languages))}"
+            )
+        if extra_languages:
+            errors.append(
+                f"{scenario_id}: unsupported benchmark languages "
+                f"{', '.join(sorted(extra_languages))}; Java is excluded"
+            )
+        for language, result in results.items():
+            if result.get("exit_code") != 0:
                 errors.append(f"{scenario_id}/{language}: command failed")
+            if result.get("error"):
+                errors.append(f"{scenario_id}/{language}: command reported an error")
         if scenario_id != "async-echo":
-            spectra = item.get("results", {}).get("spectra", {})
+            spectra = results.get("spectra", {})
             median = spectra.get("ns_per_iter")
             dispersion = spectra.get("independent_stddev_ns", spectra.get("stddev_ns"))
             if not isinstance(median, (int, float)) or not isinstance(dispersion, (int, float)):
                 errors.append(f"{scenario_id}: measurement is inconclusive (missing dispersion)")
             elif median <= 0 or dispersion / median * 100.0 > 10.0:
                 errors.append(f"{scenario_id}: measurement is inconclusive (dispersion > 10%)")
-        elif float(item.get("paired_gap_stddev_pct") or 0) > 10.0:
-            errors.append(f"{scenario_id}: reference measurement is inconclusive (paired dispersion > 10%)")
+        else:
+            paired_dispersion = item.get("paired_gap_stddev_pct")
+            if not isinstance(paired_dispersion, (int, float)) or paired_dispersion > 10.0:
+                errors.append(f"{scenario_id}: reference measurement is inconclusive (paired dispersion > 10%)")
     async_echo = next(
         (item for item in report.get("scenarios", []) if item.get("id") == "async-echo"),
         None,
     )
-    if async_echo and async_echo.get("reference_performance_passed") is not True:
-        errors.append("async-echo: Go reference parity is outside the certified window")
+    if async_echo:
+        async_gap = async_echo.get("gap_to_go")
+        if not isinstance(async_gap, (int, float)) or not 0 < async_gap <= ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO:
+            errors.append(
+                "async-echo: Go parity gap must be within "
+                f"0 < gap_to_go <= {ASYNC_ECHO_ACCEPTED_MAX_GAP_TO_GO}x"
+            )
+        if async_echo.get("reference_performance_passed") is not True:
+            errors.append("async-echo: Go reference parity is outside the accepted window")
     for item in report.get("scenarios", []):
         for language, result in item.get("results", {}).items():
             if result.get("failure_class"):
@@ -202,9 +240,74 @@ def file_metrics(path: Path) -> dict[str, Any]:
     }
 
 
-def collect_ir(ir_root: Path) -> dict[str, Any]:
+def validate_ir_manifest(*, root: Path, ir_root: Path, expected_revision: str) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    manifest_path = ir_root / "manifest.json"
+    if not manifest_path.is_file():
+        return {}, ["IR manifest.json is missing"]
+    try:
+        manifest = load_json(manifest_path)
+    except ValueError as exc:
+        return {}, [str(exc)]
+    if manifest.get("schema") != IR_MANIFEST_SCHEMA:
+        errors.append(f"IR manifest schema must be {IR_MANIFEST_SCHEMA}")
+    if manifest.get("git_revision") != expected_revision:
+        errors.append("IR manifest Git revision does not match current HEAD")
+    if manifest.get("profile") != "release":
+        errors.append("IR manifest profile must be release")
+    binary_value = str(manifest.get("binary", "")).replace("\\", "/")
+    if binary_value != "target/release/spectralang.exe":
+        errors.append("IR manifest must reference target/release/spectralang.exe")
+    binary = root / Path(binary_value)
+    if not binary.is_file():
+        errors.append(f"IR manifest binary is missing: {binary}")
+    elif manifest.get("binary_sha256") != sha256_file(binary):
+        errors.append("IR manifest binary SHA-256 does not match the release binary")
+    expected_options = {
+        "o0": ["compile", "--dump-ir", "-O0"],
+        "o3": ["compile", "--dump-ir", "-O3"],
+    }
+    if manifest.get("options") != expected_options:
+        errors.append("IR manifest options do not match the required O0/O3 commands")
+    if manifest.get("scenario_count") != len(SCENARIOS):
+        errors.append("IR manifest scenario_count must be 21")
+    if manifest.get("scenarios") != list(SCENARIOS):
+        errors.append("IR manifest must contain the canonical 21 scenarios exactly once")
+    files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
+    if set(files) != set(SCENARIOS):
+        errors.append("IR manifest file entries must cover exactly the canonical 21 scenarios")
+    for scenario in SCENARIOS:
+        scenario_files = files.get(scenario) if isinstance(files.get(scenario), dict) else {}
+        for level in ("o0", "o3"):
+            entry = scenario_files.get(level) if isinstance(scenario_files.get(level), dict) else {}
+            relative = str(entry.get("path", "")).replace("\\", "/")
+            expected_relative = f"{scenario}/{level}.txt"
+            if relative != expected_relative:
+                errors.append(f"{scenario}: manifest path for {level} is invalid")
+                continue
+            path = (ir_root / Path(relative)).resolve()
+            if ir_root.resolve() not in path.parents:
+                errors.append(f"{scenario}: manifest path for {level} escapes the IR root")
+                continue
+            if not path.is_file() or path.stat().st_size == 0:
+                errors.append(f"{scenario}: manifest file for {level} is missing or empty")
+                continue
+            if entry.get("bytes") != path.stat().st_size:
+                errors.append(f"{scenario}: manifest byte count for {level} is stale")
+            if entry.get("sha256") != sha256_file(path):
+                errors.append(f"{scenario}: manifest SHA-256 for {level} is stale")
+    return manifest, errors
+
+
+def collect_ir(*, root: Path, ir_root: Path, expected_revision: str) -> dict[str, Any]:
     errors: list[str] = []
     scenarios: dict[str, Any] = {}
+    manifest, manifest_errors = validate_ir_manifest(
+        root=root,
+        ir_root=ir_root,
+        expected_revision=expected_revision,
+    )
+    errors.extend(manifest_errors)
     for scenario in SCENARIOS:
         directory = ir_root / scenario
         before = directory / "o0.txt"
@@ -216,7 +319,7 @@ def collect_ir(ir_root: Path) -> dict[str, Any]:
             errors.append(f"{scenario}: missing IR o3.txt")
             continue
         scenarios[scenario] = {"o0": file_metrics(before), "o3": file_metrics(after)}
-    return {"errors": errors, "scenarios": scenarios}
+    return {"errors": errors, "manifest": manifest, "scenarios": scenarios}
 
 
 def collect_tracked_snapshots(root: Path) -> tuple[dict[str, Any], list[str]]:
@@ -267,6 +370,9 @@ def validate_roadmap(roadmap: dict[str, Any]) -> list[str]:
         errors.append("R-3103 is missing")
     elif r3103.get("dependencies") != ["R-3101"]:
         errors.append("R-3103 must depend only on R-3101")
+    r3104 = item_map.get("R-3104")
+    if not r3104 or r3104.get("status") not in {"not_started", "in_progress", "complete"}:
+        errors.append("R-3104 must be not_started, in_progress, or complete")
     return errors
 
 
@@ -383,7 +489,9 @@ def build_evidence(
         errors.extend(validate_report(report, root=root, expected_revision=revision, baseline_hash=baseline_hash))
     if len(reports) == 2 and semantic_report(reports[0]) != semantic_report(reports[1]):
         errors.append("the two reports differ semantically")
-    ir = collect_ir(ir_root)
+    if len({path.resolve() for path in report_paths}) != 2:
+        errors.append("exactly two distinct release report files are required")
+    ir = collect_ir(root=root, ir_root=ir_root, expected_revision=revision)
     errors.extend(ir["errors"])
     tracked_snapshots, tracked_snapshot_errors = collect_tracked_snapshots(root)
     errors.extend(tracked_snapshot_errors)
@@ -432,6 +540,7 @@ def build_evidence(
         "scenarios": report_summaries(reports[0]) if reports else [],
         "ir": {
             "root": str(ir_root.relative_to(root)),
+            "manifest": ir["manifest"],
             "scenarios": ir["scenarios"],
             "tracked_textual_snapshots": tracked_snapshots,
         },

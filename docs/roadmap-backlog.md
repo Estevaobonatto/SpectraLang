@@ -7496,7 +7496,7 @@ Cenários cobertos (21):
 
 ## R-3103 Optimization Implementation Plan
 
-- Status: `in_progress`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3101`
@@ -7515,10 +7515,11 @@ Cenários cobertos (21):
 
 - Dois relatórios release semanticamente compatíveis, na revisão Git atual,
   passam pelo gate funcional completo e pelo gate estrito com drift máximo de
-  5%.
+  5%, usando exatamente a matriz ativa Spectra + Go + Rust.
 - `docs/performance/phase31-go-comparable/evidence-r3103-benchmark-ir.json` e
   `.md` versionam hashes dos relatórios e dos snapshots O0/O3 dos 21 cenários;
-  o baseline permanece byte-a-byte inalterado.
+  o manifesto valida revisão/binário/opções e o baseline permanece byte-a-byte
+  inalterado.
 - Cada ID R-3104..R-3117 possui uma linha auditável em
   `optimization-plan.md`, incluindo métrica primária e critério de rejeição.
 - O validador focado e seus testes passam via
@@ -7535,18 +7536,22 @@ continua aguardando o relatório remoto do PostgreSQL 16.
 ### Current evidence (2026-08-01)
 
 - `cargo build --release -p spectra-cli` e o code-validation dos 21 cenários
-  passaram na revisão `bd48a6b9a13631eeac9dd3b906b38e3595a4b19a`.
-- Os dois relatórios release com cinco tentativas são semanticamente
-  compatíveis e o baseline permanece byte-a-byte inalterado.
-- O fechamento estrito está bloqueado de forma explícita: `async-echo` falha a
-  janela de paridade Go nos dois relatórios (1,179x e 1,132x), e o primeiro
-  relatório classifica `tensor-create` como inconclusivo por dispersão acima
-  de 10%. O JSON/Markdown de evidência preserva essas classes; R-3103 não é
-  marcado como `complete`.
+  passaram na revisão `f7ba1dbb3295084342fc002c7816eadf096adafb`.
+- Os dois relatórios release usam 5 tentativas independentes, 3 warmups e 20
+  amostras temporizadas; são semanticamente compatíveis, cobrem 21/21 cenários
+  com Spectra + Go + Rust e os dois strict gates passaram.
+- `async-echo` ficou em `1.121851x` e `1.152715x` contra Go, abaixo do limite
+  aceito de `1.202162x`; a dispersão pareada máxima foi `7.3441%`.
+- O manifesto IR valida os dumps O0/O3 dos 21 cenários contra a revisão e o
+  binário release atuais. O baseline permaneceu byte-a-byte inalterado, com
+  SHA-256 `452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b`.
+- R-3103 está `complete`; R-3102 permanece `in_progress` por depender do
+  profiling Linux oficial. R-3104 está `in_progress`; R-3105..R-3117 ainda não
+  foram iniciadas.
 
 ## R-3104 Cranelift Value Map and Codegen Hot Path
 
-- Status: `not_started`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3103`
@@ -7562,8 +7567,25 @@ continua aguardando o relatório remoto do PostgreSQL 16.
 
 - `value_map` usa `Vec<Option<Value>>` indexado por IR `ValueId`.
 - Host name records pré-computados no module load.
+- O benchmark controlado exige ganho geométrico mínimo de 5% no grupo CPU e
+  nenhuma regressão acima de 5% nos alvos CPU/tensor.
 - `run_tests.ps1` zero falhas funcionais.
-- `validate_phase31_cross_lang.py` reporta ≤ 5% de drift em todos os cenários.
+- `validate_phase31_cross_lang.py` reporta ≤ 5% de drift em todos os cenários;
+  JIT/AOT compilam o mesmo módulo e o baseline permanece imutável.
+
+### Current evidence (2026-08-01)
+
+- `DenseValueMap` foi implementado nos caminhos JIT/AOT, com parâmetros por
+  `param.id`, resize seguro para IDs esparsos, lookup de PHI/terminator sem
+  panic e pre-internamento determinístico de host names.
+- Backend 22/22, runtime 93/93, midend/CLI e 53 testes Python focados passam;
+  JIT e AOT compilam o mesmo fixture e a validação rápida cobre 21/21 sem Java.
+- O gate estatístico permanece bloqueado: o grupo CPU não atingiu 5% de ganho
+  geométrico, houve regressões de codegen acima de 5% em cenários tensor, e os
+  relatórios release registraram inconclusividade/strict drift. A evidência
+  detalhada está em `evidence-r3104-codegen.{json,md}`.
+- O baseline permaneceu byte-a-byte inalterado; R-3102 continua aguardando
+  profiling Linux oficial e R-3105 não foi iniciado.
 
 ## R-3105 Host Call Batching and Name Precompute
 
@@ -8740,8 +8762,8 @@ The accepted focused gate uses one five-attempt release report for
 at most 10%. The fast code-validation report covers all 21 scenarios and
 correctness. Diagnostics retain current-revision metadata, batch invariants,
 and byte-for-byte baseline preservation. The focused gate is
-`run_tests.ps1 -Phase phase31_r3133_async_echo`. R-3103 remains `in_progress`
-until `tensor-create` is conclusive, and R-3104 remains `not_started`.
+`run_tests.ps1 -Phase phase31_r3133_async_echo`. R-3103 is `complete`, and
+R-3104 is now `in_progress` for the backend hot path implementation.
 
 ### Outcome (2026-08-01)
 

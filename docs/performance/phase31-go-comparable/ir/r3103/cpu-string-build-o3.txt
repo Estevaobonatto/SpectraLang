@@ -9,27 +9,27 @@ module bench_cpu_string_build {
       %v2 = alloca int
       %v3 = const.int 50
       %v4 = const.int 0
-      store %v2, %v4
+      store %v0, %v4
       %v5 = const.int 0
-      store %v1, %v5
+      store %v2, %v5
       br bb1
     while.header:
-      %v6 = load(int) %v1
+      %v6 = load(int) %v2
       %v7 = lt %v6, %v3
       br.if %v7 -> bb2, else bb3
     while.body:
       %v8 = const.int 0
       %v9 = hostcall spectra.std.string.builder_new(%v8)
       %v10 = const.int 0
-      store %v0, %v10
+      store %v1, %v10
       br bb4
     while.exit:
-      %v26 = load(int) %v2
+      %v26 = load(int) %v0
       %v27 = const.int 10000
       %v28 = eq %v26, %v27
       br.if %v28 -> bb7, else bb8
     while.header:
-      %v11 = load(int) %v0
+      %v11 = load(int) %v1
       %v12 = const.int 100
       %v13 = lt %v11, %v12
       br.if %v13 -> bb5, else bb6
@@ -37,21 +37,21 @@ module bench_cpu_string_build {
       %v14 = const.string "x|"
       hostcall spectra.std.string.builder_push(%v9, %v14)
       %v15 = const.int 0
-      %v16 = load(int) %v0
+      %v16 = load(int) %v1
       %v17 = const.int 1
       %v18 = add %v16, %v17
-      store %v0, %v18
+      store %v1, %v18
       br bb4
     while.exit:
       %v19 = hostcall spectra.std.string.builder_finish(%v9)
-      %v20 = load(int) %v2
+      %v20 = load(int) %v0
       %v21 = hostcall spectra.std.string.len(%v19)
       %v22 = add %v20, %v21
-      store %v2, %v22
-      %v23 = load(int) %v1
+      store %v0, %v22
+      %v23 = load(int) %v2
       %v24 = const.int 1
       %v25 = add %v23, %v24
-      store %v1, %v25
+      store %v2, %v25
       br bb1
     if.then:
       %v29 = const.int 0
@@ -74,48 +74,48 @@ module bench_cpu_string_build {
       %v2 = alloca int
       %v3 = const.int 50
       %v4 = const.int 0
-      store %v2, %v4
+      store %v0, %v4
       %v5 = const.int 0
-      store %v1, %v5
+      store %v2, %v5
       br bb1
     while.header:
-      %v6 = load(int) %v1
+      %v6 = load(int) %v2
       %v7 = lt %v6, %v3
       br.if %v7 -> bb2, else bb3
     while.body:
       %v8 = const.int 0
       %v9 = hostcall spectra.std.string.builder_new(%v8)
       %v10 = const.int 0
-      store %v0, %v10
+      store %v1, %v10
       br bb4
     while.exit:
-      %v26 = load(int) %v2
+      %v26 = load(int) %v0
       %v27 = const.int 10000
       %v28 = eq %v26, %v27
       br.if %v28 -> bb7, else bb8
     while.header:
-      %v11 = load(int) %v0
+      %v11 = load(int) %v1
       %v12 = const.int 100
       %v13 = lt %v11, %v12
       br.if %v13 -> bb5, else bb6
     while.body:
       %v14 = const.string "x|"
       hostcall spectra.std.string.builder_push(%v9, %v14)
-      %v16 = load(int) %v0
+      %v16 = load(int) %v1
       %v17 = const.int 1
       %v18 = add %v16, %v17
-      store %v0, %v18
+      store %v1, %v18
       br bb4
     while.exit:
       %v19 = hostcall spectra.std.string.builder_finish(%v9)
-      %v20 = load(int) %v2
+      %v20 = load(int) %v0
       %v21 = hostcall spectra.std.string.len(%v19)
       %v22 = add %v20, %v21
-      store %v2, %v22
-      %v23 = load(int) %v1
+      store %v0, %v22
+      %v23 = load(int) %v2
       %v24 = const.int 1
       %v25 = add %v23, %v24
-      store %v1, %v25
+      store %v2, %v25
       br bb1
     if.then:
       %v29 = const.int 0

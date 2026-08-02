@@ -1,8 +1,8 @@
 {
   "schema": "spectra.phase31.r3103_evidence.v1",
-  "status": "blocked",
-  "generated_at_utc": "2026-08-01T13:31:11.787930+00:00",
-  "revision": "bd48a6b9a13631eeac9dd3b906b38e3595a4b19a",
+  "status": "passed",
+  "generated_at_utc": "2026-08-01T16:25:52.562382+00:00",
+  "revision": "f7ba1dbb3295084342fc002c7816eadf096adafb",
   "profile": "release",
   "binary": "target/release/spectralang.exe",
   "baseline": {
@@ -16,282 +16,579 @@
   "reports": [
     {
       "path": "target\\phase31\\r3103-release-run-1.json",
-      "sha256": "122317bbe8751bd1f43abe9a6e471f28583c477ebbc087d7bb9f694a1da952ad"
+      "sha256": "5881f1e28f3639f211485706937c725f72d4144f102a33ee06cd3abe8e999dfb"
     },
     {
       "path": "target\\phase31\\r3103-release-run-2.json",
-      "sha256": "21f4d5f7789bd3ea9da133d16ce45ad16e8de0fda6ac4851bf333026a76b8d96"
+      "sha256": "c564bda5c1cd6d1f4466c6e3c9fe544417a2a793715751f3245298ceb2d2b6a6"
     }
   ],
   "scenarios": [
     {
       "id": "cpu-loop-sum",
       "correctness_passed": true,
-      "median_ns": 29973600,
-      "p95_ns": 38995600,
-      "stddev_ns": 5209002,
-      "independent_stddev_ns": 1139558,
-      "dispersion_pct": 3.8018723143032536,
-      "gap_to_go": 1.604,
+      "median_ns": 42930200,
+      "p95_ns": 72037000,
+      "stddev_ns": 13396404,
+      "independent_stddev_ns": 2676072,
+      "dispersion_pct": 8.350382091471044,
+      "gap_to_go": 1.523,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "cpu-fibs",
       "correctness_passed": true,
-      "median_ns": 41150300,
-      "p95_ns": 47083900,
-      "stddev_ns": 2901144,
-      "independent_stddev_ns": 796865,
-      "dispersion_pct": 2.0875477767910238,
-      "gap_to_go": 1.741,
+      "median_ns": 43080850,
+      "p95_ns": 60758100,
+      "stddev_ns": 9867219,
+      "independent_stddev_ns": 273810,
+      "dispersion_pct": 0.6355724179072604,
+      "gap_to_go": 1.784,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "cpu-string-build",
       "correctness_passed": true,
-      "median_ns": 27363050,
-      "p95_ns": 60475100,
-      "stddev_ns": 19724305,
-      "independent_stddev_ns": 816085,
-      "dispersion_pct": 2.982434341200999,
-      "gap_to_go": 1.633,
+      "median_ns": 28349900,
+      "p95_ns": 37493600,
+      "stddev_ns": 5928256,
+      "independent_stddev_ns": 356253,
+      "dispersion_pct": 1.2566287711773234,
+      "gap_to_go": 1.456,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "cpu-hashmap",
       "correctness_passed": true,
-      "median_ns": 29409550,
-      "p95_ns": 45016000,
-      "stddev_ns": 6828677,
-      "independent_stddev_ns": 637754,
-      "dispersion_pct": 2.3999443058362218,
-      "gap_to_go": 1.445,
+      "median_ns": 28461600,
+      "p95_ns": 32855300,
+      "stddev_ns": 2278610,
+      "independent_stddev_ns": 237829,
+      "dispersion_pct": 0.8232168693882355,
+      "gap_to_go": 1.485,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "tensor-create",
       "correctness_passed": true,
-      "median_ns": 39185350,
-      "p95_ns": 45192600,
-      "stddev_ns": 3934386,
-      "independent_stddev_ns": 8757918,
-      "dispersion_pct": 14.49842399761613,
-      "gap_to_go": 1.004,
+      "median_ns": 54052200,
+      "p95_ns": 83497500,
+      "stddev_ns": 18684981,
+      "independent_stddev_ns": 5148056,
+      "dispersion_pct": 8.673930808125908,
+      "gap_to_go": 0.869,
       "reference_performance_passed": null,
-      "failure_class": "inconclusive"
+      "failure_class": "none"
     },
     {
       "id": "tensor-elementwise",
       "correctness_passed": true,
-      "median_ns": 28525350,
-      "p95_ns": 31351500,
-      "stddev_ns": 1815248,
-      "independent_stddev_ns": 541625,
-      "dispersion_pct": 2.0735708488384557,
-      "gap_to_go": 0.912,
+      "median_ns": 31227500,
+      "p95_ns": 79503000,
+      "stddev_ns": 18708976,
+      "independent_stddev_ns": 2809658,
+      "dispersion_pct": 7.300363373698084,
+      "gap_to_go": 1.04,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "tensor-reduce",
       "correctness_passed": true,
-      "median_ns": 27052300,
-      "p95_ns": 29857800,
-      "stddev_ns": 1350187,
-      "independent_stddev_ns": 424929,
-      "dispersion_pct": 1.6160283555780357,
-      "gap_to_go": 0.849,
+      "median_ns": 37196250,
+      "p95_ns": 49851900,
+      "stddev_ns": 6444885,
+      "independent_stddev_ns": 1331960,
+      "dispersion_pct": 3.82295622124445,
+      "gap_to_go": 0.914,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "tensor-matmul",
       "correctness_passed": true,
-      "median_ns": 25900200,
-      "p95_ns": 30235000,
-      "stddev_ns": 1639079,
-      "independent_stddev_ns": 1931919,
-      "dispersion_pct": 7.459089119002941,
-      "gap_to_go": 1.139,
+      "median_ns": 30491200,
+      "p95_ns": 51733900,
+      "stddev_ns": 11356418,
+      "independent_stddev_ns": 977134,
+      "dispersion_pct": 2.9463606731375194,
+      "gap_to_go": 1.343,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "ml-mlp-step",
       "correctness_passed": true,
-      "median_ns": 26786050,
-      "p95_ns": 29973800,
-      "stddev_ns": 1381727,
-      "independent_stddev_ns": 665619,
-      "dispersion_pct": 2.3155750679241476,
-      "gap_to_go": 1.552,
+      "median_ns": 29105050,
+      "p95_ns": 31474000,
+      "stddev_ns": 1284813,
+      "independent_stddev_ns": 2408704,
+      "dispersion_pct": 7.050054513657683,
+      "gap_to_go": 1.685,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "async-echo",
       "correctness_passed": true,
-      "median_ns": 29199450,
-      "p95_ns": 33703700,
-      "stddev_ns": 2451371,
-      "independent_stddev_ns": 1193000,
-      "dispersion_pct": 4.0856933949098355,
-      "gap_to_go": 1.179,
-      "reference_performance_passed": false,
-      "failure_class": "reference_parity_failure"
+      "median_ns": 32435200,
+      "p95_ns": 69912100,
+      "stddev_ns": 23447784,
+      "independent_stddev_ns": 1149104,
+      "dispersion_pct": 3.5427683504340965,
+      "gap_to_go": 1.121851,
+      "reference_performance_passed": true,
+      "failure_class": "none"
     },
     {
       "id": "async-pipeline",
       "correctness_passed": true,
-      "median_ns": 28278250,
-      "p95_ns": 34277200,
-      "stddev_ns": 2730763,
-      "independent_stddev_ns": 642330,
-      "dispersion_pct": 2.3434832100170744,
-      "gap_to_go": 1.579,
+      "median_ns": 37567550,
+      "p95_ns": 61503900,
+      "stddev_ns": 24959906,
+      "independent_stddev_ns": 909319,
+      "dispersion_pct": 3.0043298052826595,
+      "gap_to_go": 1.596,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "sort-int",
       "correctness_passed": true,
-      "median_ns": 55564150,
-      "p95_ns": 87446500,
-      "stddev_ns": 12717778,
-      "independent_stddev_ns": 3146440,
-      "dispersion_pct": 5.6627159778382286,
-      "gap_to_go": 1.878,
+      "median_ns": 53389650,
+      "p95_ns": 66014700,
+      "stddev_ns": 5932708,
+      "independent_stddev_ns": 1022536,
+      "dispersion_pct": 1.9152326340404928,
+      "gap_to_go": 1.813,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "binary-search",
       "correctness_passed": true,
-      "median_ns": 61346900,
-      "p95_ns": 65042800,
-      "stddev_ns": 3257313,
-      "independent_stddev_ns": 1280390,
-      "dispersion_pct": 2.087130727062003,
-      "gap_to_go": 1.628,
+      "median_ns": 63155900,
+      "p95_ns": 66077400,
+      "stddev_ns": 11931570,
+      "independent_stddev_ns": 713552,
+      "dispersion_pct": 1.151716028668941,
+      "gap_to_go": 1.54,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "sieve",
       "correctness_passed": true,
-      "median_ns": 38671050,
-      "p95_ns": 62904700,
-      "stddev_ns": 8887254,
-      "independent_stddev_ns": 945831,
-      "dispersion_pct": 2.8206060316882824,
-      "gap_to_go": 1.823,
+      "median_ns": 40445000,
+      "p95_ns": 60259300,
+      "stddev_ns": 8517584,
+      "independent_stddev_ns": 337874,
+      "dispersion_pct": 0.9409998649245179,
+      "gap_to_go": 1.778,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "matrix-transpose",
       "correctness_passed": true,
-      "median_ns": 41792800,
-      "p95_ns": 48866100,
-      "stddev_ns": 3248268,
-      "independent_stddev_ns": 485466,
-      "dispersion_pct": 1.1836231645546473,
-      "gap_to_go": 1.558,
+      "median_ns": 43657000,
+      "p95_ns": 53322300,
+      "stddev_ns": 4824583,
+      "independent_stddev_ns": 2340741,
+      "dispersion_pct": 5.196554043703837,
+      "gap_to_go": 1.4,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "string-reverse",
       "correctness_passed": true,
-      "median_ns": 57872950,
-      "p95_ns": 60496200,
-      "stddev_ns": 2265250,
-      "independent_stddev_ns": 301611,
-      "dispersion_pct": 0.5187239443595988,
-      "gap_to_go": 1.68,
+      "median_ns": 61435100,
+      "p95_ns": 68447100,
+      "stddev_ns": 3341596,
+      "independent_stddev_ns": 3651718,
+      "dispersion_pct": 5.944025483803233,
+      "gap_to_go": 1.613,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "count-primes",
       "correctness_passed": true,
-      "median_ns": 84997550,
-      "p95_ns": 126261700,
-      "stddev_ns": 22023227,
-      "independent_stddev_ns": 1158593,
-      "dispersion_pct": 1.8566407035598649,
-      "gap_to_go": 1.383,
+      "median_ns": 70264950,
+      "p95_ns": 81570100,
+      "stddev_ns": 20591456,
+      "independent_stddev_ns": 1632160,
+      "dispersion_pct": 2.4058288461850275,
+      "gap_to_go": 1.272,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "gcd",
       "correctness_passed": true,
-      "median_ns": 284222150,
-      "p95_ns": 290076200,
-      "stddev_ns": 3894409,
-      "independent_stddev_ns": 1364785,
-      "dispersion_pct": 0.4735881812632881,
-      "gap_to_go": 1.205,
+      "median_ns": 294512050,
+      "p95_ns": 338664900,
+      "stddev_ns": 18252896,
+      "independent_stddev_ns": 1984529,
+      "dispersion_pct": 0.6738362657826734,
+      "gap_to_go": 1.177,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "pow-fast",
       "correctness_passed": true,
-      "median_ns": 40398950,
-      "p95_ns": 55193000,
-      "stddev_ns": 8287392,
-      "independent_stddev_ns": 2165026,
-      "dispersion_pct": 6.629846198602084,
-      "gap_to_go": 1.613,
+      "median_ns": 33724600,
+      "p95_ns": 42402800,
+      "stddev_ns": 3869468,
+      "independent_stddev_ns": 1414211,
+      "dispersion_pct": 3.868710521924437,
+      "gap_to_go": 1.639,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "word-count",
       "correctness_passed": true,
-      "median_ns": 64846750,
-      "p95_ns": 67941700,
-      "stddev_ns": 1665186,
-      "independent_stddev_ns": 452486,
-      "dispersion_pct": 0.6926742646327182,
-      "gap_to_go": 2.19,
+      "median_ns": 84368500,
+      "p95_ns": 119086300,
+      "stddev_ns": 15015759,
+      "independent_stddev_ns": 1273186,
+      "dispersion_pct": 1.697815631890534,
+      "gap_to_go": 2.31,
       "reference_performance_passed": null,
       "failure_class": "none"
     },
     {
       "id": "digit-sum",
       "correctness_passed": true,
-      "median_ns": 47633050,
-      "p95_ns": 55836500,
-      "stddev_ns": 3387558,
-      "independent_stddev_ns": 138592,
-      "dispersion_pct": 0.29166456218327524,
-      "gap_to_go": 1.885,
+      "median_ns": 46586100,
+      "p95_ns": 49155500,
+      "stddev_ns": 1032971,
+      "independent_stddev_ns": 2162232,
+      "dispersion_pct": 4.342864717809358,
+      "gap_to_go": 1.621,
       "reference_performance_passed": null,
       "failure_class": "none"
     }
   ],
   "ir": {
     "root": "target\\phase31\\r3103-ir",
+    "manifest": {
+      "schema": "spectra.phase31.r3103_ir_manifest.v1",
+      "git_revision": "f7ba1dbb3295084342fc002c7816eadf096adafb",
+      "profile": "release",
+      "binary": "target/release/spectralang.exe",
+      "binary_sha256": "06ae2ca06b00772fe54b8d5c18c07407abd302018ac969f734d8807edf654298",
+      "options": {
+        "o0": [
+          "compile",
+          "--dump-ir",
+          "-O0"
+        ],
+        "o3": [
+          "compile",
+          "--dump-ir",
+          "-O3"
+        ]
+      },
+      "scenario_count": 21,
+      "scenarios": [
+        "cpu-loop-sum",
+        "cpu-fibs",
+        "cpu-string-build",
+        "cpu-hashmap",
+        "tensor-create",
+        "tensor-elementwise",
+        "tensor-reduce",
+        "tensor-matmul",
+        "ml-mlp-step",
+        "async-echo",
+        "async-pipeline",
+        "sort-int",
+        "binary-search",
+        "sieve",
+        "matrix-transpose",
+        "string-reverse",
+        "count-primes",
+        "gcd",
+        "pow-fast",
+        "word-count",
+        "digit-sum"
+      ],
+      "files": {
+        "cpu-loop-sum": {
+          "o0": {
+            "path": "cpu-loop-sum/o0.txt",
+            "sha256": "1ceb339dda4e51a4b41a66da7ad328f45d994c9e9b8e1e3d3866eb13b46c3fd3",
+            "bytes": 2969
+          },
+          "o3": {
+            "path": "cpu-loop-sum/o3.txt",
+            "sha256": "4ffe05aa3f0a7fd080f9ef95b38e885a14aaf37398d3603ceb208b261ead423d",
+            "bytes": 2944
+          }
+        },
+        "cpu-fibs": {
+          "o0": {
+            "path": "cpu-fibs/o0.txt",
+            "sha256": "800863d3040a1af5769afc1177f6dc899bc79ebb18c95ff2d0df60ea75e9d2c5",
+            "bytes": 3201
+          },
+          "o3": {
+            "path": "cpu-fibs/o3.txt",
+            "sha256": "0ccb845e62794c49ca564da5f3c88f3b6888fff8007292a9f75bbc9030925927",
+            "bytes": 3176
+          }
+        },
+        "cpu-string-build": {
+          "o0": {
+            "path": "cpu-string-build/o0.txt",
+            "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+            "bytes": 3183
+          },
+          "o3": {
+            "path": "cpu-string-build/o3.txt",
+            "sha256": "d37910f45efcd05bddd60b42522fa26a07b44383205e22d91cc7ed501183ce26",
+            "bytes": 3133
+          }
+        },
+        "cpu-hashmap": {
+          "o0": {
+            "path": "cpu-hashmap/o0.txt",
+            "sha256": "64903f15efd8869ac46cc6bef2d419e4c7ce9b0b06869b2011ce23978f046a14",
+            "bytes": 5321
+          },
+          "o3": {
+            "path": "cpu-hashmap/o3.txt",
+            "sha256": "0aebaddf645f3c3bf48d6e33c49c1ddf16ea4caec990b637af4272b821ca847b",
+            "bytes": 5196
+          }
+        },
+        "tensor-create": {
+          "o0": {
+            "path": "tensor-create/o0.txt",
+            "sha256": "fffcdf2ab419dfbc4c2d8b2b42093cb96723562fd22e00bc8f54417e16317a00",
+            "bytes": 2874
+          },
+          "o3": {
+            "path": "tensor-create/o3.txt",
+            "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+            "bytes": 2799
+          }
+        },
+        "tensor-elementwise": {
+          "o0": {
+            "path": "tensor-elementwise/o0.txt",
+            "sha256": "fc9fe7e3fc7063d499a655b265e71ee1408c064c3ef30db4db8958f3a0b8ce79",
+            "bytes": 1837
+          },
+          "o3": {
+            "path": "tensor-elementwise/o3.txt",
+            "sha256": "97d90a0a8e52cf70007f70e312aa493a9f08f0a150825d0eec24139c985b8811",
+            "bytes": 1812
+          }
+        },
+        "tensor-reduce": {
+          "o0": {
+            "path": "tensor-reduce/o0.txt",
+            "sha256": "29795e3552227bdb50b852779e22e8013efb69039178c6d86c2d36a8c052881c",
+            "bytes": 1867
+          },
+          "o3": {
+            "path": "tensor-reduce/o3.txt",
+            "sha256": "ce47171a2597fcf66111c1b4755f2262f0be58a403c316547a659f2e7932fa83",
+            "bytes": 1817
+          }
+        },
+        "tensor-matmul": {
+          "o0": {
+            "path": "tensor-matmul/o0.txt",
+            "sha256": "bc3df603648ad230bdce8368ba100682499938e7b83143d2b8cb38f920329ee5",
+            "bytes": 2619
+          },
+          "o3": {
+            "path": "tensor-matmul/o3.txt",
+            "sha256": "cc502d862c00ef6cf787ff89867e346cb49f0f9f617b8498bb44f4c7cffec8ef",
+            "bytes": 2598
+          }
+        },
+        "ml-mlp-step": {
+          "o0": {
+            "path": "ml-mlp-step/o0.txt",
+            "sha256": "7e68553c377667035fc67f84320cec32a1b3467f39e190caee5f19bac766bd97",
+            "bytes": 8059
+          },
+          "o3": {
+            "path": "ml-mlp-step/o3.txt",
+            "sha256": "d495c83672404d1899d5bde48bbbcd1987d0b28c8ea43c335cf83aeb9a4f2c86",
+            "bytes": 7937
+          }
+        },
+        "async-echo": {
+          "o0": {
+            "path": "async-echo/o0.txt",
+            "sha256": "aef98a9361119ab3413d780f171b3b7098544e65b2ff4adac940b0f6a8c4c805",
+            "bytes": 2347
+          },
+          "o3": {
+            "path": "async-echo/o3.txt",
+            "sha256": "dddb25ccc87bc7dd56a7da7bf245493f90d5c47913e56ad6bcd1f3d969fabebf",
+            "bytes": 2298
+          }
+        },
+        "async-pipeline": {
+          "o0": {
+            "path": "async-pipeline/o0.txt",
+            "sha256": "dcc7fabfa377a287b64a674c1fa842df9b52f738e08a6fd34d6d969bfb018db2",
+            "bytes": 4739
+          },
+          "o3": {
+            "path": "async-pipeline/o3.txt",
+            "sha256": "a9f18af843a41b5f33058543622349c70b76386d51a0bf62fb2fb0089858458f",
+            "bytes": 4587
+          }
+        },
+        "sort-int": {
+          "o0": {
+            "path": "sort-int/o0.txt",
+            "sha256": "153102faffe0e4cf4b12643dc65fa63550efb31e2802ee778a0156d702a0a7bb",
+            "bytes": 9995
+          },
+          "o3": {
+            "path": "sort-int/o3.txt",
+            "sha256": "45854ee08f373ec9f580ff1b54b940bcb36d94f8df15b564a87d30538c8b86af",
+            "bytes": 9893
+          }
+        },
+        "binary-search": {
+          "o0": {
+            "path": "binary-search/o0.txt",
+            "sha256": "6532823e6c144512e7ad814d480ff9acb4817b2fcfae7012b0dffbf0483e3feb",
+            "bytes": 10311
+          },
+          "o3": {
+            "path": "binary-search/o3.txt",
+            "sha256": "bdb620fc447327da91024bd955740ad64b14dc78c2bf6981af7d45e8c1826242",
+            "bytes": 10131
+          }
+        },
+        "sieve": {
+          "o0": {
+            "path": "sieve/o0.txt",
+            "sha256": "aeb57b46457cd1f798d30d8cfb3174e08d428541f828e44a7330a104ecb0879b",
+            "bytes": 52721
+          },
+          "o3": {
+            "path": "sieve/o3.txt",
+            "sha256": "296b0ae05dfd34e2a7a4428b068b3e63fe86c14a8f042d880f6ec11db47978b3",
+            "bytes": 52591
+          }
+        },
+        "matrix-transpose": {
+          "o0": {
+            "path": "matrix-transpose/o0.txt",
+            "sha256": "fc5b42ed8d03f1ed8557be34685b0efde9c819e103ff4e1f40c4d7a966fcb2f9",
+            "bytes": 63257
+          },
+          "o3": {
+            "path": "matrix-transpose/o3.txt",
+            "sha256": "936fdf94785e0af1e18791d4a8e4f9c606cb837531014140639501131892c948",
+            "bytes": 63206
+          }
+        },
+        "string-reverse": {
+          "o0": {
+            "path": "string-reverse/o0.txt",
+            "sha256": "0237cf44a973f3c063f229175222c5348a7aec728dd7149cd2b665b00d0b1cb7",
+            "bytes": 15137
+          },
+          "o3": {
+            "path": "string-reverse/o3.txt",
+            "sha256": "17af41e75d9feb8c3400dee55350bb65385d5c19475c5ed61ba6d1cadd2c7071",
+            "bytes": 15088
+          }
+        },
+        "count-primes": {
+          "o0": {
+            "path": "count-primes/o0.txt",
+            "sha256": "6d8791785f12be6b4ddc928751e65e87e6dc4c63f56aca5ace4ec7d0ba1c0631",
+            "bytes": 5133
+          },
+          "o3": {
+            "path": "count-primes/o3.txt",
+            "sha256": "8022bf83f1081a7df3d66dd9300c2b8440afd82779b23434295a56602369a53a",
+            "bytes": 5034
+          }
+        },
+        "gcd": {
+          "o0": {
+            "path": "gcd/o0.txt",
+            "sha256": "c31c69e4c7d49c7116f3f032de66642c088bfbabe131e6541178681a03a2d93d",
+            "bytes": 8891
+          },
+          "o3": {
+            "path": "gcd/o3.txt",
+            "sha256": "723f81a4d996fcd913dc6cc80f5465c3c49eaa880a0cc8a663bdf221a359ce55",
+            "bytes": 8842
+          }
+        },
+        "pow-fast": {
+          "o0": {
+            "path": "pow-fast/o0.txt",
+            "sha256": "56a5f0d6cb4b5042fb4f147f564ba0591729a5f174204fbf56ed123ab68bd76b",
+            "bytes": 9835
+          },
+          "o3": {
+            "path": "pow-fast/o3.txt",
+            "sha256": "c006e7d2b468690c34b521a0b8503fe059404a74986209ef31087584199c60d9",
+            "bytes": 9759
+          }
+        },
+        "word-count": {
+          "o0": {
+            "path": "word-count/o0.txt",
+            "sha256": "7626cb5721df8c90674f83fbb8507bc3563695c73f340d3dedf9afa63edfe494",
+            "bytes": 5043
+          },
+          "o3": {
+            "path": "word-count/o3.txt",
+            "sha256": "328e3ca4dc470e7818621dcb8c668c04e1d89e0f5445489b06e38beea67edb27",
+            "bytes": 4921
+          }
+        },
+        "digit-sum": {
+          "o0": {
+            "path": "digit-sum/o0.txt",
+            "sha256": "3619239862997bdd68fe314dec10892a81ebeed994c9152343116d64185952e3",
+            "bytes": 4415
+          },
+          "o3": {
+            "path": "digit-sum/o3.txt",
+            "sha256": "312bddbfc01f2c3d3fe3f0c9b78a653fb465015f224130294d2f77538c734bc8",
+            "bytes": 4365
+          }
+        }
+      }
+    },
     "scenarios": {
       "cpu-loop-sum": {
         "o0": {
-          "sha256": "10cda48ba57ef3f4e29ff8d842aed039446a26c8e1c8ae0b539954a879f37407",
-          "bytes": 3103,
+          "sha256": "1ceb339dda4e51a4b41a66da7ad328f45d994c9e9b8e1e3d3866eb13b46c3fd3",
+          "bytes": 2969,
           "lines": 134,
           "blocks": 0,
           "allocas": 8,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "3ad5a987b7965175a765fc6b2a49c7d918ad22df2d2a785daf454b366c7bad15",
-          "bytes": 3077,
+          "sha256": "4ffe05aa3f0a7fd080f9ef95b38e885a14aaf37398d3603ceb208b261ead423d",
+          "bytes": 2944,
           "lines": 133,
           "blocks": 0,
           "allocas": 8,
@@ -300,16 +597,16 @@
       },
       "cpu-fibs": {
         "o0": {
-          "sha256": "34e97567badd55e45deaec46c5959a35f8272ff9e0eadce875e343a9c8a973c1",
-          "bytes": 3345,
+          "sha256": "800863d3040a1af5769afc1177f6dc899bc79ebb18c95ff2d0df60ea75e9d2c5",
+          "bytes": 3201,
           "lines": 144,
           "blocks": 0,
           "allocas": 10,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "e7897c0d6b12b8040d38a7c8a80580c457ad3479d8a7fbf035c04517a450c309",
-          "bytes": 3319,
+          "sha256": "0ccb845e62794c49ca564da5f3c88f3b6888fff8007292a9f75bbc9030925927",
+          "bytes": 3176,
           "lines": 143,
           "blocks": 0,
           "allocas": 10,
@@ -318,16 +615,16 @@
       },
       "cpu-string-build": {
         "o0": {
-          "sha256": "844d4c12488043760cbba8bafc90395b39a76c6587f27297e8faf1e3b25664c3",
-          "bytes": 3315,
+          "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+          "bytes": 3183,
           "lines": 132,
           "blocks": 0,
           "allocas": 6,
           "host_calls": 16
         },
         "o3": {
-          "sha256": "200713800a402b7abd79035a9f3cb0199780c2d0d6b07cb842ee0a3be9960cc3",
-          "bytes": 3263,
+          "sha256": "d37910f45efcd05bddd60b42522fa26a07b44383205e22d91cc7ed501183ce26",
+          "bytes": 3133,
           "lines": 130,
           "blocks": 0,
           "allocas": 6,
@@ -336,16 +633,16 @@
       },
       "cpu-hashmap": {
         "o0": {
-          "sha256": "334c93f2182d435ea49e3fc80d0fa33cb5a17577859319bfd3ecb4724cc85708",
-          "bytes": 5541,
+          "sha256": "64903f15efd8869ac46cc6bef2d419e4c7ce9b0b06869b2011ce23978f046a14",
+          "bytes": 5321,
           "lines": 220,
           "blocks": 0,
           "allocas": 10,
           "host_calls": 20
         },
         "o3": {
-          "sha256": "d165a439c3b09e362bb967e8abbc33e2c4b92cbb6dfc04b2f55988e09bc8d6c0",
-          "bytes": 5411,
+          "sha256": "0aebaddf645f3c3bf48d6e33c49c1ddf16ea4caec990b637af4272b821ca847b",
+          "bytes": 5196,
           "lines": 215,
           "blocks": 0,
           "allocas": 10,
@@ -354,16 +651,16 @@
       },
       "tensor-create": {
         "o0": {
-          "sha256": "807a00b5519066d16c6b1ea051435efe584e95d7056ad10be689c1ae3d4b50c8",
-          "bytes": 2985,
+          "sha256": "fffcdf2ab419dfbc4c2d8b2b42093cb96723562fd22e00bc8f54417e16317a00",
+          "bytes": 2874,
           "lines": 111,
           "blocks": 0,
           "allocas": 4,
           "host_calls": 16
         },
         "o3": {
-          "sha256": "cc7d48c1901aaed5d07d829e733482ae7ab6c8277349f425477034a33d984170",
-          "bytes": 2907,
+          "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+          "bytes": 2799,
           "lines": 108,
           "blocks": 0,
           "allocas": 4,
@@ -372,16 +669,16 @@
       },
       "tensor-elementwise": {
         "o0": {
-          "sha256": "16ff0bcc7cf92ca857b62daa0577ff22fc4da3ea68d74be83daff54c4c8871e4",
-          "bytes": 1899,
+          "sha256": "fc9fe7e3fc7063d499a655b265e71ee1408c064c3ef30db4db8958f3a0b8ce79",
+          "bytes": 1837,
           "lines": 62,
           "blocks": 0,
           "allocas": 0,
           "host_calls": 16
         },
         "o3": {
-          "sha256": "ac929660ebf72e5da28f0ea1adc3c17899ba928eb5e0c90b18d220cb821b6414",
-          "bytes": 1873,
+          "sha256": "97d90a0a8e52cf70007f70e312aa493a9f08f0a150825d0eec24139c985b8811",
+          "bytes": 1812,
           "lines": 61,
           "blocks": 0,
           "allocas": 0,
@@ -390,16 +687,16 @@
       },
       "tensor-reduce": {
         "o0": {
-          "sha256": "55865bdc174ab2570016f43ef3df8c1dfe19014b74990f9681d40d1a5ee90b5f",
-          "bytes": 1938,
+          "sha256": "29795e3552227bdb50b852779e22e8013efb69039178c6d86c2d36a8c052881c",
+          "bytes": 1867,
           "lines": 71,
           "blocks": 0,
           "allocas": 0,
           "host_calls": 12
         },
         "o3": {
-          "sha256": "c5d8f07acaf31c72f85eee43783f6172200b19a03e5ce5311fe229e8ac5aa400",
-          "bytes": 1886,
+          "sha256": "ce47171a2597fcf66111c1b4755f2262f0be58a403c316547a659f2e7932fa83",
+          "bytes": 1817,
           "lines": 69,
           "blocks": 0,
           "allocas": 0,
@@ -408,16 +705,16 @@
       },
       "tensor-matmul": {
         "o0": {
-          "sha256": "391567a617f14ae484c838c431bb0808564af87d7423b90a4c6c8f1a0c60db80",
-          "bytes": 2696,
+          "sha256": "bc3df603648ad230bdce8368ba100682499938e7b83143d2b8cb38f920329ee5",
+          "bytes": 2619,
           "lines": 77,
           "blocks": 0,
           "allocas": 0,
           "host_calls": 28
         },
         "o3": {
-          "sha256": "9a2597f6caca3bbc4fc08ffde70f1d1192ce09eb60fc4013fd29e6804bedb47e",
-          "bytes": 2674,
+          "sha256": "cc502d862c00ef6cf787ff89867e346cb49f0f9f617b8498bb44f4c7cffec8ef",
+          "bytes": 2598,
           "lines": 76,
           "blocks": 0,
           "allocas": 0,
@@ -426,16 +723,16 @@
       },
       "ml-mlp-step": {
         "o0": {
-          "sha256": "81e7d3b0b9e507eeeb81f5ce288ef30e1956dd53f7e3935bf359ba85c9301f16",
-          "bytes": 8273,
+          "sha256": "7e68553c377667035fc67f84320cec32a1b3467f39e190caee5f19bac766bd97",
+          "bytes": 8059,
           "lines": 214,
           "blocks": 0,
           "allocas": 2,
           "host_calls": 76
         },
         "o3": {
-          "sha256": "06ed89e80eef8de68e610a6f32d56f19e6a1a9037236fc2df581e7f9fa39f8d2",
-          "bytes": 8146,
+          "sha256": "d495c83672404d1899d5bde48bbbcd1987d0b28c8ea43c335cf83aeb9a4f2c86",
+          "bytes": 7937,
           "lines": 209,
           "blocks": 0,
           "allocas": 2,
@@ -444,16 +741,16 @@
       },
       "async-echo": {
         "o0": {
-          "sha256": "0add86c4a9a2b66a0ed6c03b14ae14a8ca267bce926f5f5846bccbedcb75078d",
-          "bytes": 2445,
+          "sha256": "aef98a9361119ab3413d780f171b3b7098544e65b2ff4adac940b0f6a8c4c805",
+          "bytes": 2347,
           "lines": 98,
           "blocks": 0,
           "allocas": 4,
           "host_calls": 12
         },
         "o3": {
-          "sha256": "71027456714fd7dec6188cedfbea0e5d96cc4cf9bfccc999d9b9be7e5467a9a6",
-          "bytes": 2394,
+          "sha256": "dddb25ccc87bc7dd56a7da7bf245493f90d5c47913e56ad6bcd1f3d969fabebf",
+          "bytes": 2298,
           "lines": 96,
           "blocks": 0,
           "allocas": 4,
@@ -462,16 +759,16 @@
       },
       "async-pipeline": {
         "o0": {
-          "sha256": "e6f7f1beced26ec4a2b353d48ef2bf9e8138e94ed1f8ad9c233757f91d3750b1",
-          "bytes": 4937,
+          "sha256": "dcc7fabfa377a287b64a674c1fa842df9b52f738e08a6fd34d6d969bfb018db2",
+          "bytes": 4739,
           "lines": 198,
           "blocks": 0,
           "allocas": 10,
           "host_calls": 20
         },
         "o3": {
-          "sha256": "8b7784f22ffb4affd0da4bd38e66c0f9a2e00c5ca6cfa01349c0894de8bf634b",
-          "bytes": 4779,
+          "sha256": "a9f18af843a41b5f33058543622349c70b76386d51a0bf62fb2fb0089858458f",
+          "bytes": 4587,
           "lines": 192,
           "blocks": 0,
           "allocas": 10,
@@ -480,16 +777,16 @@
       },
       "sort-int": {
         "o0": {
-          "sha256": "b265a7f19f07f2574893ce149c5686188ad30c4607efd01512b86f576a634293",
-          "bytes": 10397,
+          "sha256": "153102faffe0e4cf4b12643dc65fa63550efb31e2802ee778a0156d702a0a7bb",
+          "bytes": 9995,
           "lines": 402,
           "blocks": 0,
           "allocas": 14,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "aeba79b2e27da9ffa145664a90006e073423bf19cb07d2fb2f3ba540e3c75cb5",
-          "bytes": 10291,
+          "sha256": "45854ee08f373ec9f580ff1b54b940bcb36d94f8df15b564a87d30538c8b86af",
+          "bytes": 9893,
           "lines": 398,
           "blocks": 0,
           "allocas": 14,
@@ -498,16 +795,16 @@
       },
       "binary-search": {
         "o0": {
-          "sha256": "1fd102f90c5487b09aa3dfc3371ebe71c06bce02058cb4bc55bbdf2086641733",
-          "bytes": 10727,
+          "sha256": "6532823e6c144512e7ad814d480ff9acb4817b2fcfae7012b0dffbf0483e3feb",
+          "bytes": 10311,
           "lines": 416,
           "blocks": 0,
           "allocas": 18,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "bc88a445c7929fd6960a214642d683145dae8a0b4780fd70b9719491c4409706",
-          "bytes": 10540,
+          "sha256": "bdb620fc447327da91024bd955740ad64b14dc78c2bf6981af7d45e8c1826242",
+          "bytes": 10131,
           "lines": 409,
           "blocks": 0,
           "allocas": 18,
@@ -516,16 +813,16 @@
       },
       "sieve": {
         "o0": {
-          "sha256": "dba8a00db685886f644b4a63bafba4076c98f8d4ada770021368fd6ecf43b972",
-          "bytes": 54641,
+          "sha256": "aeb57b46457cd1f798d30d8cfb3174e08d428541f828e44a7330a104ecb0879b",
+          "bytes": 52721,
           "lines": 1920,
           "blocks": 0,
           "allocas": 16,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "5af8656c0f5662697b4ab35be09b0713032bd6cc7d0a0584cb4b9e6b182acc90",
-          "bytes": 54506,
+          "sha256": "296b0ae05dfd34e2a7a4428b068b3e63fe86c14a8f042d880f6ec11db47978b3",
+          "bytes": 52591,
           "lines": 1915,
           "blocks": 0,
           "allocas": 16,
@@ -534,16 +831,16 @@
       },
       "matrix-transpose": {
         "o0": {
-          "sha256": "8cda28fa4baf227c0872901837ace8b5089eaee1b83c36650f73bff0dc713998",
-          "bytes": 65499,
+          "sha256": "fc5b42ed8d03f1ed8557be34685b0efde9c819e103ff4e1f40c4d7a966fcb2f9",
+          "bytes": 63257,
           "lines": 2242,
           "blocks": 0,
           "allocas": 12,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "2576ed681c30b196201214751e6e655a8302889a9af66f38b4a72b667de4f270",
-          "bytes": 65446,
+          "sha256": "936fdf94785e0af1e18791d4a8e4f9c606cb837531014140639501131892c948",
+          "bytes": 63206,
           "lines": 2240,
           "blocks": 0,
           "allocas": 12,
@@ -552,16 +849,16 @@
       },
       "string-reverse": {
         "o0": {
-          "sha256": "5723dd42303fe7a574a59c427d3a15e9d11ae234e4c0c83e7f4f2b5d4c937aa7",
-          "bytes": 15705,
+          "sha256": "0237cf44a973f3c063f229175222c5348a7aec728dd7149cd2b665b00d0b1cb7",
+          "bytes": 15137,
           "lines": 568,
           "blocks": 0,
           "allocas": 14,
           "host_calls": 4
         },
         "o3": {
-          "sha256": "20ec933ea3462c958f10dbde758bd9cb67c4f70d7a25c2a6eb479310f2174a3e",
-          "bytes": 15654,
+          "sha256": "17af41e75d9feb8c3400dee55350bb65385d5c19475c5ed61ba6d1cadd2c7071",
+          "bytes": 15088,
           "lines": 566,
           "blocks": 0,
           "allocas": 14,
@@ -570,16 +867,16 @@
       },
       "count-primes": {
         "o0": {
-          "sha256": "69e05f926bf49b41ecb2382fb00f9098c342b50c94272b502f99f9e99de7d63e",
-          "bytes": 5359,
+          "sha256": "6d8791785f12be6b4ddc928751e65e87e6dc4c63f56aca5ace4ec7d0ba1c0631",
+          "bytes": 5133,
           "lines": 226,
           "blocks": 0,
           "allocas": 12,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "1ba46f857f90327f575da852c9ab2ccf89bb7d81a63652a96c439aca9206a004",
-          "bytes": 5256,
+          "sha256": "8022bf83f1081a7df3d66dd9300c2b8440afd82779b23434295a56602369a53a",
+          "bytes": 5034,
           "lines": 222,
           "blocks": 0,
           "allocas": 12,
@@ -588,16 +885,16 @@
       },
       "gcd": {
         "o0": {
-          "sha256": "f7d94d2538c3d05524c05872a7b782b3f72e5830308637f16ef0efc06ac6cd6e",
-          "bytes": 9249,
+          "sha256": "c31c69e4c7d49c7116f3f032de66642c088bfbabe131e6541178681a03a2d93d",
+          "bytes": 8891,
           "lines": 358,
           "blocks": 0,
           "allocas": 16,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "4e2bf9fe0834df23ec3d2595218632c8d47e9fdacd5a3371d76550af492d99ad",
-          "bytes": 9198,
+          "sha256": "723f81a4d996fcd913dc6cc80f5465c3c49eaa880a0cc8a663bdf221a359ce55",
+          "bytes": 8842,
           "lines": 356,
           "blocks": 0,
           "allocas": 16,
@@ -606,16 +903,16 @@
       },
       "pow-fast": {
         "o0": {
-          "sha256": "e3228dc9080740e7daca275d52b584f47b7c1e9ad8ee08e5005eda75634bab6d",
-          "bytes": 10231,
+          "sha256": "56a5f0d6cb4b5042fb4f147f564ba0591729a5f174204fbf56ed123ab68bd76b",
+          "bytes": 9835,
           "lines": 396,
           "blocks": 0,
           "allocas": 18,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "49a7032470fa6ea8b991db0d7f5f60f994887532135ca4011200dce3c9e9932e",
-          "bytes": 10152,
+          "sha256": "c006e7d2b468690c34b521a0b8503fe059404a74986209ef31087584199c60d9",
+          "bytes": 9759,
           "lines": 393,
           "blocks": 0,
           "allocas": 18,
@@ -624,16 +921,16 @@
       },
       "word-count": {
         "o0": {
-          "sha256": "2cc779360c3a30c51e3590f95b3d1dfd38e06cef879826a2439da0e87df7dbe9",
-          "bytes": 5259,
+          "sha256": "7626cb5721df8c90674f83fbb8507bc3563695c73f340d3dedf9afa63edfe494",
+          "bytes": 5043,
           "lines": 216,
           "blocks": 0,
           "allocas": 12,
           "host_calls": 8
         },
         "o3": {
-          "sha256": "0a82d495467afd6f8d7c332dbbce913172f1c33136f6737ac3ebceaec0df8357",
-          "bytes": 5132,
+          "sha256": "328e3ca4dc470e7818621dcb8c668c04e1d89e0f5445489b06e38beea67edb27",
+          "bytes": 4921,
           "lines": 211,
           "blocks": 0,
           "allocas": 12,
@@ -642,16 +939,16 @@
       },
       "digit-sum": {
         "o0": {
-          "sha256": "10fb9367abc71a602f507ae603263d80aaac7df49dbbc300d8e4bcaf7078cb7d",
-          "bytes": 4609,
+          "sha256": "3619239862997bdd68fe314dec10892a81ebeed994c9152343116d64185952e3",
+          "bytes": 4415,
           "lines": 194,
           "blocks": 0,
           "allocas": 12,
           "host_calls": 0
         },
         "o3": {
-          "sha256": "ed00892acb1a7741b1383a202d09b084253c5bf00853d818a7ac564e482b49e9",
-          "bytes": 4557,
+          "sha256": "312bddbfc01f2c3d3fe3f0c9b78a653fb465015f224130294d2f77538c734bc8",
+          "bytes": 4365,
           "lines": 192,
           "blocks": 0,
           "allocas": 12,
@@ -662,16 +959,16 @@
     "tracked_textual_snapshots": {
       "cpu-string-build": {
         "o0": {
-          "sha256": "844d4c12488043760cbba8bafc90395b39a76c6587f27297e8faf1e3b25664c3",
-          "bytes": 3315,
+          "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+          "bytes": 3183,
           "lines": 132,
           "blocks": 0,
           "allocas": 6,
           "host_calls": 16
         },
         "o3": {
-          "sha256": "200713800a402b7abd79035a9f3cb0199780c2d0d6b07cb842ee0a3be9960cc3",
-          "bytes": 3263,
+          "sha256": "643df65659fa87ea033491cc6ad0c513ca4189f0350fd62eb2a6aef1a410ba4c",
+          "bytes": 3133,
           "lines": 130,
           "blocks": 0,
           "allocas": 6,
@@ -680,16 +977,16 @@
       },
       "tensor-create": {
         "o0": {
-          "sha256": "807a00b5519066d16c6b1ea051435efe584e95d7056ad10be689c1ae3d4b50c8",
-          "bytes": 2985,
+          "sha256": "fffcdf2ab419dfbc4c2d8b2b42093cb96723562fd22e00bc8f54417e16317a00",
+          "bytes": 2874,
           "lines": 111,
           "blocks": 0,
           "allocas": 4,
           "host_calls": 16
         },
         "o3": {
-          "sha256": "cc7d48c1901aaed5d07d829e733482ae7ab6c8277349f425477034a33d984170",
-          "bytes": 2907,
+          "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+          "bytes": 2799,
           "lines": 108,
           "blocks": 0,
           "allocas": 4,
@@ -698,16 +995,16 @@
       },
       "cpu-hashmap": {
         "o0": {
-          "sha256": "334c93f2182d435ea49e3fc80d0fa33cb5a17577859319bfd3ecb4724cc85708",
-          "bytes": 5541,
+          "sha256": "c4d31573b6d124043684e86c0779425d22e064bb5cc9fabcb16c42c09759478d",
+          "bytes": 5321,
           "lines": 220,
           "blocks": 0,
           "allocas": 10,
           "host_calls": 20
         },
         "o3": {
-          "sha256": "d165a439c3b09e362bb967e8abbc33e2c4b92cbb6dfc04b2f55988e09bc8d6c0",
-          "bytes": 5411,
+          "sha256": "364955b5a798fbac9876a59f3c6cd516479265d8e5a3acc0cf9c84ec3dfef2c9",
+          "bytes": 5196,
           "lines": 215,
           "blocks": 0,
           "allocas": 10,
@@ -716,16 +1013,16 @@
       },
       "tensor-matmul": {
         "o0": {
-          "sha256": "391567a617f14ae484c838c431bb0808564af87d7423b90a4c6c8f1a0c60db80",
-          "bytes": 2696,
+          "sha256": "bc3df603648ad230bdce8368ba100682499938e7b83143d2b8cb38f920329ee5",
+          "bytes": 2619,
           "lines": 77,
           "blocks": 0,
           "allocas": 0,
           "host_calls": 28
         },
         "o3": {
-          "sha256": "9a2597f6caca3bbc4fc08ffde70f1d1192ce09eb60fc4013fd29e6804bedb47e",
-          "bytes": 2674,
+          "sha256": "cc502d862c00ef6cf787ff89867e346cb49f0f9f617b8498bb44f4c7cffec8ef",
+          "bytes": 2598,
           "lines": 76,
           "blocks": 0,
           "allocas": 0,
@@ -734,16 +1031,16 @@
       },
       "ml-mlp-step": {
         "o0": {
-          "sha256": "81e7d3b0b9e507eeeb81f5ce288ef30e1956dd53f7e3935bf359ba85c9301f16",
-          "bytes": 8273,
+          "sha256": "7e68553c377667035fc67f84320cec32a1b3467f39e190caee5f19bac766bd97",
+          "bytes": 8059,
           "lines": 214,
           "blocks": 0,
           "allocas": 2,
           "host_calls": 76
         },
         "o3": {
-          "sha256": "06ed89e80eef8de68e610a6f32d56f19e6a1a9037236fc2df581e7f9fa39f8d2",
-          "bytes": 8146,
+          "sha256": "d495c83672404d1899d5bde48bbbcd1987d0b28c8ea43c335cf83aeb9a4f2c86",
+          "bytes": 7937,
           "lines": 209,
           "blocks": 0,
           "allocas": 2,
@@ -992,10 +1289,6 @@
       }
     }
   },
-  "failures": [
-    "tensor-create: measurement is inconclusive (dispersion > 10%)",
-    "async-echo: Go reference parity is outside the certified window",
-    "async-echo: Go reference parity is outside the certified window"
-  ],
+  "failures": [],
   "baseline_modified": false
 }

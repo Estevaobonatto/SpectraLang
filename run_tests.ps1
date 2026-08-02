@@ -68,6 +68,15 @@ if ($Phase -contains "phase31_r3103_plan") {
         exit $unitExit
     }
 
+    & python scripts\generate_r3103_ir.py `
+        --binary target\release\spectralang.exe `
+        --out target\phase31\r3103-ir
+    $irExit = $LASTEXITCODE
+    if ($irExit -ne 0) {
+        Write-Host "R-3103 IR generation failed." -ForegroundColor Red
+        exit $irExit
+    }
+
     & python scripts\validate_r3103_optimization_plan.py `
         --report target\phase31\r3103-release-run-1.json `
         --report target\phase31\r3103-release-run-2.json `
@@ -84,6 +93,7 @@ if ($Phase -contains "phase31_r3103_plan") {
         docs/production-ai-implementation-plan.md `
         docs/performance/phase31-go-comparable/optimization-plan.md `
         docs/performance/phase31-go-comparable/evidence-r3103-benchmark-ir.md `
+        scripts/generate_r3103_ir.py `
         scripts/validate_r3103_optimization_plan.py `
         scripts/test_validate_r3103_optimization_plan.py
     $diffExit = $LASTEXITCODE
@@ -92,6 +102,56 @@ if ($Phase -contains "phase31_r3103_plan") {
         exit 1
     }
     Write-Host "R-3103 focused gate passed." -ForegroundColor Green
+    exit 0
+}
+
+if ($Phase -contains "phase31_r3104_codegen_hot_path") {
+    Write-Host "--- R-3104 dense value-map + codegen hot-path gate ---" -ForegroundColor Yellow
+    & python -m unittest -v `
+        scripts.test_phase31_gates `
+        scripts.test_validate_r3103_optimization_plan `
+        scripts.test_validate_r3133_async_echo_reconciliation `
+        scripts.test_validate_r3104_codegen_hot_path
+    $unitExit = $LASTEXITCODE
+    if ($unitExit -ne 0) {
+        Write-Host "R-3104 focused unit tests failed." -ForegroundColor Red
+        exit $unitExit
+    }
+
+    & python scripts\validate_r3104_codegen_hot_path.py `
+        --report target\phase31\r3104-release-run-1.json `
+        --report target\phase31\r3104-release-run-2.json `
+        --baseline docs\performance\phase31-go-comparable\baseline.json `
+        --ir-root target\phase31\r3104-ir `
+        --codegen-before target\phase31\r3104-codegen-before.json `
+        --codegen-after target\phase31\r3104-codegen-after.json `
+        --steady-state target\phase31\r3104-steady-state.json `
+        --roadmap roadmap\roadmap.toml `
+        --plan docs\performance\phase31-go-comparable\optimization-plan.md `
+        --binary target\release\spectralang.exe `
+        --aot-source benchmarks\cross-lang\cpu-loop-sum\spectra\bench.spectra `
+        --aot-output target\phase31\r3104-aot-smoke.obj `
+        --write-evidence
+    $validatorExit = $LASTEXITCODE
+
+    & git diff --check -- `
+        backend/src/codegen.rs `
+        backend/src/aot.rs `
+        roadmap/roadmap.toml `
+        docs/roadmap-backlog.md `
+        docs/performance/phase31-go-comparable/evidence-r3104-codegen.md `
+        scripts/generate_r3103_ir.py `
+        scripts/benchmark_r3104_codegen.py `
+        scripts/benchmark_r3104_steady_state.py `
+        scripts/validate_r3104_codegen_hot_path.py `
+        scripts/test_validate_r3104_codegen_hot_path.py `
+        run_tests.ps1
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-3104 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-3104 focused gate passed." -ForegroundColor Green
     exit 0
 }
 

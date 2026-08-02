@@ -15,34 +15,34 @@ module bench_tensor_create {
       %v1 = alloca int
       %v2 = const.int 20
       %v3 = const.int 0
-      store %v1, %v3
+      store %v0, %v3
       %v4 = const.int 1048576
       %v5 = const.float 1
       %v6 = hostcall spectra.std.tensor.full_f(%v4, %v5)
       %v7 = const.int 0
-      store %v0, %v7
+      store %v1, %v7
       br bb1
     while.header:
-      %v8 = load(int) %v0
+      %v8 = load(int) %v1
       %v9 = lt %v8, %v2
       br.if %v9 -> bb2, else bb3
     while.body:
       %v10 = const.float 1
       hostcall spectra.std.tensor.refill(%v6, %v10)
       %v11 = const.int 0
-      %v12 = load(int) %v1
+      %v12 = load(int) %v0
       %v13 = hostcall spectra.std.tensor.len(%v6)
       %v14 = add %v12, %v13
-      store %v1, %v14
-      %v15 = load(int) %v0
+      store %v0, %v14
+      %v15 = load(int) %v1
       %v16 = const.int 1
       %v17 = add %v15, %v16
-      store %v0, %v17
+      store %v1, %v17
       br bb1
     while.exit:
       hostcall spectra.std.tensor.free(%v6)
       %v18 = const.int 0
-      %v19 = load(int) %v1
+      %v19 = load(int) %v0
       %v20 = const.int 20971520
       %v21 = eq %v19, %v20
       br.if %v21 -> bb4, else bb5
@@ -66,34 +66,34 @@ module bench_tensor_create {
       %v1 = alloca int
       %v2 = const.int 20
       %v3 = const.int 0
-      store %v1, %v3
+      store %v0, %v3
       %v4 = const.int 1048576
       %v5 = const.float 1
       %v6 = hostcall spectra.std.tensor.full_f(%v4, %v5)
       %v7 = const.int 0
-      store %v0, %v7
+      store %v1, %v7
       br bb1
     while.header:
-      %v8 = load(int) %v0
+      %v8 = load(int) %v1
       %v9 = lt %v8, %v2
       br.if %v9 -> bb2, else bb3
     while.body:
       %v10 = const.float 1
       hostcall spectra.std.tensor.refill(%v6, %v10)
       %v11 = const.int 0
-      %v12 = load(int) %v1
+      %v12 = load(int) %v0
       %v13 = hostcall spectra.std.tensor.len(%v6)
       %v14 = add %v12, %v13
-      store %v1, %v14
-      %v15 = load(int) %v0
+      store %v0, %v14
+      %v15 = load(int) %v1
       %v16 = const.int 1
       %v17 = add %v15, %v16
-      store %v0, %v17
+      store %v1, %v17
       br bb1
     while.exit:
       hostcall spectra.std.tensor.free(%v6)
       %v18 = const.int 0
-      %v19 = load(int) %v1
+      %v19 = load(int) %v0
       %v20 = const.int 20971520
       %v21 = eq %v19, %v20
       br.if %v21 -> bb4, else bb5

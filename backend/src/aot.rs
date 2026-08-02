@@ -11,7 +11,7 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
-use crate::codegen::{validate_tensor_ir, CodeGenerator, HostNameRecord, PhiDescriptor, StringLiteralRecord};
+use crate::codegen::{validate_tensor_ir, CodeGenerator, DenseValueMap, HostNameRecord, PhiDescriptor, StringLiteralRecord};
 use crate::error::{BackendCodegenError, BackendResult};
 
 /// Options that control AOT code generation.
@@ -699,12 +699,21 @@ impl AotCodeGenerator {
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        let mut value_map: HashMap<usize, Value> = HashMap::new();
+        let mut value_map = DenseValueMap::with_capacity(ir_func.next_value_id);
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
+        let scalar_alloca_types = CodeGenerator::collect_promotable_scalar_allocas_with_stack_allocas(
+            ir_func,
+            &stack_allocas,
+        );
+        let mut scalar_alloca_vars = HashMap::with_capacity(scalar_alloca_types.len());
+        for (alloca_id, ty) in &scalar_alloca_types {
+            let variable = builder.declare_var(CodeGenerator::ir_type_to_cranelift(ty)?);
+            scalar_alloca_vars.insert(*alloca_id, variable);
+        }
         let manual_frame_active =
             CodeGenerator::function_needs_manual_frame(ir_func, &stack_allocas);
         let frame_token = if manual_frame_active {
@@ -720,8 +729,8 @@ impl AotCodeGenerator {
         builder.def_var(frame_var, frame_token);
 
         let params = builder.block_params(entry_block).to_vec();
-        for (idx, &cl_value) in params.iter().enumerate() {
-            value_map.insert(idx, cl_value);
+        for (param, &cl_value) in ir_func.params.iter().zip(params.iter()) {
+            value_map.insert(param.id, cl_value);
         }
 
         for ir_block in &ir_func.blocks {
@@ -821,6 +830,7 @@ impl AotCodeGenerator {
                 &mut stack_array_lengths,
                 &mut string_literal_lengths,
                 &stack_allocas,
+                &scalar_alloca_vars,
                 frame_var,
                 manual_frame_active,
                 ir_block.id,
@@ -841,7 +851,7 @@ impl AotCodeGenerator {
         // or CFA-relative location in the compiled machine code.
         for local in &ir_func.locals {
             if let Some(value_id) = local.value_id {
-                if let Some(&value) = value_map.get(&value_id) {
+                if let Some(value) = value_map.get(value_id) {
                     builder.set_val_label(value, ValueLabel::from_u32(value_id as u32));
                 }
             }
@@ -995,15 +1005,21 @@ impl AotCodeGenerator {
     /// This must be done before any function bodies are compiled so that every
     /// `HostCall` in `generate_block` finds a ready `DataId` in `host_name_data`.
     fn pre_intern_host_names(&mut self, ir_module: &IRModule) {
-        for func in &ir_module.functions {
-            for block in &func.blocks {
-                for instr in &block.instructions {
-                    if let InstructionKind::HostCall { host, .. } = &instr.kind {
-                        if !self.host_name_data.contains_key(host.as_str()) {
-                            self.create_host_name_data(host);
-                        }
-                    }
-                }
+        let mut names = ir_module
+            .functions
+            .iter()
+            .flat_map(|func| func.blocks.iter())
+            .flat_map(|block| block.instructions.iter())
+            .filter_map(|instr| match &instr.kind {
+                InstructionKind::HostCall { host, .. } => Some(host.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            if !self.host_name_data.contains_key(name) {
+                self.create_host_name_data(name);
             }
         }
     }
@@ -1106,7 +1122,35 @@ impl AotCodeGenerator {
 mod tests {
     use super::*;
     use crate::BackendErrorKind;
-    use spectra_midend::ir::{Function as IRFunction, Terminator, Type as IRType};
+    use spectra_midend::ir::{Function as IRFunction, InstructionKind, Terminator, Type as IRType};
+
+    #[test]
+    fn r3104_aot_preinterns_duplicate_host_names_once() {
+        let mut module = IRModule::new("r3104_aot_host_names");
+        let mut function = IRFunction::new("main", vec![], IRType::Void);
+        let entry = function.add_block("entry");
+        let block = function.get_block_mut(entry).unwrap();
+        for _ in 0..2 {
+            block.add_instruction(InstructionKind::HostCall {
+                result: None,
+                host: "spectra.std.test.duplicate".to_string(),
+                args: vec![],
+                result_type: None,
+            });
+        }
+        block.set_terminator(Terminator::Return { value: None });
+        module.add_function(function);
+
+        let mut codegen = AotCodeGenerator::new();
+        codegen.pre_intern_host_names(&module);
+        assert_eq!(codegen.host_name_data.len(), 1);
+        assert!(codegen.host_name_data.contains_key("spectra.std.test.duplicate"));
+        assert!(codegen
+            .host_name_data
+            .get("spectra.std.test.duplicate")
+            .and_then(|record| record.data_id)
+            .is_some());
+    }
 
     #[test]
     fn r2007_aot_missing_branch_target_returns_typed_error() {

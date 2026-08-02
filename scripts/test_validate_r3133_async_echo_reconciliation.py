@@ -15,6 +15,7 @@ from scripts.validate_r3133_async_echo_reconciliation import (
     classify_cause,
     validate_diagnostic,
     validate_report,
+    validate_roadmap,
 )
 
 
@@ -132,6 +133,19 @@ class R3133ValidatorTests(unittest.TestCase):
         modified = copy.deepcopy(original)
         modified["variants"]["batch-full"]["median_ns"] = 99
         self.assertEqual(10_000, original["variants"]["batch-full"]["median_ns"])
+
+    def test_dependency_guards_accept_r3103_complete_and_r3104_active(self) -> None:
+        roadmap = {
+            "items": [
+                {"id": "R-3131", "status": "complete"},
+                {"id": "R-3103", "status": "complete"},
+                {"id": "R-3104", "status": "in_progress"},
+                {"id": "R-3133", "dependencies": ["R-3130", "R-3131", "R-3132"]},
+            ]
+        }
+        self.assertEqual([], validate_roadmap(roadmap))
+        roadmap["items"][2]["status"] = "blocked"
+        self.assertTrue(any("R-3104" in error for error in validate_roadmap(roadmap)))
 
 
 if __name__ == "__main__":

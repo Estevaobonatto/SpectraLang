@@ -1,8 +1,8 @@
 # Phase 31 Implementation Summary
 
 Updated: 2026-08-01
-Roadmap items: `R-3101`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and `R-3133`
-are complete. Remaining item statuses are tracked authoritatively in
+Roadmap items: `R-3101`, `R-3103`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and
+`R-3133` are complete. Remaining item statuses are tracked authoritatively in
 `roadmap/roadmap.toml`.
 
 ## What Was Built
@@ -26,15 +26,33 @@ are complete. Remaining item statuses are tracked authoritatively in
   sintético ou attribution baseada apenas em benchmark foi aceito.
 - The first R-3101 pass itself surfaced the most important finding: **string concatenation is 50x slower than Go** in `cpu-string-build`.
 
-### R-3103 Optimization Plan (in_progress)
+### R-3103 Optimization Plan (complete)
 
-- `docs/performance/phase31-go-comparable/optimization-plan.md` ranks 14 optimization items by impact × feasibility / risk.
+- `docs/performance/phase31-go-comparable/optimization-plan.md` ranks 14 optimization items by impact × feasibility / risk, backed by current release evidence.
+- The two current-head release reports pass the 21-scenario functional and strict gates with the active Spectra + Go + Rust matrix; Java fixtures remain historical only.
+- O0/O3 IR for all 21 scenarios is covered by `target/phase31/r3103-ir/manifest.json`, and the five review snapshots are versioned under `ir/r3103/`.
+- The evidence is `benchmark_and_ir_hypothesis` only; `R-3102` remains the separate causal Linux profiling workstream in progress.
 - Tier 1: R-3108 (string concat), R-3107 (tensor buffer reuse).
 - Tier 2: R-3104, R-3105, R-3106 (backend hot path + midend).
 - Tier 3: R-3110, R-3111, R-3112 (SIMD + matmul + conv).
 - Tier 4: R-3113, R-3114 (async).
 - Tier 5: R-3115, R-3116, R-3117 (compiler + cranelift tuning).
 - Tier 6: R-3109 (autodiff inference skip).
+
+### R-3104 Codegen hot path (in_progress)
+
+- `backend/src/codegen.rs` and `backend/src/aot.rs` now use the dense
+  `DenseValueMap`, seed parameters by their real IR ids, preserve PHI/
+  terminator lookup errors, and pre-intern JIT/AOT host names deterministically.
+- JIT and AOT smoke compilation of the same fixture passed; the 21-scenario
+  code-validation report passed `21/21` with Spectra + Go + Rust and no Java.
+- The controlled codegen comparison did not meet promotion: the CPU target
+  geometric-mean change was within noise in the initial capture and the final
+  capture regressed; tensor targets exceeded the +5% rejection threshold.
+- The two release reports also contain inconclusive measurements and strict
+  baseline regressions. Evidence is published as `blocked` in
+  `evidence-r3104-codegen.{json,md}`; R-3104 remains `in_progress`, R-3105 is
+  not started, and the immutable baseline is unchanged.
 
 ## Historical Measured Baseline
 
@@ -81,6 +99,10 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 ## Acceptance Evidence
 
 - `python scripts/phase31_run_all.py` — full 21-scenario run completes.
+- R-3103 release evidence uses revision `f7ba1dbb3295084342fc002c7816eadf096adafb`, 5 independent attempts, 3 warmups, 20 timed samples, and two semantically compatible reports.
+- `async-echo` is `1.121851x` / `1.152715x` vs Go with maximum paired dispersion `7.3441%`, within the accepted `1.202162x` limit; the baseline SHA-256 is unchanged.
+- `python scripts/generate_r3103_ir.py` produces a current-binary manifest and O0/O3 dumps for all 21 scenarios; the five tracked textual snapshots are synchronized.
+- `run_tests.ps1 -Phase phase31_r3103_plan` — R-3103 validator, IR manifest, roadmap, matrix coverage, and diff checks pass.
 - Historical release certifications are retained as context only. The accepted
   current R-3133 release evidence is the focused
   `r3133-async-echo-only.json` report; it records `async-echo = 1.154469x`
@@ -89,8 +111,8 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 - `python scripts/phase31_run_all.py --code-validation ...` plus the matching
   validator is the repository correctness gate and completes in about 40 s.
 - `python scripts/validate_phase31_cross_lang.py --strict --max-drift 5` —
-  strict mode for CI on a pinned machine; the current R-3133 reports document
-  the failed async-echo and async-pipeline gates without changing the baseline.
+  both current R-3103 release reports pass strict mode without changing the
+  baseline.
 - Gate wired into `run_tests.ps1` (line ~1325).
 - `run_tests.ps1` continues to run all other gates (R-1501, R-2006, R-2111,
   etc.) without regression.
@@ -126,10 +148,11 @@ scripts/phase31_apply_baseline.py
   planning + suite + gate + R-3108. The findings doc is the input R-3103
   consumed; R-3102 will produce a deeper profile-driven supplement when
   invoked.
-- **R-3104..R-3107, R-3109..R-3117 (remaining optimizations)** are not
-  implemented. Each requires a focused session with the full R-3102
-  profile data and a per-item gate. The optimization plan is committed;
-  the implementation sequence is documented.
+- **R-3104** has an implementation and focused evidence, but remains open
+  because the codegen gain and strict performance gates were not satisfied.
+  R-3105, R-3106, and R-3109..R-3116 still require their own focused gates;
+  existing complete items such as R-3107, R-3108, R-3117, and R-3118 are
+  preserved.
 
 ## Next Session Suggestions
 

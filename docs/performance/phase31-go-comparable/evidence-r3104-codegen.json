@@ -1,0 +1,478 @@
+{
+  "schema": "spectra.phase31.r3104_codegen_evidence.v1",
+  "status": "blocked",
+  "generated_at_utc": "2026-08-01T18:56:39.876423+00:00",
+  "task": "R-3104",
+  "revision": "f7ba1dbb3295084342fc002c7816eadf096adafb",
+  "profile": "release",
+  "binary": "target/release/spectralang.exe",
+  "binary_sha256": "5596ca0d31733e124a1f74d0e54d2f80078b040a865a8ecd5206b9b52f3a7e47",
+  "classification": "benchmark_and_ir_hypothesis",
+  "profiling_causal_claim": false,
+  "benchmark_languages": [
+    "spectra",
+    "go",
+    "rust"
+  ],
+  "java_excluded": true,
+  "reports": [
+    {
+      "path": "target\\phase31\\r3104-release-run-1.json",
+      "sha256": "7470e7619bc0090495cc4f010c8a7f477bafa3d31c4a9883ee1eaea6bcb523b4"
+    },
+    {
+      "path": "target\\phase31\\r3104-release-run-2.json",
+      "sha256": "1b3bfdcf0fd0139fb086d4f1990e75b93d5cead960fef30c0fbc21299f5ea3a2"
+    }
+  ],
+  "codegen_timing": {
+    "scenarios": {
+      "cpu-loop-sum": 0.9625339625339625,
+      "cpu-fibs": 0.920124291719978,
+      "cpu-hashmap": 1.0454576386526029,
+      "tensor-create": 0.9630058985986566,
+      "tensor-elementwise": 0.9535295576098891,
+      "tensor-matmul": 1.019639468690702
+    },
+    "cpu_target_geometric_mean_ratio": 0.9746671590546341,
+    "cpu_target_geometric_mean_improvement_pct": 2.533284094536592
+  },
+  "steady_state": {
+    "scenarios": {
+      "cpu-loop-sum": {
+        "median_ns": 20418150,
+        "spectra_to_go": 1.0860718085106382,
+        "spectra_to_rust": 1.2546562286851952,
+        "baseline_regression_pct": -41.035254265187795
+      },
+      "cpu-fibs": {
+        "median_ns": 29407450,
+        "spectra_to_go": 1.232159168042369,
+        "spectra_to_rust": 1.874937039752622,
+        "baseline_regression_pct": -41.20735301688311
+      },
+      "cpu-hashmap": {
+        "median_ns": 20161550,
+        "spectra_to_go": 1.1304485562097,
+        "spectra_to_rust": 1.2456319737053467,
+        "baseline_regression_pct": -85.01884278120149
+      },
+      "tensor-create": {
+        "median_ns": 43983150,
+        "spectra_to_go": 0.7532335087840979,
+        "spectra_to_rust": 2.6353390554082594,
+        "baseline_regression_pct": -76.46787691301844
+      },
+      "tensor-elementwise": {
+        "median_ns": 21744200,
+        "spectra_to_go": 0.6702184878611862,
+        "spectra_to_rust": 1.0778194976269253,
+        "baseline_regression_pct": -49.788970832311044
+      },
+      "tensor-matmul": {
+        "median_ns": 21156450,
+        "spectra_to_go": 0.8578910019869429,
+        "spectra_to_rust": 0.9366441615938019,
+        "baseline_regression_pct": -62.69380084175214
+      }
+    },
+    "runtime_regressions": {
+      "cpu-loop-sum": -41.035254265187795,
+      "cpu-fibs": -41.20735301688311,
+      "cpu-hashmap": -85.01884278120149,
+      "tensor-create": -76.46787691301844,
+      "tensor-elementwise": -49.788970832311044,
+      "tensor-matmul": -62.69380084175214
+    }
+  },
+  "ir": {
+    "root": "target\\phase31\\r3104-ir",
+    "manifest": {
+      "schema": "spectra.phase31.r3104_ir_manifest.v1",
+      "git_revision": "f7ba1dbb3295084342fc002c7816eadf096adafb",
+      "profile": "release",
+      "binary": "target/release/spectralang.exe",
+      "binary_sha256": "5596ca0d31733e124a1f74d0e54d2f80078b040a865a8ecd5206b9b52f3a7e47",
+      "benchmark_languages": [
+        "spectra",
+        "go",
+        "rust"
+      ],
+      "java_excluded": true,
+      "options": {
+        "o0": [
+          "compile",
+          "--dump-ir",
+          "-O0"
+        ],
+        "o3": [
+          "compile",
+          "--dump-ir",
+          "-O3"
+        ]
+      },
+      "scenario_count": 21,
+      "scenarios": [
+        "cpu-loop-sum",
+        "cpu-fibs",
+        "cpu-string-build",
+        "cpu-hashmap",
+        "tensor-create",
+        "tensor-elementwise",
+        "tensor-reduce",
+        "tensor-matmul",
+        "ml-mlp-step",
+        "async-echo",
+        "async-pipeline",
+        "sort-int",
+        "binary-search",
+        "sieve",
+        "matrix-transpose",
+        "string-reverse",
+        "count-primes",
+        "gcd",
+        "pow-fast",
+        "word-count",
+        "digit-sum"
+      ],
+      "files": {
+        "cpu-loop-sum": {
+          "o0": {
+            "path": "cpu-loop-sum/o0.txt",
+            "sha256": "7e7b7ecc04c8702875be050fc9bcab728cd72721d61b1af16babb5e7e74a87f9",
+            "bytes": 2969
+          },
+          "o3": {
+            "path": "cpu-loop-sum/o3.txt",
+            "sha256": "45e6ed6228a103b825e8a64134d382476c4f2dab384795816b5bf659ba974ff7",
+            "bytes": 2944
+          }
+        },
+        "cpu-fibs": {
+          "o0": {
+            "path": "cpu-fibs/o0.txt",
+            "sha256": "fa1c87b10f1b3cdd13efa2fa28d37df644bdcbbaba729db139cb1a8fa7bff7d2",
+            "bytes": 3201
+          },
+          "o3": {
+            "path": "cpu-fibs/o3.txt",
+            "sha256": "0ccb845e62794c49ca564da5f3c88f3b6888fff8007292a9f75bbc9030925927",
+            "bytes": 3176
+          }
+        },
+        "cpu-string-build": {
+          "o0": {
+            "path": "cpu-string-build/o0.txt",
+            "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+            "bytes": 3183
+          },
+          "o3": {
+            "path": "cpu-string-build/o3.txt",
+            "sha256": "7cee840618a6929abd56dd303667b34f67d77b70367c8583a864dbd8ccf1e076",
+            "bytes": 3133
+          }
+        },
+        "cpu-hashmap": {
+          "o0": {
+            "path": "cpu-hashmap/o0.txt",
+            "sha256": "e424ba3680ec57f9fef87f521e8c2860c01f236b5192b5a9df91bec96eaed115",
+            "bytes": 5321
+          },
+          "o3": {
+            "path": "cpu-hashmap/o3.txt",
+            "sha256": "d0cb44fb076c5c194b32e8e4326ef44390632f342c35d25138bf45c6f68020d5",
+            "bytes": 5196
+          }
+        },
+        "tensor-create": {
+          "o0": {
+            "path": "tensor-create/o0.txt",
+            "sha256": "fffcdf2ab419dfbc4c2d8b2b42093cb96723562fd22e00bc8f54417e16317a00",
+            "bytes": 2874
+          },
+          "o3": {
+            "path": "tensor-create/o3.txt",
+            "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+            "bytes": 2799
+          }
+        },
+        "tensor-elementwise": {
+          "o0": {
+            "path": "tensor-elementwise/o0.txt",
+            "sha256": "fc9fe7e3fc7063d499a655b265e71ee1408c064c3ef30db4db8958f3a0b8ce79",
+            "bytes": 1837
+          },
+          "o3": {
+            "path": "tensor-elementwise/o3.txt",
+            "sha256": "97d90a0a8e52cf70007f70e312aa493a9f08f0a150825d0eec24139c985b8811",
+            "bytes": 1812
+          }
+        },
+        "tensor-reduce": {
+          "o0": {
+            "path": "tensor-reduce/o0.txt",
+            "sha256": "29795e3552227bdb50b852779e22e8013efb69039178c6d86c2d36a8c052881c",
+            "bytes": 1867
+          },
+          "o3": {
+            "path": "tensor-reduce/o3.txt",
+            "sha256": "ce47171a2597fcf66111c1b4755f2262f0be58a403c316547a659f2e7932fa83",
+            "bytes": 1817
+          }
+        },
+        "tensor-matmul": {
+          "o0": {
+            "path": "tensor-matmul/o0.txt",
+            "sha256": "bc3df603648ad230bdce8368ba100682499938e7b83143d2b8cb38f920329ee5",
+            "bytes": 2619
+          },
+          "o3": {
+            "path": "tensor-matmul/o3.txt",
+            "sha256": "cc502d862c00ef6cf787ff89867e346cb49f0f9f617b8498bb44f4c7cffec8ef",
+            "bytes": 2598
+          }
+        },
+        "ml-mlp-step": {
+          "o0": {
+            "path": "ml-mlp-step/o0.txt",
+            "sha256": "7e68553c377667035fc67f84320cec32a1b3467f39e190caee5f19bac766bd97",
+            "bytes": 8059
+          },
+          "o3": {
+            "path": "ml-mlp-step/o3.txt",
+            "sha256": "d495c83672404d1899d5bde48bbbcd1987d0b28c8ea43c335cf83aeb9a4f2c86",
+            "bytes": 7937
+          }
+        },
+        "async-echo": {
+          "o0": {
+            "path": "async-echo/o0.txt",
+            "sha256": "fe4a237f055ef165a030ff310d76cd0da8b3b88e56853ee1bb54878a0bd4bbf2",
+            "bytes": 2347
+          },
+          "o3": {
+            "path": "async-echo/o3.txt",
+            "sha256": "69a9e76f9fb7b85b9d3e64f36a18e3db8840ce0f01e137770fc295e5e0be72ac",
+            "bytes": 2298
+          }
+        },
+        "async-pipeline": {
+          "o0": {
+            "path": "async-pipeline/o0.txt",
+            "sha256": "72dd838bcfa05d07be7547def43e7ca260b2667b0169b7c148cbe7f03bb2e0ab",
+            "bytes": 4739
+          },
+          "o3": {
+            "path": "async-pipeline/o3.txt",
+            "sha256": "ef9af116c0b5ffe9ec202903ea1605f922b8495498b617ab111a34e85bfbfc99",
+            "bytes": 4587
+          }
+        },
+        "sort-int": {
+          "o0": {
+            "path": "sort-int/o0.txt",
+            "sha256": "12477dd93c0d03281d5ec7fa6d45cca1df9974b97a1b03451cbe62f147dc270a",
+            "bytes": 9995
+          },
+          "o3": {
+            "path": "sort-int/o3.txt",
+            "sha256": "0da43eb496b558d8621c5807c3dc7564142a9b80ca27d055627cdc7e147ae8ab",
+            "bytes": 9893
+          }
+        },
+        "binary-search": {
+          "o0": {
+            "path": "binary-search/o0.txt",
+            "sha256": "3bc9bc12c808d32be27c0af4b097a3f29e23f903ef03988705e04957861ed856",
+            "bytes": 10311
+          },
+          "o3": {
+            "path": "binary-search/o3.txt",
+            "sha256": "4adbdc463cd6e55941b395560fea9dfa9f3c808b12e9a8cd60068cb19e1e0911",
+            "bytes": 10131
+          }
+        },
+        "sieve": {
+          "o0": {
+            "path": "sieve/o0.txt",
+            "sha256": "75a62edda3dcc1aa7e38338903c780d230db645008b8340f3a88945c0b5a9d80",
+            "bytes": 52721
+          },
+          "o3": {
+            "path": "sieve/o3.txt",
+            "sha256": "c76d6a55f3dacbcc9e9eda723458c708fab2a84083423ed50efe6d1fbe5fa5e5",
+            "bytes": 52591
+          }
+        },
+        "matrix-transpose": {
+          "o0": {
+            "path": "matrix-transpose/o0.txt",
+            "sha256": "41bcb72c4188cb7eb265cfd14c0f64f2afacd653136ca5f880c89c71e2736219",
+            "bytes": 63257
+          },
+          "o3": {
+            "path": "matrix-transpose/o3.txt",
+            "sha256": "95dfcbf95a74eb66e172b44b4ff8783102797200edbda7957bd692ab0cca97b9",
+            "bytes": 63206
+          }
+        },
+        "string-reverse": {
+          "o0": {
+            "path": "string-reverse/o0.txt",
+            "sha256": "cb4375946395ada6d0234c01fdfa8ad1e2e44ca1e953b871d227f1eb19fcd879",
+            "bytes": 15137
+          },
+          "o3": {
+            "path": "string-reverse/o3.txt",
+            "sha256": "b33c8d6bf6eca0e58f393a23fc753f0dd59facf8ee363afe042d96be990379a5",
+            "bytes": 15088
+          }
+        },
+        "count-primes": {
+          "o0": {
+            "path": "count-primes/o0.txt",
+            "sha256": "1dff61bba0e54361370d22832e822aa58e71ddf1494077bab95775da6783c35c",
+            "bytes": 5133
+          },
+          "o3": {
+            "path": "count-primes/o3.txt",
+            "sha256": "6fe02fd3ee6af6722d5bfe1da613d38a66cc2501981546f72890ba96f09d5b0e",
+            "bytes": 5034
+          }
+        },
+        "gcd": {
+          "o0": {
+            "path": "gcd/o0.txt",
+            "sha256": "ebcd72f32b6d98c0e050a7b11a829994f971a41d4190ba4dc6a349bac8d2c2f4",
+            "bytes": 8891
+          },
+          "o3": {
+            "path": "gcd/o3.txt",
+            "sha256": "6ce3e2b35f1e8eee15fc9035335640d56f24608947d320625ace8e6ebdcb5d44",
+            "bytes": 8842
+          }
+        },
+        "pow-fast": {
+          "o0": {
+            "path": "pow-fast/o0.txt",
+            "sha256": "500f735ee98e3dc565399f8a39c90c84ee95c691a50708da19d52d7c1803f92c",
+            "bytes": 9835
+          },
+          "o3": {
+            "path": "pow-fast/o3.txt",
+            "sha256": "453c1b79a57dc57eb31de22875ddb4271c5848af778a13d8d15f83a97c79b545",
+            "bytes": 9759
+          }
+        },
+        "word-count": {
+          "o0": {
+            "path": "word-count/o0.txt",
+            "sha256": "c85aff55b94b7cf2ea17122dfd776133db50962354901055137975da5b0c9ad3",
+            "bytes": 5043
+          },
+          "o3": {
+            "path": "word-count/o3.txt",
+            "sha256": "678101bd27e910d17e711106db23109fd23f68afc8c2970a401be474a85c4407",
+            "bytes": 4921
+          }
+        },
+        "digit-sum": {
+          "o0": {
+            "path": "digit-sum/o0.txt",
+            "sha256": "d3bcb30861ac1c8d59b5ed6de4a1ccbdb9ecf7b580e704b5a9c2815fa38d3f6b",
+            "bytes": 4415
+          },
+          "o3": {
+            "path": "digit-sum/o3.txt",
+            "sha256": "0e3359f76f8d1bdfe8f3043fe8afcfb12f1b6b1b959f82dd81dd93ee077eda1d",
+            "bytes": 4365
+          }
+        }
+      },
+      "r3103_snapshot_comparison": {
+        "cpu-string-build": {
+          "o0": {
+            "sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+            "generated_sha256": "0df769f82b8d92f06f94868e6ae269e886e6a0ec2321cc3ceea9ad6dd7b1dc84",
+            "matches": true
+          },
+          "o3": {
+            "sha256": "643df65659fa87ea033491cc6ad0c513ca4189f0350fd62eb2a6aef1a410ba4c",
+            "generated_sha256": "7cee840618a6929abd56dd303667b34f67d77b70367c8583a864dbd8ccf1e076",
+            "matches": false
+          }
+        },
+        "tensor-create": {
+          "o0": {
+            "sha256": "fffcdf2ab419dfbc4c2d8b2b42093cb96723562fd22e00bc8f54417e16317a00",
+            "generated_sha256": "fffcdf2ab419dfbc4c2d8b2b42093cb96723562fd22e00bc8f54417e16317a00",
+            "matches": true
+          },
+          "o3": {
+            "sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+            "generated_sha256": "a7d357eaccd730f0bb44200f6f72a88b3f363e5d8c1ba1f07c7de6dac112f024",
+            "matches": true
+          }
+        },
+        "cpu-hashmap": {
+          "o0": {
+            "sha256": "c4d31573b6d124043684e86c0779425d22e064bb5cc9fabcb16c42c09759478d",
+            "generated_sha256": "e424ba3680ec57f9fef87f521e8c2860c01f236b5192b5a9df91bec96eaed115",
+            "matches": false
+          },
+          "o3": {
+            "sha256": "364955b5a798fbac9876a59f3c6cd516479265d8e5a3acc0cf9c84ec3dfef2c9",
+            "generated_sha256": "d0cb44fb076c5c194b32e8e4326ef44390632f342c35d25138bf45c6f68020d5",
+            "matches": false
+          }
+        },
+        "tensor-matmul": {
+          "o0": {
+            "sha256": "bc3df603648ad230bdce8368ba100682499938e7b83143d2b8cb38f920329ee5",
+            "generated_sha256": "bc3df603648ad230bdce8368ba100682499938e7b83143d2b8cb38f920329ee5",
+            "matches": true
+          },
+          "o3": {
+            "sha256": "cc502d862c00ef6cf787ff89867e346cb49f0f9f617b8498bb44f4c7cffec8ef",
+            "generated_sha256": "cc502d862c00ef6cf787ff89867e346cb49f0f9f617b8498bb44f4c7cffec8ef",
+            "matches": true
+          }
+        },
+        "ml-mlp-step": {
+          "o0": {
+            "sha256": "7e68553c377667035fc67f84320cec32a1b3467f39e190caee5f19bac766bd97",
+            "generated_sha256": "7e68553c377667035fc67f84320cec32a1b3467f39e190caee5f19bac766bd97",
+            "matches": true
+          },
+          "o3": {
+            "sha256": "d495c83672404d1899d5bde48bbbcd1987d0b28c8ea43c335cf83aeb9a4f2c86",
+            "generated_sha256": "d495c83672404d1899d5bde48bbbcd1987d0b28c8ea43c335cf83aeb9a4f2c86",
+            "matches": true
+          }
+        }
+      }
+    }
+  },
+  "jit_aot": {
+    "source": "benchmarks/cross-lang/cpu-loop-sum/spectra/bench.spectra",
+    "jit": {
+      "exit_code": 0
+    },
+    "aot": {
+      "exit_code": 0,
+      "output": "target/phase31/r3104-aot-smoke.obj"
+    }
+  },
+  "baseline": {
+    "path": "docs\\performance\\phase31-go-comparable\\baseline.json",
+    "sha256_before": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b",
+    "sha256_after": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b"
+  },
+  "baseline_modified": false,
+  "scenario_count": 21,
+  "failures": [
+    "async-echo: Go parity gap must be within 0 < gap_to_go <= 1.202162x",
+    "async-echo: Go reference parity is outside the accepted window",
+    "codegen CPU target geometric mean improved only 2.533% (< 5%)"
+  ]
+}

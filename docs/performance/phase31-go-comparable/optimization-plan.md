@@ -29,13 +29,23 @@ cross-language drift exceeds 5%.
 
 ## Current gate decision (2026-08-01)
 
-The release reports are semantically compatible and all 21 code-validation
-scenarios pass. The current strict gate is still **blocked**: report 1 marks
-`tensor-create` inconclusive because dispersion exceeds 10%, and both reports
-reject `async-echo` because its Spectra/Go ratio is outside the certified 5%
-window (1.179x and 1.132x). These are recorded as failure classes in the
-evidence JSON; R-3103 remains `in_progress` until a future measurement or a
-separate implementation resolves them.
+R-3103 is **complete** at revision
+`f7ba1dbb3295084342fc002c7816eadf096adafb`. The two release reports are
+semantically compatible, all 21 scenarios pass correctness and strict
+cross-language validation, and the active matrix is Spectra + Go + Rust (Java
+fixtures remain historical and are not executed). The reports use five
+independent attempts, three warmups, and twenty timed samples. `async-echo`
+measures `1.121851x` and `1.152715x` against Go, both within the accepted
+`1.202162x` limit, with maximum paired dispersion `7.3441%`. `tensor-create`
+and `tensor-reduce` are conclusive in both reports.
+
+The deterministic IR manifest covers O0/O3 for all 21 scenarios and matches the
+current release binary and Git revision. The five tracked snapshots are
+refreshed. Baseline SHA-256 remains
+`452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b` before and
+after validation. The evidence remains classified
+`benchmark_and_ir_hypothesis`; R-3102 is still `in_progress`, and R-3104 is
+`in_progress` while its implementation is measured against the rejection gate.
 
 ## Current evidence inputs
 
@@ -46,8 +56,13 @@ separate implementation resolves them.
   `target/phase31/r3103-release-run-2.json`.
 - Baseline: `baseline.json`; the validator records its SHA-256 before and after
   the gate and requires `baseline_modified: false`.
-- IR root: `target/phase31/r3103-ir/<scenario>/{o0,o3}.txt`; the five highest-
-  priority snapshots are copied to `ir/r3103/` for review.
+- IR root: `target/phase31/r3103-ir/<scenario>/{o0,o3}.txt`, validated by
+  `target/phase31/r3103-ir/manifest.json`; the five highest-priority snapshots
+  are copied to `ir/r3103/` for review.
+- R-3104 inputs: `target/phase31/r3104-codegen-{before,after}.json`,
+  `target/phase31/r3104-ir/manifest.json`, and the blocked evidence in
+  `evidence-r3104-codegen.{json,md}`. The implementation passed JIT/AOT smoke
+  compilation, but did not satisfy the codegen and strict gates.
 
 The evidence generator records the current Git revision and fails closed on a
 revision mismatch, missing scenario, duplicate scenario, inconclusive sample,
@@ -66,7 +81,8 @@ joins, 10,002 executed tasks, `max_pending_tasks=10`, zero task failures, and
 balanced batch accounting. The deterministic classification is
 `runtime_batch_path` (hypothesis only; no causal profiler claim). The user
 accepted this focused criterion; the immutable baseline and historical R-3131
-and R-3132 evidence remain preserved. This does not authorize R-3104.
+and R-3132 evidence remain preserved. R-3104 is now in progress; this does not
+authorize R-3105 or later work.
 
 ## Prioritized implementation matrix
 
@@ -110,7 +126,7 @@ deliberately absent from this command and remains the R-3102 follow-up.
 
 ## Out of scope
 
-- Implementing R-3104 or any optimization listed in the matrix.
+- Implementing R-3105 or any later optimization listed in the matrix.
 - Fixing WSL2, installing `perf`, FlameGraph, or Valgrind.
 - Repairing the independent `data_file`/`folded_file` bug in
   `scripts/phase31_profile.py`.
