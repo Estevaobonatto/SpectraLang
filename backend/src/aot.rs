@@ -16,6 +16,8 @@ use crate::codegen::{
     PhiDescriptor, StringLiteralRecord,
 };
 use crate::error::{BackendCodegenError, BackendResult};
+use crate::hostcall_abi::{declare_runtime_bindings, HostCallLoweringContext, RuntimeBindings};
+use spectra_runtime::abi::RuntimeImport;
 
 /// Options that control AOT code generation.
 #[derive(Debug, Clone, Default)]
@@ -39,46 +41,7 @@ pub struct AotCodeGenerator {
     ctx: codegen::Context,
     builder_context: FunctionBuilderContext,
     function_map: HashMap<String, FuncId>,
-    manual_alloc_func: FuncId,
-    manual_free_func: FuncId,
-    manual_frame_enter_func: FuncId,
-    manual_frame_exit_func: FuncId,
-    manual_escape_func: FuncId,
-    host_invoke_func: FuncId,
-    host_invoke_batch_func: FuncId,
-    concurrent_spawn_fast_func: FuncId,
-    concurrent_join_fast_func: FuncId,
-    concurrent_spawn_batch_fast_func: FuncId,
-    concurrent_join_batch_sum_fast_func: FuncId,
-    concurrent_spawn_join_fast_func: FuncId,
-    concurrent_reset_fast_func: FuncId,
-    builder_new_fast_func: FuncId,
-    builder_push_fast_func: FuncId,
-    builder_len_fast_func: FuncId,
-    builder_finish_fast_func: FuncId,
-    builder_free_fast_func: FuncId,
-    map_set_fast_func: FuncId,
-    map_get_fast_func: FuncId,
-    map_contains_fast_func: FuncId,
-    ml_linear_fast_func: FuncId,
-    ml_mse_loss_fast_func: FuncId,
-    tensor_backward_fast_func: FuncId,
-    tensor_autodiff_apply_fast_func: FuncId,
-    tensor_grad_handle_fast_func: FuncId,
-    ml_sgd_step_fast_func: FuncId,
-    tensor_full_f_fast_func: FuncId,
-    string_len_fast_func: FuncId,
-    string_char_at_fast_func: FuncId,
-    map_new_fast_func: FuncId,
-    map_remove_fast_func: FuncId,
-    map_len_fast_func: FuncId,
-    map_clear_fast_func: FuncId,
-    map_free_fast_func: FuncId,
-    channel_new_fast_func: FuncId,
-    channel_send_fast_func: FuncId,
-    channel_recv_fast_func: FuncId,
-    channel_close_fast_func: FuncId,
-    channel_len_fast_func: FuncId,
+    runtime_bindings: RuntimeBindings,
     /// Dedup table for string literals (R-3126). Each unique
     /// `ConstString` value resolves to one entry pre-populated in
     /// [`pre_intern_string_literals`].
@@ -90,7 +53,6 @@ pub struct AotCodeGenerator {
     /// side: one byte per `i64` slot.
     string_literal_storage: Vec<Box<[i64]>>,
     host_name_data: HashMap<String, HostNameRecord>,
-    host_name_storage: Vec<Box<[u8]>>,
     hostcall_batch_stats: HostCallBatchStats,
     /// Locations produced by Cranelift's register allocator for labelled IR
     /// values: (function, IR value id, CFA-relative offset).  These are
@@ -128,473 +90,16 @@ impl AotCodeGenerator {
 
         // Declare imports for the runtime functions that will be provided by the static library.
 
-        let mut alloc_sig = module.make_signature();
-        alloc_sig.params.push(AbiParam::new(types::I64));
-        alloc_sig.returns.push(AbiParam::new(types::I64));
-        let manual_alloc_func = module
-            .declare_function("spectra_rt_manual_alloc", Linkage::Import, &alloc_sig)
-            .expect("Failed to declare alloc import");
-
-        let mut free_sig = module.make_signature();
-        free_sig.params.push(AbiParam::new(types::I64));
-        let manual_free_func = module
-            .declare_function("spectra_rt_manual_free", Linkage::Import, &free_sig)
-            .expect("Failed to declare free import");
-
-        let mut frame_enter_sig = module.make_signature();
-        frame_enter_sig.returns.push(AbiParam::new(types::I64));
-        let manual_frame_enter_func = module
-            .declare_function(
-                "spectra_rt_manual_frame_enter",
-                Linkage::Import,
-                &frame_enter_sig,
-            )
-            .expect("Failed to declare frame-enter import");
-
-        let mut frame_exit_sig = module.make_signature();
-        frame_exit_sig.params.push(AbiParam::new(types::I64));
-        let manual_frame_exit_func = module
-            .declare_function(
-                "spectra_rt_manual_frame_exit",
-                Linkage::Import,
-                &frame_exit_sig,
-            )
-            .expect("Failed to declare frame-exit import");
-
-        let mut escape_sig = module.make_signature();
-        escape_sig.params.push(AbiParam::new(types::I64));
-        escape_sig.params.push(AbiParam::new(types::I64));
-        let manual_escape_func = module
-            .declare_function("spectra_rt_manual_escape", Linkage::Import, &escape_sig)
-            .expect("Failed to declare escape import");
-
-        let mut host_invoke_sig = module.make_signature();
-        for _ in 0..6 {
-            host_invoke_sig.params.push(AbiParam::new(types::I64));
-        }
-        host_invoke_sig.returns.push(AbiParam::new(types::I32));
-        let host_invoke_func = module
-            .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
-            .expect("Failed to declare host-invoke import");
-
-        let mut host_invoke_batch_sig = module.make_signature();
-        host_invoke_batch_sig.params.push(AbiParam::new(types::I64));
-        host_invoke_batch_sig.params.push(AbiParam::new(types::I64));
-        host_invoke_batch_sig
-            .returns
-            .push(AbiParam::new(types::I32));
-        let host_invoke_batch_func = module
-            .declare_function(
-                "spectra_rt_host_invoke_batch",
-                Linkage::Import,
-                &host_invoke_batch_sig,
-            )
-            .expect("Failed to declare host-invoke batch import");
-
-        let mut concurrent_spawn_sig = module.make_signature();
-        concurrent_spawn_sig.params.push(AbiParam::new(types::I64));
-        concurrent_spawn_sig.returns.push(AbiParam::new(types::I64));
-        let concurrent_spawn_fast_func = module
-            .declare_function(
-                "spectra_rt_concurrent_spawn_fast",
-                Linkage::Import,
-                &concurrent_spawn_sig,
-            )
-            .expect("Failed to declare concurrent spawn fast import");
-
-        let mut concurrent_join_sig = module.make_signature();
-        concurrent_join_sig.params.push(AbiParam::new(types::I64));
-        concurrent_join_sig.returns.push(AbiParam::new(types::I64));
-        let concurrent_join_fast_func = module
-            .declare_function(
-                "spectra_rt_concurrent_join_fast",
-                Linkage::Import,
-                &concurrent_join_sig,
-            )
-            .expect("Failed to declare concurrent join fast import");
-
-        let mut concurrent_spawn_batch_sig = module.make_signature();
-        concurrent_spawn_batch_sig
-            .params
-            .push(AbiParam::new(types::I64));
-        concurrent_spawn_batch_sig
-            .params
-            .push(AbiParam::new(types::I64));
-        concurrent_spawn_batch_sig
-            .returns
-            .push(AbiParam::new(types::I64));
-        let concurrent_spawn_batch_fast_func = module
-            .declare_function(
-                "spectra_rt_concurrent_spawn_batch_fast",
-                Linkage::Import,
-                &concurrent_spawn_batch_sig,
-            )
-            .expect("Failed to declare concurrent spawn batch fast import");
-
-        let mut concurrent_join_batch_sum_sig = module.make_signature();
-        concurrent_join_batch_sum_sig
-            .params
-            .push(AbiParam::new(types::I64));
-        concurrent_join_batch_sum_sig
-            .returns
-            .push(AbiParam::new(types::I64));
-        let concurrent_join_batch_sum_fast_func = module
-            .declare_function(
-                "spectra_rt_concurrent_join_batch_sum_fast",
-                Linkage::Import,
-                &concurrent_join_batch_sum_sig,
-            )
-            .expect("Failed to declare concurrent join batch sum fast import");
-
-        let mut concurrent_spawn_join_sig = module.make_signature();
-        concurrent_spawn_join_sig
-            .params
-            .push(AbiParam::new(types::I64));
-        concurrent_spawn_join_sig
-            .returns
-            .push(AbiParam::new(types::I64));
-        let concurrent_spawn_join_fast_func = module
-            .declare_function(
-                "spectra_rt_concurrent_spawn_join_fast",
-                Linkage::Import,
-                &concurrent_spawn_join_sig,
-            )
-            .expect("Failed to declare concurrent spawn/join fast import");
-
-        let mut concurrent_reset_sig = module.make_signature();
-        concurrent_reset_sig.returns.push(AbiParam::new(types::I64));
-        let concurrent_reset_fast_func = module
-            .declare_function(
-                "spectra_rt_concurrent_reset_fast",
-                Linkage::Import,
-                &concurrent_reset_sig,
-            )
-            .expect("Failed to declare concurrent reset fast import");
-
-        let mut builder_new_sig = module.make_signature();
-        builder_new_sig.params.push(AbiParam::new(types::I64));
-        builder_new_sig.returns.push(AbiParam::new(types::I64));
-        let builder_new_fast_func = module
-            .declare_function("spectra_rt_builder_new", Linkage::Import, &builder_new_sig)
-            .expect("Failed to declare builder_new fast import");
-
-        let mut builder_push_sig = module.make_signature();
-        builder_push_sig.params.push(AbiParam::new(types::I64));
-        builder_push_sig.params.push(AbiParam::new(types::I64));
-        let builder_push_fast_func = module
-            .declare_function(
-                "spectra_rt_builder_push",
-                Linkage::Import,
-                &builder_push_sig,
-            )
-            .expect("Failed to declare builder_push fast import");
-
-        let mut builder_len_sig = module.make_signature();
-        builder_len_sig.params.push(AbiParam::new(types::I64));
-        builder_len_sig.returns.push(AbiParam::new(types::I64));
-        let builder_len_fast_func = module
-            .declare_function("spectra_rt_builder_len", Linkage::Import, &builder_len_sig)
-            .expect("Failed to declare builder_len fast import");
-
-        let mut builder_finish_sig = module.make_signature();
-        builder_finish_sig.params.push(AbiParam::new(types::I64));
-        builder_finish_sig.returns.push(AbiParam::new(types::I64));
-        let builder_finish_fast_func = module
-            .declare_function(
-                "spectra_rt_builder_finish",
-                Linkage::Import,
-                &builder_finish_sig,
-            )
-            .expect("Failed to declare builder_finish fast import");
-
-        let mut builder_free_sig = module.make_signature();
-        builder_free_sig.params.push(AbiParam::new(types::I64));
-        let builder_free_fast_func = module
-            .declare_function(
-                "spectra_rt_builder_free",
-                Linkage::Import,
-                &builder_free_sig,
-            )
-            .expect("Failed to declare builder_free fast import");
-
-        let mut map_set_sig = module.make_signature();
-        map_set_sig.params.push(AbiParam::new(types::I64));
-        map_set_sig.params.push(AbiParam::new(types::I64));
-        map_set_sig.params.push(AbiParam::new(types::I64));
-        map_set_sig.returns.push(AbiParam::new(types::I32));
-        let map_set_fast_func = module
-            .declare_function("spectra_rt_map_set_fast", Linkage::Import, &map_set_sig)
-            .expect("Failed to declare map_set fast import");
-
-        let mut map_get_sig = module.make_signature();
-        map_get_sig.params.push(AbiParam::new(types::I64));
-        map_get_sig.params.push(AbiParam::new(types::I64));
-        map_get_sig.returns.push(AbiParam::new(types::I64));
-        let map_get_fast_func = module
-            .declare_function("spectra_rt_map_get_fast", Linkage::Import, &map_get_sig)
-            .expect("Failed to declare map_get fast import");
-
-        let mut map_contains_sig = module.make_signature();
-        map_contains_sig.params.push(AbiParam::new(types::I64));
-        map_contains_sig.params.push(AbiParam::new(types::I64));
-        map_contains_sig.returns.push(AbiParam::new(types::I64));
-        let map_contains_fast_func = module
-            .declare_function(
-                "spectra_rt_map_contains_fast",
-                Linkage::Import,
-                &map_contains_sig,
-            )
-            .expect("Failed to declare map_contains fast import");
-
-        let mut ml_linear_sig = module.make_signature();
-        ml_linear_sig.params.push(AbiParam::new(types::I64));
-        ml_linear_sig.params.push(AbiParam::new(types::I64));
-        ml_linear_sig.params.push(AbiParam::new(types::I64));
-        ml_linear_sig.returns.push(AbiParam::new(types::I64));
-        let ml_linear_fast_func = module
-            .declare_function("spectra_rt_ml_linear_fast", Linkage::Import, &ml_linear_sig)
-            .expect("Failed to declare ml_linear fast import");
-
-        let mut ml_mse_loss_sig = module.make_signature();
-        ml_mse_loss_sig.params.push(AbiParam::new(types::I64));
-        ml_mse_loss_sig.params.push(AbiParam::new(types::I64));
-        ml_mse_loss_sig.returns.push(AbiParam::new(types::I64));
-        let ml_mse_loss_fast_func = module
-            .declare_function(
-                "spectra_rt_ml_mse_loss_fast",
-                Linkage::Import,
-                &ml_mse_loss_sig,
-            )
-            .expect("Failed to declare ml_mse_loss fast import");
-
-        let mut tensor_backward_sig = module.make_signature();
-        tensor_backward_sig.params.push(AbiParam::new(types::I64));
-        tensor_backward_sig.returns.push(AbiParam::new(types::I32));
-        let tensor_backward_fast_func = module
-            .declare_function(
-                "spectra_rt_tensor_backward_fast",
-                Linkage::Import,
-                &tensor_backward_sig,
-            )
-            .expect("Failed to declare tensor_backward fast import");
-
-        let mut tensor_autodiff_apply_sig = module.make_signature();
-        for _ in 0..6 {
-            tensor_autodiff_apply_sig
-                .params
-                .push(AbiParam::new(types::I64));
-        }
-        tensor_autodiff_apply_sig
-            .returns
-            .push(AbiParam::new(types::I32));
-        let tensor_autodiff_apply_fast_func = module
-            .declare_function(
-                "spectra_rt_tensor_autodiff_apply_fast",
-                Linkage::Import,
-                &tensor_autodiff_apply_sig,
-            )
-            .expect("Failed to declare explicit autodiff import");
-        let mut tensor_grad_handle_sig = module.make_signature();
-        tensor_grad_handle_sig
-            .params
-            .push(AbiParam::new(types::I64));
-        tensor_grad_handle_sig
-            .returns
-            .push(AbiParam::new(types::I64));
-        let tensor_grad_handle_fast_func = module
-            .declare_function(
-                "spectra_rt_tensor_grad_handle_fast",
-                Linkage::Import,
-                &tensor_grad_handle_sig,
-            )
-            .expect("Failed to declare explicit gradient handle import");
-
-        let mut ml_sgd_step_sig = module.make_signature();
-        ml_sgd_step_sig.params.push(AbiParam::new(types::I64));
-        ml_sgd_step_sig.params.push(AbiParam::new(types::F64));
-        ml_sgd_step_sig.returns.push(AbiParam::new(types::I32));
-        let ml_sgd_step_fast_func = module
-            .declare_function(
-                "spectra_rt_ml_sgd_step_fast",
-                Linkage::Import,
-                &ml_sgd_step_sig,
-            )
-            .expect("Failed to declare ml_sgd_step fast import");
-
-        let mut tensor_full_f_sig = module.make_signature();
-        tensor_full_f_sig.params.push(AbiParam::new(types::I64));
-        tensor_full_f_sig.params.push(AbiParam::new(types::F64));
-        tensor_full_f_sig.returns.push(AbiParam::new(types::I64));
-        let tensor_full_f_fast_func = module
-            .declare_function(
-                "spectra_rt_tensor_full_f_fast",
-                Linkage::Import,
-                &tensor_full_f_sig,
-            )
-            .expect("Failed to declare tensor_full_f fast import");
-
-        let mut string_len_sig = module.make_signature();
-        string_len_sig.params.push(AbiParam::new(types::I64));
-        string_len_sig.returns.push(AbiParam::new(types::I64));
-        let string_len_fast_func = module
-            .declare_function(
-                "spectra_rt_string_len_fast",
-                Linkage::Import,
-                &string_len_sig,
-            )
-            .expect("Failed to declare string_len fast import");
-
-        let mut string_char_at_sig = module.make_signature();
-        string_char_at_sig.params.push(AbiParam::new(types::I64));
-        string_char_at_sig.params.push(AbiParam::new(types::I64));
-        string_char_at_sig.returns.push(AbiParam::new(types::I64));
-        let string_char_at_fast_func = module
-            .declare_function(
-                "spectra_rt_string_char_at_fast",
-                Linkage::Import,
-                &string_char_at_sig,
-            )
-            .expect("Failed to declare string_char_at fast import");
-
-        let mut map_new_sig = module.make_signature();
-        map_new_sig.returns.push(AbiParam::new(types::I64));
-        let map_new_fast_func = module
-            .declare_function("spectra_rt_map_new_fast", Linkage::Import, &map_new_sig)
-            .expect("Failed to declare map_new fast import");
-
-        let mut map_remove_sig = module.make_signature();
-        map_remove_sig.params.push(AbiParam::new(types::I64));
-        map_remove_sig.params.push(AbiParam::new(types::I64));
-        map_remove_sig.returns.push(AbiParam::new(types::I64));
-        let map_remove_fast_func = module
-            .declare_function(
-                "spectra_rt_map_remove_fast",
-                Linkage::Import,
-                &map_remove_sig,
-            )
-            .expect("Failed to declare map_remove fast import");
-
-        let mut map_len_sig = module.make_signature();
-        map_len_sig.params.push(AbiParam::new(types::I64));
-        map_len_sig.returns.push(AbiParam::new(types::I64));
-        let map_len_fast_func = module
-            .declare_function("spectra_rt_map_len_fast", Linkage::Import, &map_len_sig)
-            .expect("Failed to declare map_len fast import");
-
-        let mut map_clear_sig = module.make_signature();
-        map_clear_sig.params.push(AbiParam::new(types::I64));
-        let map_clear_fast_func = module
-            .declare_function("spectra_rt_map_clear_fast", Linkage::Import, &map_clear_sig)
-            .expect("Failed to declare map_clear fast import");
-
-        let mut map_free_sig = module.make_signature();
-        map_free_sig.params.push(AbiParam::new(types::I64));
-        let map_free_fast_func = module
-            .declare_function("spectra_rt_map_free_fast", Linkage::Import, &map_free_sig)
-            .expect("Failed to declare map_free fast import");
-
-        let mut channel_new_sig = module.make_signature();
-        channel_new_sig.returns.push(AbiParam::new(types::I64));
-        let channel_new_fast_func = module
-            .declare_function(
-                "spectra_rt_channel_new_fast",
-                Linkage::Import,
-                &channel_new_sig,
-            )
-            .expect("Failed to declare channel_new fast import");
-
-        let mut channel_send_sig = module.make_signature();
-        channel_send_sig.params.push(AbiParam::new(types::I64));
-        channel_send_sig.params.push(AbiParam::new(types::I64));
-        channel_send_sig.returns.push(AbiParam::new(types::I32));
-        let channel_send_fast_func = module
-            .declare_function(
-                "spectra_rt_channel_send_fast",
-                Linkage::Import,
-                &channel_send_sig,
-            )
-            .expect("Failed to declare channel_send fast import");
-
-        let mut channel_recv_sig = module.make_signature();
-        channel_recv_sig.params.push(AbiParam::new(types::I64));
-        channel_recv_sig.returns.push(AbiParam::new(types::I64));
-        let channel_recv_fast_func = module
-            .declare_function(
-                "spectra_rt_channel_recv_fast",
-                Linkage::Import,
-                &channel_recv_sig,
-            )
-            .expect("Failed to declare channel_recv fast import");
-
-        let mut channel_close_sig = module.make_signature();
-        channel_close_sig.params.push(AbiParam::new(types::I64));
-        channel_close_sig.returns.push(AbiParam::new(types::I32));
-        let channel_close_fast_func = module
-            .declare_function(
-                "spectra_rt_channel_close_fast",
-                Linkage::Import,
-                &channel_close_sig,
-            )
-            .expect("Failed to declare channel_close fast import");
-
-        let mut channel_len_sig = module.make_signature();
-        channel_len_sig.params.push(AbiParam::new(types::I64));
-        channel_len_sig.returns.push(AbiParam::new(types::I64));
-        let channel_len_fast_func = module
-            .declare_function(
-                "spectra_rt_channel_len_fast",
-                Linkage::Import,
-                &channel_len_sig,
-            )
-            .expect("Failed to declare channel_len fast import");
+        let runtime_bindings =
+            declare_runtime_bindings(&mut module).expect("Failed to declare runtime ABI imports");
 
         Self {
             module,
             ctx,
             builder_context: FunctionBuilderContext::new(),
             function_map: HashMap::new(),
-            manual_alloc_func,
-            manual_free_func,
-            manual_frame_enter_func,
-            manual_frame_exit_func,
-            manual_escape_func,
-            host_invoke_func,
-            host_invoke_batch_func,
-            concurrent_spawn_fast_func,
-            concurrent_join_fast_func,
-            concurrent_spawn_batch_fast_func,
-            concurrent_join_batch_sum_fast_func,
-            concurrent_spawn_join_fast_func,
-            concurrent_reset_fast_func,
-            builder_new_fast_func,
-            builder_push_fast_func,
-            builder_len_fast_func,
-            builder_finish_fast_func,
-            builder_free_fast_func,
-            map_set_fast_func,
-            map_get_fast_func,
-            map_contains_fast_func,
-            ml_linear_fast_func,
-            ml_mse_loss_fast_func,
-            tensor_backward_fast_func,
-            tensor_autodiff_apply_fast_func,
-            tensor_grad_handle_fast_func,
-            ml_sgd_step_fast_func,
-            tensor_full_f_fast_func,
-            string_len_fast_func,
-            string_char_at_fast_func,
-            map_new_fast_func,
-            map_remove_fast_func,
-            map_len_fast_func,
-            map_clear_fast_func,
-            map_free_fast_func,
-            channel_new_fast_func,
-            channel_send_fast_func,
-            channel_recv_fast_func,
-            channel_close_fast_func,
-            channel_len_fast_func,
+            runtime_bindings,
             host_name_data: HashMap::new(),
-            host_name_storage: Vec::new(),
             hostcall_batch_stats: HostCallBatchStats::default(),
             debug_locations: Vec::new(),
             string_literal_data: HashMap::new(),
@@ -758,9 +263,10 @@ impl AotCodeGenerator {
         let manual_frame_active =
             CodeGenerator::function_needs_manual_frame(ir_func, &stack_allocas);
         let frame_token = if manual_frame_active {
-            let frame_enter_ref = self
-                .module
-                .declare_func_in_func(self.manual_frame_enter_func, builder.func);
+            let frame_enter_ref = self.module.declare_func_in_func(
+                self.runtime_bindings.get(RuntimeImport::ManualFrameEnter),
+                builder.func,
+            );
             let frame_call = builder.ins().call(frame_enter_ref, &[]);
             builder.inst_results(frame_call)[0]
         } else {
@@ -817,53 +323,18 @@ impl AotCodeGenerator {
         }
 
         let blocks = ir_func.blocks.clone();
+        let mut hostcall = HostCallLoweringContext {
+            bindings: &self.runtime_bindings,
+            host_name_data: &self.host_name_data,
+            string_literal_data: &mut self.string_literal_data,
+            string_literal_storage: &mut self.string_literal_storage,
+            batch_stats: &mut self.hostcall_batch_stats,
+        };
         for ir_block in &blocks {
             CodeGenerator::generate_block(
                 &mut self.module,
                 &self.function_map,
-                &mut self.host_name_data,
-                &mut self.host_name_storage,
-                &mut self.string_literal_data,
-                &mut self.string_literal_storage,
-                self.manual_alloc_func,
-                self.manual_free_func,
-                self.manual_frame_exit_func,
-                self.manual_escape_func,
-                self.host_invoke_func,
-                self.host_invoke_batch_func,
-                self.concurrent_spawn_fast_func,
-                self.concurrent_join_fast_func,
-                self.concurrent_spawn_batch_fast_func,
-                self.concurrent_join_batch_sum_fast_func,
-                self.concurrent_spawn_join_fast_func,
-                self.concurrent_reset_fast_func,
-                self.builder_new_fast_func,
-                self.builder_push_fast_func,
-                self.builder_len_fast_func,
-                self.builder_finish_fast_func,
-                self.builder_free_fast_func,
-                self.map_set_fast_func,
-                self.map_get_fast_func,
-                self.map_contains_fast_func,
-                self.ml_linear_fast_func,
-                self.ml_mse_loss_fast_func,
-                self.tensor_backward_fast_func,
-                self.tensor_autodiff_apply_fast_func,
-                self.tensor_grad_handle_fast_func,
-                self.ml_sgd_step_fast_func,
-                self.tensor_full_f_fast_func,
-                self.string_len_fast_func,
-                self.string_char_at_fast_func,
-                self.map_new_fast_func,
-                self.map_remove_fast_func,
-                self.map_len_fast_func,
-                self.map_clear_fast_func,
-                self.map_free_fast_func,
-                self.channel_new_fast_func,
-                self.channel_send_fast_func,
-                self.channel_recv_fast_func,
-                self.channel_close_fast_func,
-                self.channel_len_fast_func,
+                &mut hostcall,
                 &mut builder,
                 ir_block,
                 &mut value_map,
@@ -877,7 +348,6 @@ impl AotCodeGenerator {
                 manual_frame_active,
                 ir_block.id,
                 &phi_map,
-                &mut self.hostcall_batch_stats,
             )?;
         }
 
