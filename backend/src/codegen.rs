@@ -16,7 +16,9 @@ use crate::hostcall_abi::{
     declare_runtime_bindings, register_jit_runtime_symbols, HostCallLoweringContext,
     RuntimeBindings,
 };
-use spectra_runtime::abi::{classify_host_call, FastHostCall, HostCallClass, RuntimeImport};
+use spectra_runtime::abi::{
+    classify_host_call, resolve_host_call, FastHostCall, HostCallClass, RuntimeImport,
+};
 
 /// Dense SSA value lookup used by both JIT and AOT lowering.
 ///
@@ -1980,7 +1982,7 @@ impl CodeGenerator {
                 args,
                 result_type,
             } => {
-                let fast_hostcall = classify_host_call(host);
+                let fast_hostcall = resolve_host_call(host, args.len());
 
                 if matches!(
                     fast_hostcall,

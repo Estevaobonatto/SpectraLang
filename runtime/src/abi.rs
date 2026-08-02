@@ -4,6 +4,7 @@
 //! It does not add a Spectra-language surface and it does not implement host
 //! dispatch. The generic registry and its panic/error semantics remain in
 //! [`crate::ffi`].
+#![doc(hidden)]
 
 /// Scalar types used by the Cranelift-facing runtime ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -252,7 +253,9 @@ impl RuntimeImport {
             Self::ConcurrentSpawn => ffi::spectra_rt_concurrent_spawn_fast as *const u8,
             Self::ConcurrentJoin => ffi::spectra_rt_concurrent_join_fast as *const u8,
             Self::ConcurrentSpawnBatch => ffi::spectra_rt_concurrent_spawn_batch_fast as *const u8,
-            Self::ConcurrentJoinBatchSum => ffi::spectra_rt_concurrent_join_batch_sum_fast as *const u8,
+            Self::ConcurrentJoinBatchSum => {
+                ffi::spectra_rt_concurrent_join_batch_sum_fast as *const u8
+            }
             Self::ConcurrentSpawnJoin => ffi::spectra_rt_concurrent_spawn_join_fast as *const u8,
             Self::ConcurrentReset => ffi::spectra_rt_concurrent_reset_fast as *const u8,
             Self::BuilderNew => ffi::spectra_rt_builder_new as *const u8,
@@ -461,6 +464,20 @@ pub fn classify_host_call(name: &str) -> HostCallClass {
     HostCallClass::Generic
 }
 
+/// Resolves a host call for lowering while enforcing the fast ABI arity.
+///
+/// Name-only classification remains useful to the batch planner, which must
+/// keep every fast name out of the generic batch even when malformed IR has an
+/// incorrect argument count. Lowering uses this arity-aware resolver so that
+/// malformed or unknown calls take the existing generic path.
+#[doc(hidden)]
+pub fn resolve_host_call(name: &str, arity: usize) -> HostCallClass {
+    match classify_host_call(name) {
+        HostCallClass::Fast(fast) if fast.arity() == arity => HostCallClass::Fast(fast),
+        _ => HostCallClass::Generic,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,7 +486,10 @@ mod tests {
     #[test]
     fn runtime_import_catalog_is_complete_and_unique() {
         assert_eq!(RuntimeImport::ALL.len(), RuntimeImport::COUNT);
-        let symbols: HashSet<_> = RuntimeImport::ALL.iter().map(|item| item.symbol()).collect();
+        let symbols: HashSet<_> = RuntimeImport::ALL
+            .iter()
+            .map(|item| item.symbol())
+            .collect();
         assert_eq!(symbols.len(), RuntimeImport::COUNT);
         for import in RuntimeImport::ALL {
             assert_ne!(import.address(), std::ptr::null());
@@ -480,10 +500,16 @@ mod tests {
     #[test]
     fn fast_host_call_catalog_is_complete_and_unique() {
         assert_eq!(FastHostCall::ALL.len(), FastHostCall::COUNT);
-        let names: HashSet<_> = FastHostCall::ALL.iter().map(|item| item.host_name()).collect();
+        let names: HashSet<_> = FastHostCall::ALL
+            .iter()
+            .map(|item| item.host_name())
+            .collect();
         assert_eq!(names.len(), FastHostCall::COUNT);
         for fast in FastHostCall::ALL {
-            assert_eq!(classify_host_call(fast.host_name()), HostCallClass::Fast(*fast));
+            assert_eq!(
+                classify_host_call(fast.host_name()),
+                HostCallClass::Fast(*fast)
+            );
             assert_eq!(FastHostCall::ALL[fast.index()], *fast);
             assert_eq!(fast.arity(), fast.runtime_import().signature().params.len());
         }
@@ -497,6 +523,18 @@ mod tests {
         );
         assert_eq!(
             classify_host_call("spectra.std.test.dynamic"),
+            HostCallClass::Generic
+        );
+    }
+
+    #[test]
+    fn incorrect_fast_arity_resolves_to_generic_lowering() {
+        assert_eq!(
+            resolve_host_call("spectra.std.collections.map_get", 2),
+            HostCallClass::Fast(FastHostCall::MapGet)
+        );
+        assert_eq!(
+            resolve_host_call("spectra.std.collections.map_get", 1),
             HostCallClass::Generic
         );
     }
