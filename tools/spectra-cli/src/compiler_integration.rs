@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
-use spectra_backend::{AotCodeGenerator, AotOptions, CodeGenerator};
+use spectra_backend::{AotCodeGenerator, AotOptions, CodeGenerator, HostCallBatchStats};
 use spectra_compiler::{
     error::MidendError, lint::LintDiagnostic, pipeline::CompilationMetrics, span::Span,
     BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilationResult,
@@ -14,13 +14,12 @@ use spectra_compiler::{
 use spectra_midend::{
     ir::{pretty::format_module, Module as IRModule},
     lowering::ASTLowering,
-    TensorDevice, TensorGraph,
     passes::{
-        constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
-        concurrent_spawn_join_fusion::ConcurrentSpawnJoinFusion,
-        function_inlining::FunctionInlining, validation::LoopStructureValidation,
-        verification::verify_module, Pass,
+        concurrent_spawn_join_fusion::ConcurrentSpawnJoinFusion, constant_folding::ConstantFolding,
+        dead_code_elimination::DeadCodeElimination, function_inlining::FunctionInlining,
+        validation::LoopStructureValidation, verification::verify_module, Pass,
     },
+    TensorDevice, TensorGraph,
 };
 
 // Thread-local that propagates the Spectra program's return value (used as exit
@@ -38,6 +37,20 @@ pub fn take_last_exec_exit() -> Option<i32> {
 /// Sets the program arguments forwarded to `std.env` host functions.
 pub fn forward_program_args(args: Vec<String>) {
     spectra_runtime::set_program_args(args);
+}
+
+fn emit_r3105_hostcall_stats(label: &str, stats: HostCallBatchStats) {
+    if std::env::var_os("SPECTRA_R3105_STATS").is_none() {
+        return;
+    }
+    println!(
+        "r3105_hostcall_stats_{label} batched_sites={} batched_hostcalls={} fallback_hostcalls={} argument_arena_bytes={} result_arena_bytes={}",
+        stats.batched_sites,
+        stats.batched_hostcalls,
+        stats.fallback_hostcalls,
+        stats.argument_arena_bytes,
+        stats.result_arena_bytes,
+    );
 }
 
 #[derive(Debug)]
@@ -214,15 +227,23 @@ pub struct NativeDebugMetadata {
 }
 
 fn native_debug_metadata(module: &IRModule, executable: bool) -> NativeDebugMetadata {
-    let mut functions = module.functions.iter().map(|function| NativeDebugFunction {
-        name: if executable && function.name == "main" {
-            "spectra_user_main".to_string()
-        } else {
-            function.name.clone()
-        },
-        locals: function.locals.iter().map(|local| local.name.clone()).collect(),
-        local_offsets: vec![None; function.locals.len()],
-    }).collect::<Vec<_>>();
+    let mut functions = module
+        .functions
+        .iter()
+        .map(|function| NativeDebugFunction {
+            name: if executable && function.name == "main" {
+                "spectra_user_main".to_string()
+            } else {
+                function.name.clone()
+            },
+            locals: function
+                .locals
+                .iter()
+                .map(|local| local.name.clone())
+                .collect(),
+            local_offsets: vec![None; function.locals.len()],
+        })
+        .collect::<Vec<_>>();
     functions.retain(|function| !function.name.is_empty());
     NativeDebugMetadata { functions }
 }
@@ -300,7 +321,11 @@ impl BackendDriver for FullPipelineBackend {
             println!("=== Compiler-native Autodiff IR ===");
             println!("{}", autodiff_graph.stable_dump());
         }
-        if tensor_graph.functions.iter().any(|function| !function.nodes.is_empty()) {
+        if tensor_graph
+            .functions
+            .iter()
+            .any(|function| !function.nodes.is_empty())
+        {
             let tensor_start = Instant::now();
             let tensor_backend = if tensor_graph.functions.iter().any(|function| {
                 function
@@ -457,6 +482,7 @@ impl BackendDriver for FullPipelineBackend {
                 error.to_string(),
             ))]);
         }
+        emit_r3105_hostcall_stats("jit", codegen.hostcall_batch_stats());
 
         Ok(FullPipelineArtifacts {
             ir_module,
@@ -649,19 +675,38 @@ impl SpectraCompiler {
         let metadata = native_debug_metadata(&report.artifacts.ir_module, false);
 
         let aot = AotCodeGenerator::new();
-        let (bytes, debug_locations) = aot.compile_to_object_with_locations(
-            &report.artifacts.ir_module,
-            &AotOptions {
-                native_debug: matches!(self.options.debug_info, spectra_compiler::DebugInfoMode::Native),
-                ..AotOptions::default()
-            },
-        )
+        let (bytes, debug_locations, batch_stats) = aot
+            .compile_to_object_with_locations_and_stats(
+                &report.artifacts.ir_module,
+                &AotOptions {
+                    native_debug: matches!(
+                        self.options.debug_info,
+                        spectra_compiler::DebugInfoMode::Native
+                    ),
+                    ..AotOptions::default()
+                },
+            )
             .map_err(|err| err.to_string())?;
+        emit_r3105_hostcall_stats("aot", batch_stats);
         let mut metadata = metadata;
         for (function_name, value_id, offset) in debug_locations {
-            if let Some(function) = metadata.functions.iter_mut().find(|f| f.name == function_name) {
-                if let Some(ir_function) = report.artifacts.ir_module.functions.iter().find(|f| f.name == function_name) {
-                    if let Some(index) = ir_function.locals.iter().position(|local| local.value_id == Some(value_id)) {
+            if let Some(function) = metadata
+                .functions
+                .iter_mut()
+                .find(|f| f.name == function_name)
+            {
+                if let Some(ir_function) = report
+                    .artifacts
+                    .ir_module
+                    .functions
+                    .iter()
+                    .find(|f| f.name == function_name)
+                {
+                    if let Some(index) = ir_function
+                        .locals
+                        .iter()
+                        .position(|local| local.value_id == Some(value_id))
+                    {
                         function.local_offsets[index] = Some(offset);
                     }
                 }
@@ -694,20 +739,43 @@ impl SpectraCompiler {
         let metadata = native_debug_metadata(&report.artifacts.ir_module, true);
 
         let aot = AotCodeGenerator::new();
-        let (bytes, debug_locations) = aot.compile_to_object_with_locations(
-            &report.artifacts.ir_module,
-            &AotOptions {
-                emit_executable: true,
-                native_debug: matches!(self.options.debug_info, spectra_compiler::DebugInfoMode::Native),
-            },
-        )
-        .map_err(|err| err.to_string())?;
+        let (bytes, debug_locations, batch_stats) = aot
+            .compile_to_object_with_locations_and_stats(
+                &report.artifacts.ir_module,
+                &AotOptions {
+                    emit_executable: true,
+                    native_debug: matches!(
+                        self.options.debug_info,
+                        spectra_compiler::DebugInfoMode::Native
+                    ),
+                },
+            )
+            .map_err(|err| err.to_string())?;
+        emit_r3105_hostcall_stats("aot", batch_stats);
         let mut metadata = metadata;
         for (function_name, value_id, offset) in debug_locations {
-            if let Some(function) = metadata.functions.iter_mut().find(|f| f.name == function_name) {
-                let ir_name = if function_name == "spectra_user_main" { "main" } else { &function_name };
-                if let Some(ir_function) = report.artifacts.ir_module.functions.iter().find(|f| f.name == ir_name) {
-                    if let Some(index) = ir_function.locals.iter().position(|local| local.value_id == Some(value_id)) {
+            if let Some(function) = metadata
+                .functions
+                .iter_mut()
+                .find(|f| f.name == function_name)
+            {
+                let ir_name = if function_name == "spectra_user_main" {
+                    "main"
+                } else {
+                    &function_name
+                };
+                if let Some(ir_function) = report
+                    .artifacts
+                    .ir_module
+                    .functions
+                    .iter()
+                    .find(|f| f.name == ir_name)
+                {
+                    if let Some(index) = ir_function
+                        .locals
+                        .iter()
+                        .position(|local| local.value_id == Some(value_id))
+                    {
                         function.local_offsets[index] = Some(offset);
                     }
                 }

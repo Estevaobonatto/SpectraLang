@@ -7,5 +7,5 @@ pub mod dwarf;
 pub mod error;
 
 pub use aot::{AotCodeGenerator, AotOptions};
-pub use codegen::CodeGenerator;
+pub use codegen::{CodeGenerator, HostCallBatchStats};
 pub use error::{BackendCodegenError, BackendErrorKind, BackendResult};

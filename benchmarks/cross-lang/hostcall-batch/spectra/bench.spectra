@@ -1,0 +1,23 @@
+module hostcall_batch_bench;
+
+import std.math as math;
+
+fn batch_once(a: int, b: int, c: int, d: int, e: int) -> int {
+    let first = math.abs(a);
+    let second = math.max(b, c);
+    let third = math.min(d, e);
+    return first + second + third;
+}
+
+pub fn main() -> int {
+    let total = 0;
+    let i = 0;
+    while i < 10000 {
+        total = total + batch_once(-7, 3, 9, 12, 4);
+        i = i + 1;
+    }
+    if total != 200000 {
+        return 1;
+    }
+    return 0;
+}

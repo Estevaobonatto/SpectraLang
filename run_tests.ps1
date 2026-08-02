@@ -155,6 +155,60 @@ if ($Phase -contains "phase31_r3104_codegen_hot_path") {
     exit 0
 }
 
+if ($Phase -contains "phase31_r3105_hostcall_batching") {
+    Write-Host "--- R-3105 allocation-free hostcall batching gate ---" -ForegroundColor Yellow
+    & python -m unittest -v `
+        scripts.test_phase31_gates `
+        scripts.test_validate_r3103_optimization_plan `
+        scripts.test_validate_r3133_async_echo_reconciliation `
+        scripts.test_validate_r3104_codegen_hot_path `
+        scripts.test_validate_r3105_hostcall_batching
+    $unitExit = $LASTEXITCODE
+    if ($unitExit -ne 0) {
+        Write-Host "R-3105 focused unit tests failed." -ForegroundColor Red
+        exit $unitExit
+    }
+
+    & python scripts\validate_r3105_hostcall_batching.py `
+        --benchmark target\phase31\r3105-hostcall-benchmark.json `
+        --code-validation target\phase31\r3105-code-validation.json `
+        --report target\phase31\r3105-release-run-1.json `
+        --report target\phase31\r3105-release-run-2.json `
+        --steady-state target\phase31\r3104-steady-state.json `
+        --baseline docs\performance\phase31-go-comparable\baseline.json `
+        --roadmap roadmap\roadmap.toml `
+        --binary target\release\spectralang.exe `
+        --write-evidence
+    $validatorExit = $LASTEXITCODE
+
+    & git diff --check -- `
+        backend/src/codegen.rs `
+        backend/src/aot.rs `
+        runtime/src/ffi.rs `
+        tools/spectra-cli/src/compiler_integration.rs `
+        scripts/benchmark_r3105_hostcalls.py `
+        scripts/validate_r3105_hostcall_batching.py `
+        scripts/test_validate_r3105_hostcall_batching.py `
+        scripts/validate_r3104_codegen_hot_path.py `
+        scripts/validate_r3103_optimization_plan.py `
+        scripts/validate_r3133_async_echo_reconciliation.py `
+        tests/validation/191_phase31_hostcall_batch_contract.spectra `
+        benchmarks/cross-lang/hostcall-batch/spectra/bench.spectra `
+        roadmap/roadmap.toml `
+        docs/roadmap-backlog.md `
+        docs/performance/phase31-go-comparable/optimization-plan.md `
+        docs/performance/phase31-go-comparable/summary.md `
+        docs/performance/phase31-go-comparable/evidence-r3105-hostcall-batching.md `
+        run_tests.ps1
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-3105 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-3105 focused gate passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($Phase -contains "phase31_r3133_async_echo") {
     Write-Host "--- R-3133 current-revision async-echo reconciliation gate ---" -ForegroundColor Yellow
     & python -m unittest -v scripts.test_phase31_gates scripts.test_validate_r3133_async_echo_reconciliation

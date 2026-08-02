@@ -267,13 +267,66 @@ fn host_registry() -> &'static Mutex<HostRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(HostRegistry::new()))
 }
 
-fn read_host_name(name_ptr: *const u8, name_len: usize) -> Option<String> {
+/// Borrows a UTF-8 host name from generated code without materializing a
+/// `String`. The caller must ensure the pointed-to bytes remain valid for the
+/// duration of the returned borrow. JIT name storage is owned by the code
+/// generator and AOT names live in `.rodata`, so both satisfy this contract.
+unsafe fn read_host_name<'a>(name_ptr: *const u8, name_len: usize) -> Option<&'a str> {
     if name_ptr.is_null() {
         return None;
     }
 
-    let bytes = unsafe { slice::from_raw_parts(name_ptr, name_len) };
-    str::from_utf8(bytes).ok().map(|s| s.to_string())
+    let bytes = slice::from_raw_parts(name_ptr, name_len);
+    str::from_utf8(bytes).ok()
+}
+
+/// Descriptor consumed by the internal hostcall batch dispatcher.
+///
+/// This is an internal runtime/backend ABI only. It is not exposed as a
+/// Spectra-language value and deliberately uses the same scalar buffers as
+/// `spectra_rt_host_invoke` so every individual host function sees the same
+/// `SpectraHostCallContext` contract.
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[doc(hidden)]
+pub struct SpectraHostBatchCall {
+    pub name_ptr: *const u8,
+    pub name_len: usize,
+    pub args_ptr: *const SpectraHostValue,
+    pub arg_len: usize,
+    pub results_ptr: *mut SpectraHostValue,
+    pub result_len: usize,
+}
+
+fn invoke_registered_host(
+    name: &str,
+    args_ptr: *const SpectraHostValue,
+    arg_len: usize,
+    results_ptr: *mut SpectraHostValue,
+    result_len: usize,
+) -> i32 {
+    let registry = host_registry();
+    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
+    let func_ptr = guard.lookup(name);
+    drop(guard);
+
+    if func_ptr.is_null() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+
+    let func: HostFunction = unsafe { mem::transmute(func_ptr) };
+    let mut ctx = SpectraHostCallContext {
+        args: args_ptr,
+        arg_len,
+        results: results_ptr,
+        result_len,
+        invoke_fn: Some(spectra_rt_invoke_closure),
+    };
+
+    match catch_unwind(AssertUnwindSafe(|| func(&mut ctx as *mut _))) {
+        Ok(status) => status,
+        Err(_) => HOST_STATUS_INTERNAL_ERROR,
+    }
 }
 
 /// Registers a host function accessible to JITed code.
@@ -891,13 +944,13 @@ pub extern "C" fn spectra_rt_host_register(
         return false;
     }
 
-    let Some(name) = read_host_name(name_ptr, name_len) else {
+    let Some(name) = (unsafe { read_host_name(name_ptr, name_len) }) else {
         return false;
     };
 
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.insert(&name, fn_ptr)
+    guard.insert(name, fn_ptr)
 }
 
 /// Unregisters a previously registered host function.
@@ -907,13 +960,13 @@ pub extern "C" fn spectra_rt_host_unregister(name_ptr: *const u8, name_len: usiz
         return false;
     }
 
-    let Some(name) = read_host_name(name_ptr, name_len) else {
+    let Some(name) = (unsafe { read_host_name(name_ptr, name_len) }) else {
         return false;
     };
 
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.remove(&name)
+    guard.remove(name)
 }
 
 /// Looks up a host function by name, returning `NULL` if not found or invalid.
@@ -923,13 +976,13 @@ pub extern "C" fn spectra_rt_host_lookup(name_ptr: *const u8, name_len: usize) -
         return ptr::null();
     }
 
-    let Some(name) = read_host_name(name_ptr, name_len) else {
+    let Some(name) = (unsafe { read_host_name(name_ptr, name_len) }) else {
         return ptr::null();
     };
 
     let registry = host_registry();
     let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.lookup(&name)
+    guard.lookup(name)
 }
 
 /// Looks up a host function and invokes it with the provided context buffers.
@@ -950,32 +1003,55 @@ pub extern "C" fn spectra_rt_host_invoke(
         return HOST_STATUS_INVALID_ARGUMENT;
     }
 
-    let Some(name) = read_host_name(name_ptr, name_len) else {
+    let Some(name) = (unsafe { read_host_name(name_ptr, name_len) }) else {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
 
-    let registry = host_registry();
-    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    let func_ptr = guard.lookup(&name);
-    drop(guard);
+    invoke_registered_host(name, args_ptr, arg_len, results_ptr, result_len)
+}
 
-    if func_ptr.is_null() {
-        return HOST_STATUS_NOT_FOUND;
+/// Invokes a bounded sequence of generic hostcalls in source order.
+///
+/// The dispatcher intentionally stops at the first non-success status. The
+/// backend treats any non-success exactly like the individual dispatcher and
+/// traps after its stack-owned arenas become unreachable. No hostcall after a
+/// failure is observed by the runtime.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_invoke_batch(
+    calls_ptr: *const SpectraHostBatchCall,
+    call_len: usize,
+) -> i32 {
+    if call_len == 0 || calls_ptr.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
     }
 
-    let func: HostFunction = unsafe { mem::transmute(func_ptr) };
-    let mut ctx = SpectraHostCallContext {
-        args: args_ptr,
-        arg_len,
-        results: results_ptr,
-        result_len,
-        invoke_fn: Some(spectra_rt_invoke_closure),
-    };
+    let calls = unsafe { slice::from_raw_parts(calls_ptr, call_len) };
+    for call in calls {
+        if call.name_len == 0 || call.name_ptr.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if (call.arg_len > 0 && call.args_ptr.is_null())
+            || (call.result_len > 0 && call.results_ptr.is_null())
+        {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
 
-    match catch_unwind(AssertUnwindSafe(|| func(&mut ctx as *mut _))) {
-        Ok(status) => status,
-        Err(_) => HOST_STATUS_INTERNAL_ERROR,
+        let Some(name) = (unsafe { read_host_name(call.name_ptr, call.name_len) }) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        let status = invoke_registered_host(
+            name,
+            call.args_ptr,
+            call.arg_len,
+            call.results_ptr,
+            call.result_len,
+        );
+        if status != HOST_STATUS_SUCCESS {
+            return status;
+        }
     }
+
+    HOST_STATUS_SUCCESS
 }
 
 /// Checks runtime debug invariants for host registry and manual allocation state.
@@ -1262,6 +1338,10 @@ mod tests {
         }
     }
 
+    extern "C" fn host_context_fail(_ctx: *mut SpectraHostCallContext) -> i32 {
+        HOST_STATUS_INTERNAL_ERROR
+    }
+
     #[test]
     fn host_register_lookup_and_clear() {
         let _lock = test_guard();
@@ -1367,6 +1447,127 @@ mod tests {
 
         spectra_rt_host_clear();
     }
+
+    #[test]
+    fn host_invoke_batch_preserves_order_and_results() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let name = b"spectra.test.context_add";
+        assert!(spectra_rt_host_register(
+            name.as_ptr(),
+            name.len(),
+            host_context_add as *const ()
+        ));
+
+        let args_one = [20, 22];
+        let args_two = [3, 4];
+        let mut result_one = [0];
+        let mut result_two = [0];
+        let calls = [
+            SpectraHostBatchCall {
+                name_ptr: name.as_ptr(),
+                name_len: name.len(),
+                args_ptr: args_one.as_ptr(),
+                arg_len: args_one.len(),
+                results_ptr: result_one.as_mut_ptr(),
+                result_len: result_one.len(),
+            },
+            SpectraHostBatchCall {
+                name_ptr: name.as_ptr(),
+                name_len: name.len(),
+                args_ptr: args_two.as_ptr(),
+                arg_len: args_two.len(),
+                results_ptr: result_two.as_mut_ptr(),
+                result_len: result_two.len(),
+            },
+        ];
+
+        assert_eq!(
+            spectra_rt_host_invoke_batch(calls.as_ptr(), calls.len()),
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(result_one[0], 42);
+        assert_eq!(result_two[0], 7);
+
+        spectra_rt_host_clear();
+    }
+
+    #[test]
+    fn host_invoke_batch_stops_at_first_failure() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let add_name = b"spectra.test.context_add";
+        let fail_name = b"spectra.test.context_fail";
+        assert!(spectra_rt_host_register(
+            add_name.as_ptr(),
+            add_name.len(),
+            host_context_add as *const ()
+        ));
+        assert!(spectra_rt_host_register(
+            fail_name.as_ptr(),
+            fail_name.len(),
+            host_context_fail as *const ()
+        ));
+
+        let args = [1, 2];
+        let mut first = [0];
+        let mut after_failure = [99];
+        let calls = [
+            SpectraHostBatchCall {
+                name_ptr: add_name.as_ptr(),
+                name_len: add_name.len(),
+                args_ptr: args.as_ptr(),
+                arg_len: args.len(),
+                results_ptr: first.as_mut_ptr(),
+                result_len: first.len(),
+            },
+            SpectraHostBatchCall {
+                name_ptr: fail_name.as_ptr(),
+                name_len: fail_name.len(),
+                args_ptr: std::ptr::null(),
+                arg_len: 0,
+                results_ptr: std::ptr::null_mut(),
+                result_len: 0,
+            },
+            SpectraHostBatchCall {
+                name_ptr: add_name.as_ptr(),
+                name_len: add_name.len(),
+                args_ptr: args.as_ptr(),
+                arg_len: args.len(),
+                results_ptr: after_failure.as_mut_ptr(),
+                result_len: after_failure.len(),
+            },
+        ];
+
+        assert_eq!(
+            spectra_rt_host_invoke_batch(calls.as_ptr(), calls.len()),
+            HOST_STATUS_INTERNAL_ERROR
+        );
+        assert_eq!(first[0], 3);
+        assert_eq!(after_failure[0], 99);
+
+        spectra_rt_host_clear();
+    }
+
+    #[test]
+    fn host_invoke_batch_rejects_invalid_descriptor() {
+        let _lock = test_guard();
+        let calls = [SpectraHostBatchCall {
+            name_ptr: std::ptr::null(),
+            name_len: 1,
+            args_ptr: std::ptr::null(),
+            arg_len: 0,
+            results_ptr: std::ptr::null_mut(),
+            result_len: 0,
+        }];
+
+        assert_eq!(
+            spectra_rt_host_invoke_batch(calls.as_ptr(), calls.len()),
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+    }
 }
 
 // ── Fast-path symbol retention ────────────────────────────────────────────────
@@ -1438,4 +1639,10 @@ pub fn keep_fast_symbols() {
     // String fast-path: handle 0 is the no-op sentinel (returns 0).
     let _ = spectra_rt_string_len_fast(0);
     let _ = spectra_rt_string_char_at_fast(0, 0);
+
+    // Generic dispatch symbols are also resolved by generated JIT/AOT code;
+    // reference them here so release linkers keep the internal batch entry
+    // point in the executable image.
+    let _ = spectra_rt_host_invoke(ptr::null(), 0, ptr::null(), 0, ptr::null_mut(), 0);
+    let _ = spectra_rt_host_invoke_batch(ptr::null(), 0);
 }

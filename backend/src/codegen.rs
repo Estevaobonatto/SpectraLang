@@ -42,6 +42,21 @@ impl DenseValueMap {
     }
 }
 
+/// Compile-time accounting for the conservative R-3105 hostcall planner.
+///
+/// The counters describe generated sites, not runtime invocations. They are
+/// intentionally kept in the backend so benchmark evidence can prove that a
+/// candidate actually emitted batches without changing the language or IR
+/// surface.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HostCallBatchStats {
+    pub batched_sites: usize,
+    pub batched_hostcalls: usize,
+    pub fallback_hostcalls: usize,
+    pub argument_arena_bytes: usize,
+    pub result_arena_bytes: usize,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct HostNameRecord {
     pub(crate) ptr: u64,
@@ -146,6 +161,8 @@ pub struct CodeGenerator {
     manual_escape_func: FuncId,
     /// Import for invoking host functions by name
     host_invoke_func: FuncId,
+    /// Import for the internal bounded generic-hostcall batch dispatcher.
+    host_invoke_batch_func: FuncId,
     /// Import for fast-ABI `concurrent.task_spawn`
     concurrent_spawn_fast_func: FuncId,
     /// Import for fast-ABI `concurrent.task_join`
@@ -223,6 +240,7 @@ pub struct CodeGenerator {
     string_literal_storage: Vec<Box<[i64]>>,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
+    hostcall_batch_stats: HostCallBatchStats,
 }
 
 /// Describes a PHI node so that the backend can emit Cranelift block parameters.
@@ -232,9 +250,7 @@ pub(crate) struct PhiDescriptor {
     pub incoming: HashMap<usize, usize>, // predecessor_block_id -> incoming_value_id
 }
 
-pub(crate) fn validate_tensor_ir(
-    ir_module: &IRModule,
-) -> BackendResult<TensorGraphLoweringReport> {
+pub(crate) fn validate_tensor_ir(ir_module: &IRModule) -> BackendResult<TensorGraphLoweringReport> {
     let graph = TensorGraph::from_ir_module(ir_module);
     let backend = if graph.functions.iter().any(|function| {
         function
@@ -327,6 +343,10 @@ impl CodeGenerator {
         builder.symbol(
             "spectra_rt_host_invoke",
             spectra_runtime::ffi::spectra_rt_host_invoke as *const u8,
+        );
+        builder.symbol(
+            "spectra_rt_host_invoke_batch",
+            spectra_runtime::ffi::spectra_rt_host_invoke_batch as *const u8,
         );
         builder.symbol(
             "spectra_rt_concurrent_spawn_fast",
@@ -479,6 +499,20 @@ impl CodeGenerator {
         let host_invoke_func = module
             .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare runtime host invoke import");
+
+        let mut host_invoke_batch_sig = module.make_signature();
+        host_invoke_batch_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_batch_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_batch_sig
+            .returns
+            .push(AbiParam::new(types::I32));
+        let host_invoke_batch_func = module
+            .declare_function(
+                "spectra_rt_host_invoke_batch",
+                Linkage::Import,
+                &host_invoke_batch_sig,
+            )
+            .expect("Failed to declare runtime host invoke batch import");
 
         let mut concurrent_spawn_sig = module.make_signature();
         concurrent_spawn_sig.params.push(AbiParam::new(types::I64));
@@ -669,9 +703,13 @@ impl CodeGenerator {
 
         let mut tensor_autodiff_apply_sig = module.make_signature();
         for _ in 0..6 {
-            tensor_autodiff_apply_sig.params.push(AbiParam::new(types::I64));
+            tensor_autodiff_apply_sig
+                .params
+                .push(AbiParam::new(types::I64));
         }
-        tensor_autodiff_apply_sig.returns.push(AbiParam::new(types::I32));
+        tensor_autodiff_apply_sig
+            .returns
+            .push(AbiParam::new(types::I32));
         let tensor_autodiff_apply_fast_func = module
             .declare_function(
                 "spectra_rt_tensor_autodiff_apply_fast",
@@ -680,10 +718,18 @@ impl CodeGenerator {
             )
             .expect("Failed to declare explicit autodiff import");
         let mut tensor_grad_handle_sig = module.make_signature();
-        tensor_grad_handle_sig.params.push(AbiParam::new(types::I64));
-        tensor_grad_handle_sig.returns.push(AbiParam::new(types::I64));
+        tensor_grad_handle_sig
+            .params
+            .push(AbiParam::new(types::I64));
+        tensor_grad_handle_sig
+            .returns
+            .push(AbiParam::new(types::I64));
         let tensor_grad_handle_fast_func = module
-            .declare_function("spectra_rt_tensor_grad_handle_fast", Linkage::Import, &tensor_grad_handle_sig)
+            .declare_function(
+                "spectra_rt_tensor_grad_handle_fast",
+                Linkage::Import,
+                &tensor_grad_handle_sig,
+            )
             .expect("Failed to declare explicit gradient handle import");
 
         let mut ml_sgd_step_sig = module.make_signature();
@@ -836,6 +882,7 @@ impl CodeGenerator {
             manual_frame_exit_func,
             manual_escape_func,
             host_invoke_func,
+            host_invoke_batch_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
             concurrent_spawn_batch_fast_func,
@@ -873,11 +920,18 @@ impl CodeGenerator {
             string_literal_storage: Vec::new(),
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
+            hostcall_batch_stats: HostCallBatchStats::default(),
         }
+    }
+
+    /// Returns the hostcall batching plan emitted by the most recent module.
+    pub fn hostcall_batch_stats(&self) -> HostCallBatchStats {
+        self.hostcall_batch_stats
     }
 
     /// Generate code for an entire module
     pub fn generate_module(&mut self, ir_module: &IRModule) -> BackendResult<()> {
+        self.hostcall_batch_stats = HostCallBatchStats::default();
         let _tensor_ir = validate_tensor_ir(ir_module)?;
         self.pre_intern_host_names(ir_module);
         // First pass: declare all functions
@@ -915,11 +969,7 @@ impl CodeGenerator {
         names.sort_unstable();
         names.dedup();
         for name in names {
-            intern_host_name(
-                &mut self.host_name_data,
-                &mut self.host_name_storage,
-                &name,
-            );
+            intern_host_name(&mut self.host_name_data, &mut self.host_name_storage, &name);
         }
     }
 
@@ -996,10 +1046,8 @@ impl CodeGenerator {
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = Self::collect_stack_allocas(ir_func);
-        let scalar_alloca_types = Self::collect_promotable_scalar_allocas_with_stack_allocas(
-            ir_func,
-            &stack_allocas,
-        );
+        let scalar_alloca_types =
+            Self::collect_promotable_scalar_allocas_with_stack_allocas(ir_func, &stack_allocas);
         let mut scalar_alloca_vars = HashMap::with_capacity(scalar_alloca_types.len());
         for (alloca_id, ty) in &scalar_alloca_types {
             let variable = builder.declare_var(Self::ir_type_to_cranelift(ty)?);
@@ -1084,6 +1132,7 @@ impl CodeGenerator {
                 self.manual_frame_exit_func,
                 self.manual_escape_func,
                 self.host_invoke_func,
+                self.host_invoke_batch_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
                 self.concurrent_spawn_batch_fast_func,
@@ -1130,6 +1179,7 @@ impl CodeGenerator {
                 manual_frame_active,
                 ir_block.id,
                 &phi_map,
+                &mut self.hostcall_batch_stats,
             )?;
         }
 
@@ -1297,7 +1347,10 @@ impl CodeGenerator {
             for instruction in &block.instructions {
                 if let InstructionKind::Alloca { result, ty } = &instruction.kind {
                     if stack_allocas.contains(&result.id)
-                        && matches!(ty, IRType::Int | IRType::Float | IRType::Bool | IRType::Char)
+                        && matches!(
+                            ty,
+                            IRType::Int | IRType::Float | IRType::Bool | IRType::Char
+                        )
                     {
                         candidates.insert(result.id, ty.clone());
                     }
@@ -1312,10 +1365,13 @@ impl CodeGenerator {
             return candidates;
         }
 
-        let candidate_capacity = candidates.keys().copied().max().map_or(
-            ir_func.next_value_id,
-            |max_id| ir_func.next_value_id.max(max_id.saturating_add(1)),
-        );
+        let candidate_capacity = candidates
+            .keys()
+            .copied()
+            .max()
+            .map_or(ir_func.next_value_id, |max_id| {
+                ir_func.next_value_id.max(max_id.saturating_add(1))
+            });
         let mut candidate_mask = vec![false; candidate_capacity];
         for id in candidates.keys().copied() {
             candidate_mask[id] = true;
@@ -1333,11 +1389,7 @@ impl CodeGenerator {
         for (block_index, block) in ir_func.blocks.iter().enumerate() {
             local_stores.fill(false);
             for instruction in &block.instructions {
-                Self::mark_scalar_alloca_escapes(
-                    &candidate_mask,
-                    &mut escaped,
-                    &instruction.kind,
-                );
+                Self::mark_scalar_alloca_escapes(&candidate_mask, &mut escaped, &instruction.kind);
                 match &instruction.kind {
                     InstructionKind::Load { ptr, .. }
                         if candidate_mask.get(ptr.id).copied().unwrap_or(false) =>
@@ -1384,11 +1436,7 @@ impl CodeGenerator {
         candidates
     }
 
-    fn mark_scalar_alloca_value(
-        candidate_mask: &[bool],
-        escaped: &mut [bool],
-        value: &IRValue,
-    ) {
+    fn mark_scalar_alloca_value(candidate_mask: &[bool], escaped: &mut [bool], value: &IRValue) {
         if candidate_mask.get(value.id).copied().unwrap_or(false) {
             escaped[value.id] = true;
         }
@@ -1453,11 +1501,15 @@ impl CodeGenerator {
                 }
             }
             InstructionKind::Copy { source, .. }
-            | InstructionKind::Cast { operand: source, .. }
-            | InstructionKind::LoadDynDataPtr { fat_ptr: source, .. }
-            | InstructionKind::LoadDynVtablePtr { fat_ptr: source, .. } => {
-                Self::mark_scalar_alloca_value(candidate_mask, escaped, source)
+            | InstructionKind::Cast {
+                operand: source, ..
             }
+            | InstructionKind::LoadDynDataPtr {
+                fat_ptr: source, ..
+            }
+            | InstructionKind::LoadDynVtablePtr {
+                fat_ptr: source, ..
+            } => Self::mark_scalar_alloca_value(candidate_mask, escaped, source),
             InstructionKind::MakeDynFatPtr {
                 data_ptr,
                 vtable_ptr,
@@ -1671,6 +1723,446 @@ impl CodeGenerator {
         }
     }
 
+    const R3105_MAX_BATCH_CALLS: usize = 8;
+    const R3105_MAX_BATCH_STACK_BYTES: usize = 4096;
+    const R3105_BATCH_DESCRIPTOR_BYTES: usize = 6 * std::mem::size_of::<i64>();
+
+    /// Hostcalls already lowered through a Fast ABI or a dedicated inline
+    /// path must never enter the generic batch dispatcher. Keep this list in
+    /// sync with the explicit interceptions in `generate_instruction`.
+    fn is_fast_hostcall_name(host: &str) -> bool {
+        matches!(
+            host,
+            "spectra.std.concurrent.reset"
+                | "spectra.std.string.len"
+                | "spectra.std.string.char_at"
+                | "spectra.std.concurrent.task_spawn_join"
+                | "spectra.std.concurrent.task_spawn"
+                | "spectra.std.concurrent.task_spawn_batch"
+                | "spectra.std.concurrent.task_join_batch_sum"
+                | "spectra.std.concurrent.task_join"
+                | "spectra.std.string.builder_new"
+                | "spectra.std.string.builder_push"
+                | "spectra.std.string.builder_len"
+                | "spectra.std.string.builder_finish"
+                | "spectra.std.string.builder_free"
+                | "spectra.std.collections.map_set"
+                | "spectra.std.collections.map_get"
+                | "spectra.std.collections.map_contains"
+                | "spectra.std.collections.map_new"
+                | "spectra.std.collections.map_remove"
+                | "spectra.std.collections.map_len"
+                | "spectra.std.collections.map_clear"
+                | "spectra.std.collections.map_free"
+                | "spectra.std.concurrent.channel_new"
+                | "spectra.std.concurrent.channel_send"
+                | "spectra.std.concurrent.channel_recv"
+                | "spectra.std.concurrent.channel_close"
+                | "spectra.std.concurrent.channel_len"
+                | "spectra.std.ml.linear"
+                | "spectra.std.ml.mse_loss"
+                | "spectra.std.tensor.backward"
+                | "spectra.std.ml.sgd_step"
+                | "spectra.std.tensor.full_f"
+        )
+    }
+
+    fn hostcall_batch_scalar_type(ty: Type) -> bool {
+        ty == types::I8
+            || ty == types::I16
+            || ty == types::I32
+            || ty == types::I64
+            || ty == types::F32
+            || ty == types::F64
+    }
+
+    fn hostcall_batch_result_type(result_type: Option<&IRType>) -> bool {
+        matches!(
+            result_type,
+            None | Some(
+                IRType::Int
+                    | IRType::Float
+                    | IRType::ExactInt { .. }
+                    | IRType::ExactFloat { .. }
+                    | IRType::Bool
+                    | IRType::Char
+            )
+        )
+    }
+
+    /// Return the exclusive end of a safe batch beginning at `start`, or
+    /// `start` when the current instruction must use individual lowering.
+    fn hostcall_batch_end(
+        instructions: &[Instruction],
+        start: usize,
+        value_map: &DenseValueMap,
+        builder: &FunctionBuilder,
+        host_name_data: &HashMap<String, HostNameRecord>,
+    ) -> usize {
+        let Some(InstructionKind::HostCall { host, .. }) =
+            instructions.get(start).map(|instruction| &instruction.kind)
+        else {
+            return start;
+        };
+        if Self::is_fast_hostcall_name(host) {
+            return start;
+        }
+
+        let mut produced_results = HashSet::new();
+        let mut argument_words = 0usize;
+        let mut result_slots = 0usize;
+        let mut end = start;
+
+        while end < instructions.len() && end - start < Self::R3105_MAX_BATCH_CALLS {
+            let InstructionKind::HostCall {
+                host,
+                args,
+                result,
+                result_type,
+                ..
+            } = &instructions[end].kind
+            else {
+                break;
+            };
+            let fast_hostcall = Self::is_fast_hostcall_name(host);
+            let known_hostcall = host_name_data.contains_key(host);
+            let scalar_result = Self::hostcall_batch_result_type(result_type.as_ref());
+            let dependent_argument = args.iter().any(|arg| produced_results.contains(&arg.id));
+            let unsupported_argument = args.iter().any(|arg| {
+                value_map
+                    .get(arg.id)
+                    .map(|value| {
+                        !Self::hostcall_batch_scalar_type(builder.func.dfg.value_type(value))
+                    })
+                    .unwrap_or(true)
+            });
+            if fast_hostcall
+                || !known_hostcall
+                || !scalar_result
+                || dependent_argument
+                || unsupported_argument
+            {
+                break;
+            }
+
+            let Some(next_argument_words) = argument_words.checked_add(args.len()) else {
+                break;
+            };
+            let next_result_slots = result_slots + usize::from(result.is_some());
+            let Some(descriptor_bytes) =
+                (end - start + 1).checked_mul(Self::R3105_BATCH_DESCRIPTOR_BYTES)
+            else {
+                break;
+            };
+            let Some(argument_bytes) = next_argument_words.checked_mul(8) else {
+                break;
+            };
+            let Some(result_bytes) = next_result_slots.checked_mul(8) else {
+                break;
+            };
+            if descriptor_bytes
+                .saturating_add(argument_bytes)
+                .saturating_add(result_bytes)
+                > Self::R3105_MAX_BATCH_STACK_BYTES
+            {
+                break;
+            }
+
+            argument_words = next_argument_words;
+            result_slots = next_result_slots;
+            if let Some(result) = result {
+                produced_results.insert(result.id);
+            }
+            end += 1;
+        }
+
+        if end - start >= 2 {
+            end
+        } else {
+            start
+        }
+    }
+
+    fn host_argument_to_i64(builder: &mut FunctionBuilder, value: Value) -> BackendResult<Value> {
+        Ok(match builder.func.dfg.value_type(value) {
+            types::I64 => value,
+            types::I8 | types::I16 | types::I32 => builder.ins().sextend(types::I64, value),
+            types::F64 => builder.ins().bitcast(types::I64, MemFlags::new(), value),
+            types::F32 => {
+                let promoted = builder.ins().fpromote(types::F64, value);
+                builder.ins().bitcast(types::I64, MemFlags::new(), promoted)
+            }
+            other => return Err(BackendCodegenError::unsupported_host_argument_type(other)),
+        })
+    }
+
+    fn host_name_pointer<M: Module>(
+        module: &mut M,
+        builder: &mut FunctionBuilder,
+        record: HostNameRecord,
+    ) -> Value {
+        if let Some(data_id) = record.data_id {
+            let gv = module.declare_data_in_func(data_id, builder.func);
+            builder.ins().global_value(types::I64, gv)
+        } else {
+            builder.ins().iconst(types::I64, record.ptr as i64)
+        }
+    }
+
+    fn convert_host_result_value(
+        builder: &mut FunctionBuilder,
+        raw_value: Value,
+        result_type: Option<&IRType>,
+    ) -> BackendResult<Value> {
+        Ok(match result_type {
+            Some(IRType::Float) => builder
+                .ins()
+                .bitcast(types::F64, MemFlags::new(), raw_value),
+            Some(IRType::Bool) => builder.ins().ireduce(types::I8, raw_value),
+            Some(IRType::Char) => builder.ins().ireduce(types::I32, raw_value),
+            Some(IRType::ExactInt { .. }) => {
+                let target = Self::ir_type_to_cranelift(result_type.unwrap())?;
+                if target == types::I64 {
+                    raw_value
+                } else {
+                    builder.ins().ireduce(target, raw_value)
+                }
+            }
+            Some(IRType::ExactFloat { width }) => match width {
+                spectra_midend::ir::FloatWidth::F32 => {
+                    let f64_value = builder
+                        .ins()
+                        .bitcast(types::F64, MemFlags::new(), raw_value);
+                    builder.ins().fdemote(types::F32, f64_value)
+                }
+                spectra_midend::ir::FloatWidth::F64 => {
+                    builder
+                        .ins()
+                        .bitcast(types::F64, MemFlags::new(), raw_value)
+                }
+            },
+            _ => raw_value,
+        })
+    }
+
+    fn generate_hostcall_batch<M: Module>(
+        module: &mut M,
+        host_name_data: &HashMap<String, HostNameRecord>,
+        host_invoke_batch_func: FuncId,
+        builder: &mut FunctionBuilder,
+        instructions: &[Instruction],
+        value_map: &mut DenseValueMap,
+        batch_stats: &mut HostCallBatchStats,
+    ) -> BackendResult<()> {
+        let call_count = instructions.len();
+        let descriptor_bytes = call_count
+            .checked_mul(Self::R3105_BATCH_DESCRIPTOR_BYTES)
+            .ok_or_else(|| {
+                BackendCodegenError::invalid_ir("hostcall batch descriptor size overflow")
+            })?;
+        let mut argument_words = 0usize;
+        let mut result_slots = 0usize;
+        for instruction in instructions {
+            let InstructionKind::HostCall { args, result, .. } = &instruction.kind else {
+                return Err(BackendCodegenError::invalid_ir(
+                    "non-hostcall in planned hostcall batch",
+                ));
+            };
+            argument_words = argument_words.checked_add(args.len()).ok_or_else(|| {
+                BackendCodegenError::invalid_ir("hostcall argument size overflow")
+            })?;
+            result_slots += usize::from(result.is_some());
+        }
+        let argument_bytes = argument_words
+            .checked_mul(8)
+            .ok_or_else(|| BackendCodegenError::invalid_ir("hostcall argument bytes overflow"))?;
+        let result_bytes = result_slots
+            .checked_mul(8)
+            .ok_or_else(|| BackendCodegenError::invalid_ir("hostcall result bytes overflow"))?;
+        if descriptor_bytes + argument_bytes + result_bytes > Self::R3105_MAX_BATCH_STACK_BYTES {
+            return Err(BackendCodegenError::invalid_ir(
+                "hostcall batch exceeds the bounded stack budget",
+            ));
+        }
+
+        batch_stats.batched_sites += 1;
+        batch_stats.batched_hostcalls += call_count;
+        batch_stats.argument_arena_bytes += argument_bytes;
+        batch_stats.result_arena_bytes += result_bytes;
+
+        let descriptor_slot =
+            builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                descriptor_bytes as u32,
+                0,
+            ));
+        let argument_slot = if argument_bytes > 0 {
+            Some(
+                builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    argument_bytes as u32,
+                    0,
+                )),
+            )
+        } else {
+            None
+        };
+        let result_slot = if result_bytes > 0 {
+            Some(
+                builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    result_bytes as u32,
+                    0,
+                )),
+            )
+        } else {
+            None
+        };
+        let descriptor_base = builder.ins().stack_addr(types::I64, descriptor_slot, 0);
+        let argument_base = argument_slot.map(|slot| builder.ins().stack_addr(types::I64, slot, 0));
+        let result_base = result_slot.map(|slot| builder.ins().stack_addr(types::I64, slot, 0));
+
+        let get_value = |value: &IRValue| -> BackendResult<Value> {
+            value_map
+                .get(value.id)
+                .ok_or_else(|| BackendCodegenError::missing_value(value.id))
+        };
+        let mut argument_offset = 0i32;
+        let mut result_offset = 0i32;
+        for (index, instruction) in instructions.iter().enumerate() {
+            let InstructionKind::HostCall {
+                result, host, args, ..
+            } = &instruction.kind
+            else {
+                unreachable!("hostcall batch was prevalidated");
+            };
+            let record = *host_name_data.get(host).ok_or_else(|| {
+                BackendCodegenError::cranelift(format!(
+                    "host call name '{}' was not pre-interned",
+                    host
+                ))
+            })?;
+            let descriptor_offset = (index * Self::R3105_BATCH_DESCRIPTOR_BYTES) as i32;
+            let name_ptr = Self::host_name_pointer(module, builder, record);
+            let name_len = builder.ins().iconst(types::I64, record.len as i64);
+            let args_ptr = if args.is_empty() {
+                builder.ins().iconst(types::I64, 0)
+            } else {
+                let base = argument_base.expect("non-empty batch arguments have an arena");
+                builder.ins().iadd_imm(base, argument_offset as i64)
+            };
+            let arg_len = builder.ins().iconst(types::I64, args.len() as i64);
+            let results_ptr = if result.is_some() {
+                let base = result_base.expect("batch results have an arena");
+                builder.ins().iadd_imm(base, result_offset as i64)
+            } else {
+                builder.ins().iconst(types::I64, 0)
+            };
+            let result_len = builder
+                .ins()
+                .iconst(types::I64, i64::from(result.is_some()));
+
+            for (arg_index, arg) in args.iter().enumerate() {
+                let value = Self::host_argument_to_i64(builder, get_value(arg)?)?;
+                builder.ins().store(
+                    MemFlags::new(),
+                    value,
+                    argument_base.expect("non-empty batch arguments have an arena"),
+                    argument_offset + (arg_index as i32 * 8),
+                );
+            }
+            builder.ins().store(
+                MemFlags::new(),
+                name_ptr,
+                descriptor_base,
+                descriptor_offset,
+            );
+            builder.ins().store(
+                MemFlags::new(),
+                name_len,
+                descriptor_base,
+                descriptor_offset + 8,
+            );
+            builder.ins().store(
+                MemFlags::new(),
+                args_ptr,
+                descriptor_base,
+                descriptor_offset + 16,
+            );
+            builder.ins().store(
+                MemFlags::new(),
+                arg_len,
+                descriptor_base,
+                descriptor_offset + 24,
+            );
+            builder.ins().store(
+                MemFlags::new(),
+                results_ptr,
+                descriptor_base,
+                descriptor_offset + 32,
+            );
+            builder.ins().store(
+                MemFlags::new(),
+                result_len,
+                descriptor_base,
+                descriptor_offset + 40,
+            );
+
+            argument_offset += (args.len() as i32) * 8;
+            if result.is_some() {
+                result_offset += 8;
+            }
+        }
+
+        let func_ref = module.declare_func_in_func(host_invoke_batch_func, builder.func);
+        let call_count_value = builder.ins().iconst(types::I64, call_count as i64);
+        let call = builder
+            .ins()
+            .call(func_ref, &[descriptor_base, call_count_value]);
+        let status = builder.inst_results(call)[0];
+        let zero = builder.ins().iconst(types::I32, 0);
+        let is_ok = builder.ins().icmp(IntCC::Equal, status, zero);
+        let success_block = builder.create_block();
+        let failure_block = builder.create_block();
+        builder
+            .ins()
+            .brif(is_ok, success_block, &[], failure_block, &[]);
+
+        builder.switch_to_block(failure_block);
+        builder
+            .ins()
+            .trap(cranelift::codegen::ir::TrapCode::user(1).unwrap());
+        builder.seal_block(failure_block);
+
+        builder.switch_to_block(success_block);
+        builder.seal_block(success_block);
+        let mut loaded_result_offset = 0i32;
+        for instruction in instructions {
+            let InstructionKind::HostCall {
+                result,
+                result_type,
+                ..
+            } = &instruction.kind
+            else {
+                unreachable!("hostcall batch was prevalidated");
+            };
+            if let Some(result_value) = result {
+                let raw_value = builder.ins().load(
+                    types::I64,
+                    MemFlags::new(),
+                    result_base.expect("batch results have an arena"),
+                    loaded_result_offset,
+                );
+                let value =
+                    Self::convert_host_result_value(builder, raw_value, result_type.as_ref())?;
+                value_map.insert(result_value.id, value);
+                loaded_result_offset += 8;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Generate code for a basic block
     pub(crate) fn generate_block<M: Module>(
         module: &mut M,
@@ -1684,6 +2176,7 @@ impl CodeGenerator {
         manual_frame_exit_func: FuncId,
         manual_escape_func: FuncId,
         host_invoke_func: FuncId,
+        host_invoke_batch_func: FuncId,
         concurrent_spawn_fast_func: FuncId,
         concurrent_join_fast_func: FuncId,
         concurrent_spawn_batch_fast_func: FuncId,
@@ -1730,6 +2223,7 @@ impl CodeGenerator {
         manual_frame_active: bool,
         current_block_id: usize,
         phi_map: &HashMap<usize, Vec<PhiDescriptor>>,
+        batch_stats: &mut HostCallBatchStats,
     ) -> BackendResult<()> {
         // Get Cranelift block
         let block = *block_map
@@ -1741,9 +2235,39 @@ impl CodeGenerator {
             builder.switch_to_block(block);
         }
 
-        // Generate instructions
+        // Generate instructions. A batch is planned only across a contiguous
+        // run of generic HostCall instructions in this block. All uncertain
+        // cases fall back to the existing single-instruction lowering.
         let track_allocations = ir_block.id == 0;
-        for instr in &ir_block.instructions {
+        let mut instruction_index = 0;
+        while instruction_index < ir_block.instructions.len() {
+            let batch_end = Self::hostcall_batch_end(
+                &ir_block.instructions,
+                instruction_index,
+                value_map,
+                builder,
+                host_name_data,
+            );
+            if batch_end > instruction_index {
+                Self::generate_hostcall_batch(
+                    module,
+                    host_name_data,
+                    host_invoke_batch_func,
+                    builder,
+                    &ir_block.instructions[instruction_index..batch_end],
+                    value_map,
+                    batch_stats,
+                )?;
+                instruction_index = batch_end;
+                continue;
+            }
+
+            let instr = &ir_block.instructions[instruction_index];
+            if let InstructionKind::HostCall { host, .. } = &instr.kind {
+                if !Self::is_fast_hostcall_name(host) {
+                    batch_stats.fallback_hostcalls += 1;
+                }
+            }
             Self::generate_instruction(
                 module,
                 function_map,
@@ -1800,6 +2324,7 @@ impl CodeGenerator {
                 block_map,
                 phi_map,
             )?;
+            instruction_index += 1;
         }
 
         // Generate terminator
@@ -1893,35 +2418,34 @@ impl CodeGenerator {
         // f64 at the operation boundary when either operand is f64.  Keeping
         // this here preserves the source-level numeric promotion without
         // emitting an invalid f32/f64 instruction pair.
-        let promote_float_operands = |builder: &mut FunctionBuilder,
-                                      lhs: Value,
-                                      rhs: Value|
-         -> (Value, Value, bool) {
-            let lhs_ty = builder.func.dfg.value_type(lhs);
-            let rhs_ty = builder.func.dfg.value_type(rhs);
-            if lhs_ty == types::F64 || rhs_ty == types::F64 {
-                let lhs = if lhs_ty == types::F32 {
-                    builder.ins().fpromote(types::F64, lhs)
+        let promote_float_operands =
+            |builder: &mut FunctionBuilder, lhs: Value, rhs: Value| -> (Value, Value, bool) {
+                let lhs_ty = builder.func.dfg.value_type(lhs);
+                let rhs_ty = builder.func.dfg.value_type(rhs);
+                if lhs_ty == types::F64 || rhs_ty == types::F64 {
+                    let lhs = if lhs_ty == types::F32 {
+                        builder.ins().fpromote(types::F64, lhs)
+                    } else {
+                        lhs
+                    };
+                    let rhs = if rhs_ty == types::F32 {
+                        builder.ins().fpromote(types::F64, rhs)
+                    } else {
+                        rhs
+                    };
+                    (lhs, rhs, true)
                 } else {
-                    lhs
-                };
-                let rhs = if rhs_ty == types::F32 {
-                    builder.ins().fpromote(types::F64, rhs)
-                } else {
-                    rhs
-                };
-                (lhs, rhs, true)
-            } else {
-                (lhs, rhs, lhs_ty == types::F32 && rhs_ty == types::F32)
-            }
-        };
+                    (lhs, rhs, lhs_ty == types::F32 && rhs_ty == types::F32)
+                }
+            };
 
         match &instr.kind {
             // Arithmetic operations
             InstructionKind::Add { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fadd(lhs_val, rhs_val)
                 } else {
@@ -1933,7 +2457,8 @@ impl CodeGenerator {
             InstructionKind::Sub { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fsub(lhs_val, rhs_val)
                 } else {
@@ -1945,7 +2470,8 @@ impl CodeGenerator {
             InstructionKind::Mul { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fmul(lhs_val, rhs_val)
                 } else {
@@ -1957,7 +2483,8 @@ impl CodeGenerator {
             InstructionKind::Div { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fdiv(lhs_val, rhs_val)
                 } else {
@@ -1977,7 +2504,8 @@ impl CodeGenerator {
             InstructionKind::Eq { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fcmp(FloatCC::Equal, lhs_val, rhs_val)
                 } else {
@@ -1989,7 +2517,8 @@ impl CodeGenerator {
             InstructionKind::Ne { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fcmp(FloatCC::NotEqual, lhs_val, rhs_val)
                 } else {
@@ -2001,7 +2530,8 @@ impl CodeGenerator {
             InstructionKind::Lt { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder.ins().fcmp(FloatCC::LessThan, lhs_val, rhs_val)
                 } else {
@@ -2013,7 +2543,8 @@ impl CodeGenerator {
             InstructionKind::Le { result, lhs, rhs } => {
                 let lhs_val = get_value(lhs)?;
                 let rhs_val = get_value(rhs)?;
-                let (lhs_val, rhs_val, is_float) = promote_float_operands(builder, lhs_val, rhs_val);
+                let (lhs_val, rhs_val, is_float) =
+                    promote_float_operands(builder, lhs_val, rhs_val);
                 let result_val = if is_float {
                     builder
                         .ins()
@@ -2093,7 +2624,10 @@ impl CodeGenerator {
                     let ptr = builder.ins().stack_addr(types::I64, slot, 0);
                     value_map.insert(result.id, ptr);
                     if let IRType::Array { element_type, size } = ty {
-                        if matches!(**element_type, IRType::Int | IRType::Char | IRType::ExactInt { .. }) {
+                        if matches!(
+                            **element_type,
+                            IRType::Int | IRType::Char | IRType::ExactInt { .. }
+                        ) {
                             stack_array_lengths.insert(result.id, *size as i64);
                             string_literal_lengths.insert(result.id, *size as i64);
                         }
@@ -2116,7 +2650,10 @@ impl CodeGenerator {
                     }
 
                     if let IRType::Array { element_type, size } = ty {
-                        if matches!(**element_type, IRType::Int | IRType::Char | IRType::ExactInt { .. }) {
+                        if matches!(
+                            **element_type,
+                            IRType::Int | IRType::Char | IRType::ExactInt { .. }
+                        ) {
                             string_literal_lengths.insert(result.id, *size as i64);
                         }
                     }
@@ -2208,7 +2745,8 @@ impl CodeGenerator {
             } => {
                 let output_value = get_value(output)?;
                 if operation == "grad_handle" {
-                    let func_ref = module.declare_func_in_func(tensor_grad_handle_fast_func, builder.func);
+                    let func_ref =
+                        module.declare_func_in_func(tensor_grad_handle_fast_func, builder.func);
                     let call = builder.ins().call(func_ref, &[output_value]);
                     if let Some(result) = result {
                         value_map.insert(result.id, builder.inst_results(call)[0]);
@@ -2216,30 +2754,60 @@ impl CodeGenerator {
                     return Ok(());
                 }
                 let operation_name = operation.strip_prefix("grad_apply_").ok_or_else(|| {
-                    BackendCodegenError::invalid_ir(format!("E3004: invalid autodiff step {operation}"))
+                    BackendCodegenError::invalid_ir(format!(
+                        "E3004: invalid autodiff step {operation}"
+                    ))
                 })?;
                 let opcode = match operation_name {
-                    "add" => 0, "sub" => 1, "mul" => 2, "div" => 3,
-                    "neg" => 4, "exp" => 5, "log" => 6, "relu" => 7,
-                    "sigmoid" => 8, "sum_t" => 9, "mean_t" => 10, "dot_t" => 11,
-                    "matmul" => 12, "transpose" => 13, "reshape" => 14,
-                    "linear" => 15, "mse_loss" => 16,
-                    other => return Err(BackendCodegenError::invalid_ir(format!("E3004: no reverse kernel for {other}"))),
+                    "add" => 0,
+                    "sub" => 1,
+                    "mul" => 2,
+                    "div" => 3,
+                    "neg" => 4,
+                    "exp" => 5,
+                    "log" => 6,
+                    "relu" => 7,
+                    "sigmoid" => 8,
+                    "sum_t" => 9,
+                    "mean_t" => 10,
+                    "dot_t" => 11,
+                    "matmul" => 12,
+                    "transpose" => 13,
+                    "reshape" => 14,
+                    "linear" => 15,
+                    "mse_loss" => 16,
+                    other => {
+                        return Err(BackendCodegenError::invalid_ir(format!(
+                            "E3004: no reverse kernel for {other}"
+                        )))
+                    }
                 };
                 if inputs.len() > 3 || targets.len() > 3 {
-                    return Err(BackendCodegenError::invalid_ir("E3004: autodiff step has too many operands"));
+                    return Err(BackendCodegenError::invalid_ir(
+                        "E3004: autodiff step has too many operands",
+                    ));
                 }
                 let zero = builder.ins().iconst(types::I64, 0);
-                let upstream_value = upstream.map(|value| get_value(&value)).transpose()?.unwrap_or(zero);
-                let mut params = vec![builder.ins().iconst(types::I64, opcode), output_value, upstream_value];
+                let upstream_value = upstream
+                    .map(|value| get_value(&value))
+                    .transpose()?
+                    .unwrap_or(zero);
+                let mut params = vec![
+                    builder.ins().iconst(types::I64, opcode),
+                    output_value,
+                    upstream_value,
+                ];
                 for index in 0..3 {
                     let value = targets.get(index).or_else(|| inputs.get(index));
                     params.push(value.map(get_value).transpose()?.unwrap_or(zero));
                 }
-                let func_ref = module.declare_func_in_func(tensor_autodiff_apply_fast_func, builder.func);
+                let func_ref =
+                    module.declare_func_in_func(tensor_autodiff_apply_fast_func, builder.func);
                 builder.ins().call(func_ref, &params);
                 if result.is_some() {
-                    return Err(BackendCodegenError::invalid_ir("E3004: reverse apply step cannot produce a value"));
+                    return Err(BackendCodegenError::invalid_ir(
+                        "E3004: reverse apply step cannot produce a value",
+                    ));
                 }
             }
             InstructionKind::HostCall {
@@ -2779,11 +3347,16 @@ impl CodeGenerator {
                         }
                         Some(IRType::ExactFloat { width }) => match width {
                             spectra_midend::ir::FloatWidth::F32 => {
-                                let f64_value = builder.ins().bitcast(types::F64, MemFlags::new(), raw_value);
+                                let f64_value =
+                                    builder
+                                        .ins()
+                                        .bitcast(types::F64, MemFlags::new(), raw_value);
                                 builder.ins().fdemote(types::F32, f64_value)
                             }
                             spectra_midend::ir::FloatWidth::F64 => {
-                                builder.ins().bitcast(types::F64, MemFlags::new(), raw_value)
+                                builder
+                                    .ins()
+                                    .bitcast(types::F64, MemFlags::new(), raw_value)
                             }
                         },
                         _ => raw_value,
@@ -2929,18 +3502,25 @@ impl CodeGenerator {
                         }
                     }
                     (IRType::ExactInt { signed, .. }, IRType::Int) => {
-                        if operand_cl_ty == types::I64 { operand_val }
-                        else if *signed { builder.ins().sextend(types::I64, operand_val) }
-                        else { builder.ins().uextend(types::I64, operand_val) }
+                        if operand_cl_ty == types::I64 {
+                            operand_val
+                        } else if *signed {
+                            builder.ins().sextend(types::I64, operand_val)
+                        } else {
+                            builder.ins().uextend(types::I64, operand_val)
+                        }
                     }
                     (IRType::Int, IRType::ExactInt { .. }) => {
                         let target = Self::ir_type_to_cranelift(to_ty)?;
-                        if builder.func.dfg.value_type(operand_val) == target { operand_val }
-                        else { builder.ins().ireduce(target, operand_val) }
+                        if builder.func.dfg.value_type(operand_val) == target {
+                            operand_val
+                        } else {
+                            builder.ins().ireduce(target, operand_val)
+                        }
                     }
-                    (IRType::Int, IRType::ExactFloat { .. }) => {
-                        builder.ins().fcvt_from_sint(Self::ir_type_to_cranelift(to_ty)?, operand_val)
-                    }
+                    (IRType::Int, IRType::ExactFloat { .. }) => builder
+                        .ins()
+                        .fcvt_from_sint(Self::ir_type_to_cranelift(to_ty)?, operand_val),
                     (IRType::ExactFloat { .. }, IRType::ExactInt { signed, .. }) => {
                         let target = Self::ir_type_to_cranelift(to_ty)?;
                         if *signed {
@@ -2950,29 +3530,47 @@ impl CodeGenerator {
                         }
                     }
                     (IRType::ExactFloat { .. }, IRType::Float) => {
-                        if operand_cl_ty == types::F32 { builder.ins().fpromote(types::F64, operand_val) }
-                        else { operand_val }
+                        if operand_cl_ty == types::F32 {
+                            builder.ins().fpromote(types::F64, operand_val)
+                        } else {
+                            operand_val
+                        }
                     }
                     (IRType::Float, IRType::ExactFloat { .. }) => {
                         let target = Self::ir_type_to_cranelift(to_ty)?;
-                        if target == types::F32 { builder.ins().fdemote(types::F32, operand_val) }
-                        else { operand_val }
+                        if target == types::F32 {
+                            builder.ins().fdemote(types::F32, operand_val)
+                        } else {
+                            operand_val
+                        }
                     }
                     (IRType::ExactFloat { .. }, IRType::Int) => {
                         builder.ins().fcvt_to_sint_sat(types::I64, operand_val)
                     }
-                    (IRType::ExactFloat { width: from_width }, IRType::ExactFloat { width: to_width }) => {
-                        match (from_width, to_width) {
-                            (spectra_midend::ir::FloatWidth::F32, spectra_midend::ir::FloatWidth::F64) => {
-                                builder.ins().fpromote(types::F64, operand_val)
-                            }
-                            (spectra_midend::ir::FloatWidth::F64, spectra_midend::ir::FloatWidth::F32) => {
-                                builder.ins().fdemote(types::F32, operand_val)
-                            }
-                            _ => operand_val,
-                        }
-                    }
-                    (IRType::ExactInt { signed: from_signed, width: _from_width }, IRType::ExactInt { signed: to_signed, width: _to_width }) => {
+                    (
+                        IRType::ExactFloat { width: from_width },
+                        IRType::ExactFloat { width: to_width },
+                    ) => match (from_width, to_width) {
+                        (
+                            spectra_midend::ir::FloatWidth::F32,
+                            spectra_midend::ir::FloatWidth::F64,
+                        ) => builder.ins().fpromote(types::F64, operand_val),
+                        (
+                            spectra_midend::ir::FloatWidth::F64,
+                            spectra_midend::ir::FloatWidth::F32,
+                        ) => builder.ins().fdemote(types::F32, operand_val),
+                        _ => operand_val,
+                    },
+                    (
+                        IRType::ExactInt {
+                            signed: from_signed,
+                            width: _from_width,
+                        },
+                        IRType::ExactInt {
+                            signed: to_signed,
+                            width: _to_width,
+                        },
+                    ) => {
                         let target = Self::ir_type_to_cranelift(to_ty)?;
                         let source_bits = Self::type_size_bytes(from_ty) * 8;
                         let target_bits = Self::type_size_bytes(to_ty) * 8;
@@ -3445,7 +4043,9 @@ impl CodeGenerator {
                 spectra_midend::ir::IntWidth::I8 => types::I8,
                 spectra_midend::ir::IntWidth::I16 => types::I16,
                 spectra_midend::ir::IntWidth::I32 => types::I32,
-                spectra_midend::ir::IntWidth::I64 | spectra_midend::ir::IntWidth::Isize | spectra_midend::ir::IntWidth::Usize => types::I64,
+                spectra_midend::ir::IntWidth::I64
+                | spectra_midend::ir::IntWidth::Isize
+                | spectra_midend::ir::IntWidth::Usize => types::I64,
             }),
             IRType::ExactFloat { width } => Ok(match width {
                 spectra_midend::ir::FloatWidth::F32 => types::F32,
@@ -3478,7 +4078,9 @@ impl CodeGenerator {
                 spectra_midend::ir::IntWidth::I8 => 1,
                 spectra_midend::ir::IntWidth::I16 => 2,
                 spectra_midend::ir::IntWidth::I32 => 4,
-                spectra_midend::ir::IntWidth::I64 | spectra_midend::ir::IntWidth::Isize | spectra_midend::ir::IntWidth::Usize => 8,
+                spectra_midend::ir::IntWidth::I64
+                | spectra_midend::ir::IntWidth::Isize
+                | spectra_midend::ir::IntWidth::Usize => 8,
             },
             IRType::ExactFloat { width } => match width {
                 spectra_midend::ir::FloatWidth::F32 => 4,
@@ -3624,7 +4226,9 @@ mod tests {
 
         codegen.pre_intern_host_names(&module);
         assert_eq!(codegen.host_name_data.len(), 1);
-        assert!(codegen.host_name_data.contains_key("spectra.std.test.duplicate"));
+        assert!(codegen
+            .host_name_data
+            .contains_key("spectra.std.test.duplicate"));
     }
 
     #[test]
@@ -4268,6 +4872,98 @@ mod tests {
         // Generate code
         assert!(codegen.declare_function(&func).is_ok());
         assert!(codegen.define_function(&func).is_ok());
+    }
+
+    #[test]
+    fn r3105_batch_planner_groups_independent_generic_hostcalls() {
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
+
+        let mut codegen = CodeGenerator::new();
+        let mut func = IRFunction::new("hostcall_batch_stats", vec![], IRType::Int);
+        let entry = func.add_block("entry");
+        let block = func.get_block_mut(entry).unwrap();
+        let first_arg = Value { id: 0 };
+        let second_arg = Value { id: 1 };
+        let third_arg = Value { id: 2 };
+        block.add_instruction(InstructionKind::ConstInt {
+            result: first_arg,
+            value: -7,
+        });
+        block.add_instruction(InstructionKind::ConstInt {
+            result: second_arg,
+            value: 3,
+        });
+        block.add_instruction(InstructionKind::ConstInt {
+            result: third_arg,
+            value: 9,
+        });
+        let first_result = Value { id: 3 };
+        block.add_instruction(InstructionKind::HostCall {
+            result: Some(first_result),
+            host: "spectra.std.math.abs".to_string(),
+            args: vec![first_arg],
+            result_type: Some(IRType::Int),
+        });
+        let second_result = Value { id: 4 };
+        block.add_instruction(InstructionKind::HostCall {
+            result: Some(second_result),
+            host: "spectra.std.math.max".to_string(),
+            args: vec![second_arg, third_arg],
+            result_type: Some(IRType::Int),
+        });
+        block.set_terminator(Terminator::Return {
+            value: Some(second_result),
+        });
+
+        codegen.pre_intern_host_names_for_test(&func);
+        assert!(codegen.declare_function(&func).is_ok());
+        assert!(codegen.define_function(&func).is_ok());
+        let stats = codegen.hostcall_batch_stats();
+        assert_eq!(stats.batched_sites, 1);
+        assert_eq!(stats.batched_hostcalls, 2);
+        assert_eq!(stats.fallback_hostcalls, 0);
+        assert!(stats.argument_arena_bytes > 0);
+        assert!(stats.result_arena_bytes > 0);
+    }
+
+    #[test]
+    fn r3105_batch_planner_falls_back_on_result_dependency() {
+        use spectra_midend::ir::{InstructionKind, Terminator, Value};
+
+        let mut codegen = CodeGenerator::new();
+        let mut func = IRFunction::new("hostcall_batch_dependency", vec![], IRType::Int);
+        let entry = func.add_block("entry");
+        let block = func.get_block_mut(entry).unwrap();
+        let input = Value { id: 0 };
+        block.add_instruction(InstructionKind::ConstInt {
+            result: input,
+            value: -7,
+        });
+        let first_result = Value { id: 1 };
+        block.add_instruction(InstructionKind::HostCall {
+            result: Some(first_result),
+            host: "spectra.std.math.abs".to_string(),
+            args: vec![input],
+            result_type: Some(IRType::Int),
+        });
+        let second_result = Value { id: 2 };
+        block.add_instruction(InstructionKind::HostCall {
+            result: Some(second_result),
+            host: "spectra.std.math.abs".to_string(),
+            args: vec![first_result],
+            result_type: Some(IRType::Int),
+        });
+        block.set_terminator(Terminator::Return {
+            value: Some(second_result),
+        });
+
+        codegen.pre_intern_host_names_for_test(&func);
+        assert!(codegen.declare_function(&func).is_ok());
+        assert!(codegen.define_function(&func).is_ok());
+        let stats = codegen.hostcall_batch_stats();
+        assert_eq!(stats.batched_sites, 0);
+        assert_eq!(stats.batched_hostcalls, 0);
+        assert_eq!(stats.fallback_hostcalls, 2);
     }
 
     #[test]

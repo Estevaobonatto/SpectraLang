@@ -11,7 +11,10 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
-use crate::codegen::{validate_tensor_ir, CodeGenerator, DenseValueMap, HostNameRecord, PhiDescriptor, StringLiteralRecord};
+use crate::codegen::{
+    validate_tensor_ir, CodeGenerator, DenseValueMap, HostCallBatchStats, HostNameRecord,
+    PhiDescriptor, StringLiteralRecord,
+};
 use crate::error::{BackendCodegenError, BackendResult};
 
 /// Options that control AOT code generation.
@@ -42,6 +45,7 @@ pub struct AotCodeGenerator {
     manual_frame_exit_func: FuncId,
     manual_escape_func: FuncId,
     host_invoke_func: FuncId,
+    host_invoke_batch_func: FuncId,
     concurrent_spawn_fast_func: FuncId,
     concurrent_join_fast_func: FuncId,
     concurrent_spawn_batch_fast_func: FuncId,
@@ -87,6 +91,7 @@ pub struct AotCodeGenerator {
     string_literal_storage: Vec<Box<[i64]>>,
     host_name_data: HashMap<String, HostNameRecord>,
     host_name_storage: Vec<Box<[u8]>>,
+    hostcall_batch_stats: HostCallBatchStats,
     /// Locations produced by Cranelift's register allocator for labelled IR
     /// values: (function, IR value id, CFA-relative offset).  These are
     /// intentionally collected from compiled machine code, never guessed
@@ -171,6 +176,20 @@ impl AotCodeGenerator {
         let host_invoke_func = module
             .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
             .expect("Failed to declare host-invoke import");
+
+        let mut host_invoke_batch_sig = module.make_signature();
+        host_invoke_batch_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_batch_sig.params.push(AbiParam::new(types::I64));
+        host_invoke_batch_sig
+            .returns
+            .push(AbiParam::new(types::I32));
+        let host_invoke_batch_func = module
+            .declare_function(
+                "spectra_rt_host_invoke_batch",
+                Linkage::Import,
+                &host_invoke_batch_sig,
+            )
+            .expect("Failed to declare host-invoke batch import");
 
         let mut concurrent_spawn_sig = module.make_signature();
         concurrent_spawn_sig.params.push(AbiParam::new(types::I64));
@@ -361,9 +380,13 @@ impl AotCodeGenerator {
 
         let mut tensor_autodiff_apply_sig = module.make_signature();
         for _ in 0..6 {
-            tensor_autodiff_apply_sig.params.push(AbiParam::new(types::I64));
+            tensor_autodiff_apply_sig
+                .params
+                .push(AbiParam::new(types::I64));
         }
-        tensor_autodiff_apply_sig.returns.push(AbiParam::new(types::I32));
+        tensor_autodiff_apply_sig
+            .returns
+            .push(AbiParam::new(types::I32));
         let tensor_autodiff_apply_fast_func = module
             .declare_function(
                 "spectra_rt_tensor_autodiff_apply_fast",
@@ -372,8 +395,12 @@ impl AotCodeGenerator {
             )
             .expect("Failed to declare explicit autodiff import");
         let mut tensor_grad_handle_sig = module.make_signature();
-        tensor_grad_handle_sig.params.push(AbiParam::new(types::I64));
-        tensor_grad_handle_sig.returns.push(AbiParam::new(types::I64));
+        tensor_grad_handle_sig
+            .params
+            .push(AbiParam::new(types::I64));
+        tensor_grad_handle_sig
+            .returns
+            .push(AbiParam::new(types::I64));
         let tensor_grad_handle_fast_func = module
             .declare_function(
                 "spectra_rt_tensor_grad_handle_fast",
@@ -532,6 +559,7 @@ impl AotCodeGenerator {
             manual_frame_exit_func,
             manual_escape_func,
             host_invoke_func,
+            host_invoke_batch_func,
             concurrent_spawn_fast_func,
             concurrent_join_fast_func,
             concurrent_spawn_batch_fast_func,
@@ -567,6 +595,7 @@ impl AotCodeGenerator {
             channel_len_fast_func,
             host_name_data: HashMap::new(),
             host_name_storage: Vec::new(),
+            hostcall_batch_stats: HostCallBatchStats::default(),
             debug_locations: Vec::new(),
             string_literal_data: HashMap::new(),
             string_literal_storage: Vec::new(),
@@ -580,15 +609,26 @@ impl AotCodeGenerator {
         ir_module: &IRModule,
         opts: &AotOptions,
     ) -> BackendResult<Vec<u8>> {
-        let (bytes, _) = self.compile_to_object_with_locations(ir_module, opts)?;
+        let (bytes, _, _) = self.compile_to_object_with_locations_and_stats(ir_module, opts)?;
         Ok(bytes)
     }
 
     pub fn compile_to_object_with_locations(
-        mut self,
+        self,
         ir_module: &IRModule,
         opts: &AotOptions,
     ) -> BackendResult<(Vec<u8>, Vec<(String, usize, i64)>)> {
+        let (bytes, locations, _) =
+            self.compile_to_object_with_locations_and_stats(ir_module, opts)?;
+        Ok((bytes, locations))
+    }
+
+    pub fn compile_to_object_with_locations_and_stats(
+        mut self,
+        ir_module: &IRModule,
+        opts: &AotOptions,
+    ) -> BackendResult<(Vec<u8>, Vec<(String, usize, i64)>, HostCallBatchStats)> {
+        self.hostcall_batch_stats = HostCallBatchStats::default();
         let rename_main = opts.emit_executable;
         let _tensor_ir = validate_tensor_ir(ir_module)?;
 
@@ -631,7 +671,7 @@ impl AotCodeGenerator {
         let bytes = product
             .emit()
             .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?;
-        Ok((bytes, debug_locations))
+        Ok((bytes, debug_locations, self.hostcall_batch_stats))
     }
 
     pub fn take_debug_locations(&mut self) -> Vec<(String, usize, i64)> {
@@ -705,10 +745,11 @@ impl AotCodeGenerator {
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
         let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
-        let scalar_alloca_types = CodeGenerator::collect_promotable_scalar_allocas_with_stack_allocas(
-            ir_func,
-            &stack_allocas,
-        );
+        let scalar_alloca_types =
+            CodeGenerator::collect_promotable_scalar_allocas_with_stack_allocas(
+                ir_func,
+                &stack_allocas,
+            );
         let mut scalar_alloca_vars = HashMap::with_capacity(scalar_alloca_types.len());
         for (alloca_id, ty) in &scalar_alloca_types {
             let variable = builder.declare_var(CodeGenerator::ir_type_to_cranelift(ty)?);
@@ -789,6 +830,7 @@ impl AotCodeGenerator {
                 self.manual_frame_exit_func,
                 self.manual_escape_func,
                 self.host_invoke_func,
+                self.host_invoke_batch_func,
                 self.concurrent_spawn_fast_func,
                 self.concurrent_join_fast_func,
                 self.concurrent_spawn_batch_fast_func,
@@ -835,6 +877,7 @@ impl AotCodeGenerator {
                 manual_frame_active,
                 ir_block.id,
                 &phi_map,
+                &mut self.hostcall_batch_stats,
             )?;
         }
 
@@ -868,13 +911,20 @@ impl AotCodeGenerator {
             })?;
         if let Some(compiled) = self.ctx.compiled_code() {
             for local in &ir_func.locals {
-                let Some(value_id) = local.value_id else { continue };
+                let Some(value_id) = local.value_id else {
+                    continue;
+                };
                 let label = ValueLabel::from_u32(value_id as u32);
                 if let Some(ranges) = compiled.value_labels_ranges.get(&label) {
                     for range in ranges {
                         let rendered = format!("{:?}", range.loc);
-                        if let Some(offset) = rendered.strip_prefix("CFAOffset(").and_then(|s| s.strip_suffix(')')).and_then(|s| s.parse::<i64>().ok()) {
-                            self.debug_locations.push((ir_func.name.clone(), value_id, offset));
+                        if let Some(offset) = rendered
+                            .strip_prefix("CFAOffset(")
+                            .and_then(|s| s.strip_suffix(')'))
+                            .and_then(|s| s.parse::<i64>().ok())
+                        {
+                            self.debug_locations
+                                .push((ir_func.name.clone(), value_id, offset));
                             break;
                         }
                     }
@@ -1144,7 +1194,9 @@ mod tests {
         let mut codegen = AotCodeGenerator::new();
         codegen.pre_intern_host_names(&module);
         assert_eq!(codegen.host_name_data.len(), 1);
-        assert!(codegen.host_name_data.contains_key("spectra.std.test.duplicate"));
+        assert!(codegen
+            .host_name_data
+            .contains_key("spectra.std.test.duplicate"));
         assert!(codegen
             .host_name_data
             .get("spectra.std.test.duplicate")

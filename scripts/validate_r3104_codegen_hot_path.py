@@ -90,10 +90,12 @@ def validate_roadmap(roadmap: dict[str, Any]) -> list[str]:
         errors.append("R-3103 must be complete before R-3104 promotion")
     if items.get("R-3104", {}).get("status") not in {"in_progress", "complete"}:
         errors.append("R-3104 must be in_progress or complete")
+    if items.get("R-3105", {}).get("status") not in {"not_started", "in_progress", "complete"}:
+        errors.append("R-3105 must be not_started, in_progress, or complete")
     # R-3107, R-3108, and R-3117 were already complete before R-3104 started; do not
     # regress those existing roadmap facts while keeping the active follow-ups
     # closed.
-    for number in (3105, 3106, 3109, 3110, 3111, 3112, 3113, 3114, 3115, 3116):
+    for number in (3106, 3109, 3110, 3111, 3112, 3113, 3114, 3115, 3116):
         item_id = f"R-{number}"
         if items.get(item_id, {}).get("status") != "not_started":
             errors.append(f"{item_id} must remain not_started")

@@ -4258,18 +4258,22 @@ acceptance = [
 
 [[items]]
 id = "R-3105"
-title = "Host Call Batching and Name Precompute"
+title = "Host Call Batching and Allocation-Free Dispatch"
 phase = "phase_31"
 owner = "backend"
 priority = "P0"
-status = "not_started"
-risk = "medium"
-dependencies = ["R-3103"]
-summary = "Reduce per-hostcall overhead by batching consecutive hostcalls, caching host name lookups, and minimizing string allocation on the hostcall boundary."
+status = "complete"
+risk = "high"
+dependencies = ["R-3103", "R-3104"]
+summary = "Reduce generic hostcall overhead with borrowed name lookup and a conservative internal batch dispatcher; R-3104 already delivered deterministic JIT/AOT host-name pre-interning."
 acceptance = [
-  "hostcall lowering avoids per-call `to_string()` on the host name",
-  "consecutive hostcalls in the same basic block are grouped where semantics allow",
-  "no functional regression; CPU scenarios improve or stay flat; tensor scenarios improve or stay flat"
+  "runtime host-name lookup borrows UTF-8 data without allocating a String per call, while registry mutation and dynamic registration semantics remain unchanged",
+  "an internal #[repr(C)] batch descriptor and spectra_rt_host_invoke_batch preserve source order, stop at the first failure, and keep the existing generic host_invoke behavior",
+  "JIT and AOT batch only up to eight consecutive generic hostcalls in one basic block when no later argument depends on an earlier result; Fast ABI, fused async, unsupported, and uncertain cases use the individual fallback",
+  "batched lowering uses bounded Cranelift stack slots for descriptors, arguments, and results and does not call manual_alloc/manual_free for the batch",
+  "the dedicated hostcall benchmark is at least 10% faster than a clean-HEAD control using five groups of 3 warmups and 20 samples, with batch/fallback counts recorded",
+  "the 21-scenario Spectra + Go + Rust matrix passes functionally with no regression above 5%, Java is excluded, and the six R-3104 AOT scenarios remain within their existing gates",
+  "JIT and AOT results, hostcall failure ordering, debug metadata, and existing Fast ABI paths remain compatible; the immutable baseline SHA-256 is unchanged"
 ]
 
 [[items]]

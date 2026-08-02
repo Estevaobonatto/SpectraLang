@@ -6087,7 +6087,7 @@ ORM.
 
 ## R-2505 PostgreSQL Driver (Async, Prepared, COPY)
 
-- Status: `in_progress`
+ - Status: `complete`
 - Priority: `P0`
 - Owner: `db`
 - Risk: `high`
@@ -7546,8 +7546,8 @@ continua aguardando o relatório remoto do PostgreSQL 16.
   binário release atuais. O baseline permaneceu byte-a-byte inalterado, com
   SHA-256 `452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b`.
 - R-3103 está `complete`; R-3102 permanece `in_progress` por depender do
-  profiling Linux oficial. R-3104 está `in_progress`; R-3105..R-3117 ainda não
-  foram iniciadas.
+  profiling Linux oficial. R-3104 e R-3105 estão `complete`; R-3106 e os
+  demais follow-ups ainda não foram iniciados.
 
 ## R-3104 Cranelift Value Map and Codegen Hot Path
 
@@ -7596,28 +7596,55 @@ continua aguardando o relatório remoto do PostgreSQL 16.
   acima de 5% e o ganho geométrico mínimo deixou de ser requisito.
 - A evidência aprovada está em `evidence-r3104-codegen.{json,md}`; o baseline
   permanece byte-a-byte inalterado. R-3102 continua `in_progress` e R-3105
-  não foi iniciado.
-- O baseline permaneceu byte-a-byte inalterado; R-3102 continua aguardando
-  profiling Linux oficial e R-3105 não foi iniciado.
+  foi validada separadamente.
 
-## R-3105 Host Call Batching and Name Precompute
+## R-3105 Host Call Batching and Allocation-Free Dispatch
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P0`
 - Owner: `backend`
-- Dependencies: `R-3103`
+- Dependencies: `R-3103`, `R-3104`
 
 ### Scope
 
-- Reduzir overhead de host call: cache de host name lookups, evitar
-  `to_string()` por chamada, agrupar hostcalls consecutivos quando semântica
-  permite.
+- Reduzir o overhead do dispatcher genérico: lookup emprestado do nome,
+  descritores internos de batch e arenas de stack limitadas para hostcalls
+  consecutivos. O pré-internamento determinístico de nomes JIT/AOT já foi
+  entregue pela R-3104 e não será duplicado.
 
 ### Acceptance
 
-- Hostcall lowering evita `to_string()` por chamada.
-- Hostcalls consecutivos no mesmo bloco básico são agrupados onde aplicável.
-- Sem regressão funcional; cenários CPU e tensor melhoram ou ficam estáveis.
+- `spectra_rt_host_invoke` não cria `String` por chamada e mantém registro,
+  callbacks, status e semântica de registro dinâmico.
+- `spectra_rt_host_invoke_batch` executa descritores em ordem, para no primeiro
+  erro e mantém o comportamento do caminho individual.
+- JIT/AOT agrupam no máximo oito hostcalls genéricos independentes no mesmo
+  bloco; Fast ABI, dependências, efeitos não comprovados e casos inválidos
+  usam fallback individual.
+- O caminho batched usa stack slots para descritores/argumentos/resultados e
+  não usa `manual_alloc`/`manual_free`.
+- O microbenchmark dedicado melhora pelo menos 10% contra controle limpo,
+  usando 5 grupos, 3 warmups e 20 amostras por grupo.
+- Os 21 cenários Spectra + Go + Rust passam sem regressão superior a 5%, Java
+  permanece excluído, os seis cenários AOT da R-3104 continuam aprovados e o
+  baseline permanece inalterado.
+
+### Current evidence (2026-08-02)
+
+- `runtime/src/ffi.rs` usa lookup emprestado de host names e o dispatcher
+  interno `spectra_rt_host_invoke_batch` preserva ordem, callbacks, status e
+  parada no primeiro erro. JIT e AOT compartilham o lowering conservador, com
+  no máximo oito hostcalls genéricos independentes, arenas bounded em stack e
+  fallback individual para casos não comprovados.
+- O contrato `191_phase31_hostcall_batch_contract.spectra` passa em JIT e AOT.
+  O microbenchmark AOT com controle limpo usa 5 grupos, 3 warmups e 20 amostras;
+  a mediana candidato/controle é `0,474774x` (`52,5%` mais rápido), com um
+  site batched, três hostcalls agrupados, zero fallback no fixture quente e
+  arenas de `40`/`24` bytes.
+- Os dois reports release atuais passam strict e são semanticamente compatíveis
+  em 21/21 Spectra + Go + Rust; Java não é executado. O steady-state dos seis
+  cenários R-3104, a fixture JIT/AOT e o SHA-256 imutável do baseline também
+  passam. Evidência: `evidence-r3105-hostcall-batching.{json,md}`.
 
 ## R-3106 Alloca Hoisting and Lifetime-Based Reuse
 
