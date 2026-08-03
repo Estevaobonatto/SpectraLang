@@ -38,7 +38,10 @@ impl Parser {
     fn parse_logical_or(&mut self) -> Result<Expression, ()> {
         let mut left = self.parse_logical_and()?;
 
-        while matches!(&self.current().kind, TokenKind::Operator(Operator::Or)) {
+        while matches!(
+            &self.current().kind,
+            TokenKind::Operator(Operator::Or) | TokenKind::Keyword(Keyword::OrWord)
+        ) {
             self.advance();
             let right = self.parse_logical_and()?;
             let span = crate::span::span_union(left.span, right.span);
@@ -57,11 +60,14 @@ impl Parser {
 
     // Logical AND
     fn parse_logical_and(&mut self) -> Result<Expression, ()> {
-        let mut left = self.parse_equality()?;
+        let mut left = self.parse_logical_not()?;
 
-        while matches!(&self.current().kind, TokenKind::Operator(Operator::And)) {
+        while matches!(
+            &self.current().kind,
+            TokenKind::Operator(Operator::And) | TokenKind::Keyword(Keyword::AndWord)
+        ) {
             self.advance();
-            let right = self.parse_equality()?;
+            let right = self.parse_logical_not()?;
             let span = crate::span::span_union(left.span, right.span);
             left = Expression {
                 span,
@@ -74,6 +80,28 @@ impl Parser {
         }
 
         Ok(left)
+    }
+
+    // Word-form `not` follows the readable-language precedence used by
+    // Python-like surfaces: comparisons bind more tightly than `not`, while
+    // `not` binds more tightly than `and`/`or`.  The symbolic `!` remains a
+    // traditional high-precedence unary operator for low-level expressions.
+    fn parse_logical_not(&mut self) -> Result<Expression, ()> {
+        if self.check_keyword(Keyword::NotWord) {
+            let start_span = self.current().span;
+            self.advance();
+            let operand = self.parse_logical_not()?;
+            let span = crate::span::span_union(start_span, operand.span);
+            Ok(Expression {
+                span,
+                kind: ExpressionKind::Unary {
+                    operator: UnaryOperator::Not,
+                    operand: Box::new(operand),
+                },
+            })
+        } else {
+            self.parse_equality()
+        }
     }
 
     // Equality (==, !=)
@@ -197,7 +225,7 @@ impl Parser {
                     "P006",
                     "`await` is only valid inside an async context",
                     start_span,
-                    Some("Move this expression into an `async fn`, `async { ... }`, or async closure.".to_string()),
+                    Some("Move this expression into an `async func`, `async { ... }`, or async closure.".to_string()),
                     Some("`await` outside async context".to_string()),
                 );
                 return Err(());
@@ -446,7 +474,6 @@ impl Parser {
                 })
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
-            TokenKind::Keyword(Keyword::Unless) => self.parse_unless_expression(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expression(),
             TokenKind::Keyword(Keyword::Async) => self.parse_async_expression(),
             TokenKind::Keyword(Keyword::Await) => self.parse_unary(),
@@ -802,20 +829,20 @@ impl Parser {
             return self.finish_lambda_expression(start_span, true, params);
         }
 
-        if self.check_keyword(Keyword::Fn) {
+        if self.check_keyword(Keyword::Func) {
             self.push_error_coded(
                 "P005",
-                "`async fn` is only valid as an item, method, or trait method declaration",
+                "`async func` is only valid as an item, method, or trait method declaration",
                 start_span,
-                Some("Move `async fn` to declaration position, or use `async { ... }` for an async block expression.".to_string()),
-                Some("misplaced `async fn` in expression position".to_string()),
+                Some("Move `async func` to declaration position, or use `async { ... }` for an async block expression.".to_string()),
+                Some("misplaced `async func` in expression position".to_string()),
             );
         } else {
             self.push_error_coded(
                 "P005",
-                "Expected `{`, `|`, or `fn` after `async`",
+                "Expected `{`, `|`, or `func` after `async`",
                 self.current().span,
-                Some("Use `async { ... }`, `async |args| expr`, or `async fn name(...) { ... }` in declaration position.".to_string()),
+                Some("Use `async { ... }`, `async |args| expr`, or `async func name(...) { ... }` in declaration position.".to_string()),
                 Some("`async` must prefix a block, closure, function, or method declaration".to_string()),
             );
         }
@@ -894,18 +921,32 @@ impl Parser {
 
         let mut elif_blocks = Vec::new();
 
-        // Parse elif/elseif blocks
-        while self.check_keyword(Keyword::Elif) || self.check_keyword(Keyword::ElseIf) {
-            self.advance(); // consume 'elif' or 'elseif'
-            let elif_condition = self.parse_expression()?;
-            let elif_body = self.parse_block()?;
-            elif_blocks.push((elif_condition, elif_body));
-        }
-
         // Parse optional else block
         let else_block = if self.check_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
-            Some(self.parse_block()?)
+            if self.check_keyword(Keyword::If) {
+                self.advance();
+                let elif_condition = self.parse_expression()?;
+                let elif_body = self.parse_block()?;
+                elif_blocks.push((elif_condition, elif_body));
+
+                loop {
+                    if !self.check_keyword(Keyword::Else) {
+                        break None;
+                    }
+                    self.advance();
+                    if self.check_keyword(Keyword::If) {
+                        self.advance();
+                        let elif_condition = self.parse_expression()?;
+                        let elif_body = self.parse_block()?;
+                        elif_blocks.push((elif_condition, elif_body));
+                    } else {
+                        break Some(self.parse_block()?);
+                    }
+                }
+            } else {
+                Some(self.parse_block()?)
+            }
         } else {
             None
         };
@@ -993,37 +1034,6 @@ impl Parser {
         parts
     }
 
-    fn parse_unless_expression(&mut self) -> Result<Expression, ()> {
-        // É equivalente a: if !(condition) { body } [else { else_body }]
-        let start_span = self.current().span;
-        self.advance(); // consume 'unless'
-
-        let condition = Box::new(self.parse_expression()?);
-        let then_block = self.parse_block()?;
-
-        // Optional else block
-        let else_block = if self.check_keyword(Keyword::Else) {
-            self.advance(); // consume 'else'
-            Some(self.parse_block()?)
-        } else {
-            None
-        };
-
-        let end_span = else_block
-            .as_ref()
-            .map(|b| b.span)
-            .unwrap_or(then_block.span);
-
-        Ok(Expression {
-            span: crate::span::span_union(start_span, end_span),
-            kind: ExpressionKind::Unless {
-                condition,
-                then_block,
-                else_block,
-            },
-        })
-    }
-
     fn parse_match_expression(&mut self) -> Result<Expression, ()> {
         use crate::ast::MatchArm;
 
@@ -1035,10 +1045,25 @@ impl Parser {
 
         let mut arms = Vec::new();
 
-        // Parse match arms
+        // Parse match arms using the canonical `when pattern then` and
+        // `otherwise` surface.
         while !self.check_symbol('}') && !self.is_at_end() {
-            // Parse pattern
-            let pattern = self.parse_pattern()?;
+            let is_otherwise = self.check_keyword(Keyword::Otherwise);
+            if is_otherwise {
+                self.advance();
+            } else if self.check_keyword(Keyword::When) {
+                self.advance();
+            } else {
+                self.error("Expected 'when' or 'otherwise' in match arm");
+                return Err(());
+            }
+
+            // Parse pattern.  `otherwise` is the existing wildcard pattern.
+            let pattern = if is_otherwise {
+                crate::ast::Pattern::Wildcard
+            } else {
+                self.parse_pattern()?
+            };
 
             // Parse optional guard: if <expr>
             let guard = if matches!(self.current().kind, TokenKind::Keyword(Keyword::If)) {
@@ -1048,15 +1073,12 @@ impl Parser {
                 None
             };
 
-            // Expect '=>' operator
-            if !matches!(
-                self.current().kind,
-                TokenKind::Operator(crate::token::Operator::FatArrow)
-            ) {
-                self.error("Expected '=>' after pattern in match arm");
+            if self.check_keyword(Keyword::Then) {
+                self.advance();
+            } else if !is_otherwise {
+                self.error("Expected 'then' after pattern in match arm");
                 return Err(());
             }
-            self.advance(); // consume '=>'
 
             // Parse body expression
             let body = self.parse_expression()?;
@@ -1067,7 +1089,8 @@ impl Parser {
                 body,
             });
 
-            // Optional comma, or break if we see '}'
+            // Optional comma, or break if we see '}'.  A line break is the
+            // normal separator and is detected by the next `when`/`otherwise`.
             if self.check_symbol(',') {
                 self.advance();
             } else if self.check_symbol('}') {

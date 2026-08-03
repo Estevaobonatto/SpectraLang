@@ -51,7 +51,7 @@ def init_repo(path: Path, name: str, version: str, compatibility: str = COMPATIB
         "[release]", 'channel = "stable"', f'compatibility = "{compatibility}"', "",
         "[dependencies]", dependencies, "",
     ]))
-    write(path / "src/main.spectra", "module main;\n\npub fn main() -> int { return 0; }\n")
+    write(path / "src/main.spectra", 'module main\n\npublic func main() returns int { return 0\n }\n')
     git(["init", "-q"], path)
     git(["config", "user.email", "spectra@example.local"], path)
     git(["config", "user.name", "Spectra R905"], path)
@@ -93,7 +93,7 @@ def consumer(path: Path, catalog: Path) -> None:
         "[package.catalogs]", f'local = "{catalog.as_posix()}"', "",
         "[dependencies]", "",
     ]))
-    write(path / "src/main.spectra", "module consumer;\n\npub fn main() -> int { return 0; }\n")
+    write(path / "src/main.spectra", 'module consumer\n\npublic func main() returns int { return 0\n }\n')
 
 
 def assert_contains(output: str, text: str, context: str) -> None:
@@ -175,7 +175,7 @@ def validate(binary: Path) -> None:
             'entry = "src/main.spectra"', 'src_dirs = ["src"]', "",
             "[workspace]", 'members = ["one", "two"]', "",
         ]))
-        write(duplicate_root / "src/main.spectra", "module root;\n")
+        write(duplicate_root / "src/main.spectra", 'module root\n')
         for member in ("one", "two"):
             init_repo(duplicate_root / member, "same", "1.0.0")
         output = run([str(binary), "package", "lock", "--root", str(duplicate_root)], expect=74)
@@ -189,7 +189,7 @@ def validate(binary: Path) -> None:
             'entry = "src/main.spectra"', 'src_dirs = ["src"]', "",
             "[workspace]", 'members = ["a", "b"]', "",
         ]))
-        write(cycle_root / "src/main.spectra", "module root;\n")
+        write(cycle_root / "src/main.spectra", 'module root\n')
         init_repo(cycle_root / "a", "a", "1.0.0", dependencies='b = { path = "../b" }')
         init_repo(cycle_root / "b", "b", "1.0.0", dependencies='a = { path = "../a" }')
         output = run([str(binary), "package", "lock", "--root", str(cycle_root)], expect=74)

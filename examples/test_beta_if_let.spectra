@@ -1,4 +1,4 @@
-module test_beta_if_let;
+module test_beta_if_let
 
 enum Option {
     Some(int),
@@ -10,47 +10,47 @@ enum Result {
     Err(string),
 }
 
-fn safe_divide(a: int, b: int) -> Result {
+func safe_divide(a: int, b: int) returns Result {
     if b == 0 {
-        return Result::Err("division by zero");
+        return Result::Err("division by zero")
     }
-    return Result::Ok(a / b);
+    return Result::Ok(a / b)
 }
 
-fn find_positive(x: int) -> Option {
+func find_positive(x: int) returns Option {
     if x > 0 {
-        return Option::Some(x);
+        return Option::Some(x)
     }
-    return Option::None;
+    return Option::None
 }
 
-fn main() -> int {
+func main() returns int {
     // if let: unwrap an enum variant conditionally
-    let maybe = find_positive(42);
+    let maybe = find_positive(42)
     if let Option::Some(value) = maybe {
-        let doubled = value * 2;
+        let doubled = value * 2
     }
 
-    let nothing = find_positive(-5);
+    let nothing = find_positive(-5)
     if let Option::Some(v) = nothing {
         // This branch is NOT taken — v is None
-        let x = v + 1;
+        let x = v + 1
     }
 
     // if let with else branch
-    let result = safe_divide(10, 2);
+    let result = safe_divide(10, 2)
     if let Result::Ok(quotient) = result {
-        let msg = quotient;
+        let msg = quotient
     } else {
-        let fallback = -1;
+        let fallback = -1
     }
 
     // while let: iterate with sentinel
-    let counter = 3;
+    let counter = 3
     while let Option::Some(n) = find_positive(counter) {
-        counter = counter - 1;
+        counter = counter - 1
     }
     // counter == 0 after loop
 
-    return 0;
+    return 0
 }

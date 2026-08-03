@@ -1,41 +1,41 @@
-module match_if_while_let_binding_stress;
+module match_if_while_let_binding_stress
 
 enum Option {
     Some(int),
     None,
 }
 
-fn positive(value: int) -> Option {
+func positive(value: int) returns Option {
     if value > 0 {
-        return Option::Some(value);
+        return Option::Some(value)
     }
-    return Option::None;
+    return Option::None
 }
 
-fn score(value: Option) -> int {
+func score(value: Option) returns int {
     return match value {
-        Option::Some(n) => n * 2,
-        Option::None => 0
-    };
+        when Option::Some(n) then n * 2,
+        when Option::None then 0
+    }
 }
 
-pub fn main() -> int {
-    let total = 0;
-    let current = 4;
+public func main() returns int {
+    let total   = 0
+    let current = 4
 
     while let Option::Some(n) = positive(current) {
-        total = total + score(Option::Some(n));
-        current = current - 1;
+        total = total + score(Option::Some(n))
+        current = current - 1
     }
 
     if let Option::Some(last) = positive(3) {
-        total = total + last;
+        total = total + last
     } else {
-        return 1;
+        return 1
     }
 
     if total != 23 {
-        return total;
+        return total
     }
-    return 0;
+    return 0
 }

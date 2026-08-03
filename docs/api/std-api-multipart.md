@@ -16,7 +16,7 @@ the raw body bytes as a Spectra string plus the boundary value from the
 `Content-Type` header:
 
 ```spectra
-let uploads = multipart.parse(body, "BOUNDARY", 10485760, 32, 8388608);
+let uploads = multipart.parse(body, "BOUNDARY", 10485760, 32, 8388608)
 ```
 
 The parser rejects empty, malformed, whitespace-containing, quoted, and
@@ -40,7 +40,7 @@ typed categories for total-size, part-size, and part-count failures.
 Text fields are UTF-8 decoded and addressable by field name and index:
 
 ```spectra
-let title = multipart.text(uploads, "title", 0);
+let title = multipart.text(uploads, "title", 0)
 ```
 
 `part_count`, `field_count`, and `file_count` report the parsed shape without
@@ -53,12 +53,12 @@ multipart frame is parsed. The `MultipartPart` handle exposes metadata and
 chunked readers:
 
 ```spectra
-let part = multipart.part(uploads, 1);
-let name = multipart.part_name(part);
-let filename = multipart.part_filename(part);
-let content_type = multipart.part_content_type(part);
-let size = multipart.part_size(part);
-let first_chunk = multipart.file_read(part, 0, 4096);
+let part = multipart.part(uploads, 1)
+let name = multipart.part_name(part)
+let filename = multipart.part_filename(part)
+let content_type = multipart.part_content_type(part)
+let size = multipart.part_size(part)
+let first_chunk = multipart.file_read(part, 0, 4096)
 ```
 
 `file_spool_to(part, path)` copies the spooled upload to an application-owned

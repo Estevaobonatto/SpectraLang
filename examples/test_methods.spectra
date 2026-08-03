@@ -1,28 +1,28 @@
-module test;
+module test
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Point {
-    fn new(x: int, y: int) -> Point {
+    func new(x: int, y: int) returns Point {
         Point { x: x, y: y }
     }
-    
-    fn distance_from_origin(&self) -> int {
+
+    func distance_from_origin( & self) returns int {
         // Simplificado: apenas soma x + y
         self.x + self.y
     }
-    
-    fn move_by(&mut self, dx: int, dy: int) {
-        self.x = self.x + dx;
-        self.y = self.y + dy;
+
+    func move_by( & mut self, dx: int, dy: int) {
+        self.x = self.x + dx
+        self.y = self.y + dy
     }
 }
 
-fn main() -> int {
-    let p = Point::new(3, 4);
-    let dist = p.distance_from_origin();
-    dist  // 7
+func main() returns int {
+    let p    = Point::new(3, 4)
+    let dist = p.distance_from_origin()
+    dist // 7
 }

@@ -1,22 +1,24 @@
 // Extended validation: matmul backward for both operands.
-module tensor_autodiff_matmul;
+module tensor_autodiff_matmul
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
-    let left_base = tensor.requires_grad(tensor.full_f(4, 1.0), true);
-    let right_base = tensor.requires_grad(tensor.full_f(4, 2.0), true);
-    let left = tensor.reshape(left_base, 2, 2);
-    let right = tensor.reshape(right_base, 2, 2);
-    let product = tensor.matmul(left, right);
-    let loss = tensor.sum_t(tensor.transpose(product));
-    tensor.backward(loss);
-    let left_gradient = tensor.grad(left_base);
-    let right_gradient = tensor.grad(right_base);
-    if tensor.get_f(left_gradient, 0) as int != 4 { return 1; }
-    if tensor.get_f(right_gradient, 0) as int != 2 { return 2; }
-    tensor.free_all();
-    return 0;
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
+    let left_base  = tensor.requires_grad(tensor.full_f(4, 1.0), true)
+    let right_base = tensor.requires_grad(tensor.full_f(4, 2.0), true)
+    let left       = tensor.reshape(left_base, 2, 2)
+    let right      = tensor.reshape(right_base, 2, 2)
+    let product    = tensor.matmul(left, right)
+    let loss       = tensor.sum_t(tensor.transpose(product))
+    tensor.backward(loss)
+    let left_gradient  = tensor.grad(left_base)
+    let right_gradient = tensor.grad(right_base)
+    if tensor.get_f(left_gradient, 0) as int != 4 { return 1
+    }
+    if tensor.get_f(right_gradient, 0) as int != 2 { return 2
+    }
+    tensor.free_all()
+    return 0
 }

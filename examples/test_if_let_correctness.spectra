@@ -1,4 +1,4 @@
-module test_if_let_correctness;
+module test_if_let_correctness
 
 // Enums locais para o teste
 enum Option {
@@ -6,90 +6,100 @@ enum Option {
     None,
 }
 
-fn make_some(x: int) -> Option {
-    return Option::Some(x);
+func make_some(x: int) returns Option {
+    return Option::Some(x)
 }
 
-fn make_none() -> Option {
-    return Option::None;
+func make_none() returns Option {
+    return Option::None
 }
 
 // -------------------------------------------------------------------
 // Valida se o binding do if let extrai o valor correto (esperado: 42)
 // -------------------------------------------------------------------
-fn test_if_let_binding() -> int {
-    let val = make_some(42);
-    let result = 0;
+func test_if_let_binding() returns int {
+    let val    = make_some(42)
+    let result = 0
     if let Option::Some(n) = val {
-        result = n; // deve ser 42
+        result = n
+        // deve ser 42
     }
-    return result;
+    return result
 }
 
 // -------------------------------------------------------------------
 // O else deve executar quando o pattern NÃO bate (esperado: 99)
 // -------------------------------------------------------------------
-fn test_if_let_else_branch() -> int {
-    let val = make_none();
-    let result = 0;
+func test_if_let_else_branch() returns int {
+    let val    = make_none()
+    let result = 0
     if let Option::Some(n) = val {
-        result = n;  // NÃO deve executar
+        result = n
+        // NÃO deve executar
     } else {
-        result = 99; // deve executar
+        result = 99
+        // deve executar
     }
-    return result;
+    return result
 }
 
 // -------------------------------------------------------------------
 // while let deve iterar exatamente 3 vezes; retorna o contador final
 // (esperado: 0 — porque começa em 3 e decrementa até find_positive retornar None)
 // -------------------------------------------------------------------
-fn find_positive(x: int) -> Option {
+func find_positive(x: int) returns Option {
     if x > 0 {
-        return Option::Some(x);
+        return Option::Some(x)
     }
-    return Option::None;
+    return Option::None
 }
 
-fn test_while_let_count() -> int {
-    let counter = 3;
+func test_while_let_count() returns int {
+    let counter = 3
     while let Option::Some(n) = find_positive(counter) {
-        counter = counter - 1;
+        counter = counter - 1
     }
-    return counter; // deve ser 0
+    return counter
+    // deve ser 0
 }
 
 // -------------------------------------------------------------------
 // while let deve usar o binding n; soma todos os valores 3+2+1 = 6
 // -------------------------------------------------------------------
-fn test_while_let_binding_sum() -> int {
-    let counter = 3;
-    let sum = 0;
+func test_while_let_binding_sum() returns int {
+    let counter = 3
+    let sum     = 0
     while let Option::Some(n) = find_positive(counter) {
-        sum = sum + n;
-        counter = counter - 1;
+        sum = sum + n
+        counter = counter - 1
     }
-    return sum; // deve ser 6
+    return sum
+    // deve ser 6
 }
 
-fn main() -> int {
-    let b = test_if_let_binding();        // 42
-    let e = test_if_let_else_branch();    // 99
-    let c = test_while_let_count();       // 0
-    let s = test_while_let_binding_sum(); // 6
+func main() returns int {
+    let b = test_if_let_binding()
+    // 42
+    let e = test_if_let_else_branch()
+    // 99
+    let c = test_while_let_count()
+    // 0
+    let s = test_while_let_binding_sum()
+    // 6
 
     // Codificar resultado: se tudo correto, retorna 0; se erro, retorna o primeiro valor errado
     if b != 42 {
-        return b;
+        return b
     }
     if e != 99 {
-        return e;
+        return e
     }
     if c != 0 {
-        return c;
+        return c
     }
     if s != 6 {
-        return s;
+        return s
     }
-    return 0; // tudo correto
+    return 0
+    // tudo correto
 }

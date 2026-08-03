@@ -1,27 +1,27 @@
 // AI graph example: elementwise chain followed by a reduction for R-1602 fusion.
-module ai_tensor_graph_reduction_fusion;
+module ai_tensor_graph_reduction_fusion
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
 
-    let input = tensor.full_f(16, 1.0);
-    let activated = tensor.relu(input);
-    let bounded = tensor.tanh_f(activated);
-    let loss = tensor.sum_t(bounded);
+    let input     = tensor.full_f(16, 1.0)
+    let activated = tensor.relu(input)
+    let bounded   = tensor.tanh_f(activated)
+    let loss      = tensor.sum_t(bounded)
 
     if tensor.len(loss) != 1 {
-        return tensor.len(loss);
+        return tensor.len(loss)
     }
     if tensor.get_f(loss, 0) as int <= 0 {
-        return 3;
+        return 3
     }
     if tensor.stats_kernel_ops() < 3 {
-        return 4;
+        return 4
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

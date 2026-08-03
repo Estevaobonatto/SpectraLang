@@ -1,23 +1,23 @@
-module async_test_runtime_block_on;
+module async_test_runtime_block_on
 
-async fn ready_value(value: int) -> int {
-    return value + 1;
+async func ready_value(value: int) returns int {
+    return value + 1
 }
 
 #[spectra_async_test]
-async fn async_test_macro_smoke() -> int {
-    let value = await ready_value(40);
+async func async_test_macro_smoke() returns int {
+    let value = await ready_value(40)
     if value != 41 {
-        return 1;
+        return 1
     }
-    return 0;
+    return 0
 }
 
-fn main() -> int {
-    let task = ready_value(41);
-    let value = block_on(task);
+func main() returns int {
+    let task  = ready_value(41)
+    let value = block_on(task)
     if value != 42 {
-        return 1;
+        return 1
     }
-    return 0;
+    return 0
 }

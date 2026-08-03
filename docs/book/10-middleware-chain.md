@@ -11,9 +11,9 @@ Request hooks run in append order. Response hooks run in reverse order.
 For a chain created as:
 
 ```spectra
-let base = chain_new();
-let one = use_sync(base, first);
-let chain = use_sync(one, second);
+let base = chain_new()
+let one = use_sync(base, first)
+let chain = use_sync(one, second)
 ```
 
 the request path is:
@@ -62,14 +62,14 @@ and timeout middleware.
 The public traits are:
 
 ```spectra
-pub trait Middleware {
-    fn on_request(&self, request: Request) -> Request;
-    fn on_response(&self, response: Response) -> Response;
+public trait Middleware {
+    func on_request(&self, request: Request) returns Request
+    func on_response(&self, response: Response) returns Response
 }
 
-pub trait AsyncMiddleware {
-    async fn on_request(&self, request: Request) -> Request;
-    async fn on_response(&self, response: Response) -> Response;
+public trait AsyncMiddleware {
+    async func on_request(&self, request: Request) returns Request
+    async func on_response(&self, response: Response) returns Response
 }
 ```
 

@@ -172,7 +172,7 @@ mod tests {
     fn caches_successful_parse() {
         let mut loader = ModuleLoader::new();
         let features = HashSet::new();
-        let source = "\n            module demo;\n            fn main() {}\n        ";
+        let source = "\n            module demo\n            func main() {}\n        ";
 
         let first = loader
             .parse_module("demo", source, &features)
@@ -190,13 +190,13 @@ mod tests {
         let mut loader = ModuleLoader::new();
         let features = HashSet::new();
 
-        let original = "\n            module demo;\n            fn main() {}\n        ";
+        let original = "\n            module demo\n            func main() {}\n        ";
 
         loader
             .parse_module("demo", original, &features)
             .expect("initial parse should succeed");
 
-        let modified = "\n            module demo;\n            fn main() { let x = 1; }\n        ";
+        let modified = "\n            module demo\n            func main() { let x = 1 }\n        ";
 
         let result = loader
             .parse_module("demo", modified, &features)
@@ -208,9 +208,9 @@ mod tests {
     fn feature_set_changes_trigger_reparse_without_gating_stable_syntax() {
         let mut loader = ModuleLoader::new();
         let mut features = HashSet::new();
-        features.insert("unless".to_string());
+        features.insert("legacy-syntax".to_string());
 
-        let source = "\n            module demo;\n            fn main() { let value = unless false { 1 }; }\n        ";
+        let source = "\n            module demo\n            func main() { let value = if not false { 1 } }\n        ";
 
         loader
             .parse_module("demo", source, &features)

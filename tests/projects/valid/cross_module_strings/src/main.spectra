@@ -1,36 +1,36 @@
-module main;
+module main
 
-import std.io;
-import std.string as str;
-import std.convert as convert;
-import string_provider;
+import std.io
+import std.string as str
+import std.convert as convert
+import string_provider
 
-pub fn main() -> int {
-    println("--- user module strings ---");
-    println(user_greeting("Spectra"));
-    println(user_join("left", "right", "|"));
-    println(user_upper("hello"));
-    println(user_lower("LOUD"));
-    println(user_repeat("ha", 3));
-    println(user_replace("banana", "a", "o"));
-    println(user_reverse("abc"));
-    println(user_trim("  ok  "));
+public func main() returns int {
+    println("--- user module strings ---")
+    println(user_greeting("Spectra"))
+    println(user_join("left", "right", "|"))
+    println(user_upper("hello"))
+    println(user_lower("LOUD"))
+    println(user_repeat("ha", 3))
+    println(user_replace("banana", "a", "o"))
+    println(user_reverse("abc"))
+    println(user_trim("  ok  "))
 
-    println("--- std.string direct strings ---");
-    println(str.concat("Hello", "World"));
-    println(str.repeat_str("*", 3));
-    println(str.to_upper("hello"));
-    println(str.to_lower("LOUD"));
-    println(str.replace("banana", "a", "o"));
-    println(str.reverse_str("abc"));
-    println(str.trim("  ok  "));
+    println("--- std.string direct strings ---")
+    println(str.concat("Hello", "World"))
+    println(str.repeat_str("*", 3))
+    println(str.to_upper("hello"))
+    println(str.to_lower("LOUD"))
+    println(str.replace("banana", "a", "o"))
+    println(str.reverse_str("abc"))
+    println(str.trim("  ok  "))
 
-    println("--- main concat and convert strings ---");
-    let chain = "Hello" + ", " + "World";
-    println(chain);
-    println("value=" + convert.int_to_string(42));
-    println("bool=" + convert.bool_to_string(true));
-    println("after concat");
+    println("--- main concat and convert strings ---")
+    let chain = "Hello" + ", " + "World"
+    println(chain)
+    println("value=" + convert.int_to_string(42))
+    println("bool=" + convert.bool_to_string( true))
+    println("after concat")
 
-    return 0;
+    return 0
 }

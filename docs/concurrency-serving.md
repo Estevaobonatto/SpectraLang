@@ -13,8 +13,8 @@ Both modules are stdlib APIs. They do not add new language syntax.
 ## Imports
 
 ```spectra
-import std.concurrent as concurrent;
-import std.serve as serve;
+import std.concurrent as concurrent
+import std.serve as serve
 ```
 
 ## `std.concurrent`
@@ -22,28 +22,28 @@ import std.serve as serve;
 ### API
 
 ```spectra
-concurrent.reset() -> unit
+concurrent.reset() returns unit
 
-concurrent.task_spawn(value: int) -> int
-concurrent.task_join(task: int) -> int
-concurrent.task_is_done(task: int) -> bool
-concurrent.task_spawn_batch(first_value: int, count: int) -> int
-concurrent.task_join_batch_sum(batch: int) -> int
+concurrent.task_spawn(value: int) returns int
+concurrent.task_join(task: int) returns int
+concurrent.task_is_done(task: int) returns bool
+concurrent.task_spawn_batch(first_value: int, count: int) returns int
+concurrent.task_join_batch_sum(batch: int) returns int
 
-concurrent.channel_new() -> int
-concurrent.channel_send(channel: int, value: int) -> bool
-concurrent.channel_recv(channel: int) -> int
-concurrent.channel_len(channel: int) -> int
-concurrent.channel_close(channel: int) -> unit
+concurrent.channel_new() returns int
+concurrent.channel_send(channel: int, value: int) returns bool
+concurrent.channel_recv(channel: int) returns int
+concurrent.channel_len(channel: int) returns int
+concurrent.channel_close(channel: int) returns unit
 
-concurrent.counter_new(value: int) -> int
-concurrent.counter_add(counter: int, delta: int) -> int
-concurrent.counter_get(counter: int) -> int
+concurrent.counter_new(value: int) returns int
+concurrent.counter_add(counter: int, delta: int) returns int
+concurrent.counter_get(counter: int) returns int
 
-concurrent.pipeline_sum(start: int, count: int, workers: int) -> int
+concurrent.pipeline_sum(start: int, count: int, workers: int) returns int
 
-concurrent.stats_tasks_spawned() -> int
-concurrent.stats_channels() -> int
+concurrent.stats_tasks_spawned() returns int
+concurrent.stats_channels() returns int
 ```
 
 ### Contract
@@ -69,33 +69,33 @@ concurrent.stats_channels() -> int
 ### Example
 
 ```spectra
-module concurrency_example;
+module concurrency_example
 
-import std.concurrent as concurrent;
+import std.concurrent as concurrent
 
-pub fn main() -> int {
-    concurrent.reset();
+public func main() returns int {
+    concurrent.reset()
 
-    let task = concurrent.task_spawn(42);
+    let task = concurrent.task_spawn(42)
     if concurrent.task_join(task) != 42 {
-        return 1;
+        return 1
     }
 
-    let channel = concurrent.channel_new();
-    concurrent.channel_send(channel, 7);
-    concurrent.channel_send(channel, 9);
+    let channel = concurrent.channel_new()
+    concurrent.channel_send(channel, 7)
+    concurrent.channel_send(channel, 9)
     if concurrent.channel_recv(channel) != 7 {
-        return 2;
+        return 2
     }
     if concurrent.channel_recv(channel) != 9 {
-        return 3;
+        return 3
     }
 
     if concurrent.pipeline_sum(1, 100, 4) != 5050 {
-        return 4;
+        return 4
     }
 
-    return 0;
+    return 0
 }
 ```
 
@@ -104,19 +104,19 @@ pub fn main() -> int {
 ### API
 
 ```spectra
-serve.reset() -> unit
+serve.reset() returns unit
 
-serve.server_new(model: int) -> int
-serve.server_warmup(server: int) -> bool
-serve.server_is_warm(server: int) -> bool
-serve.server_enqueue(server: int, input: int) -> int
-serve.server_cancel(server: int, request: int) -> bool
-serve.server_process_batch(server: int, max_batch: int) -> int
-serve.server_result(server: int, request: int) -> int
-serve.server_pending(server: int) -> int
-serve.server_set_timeout(server: int, timeout: int) -> bool
-serve.server_resident_model(server: int) -> int
-serve.server_benchmark(server: int, requests: int, batch: int) -> int
+serve.server_new(model: int) returns int
+serve.server_warmup(server: int) returns bool
+serve.server_is_warm(server: int) returns bool
+serve.server_enqueue(server: int, input: int) returns int
+serve.server_cancel(server: int, request: int) returns bool
+serve.server_process_batch(server: int, max_batch: int) returns int
+serve.server_result(server: int, request: int) returns int
+serve.server_pending(server: int) returns int
+serve.server_set_timeout(server: int, timeout: int) returns bool
+serve.server_resident_model(server: int) returns int
+serve.server_benchmark(server: int, requests: int, batch: int) returns int
 ```
 
 ### Contract
@@ -135,28 +135,28 @@ serve.server_benchmark(server: int, requests: int, batch: int) -> int
 ### Example
 
 ```spectra
-module serving_example;
+module serving_example
 
-import std.serve as serve;
+import std.serve as serve
 
-pub fn main() -> int {
-    serve.reset();
+public func main() returns int {
+    serve.reset()
 
-    let server = serve.server_new(3);
-    let request = serve.server_enqueue(server, 10);
+    let server = serve.server_new(3)
+    let request = serve.server_enqueue(server, 10)
 
-    serve.server_warmup(server);
+    serve.server_warmup(server)
     if serve.server_process_batch(server, 1) != 1 {
-        return 1;
+        return 1
     }
     if serve.server_result(server, request) != 30 {
-        return 2;
+        return 2
     }
     if serve.server_benchmark(server, 8, 3) != 8 {
-        return 3;
+        return 3
     }
 
-    return 0;
+    return 0
 }
 ```
 

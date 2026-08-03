@@ -32,11 +32,11 @@ The following set is the current stable Phase 1 table for high-frequency diagnos
 | `L005` | lexer | unterminated f-string literal | close the f-string with `"` |
 | `L006` | lexer | unterminated block comment | close the comment with `*/` |
 | `P001` | parser | expected keyword | insert the missing keyword or fix item order |
-| `P002` | parser | expected or synthesized symbol | insert the required delimiter such as `;`, `)`, or `}` |
+| `P002` | parser | expected or synthesized symbol | insert the required delimiter such as `)`, `}`, or `:` |
 | `P003` | parser | expected identifier | provide a valid identifier in the current grammar slot |
 | `P004` | parser | future experimental feature disabled | rerun with the documented feature gate once an active experimental feature exists |
-| `P005` | parser | misplaced or incomplete `async` syntax | use `async fn` in declaration position, `async { ... }`, or `async |...| ...` |
-| `P006` | parser | `await` outside async context | move the expression into `async fn`, `async { ... }`, or an async closure |
+| `P005` | parser | misplaced or incomplete `async` syntax | use `async func` in declaration position, `async { ... }`, or `async |...| ...` |
+| `P006` | parser | `await` outside async context | move the expression into `async func`, `async { ... }`, or an async closure |
 | `P999` | parser | generic syntax failure | inspect nearby syntax; parser context and hint should narrow the issue |
 | `E001` | semantic | undefined variable or function | declare/import the symbol or fix the name |
 | `E002` | semantic | argument count mismatch | pass the expected number of arguments |
@@ -66,7 +66,7 @@ the code.
 | `E2104` | semantic | formal `Send`/`Sync` evidence is missing for a generic bound or `dyn Trait + Send/Sync` object | add the required bound/evidence or use a type that satisfies the auto-trait |
 | `E2104` | semantic | non-`Sync` shared state is required by an async API | use synchronized shared state or avoid sharing across executor threads |
 | `E2105` | semantic | `await` operand is not `Task<T>` | await only task values or remove `await` |
-| `E2106` | semantic | `await` is used outside an async semantic context | move the expression into `async fn`, `async {}`, or an async closure |
+| `E2106` | semantic | `await` is used outside an async semantic context | move the expression into `async func`, `async {}`, or an async closure |
 | `E2107` | semantic | async return type does not match `Task<T>` output | align the declared async return type and returned values |
 | `E2108` | semantic | async trait method is not object-safe for `dyn Trait` | change the receiver to an object-safe form such as `&self` |
 | `E2109` | semantic | async closure captures a non-`Send` value where `Send` is required | capture a `Send` value or use a local-only closure/task API |

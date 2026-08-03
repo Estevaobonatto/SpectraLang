@@ -1,8 +1,8 @@
-module reproducible_metrics_tests;
+module reproducible_metrics_tests
 
-import experiment;
+import experiment
 
 #[spectra_async_test]
-async fn reproducible_metrics_pass() -> int {
-    return run_experiment();
+async func reproducible_metrics_pass() returns int {
+    return run_experiment()
 }

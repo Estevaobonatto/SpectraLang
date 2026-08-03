@@ -1,12 +1,12 @@
-module callbacks;
+module callbacks
 
-pub fn run_callback(value: int, f: fn(int) -> int) -> int {
-    return f(value);
+public func run_callback(value: int, f: func(int) returns int) returns int {
+    return f(value)
 }
 
-pub fn choose_shift(positive: bool, base: int) -> fn(int) -> int {
+public func choose_shift(positive: bool, base: int) returns func(int) returns int {
     if positive {
-        return |value: int| value + base;
+        return | value: int | value + base
     }
-    return |value: int| value - base;
+    return | value: int | value - base
 }

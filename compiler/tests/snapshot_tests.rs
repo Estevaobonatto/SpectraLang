@@ -54,7 +54,7 @@ fn type_annotation_inner(ty: &TypeAnnotation) -> String {
                 .map(type_annotation_inner)
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("fn({params}) -> {}", type_annotation_inner(return_type))
+            format!("func({params}) returns {}", type_annotation_inner(return_type))
         }
         TypeAnnotationKind::Generic { name, type_args } => {
             let args = type_args
@@ -171,7 +171,18 @@ fn ast_snapshot(module: &Module) -> String {
                 import
                     .names
                     .as_ref()
-                    .map(|names| names.join(","))
+                    .map(|names| {
+                        names
+                            .iter()
+                            .map(|name| {
+                                name.alias
+                                    .as_ref()
+                                    .map(|alias| format!("{} as {}", name.name, alias))
+                                    .unwrap_or_else(|| name.name.clone())
+                            })
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
                     .unwrap_or_else(|| "-".to_string()),
                 import.is_reexport
             )),
@@ -192,9 +203,9 @@ fn ast_snapshot(module: &Module) -> String {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let prefix = if function.is_async { "async fn" } else { "fn" };
+                let prefix = if function.is_async { "async func" } else { "func" };
                 out.push_str(&format!(
-                    "{} {:?} {}({params}) -> {}\n",
+                    "{} {:?} {}({params}) returns {}\n",
                     prefix,
                     function.visibility,
                     function.name,
@@ -219,7 +230,7 @@ fn std_api_public_function_table_snapshot() -> String {
         out.push_str(&format!("type {name}: {signature}\n"));
     }
     for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_API_PUBLIC_FUNCTIONS {
-        out.push_str(&format!("fn {name}: {signature}\n"));
+        out.push_str(&format!("func {name}: {signature}\n"));
     }
     out
 }
@@ -232,7 +243,7 @@ fn std_time_public_function_table_snapshot() -> String {
     }
     for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_TIME_PUBLIC_FUNCTIONS
     {
-        out.push_str(&format!("fn {name}: {signature}\n"));
+        out.push_str(&format!("func {name}: {signature}\n"));
     }
     out
 }
@@ -245,7 +256,7 @@ fn std_range_public_function_table_snapshot() -> String {
     }
     for (name, signature) in spectra_compiler::semantic::builtin_modules::STD_RANGE_PUBLIC_FUNCTIONS
     {
-        out.push_str(&format!("fn {name}: {signature}\n"));
+        out.push_str(&format!("func {name}: {signature}\n"));
     }
     out
 }
@@ -253,23 +264,23 @@ fn std_range_public_function_table_snapshot() -> String {
 #[test]
 fn ast_snapshot_covers_parser_stage() {
     let source = r#"
-        module snapshot;
+        module snapshot
 
-        import std.tensor as tensor;
+        import std.tensor as tensor
 
-        fn add(lhs: int, rhs: int) -> int {
-            let total = lhs + rhs;
-            return total;
+        func add(lhs: int, rhs: int)  returns  int {
+            let total = lhs + rhs
+            return total
         }
 
-        async fn fetch() {
-            let task = async { 1 };
-            let work = async |value: int| value;
+        async func fetch() {
+            let task = async { 1 }
+            let work = async |value: int| value
         }
 
-        pub fn main() -> int {
-            let value = add(40, 2);
-            return value;
+        public func main()  returns  int {
+            let value = add(40, 2)
+            return value
         }
     "#;
     let module = parse(source);
@@ -303,10 +314,10 @@ fn std_range_public_function_table_is_snapshotted() {
 #[test]
 fn diagnostic_snapshot_covers_semantic_stage() {
     let source = r#"
-        module diag;
+        module diag
 
-        pub fn main() -> int {
-            return missing_symbol;
+        public func main()  returns  int {
+            return missing_symbol
         }
     "#;
     let mut pipeline = CompilationPipeline::new(CompilationOptions::default());

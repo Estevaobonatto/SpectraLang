@@ -1,18 +1,18 @@
-module counter;
+module counter
 
-pub struct Counter {
-    pub value: int,
-    pub step: int
+public record Counter {
+    public value: int,
+    public step: int
 }
 
-pub fn counter_new(step: int) -> Counter {
-    return Counter { value: 0, step: step };
+public func counter_new(step: int) returns Counter {
+    return Counter { value: 0, step: step }
 }
 
-pub fn counter_tick(c: Counter) -> Counter {
-    return Counter { value: c.value + c.step, step: c.step };
+public func counter_tick(c: Counter) returns Counter {
+    return Counter { value: c.value + c.step, step: c.step }
 }
 
-pub fn counter_read(c: Counter) -> int {
-    return c.value;
+public func counter_read(c: Counter) returns int {
+    return c.value
 }

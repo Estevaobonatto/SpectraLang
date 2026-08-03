@@ -22,11 +22,11 @@ fn assert_snapshot(name: &str, actual: &str) {
 #[test]
 fn ir_snapshot_covers_lowering_stage() {
     let source = r#"
-        module lowering_snapshot;
+        module lowering_snapshot
 
-        fn add(lhs: int, rhs: int) -> int {
-            let total = lhs + rhs;
-            return total;
+        func add(lhs: int, rhs: int)  returns  int {
+            let total = lhs + rhs
+            return total
         }
     "#;
 

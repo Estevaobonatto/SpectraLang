@@ -1,20 +1,20 @@
-module tasks;
+module tasks
 
-pub async fn ready(value: int) -> int {
-    return value;
+public async func ready(value: int) returns int {
+    return value
 }
 
-pub async fn add_pair(left: int, right: int) -> int {
-    let a = await ready(left);
-    let b = await ready(right);
-    return a + b;
+public async func add_pair(left: int, right: int) returns int {
+    let a = await ready(left)
+    let b = await ready(right)
+    return a + b
 }
 
-pub async fn choose(flag: bool, left: int, right: int) -> int {
+public async func choose(flag: bool, left: int, right: int) returns int {
     if flag {
-        let selected = await ready(left);
-        return selected;
+        let selected = await ready(left)
+        return selected
     }
-    let selected = await ready(right);
-    return selected;
+    let selected = await ready(right)
+    return selected
 }

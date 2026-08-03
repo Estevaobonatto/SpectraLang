@@ -1,5 +1,5 @@
-module fmt_unformatted;
-pub fn main()->int{
-let value=1+2;
-return value-3;
+module fmt_unformatted
+public func main() returns int {
+let value=1+2
+return value-3
 }

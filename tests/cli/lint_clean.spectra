@@ -1,10 +1,10 @@
-module lint_clean;
+module lint_clean
 
-fn square(x: int) -> int {
-    return x * x;
+func square(x: int) returns int {
+    return x * x
 }
 
-pub fn main() -> int {
-    let value = square(4);
-    return value - 16;
+public func main() returns int {
+    let value = square(4)
+    return value - 16
 }

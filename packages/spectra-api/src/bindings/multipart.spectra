@@ -3,17 +3,17 @@
 // The compiler exposes these declarations as the stable `std.api.multipart`
 // built-in module. Native behavior is provided by `spectra.api.multipart.*`.
 
-module std.api.multipart;
+module std.api.multipart
 
-pub struct Multipart {
-    pub part_count: int,
+public record Multipart {
+    public part_count: int,
 }
 
-pub struct MultipartPart {
-    pub name: string,
-    pub filename: string,
-    pub content_type: string,
-    pub size: int,
+public record MultipartPart {
+    public name: string,
+    public filename: string,
+    public content_type: string,
+    public size: int,
 }
 
 // Native function declarations are represented in

@@ -1,8 +1,8 @@
-module main;
+module main
 
-import model;
-import training_step;
+import model
+import training_step
 
-pub fn main() -> int {
-    return run_training_step();
+public func main() returns int {
+    return run_training_step()
 }

@@ -1,30 +1,30 @@
-module traits;
+module traits
 
-import components;
+import components
 
-pub trait Score {
-    fn score(&self) -> int;
+public trait Score {
+    func score( & self) returns int
 }
 
 impl Score for Invoice {
-    fn score(&self) -> int {
-        return self.total();
+    func score( & self) returns int {
+        return self.total()
     }
 }
 
-pub fn score_invoice<T: Score>(item: T) -> int {
-    return item.score();
+public func score_invoice<T: Score>(item: T) returns int {
+    return item.score()
 }
 
-pub fn score_invoice_runtime(item: Invoice) -> int {
-    return item.score();
+public func score_invoice_runtime(item: Invoice) returns int {
+    return item.score()
 }
 
-pub fn apply_adjustment(value: int, f: fn(int) -> int) -> int {
-    return f(value);
+public func apply_adjustment(value: int, f: func(int) returns int) returns int {
+    return f(value)
 }
 
-pub fn make_shift(delta: int) -> fn(int) -> int {
-    let scale = 2;
-    return |value: int| value + delta * scale;
+public func make_shift(delta: int) returns func(int) returns int {
+    let scale = 2
+    return | value: int | value + delta * scale
 }

@@ -307,10 +307,10 @@ mod tests {
     #[test]
     fn test_simple_compilation() {
         let source = r#"
-            module test;
-            fn main() {
-                let x = 10;
-                return x;
+            module test
+            func main() {
+                let x = 10
+                return x
             }
         "#;
 
@@ -330,9 +330,9 @@ mod tests {
     #[test]
     fn test_arithmetic_compilation() {
         let source = r#"
-            module test;
-            fn add(a: int, b: int) -> int {
-                return a + b;
+            module test
+            func add(a: int, b: int)  returns  int {
+                return a + b
             }
         "#;
 
@@ -345,12 +345,12 @@ mod tests {
     #[test]
     fn test_if_statement_compilation() {
         let source = r#"
-            module test;
-            fn max(a: int, b: int) -> int {
+            module test
+            func max(a: int, b: int)  returns  int {
                 if a > b {
-                    return a;
+                    return a
                 } else {
-                    return b;
+                    return b
                 }
             }
         "#;
@@ -364,17 +364,17 @@ mod tests {
     #[test]
     fn test_loop_compilation() {
         let source = r#"
-            module test;
-            fn sum_to_n(n: int) -> int {
-                let sum = 0;
-                let i = 0;
+            module test
+            func sum_to_n(n: int)  returns  int {
+                let sum = 0
+                let i = 0
 
                 while i <= n {
-                    sum = sum + i;
-                    i = i + 1;
+                    sum = sum + i
+                    i = i + 1
                 }
 
-                return sum;
+                return sum
             }
         "#;
 
@@ -387,9 +387,9 @@ mod tests {
     #[test]
     fn test_semantic_error_detection() {
         let source = r#"
-            module test;
-            fn main() {
-                return undefined_variable;
+            module test
+            func main() {
+                return undefined_variable
             }
         "#;
 

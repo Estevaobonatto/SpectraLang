@@ -2,34 +2,34 @@
 // Collatz stopping-time sum for n=1..1000. Pure i64.
 // Expected per-iter total: 59542 (verified via Python).
 
-module bench_3n_plus_1;
+module bench_3n_plus_1
 
-pub fn main() -> int {
-    let iters = 1000;
-    let total = 0;
-    let it = 0;
+public func main() returns int {
+    let iters = 1000
+    let total = 0
+    let it    = 0
     while it < iters {
-        let acc = 0;
-        let n_start = 1;
+        let acc     = 0
+        let n_start = 1
         while n_start <= 1000 {
-            let n = n_start;
-            let steps = 0;
+            let n     = n_start
+            let steps = 0
             while n != 1 {
                 if n - (n / 2) * 2 == 0 {
-                    n = n / 2;
+                    n = n / 2
                 } else {
-                    n = 3 * n + 1;
+                    n = 3 * n + 1
                 }
-                steps = steps + 1;
+                steps = steps + 1
             }
-            acc = acc + steps;
-            n_start = n_start + 1;
+            acc = acc + steps
+            n_start = n_start + 1
         }
-        total = total + acc;
-        it = it + 1;
+        total = total + acc
+        it = it + 1
     }
     if total == 59542 * iters {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

@@ -1,52 +1,52 @@
 // Teste 84: Phase 15 R-1503 deterministic numerical mode and tolerance policy.
-module numerical_determinism;
+module numerical_determinism
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
+public func main() returns int {
+    tensor.free_all()
     if tensor.set_deterministic_mode(1) != 0 {
-        return 1;
+        return 1
     }
     if tensor.deterministic_mode() != 1 {
-        return 1;
+        return 1
     }
-    tensor.seed(20260606);
-    let first = tensor.uniform(8, 0, 100);
-    tensor.seed(20260606);
-    let second = tensor.uniform(8, 0, 100);
+    tensor.seed(20260606)
+    let first = tensor.uniform(8, 0, 100)
+    tensor.seed(20260606)
+    let second = tensor.uniform(8, 0, 100)
     if tensor.get(first, 0) != tensor.get(second, 0) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 1) != tensor.get(second, 1) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 2) != tensor.get(second, 2) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 3) != tensor.get(second, 3) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 4) != tensor.get(second, 4) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 5) != tensor.get(second, 5) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 6) != tensor.get(second, 6) {
-        return 2;
+        return 2
     }
     if tensor.get(first, 7) != tensor.get(second, 7) {
-        return 2;
+        return 2
     }
 
-    let flat = tensor.arange(1, 5, 1);
-    let matrix = tensor.reshape(flat, 2, 2);
-    let product = tensor.matmul(matrix, matrix);
+    let flat    = tensor.arange(1, 5, 1)
+    let matrix  = tensor.reshape(flat, 2, 2)
+    let product = tensor.matmul(matrix, matrix)
     if tensor.get(product, 0) + tensor.get(product, 1) + tensor.get(product, 2) + tensor.get(product, 3) != 54 {
-        return 4;
+        return 4
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

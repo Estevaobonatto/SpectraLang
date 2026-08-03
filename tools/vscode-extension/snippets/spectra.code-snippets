@@ -2,7 +2,7 @@
   "Module": {
     "prefix": "module",
     "body": [
-      "module ${1:name};",
+      "module ${1:name}",
       "",
       "${0}"
     ],
@@ -11,9 +11,9 @@
   "Module with main": {
     "prefix": "newfile",
     "body": [
-      "module ${1:name};",
+      "module ${1:name}",
       "",
-      "pub fn main() {",
+      "public func main() returns int {",
       "    ${0}",
       "}"
     ],
@@ -22,57 +22,57 @@
   "Main Function": {
     "prefix": "main",
     "body": [
-      "pub fn main() {",
+      "public func main() returns int {",
       "    ${0}",
       "}"
     ],
     "description": "Create the public main function"
   },
   "Function": {
-    "prefix": "fn",
+    "prefix": "func",
     "body": [
-      "fn ${1:name}(${2:param}: ${3:int}) -> ${4:int} {",
+      "func ${1:name}(${2:param}: ${3:int}) returns ${4:int} {",
       "    ${0}",
       "}"
     ],
     "description": "Create a function with parameters and a return type"
   },
   "Public Function": {
-    "prefix": "pubfn",
+    "prefix": "publicfunc",
     "body": [
-      "pub fn ${1:name}(${2:param}: ${3:int}) -> ${4:int} {",
+      "public func ${1:name}(${2:param}: ${3:int}) returns ${4:int} {",
       "    ${0}",
       "}"
     ],
     "description": "Create a public function"
   },
-  "Struct": {
-    "prefix": "struct",
+  "Record": {
+    "prefix": "record",
     "body": [
-      "struct ${1:Name} {",
+      "record ${1:Name} {",
       "    ${2:field}: ${3:int},",
       "}"
     ],
-    "description": "Declare a struct"
+    "description": "Declare a record"
   },
-  "Struct with impl": {
-    "prefix": "structimpl",
+  "Record with impl": {
+    "prefix": "recordimpl",
     "body": [
-      "struct ${1:Name} {",
+      "record ${1:Name} {",
       "    ${2:field}: ${3:int},",
       "}",
       "",
       "impl ${1:Name} {",
-      "    fn new(${2:field}: ${3:int}) -> ${1:Name} {",
-      "        return ${1:Name} { ${2:field}: ${2:field} };",
+      "    func new(${2:field}: ${3:int}) returns ${1:Name} {",
+      "        return ${1:Name} { ${2:field}: ${2:field} }",
       "    }",
       "",
-      "    fn ${4:method}(self) -> ${5:int} {",
+      "    func ${4:method}(self) returns ${5:int} {",
       "        ${0}",
       "    }",
       "}"
     ],
-    "description": "Declare a struct with an impl block"
+    "description": "Declare a record with an impl block"
   },
   "Enum": {
     "prefix": "enum",
@@ -97,7 +97,7 @@
     "prefix": "impl",
     "body": [
       "impl ${1:Type} {",
-      "    fn ${2:method}(self) -> ${3:int} {",
+      "    func ${2:method}(self) returns ${3:int} {",
       "        ${0}",
       "    }",
       "}"
@@ -145,20 +145,19 @@
   "Counter Loop": {
     "prefix": "for",
     "body": [
-      "let ${1:i} = 0;",
-      "while ${1:i} < ${2:10} {",
+      "for ${1:i} in 0..${2:10} {",
       "    ${0}",
-      "    ${1:i} = ${1:i} + 1;",
+      "",
       "}"
     ],
-    "description": "Counter loop with while (classic for equivalent)"
+    "description": "Iterate over an integer range"
   },
   "Do While": {
     "prefix": "dowhile",
     "body": [
       "do {",
       "    ${0}",
-      "} while ${1:condition};"
+      "} while ${1:condition}"
     ],
     "description": "Create a do-while loop"
   },
@@ -168,7 +167,7 @@
       "loop {",
       "    ${0}",
       "    if ${1:condition} {",
-      "        break;",
+      "        break",
       "    }",
       "}"
     ],
@@ -178,8 +177,8 @@
     "prefix": "match",
     "body": [
       "match ${1:value} {",
-      "    ${2:Pattern}(${3:v}) => ${4:v},",
-      "    _ => ${0},",
+      "    when ${2:Pattern}(${3:v}) then ${4:v},",
+      "    otherwise ${0}",
       "}"
     ],
     "description": "Create a match expression with wildcard"
@@ -188,8 +187,8 @@
     "prefix": "matchenum",
     "body": [
       "match ${1:value} {",
-      "    ${2:Enum}::${3:VariantA} => ${4},",
-      "    ${2:Enum}::${5:VariantB} => ${0},",
+      "    when ${2:Enum}::${3:VariantA} then ${4},",
+      "    when ${2:Enum}::${5:VariantB} then ${0}",
       "}"
     ],
     "description": "Create an exhaustive match over an enum"
@@ -197,42 +196,42 @@
   "Let Binding": {
     "prefix": "let",
     "body": [
-      "let ${1:name} = ${0};"
+      "let ${1:name} = ${0}"
     ],
     "description": "Declare a variable"
   },
   "Import Named": {
-    "prefix": "import",
+    "prefix": "from",
     "body": [
-      "import { ${1:fn_name} } from ${2:std.io};"
+      "from ${2:std.io} import ${1:fn_name}"
     ],
     "description": "Import specific functions from a module"
   },
   "Import Alias": {
     "prefix": "importas",
     "body": [
-      "import ${1:std.math} as ${2:math};"
+      "import ${1:std.math} as ${2:math}"
     ],
     "description": "Import a module with an alias"
   },
   "Return": {
     "prefix": "return",
     "body": [
-      "return ${0};"
+      "return ${0}"
     ],
     "description": "Return a value"
   },
   "Print Line": {
     "prefix": "println",
     "body": [
-      "println(${0});"
+      "println(${0})"
     ],
     "description": "Print a line (requires import std.io)"
   },
   "Async Function": {
-    "prefix": "asyncfn",
+    "prefix": "asyncfunc",
     "body": [
-      "pub async fn ${1:name}(${2:param}: ${3:int}) -> ${4:int} {",
+      "public async func ${1:name}(${2:param}: ${3:int}) returns ${4:int} {",
       "    ${0}",
       "}"
     ],
@@ -243,22 +242,22 @@
     "body": [
       "let ${1:task} = async {",
       "    ${0}",
-      "};"
+      "}"
     ],
     "description": "Create an async block"
   },
   "Await Task": {
     "prefix": "await",
     "body": [
-      "let ${1:value} = await ${2:task};"
+      "let ${1:value} = await ${2:task}"
     ],
     "description": "Await a Task<T> inside an async context"
   },
   "API Handler": {
     "prefix": "apihandler",
     "body": [
-      "pub fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {",
-      "    return std.api.handler.json(\"${2:{}}\");",
+      "public func ${1:handle}(request: std.api.http.Request) returns std.api.http.Response {",
+      "    return std.api.handler.json(\"${2:{}}\")",
       "}"
     ],
     "description": "Create a synchronous spectra.api handler"
@@ -266,8 +265,8 @@
   "API Async Handler": {
     "prefix": "apiasynchandler",
     "body": [
-      "pub async fn ${1:handle}(request: std.api.http.Request) -> std.api.http.Response {",
-      "    return std.api.handler.json(\"${2:{}}\");",
+      "public async func ${1:handle}(request: std.api.http.Request) returns std.api.http.Response {",
+      "    return std.api.handler.json(\"${2:{}}\")",
       "}"
     ],
     "description": "Create an async spectra.api handler"
@@ -275,8 +274,8 @@
   "API Router GET": {
     "prefix": "apiroute",
     "body": [
-      "let ${1:router} = std.api.routing.router();",
-      "let ${2:route} = std.api.routing.get(${1:router}, \"${3:/health}\");",
+      "let ${1:router} = std.api.routing.router()",
+      "let ${2:route} = std.api.routing.get(${1:router}, \"${3:/health}\")",
       "${0}"
     ],
     "description": "Create a spectra.api router with a GET route"
@@ -284,8 +283,8 @@
   "API CORS Policy": {
     "prefix": "apicors",
     "body": [
-      "let ${1:policy} = std.api.cors.permissive();",
-      "let ${2:cors} = std.api.cors.middleware(${1:policy});",
+      "let ${1:policy} = std.api.cors.permissive()",
+      "let ${2:cors} = std.api.cors.middleware(${1:policy})",
       "${0}"
     ],
     "description": "Create a CORS policy and spectra.api middleware"
@@ -293,9 +292,9 @@
   "API Middleware Chain": {
     "prefix": "apimiddleware",
     "body": [
-      "let ${1:chain} = std.api.middleware.chain();",
-      "let ${2:next} = std.api.middleware.use_sync(${1:chain}, ${3:middleware});",
-      "let ${4:response} = std.api.middleware.execute_sync(${2:next}, ${5:request}, ${6:response});",
+      "let ${1:chain} = std.api.middleware.chain()",
+      "let ${2:next} = std.api.middleware.use_sync(${1:chain}, ${3:middleware})",
+      "let ${4:response} = std.api.middleware.execute_sync(${2:next}, ${5:request}, ${6:response})",
       "${0}"
     ],
     "description": "Create a spectra.api middleware chain"
@@ -303,7 +302,7 @@
   "API JSON Response": {
     "prefix": "apijson",
     "body": [
-      "return std.api.handler.json(\"${1:{}}\");"
+      "return std.api.handler.json(\"${1:{}}\")"
     ],
     "description": "Return a JSON Response through spectra.api"
   },

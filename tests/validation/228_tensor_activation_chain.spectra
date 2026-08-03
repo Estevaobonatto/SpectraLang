@@ -1,20 +1,24 @@
 // Extended validation: ReLU, sigmoid and tanh activation composition.
-module tensor_activation_chain;
+module tensor_activation_chain
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    let signed = tensor.arange(-2, 3, 1);
-    let relu = tensor.relu(signed);
-    if tensor.sum(relu) != 3 { return 1; }
+public func main() returns int {
+    tensor.free_all()
+    let signed = tensor.arange(-2, 3, 1)
+    let relu   = tensor.relu(signed)
+    if tensor.sum(relu) != 3 { return 1
+    }
 
-    let zeros = tensor.full_f(4, 0.0);
-    let sigmoid = tensor.sigmoid_f(zeros);
-    if tensor.sum_f(sigmoid) as int != 2 { return 2; }
-    let tanh = tensor.tanh_f(zeros);
-    if tensor.sum_f(tanh) as int != 0 { return 3; }
-    if tensor.len(sigmoid) != tensor.len(tanh) { return 4; }
-    tensor.free_all();
-    return 0;
+    let zeros   = tensor.full_f(4, 0.0)
+    let sigmoid = tensor.sigmoid_f(zeros)
+    if tensor.sum_f(sigmoid) as int != 2 { return 2
+    }
+    let tanh = tensor.tanh_f(zeros)
+    if tensor.sum_f(tanh) as int != 0 { return 3
+    }
+    if tensor.len(sigmoid) != tensor.len(tanh) { return 4
+    }
+    tensor.free_all()
+    return 0
 }

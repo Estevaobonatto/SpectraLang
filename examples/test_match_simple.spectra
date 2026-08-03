@@ -1,4 +1,4 @@
-module test;
+module test
 
 enum Color {
     Red,
@@ -6,16 +6,16 @@ enum Color {
     Blue
 }
 
-fn test_match_unit() -> int {
-    let color = Color::Red;
-    
+func test_match_unit() returns int {
+    let color = Color::Red
+
     return match color {
-        Color::Red => 1,
-        Color::Green => 2,
-        Color::Blue => 3
-    };
+        when Color::Red then 1,
+        when Color::Green then 2,
+        when Color::Blue then 3
+    }
 }
 
-fn main() -> int {
+func main() returns int {
     test_match_unit()
 }

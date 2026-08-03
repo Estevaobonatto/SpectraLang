@@ -1,26 +1,29 @@
 // Extended validation: trait implementation over aggregate state.
-module base_trait_struct_score;
+module base_trait_struct_score
 
 trait Score {
-    fn score(&self) -> int;
+    func score( & self) returns int
 }
 
-struct Record {
+record Record {
     accuracy: int,
     latency: int,
 }
 
 impl Score for Record {
-    fn score(&self) -> int {
-        self.accuracy * 100 - self.latency;
+    func score( & self) returns int {
+        self.accuracy * 100 - self.latency
     }
 }
 
-pub fn main() -> int {
-    let first = Record { accuracy: 93, latency: 18 };
-    let second = Record { accuracy: 91, latency: 4 };
-    if first.score() != 9282 { return 1; }
-    if second.score() != 9096 { return 2; }
-    if first.score() <= second.score() { return 3; }
-    return 0;
+public func main() returns int {
+    let first  = Record { accuracy: 93, latency: 18 }
+    let second = Record { accuracy: 91, latency: 4 }
+    if first.score() != 9282 { return 1
+    }
+    if second.score() != 9096 { return 2
+    }
+    if first.score() <= second.score() { return 3
+    }
+    return 0
 }

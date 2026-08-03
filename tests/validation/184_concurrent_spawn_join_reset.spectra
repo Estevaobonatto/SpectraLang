@@ -1,17 +1,17 @@
 // R-3132: fused tasks remain observable through accounting and reset.
-module concurrent_spawn_join_reset;
+module concurrent_spawn_join_reset
 
-import std.concurrent as concurrent;
+import std.concurrent as concurrent
 
-pub fn main() -> int {
-    concurrent.reset();
-    let value = concurrent.task_join(concurrent.task_spawn(7));
-    if value != 7 || concurrent.stats_tasks_spawned() != 1 {
-        return 1;
+public func main() returns int {
+    concurrent.reset()
+    let value = concurrent.task_join(concurrent.task_spawn(7))
+    if value != 7 or concurrent.stats_tasks_spawned() != 1 {
+        return 1
     }
-    concurrent.reset();
+    concurrent.reset()
     if concurrent.stats_tasks_spawned() != 0 {
-        return 2;
+        return 2
     }
-    return 0;
+    return 0
 }

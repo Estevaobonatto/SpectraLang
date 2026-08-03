@@ -1,4 +1,4 @@
-module mixed_enum_variant_function_call;
+module mixed_enum_variant_function_call
 
 enum PipelineState {
     Ready { batch: int },
@@ -7,35 +7,35 @@ enum PipelineState {
     Failed(int),
 }
 
-fn state_weight(state: PipelineState) -> int {
+func state_weight(state: PipelineState) returns int {
     return match state {
-        PipelineState::Ready { batch } => batch,
-        PipelineState::Training(step) => step + 10,
-        PipelineState::Serving => 100,
-        PipelineState::Failed(code) => code
-    };
+        when PipelineState::Ready { batch } then batch,
+        when PipelineState::Training(step) then step + 10,
+        when PipelineState::Serving then 100,
+        when PipelineState::Failed(code) then code
+    }
 }
 
-pub fn main() -> int {
-    let ready = PipelineState::Ready { batch: 4 };
+public func main() returns int {
+    let ready = PipelineState::Ready { batch: 4 }
     if state_weight(ready) != 4 {
-        return 1;
+        return 1
     }
 
-    let training = PipelineState::Training(5);
+    let training = PipelineState::Training(5)
     if state_weight(training) != 15 {
-        return 2;
+        return 2
     }
 
-    let serving = PipelineState::Serving;
+    let serving = PipelineState::Serving
     if state_weight(serving) != 100 {
-        return 3;
+        return 3
     }
 
-    let failed = PipelineState::Failed(7);
+    let failed = PipelineState::Failed(7)
     if state_weight(failed) != 7 {
-        return 4;
+        return 4
     }
 
-    return 0;
+    return 0
 }

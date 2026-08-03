@@ -1,7 +1,7 @@
-module nested_scope_shadowing_pattern_stress;
+module nested_scope_shadowing_pattern_stress
 
-struct Boxed {
-    pub value: int,
+record Boxed {
+    public value: int,
 }
 
 enum Item {
@@ -10,30 +10,30 @@ enum Item {
     Empty,
 }
 
-fn inspect(item: Item, adjust: fn(int) -> int) -> int {
+func inspect(item: Item, adjust: func(int) returns int) returns int {
     return match item {
-        Item::One(value) => adjust(value),
-        Item::Boxed { value } => {
-            let value = value + 1;
+        when Item::One(value) then adjust(value),
+        when Item::Boxed { value } then {
+            let value = value + 1
             adjust(value)
         },
-        Item::Empty => 0
-    };
+        when Item::Empty then 0
+    }
 }
 
-pub fn main() -> int {
-    let value = 10;
-    let boxed = Boxed { value };
-    let adjust: fn(int) -> int = |input: int| input + value;
+public func main() returns int {
+    let value                         = 10
+    let boxed                         = Boxed { value }
+    let adjust: func(int) returns int = | input: int | input + value
 
-    let first = inspect(Item::One(3), adjust);
-    let second = inspect(Item::Boxed { value: boxed.value }, adjust);
+    let first  = inspect(Item::One(3), adjust)
+    let second = inspect(Item::Boxed { value: boxed.value }, adjust)
 
     if first != 13 {
-        return first;
+        return first
     }
     if second != 21 {
-        return second;
+        return second
     }
-    return 0;
+    return 0
 }

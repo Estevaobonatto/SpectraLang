@@ -1,11 +1,11 @@
-module autodiff_integer_tensor;
+module autodiff_integer_tensor
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let x = tensor.full(2, 1);
+public func main() returns int {
+    let x = tensor.full(2, 1)
     let y = diff {
         tensor.sum_t(x)
-    };
-    return tensor.len(y);
+    }
+    return tensor.len(y)
 }

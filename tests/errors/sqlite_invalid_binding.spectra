@@ -1,3 +1,5 @@
-module sqlite_invalid_binding;
-import { bind_int } from std.api.db.sqlite;
-pub fn main() -> int { bind_int(); return 0; }
+module sqlite_invalid_binding
+from std.api.db.sqlite import bind_int
+public func main() returns int { bind_int()
+    return 0
+}

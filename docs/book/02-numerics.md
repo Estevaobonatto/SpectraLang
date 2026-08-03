@@ -6,21 +6,21 @@ Spectra currently exposes production numeric work primarily through scalar
 ## Scalar Numerics
 
 ```spectra
-let a = 40;
-let b = 2;
-let c = a + b;
+let a = 40
+let b = 2
+let c = a + b
 ```
 
 Use `std.math` for scalar helpers:
 
 ```spectra
-import std.math as math;
+import std.math as math
 
-pub fn main() -> int {
+public func main() returns int {
     if math.abs(-42) != 42 {
-        return 1;
+        return 1
     }
-    return 0;
+    return 0
 }
 ```
 
@@ -29,9 +29,9 @@ pub fn main() -> int {
 Use `std.convert` when crossing scalar type boundaries:
 
 ```spectra
-import std.convert as convert;
+import std.convert as convert
 
-let value = convert.int_to_float(42);
+let value = convert.int_to_float(42)
 ```
 
 ## Randomness
@@ -40,10 +40,10 @@ Tensor random APIs are the recommended path for AI examples because they are
 seeded and tested:
 
 ```spectra
-import std.tensor as tensor;
+import std.tensor as tensor
 
-tensor.seed(2026);
-let batch = tensor.uniform(8, 0, 10);
+tensor.seed(2026)
+let batch = tensor.uniform(8, 0, 10)
 ```
 
 ## Reproducibility Rule

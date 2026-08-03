@@ -1,9 +1,9 @@
-module support;
+module support
 
-pub fn answer() -> int {
-    return 42;
+public func answer() returns int {
+    return 42
 }
 
-pub fn half_answer() -> int {
-    return 21;
+public func half_answer() returns int {
+    return 21
 }

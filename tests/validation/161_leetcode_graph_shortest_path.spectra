@@ -1,10 +1,10 @@
-module leetcode_graph_shortest_path;
+module leetcode_graph_shortest_path
 
-fn edge(weights: [int], row: int, col: int) -> int {
-    return weights[row * 6 + col];
+func edge(weights: [int], row: int, col: int) returns int {
+    return weights[row * 6 + col]
 }
 
-fn dijkstra_signature() -> int {
+func dijkstra_signature() returns int {
     let weights = [
         0, 7, 9, 0, 0, 14,
         7, 0, 10, 15, 0, 0,
@@ -12,49 +12,49 @@ fn dijkstra_signature() -> int {
         0, 15, 11, 0, 6, 0,
         0, 0, 0, 6, 0, 9,
         14, 0, 2, 0, 9, 0
-    ];
-    let dist = [0, 999, 999, 999, 999, 999];
-    let visited = [0, 0, 0, 0, 0, 0];
-    let step = 0;
+    ]
+    let dist    = [0, 999, 999, 999, 999, 999]
+    let visited = [0, 0, 0, 0, 0, 0]
+    let step    = 0
 
     while step < 6 {
-        let best_node = -1;
-        let best_dist = 1000;
-        let i = 0;
+        let best_node = -1
+        let best_dist = 1000
+        let i         = 0
         while i < 6 {
-            if visited[i] == 0 && dist[i] < best_dist {
-                best_dist = dist[i];
-                best_node = i;
+            if visited[i] == 0 and dist[i] < best_dist {
+                best_dist = dist[i]
+                best_node = i
             }
-            i = i + 1;
+            i = i + 1
         }
 
         if best_node == -1 {
-            break;
+            break
         }
-        visited[best_node] = 1;
+        visited[best_node] = 1
 
-        let neighbor = 0;
+        let neighbor = 0
         while neighbor < 6 {
-            let w = edge(weights, best_node, neighbor);
-            if w > 0 && visited[neighbor] == 0 {
-                let candidate = dist[best_node] + w;
+            let w = edge(weights, best_node, neighbor)
+            if w > 0 and visited[neighbor] == 0 {
+                let candidate = dist[best_node] + w
                 if candidate < dist[neighbor] {
-                    dist[neighbor] = candidate;
+                    dist[neighbor] = candidate
                 }
             }
-            neighbor = neighbor + 1;
+            neighbor = neighbor + 1
         }
 
-        step = step + 1;
+        step = step + 1
     }
 
-    return dist[0] + dist[1] * 10 + dist[2] * 100 + dist[3] * 1000 + dist[4] * 10000 + dist[5] * 100000;
+    return dist[0] + dist[1] * 10 + dist[2] * 100 + dist[3] * 1000 + dist[4] * 10000 + dist[5] * 100000
 }
 
-pub fn main() -> int {
+public func main() returns int {
     if dijkstra_signature() != 1320970 {
-        return 1;
+        return 1
     }
-    return 0;
+    return 0
 }

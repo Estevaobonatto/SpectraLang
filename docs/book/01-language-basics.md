@@ -4,10 +4,10 @@ Spectra source files use the `.spectra` extension. Every executable example
 starts with a module declaration and a public `main` function returning `int`.
 
 ```spectra
-module hello;
+module hello
 
-pub fn main() -> int {
-    return 0;
+public func main() returns int {
+    return 0
 }
 ```
 
@@ -32,12 +32,12 @@ Compile a file:
 ## Functions
 
 ```spectra
-fn add(a: int, b: int) -> int {
-    return a + b;
+func add(a: int, b: int) returns int {
+    return a + b
 }
 
-pub fn main() -> int {
-    return add(20, 22) - 42;
+public func main() returns int {
+    return add(20, 22) - 42
 }
 ```
 
@@ -46,28 +46,28 @@ pub fn main() -> int {
 Variables are declared with `let`.
 
 ```spectra
-let x = 10;
-let y: int = 32;
+let x = 10
+let y: int = 32
 ```
 
 ## Control Flow
 
 ```spectra
 if x > 10 {
-    return 1;
-} elif x == 10 {
-    return 0;
+    return 1
+} else if x == 10 {
+    return 0
 } else {
-    return 2;
+    return 2
 }
 ```
 
 Loops:
 
 ```spectra
-let i = 0;
+let i = 0
 while i < 10 {
-    i = i + 1;
+    i = i + 1
 }
 ```
 
@@ -76,9 +76,9 @@ while i < 10 {
 Use aliases for standard library modules:
 
 ```spectra
-import std.tensor as tensor;
-import std.ml as ml;
-import std.fs as fs;
+import std.tensor as tensor
+import std.ml as ml
+import std.fs as fs
 ```
 
 The AI examples use aliases consistently because they map cleanly to host calls

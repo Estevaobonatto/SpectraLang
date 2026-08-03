@@ -24,7 +24,7 @@ $hostCommandTimeoutSeconds = 300
 $env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
 $experimentalFlags = @(
     "--enable-experimental", "switch",
-    "--enable-experimental", "unless",
+    "--enable-experimental", "if not",
     "--enable-experimental", "do-while",
     "--enable-experimental", "loop"
 )
@@ -581,14 +581,14 @@ $cliTests = @(
         Nome = "fmt_stdout"
         Args = @("fmt", "--stdout", "tests\cli\fmt_unformatted.spectra")
         ExpectExit = 0
-        Contains = "pub fn main() -> int {"
+        Contains = "public func main() returns int {"
         UseStdin = $false
     }
     [PSCustomObject]@{
         Nome = "fmt_stdin"
         Args = @()
         ExpectExit = 0
-        Contains = "pub fn main() -> int {"
+        Contains = "public func main() returns int {"
         UseStdin = $true
         StdinFile = "tests\cli\fmt_unformatted.spectra"
     }

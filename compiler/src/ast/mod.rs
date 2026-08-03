@@ -143,11 +143,20 @@ pub struct Import {
     pub span: Span,
     /// Optional alias: `import path as alias`
     pub alias: Option<String>,
-    /// Named imports: `import { name1, name2 } from path`
-    pub names: Option<Vec<String>>,
+    /// Named imports: `from path import name1, name2 as local_name`
+    pub names: Option<Vec<NamedImport>>,
     /// True when written as `pub import ...` — this is a re-export: the
     /// imported symbols are also exposed to whoever imports *this* module.
     pub is_reexport: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedImport {
+    /// Exported name in the source module.
+    pub name: String,
+    /// Optional local binding name.
+    pub alias: Option<String>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

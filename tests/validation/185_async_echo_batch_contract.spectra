@@ -1,19 +1,19 @@
-module async_echo_batch_contract;
+module async_echo_batch_contract
 
-import std.concurrent as concurrent;
+import std.concurrent as concurrent
 
-pub fn main() -> int {
-    let iterations = 1000;
-    let total = 0;
-    let i = 0;
+public func main() returns int {
+    let iterations = 1000
+    let total      = 0
+    let i          = 0
     while i < iterations {
-        concurrent.reset();
-        let batch = concurrent.task_spawn_batch(1, 10);
-        total = total + concurrent.task_join_batch_sum(batch);
-        i = i + 1;
+        concurrent.reset()
+        let batch = concurrent.task_spawn_batch(1, 10)
+        total = total + concurrent.task_join_batch_sum(batch)
+        i = i + 1
     }
     if total == 55000 {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

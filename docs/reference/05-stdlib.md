@@ -52,9 +52,9 @@ Módulo para entrada e saída de texto. Este é o módulo mais frequentemente im
 Module for text input and output. This is the most frequently imported module.
 
 ```spectra
-import std.io;
+import std.io
 // ou / or
-import { println, print, read_line } from std.io;
+from std.io import println, print, read_line
 ```
 
 ### Funções / Functions
@@ -65,11 +65,16 @@ import { println, print, read_line } from std.io;
 **EN-US:** Prints a value followed by a newline to standard output.
 
 ```spectra
-std.io.println("Olá, mundo!");       // Olá, mundo!\n
-std.io.println(42);                  // 42\n
-std.io.println(3.14);                // 3.14\n
-std.io.println(true);                // true\n
-std.io.println(f"Valor: {100}");     // Valor: 100\n
+std.io.println("Olá, mundo!")
+       // Olá, mundo!\n
+std.io.println(42)
+                  // 42\n
+std.io.println(3.14)
+                // 3.14\n
+std.io.println(true)
+                // true\n
+std.io.println(f"Valor: {100}")
+     // Valor: 100\n
 ```
 
 #### `print(value: any) -> unit`
@@ -78,9 +83,10 @@ std.io.println(f"Valor: {100}");     // Valor: 100\n
 **EN-US:** Prints a value **without** a newline.
 
 ```spectra
-std.io.print("Olá, ");
-std.io.print("mundo");
-std.io.println("!");    // Olá, mundo!
+std.io.print("Olá, ")
+std.io.print("mundo")
+std.io.println("!")
+    // Olá, mundo!
 ```
 
 #### `eprint(value: any) -> unit`
@@ -89,8 +95,8 @@ std.io.println("!");    // Olá, mundo!
 **EN-US:** Prints to standard error (stderr) without a newline.
 
 ```spectra
-std.io.eprint("Aviso: ");
-std.io.eprintln("arquivo não encontrado");
+std.io.eprint("Aviso: ")
+std.io.eprintln("arquivo não encontrado")
 ```
 
 #### `eprintln(value: any) -> unit`
@@ -99,7 +105,7 @@ std.io.eprintln("arquivo não encontrado");
 **EN-US:** Prints to standard error with a newline.
 
 ```spectra
-std.io.eprintln("Erro fatal: divisão por zero");
+std.io.eprintln("Erro fatal: divisão por zero")
 ```
 
 #### `flush() -> unit`
@@ -108,8 +114,9 @@ std.io.eprintln("Erro fatal: divisão por zero");
 **EN-US:** Flushes the standard output buffer.
 
 ```spectra
-std.io.print("Carregando...");
-std.io.flush();    // Garante que o texto apareça antes de operação demorada
+std.io.print("Carregando...")
+std.io.flush()
+    // Garante que o texto apareça antes de operação demorada
 ```
 
 #### `read_line() -> string`
@@ -118,9 +125,9 @@ std.io.flush();    // Garante que o texto apareça antes de operação demorada
 **EN-US:** Reads a line from standard input (waits for Enter).
 
 ```spectra
-std.io.print("Digite seu nome: ");
-let nome = std.io.read_line();
-std.io.println(f"Olá, {nome}!");
+std.io.print("Digite seu nome: ")
+let nome = std.io.read_line()
+std.io.println(f"Olá, {nome}!")
 ```
 
 #### `input(prompt: string) -> string`
@@ -129,8 +136,8 @@ std.io.println(f"Olá, {nome}!");
 **EN-US:** Displays a prompt and reads a line of input.
 
 ```spectra
-let nome = std.io.input("Digite seu nome: ");
-let idade_str = std.io.input("Digite sua idade: ");
+let nome = std.io.input("Digite seu nome: ")
+let idade_str = std.io.input("Digite sua idade: ")
 ```
 
 ---
@@ -138,9 +145,9 @@ let idade_str = std.io.input("Digite sua idade: ");
 ## 2. std.string — Manipulação de Strings / String Manipulation
 
 ```spectra
-import std.string;
+import std.string
 // ou / or
-import { len, trim, contains } from std.string;
+from std.string import len, trim, contains
 ```
 
 ### Funções / Functions
@@ -151,9 +158,12 @@ import { len, trim, contains } from std.string;
 **EN-US:** Returns the number of bytes in the string (not necessarily Unicode characters).
 
 ```spectra
-let n = std.string.len("hello");        // 5
-let n2 = std.string.len("");            // 0
-let n3 = std.string.len("olá");         // pode variar com Unicode
+let n = std.string.len("hello")
+        // 5
+let n2 = std.string.len("")
+            // 0
+let n3 = std.string.len("olá")
+         // pode variar com Unicode
 ```
 
 #### `contains(s: string, sub: string) -> bool`
@@ -162,8 +172,10 @@ let n3 = std.string.len("olá");         // pode variar com Unicode
 **EN-US:** Checks whether the string contains the substring.
 
 ```spectra
-let tem = std.string.contains("hello world", "world");  // true
-let nao = std.string.contains("hello", "xyz");          // false
+let tem = std.string.contains("hello world", "world")
+  // true
+let nao = std.string.contains("hello", "xyz")
+          // false
 ```
 
 #### `to_upper(s: string) -> string`
@@ -172,8 +184,10 @@ let nao = std.string.contains("hello", "xyz");          // false
 **EN-US:** Converts all ASCII characters to uppercase.
 
 ```spectra
-let upper = std.string.to_upper("hello");   // "HELLO"
-let mixed = std.string.to_upper("Hello!");  // "HELLO!"
+let upper = std.string.to_upper("hello")
+   // "HELLO"
+let mixed = std.string.to_upper("Hello!")
+  // "HELLO!"
 ```
 
 #### `to_lower(s: string) -> string`
@@ -182,7 +196,8 @@ let mixed = std.string.to_upper("Hello!");  // "HELLO!"
 **EN-US:** Converts all ASCII characters to lowercase.
 
 ```spectra
-let lower = std.string.to_lower("WORLD");   // "world"
+let lower = std.string.to_lower("WORLD")
+   // "world"
 ```
 
 #### `trim(s: string) -> string`
@@ -191,21 +206,26 @@ let lower = std.string.to_lower("WORLD");   // "world"
 **EN-US:** Removes whitespace from the beginning and end of the string.
 
 ```spectra
-let limpa = std.string.trim("  hello  ");   // "hello"
-let s2 = std.string.trim("\t texto \n");    // "texto"
+let limpa = std.string.trim("  hello  ")
+   // "hello"
+let s2 = std.string.trim("\t texto \n")
+    // "texto"
 ```
 
 #### `starts_with(s: string, prefix: string) -> bool`
 
 ```spectra
-let sw = std.string.starts_with("hello world", "hello");  // true
-let nao = std.string.starts_with("world", "hello");       // false
+let sw = std.string.starts_with("hello world", "hello")
+  // true
+let nao = std.string.starts_with("world", "hello")
+       // false
 ```
 
 #### `ends_with(s: string, suffix: string) -> bool`
 
 ```spectra
-let ew = std.string.ends_with("hello.spectra", ".spectra");  // true
+let ew = std.string.ends_with("hello.spectra", ".spectra")
+  // true
 ```
 
 #### `concat(a: string, b: string) -> string`
@@ -214,9 +234,11 @@ let ew = std.string.ends_with("hello.spectra", ".spectra");  // true
 **EN-US:** Concatenates two strings.
 
 ```spectra
-let ab = std.string.concat("foo", "bar");    // "foobar"
+let ab = std.string.concat("foo", "bar")
+    // "foobar"
 // Nota: o operador + também concatena strings / Note: the + operator also concatenates strings
-let ab2 = "foo" + "bar";    // "foobar"
+let ab2 = "foo" + "bar"
+    // "foobar"
 ```
 
 #### `repeat_str(s: string, n: int) -> string`
@@ -225,8 +247,10 @@ let ab2 = "foo" + "bar";    // "foobar"
 **EN-US:** Repeats the string `n` times.
 
 ```spectra
-let rep = std.string.repeat_str("ab", 3);    // "ababab"
-let linha = std.string.repeat_str("-", 40);  // "----------------------------------------"
+let rep = std.string.repeat_str("ab", 3)
+    // "ababab"
+let linha = std.string.repeat_str("-", 40)
+  // "----------------------------------------"
 ```
 
 #### `char_at(s: string, index: int) -> int`
@@ -235,9 +259,12 @@ let linha = std.string.repeat_str("-", 40);  // "-------------------------------
 **EN-US:** Returns the Unicode code point of the character at position `index`. Returns `-1` if the index is out of bounds.
 
 ```spectra
-let c = std.string.char_at("hello", 0);     // 104 ('h')
-let e = std.string.char_at("hello", 1);     // 101 ('e')
-let oob = std.string.char_at("hi", 10);     // -1
+let c = std.string.char_at("hello", 0)
+     // 104 ('h')
+let e = std.string.char_at("hello", 1)
+     // 101 ('e')
+let oob = std.string.char_at("hi", 10)
+     // -1
 ```
 
 #### `substring(s: string, start: int, end: int) -> string`
@@ -246,8 +273,10 @@ let oob = std.string.char_at("hi", 10);     // -1
 **EN-US:** Extracts substring from `start` to `end` (exclusive).
 
 ```spectra
-let sub = std.string.substring("hello world", 0, 5);    // "hello"
-let sub2 = std.string.substring("hello world", 6, 11);  // "world"
+let sub = std.string.substring("hello world", 0, 5)
+    // "hello"
+let sub2 = std.string.substring("hello world", 6, 11)
+  // "world"
 ```
 
 #### `replace(s: string, from: string, to: string) -> string`
@@ -256,7 +285,7 @@ let sub2 = std.string.substring("hello world", 6, 11);  // "world"
 **EN-US:** Replaces all occurrences of `from` with `to`.
 
 ```spectra
-let r = std.string.replace("hello world", "world", "SpectraLang");
+let r = std.string.replace("hello world", "world", "SpectraLang")
 // "hello SpectraLang"
 ```
 
@@ -266,8 +295,10 @@ let r = std.string.replace("hello world", "world", "SpectraLang");
 **EN-US:** Returns the position (0-index) of the first occurrence of `sub`, or `-1` if not found.
 
 ```spectra
-let pos = std.string.index_of("hello world", "world");  // 6
-let nao = std.string.index_of("hello", "xyz");          // -1
+let pos = std.string.index_of("hello world", "world")
+  // 6
+let nao = std.string.index_of("hello", "xyz")
+          // -1
 ```
 
 #### `split_first(s: string, sep: string) -> string`
@@ -276,7 +307,8 @@ let nao = std.string.index_of("hello", "xyz");          // -1
 **EN-US:** Returns the part before the first separator.
 
 ```spectra
-let parte = std.string.split_first("nome:Alice:30", ":");  // "nome"
+let parte = std.string.split_first("nome:Alice:30", ":")
+  // "nome"
 ```
 
 #### `split_last(s: string, sep: string) -> string`
@@ -285,20 +317,24 @@ let parte = std.string.split_first("nome:Alice:30", ":");  // "nome"
 **EN-US:** Returns the part after the last separator.
 
 ```spectra
-let ultima = std.string.split_last("nome:Alice:30", ":");  // "30"
+let ultima = std.string.split_last("nome:Alice:30", ":")
+  // "30"
 ```
 
 #### `count_occurrences(s: string, sub: string) -> int`
 
 ```spectra
-let count = std.string.count_occurrences("banana", "a");  // 3
+let count = std.string.count_occurrences("banana", "a")
+  // 3
 ```
 
 #### `is_empty(s: string) -> bool`
 
 ```spectra
-let vazio = std.string.is_empty("");        // true
-let nao   = std.string.is_empty("hello");   // false
+let vazio = std.string.is_empty("")
+        // true
+let nao   = std.string.is_empty("hello")
+   // false
 ```
 
 #### `pad_left(s: string, width: int, pad_char: int) -> string`
@@ -308,20 +344,23 @@ let nao   = std.string.is_empty("hello");   // false
 
 ```spectra
 // pad_char é o código Unicode do caractere / pad_char is the Unicode code point
-let padded = std.string.pad_left("42", 5, 48);   // "   42" (48 = '0')
+let padded = std.string.pad_left("42", 5, 48)
+   // "   42" (48 = '0')
 // Nota: 48 é o código de '0', 32 é espaço / Note: 48 is code for '0', 32 is space
 ```
 
 #### `pad_right(s: string, width: int, pad_char: int) -> string`
 
 ```spectra
-let padded = std.string.pad_right("hello", 8, 32);  // "hello   " (32 = espaço/space)
+let padded = std.string.pad_right("hello", 8, 32)
+  // "hello   " (32 = espaço/space)
 ```
 
 #### `reverse_str(s: string) -> string`
 
 ```spectra
-let rev = std.string.reverse_str("hello");  // "olleh"
+let rev = std.string.reverse_str("hello")
+  // "olleh"
 ```
 
 ---
@@ -329,9 +368,9 @@ let rev = std.string.reverse_str("hello");  // "olleh"
 ## 3. std.math — Matemática / Mathematics
 
 ```spectra
-import std.math;
+import std.math
 // ou / or
-import std.math as math;
+import std.math as math
 ```
 
 ### Funções Inteiras / Integer Functions
@@ -339,20 +378,24 @@ import std.math as math;
 #### `abs(x: int) -> int`
 
 ```spectra
-let v = std.math.abs(-42);     // 42
-let v2 = std.math.abs(10);     // 10
+let v = std.math.abs(-42)
+     // 42
+let v2 = std.math.abs(10)
+     // 10
 ```
 
 #### `min(lhs: int, rhs: int) -> int`
 
 ```spectra
-let menor = std.math.min(3, 7);    // 3
+let menor = std.math.min(3, 7)
+    // 3
 ```
 
 #### `max(lhs: int, rhs: int) -> int`
 
 ```spectra
-let maior = std.math.max(3, 7);    // 7
+let maior = std.math.max(3, 7)
+    // 7
 ```
 
 #### `clamp(n: int, min: int, max: int) -> int`
@@ -361,9 +404,12 @@ let maior = std.math.max(3, 7);    // 7
 **EN-US:** Restricts `n` to the range `[min, max]`.
 
 ```spectra
-let v = std.math.clamp(150, 0, 100);   // 100
-let v2 = std.math.clamp(-5, 0, 100);   // 0
-let v3 = std.math.clamp(50, 0, 100);   // 50
+let v = std.math.clamp(150, 0, 100)
+   // 100
+let v2 = std.math.clamp(-5, 0, 100)
+   // 0
+let v3 = std.math.clamp(50, 0, 100)
+   // 50
 ```
 
 #### `sign(n: int) -> int`
@@ -372,9 +418,12 @@ let v3 = std.math.clamp(50, 0, 100);   // 50
 **EN-US:** Returns `-1`, `0`, or `1`.
 
 ```spectra
-let s1 = std.math.sign(-5);   // -1
-let s2 = std.math.sign(0);    // 0
-let s3 = std.math.sign(10);   // 1
+let s1 = std.math.sign(-5)
+   // -1
+let s2 = std.math.sign(0)
+    // 0
+let s3 = std.math.sign(10)
+   // 1
 ```
 
 #### `gcd(a: int, b: int) -> int`
@@ -383,7 +432,8 @@ let s3 = std.math.sign(10);   // 1
 **EN-US:** Greatest common divisor.
 
 ```spectra
-let g = std.math.gcd(12, 8);    // 4
+let g = std.math.gcd(12, 8)
+    // 4
 ```
 
 #### `lcm(a: int, b: int) -> int`
@@ -392,7 +442,8 @@ let g = std.math.gcd(12, 8);    // 4
 **EN-US:** Least common multiple.
 
 ```spectra
-let l = std.math.lcm(4, 6);    // 12
+let l = std.math.lcm(4, 6)
+    // 12
 ```
 
 ### Funções de Ponto Flutuante / Float Functions
@@ -400,42 +451,53 @@ let l = std.math.lcm(4, 6);    // 12
 #### `abs_f(x: float) -> float`
 
 ```spectra
-let v = std.math.abs_f(-3.14);   // 3.14
+let v = std.math.abs_f(-3.14)
+   // 3.14
 ```
 
 #### `sqrt_f(x: float) -> float`
 
 ```spectra
-let r = std.math.sqrt_f(16.0);   // 4.0
-let r2 = std.math.sqrt_f(2.0);   // ~1.4142
+let r = std.math.sqrt_f(16.0)
+   // 4.0
+let r2 = std.math.sqrt_f(2.0)
+   // ~1.4142
 ```
 
 #### `pow_f(base: float, exp: float) -> float`
 
 ```spectra
-let p = std.math.pow_f(2.0, 10.0);   // 1024.0
-let p2 = std.math.pow_f(3.0, 0.5);   // ~1.732 (raiz / sqrt)
+let p = std.math.pow_f(2.0, 10.0)
+   // 1024.0
+let p2 = std.math.pow_f(3.0, 0.5)
+   // ~1.732 (raiz / sqrt)
 ```
 
 #### `floor_f(x: float) -> float`
 
 ```spectra
-let f = std.math.floor_f(3.7);    // 3.0
-let f2 = std.math.floor_f(-1.2);  // -2.0
+let f = std.math.floor_f(3.7)
+    // 3.0
+let f2 = std.math.floor_f(-1.2)
+  // -2.0
 ```
 
 #### `ceil_f(x: float) -> float`
 
 ```spectra
-let c = std.math.ceil_f(3.2);     // 4.0
-let c2 = std.math.ceil_f(-1.8);   // -1.0
+let c = std.math.ceil_f(3.2)
+     // 4.0
+let c2 = std.math.ceil_f(-1.8)
+   // -1.0
 ```
 
 #### `round_f(x: float) -> float`
 
 ```spectra
-let r = std.math.round_f(3.5);    // 4.0
-let r2 = std.math.round_f(3.4);   // 3.0
+let r = std.math.round_f(3.5)
+    // 4.0
+let r2 = std.math.round_f(3.4)
+   // 3.0
 ```
 
 #### `sin_f(x: float) -> float` / `cos_f(x: float) -> float` / `tan_f(x: float) -> float`
@@ -444,12 +506,15 @@ let r2 = std.math.round_f(3.4);   // 3.0
 **EN-US:** Trigonometric functions. `x` in radians.
 
 ```spectra
-import std.math as m;
+import std.math as m
 
-let pi = m.pi();
-let seno  = m.sin_f(pi / 2.0);    // ~1.0
-let coss  = m.cos_f(0.0);          // 1.0
-let tang  = m.tan_f(pi / 4.0);    // ~1.0
+let pi = m.pi()
+let seno  = m.sin_f(pi / 2.0)
+    // ~1.0
+let coss  = m.cos_f(0.0)
+          // 1.0
+let tang  = m.tan_f(pi / 4.0)
+    // ~1.0
 ```
 
 #### `log_f(x: float) -> float`
@@ -458,14 +523,17 @@ let tang  = m.tan_f(pi / 4.0);    // ~1.0
 **EN-US:** Natural logarithm (base e).
 
 ```spectra
-let ln_e = std.math.log_f(2.71828);   // ~1.0
+let ln_e = std.math.log_f(2.71828)
+   // ~1.0
 ```
 
 #### `log2_f(x: float) -> float` / `log10_f(x: float) -> float`
 
 ```spectra
-let l2  = std.math.log2_f(8.0);     // 3.0
-let l10 = std.math.log10_f(1000.0); // 3.0
+let l2  = std.math.log2_f(8.0)
+     // 3.0
+let l10 = std.math.log10_f(1000.0)
+ // 3.0
 ```
 
 #### `atan2_f(y: float, x: float) -> float`
@@ -474,14 +542,17 @@ let l10 = std.math.log10_f(1000.0); // 3.0
 **EN-US:** Arc-tangent of y/x, considering the quadrant.
 
 ```spectra
-let angulo = std.math.atan2_f(1.0, 1.0);   // pi/4 (~0.785)
+let angulo = std.math.atan2_f(1.0, 1.0)
+   // pi/4 (~0.785)
 ```
 
 #### `is_nan_f(x: float) -> bool` / `is_infinite_f(x: float) -> bool`
 
 ```spectra
-let nan_check = std.math.is_nan_f(0.0 / 0.0);        // true (comportamento impl-defined)
-let inf_check = std.math.is_infinite_f(1.0 / 0.0);   // true
+let nan_check = std.math.is_nan_f(0.0 / 0.0)
+        // true (comportamento impl-defined)
+let inf_check = std.math.is_infinite_f(1.0 / 0.0)
+   // true
 ```
 
 ### Constantes / Constants
@@ -489,38 +560,41 @@ let inf_check = std.math.is_infinite_f(1.0 / 0.0);   // true
 #### `pi() -> float`
 
 ```spectra
-let pi = std.math.pi();    // ~3.14159265358979
+let pi = std.math.pi()
+    // ~3.14159265358979
 ```
 
 #### `e_const() -> float`
 
 ```spectra
-let e = std.math.e_const();    // ~2.71828182845905
+let e = std.math.e_const()
+    // ~2.71828182845905
 ```
 
 ### Exemplo Completo / Complete Example
 
 ```spectra
-module matematica;
+module matematica
 
-import std.math as m;
-import { println } from std.io;
+import std.math as m
+from std.io import println
 
-pub fn main() {
-    let pi = m.pi();
-    let raio = 5.0;
-    let area = pi * m.pow_f(raio, 2.0);
-    let circunferencia = 2.0 * pi * raio;
+public func main() {
+    let pi = m.pi()
+    let raio = 5.0
+    let area = pi * m.pow_f(raio, 2.0)
+    let circunferencia = 2.0 * pi * raio
 
-    println(f"Raio: {raio}");
-    println(f"Área: {area}");
-    println(f"Circunferência: {circunferencia}");
+    println(f"Raio: {raio}")
+    println(f"Área: {area}")
+    println(f"Circunferência: {circunferencia}")
 
     // Teorema de Pitágoras / Pythagorean theorem
-    let a = 3.0;
-    let b = 4.0;
-    let hipotenusa = m.sqrt_f(m.pow_f(a, 2.0) + m.pow_f(b, 2.0));
-    println(f"Hipotenusa: {hipotenusa}");    // 5.0
+    let a = 3.0
+    let b = 4.0
+    let hipotenusa = m.sqrt_f(m.pow_f(a, 2.0) + m.pow_f(b, 2.0))
+    println(f"Hipotenusa: {hipotenusa}")
+    // 5.0
 }
 ```
 
@@ -529,7 +603,7 @@ pub fn main() {
 ## 4. std.convert — Conversão de Tipos / Type Conversion
 
 ```spectra
-import std.convert;
+import std.convert
 ```
 
 ### Funções / Functions
@@ -537,21 +611,26 @@ import std.convert;
 #### `int_to_string(val: int) -> string`
 
 ```spectra
-let s = std.convert.int_to_string(42);      // "42"
-let s2 = std.convert.int_to_string(-100);   // "-100"
+let s = std.convert.int_to_string(42)
+      // "42"
+let s2 = std.convert.int_to_string(-100)
+   // "-100"
 ```
 
 #### `float_to_string(val: float) -> string`
 
 ```spectra
-let s = std.convert.float_to_string(3.14);  // "3.14"
+let s = std.convert.float_to_string(3.14)
+  // "3.14"
 ```
 
 #### `bool_to_string(val: bool) -> string`
 
 ```spectra
-let s1 = std.convert.bool_to_string(true);   // "true"
-let s2 = std.convert.bool_to_string(false);  // "false"
+let s1 = std.convert.bool_to_string(true)
+   // "true"
+let s2 = std.convert.bool_to_string(false)
+  // "false"
 ```
 
 #### `string_to_int(s: string) -> int`
@@ -560,8 +639,10 @@ let s2 = std.convert.bool_to_string(false);  // "false"
 **EN-US:** Converts string to int. Returns `0` on error.
 
 ```spectra
-let n = std.convert.string_to_int("123");   // 123
-let e = std.convert.string_to_int("abc");   // 0 (erro / error)
+let n = std.convert.string_to_int("123")
+   // 123
+let e = std.convert.string_to_int("abc")
+   // 0 (erro / error)
 ```
 
 #### `string_to_float(s: string) -> float`
@@ -570,14 +651,17 @@ let e = std.convert.string_to_int("abc");   // 0 (erro / error)
 **EN-US:** Converts string to float. Returns `0.0` on error.
 
 ```spectra
-let f = std.convert.string_to_float("3.14");    // 3.14
-let e = std.convert.string_to_float("xyz");     // 0.0
+let f = std.convert.string_to_float("3.14")
+    // 3.14
+let e = std.convert.string_to_float("xyz")
+     // 0.0
 ```
 
 #### `int_to_float(val: int) -> float`
 
 ```spectra
-let f = std.convert.int_to_float(7);    // 7.0
+let f = std.convert.int_to_float(7)
+    // 7.0
 ```
 
 #### `float_to_int(val: float) -> int`
@@ -586,8 +670,10 @@ let f = std.convert.int_to_float(7);    // 7.0
 **EN-US:** Converts float to int by truncating (not rounding).
 
 ```spectra
-let i = std.convert.float_to_int(9.9);     // 9  (truncado / truncated)
-let i2 = std.convert.float_to_int(-3.7);   // -3
+let i = std.convert.float_to_int(9.9)
+     // 9  (truncado / truncated)
+let i2 = std.convert.float_to_int(-3.7)
+   // -3
 ```
 
 #### `string_to_int_or(s: string, default: int) -> int`
@@ -596,14 +682,17 @@ let i2 = std.convert.float_to_int(-3.7);   // -3
 **EN-US:** Converts with a default value on error.
 
 ```spectra
-let n = std.convert.string_to_int_or("abc", -1);   // -1
-let n2 = std.convert.string_to_int_or("42", -1);   // 42
+let n = std.convert.string_to_int_or("abc", -1)
+   // -1
+let n2 = std.convert.string_to_int_or("42", -1)
+   // 42
 ```
 
 #### `string_to_float_or(s: string, default: float) -> float`
 
 ```spectra
-let f = std.convert.string_to_float_or("bad", 0.0);   // 0.0
+let f = std.convert.string_to_float_or("bad", 0.0)
+   // 0.0
 ```
 
 #### `string_to_bool(s: string) -> bool`
@@ -612,16 +701,21 @@ let f = std.convert.string_to_float_or("bad", 0.0);   // 0.0
 **EN-US:** Returns `true` if the string is `"true"` (case-insensitive), `false` otherwise.
 
 ```spectra
-let b1 = std.convert.string_to_bool("true");    // true
-let b2 = std.convert.string_to_bool("false");   // false
-let b3 = std.convert.string_to_bool("1");       // false
+let b1 = std.convert.string_to_bool("true")
+    // true
+let b2 = std.convert.string_to_bool("false")
+   // false
+let b3 = std.convert.string_to_bool("1")
+       // false
 ```
 
 #### `bool_to_int(b: bool) -> int`
 
 ```spectra
-let i1 = std.convert.bool_to_int(true);    // 1
-let i2 = std.convert.bool_to_int(false);   // 0
+let i1 = std.convert.bool_to_int(true)
+    // 1
+let i2 = std.convert.bool_to_int(false)
+   // 0
 ```
 
 ---
@@ -635,7 +729,7 @@ O módulo `std.collections` proVê listas dinâmicas via **handles** opacos (int
 The `std.collections` module provides dynamic lists via opaque **handles** (integers). A handle is a numeric identifier for a runtime-managed list. Do not manipulate handles directly.
 
 ```spectra
-import std.collections as col;
+import std.collections as col
 ```
 
 ### Operações Básicas / Basic Operations
@@ -646,22 +740,24 @@ import std.collections as col;
 **EN-US:** Creates a new empty list. Returns the handle.
 
 ```spectra
-let lista = col.list_new();    // handle, ex: 1
+let lista = col.list_new()
+    // handle, ex: 1
 ```
 
 #### `list_push(handle: int, value: int) -> unit`
 
 ```spectra
-let lista = col.list_new();
-col.list_push(lista, 10);
-col.list_push(lista, 20);
-col.list_push(lista, 30);
+let lista = col.list_new()
+col.list_push(lista, 10)
+col.list_push(lista, 20)
+col.list_push(lista, 30)
 ```
 
 #### `list_len(handle: int) -> int`
 
 ```spectra
-let n = col.list_len(lista);   // 3
+let n = col.list_len(lista)
+   // 3
 ```
 
 #### `list_get(handle: int, index: int) -> int`
@@ -670,14 +766,17 @@ let n = col.list_len(lista);   // 3
 **EN-US:** Returns the element at the index. Returns `-1` if out of bounds.
 
 ```spectra
-let v = col.list_get(lista, 0);    // 10
-let oob = col.list_get(lista, 99); // -1
+let v = col.list_get(lista, 0)
+    // 10
+let oob = col.list_get(lista, 99)
+ // -1
 ```
 
 #### `list_set(handle: int, index: int, value: int) -> unit`
 
 ```spectra
-col.list_set(lista, 0, 99);    // Substitui o elemento 0 por 99
+col.list_set(lista, 0, 99)
+    // Substitui o elemento 0 por 99
 ```
 
 #### `list_pop(handle: int) -> int`
@@ -686,19 +785,22 @@ col.list_set(lista, 0, 99);    // Substitui o elemento 0 por 99
 **EN-US:** Removes and returns the last element. Returns `-1` if empty.
 
 ```spectra
-let ultimo = col.list_pop(lista);    // 30
+let ultimo = col.list_pop(lista)
+    // 30
 ```
 
 #### `list_pop_front(handle: int) -> int`
 
 ```spectra
-let primeiro = col.list_pop_front(lista);    // 10
+let primeiro = col.list_pop_front(lista)
+    // 10
 ```
 
 #### `list_insert_at(handle: int, index: int, value: int) -> unit`
 
 ```spectra
-col.list_insert_at(lista, 1, 50);    // Insere 50 na posição 1
+col.list_insert_at(lista, 1, 50)
+    // Insere 50 na posição 1
 ```
 
 #### `list_remove_at(handle: int, index: int) -> int`
@@ -707,13 +809,14 @@ col.list_insert_at(lista, 1, 50);    // Insere 50 na posição 1
 **EN-US:** Removes the element at the index and returns it. Returns `-1` if invalid.
 
 ```spectra
-let removido = col.list_remove_at(lista, 0);
+let removido = col.list_remove_at(lista, 0)
 ```
 
 #### `list_contains(handle: int, value: int) -> bool`
 
 ```spectra
-let tem = col.list_contains(lista, 20);   // true/false
+let tem = col.list_contains(lista, 20)
+   // true/false
 ```
 
 #### `list_index_of(handle: int, value: int) -> int`
@@ -722,7 +825,8 @@ let tem = col.list_contains(lista, 20);   // true/false
 **EN-US:** Returns the index of the first occurrence or `-1`.
 
 ```spectra
-let idx = col.list_index_of(lista, 20);   // índice ou -1
+let idx = col.list_index_of(lista, 20)
+   // índice ou -1
 ```
 
 #### `list_sort(handle: int) -> unit`
@@ -731,13 +835,14 @@ let idx = col.list_index_of(lista, 20);   // índice ou -1
 **EN-US:** Sorts the list in ascending order in-place.
 
 ```spectra
-col.list_sort(lista);
+col.list_sort(lista)
 ```
 
 #### `list_clear(handle: int) -> unit`
 
 ```spectra
-col.list_clear(lista);    // Remove todos os elementos
+col.list_clear(lista)
+    // Remove todos os elementos
 ```
 
 #### `list_free(handle: int) -> unit`
@@ -746,7 +851,8 @@ col.list_clear(lista);    // Remove todos os elementos
 **EN-US:** Frees the list's memory. **Important:** Call when no longer needed.
 
 ```spectra
-col.list_free(lista);    // Libera recursos
+col.list_free(lista)
+    // Libera recursos
 ```
 
 #### `list_free_all() -> int`
@@ -755,7 +861,7 @@ col.list_free(lista);    // Libera recursos
 **EN-US:** Frees all allocated lists. Returns how many were freed.
 
 ```spectra
-let liberadas = col.list_free_all();
+let liberadas = col.list_free_all()
 ```
 
 ### Funções de Alta Ordem / Higher-Order Functions
@@ -785,43 +891,46 @@ let liberadas = col.list_free_all();
 ### Exemplo Completo / Complete Example
 
 ```spectra
-module usando_colecoes;
+module usando_colecoes
 
-import std.collections as col;
-import { println } from std.io;
-import std.convert;
+import std.collections as col
+from std.io import println
+import std.convert
 
-pub fn main() {
+public func main() {
     // Criar lista / Create list
-    let lista = col.list_new();
+    let lista = col.list_new()
 
     // Adicionar elementos / Add elements
-    col.list_push(lista, 5);
-    col.list_push(lista, 3);
-    col.list_push(lista, 8);
-    col.list_push(lista, 1);
-    col.list_push(lista, 9);
-    col.list_push(lista, 2);
+    col.list_push(lista, 5)
+    col.list_push(lista, 3)
+    col.list_push(lista, 8)
+    col.list_push(lista, 1)
+    col.list_push(lista, 9)
+    col.list_push(lista, 2)
 
-    println(f"Tamanho: {col.list_len(lista)}");    // 6
+    println(f"Tamanho: {col.list_len(lista)}")
+    // 6
 
     // Ordenar / Sort
-    col.list_sort(lista);
+    col.list_sort(lista)
 
     // Imprimir todos / Print all
-    let i = 0;
+    let i = 0
     while i < col.list_len(lista) {
-        println(std.convert.int_to_string(col.list_get(lista, i)));
-        i = i + 1;
+        println(std.convert.int_to_string(col.list_get(lista, i)))
+        i = i + 1
     }
     // 1, 2, 3, 5, 8, 9
 
     // Verificar / Check
-    println(f"Contém 5: {col.list_contains(lista, 5)}");   // true
-    println(f"Índice de 8: {col.list_index_of(lista, 8)}"); // 4
+    println(f"Contém 5: {col.list_contains(lista, 5)}")
+   // true
+    println(f"Índice de 8: {col.list_index_of(lista, 8)}")
+ // 4
 
     // Liberar / Free
-    col.list_free(lista);
+    col.list_free(lista)
 }
 ```
 
@@ -836,7 +945,7 @@ pub fn main() {
 `std.tensor` provides the current production tensor core for AI/ML. The ABI still uses opaque handles (`int`), but the language now recognizes partial `Tensor<dtype, rankN>` annotations for new code. Each tensor has dtype (`int` or `float`), shape, strides, layout, shared CPU storage, and a base offset for safe views.
 
 ```spectra
-import std.tensor as tensor;
+import std.tensor as tensor
 ```
 
 ### Criação / Creation
@@ -846,9 +955,9 @@ Código novo pode usar `Tensor<float, rank1>`, `Tensor<float, rank2>` e metadado
 New code can use `Tensor<float, rank1>`, `Tensor<float, rank2>`, and optional dimension/layout/device metadata when the annotation is explicit:
 
 ```spectra
-let v: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
-let any_len: Tensor<float, rank1, dynamic_dim, row_major, cpu> = v;
-let m: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]];
+let v: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0]
+let any_len: Tensor<float, rank1, dynamic_dim, row_major, cpu> = v
+let m: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]]
 ```
 
 Rank, dtype, dimensão estática, layout e device incompatíveis falham em `check`/`compile` com códigos JSON estáveis `E1401` a `E1405`. Literais rank2 precisam ser retangulares.
@@ -946,12 +1055,12 @@ Views share storage where possible. `set` and `set2` apply copy-on-write when st
 `diff { ... }` marks a differentiable region. The block must produce a scalar tensor loss, usually created by `sum_t`, `mean_t`, or `dot_t`. The compiler lowers the block to `backward(loss)` and returns the same `loss` for later use.
 
 ```spectra
-let initial: Tensor<float, rank1> = [3.0, 3.0, 3.0];
-let weights: Tensor<float, rank1> = tensor.requires_grad(initial, true);
+let initial: Tensor<float, rank1> = [3.0, 3.0, 3.0]
+let weights: Tensor<float, rank1> = tensor.requires_grad(initial, true)
 let loss: Tensor<float, rank0> = diff {
     tensor.sum_t(tensor.mul(weights, weights))
-};
-let grad: Tensor<float, rank1> = tensor.grad(weights);
+}
+let grad: Tensor<float, rank1> = tensor.grad(weights)
 ```
 
 Operações qualificadas de stdlib que não participam do grafo diferenciável, como metadados (`tensor.rank`) ou lifecycle (`tensor.free_all`), falham dentro de `diff { ... }` com o código estável `E1406`. Mova I/O, metadados e liberação de recursos para fora do bloco.
@@ -961,31 +1070,34 @@ Qualified stdlib operations that do not participate in the differentiable graph,
 ### Exemplo / Example
 
 ```spectra
-module tensor_demo;
+module tensor_demo
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let a = tensor.arange(1, 5, 1);    // [1, 2, 3, 4]
-    let b = tensor.full(4, 2);         // [2, 2, 2, 2]
-    let c = tensor.add(a, b);          // [3, 4, 5, 6]
+public func main() returns int {
+    let a = tensor.arange(1, 5, 1)
+    // [1, 2, 3, 4]
+    let b = tensor.full(4, 2)
+         // [2, 2, 2, 2]
+    let c = tensor.add(a, b)
+          // [3, 4, 5, 6]
 
     if tensor.sum(c) != 18 {
-        return tensor.sum(c);
+        return tensor.sum(c)
     }
 
-    let m = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
-    let ones = tensor.ones2(3, 2);
-    let product = tensor.matmul(m, ones);
-    let product_cpu = tensor.to_device(product, 0);
-    tensor.sync(product_cpu);
+    let m = tensor.reshape(tensor.arange(1, 7, 1), 2, 3)
+    let ones = tensor.ones2(3, 2)
+    let product = tensor.matmul(m, ones)
+    let product_cpu = tensor.to_device(product, 0)
+    tensor.sync(product_cpu)
 
     if tensor.get2(product_cpu, 1, 0) != 15 {
-        return tensor.get2(product_cpu, 1, 0);
+        return tensor.get2(product_cpu, 1, 0)
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }
 ```
 
@@ -1004,8 +1116,8 @@ Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`,
 `std.ml` provides the Phase 6 high-level CPU training layer on top of `std.tensor` handles.
 
 ```spectra
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 ```
 
 | Função / Function | Descrição / Description |
@@ -1051,7 +1163,7 @@ Estado Phase 6: MLP e CNN pequenos treinam end-to-end nos testes de runtime, com
 ## 8. std.random — Números Aleatórios / Random Numbers
 
 ```spectra
-import std.random;
+import std.random
 ```
 
 #### `random_seed(seed: int) -> unit`
@@ -1060,7 +1172,7 @@ import std.random;
 **EN-US:** Sets the random number generator seed. Use for reproducible results.
 
 ```spectra
-std.random.random_seed(42);
+std.random.random_seed(42)
 ```
 
 #### `random_int(min: int, max: int) -> int`
@@ -1069,8 +1181,10 @@ std.random.random_seed(42);
 **EN-US:** Returns a random integer in `[min, max]` (inclusive).
 
 ```spectra
-let dado = std.random.random_int(1, 6);    // 1 a 6
-let moeda = std.random.random_int(0, 1);   // 0 ou 1
+let dado = std.random.random_int(1, 6)
+    // 1 a 6
+let moeda = std.random.random_int(0, 1)
+   // 0 ou 1
 ```
 
 #### `random_float() -> float`
@@ -1079,13 +1193,15 @@ let moeda = std.random.random_int(0, 1);   // 0 ou 1
 **EN-US:** Returns a random float in `[0.0, 1.0)`.
 
 ```spectra
-let f = std.random.random_float();    // ex: 0.7351...
+let f = std.random.random_float()
+    // ex: 0.7351...
 ```
 
 #### `random_bool() -> bool`
 
 ```spectra
-let b = std.random.random_bool();    // true ou false
+let b = std.random.random_bool()
+    // true ou false
 ```
 
 ---
@@ -1093,7 +1209,7 @@ let b = std.random.random_bool();    // true ou false
 ## 8. std.fs — Sistema de Arquivos / File System
 
 ```spectra
-import std.fs;
+import std.fs
 ```
 
 #### `fs_read(path: string) -> string`
@@ -1102,9 +1218,9 @@ import std.fs;
 **EN-US:** Reads the full content of a file. Returns `""` on error.
 
 ```spectra
-let conteudo = std.fs.fs_read("dados.txt");
+let conteudo = std.fs.fs_read("dados.txt")
 if std.string.is_empty(conteudo) {
-    println("Arquivo não encontrado ou vazio");
+    println("Arquivo não encontrado ou vazio")
 }
 ```
 
@@ -1114,7 +1230,7 @@ if std.string.is_empty(conteudo) {
 **EN-US:** Writes (replaces) file content. Creates missing parent directories when possible. Returns `true` on success and `false` for controlled filesystem failures.
 
 ```spectra
-let ok = std.fs.fs_write("target/artefatos/saida.txt", "Hello, World!\n");
+let ok = std.fs.fs_write("target/artefatos/saida.txt", "Hello, World!\n")
 ```
 
 #### `fs_append(path: string, content: string) -> bool`
@@ -1123,7 +1239,7 @@ let ok = std.fs.fs_write("target/artefatos/saida.txt", "Hello, World!\n");
 **EN-US:** Appends content to the end of a file. Creates missing parent directories when possible and returns `false` for controlled failures.
 
 ```spectra
-std.fs.fs_append("log.txt", "Nova entrada de log\n");
+std.fs.fs_append("log.txt", "Nova entrada de log\n")
 ```
 
 Falhas comuns, como caminho vazio, pai bloqueado por arquivo, permissão negada
@@ -1134,14 +1250,14 @@ Use o valor de retorno para decidir o fluxo de erro.
 
 ```spectra
 if std.fs.fs_exists("config.txt") {
-    let cfg = std.fs.fs_read("config.txt");
+    let cfg = std.fs.fs_read("config.txt")
 }
 ```
 
 #### `fs_remove(path: string) -> bool`
 
 ```spectra
-let removido = std.fs.fs_remove("temp.txt");
+let removido = std.fs.fs_remove("temp.txt")
 ```
 
 ---
@@ -1149,7 +1265,7 @@ let removido = std.fs.fs_remove("temp.txt");
 ## 9. std.env — Ambiente / Environment
 
 ```spectra
-import std.env;
+import std.env
 ```
 
 #### `env_get(key: string) -> string`
@@ -1158,14 +1274,14 @@ import std.env;
 **EN-US:** Gets an environment variable. Returns `""` if not set.
 
 ```spectra
-let home = std.env.env_get("HOME");
-let path = std.env.env_get("PATH");
+let home = std.env.env_get("HOME")
+let path = std.env.env_get("PATH")
 ```
 
 #### `env_set(key: string, value: string) -> bool`
 
 ```spectra
-let ok = std.env.env_set("MINHA_VAR", "valor");
+let ok = std.env.env_set("MINHA_VAR", "valor")
 ```
 
 #### `env_args_count() -> int`
@@ -1174,8 +1290,8 @@ let ok = std.env.env_set("MINHA_VAR", "valor");
 **EN-US:** Returns the number of command-line arguments.
 
 ```spectra
-let argc = std.env.env_args_count();
-println(f"Argumentos: {argc}");
+let argc = std.env.env_args_count()
+println(f"Argumentos: {argc}")
 ```
 
 #### `env_arg(index: int) -> string`
@@ -1184,13 +1300,15 @@ println(f"Argumentos: {argc}");
 **EN-US:** Returns the argument at position `index`. Returns `""` if out of bounds.
 
 ```spectra
-let arg0 = std.env.env_arg(0);    // nome do programa / program name
-let arg1 = std.env.env_arg(1);    // primeiro argumento / first argument
+let arg0 = std.env.env_arg(0)
+    // nome do programa / program name
+let arg1 = std.env.env_arg(1)
+    // primeiro argumento / first argument
 
 // Processando todos os argumentos / Processing all arguments
-let n = std.env.env_args_count();
+let n = std.env.env_args_count()
 for i in 0..n {
-    println(f"arg[{i}] = {std.env.env_arg(i)}");
+    println(f"arg[{i}] = {std.env.env_arg(i)}")
 }
 ```
 
@@ -1199,21 +1317,23 @@ for i in 0..n {
 ## 10. std.option — Operações em Option / Option Operations
 
 ```spectra
-import std.option;
+import std.option
 ```
 
 #### `is_some(opt: unknown) -> bool`
 
 ```spectra
-let opt = Option::Some(42);
-let tem = std.option.is_some(opt);    // true
+let opt = Option::Some(42)
+let tem = std.option.is_some(opt)
+    // true
 ```
 
 #### `is_none(opt: unknown) -> bool`
 
 ```spectra
-let nada = Option::None;
-let vazio = std.option.is_none(nada);    // true
+let nada = Option::None
+let vazio = std.option.is_none(nada)
+    // true
 ```
 
 #### `option_unwrap(opt: unknown) -> unknown`
@@ -1222,7 +1342,8 @@ let vazio = std.option.is_none(nada);    // true
 **EN-US:** Extracts the value from `Some`. Returns a controlled runtime error if `None`.
 
 ```spectra
-let val = std.option.option_unwrap(Option::Some(42));   // 42
+let val = std.option.option_unwrap(Option::Some(42))
+   // 42
 // std.option.option_unwrap(Option::None);  // erro de runtime controlado
 ```
 
@@ -1232,8 +1353,10 @@ let val = std.option.option_unwrap(Option::Some(42));   // 42
 **EN-US:** Extracts the value or returns the default if `None`.
 
 ```spectra
-let val = std.option.option_unwrap_or(Option::Some(42), 0);   // 42
-let def = std.option.option_unwrap_or(Option::None, 99);      // 99
+let val = std.option.option_unwrap_or(Option::Some(42), 0)
+   // 42
+let def = std.option.option_unwrap_or(Option::None, 99)
+      // 99
 ```
 
 ---
@@ -1241,21 +1364,23 @@ let def = std.option.option_unwrap_or(Option::None, 99);      // 99
 ## 11. std.result — Operações em Result / Result Operations
 
 ```spectra
-import std.result;
+import std.result
 ```
 
 #### `is_ok(res: unknown) -> bool`
 
 ```spectra
-let r = Result::Ok(100);
-let ok = std.result.is_ok(r);      // true
+let r = Result::Ok(100)
+let ok = std.result.is_ok(r)
+      // true
 ```
 
 #### `is_err(res: unknown) -> bool`
 
 ```spectra
-let e = Result::Err("falha");
-let err = std.result.is_err(e);    // true
+let e = Result::Err("falha")
+let err = std.result.is_err(e)
+    // true
 ```
 
 #### `result_unwrap(res: unknown) -> unknown`
@@ -1264,13 +1389,15 @@ let err = std.result.is_err(e);    // true
 **EN-US:** Extracts the value from `Ok`. Returns a controlled runtime error if `Err`.
 
 ```spectra
-let val = std.result.result_unwrap(Result::Ok(42));    // 42
+let val = std.result.result_unwrap(Result::Ok(42))
+    // 42
 ```
 
 #### `result_unwrap_or(res: unknown, default: unknown) -> unknown`
 
 ```spectra
-let val = std.result.result_unwrap_or(Result::Err("e"), 0);   // 0
+let val = std.result.result_unwrap_or(Result::Err("e"), 0)
+   // 0
 ```
 
 #### `result_unwrap_err(res: unknown) -> unknown`
@@ -1279,7 +1406,8 @@ let val = std.result.result_unwrap_or(Result::Err("e"), 0);   // 0
 **EN-US:** Extracts the value from `Err`. Returns a controlled runtime error if `Ok`.
 
 ```spectra
-let msg = std.result.result_unwrap_err(Result::Err("algo errado"));   // "algo errado"
+let msg = std.result.result_unwrap_err(Result::Err("algo errado"))
+   // "algo errado"
 ```
 
 ---
@@ -1293,80 +1421,94 @@ As funções de `std.char` operam sobre **códigos Unicode** (inteiros), o mesmo
 Functions in `std.char` operate on **Unicode code points** (integers), the same format returned by `std.string.char_at()`.
 
 ```spectra
-import std.char;
+import std.char
 ```
 
 #### `is_alpha(c: int) -> bool`
 
 ```spectra
-let sim = std.char.is_alpha(65);     // true ('A')
-let nao = std.char.is_alpha(48);     // false ('0')
+let sim = std.char.is_alpha(65)
+     // true ('A')
+let nao = std.char.is_alpha(48)
+     // false ('0')
 ```
 
 #### `is_digit_char(c: int) -> bool`
 
 ```spectra
-let sim = std.char.is_digit_char(48);   // true ('0')
-let nao = std.char.is_digit_char(65);   // false ('A')
+let sim = std.char.is_digit_char(48)
+   // true ('0')
+let nao = std.char.is_digit_char(65)
+   // false ('A')
 ```
 
 #### `is_whitespace_char(c: int) -> bool`
 
 ```spectra
-let sim = std.char.is_whitespace_char(32);   // true (espaço / space)
-let sim2 = std.char.is_whitespace_char(9);   // true (tab)
+let sim = std.char.is_whitespace_char(32)
+   // true (espaço / space)
+let sim2 = std.char.is_whitespace_char(9)
+   // true (tab)
 ```
 
 #### `is_upper_char(c: int) -> bool` / `is_lower_char(c: int) -> bool`
 
 ```spectra
-let upper = std.char.is_upper_char(65);   // true ('A')
-let lower = std.char.is_lower_char(97);   // true ('a')
+let upper = std.char.is_upper_char(65)
+   // true ('A')
+let lower = std.char.is_lower_char(97)
+   // true ('a')
 ```
 
 #### `is_alphanumeric(c: int) -> bool`
 
 ```spectra
-let sim = std.char.is_alphanumeric(97);   // true ('a')
-let sim2 = std.char.is_alphanumeric(48);  // true ('0')
-let nao = std.char.is_alphanumeric(32);   // false (espaço)
+let sim = std.char.is_alphanumeric(97)
+   // true ('a')
+let sim2 = std.char.is_alphanumeric(48)
+  // true ('0')
+let nao = std.char.is_alphanumeric(32)
+   // false (espaço)
 ```
 
 #### `to_upper_char(c: int) -> int` / `to_lower_char(c: int) -> int`
 
 ```spectra
-let A = std.char.to_upper_char(97);    // 65 ('A')
-let a = std.char.to_lower_char(65);    // 97 ('a')
+let A = std.char.to_upper_char(97)
+    // 65 ('A')
+let a = std.char.to_lower_char(65)
+    // 97 ('a')
 ```
 
 ### Exemplo: Processamento de String Caractere a Caractere
 
 ```spectra
-module analisar_string;
+module analisar_string
 
-import std.string as s;
-import std.char as c;
-import { println } from std.io;
-import std.convert;
+import std.string as s
+import std.char as c
+from std.io import println
+import std.convert
 
-fn contar_digitos(texto: string) -> int {
-    let count = 0;
-    let i = 0;
-    let len = s.len(texto);
+func contar_digitos(texto: string) returns int {
+    let count = 0
+    let i = 0
+    let len = s.len(texto)
     while i < len {
-        let codigo = s.char_at(texto, i);
+        let codigo = s.char_at(texto, i)
         if c.is_digit_char(codigo) {
-            count = count + 1;
+            count = count + 1
         }
-        i = i + 1;
+        i = i + 1
     }
-    return count;
+    return count
 }
 
-pub fn main() {
-    let texto = "abc123def456";
-    let n = contar_digitos(texto);
-    println(f"Dígitos em '{texto}': {n}");    // 6
+public func main() {
+    let texto = "abc123def456"
+    let n = contar_digitos(texto)
+    println(f"Dígitos em '{texto}': {n}")
+    // 6
 }
 ```
 
@@ -1375,7 +1517,7 @@ pub fn main() {
 ## 13. std.time — Tempo / Time
 
 ```spectra
-import std.time;
+import std.time
 ```
 
 #### `time_now_millis() -> int`
@@ -1384,11 +1526,11 @@ import std.time;
 **EN-US:** Returns milliseconds since the Unix epoch. Returns `-1` on error.
 
 ```spectra
-let inicio = std.time.time_now_millis();
+let inicio = std.time.time_now_millis()
 // ... operação / operation ...
-let fim = std.time.time_now_millis();
-let duracao = fim - inicio;
-println(f"Duração: {duracao}ms");
+let fim = std.time.time_now_millis()
+let duracao = fim - inicio
+println(f"Duração: {duracao}ms")
 ```
 
 #### `time_now_secs() -> int`
@@ -1397,8 +1539,8 @@ println(f"Duração: {duracao}ms");
 **EN-US:** Returns seconds since the Unix epoch. Returns `-1` on error.
 
 ```spectra
-let agora = std.time.time_now_secs();
-println(f"Timestamp: {agora}");
+let agora = std.time.time_now_secs()
+println(f"Timestamp: {agora}")
 ```
 
 #### `sleep_ms(ms: int) -> unit`
@@ -1407,9 +1549,10 @@ println(f"Timestamp: {agora}");
 **EN-US:** Pauses execution for `ms` milliseconds.
 
 ```spectra
-println("Aguardando...");
-std.time.sleep_ms(1000);    // Pausa 1 segundo / Pause 1 second
-println("Pronto!");
+println("Aguardando...")
+std.time.sleep_ms(1000)
+    // Pausa 1 segundo / Pause 1 second
+println("Pronto!")
 ```
 
 ### Tipos / Types
@@ -1493,26 +1636,26 @@ Extraem campos de `UtcDateTime`.
 ### Exemplo: Benchmark Simples
 
 ```spectra
-module benchmark;
+module benchmark
 
-import std.time;
-import { println } from std.io;
+import std.time
+from std.io import println
 
-fn operacao_pesada(n: int) -> int {
-    let soma = 0;
+func operacao_pesada(n: int) returns int {
+    let soma = 0
     for i in 0..n {
-        soma = soma + i;
+        soma = soma + i
     }
-    return soma;
+    return soma
 }
 
-pub fn main() {
-    let inicio = std.time.time_now_millis();
-    let resultado = operacao_pesada(1000000);
-    let fim = std.time.time_now_millis();
+public func main() {
+    let inicio = std.time.time_now_millis()
+    let resultado = operacao_pesada(1000000)
+    let fim = std.time.time_now_millis()
 
-    println(f"Resultado: {resultado}");
-    println(f"Tempo: {fim - inicio}ms");
+    println(f"Resultado: {resultado}")
+    println(f"Tempo: {fim - inicio}ms")
 }
 ```
 
@@ -1521,7 +1664,7 @@ pub fn main() {
 ## 14. std.ml — AI/ML runtime
 
 ```spectra
-import std.ml as ml;
+import std.ml as ml
 ```
 
 ### Evaluation metrics
@@ -1540,12 +1683,12 @@ writes a versioned machine-readable JSON report and a human-readable `.txt`
 companion report.
 
 ```spectra
-import std.ml as ml;
-import std.tensor as tensor;
+import std.ml as ml
+import std.tensor as tensor
 
-let labels = tensor.arange(0, 4, 1);
-let predicted = tensor.arange(0, 4, 1);
-let classification = ml.metrics_classification(labels, predicted);
+let labels = tensor.arange(0, 4, 1)
+let predicted = tensor.arange(0, 4, 1)
+let classification = ml.metrics_classification(labels, predicted)
 ```
 
 ---
@@ -1553,7 +1696,7 @@ let classification = ml.metrics_classification(labels, predicted);
 ## 15. std.serve — Serving and guardrails
 
 ```spectra
-import std.serve as serve;
+import std.serve as serve
 ```
 
 `std.serve` provides local serving queues plus guardrails for AI serving baselines:
@@ -1569,13 +1712,13 @@ Guardrail failures complete the request with the configured fallback value and
 record structured diagnostic/audit JSON.
 
 ```spectra
-import std.serve as serve;
+import std.serve as serve
 
-let server = serve.server_new(3);
-serve.server_set_fallback(server, -999);
-serve.server_set_input_policy(server, 0, 100);
-serve.server_set_output_policy(server, 0, 200);
-serve.server_warmup(server);
+let server = serve.server_new(3)
+serve.server_set_fallback(server, -999)
+serve.server_set_input_policy(server, 0, 100)
+serve.server_set_output_policy(server, 0, 200)
+serve.server_warmup(server)
 ```
 
 ### Monitoring and drift

@@ -151,11 +151,11 @@ def validate_fixture_and_docs() -> None:
 
     snapshot = read("compiler/tests/snapshots/std_api_public_function_table.snap")
     for term in [
-        "module std.api.multipart",
+        'module std.api.multipart',
         "type std.api.multipart.Multipart",
         "type std.api.multipart.MultipartPart",
-        "fn std.api.multipart.parse",
-        "fn std.api.multipart.file_read",
+        "func std.api.multipart.parse",
+        "func std.api.multipart.file_read",
     ]:
         require(term in snapshot, f"std.api snapshot missing {term}")
 

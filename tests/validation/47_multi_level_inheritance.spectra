@@ -1,49 +1,52 @@
 // Teste de trait inheritance com múltiplos níveis
-module test47;
+module test47
 
 // Trait base
 trait Display {
-    fn display(&self) -> int;
+    func display( & self) returns int
 }
 
 // Trait intermediário
 trait Printable: Display {
-    fn println(&self) -> int;
+    func println( & self) returns int
 }
 
 // Trait final (herda Display via Printable)
 trait Debug: Printable {
-    fn debug(&self) -> int;
+    func debug( & self) returns int
 }
 
 // Struct que implementa Debug
 // Deve implementar: display (de Display), println (de Printable), debug (de Debug)
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Debug for Point {
     // Implementa display (herdado de Display via Printable)
-    fn display(&self) -> int {
+    func display( & self) returns int {
         self.x
     }
-    
+
     // Implementa println (herdado de Printable)
-    fn println(&self) -> int {
+    func println( & self) returns int {
         self.x + self.y
     }
-    
+
     // Implementa debug (de Debug)
-    fn debug(&self) -> int {
+    func debug( & self) returns int {
         self.x * self.y
     }
 }
 
-fn main() -> int {
-    let p = Point { x: 10, y: 20 };
-    let disp = p.display();    // 10
-    let prt = p.println();     // 30
-    let dbg = p.debug();       // 200
-    disp + prt + dbg           // 240
+func main() returns int {
+    let p    = Point { x: 10, y: 20 }
+    let disp = p.display()
+    // 10
+    let prt = p.println()
+    // 30
+    let dbg = p.debug()
+    // 200
+    disp + prt + dbg // 240
 }

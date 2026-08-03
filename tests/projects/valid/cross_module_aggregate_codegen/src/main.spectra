@@ -1,32 +1,32 @@
-module main;
+module main
 
-import std.io;
-import string_join;
-import result_flow;
+import std.io
+import string_join
+import result_flow
 
-pub fn main() -> int {
-    let parts = ["alpha", "beta", "gamma"];
-    println(join(parts, 3, "|"));
+public func main() returns int {
+    let parts = ["alpha", "beta", "gamma"]
+    println(join(parts, 3, "|"))
 
-    let ints = [2, 3, 5];
-    println(sum_ints(ints, 3));
+    let ints = [2, 3, 5]
+    println(sum_ints(ints, 3))
 
-    let ok_r: Result<int, int> = Result::Ok(7);
-    let err_r: Result<int, int> = Result::Err(4);
+    let ok_r: Result<int, int>  = Result::Ok(7)
+    let err_r: Result<int, int> = Result::Err(4)
 
     let ok_main: int = match ok_r {
-        Result::Ok(v) => v,
-        Result::Err(e) => e * -1
-    };
+        when Result::Ok(v) then v,
+        when Result::Err(e) then e * -1
+    }
     let err_main: int = match err_r {
-        Result::Ok(v) => v,
-        Result::Err(e) => e * -1
-    };
+        when Result::Ok(v) then v,
+        when Result::Err(e) then e * -1
+    }
 
-    println(ok_main);
-    println(err_main);
-    println(consume_result(ok_value(11)));
-    println(consume_result(err_value(6)));
+    println(ok_main)
+    println(err_main)
+    println(consume_result(ok_value(11)))
+    println(consume_result(err_value(6)))
 
-    return 0;
+    return 0
 }

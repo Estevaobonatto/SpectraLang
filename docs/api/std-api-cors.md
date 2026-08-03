@@ -31,7 +31,7 @@ the typed HTTP `Request` / `Response` handles from `std.api.http`.
 - `is_preflight(request) -> bool`: detects `OPTIONS` requests with `Origin` and
   `Access-Control-Request-Method`.
 - `preflight(policy, request) -> Response`: evaluates the configured policy and
-  returns `204` with `Access-Control-*` headers or `403` for denied origins,
+ returns `204` with `Access-Control-*` headers or `403` for denied origins,
   methods, or headers.
 - `apply(policy, request, response) -> Response`: applies actual-response CORS
   headers for non-preflight requests when the request origin is allowed.

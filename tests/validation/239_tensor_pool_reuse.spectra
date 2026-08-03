@@ -1,20 +1,23 @@
 // Extended validation: same-shape allocation returns a pooled buffer.
-module tensor_pool_reuse;
+module tensor_pool_reuse
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
-    let first = tensor.full_f(128, 1.0);
-    if tensor.sum_f(first) as int != 128 { return 1; }
-    tensor.free(first);
-    let before_hits = tensor.stats_pool_hits();
-    let second = tensor.full_f(128, 2.0);
-    let after_hits = tensor.stats_pool_hits();
-    if after_hits <= before_hits { return 2; }
-    if tensor.sum_f(second) as int != 256 { return 3; }
-    tensor.free(second);
-    tensor.free_all();
-    return 0;
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
+    let first = tensor.full_f(128, 1.0)
+    if tensor.sum_f(first) as int != 128 { return 1
+    }
+    tensor.free(first)
+    let before_hits = tensor.stats_pool_hits()
+    let second      = tensor.full_f(128, 2.0)
+    let after_hits  = tensor.stats_pool_hits()
+    if after_hits <= before_hits { return 2
+    }
+    if tensor.sum_f(second) as int != 256 { return 3
+    }
+    tensor.free(second)
+    tensor.free_all()
+    return 0
 }

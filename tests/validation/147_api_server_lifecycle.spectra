@@ -1,82 +1,62 @@
-module api_server_lifecycle;
+module api_server_lifecycle
 
-import {
-    Server,
-    new,
-    listen,
-    serve,
-    state,
-    shutdown,
-    local_port,
-    signal,
-    stats,
-} from std.api.server;
+from std.api.server import Server, new, listen, serve, state, shutdown, local_port, signal, stats
 
-import {
-    Router,
-    Route,
-    router,
-    get,
-    route_id,
-} from std.api.routing;
+from std.api.routing import Router, Route, router, get, route_id
 
-import {
-    HandlerHandle,
-    text,
-    register_sync,
-} from std.api.handler;
+from std.api.handler import HandlerHandle, text, register_sync
 
-pub fn main() -> int {
-    let routes: Router = router();
-    let health: Route = get(routes, "/health");
+public func main() returns int {
+    let routes: Router = router()
+    let health: Route  = get(routes, "/health")
     if route_id(health) == 0 {
-        return 1;
+        return 1
     }
 
-    let handler: HandlerHandle = register_sync(route_id(health), text("ok"));
+    let handler: HandlerHandle = register_sync(route_id(health), text("ok"))
 
-    let server: Server = new();
+    let server: Server = new()
     if state(server) != 1 {
-        return 2;
+        return 2
     }
     if listen(server, 0) != true {
-        return 3;
+        return 3
     }
     if block_on(serve(server, routes)) != 1 {
-        return 30;
+        return 30
     }
     if state(server) != 2 {
-        return 31;
+        return 31
     }
     if local_port(server) <= 0 {
-        return 32;
+        return 32
     }
     if shutdown(server) != true {
-        return 33;
+        return 33
     }
     if state(server) != 3 {
-        return 34;
+        return 34
     }
     if stats(server, 12) != 0 {
-        return 35;
+        return 35
     }
 
-    let signal_server: Server = new();
+    let signal_server: Server = new()
     if listen(signal_server, 0) != true {
-        return 40;
+        return 40
     }
     if block_on(serve(signal_server, routes)) != 1 {
-        return 41;
+        return 41
     }
     if signal(signal_server, 15) != true {
-        return 42;
+        return 42
     }
     if state(signal_server) != 3 {
-        return 43;
+        return 43
     }
     if stats(signal_server, 10) != 1 {
-        return 44;
+        return 44
     }
 
-    return 0;
+    return 0
 }

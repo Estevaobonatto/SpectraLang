@@ -16,7 +16,7 @@ Status labels:
 
 | Surface | Status | Notes |
 | --- | --- | --- |
-| ASCII identifiers and keywords | supported | Includes reserved words such as `as`, `dyn`, `pub`, `internal`, `match`, `switch`, `unless`, `loop`. |
+| ASCII identifiers and keywords | supported | Includes reserved words such as `as`, `dyn`, `public`, `internal`, `match`, `switch`, `record`, `func`, `loop`. |
 | Integer literals | supported | Decimal form only. |
 | Float literals | supported | Decimal with a single dot. Scientific notation is deferred. |
 | String literals | supported | Basic escapes supported. |
@@ -24,8 +24,8 @@ Status labels:
 | F-string literals | supported | Parsed as a dedicated token kind and expanded in the parser. |
 | Line comments `//` | supported | Ignored by the token stream. |
 | Block comments `/* ... */` | supported | Unterminated comments emit coded lexical diagnostics. |
-| Operators `+ - * / % == != <= >= && || -> => .. ..=` | supported | Current operator set matches documented syntax. |
-| Symbols `(){}[],:;.=<>!&|?@` | supported | Used across parser and formatter. |
+| Operators `+ - * / % == != <= >= && || .. ..=` | supported | Word-form `and`, `or`, and `not` are the canonical boolean spellings; symbolic forms remain available in expression contexts. |
+| Symbols `(){}[],:.=<>!&|?@` | supported | Statement/declaration semicolons are rejected; the parser uses line termination and closing braces. |
 | Unicode identifiers | deferred | The lexer intentionally limits identifiers to ASCII today. |
 | Numeric separators / hex / binary | deferred | Covered by future numeric expansion work. |
 | Raw strings / multiline string modes | deferred | Not part of the current language contract. |
@@ -34,14 +34,14 @@ Status labels:
 
 | Syntax form | Status | Notes |
 | --- | --- | --- |
-| `module name;` | supported | Required file header. |
-| `import std.io;` | supported | Basic module import. |
-| `import std.math as math;` | supported | Alias import accepts `as` as a keyword. |
-| `import { println, print } from std.io;` | supported | Named import surface is stable. |
-| `pub import { println } from std.io;` | supported | Re-export surface is stable. |
+| `module name` | supported | Required file header. |
+| `import std.io` | supported | Basic module import. |
+| `import std.math as math` | supported | Alias import accepts `as` as a keyword. |
+| `from std.io import println, print` | supported | Named import surface is stable. |
+| `public from std.io import println` | supported | Re-export surface is stable. |
 | `internal import ...` | supported | Parsed and carried into the AST. |
-| `pub fn`, `internal fn` | supported | Visibility-aware item parsing is implemented. |
-| `struct`, `enum`, `trait`, `impl`, `type`, `const`, `static` | supported | Parsed in the current frontend. |
+| `public func`, `internal func` | supported | Visibility-aware item parsing is implemented. |
+| `record`, `enum`, `trait`, `impl`, `type`, `const`, `static` | supported | Parsed in the current frontend. |
 | `class` declarations | partial | The keyword is recognized, but the implementation surface is not production complete. |
 | Cross-file workspace parsing | supported | Covered by parser workspace tests and project discovery in the CLI. |
 
@@ -53,7 +53,7 @@ Status labels:
 | Qualified types `std.io.Writer` | supported | |
 | Generic types `Option<int>` | supported | |
 | Tuple types `(int, string)` | supported | |
-| Function types `fn(int) -> int` | supported | |
+| Function types `func(int) returns int` | supported | |
 | Trait objects `dyn Shape` | supported | |
 | Higher-kinded types | deferred | |
 | Lifetime syntax | deferred | Not part of the language today. |
@@ -65,15 +65,15 @@ Status labels:
 | `let` bindings | supported | Mutable bindings parse via `mut`. |
 | Assignment statements | supported | Includes indexed and field-based targets through expression parsing. |
 | `return`, `break`, `continue` | supported | |
-| Expression statements | supported | Requires `;` when followed by additional statements. |
-| `if / elif / else` | supported | |
+| Expression statements | supported | Statements terminate at a line break, closing brace, or end of file. |
+| `if / else if / else` | supported | |
 | `if let` | supported | Implemented as a dedicated parser path. |
 | `while` | supported | |
 | `while let` | supported | Implemented as a dedicated parser path. |
 | `for ... in ...` | supported | |
-| `for ... of ...` | supported | Documented canonical collection iteration form. |
+| `for ... of ...` | rejected | The canonical collection iteration form is `for ... in ...`. |
 | `loop` | supported | Stable syntax; executes through JIT regression coverage. |
-| `do { } while ...;` | supported | Stable syntax; executes through JIT regression coverage. |
+| `do { } while ...` | supported | Stable syntax; executes through JIT regression coverage. |
 | `switch` | supported | Stable syntax; executes through JIT regression coverage. |
 | `repeat/until`, `foreach`, `goto`, `yield` | deferred | Tokens exist, parser implementation is intentionally absent. |
 
@@ -83,8 +83,8 @@ Status labels:
 | --- | --- | --- |
 | Literals and identifiers | supported | |
 | Arithmetic and comparison operators | supported | |
-| Boolean operators `&&`, `||` | supported | |
-| Unary operators `-`, `!` | supported | |
+| Boolean operators `and`, `or` | supported | Symbolic `&&` and `||` remain accepted in expression contexts. |
+| Unary operators `-`, `not` | supported | Symbolic `!` remains accepted in expression contexts. |
 | Function calls | supported | |
 | Qualified calls `std.io.println(...)` | supported | Parsed as chained call expressions. |
 | Method-style calls `value.method(...)` | supported | |
@@ -92,7 +92,7 @@ Status labels:
 | Type casts `expr as Type` | supported | |
 | Blocks `{ ... }` as expressions | supported | |
 | `if` expressions | supported | |
-| `unless` expressions | supported | Stable syntax; lowering branches directly without a synthetic `not`. |
+| `if not` expressions | supported | Canonical negative conditional surface. |
 | `match` expressions | supported | |
 | Lambda/closure expressions | supported | Current parser surface accepts the documented closure syntax. |
 | Array literals | partial | Lower stages do not yet treat them as a production-ready numeric container surface. |
@@ -108,7 +108,7 @@ Status labels:
 | Tuple patterns | supported | |
 | Enum variant tuple patterns | supported | |
 | Enum variant struct patterns | supported | |
-| Guarded match arms `case pattern if cond => ...` | supported | |
+| Guarded match arms `when pattern then ...` | supported | `otherwise then ...` is the canonical fallback arm. |
 | OR-patterns | deferred | |
 | Slice patterns | deferred | |
 
@@ -116,7 +116,7 @@ Status labels:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Missing `;`, `)`, `}` recovery | supported | Synthetic spans prevent stuck parsing. |
+| Missing statement terminator, `)`, `}` recovery | supported | Synthetic spans prevent stuck parsing. |
 | Feature-gate errors | supported | Emit stable parse code `P004`. |
 | Import syntax diagnostics | supported | Covered by parser tests for import forms. |
 | Infinite-loop recovery regression | supported | Recovery now guarantees progress on error. |

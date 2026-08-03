@@ -17,9 +17,9 @@ is the adoption-oriented subset needed to run the checked-in AI examples.
 Use aliases:
 
 ```spectra
-import std.tensor as tensor;
-import std.ml as ml;
-import std.fs as fs;
+import std.tensor as tensor
+import std.ml as ml
+import std.fs as fs
 ```
 
 `std.fs.fs_write` and `std.fs.fs_append` create missing parent directories when
@@ -32,9 +32,9 @@ precreating the directory tree.
 Long-running examples should reset tensor state:
 
 ```spectra
-tensor.free_all();
+tensor.free_all()
 // work
-tensor.free_all();
+tensor.free_all()
 ```
 
 For host-call heavy examples, use the CLI runner instead of invoking internals

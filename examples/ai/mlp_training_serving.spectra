@@ -1,67 +1,67 @@
 // AI reference example: tiny MLP-style training loop + local serving smoke.
-module ai_mlp_training_serving;
+module ai_mlp_training_serving
 
-import std.tensor as tensor;
-import std.ml as ml;
-import std.serve as serve;
-import std.fs as fs;
+import std.tensor as tensor
+import std.ml as ml
+import std.serve as serve
+import std.fs as fs
 
-fn train_step(x: int, target: int, weight: int, bias: int) -> int {
-    let prediction = ml.linear(x, weight, bias);
-    let loss = ml.mse_loss(prediction, target);
-    tensor.backward(loss);
-    ml.sgd_step(weight, 0.1);
-    ml.sgd_step(bias, 0.1);
-    return 0;
+func train_step(x: int, target: int, weight: int, bias: int) returns int {
+    let prediction = ml.linear(x, weight, bias)
+    let loss       = ml.mse_loss(prediction, target)
+    tensor.backward(loss)
+    ml.sgd_step(weight, 0.1)
+    ml.sgd_step(bias, 0.1)
+    return 0
 }
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
-    serve.reset();
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
+    serve.reset()
 
-    let model_handle = ml.module_new();
-    let x = tensor.reshape(tensor.full_f(4, 1.0), 4, 1);
-    let target = tensor.full_f(4, 2.0);
-    let weight = tensor.reshape(tensor.requires_grad(tensor.full_f(1, 0.0), true), 1, 1);
-    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let model_handle = ml.module_new()
+    let x            = tensor.reshape(tensor.full_f(4, 1.0), 4, 1)
+    let target       = tensor.full_f(4, 2.0)
+    let weight       = tensor.reshape(tensor.requires_grad(tensor.full_f(1, 0.0), true), 1, 1)
+    let bias         = tensor.requires_grad(tensor.full_f(1, 0.0), true)
 
-    ml.module_add_parameter(model_handle, weight);
-    ml.module_add_parameter(model_handle, bias);
+    ml.module_add_parameter(model_handle, weight)
+    ml.module_add_parameter(model_handle, bias)
     if ml.module_parameter_count(model_handle) != 2 {
-        return 1;
+        return 1
     }
 
-    let dataset = ml.dataset_from_tensors(x, target, 4);
-    let loader = ml.dataloader_new(dataset, 2, 2026);
+    let dataset = ml.dataset_from_tensors(x, target, 4)
+    let loader  = ml.dataloader_new(dataset, 2, 2026)
     if ml.dataloader_batch_count(loader) != 2 {
-        return 2;
+        return 2
     }
 
-    train_step(x, target, weight, bias);
-    train_step(x, target, weight, bias);
-    train_step(x, target, weight, bias);
-    train_step(x, target, weight, bias);
-    train_step(x, target, weight, bias);
-    train_step(x, target, weight, bias);
+    train_step(x, target, weight, bias)
+    train_step(x, target, weight, bias)
+    train_step(x, target, weight, bias)
+    train_step(x, target, weight, bias)
+    train_step(x, target, weight, bias)
+    train_step(x, target, weight, bias)
 
-    let final_prediction = ml.linear(x, weight, bias);
+    let final_prediction = ml.linear(x, weight, bias)
     if tensor.len(final_prediction) != 4 {
-        return 3;
+        return 3
     }
 
-    let server = serve.server_new(2);
-    serve.server_warmup(server);
-    let request = serve.server_enqueue(server, 21);
+    let server = serve.server_new(2)
+    serve.server_warmup(server)
+    let request = serve.server_enqueue(server, 21)
     if serve.server_process_batch(server, 1) != 1 {
-        return 4;
+        return 4
     }
     if serve.server_result(server, request) != 42 {
-        return 5;
+        return 5
     }
 
-    fs.fs_write("target/ai-examples/mlp_training_serving_model.txt", "spectralang mlp training serving model\nparameters=2\nserver_model=2\n");
+    fs.fs_write("target/ai-examples/mlp_training_serving_model.txt", "spectralang mlp training serving model\nparameters=2\nserver_model=2\n")
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

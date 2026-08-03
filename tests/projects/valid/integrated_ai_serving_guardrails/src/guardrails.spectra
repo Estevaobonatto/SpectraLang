@@ -1,11 +1,11 @@
-module guardrails;
+module guardrails
 
-pub fn guard_request(value: int) -> int {
-    unless value < 0 {
+public func guard_request(value: int) returns int {
+    if not value < 0 {
         if value <= 100 {
-            return 1;
+            return 1
         }
-        return 2;
+        return 2
     }
-    return 3;
+    return 3
 }

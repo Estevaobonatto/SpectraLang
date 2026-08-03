@@ -1,6 +1,6 @@
-module fmt_formatted;
+module fmt_formatted
 
-pub fn main() -> int {
-    let value = 1 + 2;
-    return value - 3;
+public func main() returns int {
+    let value = 1 + 2
+    return value - 3
 }

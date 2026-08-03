@@ -1,34 +1,40 @@
 // Extended validation: embedding, normalization, attention and KV cache.
-module ml_transformer_primitives;
+module ml_transformer_primitives
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(false);
-    let table = tensor.reshape(tensor.full_f(12, 1.0), 4, 3);
-    let ids = tensor.arange(0, 3, 1);
-    let embedded = ml.embedding_lookup(table, ids);
-    if tensor.rows(embedded) != 3 || tensor.cols(embedded) != 3 { return 1; }
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( false)
+    let table    = tensor.reshape(tensor.full_f(12, 1.0), 4, 3)
+    let ids      = tensor.arange(0, 3, 1)
+    let embedded = ml.embedding_lookup(table, ids)
+    if tensor.rows(embedded) != 3 or tensor.cols(embedded) != 3 { return 1
+    }
 
-    let scale = tensor.full_f(3, 1.0);
-    let bias = tensor.full_f(3, 0.0);
-    let normalized = ml.layer_norm(embedded, scale, bias, 0.00001);
-    let activated = ml.gelu(normalized);
-    if tensor.len(activated) != 9 { return 2; }
+    let scale      = tensor.full_f(3, 1.0)
+    let bias       = tensor.full_f(3, 0.0)
+    let normalized = ml.layer_norm(embedded, scale, bias, 0.00001)
+    let activated  = ml.gelu(normalized)
+    if tensor.len(activated) != 9 { return 2
+    }
 
-    let query = tensor.reshape(tensor.full_f(6, 1.0), 2, 3);
-    let key = tensor.reshape(tensor.full_f(6, 1.0), 2, 3);
-    let value = tensor.reshape(tensor.full_f(4, 2.0), 2, 2);
-    let attended = ml.attention(query, key, value);
-    if tensor.rows(attended) != 2 || tensor.cols(attended) != 2 { return 3; }
+    let query    = tensor.reshape(tensor.full_f(6, 1.0), 2, 3)
+    let key      = tensor.reshape(tensor.full_f(6, 1.0), 2, 3)
+    let value    = tensor.reshape(tensor.full_f(4, 2.0), 2, 2)
+    let attended = ml.attention(query, key, value)
+    if tensor.rows(attended) != 2 or tensor.cols(attended) != 2 { return 3
+    }
 
-    let cache = ml.kv_cache_new(4, 3);
-    if ml.kv_cache_append(cache, query, key) != 2 { return 4; }
-    if ml.kv_cache_len(cache) != 2 { return 5; }
-    if tensor.rows(ml.kv_cache_keys(cache)) != 2 { return 6; }
-    tensor.set_grad_enabled(true);
-    tensor.free_all();
-    return 0;
+    let cache = ml.kv_cache_new(4, 3)
+    if ml.kv_cache_append(cache, query, key) != 2 { return 4
+    }
+    if ml.kv_cache_len(cache) != 2 { return 5
+    }
+    if tensor.rows(ml.kv_cache_keys(cache)) != 2 { return 6
+    }
+    tensor.set_grad_enabled( true)
+    tensor.free_all()
+    return 0
 }

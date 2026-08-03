@@ -18,15 +18,15 @@ _Branch: devlop_
 ## Parser Findings
 
 ### Module & Imports
-- Enforces `module <path>;` header before items; missing headers trigger a parse error followed by synchronisation.
+- Enforces a `module <path>` header before items; missing headers trigger a parse error followed by synchronisation.
 - `import` supports:
-  - dotted module imports (`import std.io;`)
-  - alias imports (`import std.math as math;`)
-  - named imports (`import { println, print } from std.io;`)
-  - public re-exports (`pub import { println } from std.io;`)
+  - dotted module imports (`import std.io`)
+  - alias imports (`import std.math as math`)
+  - named imports (`from std.io import println, print`)
+  - public re-exports (`public from std.io import println`)
 
 ### Items & Visibility
-- Handles `pub fn/struct/enum` correctly; `pub impl` falls back to inherent impl parsing but visibility is discarded (consistent with current AST).
+- Handles `public func/record/enum` correctly; `public impl` falls back to inherent impl parsing but visibility is discarded (consistent with current AST).
 - `class` keyword is recognised lexically but has no parser entry point.
 - Generic parameters are parsed for functions, structs, and enums; there is no support for where clauses, default type parameters, or const generics.
 
@@ -40,7 +40,7 @@ _Branch: devlop_
 - `impl Type` assumes a simple identifier; qualified paths (`impl module::Type`) and generic type arguments (`impl Type<T>`) are unsupported.
 
 ### Statements & Control Flow
-- Control-flow constructs implemented: `while`, `do { } while`, `for name in/of`, `loop`, `switch`, `break`, `continue`, `if let`, `while let`.
+- Control-flow constructs implemented: `while`, `do { } while`, `for name in`, `loop`, `switch`, `break`, `continue`, `if let`, `while let`.
 - Reserved keywords `foreach`, `repeat`, `until`, `yield`, `goto` remain unparsed despite being lexed.
 - `switch` accepts `case` arms and an optional `else` block.
 - Assignments only accept identifiers or index expressions on the LHS; destructuring assignments are not allowed.

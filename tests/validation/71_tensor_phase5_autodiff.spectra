@@ -1,71 +1,71 @@
 // Teste 71: Phase 5 std.tensor autodiff production core
 // Cobre requires_grad, backward, grad, zero_grad e inference/no_grad.
-module tensor_phase5_autodiff;
+module tensor_phase5_autodiff
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let x0 = tensor.full_f(3, 3.0);
-    let x = tensor.requires_grad(x0, true);
-    let y = tensor.mul(x, x);
-    let loss = tensor.sum_t(y);
-    tensor.backward(loss);
+    let x0   = tensor.full_f(3, 3.0)
+    let x    = tensor.requires_grad(x0, true)
+    let y    = tensor.mul(x, x)
+    let loss = tensor.sum_t(y)
+    tensor.backward(loss)
 
-    let grad = tensor.grad(x);
+    let grad = tensor.grad(x)
     if tensor.sum_f(grad) as int != 18 {
-        return tensor.sum_f(grad) as int;
+        return tensor.sum_f(grad) as int
     }
     if tensor.stats_graph_nodes() != 0 {
-        return tensor.stats_graph_nodes();
+        return tensor.stats_graph_nodes()
     }
 
-    tensor.zero_grad(x);
-    tensor.set_grad_enabled(false);
+    tensor.zero_grad(x)
+    tensor.set_grad_enabled( false)
     if tensor.grad_enabled() {
-        return 41;
+        return 41
     }
 
-    let no_graph = tensor.mul(x, x);
-    let no_graph_loss = tensor.sum_t(no_graph);
-    tensor.backward(no_graph_loss);
+    let no_graph      = tensor.mul(x, x)
+    let no_graph_loss = tensor.sum_t(no_graph)
+    tensor.backward(no_graph_loss)
     if tensor.stats_graph_nodes() != 0 {
-        return 42;
+        return 42
     }
 
-    tensor.set_grad_enabled(true);
+    tensor.set_grad_enabled( true)
 
-    let a0 = tensor.full_f(4, 1.0);
-    let b0 = tensor.full_f(4, 2.0);
-    let a = tensor.requires_grad(a0, true);
-    let b = tensor.requires_grad(b0, true);
-    let a2 = tensor.reshape(a, 2, 2);
-    let b2 = tensor.reshape(b, 2, 2);
-    let product = tensor.matmul(a2, b2);
-    let product_loss = tensor.sum_t(tensor.transpose(product));
-    tensor.backward(product_loss);
+    let a0           = tensor.full_f(4, 1.0)
+    let b0           = tensor.full_f(4, 2.0)
+    let a            = tensor.requires_grad(a0, true)
+    let b            = tensor.requires_grad(b0, true)
+    let a2           = tensor.reshape(a, 2, 2)
+    let b2           = tensor.reshape(b, 2, 2)
+    let product      = tensor.matmul(a2, b2)
+    let product_loss = tensor.sum_t(tensor.transpose(product))
+    tensor.backward(product_loss)
 
-    let grad_a = tensor.grad(a);
-    let grad_b = tensor.grad(b);
+    let grad_a = tensor.grad(a)
+    let grad_b = tensor.grad(b)
     if tensor.get_f(grad_a, 0) as int != 4 {
-        return tensor.get_f(grad_a, 0) as int;
+        return tensor.get_f(grad_a, 0) as int
     }
     if tensor.get_f(grad_b, 0) as int != 2 {
-        return tensor.get_f(grad_b, 0) as int;
+        return tensor.get_f(grad_b, 0) as int
     }
 
-    let v1_0 = tensor.full_f(2, 1.0);
-    let v2 = tensor.full_f(2, 2.0);
-    let v1 = tensor.requires_grad(v1_0, true);
-    let dot_loss = tensor.dot_t(v1, v2);
-    tensor.backward(dot_loss);
-    let grad_v1 = tensor.grad(v1);
+    let v1_0     = tensor.full_f(2, 1.0)
+    let v2       = tensor.full_f(2, 2.0)
+    let v1       = tensor.requires_grad(v1_0, true)
+    let dot_loss = tensor.dot_t(v1, v2)
+    tensor.backward(dot_loss)
+    let grad_v1 = tensor.grad(v1)
     if tensor.get_f(grad_v1, 0) as int != 2 {
-        return tensor.get_f(grad_v1, 0) as int;
+        return tensor.get_f(grad_v1, 0) as int
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

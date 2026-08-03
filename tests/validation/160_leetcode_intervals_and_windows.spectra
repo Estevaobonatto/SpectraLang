@@ -1,84 +1,84 @@
-module leetcode_intervals_and_windows;
+module leetcode_intervals_and_windows
 
-fn sort_intervals(starts: [int], ends: [int]) -> int {
-    let outer = 0;
+func sort_intervals(starts: [int], ends: [int]) returns int {
+    let outer = 0
     while outer < 4 {
-        let inner = 0;
+        let inner = 0
         while inner < 3 {
             if starts[inner] > starts[inner + 1] {
-                let s = starts[inner];
-                let e = ends[inner];
-                starts[inner] = starts[inner + 1];
-                ends[inner] = ends[inner + 1];
-                starts[inner + 1] = s;
-                ends[inner + 1] = e;
+                let s = starts[inner]
+                let e = ends[inner]
+                starts[inner] = starts[inner + 1]
+                ends[inner] = ends[inner + 1]
+                starts[inner + 1] = s
+                ends[inner + 1] = e
             }
-            inner = inner + 1;
+            inner = inner + 1
         }
-        outer = outer + 1;
+        outer = outer + 1
     }
-    return 0;
+    return 0
 }
 
-fn merged_interval_signature() -> int {
-    let starts = [1, 2, 8, 15];
-    let ends = [3, 6, 10, 18];
-    sort_intervals(starts, ends);
+func merged_interval_signature() returns int {
+    let starts = [1, 2, 8, 15]
+    let ends   = [3, 6, 10, 18]
+    sort_intervals(starts, ends)
 
-    let merged_count = 0;
-    let total_span = 0;
-    let current_start = starts[0];
-    let current_end = ends[0];
-    let index = 1;
+    let merged_count  = 0
+    let total_span    = 0
+    let current_start = starts[0]
+    let current_end   = ends[0]
+    let index         = 1
 
     while index < 4 {
         if starts[index] <= current_end {
             if ends[index] > current_end {
-                current_end = ends[index];
+                current_end = ends[index]
             }
         } else {
-            merged_count = merged_count + 1;
-            total_span = total_span + current_end - current_start;
-            current_start = starts[index];
-            current_end = ends[index];
+            merged_count = merged_count + 1
+            total_span = total_span + current_end - current_start
+            current_start = starts[index]
+            current_end = ends[index]
         }
-        index = index + 1;
+        index = index + 1
     }
 
-    merged_count = merged_count + 1;
-    total_span = total_span + current_end - current_start;
-    return merged_count * 100 + total_span;
+    merged_count = merged_count + 1
+    total_span = total_span + current_end - current_start
+    return merged_count * 100 + total_span
 }
 
-fn min_subarray_len(target: int) -> int {
-    let nums = [2, 3, 1, 2, 4, 3];
-    let left = 0;
-    let right = 0;
-    let sum = 0;
-    let best = 99;
+func min_subarray_len(target: int) returns int {
+    let nums  = [2, 3, 1, 2, 4, 3]
+    let left  = 0
+    let right = 0
+    let sum   = 0
+    let best  = 99
 
     while right < 6 {
-        sum = sum + nums[right];
+        sum = sum + nums[right]
         while sum >= target {
-            let length = right - left + 1;
+            let length = right - left + 1
             if length < best {
-                best = length;
+                best = length
             }
-            sum = sum - nums[left];
-            left = left + 1;
+            sum = sum - nums[left]
+            left = left + 1
         }
-        right = right + 1;
+        right = right + 1
     }
 
-    return best;
+    return best
 }
 
-pub fn main() -> int {
+public func main() returns int {
     if merged_interval_signature() != 310 {
-        return 1;
+        return 1
     }
     if min_subarray_len(7) != 2 {
-        return 2;
+        return 2
     }
-    return 0;
+    return 0
 }

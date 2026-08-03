@@ -1,6 +1,6 @@
-module tensor_ir_invalid_dtype;
+module tensor_ir_invalid_dtype
 
-pub fn main() -> int {
-    let invalid: Tensor<int, rank1, dim4> = [1.0, 2.0, 3.0, 4.0];
-    return 0;
+public func main() returns int {
+    let invalid: Tensor<int, rank1, dim4> = [1.0, 2.0, 3.0, 4.0]
+    return 0
 }

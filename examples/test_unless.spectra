@@ -1,16 +1,16 @@
-module test;
+module test
 
-fn unless_test(x: int) -> int {
-    let result = 0;
-    
-    unless x < 0 {
-        result = x * 2;
+func unless_test(x: int) returns int {
+    let result = 0
+
+    if not x < 0 {
+        result = x * 2
     }
-    
-    return result;
+
+    return result
 }
 
-pub fn main() {
-    let r = unless_test(5);
-    return;
+public func main() {
+    let r = unless_test(5)
+    return
 }

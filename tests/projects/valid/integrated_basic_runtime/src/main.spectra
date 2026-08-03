@@ -1,24 +1,24 @@
-module main;
+module main
 
-import control_flow;
-import domain;
+import control_flow
+import domain
 
-pub fn main() -> int {
-    let account = Account::new("acct-1", 7);
-    let grown = account.deposit(5);
+public func main() returns int {
+    let account = Account::new("acct-1", 7)
+    let grown   = account.deposit(5)
     if grown.balance != 12 {
-        return grown.balance;
+        return grown.balance
     }
 
-    let label_code = status_code(classify(grown.balance));
+    let label_code = status_code(classify(grown.balance))
     if label_code != 2 {
-        return label_code;
+        return label_code
     }
 
-    let total = branch_loop_total(5);
+    let total = branch_loop_total(5)
     if total != 13 {
-        return total;
+        return total
     }
 
-    return 0;
+    return 0
 }

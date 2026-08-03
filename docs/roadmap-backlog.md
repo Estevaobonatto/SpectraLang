@@ -442,18 +442,18 @@ or assemble strings.
 
 ### Problems Found
 
-Two related defects appeared when a struct or enum type is defined in one
+Two related defects appeared when a record or enum type is defined in one
 module and used by another. These are now covered by the `R-110` regression
 project and validator:
 
-- Static and instance methods on a struct defined in another module are not
+- Static and instance methods on a record defined in another module are not
   visible to the importer. `let c = Counter::new(1);` in `main` against a
   `Counter` struct in `counter` module fails with
-  `error[semantic]: Enum 'Counter' is not defined` even when the struct is
-  marked `pub`. After switching to a `pub struct Counter { pub fields }` plus
-  `pub impl Counter`, method calls fail with
+  `error[semantic]: Enum 'Counter' is not defined` even when the record is
+  marked `public`. After switching to a `public record Counter { public fields }` plus
+  `public impl Counter`, method calls fail with
   `error[semantic]: No methods defined for type 'Counter'`.
-- A struct with a `string` field (e.g. `Item { sku: string, ... }`) that is
+- A record with a `string` field (e.g. `Item { sku: string, ... }`) that is
   constructed by a cross-module factory function compiles to IR where the
   call result value is not linked to the next use, producing
   `error[codegen]: Value N not found` (e.g. `Value 282 not found`). Switching
@@ -470,19 +470,19 @@ methods directly.
 
 - import resolution must surface the type, its `impl` blocks, and its
   inherent methods when the type is declared in another module
-- import resolution must support `pub` on `struct`, `enum`, `impl`, and
-  `fn` items so cross-module code can call static and instance methods
+- import resolution must support `public` on `record`, `enum`, `impl`, and
+  `func` items so cross-module code can call static and instance methods
 - cross-module factory functions that return a struct containing `string`
   fields must lower to IR where the call result is correctly threaded into
   the next use
 - when a method genuinely does not exist, the diagnostic must name the
   receiver type, the method, and the candidate impl blocks in scope
-- keep the existing `pub fn` cross-module function call path unchanged
+- keep the existing `public func` cross-module function call path unchanged
 
 ### Acceptance
 
 - `Counter::new(1)` and `c.tick()` work in `main` when `Counter` and its
-  `impl` are defined in a different module and marked `pub`
+  `impl` are defined in a different module and marked `public`
 - `Item { sku: string, name: string, ... }` constructed by a cross-module
   factory compiles and runs; `it.sku` and `it.name` return the expected
   strings
@@ -501,7 +501,7 @@ methods directly.
   enum-variant fallback so associated methods on foreign types do not produce
   false `Enum ... is not defined` or struct-initializer diagnostics.
 - Fixed midend imported aggregate return lowering so imported function/method
-  returns are lowered after imported struct/enum layouts are registered, avoiding
+ returns are lowered after imported struct/enum layouts are registered, avoiding
   `Pointer(Void)` receiver degradation and later `Value N not found` paths.
 - Added `tests/projects/valid/cross_module_types_methods` covering
   `Counter::new`, `counter::Counter::with_value`, `c.tick()`, `c.read()`,
@@ -552,7 +552,7 @@ chaining fallible operations in `main`).
 
 ### Acceptance
 
-- a function `pub fn join(parts: [string], n: int, sep: string) -> string`
+- a function `public func join(parts: [string], n: int, sep: string) returns string`
   in another module compiles and runs through Cranelift
 - `let v: int = match ok_r { Result::Ok(v) => v, Result::Err(e) => e * -1 };`
   in `main` lowers to IR where the arm value has element type `int`, not
@@ -696,7 +696,7 @@ Failing surfaces:
 ### Correction Plan
 
 - Reduce the failure to a two-function program:
-  `fn sum(values: Tensor<float, rank1>) -> int { return tensor.sum_f(values) as int; }`.
+  `func sum(values: Tensor<float, rank1>) returns int { return tensor.sum_f(values) as int }`.
 - Inspect function signature lowering for tensor-typed parameters and returns:
   tensors must remain opaque runtime handles (`i64`) in backend ABI while
   preserving semantic metadata in the midend.
@@ -1015,31 +1015,31 @@ Current state after R-113/R-114/R-115 completion:
 
 ### Problems Found
 
-The language still treated `switch`, `unless`, `do-while`, and `loop` as
+The language still treated `switch`, `do-while`, and `loop` as
 experimental even though they are core control-flow constructs. Promoting them
 surfaced real production defects:
 
 - parser and CLI policy still required `--enable-experimental`
-- return-path analysis did not recognize exhaustive `switch` in `unless`
+- return-path analysis did not recognize exhaustive `switch` return paths
 - lowering emitted instructions and fallthrough branches after terminated blocks
 - `switch.exit` was emitted even when all switch branches returned, producing an
   unreachable block rejected by IR validation
-- `unless` lowering depended on a synthetic `not` instead of directly inverting
-  branch targets
+- the negated conditional spelling was not aligned with the canonical `if not`
+  form
 
 ### Scope
 
-- Remove the parser gates for `switch`, `unless`, `do-while`, and `loop`.
+- Remove the parser gates for `switch`, `do-while`, and `loop`.
 - Keep `--enable-experimental` accepted as a compatibility no-op.
 - Make `spectralang --list-experimental` report no active syntax gates.
 - Harden lowering for terminated blocks in loops and switch bodies.
-- Update return-path analysis for exhaustive switch/unless/block/if-let flows.
+- Update return-path analysis for exhaustive switch/block/if-let flows.
 - Add a production regression `.spectra` file that runs all promoted constructs
   through the normal CLI JIT path.
 
 ### Acceptance
 
-- `switch`, `unless`, `do-while`, and `loop` parse without
+- `switch`, `do-while`, `loop`, and `if not` parse without
   `--enable-experimental`.
 - `spectralang --list-experimental` reports no active experimental syntax gates.
 - `tests/validation/120_stable_promoted_control_flow.spectra` runs successfully.
@@ -1222,7 +1222,7 @@ to an integer-typed local and then compared/returned through invalid IR.
 
 ### Problems Found
 
-- A generic function declared as `fn bad<T>(value: T) -> string { return value; }`
+- A generic function declared as `func bad<T>(value: T) returns string { return value }`
   used to compile when instantiated with `int`, even though the body returned
   a type parameter incompatible with the declared concrete return type.
 - A related invalid generic function declared as returning `int` could reach
@@ -2538,6 +2538,45 @@ runtime code for ordinary invalid argument cases.
 
 - at least 3 AI examples run end-to-end in automated environments
 
+## R-1303 Human-Readable Syntax Surface
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `frontend`
+- Dependencies: `R-106`, `R-118`, `R-2102`, `R-2601`
+
+### Scope
+
+- adopt the report-selected canonical forms for modules/imports, declarations,
+  visibility, conditionals, logical operators, match arms, and line-based
+  statement termination;
+- reject the superseded spellings instead of silently maintaining two public
+  grammars;
+- migrate the checked-in source corpus, formatter, LSP, templates, and fenced
+  documentation;
+- keep the audit report as the preserved input artifact.
+
+### Acceptance
+
+- canonical syntax parses, type-checks, lowers, and runs through the normal CLI;
+- semicolons and the legacy declaration/import/control-flow spellings produce
+  actionable parser diagnostics;
+- `scripts/migrate_syntax_surface.py --check`,
+  `scripts/migrate_embedded_spectra_in_rust.py --check`,
+  `scripts/migrate_embedded_spectra_in_python.py --check`, and
+  `scripts/migrate_syntax_docs.py --check` report no pending migration;
+- formatter and LSP tests cover the canonical surface;
+- `tests/validation/syntax_human_surface.spectra` is a runnable regression.
+
+### Implementation Evidence
+
+- `compiler/tests/syntax_readability.rs`
+- `tests/validation/syntax_human_surface.spectra`
+- `scripts/migrate_syntax_surface.py`
+- `scripts/migrate_embedded_spectra_in_rust.py`
+- `scripts/migrate_embedded_spectra_in_python.py`
+- `scripts/migrate_syntax_docs.py`
+
 ---
 
 # Next Horizon: Complete AI/ML Development Platform
@@ -3503,13 +3542,13 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
   behavior for modules, structs, traits, generics, closures, control flow, and
   stdlib composition.
 - `tests/projects/valid/integrated_basic_runtime` covers normal CLI runtime
-  execution for modules, methods, structs, enums, loops, `unless`, and
+  execution for modules, methods, records, enums, loops, `if not`, and
   `do-while`.
 - `tests/projects/valid/integrated_basic_package_check` covers package-check
   composition for traits, generics, closures, modules, and callbacks.
 - `tests/projects/valid/integrated_basic_deep_components` covers package-test
-  composition for multi-module structs, methods, struct-style enum payload
-  imports, match bindings, traits, `while let`, `unless`, and mutable loop
+  composition for multi-module records, methods, record-style enum payload
+  imports, match bindings, traits, `while let`, `if not`, and mutable loop
   state.
 
 ### Evidence
@@ -3729,8 +3768,8 @@ The previously planned R-3043, R-3044, R-3066, and R-3067 GPU transformer items 
 ### Scope
 
 - Fixed package pipeline codegen for a valid multi-module `.spectra` package
-  that combines cross-module struct construction, enum tuple and struct payload
-  variants, trait-method dispatch, `match`, `while let`, `unless`, and mutable
+  that combines cross-module record construction, enum tuple and record payload
+  variants, trait-method dispatch, `match`, `while let`, `if not`, and mutable
   loop state.
 - Preserved imported struct-style enum payload metadata when reconstructing
   imported enum AST definitions for the midend.
@@ -3762,8 +3801,8 @@ operands.
 
 - The promoted project package check exits with status `0`.
 - The promoted project package test exits with status `0`.
-- Regression coverage preserves cross-module struct construction, enum tuple
-  and struct payload matching, trait-method dispatch, `while let`, `unless`,
+- Regression coverage preserves cross-module record construction, enum tuple
+  and record payload matching, trait-method dispatch, `while let`, `if not`,
   and mutable loop state.
 - IR verification emits a typed undefined-value diagnostic before backend
   codegen if a future invalid IR value is encountered.
@@ -3897,7 +3936,7 @@ pinning, and `Send` / `Sync` rules.
 ### Acceptance
 
 - ADR `docs/adr/0010-async-execution-model.md` is committed and approved.
-- The ADR fixes the syntax surface for `async fn`, `await`, `Task<T>`,
+- The ADR fixes the syntax surface for `async func`, `await`, `Task<T>`,
   `Stream<T>`, and any `Pin`-style API.
 - The ADR covers lowering to a state-machine SSA and the runtime scheduler
   interface.
@@ -3915,7 +3954,7 @@ pinning, and `Send` / `Sync` rules.
 - `run_tests.ps1` includes the R-2101 validation gate before Phase 12 and
   later release checks.
 
-## R-2102 Async fn and Async Block in Frontend
+## R-2102 Async func and Async Block in Frontend
 
 - Status: `complete`
 - Priority: `P0`
@@ -3925,12 +3964,12 @@ pinning, and `Send` / `Sync` rules.
 
 ### Scope
 
-Parse and represent `async fn`, async block expressions, and async closures
+Parse and represent `async func`, async block expressions, and async closures
 in the lexer, parser, and AST.
 
 ### Acceptance
 
-- `async fn` is parsed in function declarations and method declarations.
+- `async func` is parsed in function declarations and method declarations.
 - `async { ... }` is parsed as an async block expression.
 - The AST preserves async markers on function, method, trait method, and
   closure nodes and represents `async { ... }` as `AsyncBlock`.
@@ -3942,12 +3981,12 @@ in the lexer, parser, and AST.
 ### Completed in this pass
 
 - Lexer/parser recognize `async` and `await` keywords.
-- `async fn` is represented by `is_async` on functions, inherent methods,
+- `async func` is represented by `is_async` on functions, inherent methods,
   trait methods, and trait impl methods.
 - `async { ... }` is represented as `ExpressionKind::AsyncBlock`; async
   closures preserve `is_async` on `ExpressionKind::Lambda`.
 - Language-service and LSP signatures render async functions and methods as
-  `async fn ...`.
+  `async func ...`.
 - `await` outside async contexts emits parser diagnostic `P006`; `await`
   inside async contexts is implemented by `R-2103`.
 - Validation: `cargo test -q -p spectra-compiler`, `cargo check -q`, and
@@ -4225,7 +4264,7 @@ Support object-safe async trait methods and `Box<dyn Future>` /
 ### Scope
 
 Provide `#[spectra_async_test]` plus a `block_on` runtime so API test
-code can use plain `async fn` without manual setup.
+code can use plain `async func` without manual setup.
 
 ### Acceptance
 
@@ -4272,7 +4311,7 @@ await points, `RefCell` held across await, and other async borrow errors.
 
 ### Completed Notes
 
-- Added semantic async Send/Sync event analysis for `async fn` bodies.
+- Added semantic async Send/Sync event analysis for `async func` bodies.
 - Documented the stable async diagnostic range `E2101` through `E2120`.
 - Implemented `E2101` for non-`Send` values live across `await`, `E2102`
   for `RefCell`/interior-mutable values held across `await`, and `E2103`
@@ -5035,7 +5074,7 @@ router calls to produce a `Response`.
 
 ### Acceptance
 
-- The trait supports `async fn` and synchronous handlers.
+- The trait supports `async func` and synchronous handlers.
 - Handlers can return any value that implements `IntoResponse`.
 - Errors thrown by handlers flow through the unified error middleware.
 - Tests cover both handler shapes and trait object dispatch.
@@ -5270,7 +5309,7 @@ block with documented behavior.
   `MiddlewareChain`, sync and async middleware handles, and trace inspection
   through compiler builtins, midend lowering, runtime contracts, and the
   `spectra-api` host-call table.
-- The middleware trait supports `async fn` and synchronous middleware.
+- The middleware trait supports `async func` and synchronous middleware.
 - Middleware order is deterministic and documented in
   `docs/book/10-middleware-chain.md`.
 - The response chain runs in reverse order after normal execution and after
@@ -6212,7 +6251,7 @@ ORM.
 
 - The liveness endpoint always returns 200 while the process is up.
 - The readiness endpoint returns 200 only when all required checks pass and
-  returns 503 for a required failure.
+ returns 503 for a required failure.
 - The startup endpoint returns 200 only after explicit startup completion.
 - Timeout, recovery, concurrency, SQLite and worker shutdown are validated.
 
@@ -7351,7 +7390,7 @@ gate is `scripts/validate_r3006_vector_index.py` and its report is written to
 ```
 R-2003 → R-2004/R-2005/R-2006/R-2007 → R-2008 → R-2009/R-2010 → R-2011 → R-2012 → R-2013 ───────────────────────────────────────────────┐
                                                                                                                                               ↓
-R-2101 (ADR async) → R-2102 (async fn) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2106 (streams) → R-2107 (async stdlib)
+R-2101 (ADR async) → R-2102 (async func) → R-2103 (await) → R-2104 (reactor) → R-2105 (cancel) → R-2106 (streams) → R-2107 (async stdlib)
                                                                                                       ↓
                                                                                           R-2201 (ADR api) → R-2202 (crate) → R-2204 (parser) → R-2205 (server) → R-2211 (router)
                                                                                                                                               ↓

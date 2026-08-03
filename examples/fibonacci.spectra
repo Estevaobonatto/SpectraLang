@@ -1,94 +1,94 @@
 // SpectraLang - Exemplo: Fibonacci
 // Demonstra loops, recursão e sintaxe limpa
 
-module fibonacci;
-import std.io;
+module fibonacci
+import std.io
 
-pub fn main() {
-    println("=== Fibonacci Sequence ===");
-    
+public func main() {
+    println("=== Fibonacci Sequence ===")
+
     // Fibonacci iterativo
-    println("Iterative approach:");
-    let fib_iter = fibonacci_iterative(10);
-    println(fib_iter);
-    
+    println("Iterative approach:")
+    let fib_iter = fibonacci_iterative(10)
+    println(fib_iter)
+
     // Fibonacci com loop for
-    println("First 10 Fibonacci numbers:");
-    print_fibonacci_sequence(10);
-    
-    return;
+    println("First 10 Fibonacci numbers:")
+    print_fibonacci_sequence(10)
+
+    return
 }
 
 // Versão iterativa (mais eficiente)
-fn fibonacci_iterative(n: int) -> int {
+func fibonacci_iterative(n: int) returns int {
     if n <= 1 {
-        return n;
+        return n
     }
-    
-    let prev = 0;
-    let curr = 1;
-    let i = 2;
-    
+
+    let prev = 0
+    let curr = 1
+    let i    = 2
+
     while i <= n {
-        let next = prev + curr;
-        prev = curr;
-        curr = next;
-        i = i + 1;
+        let next = prev + curr
+        prev = curr
+        curr = next
+        i = i + 1
     }
-    
-    return curr;
+
+    return curr
 }
 
 // Imprime sequência
-fn print_fibonacci_sequence(count: int) {
-    let i = 0;
-    
+func print_fibonacci_sequence(count: int) {
+    let i = 0
+
     while i < count {
-        let fib = fibonacci_iterative(i);
-        println(fib);
-        i = i + 1;
+        let fib = fibonacci_iterative(i)
+        println(fib)
+        i = i + 1
     }
-    
-    return;
+
+    return
 }
 
 // Verifica se número está na sequência de Fibonacci
-fn is_fibonacci(num: int) -> bool {
+func is_fibonacci(num: int) returns bool {
     if num < 0 {
-        return false;
+        return false
     }
-    
-    let a = 0;
-    let b = 1;
-    
-    if num == a || num == b {
-        return true;
+
+    let a = 0
+    let b = 1
+
+    if num == a or num == b {
+        return true
     }
-    
-    let c = a + b;
-    
+
+    let c = a + b
+
     while c <= num {
         if c == num {
-            return true;
+            return true
         }
-        a = b;
-        b = c;
-        c = a + b;
+        a = b
+        b = c
+        c = a + b
     }
-    
-    return false;
+
+    return false
 }
 
 // Soma dos N primeiros números de Fibonacci
-fn sum_fibonacci(n: int) -> int {
-    let sum = 0;
-    let i = 0;
-    
+func sum_fibonacci(n: int) returns int {
+    let sum = 0
+    let i   = 0
+
     while i < n {
-        let fib = fibonacci_iterative(i);
-        sum = sum + fib;
-        i = i + 1;
+        let fib = fibonacci_iterative(i)
+        sum = sum + fib
+        i = i + 1
     }
-    
-    return sum;
+
+    return sum
 }

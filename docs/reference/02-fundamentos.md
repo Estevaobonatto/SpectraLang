@@ -26,13 +26,14 @@ SpectraLang suporta comentários de linha única iniciados com `//`. Tudo após 
 SpectraLang supports single-line comments starting with `//`. Everything after `//` until the end of the line is ignored by the compiler.
 
 ```spectra
-module exemplos;
+module exemplos
 
 // Este é um comentário de linha
 // This is a line comment
 
-pub fn main() {
-    let x = 10; // Comentário inline / Inline comment
+public func main() {
+    let x = 10
+ // Comentário inline / Inline comment
     // let y = 20; // Linha comentada / Commented-out line
 }
 ```
@@ -53,22 +54,27 @@ Variáveis são declaradas com a palavra-chave `let`. A anotação de tipo é **
 Variables are declared with the `let` keyword. The type annotation is **optional** — the compiler infers the type from the initial value when possible.
 
 ```spectra
-module variaveis;
+module variaveis
 
-pub fn main() {
+public func main() {
     // Com inferência de tipo / With type inference
-    let x = 10;           // int
-    let pi = 3.14;        // float
-    let ativo = true;     // bool
-    let nome = "Alice";   // string
-    let letra = 'A';      // char
+    let x = 10
+           // int
+    let pi = 3.14
+        // float
+    let ativo = true
+     // bool
+    let nome = "Alice"
+   // string
+    let letra = 'A'
+      // char
 
     // Com anotação de tipo explícita / With explicit type annotation
-    let contador: int = 0;
-    let temperatura: float = 36.5;
-    let mensagem: string = "Olá";
-    let flag: bool = false;
-    let caractere: char = 'Z';
+    let contador: int = 0
+    let temperatura: float = 36.5
+    let mensagem: string = "Olá"
+    let flag: bool = false
+    let caractere: char = 'Z'
 }
 ```
 
@@ -81,19 +87,23 @@ Em SpectraLang, todas as variáveis são **reatribuíveis** após a declaração
 In SpectraLang, all variables are **reassignable** after declaration — there is no `let`/`var` or `const`/`let` distinction. The `mut` keyword exists in the grammar but mutability is implicit for local variables.
 
 ```spectra
-module mutabilidade;
+module mutabilidade
 
-pub fn main() {
-    let contador = 0;
-    contador = contador + 1;  // OK — reatribuição / reassignment
-    contador = 10;            // OK
+public func main() {
+    let contador = 0
+    contador = contador + 1
+  // OK — reatribuição / reassignment
+    contador = 10
+            // OK
 
-    let nome = "Alice";
-    nome = "Bob";             // OK
+    let nome = "Alice"
+    nome = "Bob"
+             // OK
 
     // Também funciona com campos de array / Also works with array elements
-    let arr = [1, 2, 3];
-    arr[0] = 99;              // Modifica o primeiro elemento / Modifies first element
+    let arr = [1, 2, 3]
+    arr[0] = 99
+              // Modifica o primeiro elemento / Modifies first element
 }
 ```
 
@@ -106,14 +116,16 @@ Variáveis existem no escopo do bloco `{ }` em que foram declaradas. Variáveis 
 Variables exist in the scope of the `{ }` block in which they were declared. Variables in inner scopes can shadow outer variables.
 
 ```spectra
-module escopo;
+module escopo
 
-pub fn main() {
-    let x = 10;
+public func main() {
+    let x = 10
 
     if x > 5 {
-        let y = x * 2;    // 'y' só existe dentro do if / 'y' only exists inside the if
-        let x = 999;      // sombra o 'x' externo / shadows outer 'x'
+        let y = x * 2
+    // 'y' só existe dentro do if / 'y' only exists inside the if
+        let x = 999
+      // sombra o 'x' externo / shadows outer 'x'
         // aqui x == 999 / here x == 999
     }
     // aqui x == 10, 'y' não existe / here x == 10, 'y' does not exist
@@ -158,20 +170,24 @@ A única conversão implícita permitida em SpectraLang é o **alargamento de `i
 The only implicit conversion allowed in SpectraLang is **widening from `int` to `float`**. All other conversions must be explicit via supported `as` casts or `std.convert`.
 
 ```spectra
-module tipos;
+module tipos
 
-import std.convert;
+import std.convert
 
-pub fn main() {
-    let i: int = 42;
+public func main() {
+    let i: int = 42
 
     // Promoção implícita permitida / Implicit promotion allowed
-    let f: float = i;         // int → float: OK
+    let f: float = i
+         // int → float: OK
 
     // Conversão explícita necessária / Explicit conversion required
-    let de_volta: int = std.convert.float_to_int(3.9);  // → 3 (truncado)
-    let como_texto: string = std.convert.int_to_string(42); // → "42"
-    let parsed: int = std.convert.string_to_int("100");     // → 100
+    let de_volta: int = std.convert.float_to_int(3.9)
+  // → 3 (truncado)
+    let como_texto: string = std.convert.int_to_string(42)
+ // → "42"
+    let parsed: int = std.convert.string_to_int("100")
+     // → 100
 
     // ERRO — conversão implícita não permitida / ERROR — implicit conversion not allowed
     // let s: string = 42;    // Erro: tipos incompatíveis
@@ -186,26 +202,27 @@ pub fn main() {
 ### Inteiros / Integer Literals
 
 ```spectra
-let a = 0;
-let b = 42;
-let c = -7;
-let d = 1000000;
+let a = 0
+let b = 42
+let c = -7
+let d = 1000000
 ```
 
 ### Ponto Flutuante / Float Literals
 
 ```spectra
-let pi = 3.14159;
-let e  = 2.71828;
-let negativo = -1.5;
-let inteiro_como_float = 1.0;  // O ponto indica float / The dot indicates float
+let pi = 3.14159
+let e  = 2.71828
+let negativo = -1.5
+let inteiro_como_float = 1.0
+  // O ponto indica float / The dot indicates float
 ```
 
 ### Booleanos / Boolean Literals
 
 ```spectra
-let verdadeiro = true;
-let falso = false;
+let verdadeiro = true
+let falso = false
 ```
 
 ### Strings / String Literals
@@ -226,21 +243,21 @@ Strings are delimited by double quotes `"..."`. The following escape sequences a
 | `\0` | Nulo / Null |
 
 ```spectra
-let simples = "Olá, mundo!";
-let com_aspas = "Ele disse \"Olá\"";
-let com_quebra = "Linha 1\nLinha 2";
-let com_tab = "Coluna1\tColuna2";
-let vazia = "";
+let simples = "Olá, mundo!"
+let com_aspas = "Ele disse \"Olá\""
+let com_quebra = "Linha 1\nLinha 2"
+let com_tab = "Coluna1\tColuna2"
+let vazia = ""
 ```
 
 ### Caracteres / Char Literals
 
 ```spectra
-let letra: char = 'A';
-let digito: char = '7';
-let espaco: char = ' ';
-let nova_linha: char = '\n';
-let tab: char = '\t';
+let letra: char = 'A'
+let digito: char = '7'
+let espaco: char = ' '
+let nova_linha: char = '\n'
+let tab: char = '\t'
 ```
 
 ### F-Strings (Strings com Interpolação / Interpolated Strings)
@@ -252,34 +269,39 @@ F-strings permitem embutir expressões dentro de strings usando a sintaxe `f"tex
 F-strings allow embedding expressions inside strings using the `f"text {expression}"` syntax.
 
 ```spectra
-module fstrings;
+module fstrings
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
-    let nome = "Alice";
-    let idade = 30;
-    let pi = 3.14159;
+public func main() {
+    let nome = "Alice"
+    let idade = 30
+    let pi = 3.14159
 
     // Variáveis / Variables
-    println(f"Olá, {nome}!");                          // Olá, Alice!
+    println(f"Olá, {nome}!")
+                          // Olá, Alice!
 
     // Expressões aritméticas / Arithmetic expressions
-    println(f"Daqui a 5 anos: {idade + 5} anos");     // Daqui a 5 anos: 35 anos
+    println(f"Daqui a 5 anos: {idade + 5} anos")
+     // Daqui a 5 anos: 35 anos
 
     // Chamadas de função / Function calls
-    println(f"PI arredondado: {arredondar(pi)}");
+    println(f"PI arredondado: {arredondar(pi)}")
 
     // Literais / Literals
-    println(f"A resposta é {42}");                     // A resposta é 42
+    println(f"A resposta é {42}")
+                     // A resposta é 42
 
     // Expressões complexas / Complex expressions
-    let x = 4;
-    println(f"Quadrado: {x * x}");                     // Quadrado: 16
+    let x = 4
+    println(f"Quadrado: {x * x}")
+                     // Quadrado: 16
 }
 
-fn arredondar(f: float) -> int {
-    return 3; // simplificado
+func arredondar(f: float) returns int {
+    return 3
+ // simplificado
 }
 ```
 
@@ -298,19 +320,25 @@ fn arredondar(f: float) -> int {
 | `%` | Módulo (resto) / Modulo (remainder) | `int`, `float` | `10 % 3` → `1` |
 
 ```spectra
-let a = 10;
-let b = 3;
+let a = 10
+let b = 3
 
-let soma = a + b;         // 13
-let diff = a - b;         // 7
-let prod = a * b;         // 30
-let quoc = a / b;         // 3  (divisão inteira / integer division)
-let resto = a % b;        // 1
+let soma = a + b
+         // 13
+let diff = a - b
+         // 7
+let prod = a * b
+         // 30
+let quoc = a / b
+         // 3  (divisão inteira / integer division)
+let resto = a % b
+        // 1
 
 // Com floats / With floats
-let x = 10.0;
-let y = 3.0;
-let div_float = x / y;    // 3.333...
+let x = 10.0
+let y = 3.0
+let div_float = x / y
+    // 3.333...
 ```
 
 > **Nota / Note:** Divisão entre dois `int` é **divisão inteira** (trunca). Use `float` para divisão decimal.  
@@ -334,15 +362,21 @@ All comparison operators return `bool`.
 | `>=` | Maior ou igual / Greater or equal | `5 >= 3` → `true` |
 
 ```spectra
-let x = 10;
-let y = 20;
+let x = 10
+let y = 20
 
-let igual = x == y;       // false
-let dif = x != y;         // true
-let menor = x < y;        // true
-let maior = x > y;        // false
-let men_ig = x <= 10;     // true
-let mai_ig = y >= 20;     // true
+let igual = x == y
+       // false
+let dif = x != y
+         // true
+let menor = x < y
+        // true
+let maior = x > y
+        // false
+let men_ig = x <= 10
+     // true
+let mai_ig = y >= 20
+     // true
 ```
 
 ### Operadores Lógicos / Logical Operators
@@ -354,16 +388,20 @@ let mai_ig = y >= 20;     // true
 | `!` | Negação lógica / Logical NOT | `!true` → `false` |
 
 ```spectra
-let a = true;
-let b = false;
+let a = true
+let b = false
 
-let e = a && b;           // false
-let ou = a || b;          // true
-let nao_a = !a;           // false
-let nao_b = !b;           // true
+let e = a && b
+           // false
+let ou = a || b
+          // true
+let nao_a = not a
+           // false
+let nao_b = not b
+           // true
 
 // Condições compostas / Compound conditions
-let x = 5;
+let x = 5
 if x > 0 && x < 10 {
     // x está entre 1 e 9 / x is between 1 and 9
 }
@@ -377,11 +415,13 @@ if x > 0 && x < 10 {
 | `!` | Negação lógica / Logical negation | `bool` | `!flag` |
 
 ```spectra
-let positivo = 42;
-let negativo = -positivo;    // -42
+let positivo = 42
+let negativo = -positivo
+    // -42
 
-let verdadeiro = true;
-let falso = !verdadeiro;     // false
+let verdadeiro = true
+let falso = not verdadeiro
+     // false
 ```
 
 ### Operadores de Intervalo / Range Operators
@@ -402,8 +442,8 @@ for i in 1..=5 {
 }
 
 // Ranges também podem ser armazenados / Ranges can also be stored
-let r = 0..10;
-let r_inc = 1..=100;
+let r = 0..10
+let r_inc = 1..=100
 ```
 
 ### Precedência de Operadores / Operator Precedence
@@ -425,54 +465,57 @@ From highest to lowest precedence (operators higher up are evaluated first):
 | 7 (mais baixo / lowest) | `\|\|` |
 
 ```spectra
-let resultado = 2 + 3 * 4;       // 14 (não 20 / not 20)
-let resultado2 = (2 + 3) * 4;    // 20
-let cond = x > 0 && y < 10;      // comparações antes de && / comparisons before &&
+let resultado = 2 + 3 * 4
+       // 14 (não 20 / not 20)
+let resultado2 = (2 + 3) * 4
+    // 20
+let cond = x > 0 && y < 10
+      // comparações antes de && / comparisons before &&
 ```
 
 ---
 
 ## 6. Controle de Fluxo / Control Flow
 
-### `if` / `elif` / `else`
+### `if` / `else if` / `else`
 
 **PT-BR:**  
-A instrução `if` avalia uma condição booleana e executa o bloco correspondente. Use `elif` para condições adicionais e `else` para o caso padrão.
+A instrução `if` avalia uma condição booleana e executa o bloco correspondente. Use `else if` para condições adicionais e `else` para o caso padrão.
 
 **EN-US:**  
-The `if` statement evaluates a boolean condition and executes the corresponding block. Use `elif` for additional conditions and `else` for the default case.
+The `if` statement evaluates a boolean condition and executes the corresponding block. Use `else if` for additional conditions and `else` for the default case.
 
 ```spectra
-module controle;
+module controle
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
-    let nota = 75;
+public func main() {
+    let nota = 75
 
     // if simples / simple if
     if nota >= 60 {
-        println("Aprovado!");
+        println("Aprovado!")
     }
 
     // if / else
     if nota >= 60 {
-        println("Aprovado!");
+        println("Aprovado!")
     } else {
-        println("Reprovado.");
+        println("Reprovado.")
     }
 
-    // if / elif / else
+    // if / else if / else
     if nota >= 90 {
-        println("A");
-    } elif nota >= 80 {
-        println("B");
-    } elif nota >= 70 {
-        println("C");
-    } elif nota >= 60 {
-        println("D");
+        println("A")
+    } else if nota >= 80 {
+        println("B")
+    } else if nota >= 70 {
+        println("C")
+    } else if nota >= 60 {
+        println("D")
     } else {
-        println("F");
+        println("F")
     }
 }
 ```
@@ -484,29 +527,29 @@ pub fn main() {
 `if` is also an **expression** — it can return a value:
 
 ```spectra
-let classificacao = if nota >= 60 { "Aprovado" } else { "Reprovado" };
+let classificacao = if nota >= 60 { "Aprovado" } else { "Reprovado" }
 ```
 
-### `unless`
+### `if not`
 
 > **Status:** stable. Enabled by default.
 
 **PT-BR:**  
-`unless` é o inverso do `if` — executa quando a condição é **falsa**. É equivalente a `if !condicao`.
+`if not` é a forma canônica da condição negativa — executa quando a condição é **falsa**.
 
 **EN-US:**  
-`unless` is the inverse of `if` — it executes when the condition is **false**. It is equivalent to `if !condition`.
+`if not` is the canonical negative conditional — it executes when the condition is **false**.
 
 ```spectra
-let autenticado = false;
+let autenticado = false
 
-unless autenticado {
-    println("Acesso negado!");
+if not autenticado {
+    println("Acesso negado!")
 }
 
-// Equivalente a / Equivalent to:
-if !autenticado {
-    println("Acesso negado!");
+// Forma canônica / Canonical form:
+if not autenticado {
+    println("Acesso negado!")
 }
 ```
 
@@ -519,19 +562,19 @@ Executa enquanto a condição for verdadeira. A condição é verificada **antes
 Executes while the condition is true. The condition is checked **before** each iteration.
 
 ```spectra
-let i = 0;
+let i = 0
 while i < 5 {
-    println(f"i = {i}");
-    i = i + 1;
+    println(f"i = {i}")
+    i = i + 1
 }
 // Saída / Output: i = 0, i = 1, i = 2, i = 3, i = 4
 
 // Com múltiplas condições / With multiple conditions
-let x = 0;
-let y = 10;
+let x = 0
+let y = 10
 while x < 5 && y > 0 {
-    x = x + 1;
-    y = y - 2;
+    x = x + 1
+    y = y - 2
 }
 ```
 
@@ -546,11 +589,11 @@ Executa o bloco **pelo menos uma vez** e depois verifica a condição.
 Executes the block **at least once** and then checks the condition.
 
 ```spectra
-let i = 0;
+let i = 0
 do {
-    println(f"Executado: {i}");
-    i = i + 1;
-} while i < 3;
+    println(f"Executado: {i}")
+    i = i + 1
+} while i < 3
 // Imprime mesmo se i já fosse ≥ 3 / Prints even if i were already ≥ 3
 ```
 
@@ -565,18 +608,18 @@ Iterates over ranges. Supports exclusive (`..`) and inclusive (`..=`) ranges.
 ```spectra
 // Intervalo exclusivo / Exclusive range: 0, 1, 2, 3, 4
 for i in 0..5 {
-    println(f"i = {i}");
+    println(f"i = {i}")
 }
 
 // Intervalo inclusivo / Inclusive range: 1, 2, 3, 4, 5
 for i in 1..=5 {
-    println(f"i = {i}");
+    println(f"i = {i}")
 }
 
 // Percorrer array / Iterate over array
-let arr = [10, 20, 30, 40, 50];
+let arr = [10, 20, 30, 40, 50]
 for i in 0..5 {
-    println(f"arr[{i}] = {arr[i]}");
+    println(f"arr[{i}] = {arr[i]}")
 }
 ```
 
@@ -591,11 +634,11 @@ Loop infinito. Use `break` para sair.
 Infinite loop. Use `break` to exit.
 
 ```spectra
-let contador = 0;
+let contador = 0
 loop {
-    contador = contador + 1;
+    contador = contador + 1
     if contador >= 5 {
-        break;
+        break
     }
 }
 // contador == 5
@@ -612,20 +655,20 @@ loop {
 `switch` compares a value against multiple explicit patterns. Requires a default `else` case or exhaustive coverage.
 
 ```spectra
-let dia = 3;
+let dia = 3
 
 switch dia {
-    case 1 => {
-        println("Segunda / Monday");
+    case 1: {
+        println("Segunda / Monday")
     }
-    case 2 => {
-        println("Terça / Tuesday");
+    case 2: {
+        println("Terça / Tuesday")
     }
-    case 3 => {
-        println("Quarta / Wednesday");
+    case 3: {
+        println("Quarta / Wednesday")
     }
-    else => {
-        println("Outro dia / Other day");
+    else: {
+        println("Outro dia / Other day")
     }
 }
 ```
@@ -644,17 +687,19 @@ switch dia {
 // break — sai ao encontrar 3 / exits when finding 3
 for i in 0..10 {
     if i == 3 {
-        break;
+        break
     }
-    println(f"{i}");  // Imprime 0, 1, 2 / Prints 0, 1, 2
+    println(f"{i}")
+  // Imprime 0, 1, 2 / Prints 0, 1, 2
 }
 
 // continue — pula números pares / skips even numbers
 for i in 0..8 {
     if i % 2 == 0 {
-        continue;
+        continue
     }
-    println(f"{i}");  // Imprime 1, 3, 5, 7 / Prints 1, 3, 5, 7
+    println(f"{i}")
+  // Imprime 1, 3, 5, 7 / Prints 1, 3, 5, 7
 }
 ```
 
@@ -663,7 +708,7 @@ for i in 0..8 {
 ```spectra
 for i in 0..3 {
     for j in 0..3 {
-        println(f"{i},{j}");
+        println(f"{i},{j}")
     }
 }
 
@@ -671,9 +716,10 @@ for i in 0..3 {
 for i in 0..5 {
     for j in 0..5 {
         if j == 2 {
-            break;  // Sai do for j / Exits the for j
+            break
+  // Sai do for j / Exits the for j
         }
-        println(f"{i},{j}");
+        println(f"{i},{j}")
     }
 }
 ```
@@ -685,32 +731,32 @@ for i in 0..5 {
 ### Declaração Básica / Basic Declaration
 
 **PT-BR:**  
-Funções são declaradas com `fn`. Parâmetros requerem anotação de tipo. O tipo de retorno é indicado após `->`. Se omitido, a função retorna `unit` (vazio).
+Funções são declaradas com `func`. Parâmetros requerem anotação de tipo. O tipo de retorno é indicado após `returns`. Se omitido, a função retorna `unit` (vazio).
 
 **EN-US:**  
-Functions are declared with `fn`. Parameters require type annotations. The return type is indicated after `->`. If omitted, the function returns `unit` (void).
+Functions are declared with `func`. Parameters require type annotations. The return type is indicated after `returns`. If omitted, the function returns `unit` (void).
 
 ```spectra
-module funcoes;
+module funcoes
 
 // Função sem parâmetros e sem retorno / Function with no parameters and no return
-fn saudacao() {
-    println("Olá!");
+func saudacao() {
+    println("Olá!")
 }
 
 // Função com parâmetros / Function with parameters
-fn soma(a: int, b: int) -> int {
-    return a + b;
+func soma(a: int, b: int) returns int {
+    return a + b
 }
 
 // Parâmetros de diferentes tipos / Parameters of different types
-fn formatar(nome: string, idade: int) -> string {
-    return f"{nome} tem {idade} anos";
+func formatar(nome: string, idade: int) returns string {
+    return f"{nome} tem {idade} anos"
 }
 
 // Função booleana / Boolean function
-fn eh_par(n: int) -> bool {
-    return n % 2 == 0;
+func eh_par(n: int) returns bool {
+    return n % 2 == 0
 }
 ```
 
@@ -724,17 +770,17 @@ The **last expression** of a function is automatically returned without the `ret
 
 ```spectra
 // Retorno explícito / Explicit return
-fn dobrar_explicito(x: int) -> int {
-    return x * 2;
+func dobrar_explicito(x: int) returns int {
+    return x * 2
 }
 
 // Retorno implícito / Implicit return
-fn dobrar_implicito(x: int) -> int {
+func dobrar_implicito(x: int) returns int {
     x * 2          // Sem ponto e vírgula = expressão de retorno / No semicolon = return expression
 }
 
 // Retorno implícito com bloco / Implicit return with block
-fn maximo(a: int, b: int) -> int {
+func maximo(a: int, b: int) returns int {
     if a > b {
         a          // Retorna a / Returns a
     } else {
@@ -743,7 +789,7 @@ fn maximo(a: int, b: int) -> int {
 }
 ```
 
-> **Regra importante / Important rule:** Uma expressão de retorno implícita **não termina com `;`**. Se você adicionar `;`, o valor é descartado e a função retorna `unit`.
+> **Regra importante / Important rule:** A superfície canônica não usa `;` para terminar declarações ou instruções. A expressão final da função termina pela quebra de linha, `}`, ou fim do arquivo.
 
 ### Retorno Antecipado / Early Return
 
@@ -754,70 +800,75 @@ Use `return` para sair da função antes do fim, retornando um valor ou `unit`.
 Use `return` to exit the function early, returning a value or `unit`.
 
 ```spectra
-fn dividir(a: int, b: int) -> int {
+func dividir(a: int, b: int) returns int {
     if b == 0 {
-        return 0;   // Retorno antecipado / Early return
+        return 0
+   // Retorno antecipado / Early return
     }
-    return a / b;
+    return a / b
 }
 
-fn validar(nome: string) {
+func validar(nome: string) {
     if nome == "" {
-        return;     // Retorno antecipado sem valor / Early return without value
+        return
+     // Retorno antecipado sem valor / Early return without value
     }
-    println(f"Nome válido: {nome}");
+    println(f"Nome válido: {nome}")
 }
 ```
 
 ### Visibilidade de Funções / Function Visibility
 
 **PT-BR:**  
-Funções são **privadas por padrão** (acessíveis apenas dentro do módulo). Use `pub` para torná-las públicas.
+Funções são **privadas por padrão** (acessíveis apenas dentro do módulo). Use `public` para torná-las públicas.
 
 **EN-US:**  
-Functions are **private by default** (accessible only within the module). Use `pub` to make them public.
+Functions are **private by default** (accessible only within the module). Use `public` to make them public.
 
 ```spectra
-module meu.modulo;
+module meu.modulo
 
 // Pública: acessível de outros módulos / Public: accessible from other modules
-pub fn calcular_area(largura: int, altura: int) -> int {
-    return largura * altura;
+public func calcular_area(largura: int, altura: int) returns int {
+    return largura * altura
 }
 
 // Privada: apenas neste módulo / Private: only in this module
-fn helper_interno() -> int {
-    return 42;
+func helper_interno() returns int {
+    return 42
 }
 ```
 
 ### Funções como Valores / Functions as Values
 
 **PT-BR:**  
-Funções podem ser passadas como argumentos usando o tipo `fn(T) -> R`.
+Funções podem ser passadas como argumentos usando o tipo `func(T) returns R`.
 
 **EN-US:**  
-Functions can be passed as arguments using the `fn(T) -> R` type.
+Functions can be passed as arguments using the `func(T) returns R` type.
 
 ```spectra
-fn aplicar(x: int, f: fn(int) -> int) -> int {
-    return f(x);
+func aplicar(x: int, f: func(int) returns int) returns int {
+    return f(x)
 }
 
-fn dobrar(x: int) -> int {
-    return x * 2;
+func dobrar(x: int) returns int {
+    return x * 2
 }
 
-fn triplicar(x: int) -> int {
-    return x * 3;
+func triplicar(x: int) returns int {
+    return x * 3
 }
 
-pub fn main() {
-    let r1 = aplicar(5, dobrar);     // 10
-    let r2 = aplicar(5, triplicar);  // 15
+public func main() {
+    let r1 = aplicar(5, dobrar)
+     // 10
+    let r2 = aplicar(5, triplicar)
+  // 15
 
     // Com closure inline / With inline closure
-    let r3 = aplicar(5, |x: int| x * x);  // 25
+    let r3 = aplicar(5, |x: int| x * x)
+  // 25
 }
 ```
 
@@ -831,18 +882,20 @@ Functions can accept generic type parameters with `<T>`. Trait bounds (constrain
 
 ```spectra
 // Função genérica simples / Simple generic function
-fn identidade<T>(valor: T) -> T {
-    return valor;
+func identidade<T>(valor: T) returns T {
+    return valor
 }
 
 // Com trait bound / With trait bound
-fn processar<T: Processavel>(item: T) -> T {
-    return item.processar();
+func processar<T: Processavel>(item: T) returns T {
+    return item.processar()
 }
 
-pub fn main() {
-    let n = identidade(42);        // int
-    let s = identidade("hello");   // string
+public func main() {
+    let n = identidade(42)
+        // int
+    let s = identidade("hello")
+   // string
 }
 ```
 
@@ -850,13 +903,16 @@ pub fn main() {
 
 ```spectra
 // Chamada simples / Simple call
-let resultado = soma(3, 4);      // 7
+let resultado = soma(3, 4)
+      // 7
 
 // Chamada aninhada / Nested call
-let r = soma(dobrar(2), triplicar(3));   // soma(4, 9) = 13
+let r = soma(dobrar(2), triplicar(3))
+   // soma(4, 9) = 13
 
 // Chamada com resultado em expressão / Call in expression
-let area = calcular_area(10, 20) * 2;    // 400
+let area = calcular_area(10, 20) * 2
+    // 400
 ```
 
 ---

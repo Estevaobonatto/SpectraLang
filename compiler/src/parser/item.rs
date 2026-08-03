@@ -26,12 +26,24 @@ impl Parser {
                 let import = self.parse_import(false)?;
                 Ok(Item::Import(import))
             }
-            crate::token::TokenKind::Keyword(Keyword::Pub) => {
-                self.advance(); // consume 'pub'
+            crate::token::TokenKind::Keyword(Keyword::From) => {
+                if !attributes.is_empty() {
+                    self.error_at(
+                        "Attributes are currently supported only on functions, structs, and enums",
+                        attributes[0].span,
+                    );
+                    return Err(());
+                }
+                let import = self.parse_from_import(false)?;
+                Ok(Item::Import(import))
+            }
+            crate::token::TokenKind::Keyword(Keyword::Public) => {
+                self.advance(); // consume the visibility modifier
                                 // `pub import ...` is a re-export: imported symbols are exposed to callers.
                 if matches!(
                     &self.current().kind,
                     crate::token::TokenKind::Keyword(Keyword::Import)
+                        | crate::token::TokenKind::Keyword(Keyword::From)
                 ) {
                     if !attributes.is_empty() {
                         self.error_at(
@@ -40,7 +52,11 @@ impl Parser {
                         );
                         return Err(());
                     }
-                    let import = self.parse_import(true)?;
+                    let import = if self.check_keyword(Keyword::From) {
+                        self.parse_from_import(true)?
+                    } else {
+                        self.parse_import(true)?
+                    };
                     return Ok(Item::Import(import));
                 }
                 self.parse_item_with_visibility(Visibility::Public, attributes)
@@ -48,10 +64,7 @@ impl Parser {
             crate::token::TokenKind::Keyword(Keyword::Internal) => {
                 self.advance(); // consume 'internal'
                                 // `internal import ...` re-exports within the same package only.
-                if matches!(
-                    &self.current().kind,
-                    crate::token::TokenKind::Keyword(Keyword::Import)
-                ) {
+                if matches!(&self.current().kind, crate::token::TokenKind::Keyword(Keyword::Import) | crate::token::TokenKind::Keyword(Keyword::From)) {
                     if !attributes.is_empty() {
                         self.error_at(
                             "Attributes are currently supported only on functions, structs, and enums",
@@ -59,7 +72,11 @@ impl Parser {
                         );
                         return Err(());
                     }
-                    let mut import = self.parse_import(false)?;
+                    let mut import = if self.check_keyword(Keyword::From) {
+                        self.parse_from_import(false)?
+                    } else {
+                        self.parse_import(false)?
+                    };
                     // Mark as internal re-export (visible only within the package).
                     // We reuse the is_reexport flag and rely on the visibility of the
                     // importing module item to be Internal at the call site.
@@ -68,13 +85,13 @@ impl Parser {
                 }
                 self.parse_item_with_visibility(Visibility::Internal, attributes)
             }
-            crate::token::TokenKind::Keyword(Keyword::Fn) => {
+            crate::token::TokenKind::Keyword(Keyword::Func) => {
                 self.parse_item_with_visibility(Visibility::Private, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Async) => {
                 self.parse_item_with_visibility(Visibility::Private, attributes)
             }
-            crate::token::TokenKind::Keyword(Keyword::Struct) => {
+            crate::token::TokenKind::Keyword(Keyword::Record) => {
                 self.parse_item_with_visibility(Visibility::Private, attributes)
             }
             crate::token::TokenKind::Keyword(Keyword::Enum) => {
@@ -215,7 +232,7 @@ impl Parser {
         attributes: Vec<Attribute>,
     ) -> Result<Item, ()> {
         match &self.current().kind {
-            crate::token::TokenKind::Keyword(Keyword::Fn) => {
+            crate::token::TokenKind::Keyword(Keyword::Func) => {
                 let function = self.parse_function(visibility, attributes)?;
                 Ok(Item::Function(function))
             }
@@ -223,7 +240,7 @@ impl Parser {
                 let function = self.parse_function(visibility, attributes)?;
                 Ok(Item::Function(function))
             }
-            crate::token::TokenKind::Keyword(Keyword::Struct) => {
+            crate::token::TokenKind::Keyword(Keyword::Record) => {
                 let struct_item = self.parse_struct(visibility, attributes)?;
                 Ok(Item::Struct(struct_item))
             }
@@ -294,27 +311,24 @@ impl Parser {
         visibility: Visibility,
         attributes: Vec<Attribute>,
     ) -> Result<Function, ()> {
-        // Expect: [async] fn <name><T: Trait>(<params>) [-> type] { <body> }
+        // Expect: [async] func <name><T: Trait>(<params>) [returns type] { <body> }
         let (start_span, is_async) = if self.check_keyword(Keyword::Async) {
             let async_span = self.current().span;
             self.advance();
-            if !self.check_keyword(Keyword::Fn) {
+            if !self.check_function_keyword() {
                 self.push_error_coded(
                     "P005",
-                    "Expected `fn` after `async` in item declaration",
+                    "Expected `func` after `async` in item declaration",
                     self.current().span,
-                    Some("Write `async fn name(...) { ... }` or move `async` before a block expression.".to_string()),
+                    Some("Write `async func name(...) { ... }` or move `async` before a block expression.".to_string()),
                     Some("`async` at item scope only prefixes function declarations".to_string()),
                 );
                 return Err(());
             }
-            self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword after 'async'")?;
+            self.consume_function_keyword("Expected 'func' keyword after 'async'")?;
             (async_span, true)
         } else {
-            (
-                self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword")?,
-                false,
-            )
+            (self.consume_function_keyword("Expected 'func' keyword")?, false)
         };
 
         let (name, _name_span) = self.consume_identifier("Expected function name")?;
@@ -333,11 +347,8 @@ impl Parser {
         self.consume_symbol(')', "Expected ')' after function parameters")?;
 
         // Optional return type
-        let return_type = if matches!(
-            &self.current().kind,
-            crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
-        ) {
-            self.advance(); // consume '->'
+        let return_type = if self.check_keyword(Keyword::Returns) {
+            self.advance(); // consume 'returns'
             Some(self.parse_type_annotation()?)
         } else {
             None
@@ -435,8 +446,8 @@ impl Parser {
     ) -> Result<crate::ast::Struct, ()> {
         use crate::ast::{Struct, StructField};
 
-        // Expect: struct <name> { <fields> }
-        let start_span = self.consume_keyword(Keyword::Struct, "Expected 'struct' keyword")?;
+        // Expect: record <name> { <fields> }
+        let start_span = self.consume_record_keyword("Expected 'record' keyword")?;
 
         let (name, _name_span) = self.consume_identifier("Expected struct name")?;
 
@@ -455,7 +466,7 @@ impl Parser {
         while !self.check_symbol('}') && !self.is_at_end() {
             let field_attributes = self.parse_outer_attributes()?;
             // Parse optional visibility modifier before the field name
-            let field_visibility = if self.check_keyword(Keyword::Pub) {
+            let field_visibility = if self.check_keyword(Keyword::Public) {
                 self.advance();
                 Visibility::Public
             } else if self.check_keyword(Keyword::Internal) {
@@ -621,7 +632,7 @@ impl Parser {
         while !self.check_symbol('}') && !self.is_at_end() {
             // Parse method: fn method_name(params) -> type { body }
             // Optional visibility modifier before 'fn'
-            let method_visibility = if self.check_keyword(Keyword::Pub) {
+            let method_visibility = if self.check_keyword(Keyword::Public) {
                 self.advance();
                 Visibility::Public
             } else if self.check_keyword(Keyword::Internal) {
@@ -636,7 +647,7 @@ impl Parser {
             } else {
                 false
             };
-            self.consume_keyword(Keyword::Fn, "Expected 'fn' keyword for method")?;
+            self.consume_function_keyword("Expected 'func' keyword for method")?;
 
             let (method_name, method_name_span) =
                 self.consume_identifier("Expected method name")?;
@@ -719,11 +730,8 @@ impl Parser {
             self.consume_symbol(')', "Expected ')' after method parameters")?;
 
             // Optional return type
-            let return_type = if matches!(
-                &self.current().kind,
-                crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
-            ) {
-                self.advance(); // consume '->'
+            let return_type = if self.check_keyword(Keyword::Returns) {
+                self.advance(); // consume 'returns'
                 Some(self.parse_type_annotation()?)
             } else {
                 None
@@ -794,14 +802,13 @@ impl Parser {
             let (method_start, is_async) = if self.check_keyword(Keyword::Async) {
                 let async_span = self.current().span;
                 self.advance();
-                self.consume_keyword(
-                    Keyword::Fn,
-                    "Expected 'fn' after 'async' for method signature",
+                self.consume_function_keyword(
+                    "Expected 'func' after 'async' for method signature",
                 )?;
                 (async_span, true)
             } else {
                 (
-                    self.consume_keyword(Keyword::Fn, "Expected 'fn' for method signature")?,
+                    self.consume_function_keyword("Expected 'func' for method signature")?,
                     false,
                 )
             };
@@ -882,11 +889,8 @@ impl Parser {
             self.consume_symbol(')', "Expected ')' after method parameters")?;
 
             // Optional return type
-            let return_type = if matches!(
-                &self.current().kind,
-                crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
-            ) {
-                self.advance(); // consume '->'
+            let return_type = if self.check_keyword(Keyword::Returns) {
+                self.advance(); // consume 'returns'
                 Some(self.parse_type_annotation()?)
             } else {
                 None
@@ -909,7 +913,8 @@ impl Parser {
                 (Some(body), end)
             } else {
                 // Just signature, no body
-                let end = self.consume_symbol(';', "Expected ';' after trait method signature")?;
+                let end = self
+                    .consume_statement_terminator("Expected a line break after trait method signature")?;
                 (None, end)
             };
 
@@ -973,7 +978,7 @@ impl Parser {
             } else {
                 false
             };
-            let _fn_keyword_span = self.consume_keyword(Keyword::Fn, "Expected 'fn' for method")?;
+            let _fn_keyword_span = self.consume_function_keyword("Expected 'func' for method")?;
 
             let (method_name, method_name_span) =
                 self.consume_identifier("Expected method name")?;
@@ -1048,11 +1053,8 @@ impl Parser {
             self.consume_symbol(')', "Expected ')' after method parameters")?;
 
             // Optional return type
-            let return_type = if matches!(
-                &self.current().kind,
-                crate::token::TokenKind::Operator(crate::token::Operator::Arrow)
-            ) {
-                self.advance(); // consume '->'
+            let return_type = if self.check_keyword(Keyword::Returns) {
+                self.advance(); // consume 'returns'
                 Some(self.parse_type_annotation()?)
             } else {
                 None
@@ -1406,7 +1408,8 @@ impl Parser {
         let (name, _) = self.consume_identifier("Expected alias name after 'type'")?;
         self.consume_symbol('=', "Expected '=' after alias name")?;
         let ty = self.parse_type_annotation()?;
-        let end_span = self.consume_symbol(';', "Expected ';' after type alias")?;
+        let end_span = self
+            .consume_statement_terminator("Expected a line break after type alias")?;
         Ok(Item::TypeAlias(TypeAlias {
             name,
             span: span_union(start_span, end_span),
@@ -1428,7 +1431,8 @@ impl Parser {
         };
         self.consume_symbol('=', "Expected '=' after constant name")?;
         let value = self.parse_expression()?;
-        let end_span = self.consume_symbol(';', "Expected ';' after const declaration")?;
+        let end_span = self
+            .consume_statement_terminator("Expected a line break after const declaration")?;
         Ok(Item::Const(ConstDecl {
             name,
             span: span_union(start_span, end_span),
@@ -1449,7 +1453,8 @@ impl Parser {
         };
         self.consume_symbol('=', "Expected '=' after static variable name")?;
         let value = self.parse_expression()?;
-        let end_span = self.consume_symbol(';', "Expected ';' after static declaration")?;
+        let end_span = self
+            .consume_statement_terminator("Expected a line break after static declaration")?;
         Ok(Item::Static(StaticDecl {
             name,
             span: span_union(start_span, end_span),

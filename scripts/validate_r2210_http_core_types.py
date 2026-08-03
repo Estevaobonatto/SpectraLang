@@ -101,7 +101,7 @@ def validate_fixtures_and_docs() -> None:
     for term in [
         "Request",
         "Response",
-        "fn create_user(req: Request) -> Response",
+        "func create_user(req: Request) returns Response",
         "method_post()",
         "status_created()",
         "header(",

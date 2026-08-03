@@ -18,7 +18,7 @@ Status labels:
 | Function bodies and blocks | supported | Includes final-expression handling and explicit `return`. |
 | Local bindings and assignments | supported | Shadowing bugs identified during stabilization were fixed. |
 | Arithmetic and comparison expressions | supported | |
-| Branching (`if`, `elif`, `else`) | supported | |
+| Branching (`if`, `else if`, `else`, `if not`) | supported | |
 | Loops (`while`, `for`, `loop`, `do-while`) | supported | Stable loop forms lower and execute through regression coverage. |
 | `break` / `continue` | supported | |
 | Function calls | supported | Direct and imported stdlib calls lower. |

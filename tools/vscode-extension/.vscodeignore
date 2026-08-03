@@ -6,6 +6,7 @@ tsconfig.json
 ROADMAP.md
 install-extension.ps1
 package-lock.json
+validate-syntax-assets.mjs
 
 # Keep bundled binaries inside the VSIX
 !server/**

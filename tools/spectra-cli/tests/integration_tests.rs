@@ -61,15 +61,15 @@ fn test_compile_test_optimization() {
 #[test]
 fn test_inline_basic_program() {
     let source = r#"
-        module integration_test;
+        module integration_test
 
-        fn add(a: int, b: int) -> int {
-            return a + b;
+        func add(a: int, b: int)  returns  int {
+            return a + b
         }
 
-        fn main() -> int {
-            let result = add(3, 4);
-            return result;
+        func main()  returns  int {
+            let result = add(3, 4)
+            return result
         }
     "#;
     let result = compile_source(source);
@@ -83,13 +83,13 @@ fn test_inline_basic_program() {
 #[test]
 fn test_inline_if_else() {
     let source = r#"
-        module integration_test;
+        module integration_test
 
-        fn max(a: int, b: int) -> int {
+        func max(a: int, b: int)  returns  int {
             if a > b {
-                return a;
+                return a
             } else {
-                return b;
+                return b
             }
         }
     "#;
@@ -104,16 +104,16 @@ fn test_inline_if_else() {
 #[test]
 fn test_inline_while_loop() {
     let source = r#"
-        module integration_test;
+        module integration_test
 
-        fn sum_to(n: int) -> int {
-            let total = 0;
-            let i = 0;
+        func sum_to(n: int)  returns  int {
+            let total = 0
+            let i = 0
             while i <= n {
-                total = total + i;
-                i = i + 1;
+                total = total + i
+                i = i + 1
             }
-            return total;
+            return total
         }
     "#;
     let result = compile_source(source);

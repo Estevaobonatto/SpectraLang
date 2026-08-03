@@ -1,43 +1,43 @@
 // Advanced AI example: produce release-candidate evidence artifacts that feed
 // the R-2001 conformance gate and future release-channel workflows.
-module advanced_phase20_release_candidate_evidence;
+module advanced_phase20_release_candidate_evidence
 
-import std.fs as fs;
-import std.ml as ml;
-import std.serve as serve;
-import std.string as str;
-import std.tensor as tensor;
+import std.fs as fs
+import std.ml as ml
+import std.serve as serve
+import std.string as str
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
-    serve.reset();
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
+    serve.reset()
 
-    let model = ml.onnx_export("target/ai-examples/advanced-phase20/candidate.onnx", "linear");
+    let model = ml.onnx_export("target/ai-examples/advanced-phase20/candidate.onnx", "linear")
     if ml.onnx_validate(model) != 1 {
-        return 1;
+        return 1
     }
-    let onnx_summary = ml.onnx_import_summary(model);
+    let onnx_summary = ml.onnx_import_summary(model)
     if str.contains(onnx_summary, "Gemm") {
-        let ok_onnx = 1;
+        let ok_onnx = 1
         if ok_onnx != 1 {
-            return 2;
+            return 2
         }
     } else {
-        return 2;
+        return 2
     }
 
-    let labels = tensor.arange(0, 4, 1);
-    let predictions = tensor.arange(0, 4, 1);
-    let classification = ml.metrics_classification(labels, predictions);
-    let regression = ml.metrics_regression(tensor.full_f(4, 1.0), tensor.full_f(4, 1.0));
-    let ranking = ml.metrics_ranking(labels, tensor.full_f(4, 1.0), 3);
-    let generation = ml.metrics_generation(
+    let labels         = tensor.arange(0, 4, 1)
+    let predictions    = tensor.arange(0, 4, 1)
+    let classification = ml.metrics_classification(labels, predictions)
+    let regression     = ml.metrics_regression(tensor.full_f(4, 1.0), tensor.full_f(4, 1.0))
+    let ranking        = ml.metrics_ranking(labels, tensor.full_f(4, 1.0), 3)
+    let generation     = ml.metrics_generation(
         "release candidates require conformance evidence",
         "conformance evidence"
-    );
-    let serving_metrics = ml.serving_metrics(tensor.arange(10, 50, 10), 4, 0);
-    let evaluation = ml.evaluation_report(
+    )
+    let serving_metrics = ml.serving_metrics(tensor.arange(10, 50, 10), 4, 0)
+    let evaluation      = ml.evaluation_report(
         "target/ai-examples/advanced-phase20/evaluation.json",
         "advanced-phase20-release-candidate",
         classification,
@@ -45,95 +45,95 @@ pub fn main() -> int {
         ranking,
         generation,
         serving_metrics
-    );
+    )
     if str.contains(evaluation, "evaluation.json") {
-        let ok_evaluation = 1;
+        let ok_evaluation = 1
         if ok_evaluation != 1 {
-            return 3;
+            return 3
         }
     } else {
-        return 3;
+        return 3
     }
 
-    let reference = serve.server_new(2);
-    serve.server_set_model_version(reference, "release-candidate-local");
-    serve.server_warmup(reference);
-    let ref_req = serve.server_enqueue(reference, 10);
-    serve.server_process_batch(reference, 1);
+    let reference = serve.server_new(2)
+    serve.server_set_model_version(reference, "release-candidate-local")
+    serve.server_warmup(reference)
+    let ref_req = serve.server_enqueue(reference, 10)
+    serve.server_process_batch(reference, 1)
     if serve.server_result(reference, ref_req) != 20 {
-        return 4;
+        return 4
     }
-    let reference_distribution = serve.server_distribution_summary(reference);
+    let reference_distribution = serve.server_distribution_summary(reference)
 
-    let live = serve.server_new(2);
-    serve.server_set_model_version(live, "release-candidate-local");
-    serve.server_set_fallback(live, -1);
-    serve.server_set_input_policy(live, 0, 100);
-    serve.server_warmup(live);
-    let live_req = serve.server_enqueue(live, 12);
-    serve.server_process_batch(live, 1);
+    let live = serve.server_new(2)
+    serve.server_set_model_version(live, "release-candidate-local")
+    serve.server_set_fallback(live, -1)
+    serve.server_set_input_policy(live, 0, 100)
+    serve.server_warmup(live)
+    let live_req = serve.server_enqueue(live, 12)
+    serve.server_process_batch(live, 1)
     if serve.server_result(live, live_req) != 24 {
-        return 5;
+        return 5
     }
-    let live_distribution = serve.server_distribution_summary(live);
-    let drift = serve.drift_check(reference_distribution, live_distribution, 500);
-    let audit = serve.server_audit_log(live);
-    let monitoring = serve.export_monitoring(
+    let live_distribution = serve.server_distribution_summary(live)
+    let drift             = serve.drift_check(reference_distribution, live_distribution, 500)
+    let audit             = serve.server_audit_log(live)
+    let monitoring        = serve.export_monitoring(
         live,
         "target/ai-examples/advanced-phase20/monitoring.json",
         live_distribution,
         drift,
         audit
-    );
+    )
     if str.contains(monitoring, "monitoring.json") {
-        let ok_monitoring = 1;
+        let ok_monitoring = 1
         if ok_monitoring != 1 {
-            return 6;
+            return 6
         }
     } else {
-        return 6;
+        return 6
     }
 
-    let tokenizer = ml.tokenizer_wordpiece("[UNK]:0\nrelease:1\ncandidate:2\nconformance:3\nevidence:4");
-    let encoded = ml.tokenizer_encode(tokenizer, "release candidate conformance evidence");
-    let decoded = ml.tokenizer_decode(tokenizer, encoded);
+    let tokenizer = ml.tokenizer_wordpiece("[UNK]:0\nrelease:1\ncandidate:2\nconformance:3\nevidence:4")
+    let encoded = ml.tokenizer_encode(tokenizer, "release candidate conformance evidence")
+    let decoded = ml.tokenizer_decode(tokenizer, encoded)
     if str.contains(decoded, "release candidate conformance evidence") {
-        let ok_decode = 1;
+        let ok_decode = 1
         if ok_decode != 1 {
-            return 7;
+            return 7
         }
     } else {
-        return 7;
+        return 7
     }
 
-    let index = ml.vector_index_new(8);
-    ml.vector_index_set_metadata(index, "model_version", "advanced-phase20-v1");
-    ml.vector_index_insert(index, "release-evidence", ml.text_embed("release candidate conformance evidence", 8));
-    let persisted = ml.vector_index_persist(index, "target/ai-examples/advanced-phase20/vector-index.json");
+    let index = ml.vector_index_new(8)
+    ml.vector_index_set_metadata(index, "model_version", "advanced-phase20-v1")
+    ml.vector_index_insert(index, "release-evidence", ml.text_embed("release candidate conformance evidence", 8))
+    let persisted = ml.vector_index_persist(index, "target/ai-examples/advanced-phase20/vector-index.json")
     if str.contains(persisted, "vector-index.json") {
-        let ok_index = 1;
+        let ok_index = 1
         if ok_index != 1 {
-            return 8;
+            return 8
         }
     } else {
-        return 8;
+        return 8
     }
 
-    let memory = tensor.memory_report();
+    let memory = tensor.memory_report()
     if str.contains(memory, "spectra.tensor.memory_report.v1") {
-        let ok_memory = 1;
+        let ok_memory = 1
         if ok_memory != 1 {
-            return 9;
+            return 9
         }
     } else {
-        return 9;
+        return 9
     }
 
     fs.fs_write(
         "target/ai-examples/advanced-phase20/summary.txt",
         "advanced_phase20_release_candidate_evidence=pass\n"
-    );
+    )
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

@@ -1,47 +1,47 @@
 // AI reference example: file-backed tabular dataset training.
-module ai_tabular_dataset_training;
+module ai_tabular_dataset_training
 
-import std.tensor as tensor;
-import std.ml as ml;
-import std.fs as fs;
+import std.tensor as tensor
+import std.ml as ml
+import std.fs as fs
 
-fn train_step(x: int, target: int, w: int, b: int) -> int {
-    let pred = ml.linear(x, w, b);
-    let loss = ml.mse_loss(pred, target);
-    tensor.backward(loss);
-    ml.sgd_step(w, 0.01);
-    ml.sgd_step(b, 0.01);
-    tensor.zero_grad(w);
-    tensor.zero_grad(b);
-    return 0;
+func train_step(x: int, target: int, w: int, b: int) returns int {
+    let pred = ml.linear(x, w, b)
+    let loss = ml.mse_loss(pred, target)
+    tensor.backward(loss)
+    ml.sgd_step(w, 0.01)
+    ml.sgd_step(b, 0.01)
+    tensor.zero_grad(w)
+    tensor.zero_grad(b)
+    return 0
 }
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let dataset = ml.dataset_from_csv("tests/fixtures/r1701/tabular.csv", 2, 1);
-    let train = ml.dataset_train_split(dataset, 3);
-    let loader = ml.dataloader_new(train, 3, 2026);
-    let x = tensor.reshape(ml.dataloader_batch_features(loader, 0), 3, 2);
-    let y = tensor.reshape(ml.dataloader_batch_labels(loader, 0), 3, 1);
+    let dataset = ml.dataset_from_csv("tests/fixtures/r1701/tabular.csv", 2, 1)
+    let train   = ml.dataset_train_split(dataset, 3)
+    let loader  = ml.dataloader_new(train, 3, 2026)
+    let x       = tensor.reshape(ml.dataloader_batch_features(loader, 0), 3, 2)
+    let y       = tensor.reshape(ml.dataloader_batch_labels(loader, 0), 3, 1)
 
-    let w = tensor.reshape(tensor.requires_grad(tensor.full_f(2, 0.0), true), 2, 1);
-    let b = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let w = tensor.reshape(tensor.requires_grad(tensor.full_f(2, 0.0), true), 2, 1)
+    let b = tensor.requires_grad(tensor.full_f(1, 0.0), true)
 
-    train_step(x, y, w, b);
-    train_step(x, y, w, b);
-    train_step(x, y, w, b);
+    train_step(x, y, w, b)
+    train_step(x, y, w, b)
+    train_step(x, y, w, b)
 
-    let frame = ml.dataframe_from_csv("tests/fixtures/r1701/tabular.csv", 1);
+    let frame = ml.dataframe_from_csv("tests/fixtures/r1701/tabular.csv", 1)
     if ml.dataframe_rows(frame) != 4 {
-        return 1;
+        return 1
     }
     if ml.dataframe_cols(frame) != 3 {
-        return 2;
+        return 2
     }
 
-    fs.fs_write("target/ai-examples/tabular_dataset_training.txt", "spectralang tabular dataset training\nrecords=4\nfeatures=2\n");
-    tensor.free_all();
-    return 0;
+    fs.fs_write("target/ai-examples/tabular_dataset_training.txt", "spectralang tabular dataset training\nrecords=4\nfeatures=2\n")
+    tensor.free_all()
+    return 0
 }

@@ -1,7 +1,7 @@
-module demo_int;
-import std.io;
+module demo_int
+import std.io
 
-pub fn main() -> int {
-    println(42);
-    return 0;
+public func main() returns int {
+    println(42)
+    return 0
 }

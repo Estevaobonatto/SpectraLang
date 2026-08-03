@@ -1,6 +1,6 @@
-module demo_one;
-import std.io;
-pub fn main() -> int {
-    println("Hello!");
-    return 0;
+module demo_one
+import std.io
+public func main() returns int {
+    println("Hello!")
+    return 0
 }

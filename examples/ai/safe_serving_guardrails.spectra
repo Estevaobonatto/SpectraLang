@@ -1,52 +1,52 @@
-module safe_serving_guardrails;
+module safe_serving_guardrails
 
-import std.fs as fs;
-import std.serve as serve;
-import std.string as str;
+import std.fs as fs
+import std.serve as serve
+import std.string as str
 
-pub fn main() -> int {
-    serve.reset();
+public func main() returns int {
+    serve.reset()
 
-    let server = serve.server_new(4);
-    serve.server_set_fallback(server, -404);
-    serve.server_set_input_policy(server, 0, 50);
-    serve.server_set_output_policy(server, 0, 120);
-    serve.server_set_rate_limit(server, 2);
-    serve.server_warmup(server);
+    let server = serve.server_new(4)
+    serve.server_set_fallback(server, -404)
+    serve.server_set_input_policy(server, 0, 50)
+    serve.server_set_output_policy(server, 0, 120)
+    serve.server_set_rate_limit(server, 2)
+    serve.server_warmup(server)
 
-    let first = serve.server_enqueue(server, 10);
-    let second = serve.server_enqueue(server, 51);
-    let third = serve.server_enqueue(server, 40);
+    let first  = serve.server_enqueue(server, 10)
+    let second = serve.server_enqueue(server, 51)
+    let third  = serve.server_enqueue(server, 40)
 
     if serve.server_process_batch(server, 2) != 2 {
-        return 1;
+        return 1
     }
     if serve.server_result(server, first) != 40 {
-        return 2;
+        return 2
     }
     if serve.server_result(server, second) != -404 {
-        return 3;
+        return 3
     }
     if serve.server_result(server, third) != -404 {
-        return 4;
+        return 4
     }
 
-    let diagnostic = serve.server_last_diagnostic(server);
-    let audit = serve.server_audit_log(server);
+    let diagnostic = serve.server_last_diagnostic(server)
+    let audit      = serve.server_audit_log(server)
     if str.contains(audit, "\"event\":\"blocked\"") {
         fs.fs_write(
             "target/ai-examples/safety/guardrail-audit.json",
             audit
-        );
+        )
         fs.fs_write(
             "target/ai-examples/safety/guardrail-summary.txt",
             "safe_serving_guardrails=pass\nblocked_input=true\nfallback=true\n"
-        );
+        )
     } else {
-        return 5;
+        return 5
     }
     if str.contains(diagnostic, "\"fallback\":-404") {
-        return 0;
+        return 0
     }
-    return 6;
+    return 6
 }

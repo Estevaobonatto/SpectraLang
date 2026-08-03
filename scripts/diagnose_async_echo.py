@@ -26,155 +26,170 @@ OUTER = 1000
 INNER = 10
 
 FIXTURES = {
-    "startup": "pub fn main() -> int { return 0; }",
-    "reset-only": f"""module async_echo_reset_only;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
-    while i < {OUTER * INNER} {{ concurrent.reset(); i = i + 1; }}
-    return 0;
+    "startup": "public func main() returns int {\n    return 0\n}\n",
+    "reset-only": f"""module async_echo_reset_only
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
+    while i < {OUTER * INNER} {{ concurrent.reset()
+ i = i + 1
+ }}
+    return 0
 }}""",
-    "spawn-only": f"""module async_echo_spawn_only;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
+    "spawn-only": f"""module async_echo_spawn_only
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
     while i < {OUTER} {{
-        concurrent.reset();
-        let k = 0;
-        while k < {INNER} {{ concurrent.task_spawn(k + 1); k = k + 1; }}
-        i = i + 1;
+        concurrent.reset()
+        let k = 0
+        while k < {INNER} {{ concurrent.task_spawn(k + 1)
+ k = k + 1
+ }}
+        i = i + 1
     }}
-    return 0;
+    return 0
 }}""",
-    "join-only": f"""module async_echo_join_only;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
+    "join-only": f"""module async_echo_join_only
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
     while i < {OUTER} {{
-        concurrent.reset();
-        let k = 0;
-        while k < {INNER} {{ concurrent.task_spawn(k + 1); k = k + 1; }}
-        k = 1;
+        concurrent.reset()
+        let k = 0
+        while k < {INNER} {{ concurrent.task_spawn(k + 1)
+ k = k + 1
+ }}
+        k = 1
         while k <= {INNER} {{
-            concurrent.task_join(k);
-            k = k + 1;
+            concurrent.task_join(k)
+            k = k + 1
         }}
-        i = i + 1;
+        i = i + 1
     }}
-    return 0;
+    return 0
 }}""",
-    "spawn-join": f"""module async_echo_spawn_join;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
+    "spawn-join": f"""module async_echo_spawn_join
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
     while i < {OUTER} {{
-        let k = 0;
+        let k = 0
         while k < {INNER} {{
-            let task = concurrent.task_spawn(k + 1);
-            if concurrent.task_join(task) != k + 1 {{ return 1; }}
-            k = k + 1;
+            let task = concurrent.task_spawn(k + 1)
+            if concurrent.task_join(task) != k + 1 {{ return 1
+ }}
+            k = k + 1
         }}
-        i = i + 1;
+        i = i + 1
     }}
-    return 0;
+    return 0
 }}""",
-    "fused": f"""module async_echo_fused;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
-    let total = 0;
+    "fused": f"""module async_echo_fused
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
+    let total = 0
     while i < {OUTER} {{
-        let k = 0;
+        let k = 0
         while k < {INNER} {{
-            total = total + concurrent.task_join(concurrent.task_spawn(k + 1));
-            k = k + 1;
+            total = total + concurrent.task_join(concurrent.task_spawn(k + 1))
+            k = k + 1
         }}
-        i = i + 1;
+        i = i + 1
     }}
-    if total != {OUTER * 55} {{ return 1; }}
-    return 0;
+    if total != {OUTER * 55} {{ return 1
+ }}
+    return 0
 }}""",
-    "full": f"""module async_echo_full;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
+    "full": f"""module async_echo_full
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
     while i < {OUTER} {{
-        concurrent.reset();
-        let k = 0;
+        concurrent.reset()
+        let k = 0
         while k < {INNER} {{
-            let task = concurrent.task_spawn(k + 1);
-            if concurrent.task_join(task) != k + 1 {{ return 1; }}
-            k = k + 1;
+            let task = concurrent.task_spawn(k + 1)
+            if concurrent.task_join(task) != k + 1 {{ return 1
+ }}
+            k = k + 1
         }}
-        i = i + 1;
+        i = i + 1
     }}
-    return 0;
+    return 0
 }}""",
     # These variants exercise the exact batch API used by the current
     # fanout_fanin_real_concurrency.v2 benchmark.  The setup-only variants
     # deliberately document their cleanup semantics instead of pretending
     # that a batch can be spawned without being released or cancelled.
-    "batch-reset-only": f"""module async_echo_batch_reset_only;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
-    while i < {OUTER * INNER} {{ concurrent.reset(); i = i + 1; }}
-    return 0;
+    "batch-reset-only": f"""module async_echo_batch_reset_only
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
+    while i < {OUTER * INNER} {{ concurrent.reset()
+ i = i + 1
+ }}
+    return 0
 }}""",
-    "batch-spawn-only": f"""module async_echo_batch_spawn_only;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
+    "batch-spawn-only": f"""module async_echo_batch_spawn_only
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
     while i < {OUTER} {{
-        concurrent.reset();
-        let batch = concurrent.task_spawn_batch(1, {INNER});
-        concurrent.reset();
-        if batch < 0 {{ return 1; }}
-        i = i + 1;
+        concurrent.reset()
+        let batch = concurrent.task_spawn_batch(1, {INNER})
+        concurrent.reset()
+        if batch < 0 {{ return 1
+ }}
+        i = i + 1
     }}
-    return 0;
+    return 0
 }}""",
-    "batch-join-only": f"""module async_echo_batch_join_only;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let i = 0;
+    "batch-join-only": f"""module async_echo_batch_join_only
+import std.concurrent as concurrent
+public func main() returns int {{
+    let i = 0
     while i < {OUTER} {{
-        let batch = concurrent.task_spawn_batch(1, {INNER});
-        if concurrent.task_join_batch_sum(batch) != 55 {{ return 1; }}
-        i = i + 1;
+        let batch = concurrent.task_spawn_batch(1, {INNER})
+        if concurrent.task_join_batch_sum(batch) != 55 {{ return 1
+ }}
+        i = i + 1
     }}
-    return 0;
+    return 0
 }}""",
-    "batch-full": f"""module async_echo_batch_full;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let iters = {OUTER};
-    let total = 0;
-    let i = 0;
+    "batch-full": f"""module async_echo_batch_full
+import std.concurrent as concurrent
+public func main() returns int {{
+    let iters = {OUTER}
+    let total = 0
+    let i = 0
     while i < iters {{
-        concurrent.reset();
-        let batch = concurrent.task_spawn_batch(1, {INNER});
-        let local = concurrent.task_join_batch_sum(batch);
-        total = total + local;
-        i = i + 1;
+        concurrent.reset()
+        let batch = concurrent.task_spawn_batch(1, {INNER})
+        let local = concurrent.task_join_batch_sum(batch)
+        total = total + local
+        i = i + 1
     }}
-    if total == {OUTER * 55} {{ return 0; }}
-    return 1;
+    if total == {OUTER * 55} {{ return 0
+ }}
+    return 1
 }}""",
-    "batch-full-no-reset": f"""module async_echo_batch_full_no_reset;
-import std.concurrent as concurrent;
-pub fn main() -> int {{
-    let iters = {OUTER};
-    let total = 0;
-    let i = 0;
+    "batch-full-no-reset": f"""module async_echo_batch_full_no_reset
+import std.concurrent as concurrent
+public func main() returns int {{
+    let iters = {OUTER}
+    let total = 0
+    let i = 0
     while i < iters {{
-        let batch = concurrent.task_spawn_batch(1, {INNER});
-        let local = concurrent.task_join_batch_sum(batch);
-        total = total + local;
-        i = i + 1;
+        let batch = concurrent.task_spawn_batch(1, {INNER})
+        let local = concurrent.task_join_batch_sum(batch)
+        total = total + local
+        i = i + 1
     }}
-    if total == {OUTER * 55} {{ return 0; }}
-    return 1;
+    if total == {OUTER * 55} {{ return 0
+ }}
+    return 1
 }}""",
 }
 

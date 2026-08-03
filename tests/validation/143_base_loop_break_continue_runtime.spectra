@@ -1,35 +1,35 @@
-module base_loop_break_continue_runtime;
+module base_loop_break_continue_runtime
 
-fn nested_sum(limit: int) -> int {
-    let outer = 0;
-    let total = 0;
+func nested_sum(limit: int) returns int {
+    let outer = 0
+    let total = 0
 
     loop {
-        outer = outer + 1;
+        outer = outer + 1
         if outer > limit {
-            break;
+            break
         }
 
-        let inner = 0;
+        let inner = 0
         loop {
-            inner = inner + 1;
+            inner = inner + 1
             if inner == 2 {
-                continue;
+                continue
             }
             if inner > 3 {
-                break;
+                break
             }
-            total = total + outer * 10 + inner;
+            total = total + outer * 10 + inner
         }
     }
 
-    return total;
+    return total
 }
 
-pub fn main() -> int {
-    let value = nested_sum(3);
+public func main() returns int {
+    let value = nested_sum(3)
     if value != 132 {
-        return value;
+        return value
     }
-    return 0;
+    return 0
 }

@@ -1,24 +1,24 @@
 // Teste de trait implementation
-module test43;
+module test43
 
 // Declaração do trait
 trait Printable {
-    fn println(&self) -> int;
+    func println( & self) returns int
 }
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 // Implementação do trait para Point
 impl Printable for Point {
-    fn println(&self) -> int {
+    func println( & self) returns int {
         self.x + self.y
     }
 }
 
-fn main() -> int {
-    let p = Point { x: 10, y: 20 };
+func main() returns int {
+    let p = Point { x: 10, y: 20 }
     p.println()
 }

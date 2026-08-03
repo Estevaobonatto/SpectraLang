@@ -1,11 +1,11 @@
-module main_app;
+module main_app
 
-import mathutils;
-import std.io;
+import mathutils
+import std.io
 
-pub fn main() -> int {
-    let s = square(7);
-    println(s);
-    println(100);
-    return s;
+public func main() returns int {
+    let s = square(7)
+    println(s)
+    println(100)
+    return s
 }

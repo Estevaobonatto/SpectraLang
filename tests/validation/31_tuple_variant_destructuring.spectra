@@ -1,7 +1,7 @@
 // Test: Tuple variant destructuring
 // Expected: Compile successfully
 
-module test;
+module test
 
 enum Option<T> {
     Some(T),
@@ -14,45 +14,48 @@ enum Result<T> {
 }
 
 // Test básico: extrair valor simples
-fn test_simple() -> int {
-    let opt = Option::Some(42);
+func test_simple() returns int {
+    let opt = Option::Some(42)
     match opt {
-        Option::Some(value) => value,
-        Option::None => 0
+        when Option::Some(value) then value,
+        when Option::None then 0
     }
 }
 
 // Test: usar valor extraído em expressão
-fn test_expression() -> int {
-    let opt = Option::Some(10);
+func test_expression() returns int {
+    let opt = Option::Some(10)
     match opt {
-        Option::Some(x) => x * 2,
-        Option::None => -1
+        when Option::Some(x) then x * 2,
+        when Option::None then -1
     }
 }
 
 // Test: pattern matching aninhado
-fn test_result() -> int {
-    let res_ok = Result::Ok(100);
-    let res_err = Result::Err(-5);
+func test_result() returns int {
+    let res_ok  = Result::Ok(100)
+    let res_err = Result::Err(-5)
 
     let ok_value = match res_ok {
-        Result::Ok(value) => value + 1,
-        Result::Err(code) => code * -1
-    };
+        when Result::Ok(value) then value + 1,
+        when Result::Err(code) then code * -1
+    }
 
     let err_value = match res_err {
-        Result::Ok(value) => value,
-        Result::Err(code) => code * -1
-    };
+        when Result::Ok(value) then value,
+        when Result::Err(code) then code * -1
+    }
 
     ok_value + err_value
 }
 
-fn main() -> int {
-    let a = test_simple();    // 42
-    let b = test_expression(); // 20
-    let c = test_result();    // 106
+func main() returns int {
+    let a = test_simple()
+    // 42
+    let b = test_expression()
+    // 20
+    let c = test_result()
+    // 106
 
-    a + b + c  // 168
+    a + b + c // 168
 }

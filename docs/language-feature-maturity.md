@@ -18,13 +18,13 @@ This file is the source of truth for language maturity labels. Documentation, ex
 
 - modules and multi-file project discovery
 - imports:
-  - `import module.path;`
-  - `import module.path as alias;`
-  - `import { name } from module.path;`
-  - `pub import { name } from module.path;`
-- visibility: `pub`, `internal`
-- functions and methods
-- structs, enums, traits, impl blocks
+  - `import module.path`
+  - `import module.path as alias`
+  - `from module.path import name`
+  - `public from module.path import name`
+- visibility: `public`, `internal`
+- `func` declarations and methods with `returns`
+- records, enums, traits, impl blocks
 - generics in the currently validated surface
 - `dyn Trait` in the currently validated surface
 - primitives, tuples, function types
@@ -34,15 +34,14 @@ This file is the source of truth for language maturity labels. Documentation, ex
   - `f16`, `bf16`, `f32`, `f64`
 - top-level `const` evaluation for primitive literal/arithmetic/logical expressions
 - control flow:
-  - `if`, `elif`, `else`
+  - `if`, `else if`, `else`
+  - `if not`
   - `if let`
   - `while`
   - `while let`
   - `for ... in ...`
-  - `for ... of ...`
   - `loop`
   - `do-while` (`do { ... } while ...`)
-  - `unless`
   - `switch`
   - `match`
   - `return`, `break`, `continue`
@@ -136,7 +135,7 @@ This file is the source of truth for language maturity labels. Documentation, ex
 - class syntax footprint
 - `static` item surface
 - mutable/reference closure captures beyond the current by-value capture contract
-- async/await execution baseline: `async fn`, `async { ... }`, `Task<T>`,
+- async/await execution baseline: `async func`, `async { ... }`, `Task<T>`,
   `await`, deterministic ready/poll/result/cancel host calls, and explicit
   suspend/resume/ready IR markers
 - async reactor baseline: platform-selected `epoll` / `IOCP` / `kqueue`

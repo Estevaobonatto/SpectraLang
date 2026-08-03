@@ -1,24 +1,24 @@
-module string_join;
+module string_join
 
-pub fn join(parts: [string], n: int, sep: string) -> string {
-    let out = "";
-    let i = 0;
+public func join(parts: [string], n: int, sep: string) returns string {
+    let out = ""
+    let i   = 0
     while i < n {
         if i > 0 {
-            out = out + sep;
+            out = out + sep
         }
-        out = out + parts[i];
-        i = i + 1;
+        out = out + parts[i]
+        i = i + 1
     }
-    return out;
+    return out
 }
 
-pub fn sum_ints(values: [int], n: int) -> int {
-    let total = 0;
-    let i = 0;
+public func sum_ints(values: [int], n: int) returns int {
+    let total = 0
+    let i     = 0
     while i < n {
-        total = total + values[i];
-        i = i + 1;
+        total = total + values[i]
+        i = i + 1
     }
-    return total;
+    return total
 }

@@ -57,7 +57,7 @@ RUNTIME_ZERO_CASES = [
         "tests/validation/120_stable_promoted_control_flow.spectra",
         "run",
         0,
-        "stable switch/unless/do-while/loop constructs must execute without feature gates",
+        "stable switch/if-not/do-while/loop constructs must execute without feature gates",
     ),
     Case(
         "base_language",

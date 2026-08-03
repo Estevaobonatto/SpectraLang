@@ -1,74 +1,74 @@
-module algorithms;
+module algorithms
 
-pub fn sum_range(start: int, end: int) -> int {
-    let total = 0;
-    let i = start;
+public func sum_range(start: int, end: int) returns int {
+    let total = 0
+    let i     = start
     while i <= end {
-        total = total + i;
-        i = i + 1;
+        total = total + i
+        i = i + 1
     }
-    return total;
+    return total
 }
 
-pub fn power(base: int, exp: int) -> int {
-    let result = 1;
-    let i = 0;
+public func power(base: int, exp: int) returns int {
+    let result = 1
+    let i      = 0
     while i < exp {
-        result = result * base;
-        i = i + 1;
+        result = result * base
+        i = i + 1
     }
-    return result;
+    return result
 }
 
-pub fn fibonacci(n: int) -> int {
+public func fibonacci(n: int) returns int {
     if n <= 0 {
-        return 0;
+        return 0
     }
     if n == 1 {
-        return 1;
+        return 1
     }
-    let a = 0;
-    let b = 1;
-    let i = 2;
+    let a = 0
+    let b = 1
+    let i = 2
     while i <= n {
-        let temp = a + b;
-        a = b;
-        b = temp;
-        i = i + 1;
+        let temp = a + b
+        a = b
+        b = temp
+        i = i + 1
     }
-    return b;
+    return b
 }
 
-pub fn is_prime(n: int) -> bool {
+public func is_prime(n: int) returns bool {
     if n < 2 {
-        return false;
+        return false
     }
     if n == 2 {
-        return true;
+        return true
     }
     if n % 2 == 0 {
-        return false;
+        return false
     }
-    let i = 3;
+    let i = 3
     while i * i <= n {
         if n % i == 0 {
-            return false;
+            return false
         }
-        i = i + 2;
+        i = i + 2
     }
-    return true;
+    return true
 }
 
-pub fn collatz_steps(n: int) -> int {
-    let steps = 0;
-    let current = n;
+public func collatz_steps(n: int) returns int {
+    let steps   = 0
+    let current = n
     while current != 1 {
         if current % 2 == 0 {
-            current = current / 2;
+            current = current / 2
         } else {
-            current = current * 3 + 1;
+            current = current * 3 + 1
         }
-        steps = steps + 1;
+        steps = steps + 1
     }
-    return steps;
+    return steps
 }

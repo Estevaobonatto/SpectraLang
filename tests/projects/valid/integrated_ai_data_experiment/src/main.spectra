@@ -1,8 +1,8 @@
-module main;
+module main
 
-import data_pipeline;
-import experiment;
+import data_pipeline
+import experiment
 
-pub fn integrated_ai_data_experiment_entry() -> int {
-    return run_experiment();
+public func integrated_ai_data_experiment_entry() returns int {
+    return run_experiment()
 }

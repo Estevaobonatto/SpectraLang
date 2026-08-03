@@ -1,46 +1,46 @@
-module experimental_nested_control_flow_stress;
+module experimental_nested_control_flow_stress
 
-fn classify(value: int) -> int {
-    let result = 0;
-    unless value < 0 {
+func classify(value: int) returns int {
+    let result = 0
+    if not value < 0 {
         switch value {
-            case 0 => {
-                result = 1;
+            case 0: {
+                result = 1
             }
-            case 1 => {
-                result = 2;
+            case 1: {
+                result = 2
             }
-            case 2 => {
-                result = 3;
+            case 2: {
+                result = 3
             }
         }
     } else {
-        result = -1;
+        result = -1
     }
-    return result;
+    return result
 }
 
-fn sum_until(limit: int) -> int {
-    let total = 0;
-    let i = 0;
+func sum_until(limit: int) returns int {
+    let total = 0
+    let i     = 0
     do {
-        i = i + 1;
+        i = i + 1
         if i > limit {
-            break;
+            break
         }
-        total = total + i;
-    } while i < 10;
-    return total;
+        total = total + i
+    } while i < 10
+    return total
 }
 
-pub fn main() -> int {
-    let a = classify(2);
-    let b = sum_until(4);
+public func main() returns int {
+    let a = classify(2)
+    let b = sum_until(4)
     if a != 3 {
-        return a;
+        return a
     }
     if b != 10 {
-        return b;
+        return b
     }
-    return 0;
+    return 0
 }

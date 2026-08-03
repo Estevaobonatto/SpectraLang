@@ -117,7 +117,7 @@ def validate(binary: Path) -> None:
         "gitbase",
         "1.0.0",
         {
-            "src/base.spectra": "module gitbase.base;\n\npub fn seed() -> int {\n    return 40;\n}\n",
+            "src/base.spectra": 'module gitbase.base\n\npublic func seed() returns int {\n    return 40\n}\n',
         },
     )
 
@@ -128,7 +128,7 @@ def validate(binary: Path) -> None:
         "gitmath",
         "1.2.3",
         {
-            "src/core.spectra": "module gitmath.core;\n\nimport { seed } from gitbase.base;\n\npub fn double_plus_seed(value: int) -> int {\n    return seed() + value * 2;\n}\n",
+            "src/core.spectra": 'module gitmath.core\n\nfrom gitbase.base import seed\n\npublic func double_plus_seed(value: int) returns int {\n    return seed() + value * 2\n}\n',
         },
         deps=f'gitbase = {{ version = "1.0.0", git = "{base_url}", tag = "v1.0.0" }}',
     )
@@ -153,7 +153,7 @@ def validate(binary: Path) -> None:
     )
     write(
         consumer / "src/main.spectra",
-        "module consumer.main;\n\nimport { double_plus_seed } from gitmath.core;\n\npub fn main() -> int {\n    let result = double_plus_seed(1);\n    if result != 42 {\n        return result;\n    }\n    return 0;\n}\n",
+        'module consumer.main\n\nfrom gitmath.core import double_plus_seed\n\npublic func main() returns int {\n    let result = double_plus_seed(1)\n    if result != 42 {\n        return result\n    }\n    return 0\n}\n',
     )
 
     run([str(binary), "package", "register", "--root", str(math_repo), "--git", math_repo.as_posix(), "--tag", "v1.2.3", "--catalog", str(catalog)])

@@ -1,21 +1,21 @@
 // R-3132: the immediately paired task path must preserve value and stats.
-module concurrent_spawn_join_fusion;
+module concurrent_spawn_join_fusion
 
-import std.concurrent as concurrent;
+import std.concurrent as concurrent
 
-pub fn main() -> int {
-    concurrent.reset();
-    let total = 0;
-    let i = 0;
+public func main() returns int {
+    concurrent.reset()
+    let total = 0
+    let i     = 0
     while i < 16 {
-        total = total + concurrent.task_join(concurrent.task_spawn(i + 1));
-        i = i + 1;
+        total = total + concurrent.task_join(concurrent.task_spawn(i + 1))
+        i = i + 1
     }
     if total != 136 {
-        return 1;
+        return 1
     }
     if concurrent.stats_tasks_spawned() != 16 {
-        return 2;
+        return 2
     }
-    return 0;
+    return 0
 }

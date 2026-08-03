@@ -12,6 +12,18 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
+fn import_local_name(
+    module_alias: Option<&str>,
+    item_alias: Option<&str>,
+    exported_name: &str,
+) -> String {
+    if let Some(alias) = module_alias {
+        format!("{}.{}", alias, exported_name)
+    } else {
+        item_alias.unwrap_or(exported_name).to_string()
+    }
+}
+
 pub mod builtin_modules;
 pub mod module_registry;
 
@@ -118,7 +130,29 @@ pub fn analyze_modules(modules: &mut [&mut Module]) -> Result<(), Vec<SemanticEr
         Arc::new(RwLock::new(reg))
     };
 
-    for module in modules.iter_mut() {
+    // Analyze dependency modules before importers, even when the workspace's
+    // filesystem order puts an importer first. This keeps forward imports and
+    // public re-exports deterministic across project layouts.
+    let mut pending: Vec<&mut Module> = modules.iter_mut().map(|module| &mut **module).collect();
+    while !pending.is_empty() {
+        let pending_names: HashSet<String> = pending.iter().map(|module| module.name.clone()).collect();
+        let next_index = pending
+            .iter()
+            .position(|module| {
+                module.items.iter().filter_map(|item| match item {
+                    Item::Import(import) => Some(import.path.join(".")),
+                    _ => None,
+                }).all(|path| {
+                    let registered = registry
+                        .read()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .get_module(&path)
+                        .is_some();
+                    registered || !pending_names.contains(&path)
+                })
+            })
+            .unwrap_or(0);
+        let module = pending.remove(next_index);
         let mut analyzer = SemanticAnalyzer::new_with_registry(Arc::clone(&registry), None);
         let module_errors = analyzer.analyze_module(module);
 
@@ -480,7 +514,7 @@ pub fn type_name(ty: &Type) -> String {
             return_type,
         } => {
             let ps = params.iter().map(type_name).collect::<Vec<_>>().join(", ");
-            format!("fn({}) -> {}", ps, type_name(return_type))
+            format!("func({}) returns {}", ps, type_name(return_type))
         }
         Type::Task { output } => format!("Task<{}>", type_name(output)),
         Type::Range => "Range".into(),
@@ -1089,6 +1123,105 @@ impl SemanticAnalyzer {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // A public named import is also a public re-export.  Keep the
+        // re-export in the registry so a downstream module can use the
+        // canonical `public from support import answer` form exactly as it
+        // could use a directly declared public function.
+        for item in &module.items {
+            let Item::Import(import) = item else {
+                continue;
+            };
+            if !import.is_reexport {
+                continue;
+            }
+
+            let module_path = import.path.join(".");
+            let Some(source) = self
+                .registry
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get_module(&module_path)
+                .cloned()
+            else {
+                continue;
+            };
+
+            let names: Vec<(String, String)> = if let Some(named) = &import.names {
+                named
+                    .iter()
+                    .map(|entry| {
+                        (
+                            entry.name.clone(),
+                            entry.alias.clone().unwrap_or_else(|| entry.name.clone()),
+                        )
+                    })
+                    .collect()
+            } else {
+                source
+                    .functions
+                    .iter()
+                    .filter(|(_, function)| function.visibility == ExportVisibility::Public)
+                    .map(|(name, _)| (name.clone(), name.clone()))
+                    .chain(
+                        source
+                            .types
+                            .iter()
+                            .filter(|(_, ty)| ty.visibility == ExportVisibility::Public)
+                            .map(|(name, _)| (name.clone(), name.clone())),
+                    )
+                    .chain(
+                        source
+                            .traits
+                            .iter()
+                            .filter(|(_, trait_export)| {
+                                trait_export.visibility == ExportVisibility::Public
+                            })
+                            .map(|(name, _)| (name.clone(), name.clone())),
+                    )
+                    .collect()
+            };
+
+            for (source_name, public_name) in names {
+                if let Some(function) = source.functions.get(&source_name) {
+                    if function.visibility == ExportVisibility::Public {
+                        let mut reexported = function.clone();
+                        reexported.visibility = ExportVisibility::Public;
+                        exports.functions.entry(public_name.clone()).or_insert(reexported);
+                    }
+                }
+
+                if let Some(ty) = source.types.get(&source_name) {
+                    if ty.visibility == ExportVisibility::Public {
+                        let mut reexported = ty.clone();
+                        reexported.visibility = ExportVisibility::Public;
+                        exports.types.entry(public_name.clone()).or_insert(reexported);
+
+                        if let Some(methods) = source.methods.get(&source_name) {
+                            let public_methods = methods
+                                .iter()
+                                .filter(|(_, method)| {
+                                    method.visibility == ExportVisibility::Public
+                                })
+                                .map(|(name, method)| (name.clone(), method.clone()));
+                            exports
+                                .methods
+                                .entry(public_name.clone())
+                                .or_default()
+                                .extend(public_methods);
+                        }
+                    }
+                }
+
+                if let Some(trait_export) = source.traits.get(&source_name) {
+                    if trait_export.visibility == ExportVisibility::Public {
+                        let mut reexported = trait_export.clone();
+                        reexported.visibility = ExportVisibility::Public;
+                        exports.traits.entry(public_name).or_insert(reexported);
+                    }
+                }
             }
         }
 
@@ -2179,10 +2312,10 @@ impl SemanticAnalyzer {
         let return_part = signature
             .return_type
             .as_ref()
-            .map(|ty| format!(" -> {}", ty))
-            .unwrap_or_default();
+            .map(|ty| format!(" returns {}", ty))
+            .unwrap_or_else(|| " returns unit".to_string());
 
-        let prefix = if signature.is_async { "async fn" } else { "fn" };
+        let prefix = if signature.is_async { "async func" } else { "func" };
         format!("{} {}({}){}", prefix, method_name, params, return_part)
     }
 
@@ -4591,9 +4724,10 @@ impl SemanticAnalyzer {
         }
 
         // Determine which names to bring into scope.
-        let names_to_import: Vec<String> = if let Some(named) = &import.names {
-            // `import { a, b } from path;` → only the listed names
-            for name in named {
+        let names_to_import: Vec<(String, Option<String>)> = if let Some(named) = &import.names {
+            // `from path import a, b as local_b` → only the listed names.
+            for named_import in named {
+                let name = &named_import.name;
                 if !exports.functions.contains_key(name.as_str())
                     && !exports.types.contains_key(name.as_str())
                     && !exports.traits.contains_key(name.as_str())
@@ -4615,27 +4749,30 @@ impl SemanticAnalyzer {
                     );
                 }
             }
-            named.clone()
+            named
+                .iter()
+                .map(|entry| (entry.name.clone(), entry.alias.clone()))
+                .collect()
         } else {
             // `import path;` or `import path as alias;` → all public exports
-            let mut all_names: Vec<String> = exports
+            let mut all_names: Vec<(String, Option<String>)> = exports
                 .functions
                 .iter()
                 .filter(|(_, f)| f.visibility == ExportVisibility::Public)
-                .map(|(n, _)| n.clone())
+                .map(|(n, _)| (n.clone(), None))
                 .chain(
                     exports
                         .types
                         .iter()
                         .filter(|(_, t)| t.visibility == ExportVisibility::Public)
-                        .map(|(n, _)| n.clone()),
+                        .map(|(n, _)| (n.clone(), None)),
                 )
                 .chain(
                     exports
                         .traits
                         .iter()
                         .filter(|(_, t)| t.visibility == ExportVisibility::Public)
-                        .map(|(n, _)| n.clone()),
+                        .map(|(n, _)| (n.clone(), None)),
                 )
                 .collect();
             // Also include Internal symbols when we are in the same package.
@@ -4645,17 +4782,17 @@ impl SemanticAnalyzer {
                         .functions
                         .iter()
                         .filter(|(_, f)| f.visibility == ExportVisibility::Internal)
-                        .map(|(n, _)| n.clone());
+                        .map(|(n, _)| (n.clone(), None));
                     let internal_types = exports
                         .types
                         .iter()
                         .filter(|(_, t)| t.visibility == ExportVisibility::Internal)
-                        .map(|(n, _)| n.clone());
+                        .map(|(n, _)| (n.clone(), None));
                     let internal_traits = exports
                         .traits
                         .iter()
                         .filter(|(_, t)| t.visibility == ExportVisibility::Internal)
-                        .map(|(n, _)| n.clone());
+                        .map(|(n, _)| (n.clone(), None));
                     all_names.extend(internal_fns);
                     all_names.extend(internal_types);
                     all_names.extend(internal_traits);
@@ -4675,7 +4812,7 @@ impl SemanticAnalyzer {
             self.module_namespaces.insert(alias_name.clone());
         }
 
-        for name in &names_to_import {
+        for (name, named_alias) in &names_to_import {
             // Check visibility restrictions for non-internal callers.
             let is_internal = exports
                 .functions
@@ -4717,9 +4854,7 @@ impl SemanticAnalyzer {
 
             // Inject function signature.
             if let Some(func_export) = exports.functions.get(name.as_str()) {
-                let local_name = alias
-                    .as_deref()
-                    .map_or_else(|| name.clone(), |a| format!("{}.{}", a, name));
+                let local_name = import_local_name(alias.as_deref(), named_alias.as_deref(), name);
                 let sig = FunctionSignature {
                     params: func_export.params.clone(),
                     return_type: func_export.return_type.clone(),
@@ -4728,11 +4863,10 @@ impl SemanticAnalyzer {
                 };
                 // Insert as the plain name (for unaliased imports) so that
                 // `analyze_expression` can look it up.
-                if alias.is_none() {
+                if alias.is_none() && named_alias.is_none() {
                     self.functions.entry(name.clone()).or_insert(sig.clone());
-                }
-                // Also insert under the aliased form for completeness.
-                if alias.is_some() {
+                } else {
+                    // Insert under the module or item alias.
                     self.functions.insert(local_name.clone(), sig);
                 }
 
@@ -4740,7 +4874,11 @@ impl SemanticAnalyzer {
                 // the midend can pre-populate `function_return_types` and avoid
                 // treating cross-module calls as unknown closures.
                 if stdlib_path_prefix.is_none() {
-                    let bare = alias.as_deref().unwrap_or(name.as_str()).to_string();
+                    let bare = named_alias
+                        .as_deref()
+                        .or(alias.as_deref())
+                        .unwrap_or(name.as_str())
+                        .to_string();
                     user_fn_types.push((bare, func_export.return_type.clone()));
                 }
 
@@ -4748,16 +4886,18 @@ impl SemanticAnalyzer {
                 if let Some(ref prefix) = stdlib_path_prefix {
                     let mut full_path = prefix.clone();
                     full_path.push(name.clone());
-                    let bare = alias.as_deref().unwrap_or(name.as_str()).to_string();
+                    let bare = named_alias
+                        .as_deref()
+                        .or(alias.as_deref())
+                        .unwrap_or(name.as_str())
+                        .to_string();
                     aliases.push((bare, full_path));
                 }
             }
 
             // Inject type name (simplified: just mark it as known).
             if let Some(type_export) = exports.types.get(name.as_str()) {
-                let local_name = alias
-                    .as_deref()
-                    .map_or_else(|| name.clone(), |a| format!("{}.{}", a, name));
+                let local_name = import_local_name(alias.as_deref(), named_alias.as_deref(), name);
                 let members = &type_export.members;
                 if type_export.is_enum {
                     // Build full EnumVariantInfo, preserving tuple payload and struct-data fields.
@@ -4887,9 +5027,7 @@ impl SemanticAnalyzer {
             }
 
             if let Some(trait_export) = exports.traits.get(name.as_str()) {
-                let local_name = alias
-                    .as_deref()
-                    .map_or_else(|| name.clone(), |a| format!("{}.{}", a, name));
+                let local_name = import_local_name(alias.as_deref(), named_alias.as_deref(), name);
                 self.import_exported_trait(&local_name, trait_export);
             }
         }
@@ -5071,7 +5209,7 @@ impl SemanticAnalyzer {
                 if !has_drop_method {
                     self.error(
                         format!(
-                            "impl Drop for '{}' must define a method `fn drop(&mut self)`",
+                            "impl Drop for '{}' must define a method `func drop(&mut self)`",
                             impl_block.type_name
                         ),
                         impl_block.span,
@@ -9045,11 +9183,21 @@ impl SemanticAnalyzer {
                 self.analyze_expression(scrutinee);
                 let scrutinee_type = self.infer_expression_type(scrutinee);
 
+                // A bare variant name is the readable spelling for a unit
+                // enum pattern (`when Pending then ...`).  Normalize a local
+                // analysis copy before exhaustiveness and binding checks so
+                // the existing qualified-pattern machinery remains the one
+                // source of semantic truth.
+                let mut normalized_arms = arms.clone();
+                for arm in &mut normalized_arms {
+                    self.normalize_bare_enum_pattern(&mut arm.pattern, &scrutinee_type);
+                }
+
                 // Verificar exhaustiveness
-                self.check_match_exhaustiveness(&scrutinee_type, arms, expr.span);
+                self.check_match_exhaustiveness(&scrutinee_type, &normalized_arms, expr.span);
 
                 let mut arm_result_types = Vec::new();
-                for arm in arms {
+                for arm in &normalized_arms {
                     // Criar novo escopo para o arm
                     self.push_scope();
 
@@ -9597,6 +9745,38 @@ impl SemanticAnalyzer {
                     self.register_pattern_bindings(first);
                 }
             }
+        }
+    }
+
+    fn normalize_bare_enum_pattern(&self, pattern: &mut Pattern, scrutinee_type: &Type) {
+        let Type::Enum { name: enum_name } = scrutinee_type else {
+            return;
+        };
+
+        match pattern {
+            Pattern::Identifier(variant_name) => {
+                let is_variant = self
+                    .specialized_enum_context(enum_name)
+                    .map(|(_, info, _)| info.variants.contains_key(variant_name))
+                    .unwrap_or(false);
+                if is_variant {
+                    let variant_name = variant_name.clone();
+                    *pattern = Pattern::EnumVariant {
+                        module_path: None,
+                        enum_name: enum_name.clone(),
+                        type_args: Vec::new(),
+                        variant_name,
+                        data: None,
+                        struct_data: None,
+                    };
+                }
+            }
+            Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    self.normalize_bare_enum_pattern(pattern, scrutinee_type);
+                }
+            }
+            _ => {}
         }
     }
 

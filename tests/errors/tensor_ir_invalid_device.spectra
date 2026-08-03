@@ -1,9 +1,9 @@
-module tensor_ir_invalid_device;
+module tensor_ir_invalid_device
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let value = tensor.full_f(4, 1.0);
-    let invalid = tensor.to_device(value, "wgpu");
-    return tensor.device(invalid);
+public func main() returns int {
+    let value   = tensor.full_f(4, 1.0)
+    let invalid = tensor.to_device(value, "wgpu")
+    return tensor.device(invalid)
 }

@@ -1,18 +1,18 @@
-module trait_bound_missing_method_stress;
+module trait_bound_missing_method_stress
 
 trait Score {
-    fn score(&self) -> int;
+    func score( & self) returns int
 }
 
-struct Plain {
+record Plain {
     value: int,
 }
 
-fn evaluate<T: Score>(item: T) -> int {
-    return item.score();
+func evaluate<T: Score>(item: T) returns int {
+    return item.score()
 }
 
-pub fn main() -> int {
-    let plain = Plain { value: 1 };
-    return evaluate(plain);
+public func main() returns int {
+    let plain = Plain { value: 1 }
+    return evaluate(plain)
 }

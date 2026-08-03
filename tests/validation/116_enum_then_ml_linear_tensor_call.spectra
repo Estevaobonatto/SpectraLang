@@ -1,7 +1,7 @@
-module enum_then_ml_linear_tensor_call;
+module enum_then_ml_linear_tensor_call
 
-import std.ml as ml;
-import std.tensor as tensor;
+import std.ml as ml
+import std.tensor as tensor
 
 enum PipelineState {
     Ready { batch: int },
@@ -10,35 +10,35 @@ enum PipelineState {
     Failed(int),
 }
 
-fn state_weight(state: PipelineState) -> int {
+func state_weight(state: PipelineState) returns int {
     return match state {
-        PipelineState::Ready { batch } => batch,
-        PipelineState::Training(step) => step + 10,
-        PipelineState::Serving => 100,
-        PipelineState::Failed(code) => code
-    };
+        when PipelineState::Ready { batch } then batch,
+        when PipelineState::Training(step) then step + 10,
+        when PipelineState::Serving then 100,
+        when PipelineState::Failed(code) then code
+    }
 }
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let state = PipelineState::Ready { batch: 4 };
+    let state = PipelineState::Ready { batch: 4 }
     if state_weight(state) != 4 {
-        return 1;
+        return 1
     }
 
-    let x: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 1.0], [1.0, 1.0]];
-    let w: Tensor<float, rank2, dim2, dim1, row_major, cpu> = [[2.0], [2.0]];
-    let b: Tensor<float, rank1, dim1, row_major, cpu> = [0.0];
-    let y = ml.linear(x, w, b);
+    let x: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 1.0], [1.0, 1.0]]
+    let w: Tensor<float, rank2, dim2, dim1, row_major, cpu> = [[2.0], [2.0]]
+    let b: Tensor<float, rank1, dim1, row_major, cpu>       = [0.0]
+    let y                                                   = ml.linear(x, w, b)
     if tensor.rows(y) != 2 {
-        return 2;
+        return 2
     }
     if tensor.cols(y) != 1 {
-        return 3;
+        return 3
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

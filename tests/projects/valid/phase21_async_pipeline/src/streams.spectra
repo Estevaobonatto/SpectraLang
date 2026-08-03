@@ -1,16 +1,16 @@
-module streams;
+module streams
 
-import tasks;
+import tasks
 
-pub async fn stream_like_sum(start: int) -> int {
-    let first = await tasks::ready(start);
-    let second = await tasks::ready(start + 1);
-    let third = await tasks::ready(start + 2);
-    return first + second + third;
+public async func stream_like_sum(start: int) returns int {
+    let first  = await tasks::ready(start)
+    let second = await tasks::ready(start + 1)
+    let third  = await tasks::ready(start + 2)
+    return first + second + third
 }
 
-pub async fn mapped_like_sum(start: int) -> int {
-    let raw = await stream_like_sum(start);
-    let mapped = await tasks::ready(raw * 2);
-    return mapped;
+public async func mapped_like_sum(start: int) returns int {
+    let raw    = await stream_like_sum(start)
+    let mapped = await tasks::ready(raw * 2)
+    return mapped
 }

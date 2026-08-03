@@ -176,6 +176,7 @@
   "scripts": {
     "clean": "rimraf dist",
     "compile": "tsc -p ./",
+    "test:syntax": "node ./validate-syntax-assets.mjs",
     "watch": "tsc -watch -p ./",
     "prepublishOnly": "npm run compile",
     "package-vsix": "npm run compile && vsce package"

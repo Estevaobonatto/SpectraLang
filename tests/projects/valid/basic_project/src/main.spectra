@@ -1,17 +1,17 @@
-module main;
+module main
 
-import mathutils;
+import mathutils
 
-pub fn main() -> int {
-    let a = triple(7);
-    let b = sum_to(4);
+public func main() returns int {
+    let a = triple(7)
+    let b = sum_to(4)
 
     if a != 21 {
-        return a;
+        return a
     }
     if b != 10 {
-        return b;
+        return b
     }
 
-    return 0;
+    return 0
 }

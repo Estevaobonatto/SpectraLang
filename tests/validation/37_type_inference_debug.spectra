@@ -1,19 +1,19 @@
 // Test: Debug type inference
-module type_debug;
+module type_debug
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Point {
-    fn get_x(&self) -> int {
+    func get_x( & self) returns int {
         42
     }
 }
 
-fn main() -> int {
-    let p = Point { x: 10, y: 20 };
-    let result = p.get_x();
+func main() returns int {
+    let p      = Point { x: 10, y: 20 }
+    let result = p.get_x()
     result
 }

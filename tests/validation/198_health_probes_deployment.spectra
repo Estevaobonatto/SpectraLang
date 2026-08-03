@@ -1,7 +1,8 @@
-module health_probes_deployment_198;
-import std.api.health as health;
+module health_probes_deployment_198
+import std.api.health as health
 
-fn main() -> int {
-    if (health.startup_complete()) { return 0; }
-    return 1;
+func main() returns int {
+    if (health.startup_complete()) { return 0
+    }
+    return 1
 }

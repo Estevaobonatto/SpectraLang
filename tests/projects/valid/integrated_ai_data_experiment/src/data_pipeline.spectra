@@ -1,17 +1,17 @@
-module data_pipeline;
+module data_pipeline
 
-import std.ml as ml;
-import std.tensor as tensor;
+import std.ml as ml
+import std.tensor as tensor
 
-pub struct BatchSummary {
-    pub rows: int,
-    pub batches: int,
+public record BatchSummary {
+    public rows: int,
+    public batches: int,
 }
 
-pub fn build_summary() -> BatchSummary {
-    let features = tensor.reshape(tensor.full_f(6, 1.0), 3, 2);
-    let labels = tensor.arange(0, 3, 1);
-    let dataset = ml.dataset_from_tensors(features, labels, 3);
-    let loader = ml.dataloader_new(dataset, 2, 7);
-    return BatchSummary { rows: tensor.rows(features), batches: ml.dataloader_batch_count(loader) };
+public func build_summary() returns BatchSummary {
+    let features = tensor.reshape(tensor.full_f(6, 1.0), 3, 2)
+    let labels   = tensor.arange(0, 3, 1)
+    let dataset  = ml.dataset_from_tensors(features, labels, 3)
+    let loader   = ml.dataloader_new(dataset, 2, 7)
+    return BatchSummary { rows: tensor.rows(features), batches: ml.dataloader_batch_count(loader) }
 }

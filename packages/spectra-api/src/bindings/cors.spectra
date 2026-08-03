@@ -3,10 +3,10 @@
 // The compiler exposes these declarations as the stable `std.api.cors`
 // built-in module. Native behavior is provided by `spectra.api.cors.*`.
 
-module std.api.cors;
+module std.api.cors
 
-pub struct CorsPolicy {
-    pub origin_count: int,
+public record CorsPolicy {
+    public origin_count: int,
 }
 
 // Native function declarations are represented in

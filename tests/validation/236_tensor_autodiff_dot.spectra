@@ -1,19 +1,22 @@
 // Extended validation: dot-product scalar loss and gradient shape.
-module tensor_autodiff_dot;
+module tensor_autodiff_dot
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
-    let source = tensor.requires_grad(tensor.full_f(2, 1.0), true);
-    let other = tensor.full_f(2, 2.0);
-    let loss = tensor.dot_t(source, other);
-    tensor.backward(loss);
-    let gradient = tensor.grad(source);
-    if tensor.len(gradient) != 2 { return 1; }
-    if tensor.get_f(gradient, 0) as int != 2 { return 2; }
-    if tensor.sum_f(gradient) as int != 4 { return 3; }
-    tensor.free_all();
-    return 0;
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
+    let source = tensor.requires_grad(tensor.full_f(2, 1.0), true)
+    let other  = tensor.full_f(2, 2.0)
+    let loss   = tensor.dot_t(source, other)
+    tensor.backward(loss)
+    let gradient = tensor.grad(source)
+    if tensor.len(gradient) != 2 { return 1
+    }
+    if tensor.get_f(gradient, 0) as int != 2 { return 2
+    }
+    if tensor.sum_f(gradient) as int != 4 { return 3
+    }
+    tensor.free_all()
+    return 0
 }

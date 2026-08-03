@@ -1,9 +1,10 @@
 // Teste de erros: operação com tipos incompatíveis
-module test_type_mismatch;
+module test_type_mismatch
 
-fn test() -> int {
-    let x = 10;
-    let y = "hello";
-    let z = x + y; // Erro: int + string
-    return z;
+func test() returns int {
+    let x = 10
+    let y = "hello"
+    let z = x + y
+    // Erro: int + string
+    return z
 }

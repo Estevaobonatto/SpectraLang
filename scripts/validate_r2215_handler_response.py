@@ -104,7 +104,7 @@ def validate_implementation() -> None:
         "AsyncHandler",
     ]:
         require(term in builtins, f"builtin surface missing {term}")
-    require("ExportedTrait" in registry, "module registry must export traits")
+    require("ExportedTrait" in registry, 'module registry must export traits')
     require("import_exported_trait" in semantic, "semantic imports must register exported traits")
     require("std.api.handler" in semantic, "semantic namespace seed missing std.api.handler")
 
@@ -140,10 +140,10 @@ def validate_fixture_and_docs() -> None:
 
     snapshot = read("compiler/tests/snapshots/std_api_public_function_table.snap")
     for term in [
-        "module std.api.handler",
+        'module std.api.handler',
         "type std.api.handler.HandlerHandle",
-        "fn std.api.handler.text",
-        "fn std.api.handler.dispatch_async",
+        "func std.api.handler.text",
+        "func std.api.handler.dispatch_async",
     ]:
         require(term in snapshot, f"std.api snapshot missing {term}")
 
@@ -158,7 +158,7 @@ def validate_planning() -> None:
     require(r2215.get("dependencies") == ["R-2210"], "R-2215 dependencies changed")
     acceptance = "\n".join(r2215.get("acceptance", []))
     for term in [
-        "async fn",
+        "async func",
         "synchronous handlers",
         "IntoResponse",
         "HandlerError",

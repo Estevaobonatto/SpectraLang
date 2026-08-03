@@ -1,22 +1,22 @@
-module async_math_tests;
+module async_math_tests
 
-import math;
+import math
 
 #[spectra_async_test]
-async fn async_addition_passes() -> int {
-    let value = await ready_add(20, 22);
+async func async_addition_passes() returns int {
+    let value = await ready_add(20, 22)
     if value != 42 {
-        return 1;
+        return 1
     }
-    return 0;
+    return 0
 }
 
 #[spectra_async_test]
-async fn block_on_is_available() -> int {
-    let task = ready_add(10, 32);
-    let value = block_on(task);
+async func block_on_is_available() returns int {
+    let task  = ready_add(10, 32)
+    let value = block_on(task)
     if value != 42 {
-        return 1;
+        return 1
     }
-    return 0;
+    return 0
 }

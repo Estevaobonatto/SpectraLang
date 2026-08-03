@@ -1,27 +1,27 @@
 // AI graph example: elementwise chain that the R-1602 graph optimizer can fuse.
-module ai_tensor_graph_elementwise_fusion;
+module ai_tensor_graph_elementwise_fusion
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
 
-    let input = tensor.full_f(8, 4.0);
-    let activated = tensor.relu(input);
-    let normalized = tensor.sqrt_f(activated);
-    let projected = tensor.tanh_f(normalized);
+    let input      = tensor.full_f(8, 4.0)
+    let activated  = tensor.relu(input)
+    let normalized = tensor.sqrt_f(activated)
+    let projected  = tensor.tanh_f(normalized)
 
     if tensor.len(projected) != 8 {
-        return tensor.len(projected);
+        return tensor.len(projected)
     }
     if tensor.get_f(projected, 0) <= 0.0 {
-        return 1;
+        return 1
     }
     if tensor.stats_kernel_ops() < 3 {
-        return 2;
+        return 2
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

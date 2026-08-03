@@ -16,9 +16,9 @@ Status labels:
 | AST family | Status | Notes |
 | --- | --- | --- |
 | Module declarations | supported | Module names, imports, and export visibility are validated. |
-| Imports and re-exports | supported | Plain, alias, named, and `pub import` forms resolve through the registry. |
+| Imports and re-exports | supported | Plain, alias, named, and `public from` forms resolve through the registry. |
 | Functions | supported | Signatures, return types, body analysis, and return-path checks are active. |
-| Struct declarations | supported | Field typing and visibility are validated. |
+| Record declarations | supported | Field typing and visibility are validated. |
 | Enum declarations | supported | Variant registration and payload typing are validated. |
 | Trait declarations | supported | Method signatures and default bodies are tracked. |
 | Trait impl blocks | supported | Signature conformance is validated. |
@@ -35,11 +35,11 @@ Status labels:
 | Assignments | supported | Undefined targets and type mismatches are diagnosed. |
 | `return` | supported | Function return compatibility and path coverage are validated. |
 | `break` / `continue` | supported | Loop-context validation emits stable semantic codes. |
-| `if` / `elif` / `else` | supported | Branch typing and control-flow analysis are active. |
+| `if` / `else if` / `else` | supported | Branch typing and control-flow analysis are active. |
 | `if let` | supported | Pattern bindings receive concrete types in the branch scope. |
 | `while` | supported | |
 | `while let` | supported | Pattern bindings receive concrete types inside the loop body. |
-| `for ... in/of ...` | supported | Current collection/range forms are validated. |
+| `for ... in ...` | supported | Current collection/range forms are validated. |
 | `loop` | supported | Semantic stage assumes parser gating has already occurred. |
 | `do-while` | supported | Semantic stage assumes parser gating has already occurred. |
 | `switch` | supported | Semantic stage assumes parser gating has already occurred. |
@@ -60,7 +60,7 @@ Status labels:
 | Casts `as` | supported | Current numeric, char, and dyn-trait cast rules are implemented. |
 | Blocks as expressions | supported | Final-expression typing is validated. |
 | `if` expressions | supported | Branch result typing is unified. |
-| `unless` expressions | supported | Semantic stage assumes parser gating has already occurred. |
+| `if not` expressions | supported | Semantic stage analyzes the canonical negative conditional as a negated `if`. |
 | `match` expressions | supported | Pattern coverage, arm typing, and exhaustiveness checks exist for the current surface. |
 | Closures/lambdas | supported | Explicit function types and parameter-driven inference now work in current examples. |
 | Trait object expressions `dyn Trait` | supported | Current semantic model handles concrete-to-dyn coercion and method dispatch typing. |

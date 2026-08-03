@@ -1,29 +1,32 @@
 // Extended validation: momentum, Adam state and exponential learning-rate decay.
-module ml_optimizer_scheduler;
+module ml_optimizer_scheduler
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
-    let parameter = tensor.requires_grad(tensor.full_f(2, 1.0), true);
-    let velocity = tensor.full_f(2, 0.0);
-    let loss = tensor.sum_t(tensor.mul(parameter, parameter));
-    tensor.backward(loss);
-    ml.sgd_momentum_step(parameter, velocity, 0.1, 0.9);
-    if tensor.len(velocity) != 2 { return 1; }
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
+    let parameter = tensor.requires_grad(tensor.full_f(2, 1.0), true)
+    let velocity  = tensor.full_f(2, 0.0)
+    let loss      = tensor.sum_t(tensor.mul(parameter, parameter))
+    tensor.backward(loss)
+    ml.sgd_momentum_step(parameter, velocity, 0.1, 0.9)
+    if tensor.len(velocity) != 2 { return 1
+    }
 
-    let adam_parameter = tensor.requires_grad(tensor.full_f(2, 1.0), true);
-    let first_moment = tensor.full_f(2, 0.0);
-    let second_moment = tensor.full_f(2, 0.0);
-    let adam_loss = tensor.sum_t(tensor.mul(adam_parameter, adam_parameter));
-    tensor.backward(adam_loss);
-    ml.adam_step(adam_parameter, first_moment, second_moment, 0.01, 0.9, 0.999, 0.00000001, 1);
-    if tensor.len(first_moment) != 2 || tensor.len(second_moment) != 2 { return 2; }
+    let adam_parameter = tensor.requires_grad(tensor.full_f(2, 1.0), true)
+    let first_moment   = tensor.full_f(2, 0.0)
+    let second_moment  = tensor.full_f(2, 0.0)
+    let adam_loss      = tensor.sum_t(tensor.mul(adam_parameter, adam_parameter))
+    tensor.backward(adam_loss)
+    ml.adam_step(adam_parameter, first_moment, second_moment, 0.01, 0.9, 0.999, 0.00000001, 1)
+    if tensor.len(first_moment) != 2 or tensor.len(second_moment) != 2 { return 2
+    }
 
-    let learning_rate = ml.exp_lr(0.1, 0.5, 2);
-    if learning_rate < 0.02 || learning_rate > 0.03 { return 3; }
-    tensor.free_all();
-    return 0;
+    let learning_rate = ml.exp_lr(0.1, 0.5, 2)
+    if learning_rate < 0.02 or learning_rate > 0.03 { return 3
+    }
+    tensor.free_all()
+    return 0
 }

@@ -1,4 +1,4 @@
-module test;
+module test
 
 enum Color {
     Red,
@@ -7,36 +7,39 @@ enum Color {
 }
 
 // Test: Match exhaustivo com todos os variants
-fn test_exhaustive_complete() -> int {
-    let c = Color::Red;
+func test_exhaustive_complete() returns int {
+    let c = Color::Red
     match c {
-        Color::Red => 1,
-        Color::Green => 2,
-        Color::Blue => 3
+        when Color::Red then 1,
+        when Color::Green then 2,
+        when Color::Blue then 3
     }
 }
 
 // Test: Match exhaustivo com wildcard
-fn test_exhaustive_wildcard() -> int {
-    let c = Color::Green;
+func test_exhaustive_wildcard() returns int {
+    let c = Color::Green
     match c {
-        Color::Red => 1,
-        _ => 99
+        when Color::Red then 1,
+        otherwise then 99
     }
 }
 
 // Test: Match exhaustivo com identifier
-fn test_exhaustive_identifier() -> int {
-    let c = Color::Blue;
+func test_exhaustive_identifier() returns int {
+    let c = Color::Blue
     match c {
-        x => 42
+        when x then 42
     }
 }
 
-fn main() -> int {
-    let a = test_exhaustive_complete();   // 1
-    let b = test_exhaustive_wildcard();   // 99
-    let c = test_exhaustive_identifier(); // 42
-    
-    a + b + c  // 142
+func main() returns int {
+    let a = test_exhaustive_complete()
+    // 1
+    let b = test_exhaustive_wildcard()
+    // 99
+    let c = test_exhaustive_identifier()
+    // 42
+
+    a + b + c // 142
 }

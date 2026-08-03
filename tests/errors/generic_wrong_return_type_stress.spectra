@@ -1,10 +1,10 @@
-module generic_wrong_return_type_stress;
+module generic_wrong_return_type_stress
 
-fn identity<T>(value: T) -> T {
-    return value;
+func identity<T>(value: T) returns T {
+    return value
 }
 
-pub fn main() -> int {
-    let x: int = identity("bad");
-    return x;
+public func main() returns int {
+    let x: int = identity("bad")
+    return x
 }

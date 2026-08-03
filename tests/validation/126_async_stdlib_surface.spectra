@@ -1,20 +1,20 @@
-module async_stdlib_surface;
+module async_stdlib_surface
 
-async fn read_like(value: int) -> int {
-    return value;
+async func read_like(value: int) returns int {
+    return value
 }
 
-async fn write_like(value: int) -> int {
-    return value + 1;
+async func write_like(value: int) returns int {
+    return value + 1
 }
 
-async fn io_roundtrip() -> int {
-    let read_value = await read_like(40);
-    let write_value = await write_like(1);
-    return read_value + write_value;
+async func io_roundtrip() returns int {
+    let read_value  = await read_like(40)
+    let write_value = await write_like(1)
+    return read_value + write_value
 }
 
-fn main() -> int {
-    let task = io_roundtrip();
-    return 0;
+func main() returns int {
+    let task = io_roundtrip()
+    return 0
 }

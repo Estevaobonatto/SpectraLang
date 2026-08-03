@@ -1,11 +1,11 @@
-module test_simple;
+module test_simple
 
-fn test() -> int {
-    let i = 0;
-    
+func test() returns int {
+    let i = 0
+
     while i < 3 {
-        i = i + 1;
+        i = i + 1
     }
-    
-    return i;
+
+    return i
 }

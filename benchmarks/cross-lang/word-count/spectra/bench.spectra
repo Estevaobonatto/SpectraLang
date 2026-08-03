@@ -1,42 +1,42 @@
 // Phase 31: word-count (Spectra)
 // Count words in a string by detecting non-space -> space transitions.
 
-module bench_word_count;
+module bench_word_count
 
-import std.string as str;
+import std.string as str
 
-pub fn main() -> int {
-    let iters = 200000;
-    let text = "The quick brown fox jumps over the lazy dog and runs away";
-    let n = str.len(text);
-    let total = 0;
-    let it = 0;
+public func main() returns int {
+    let iters = 200000
+    let text  = "The quick brown fox jumps over the lazy dog and runs away"
+    let n     = str.len(text)
+    let total = 0
+    let it    = 0
     while it < iters {
-        let count = 0;
-        let mut_in_word = 0;
-        let i = 0;
+        let count       = 0
+        let mut_in_word = 0
+        let i           = 0
         while i < n {
-            let code = str.char_at(text, i);
-            let is_space = 0;
+            let code     = str.char_at(text, i)
+            let is_space = 0
             if code == 32 {
-                is_space = 1;
+                is_space = 1
             }
             if is_space == 0 {
                 if mut_in_word == 0 {
-                    count = count + 1;
-                    mut_in_word = 1;
+                    count = count + 1
+                    mut_in_word = 1
                 }
             } else {
-                mut_in_word = 0;
+                mut_in_word = 0
             }
-            i = i + 1;
+            i = i + 1
         }
         // Words: "The", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog", "and", "runs", "away" = 12
-        total = total + count;
-        it = it + 1;
+        total = total + count
+        it = it + 1
     }
     if total == 12 * iters {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

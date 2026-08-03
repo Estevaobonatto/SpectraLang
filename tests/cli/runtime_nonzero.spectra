@@ -1,5 +1,5 @@
-module runtime_nonzero;
+module runtime_nonzero
 
-pub fn main() -> int {
-    return 7;
+public func main() returns int {
+    return 7
 }

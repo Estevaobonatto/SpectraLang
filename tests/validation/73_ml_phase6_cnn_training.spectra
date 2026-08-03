@@ -1,63 +1,63 @@
 // Teste 73: Phase 6 CNN/conv2d end-to-end com std.ml
-module ml_phase6_cnn_training;
+module ml_phase6_cnn_training
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-fn train_step(input: int, target: int, kernel: int, bias: int, m: int, v: int, step: int) -> int {
-    let pred = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
-    let loss = ml.mse_loss(pred, target);
-    tensor.backward(loss);
-    ml.adamw_step(kernel, m, v, 0.05, 0.9, 0.999, 0.00000001, step, 0.0);
-    ml.sgd_step(bias, 0.05);
-    return 0;
+func train_step(input: int, target: int, kernel: int, bias: int, m: int, v: int, step: int) returns int {
+    let pred = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1)
+    let loss = ml.mse_loss(pred, target)
+    tensor.backward(loss)
+    ml.adamw_step(kernel, m, v, 0.05, 0.9, 0.999, 0.00000001, step, 0.0)
+    ml.sgd_step(bias, 0.05)
+    return 0
 }
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let input = tensor.full_f(4, 1.0);
-    let target = tensor.full_f(4, 1.0);
-    let kernel = tensor.requires_grad(tensor.full_f(1, 0.0), true);
-    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
-    let m = tensor.full_f(1, 0.0);
-    let v = tensor.full_f(1, 0.0);
+    let input  = tensor.full_f(4, 1.0)
+    let target = tensor.full_f(4, 1.0)
+    let kernel = tensor.requires_grad(tensor.full_f(1, 0.0), true)
+    let bias   = tensor.requires_grad(tensor.full_f(1, 0.0), true)
+    let m      = tensor.full_f(1, 0.0)
+    let v      = tensor.full_f(1, 0.0)
 
-    train_step(input, target, kernel, bias, m, v, 1);
-    train_step(input, target, kernel, bias, m, v, 2);
-    train_step(input, target, kernel, bias, m, v, 3);
-    train_step(input, target, kernel, bias, m, v, 4);
-    train_step(input, target, kernel, bias, m, v, 5);
-    train_step(input, target, kernel, bias, m, v, 6);
-    train_step(input, target, kernel, bias, m, v, 7);
-    train_step(input, target, kernel, bias, m, v, 8);
-    train_step(input, target, kernel, bias, m, v, 9);
-    train_step(input, target, kernel, bias, m, v, 10);
-    train_step(input, target, kernel, bias, m, v, 11);
-    train_step(input, target, kernel, bias, m, v, 12);
-    train_step(input, target, kernel, bias, m, v, 13);
-    train_step(input, target, kernel, bias, m, v, 14);
-    train_step(input, target, kernel, bias, m, v, 15);
-    train_step(input, target, kernel, bias, m, v, 16);
-    train_step(input, target, kernel, bias, m, v, 17);
-    train_step(input, target, kernel, bias, m, v, 18);
-    train_step(input, target, kernel, bias, m, v, 19);
-    train_step(input, target, kernel, bias, m, v, 20);
+    train_step(input, target, kernel, bias, m, v, 1)
+    train_step(input, target, kernel, bias, m, v, 2)
+    train_step(input, target, kernel, bias, m, v, 3)
+    train_step(input, target, kernel, bias, m, v, 4)
+    train_step(input, target, kernel, bias, m, v, 5)
+    train_step(input, target, kernel, bias, m, v, 6)
+    train_step(input, target, kernel, bias, m, v, 7)
+    train_step(input, target, kernel, bias, m, v, 8)
+    train_step(input, target, kernel, bias, m, v, 9)
+    train_step(input, target, kernel, bias, m, v, 10)
+    train_step(input, target, kernel, bias, m, v, 11)
+    train_step(input, target, kernel, bias, m, v, 12)
+    train_step(input, target, kernel, bias, m, v, 13)
+    train_step(input, target, kernel, bias, m, v, 14)
+    train_step(input, target, kernel, bias, m, v, 15)
+    train_step(input, target, kernel, bias, m, v, 16)
+    train_step(input, target, kernel, bias, m, v, 17)
+    train_step(input, target, kernel, bias, m, v, 18)
+    train_step(input, target, kernel, bias, m, v, 19)
+    train_step(input, target, kernel, bias, m, v, 20)
 
-    let final_pred = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
-    let final_loss = ml.mse_loss(final_pred, target);
-    tensor.get_f(final_loss, 0);
+    let final_pred = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1)
+    let final_loss = ml.mse_loss(final_pred, target)
+    tensor.get_f(final_loss, 0)
 
-    let pooled = ml.max_pool2d(input, 1, 1, 2, 2, 2, 2);
+    let pooled = ml.max_pool2d(input, 1, 1, 2, 2, 2, 2)
     if tensor.len(pooled) != 1 {
-        return tensor.len(pooled);
+        return tensor.len(pooled)
     }
-    let dropped = ml.dropout(final_pred, 0.5, false);
+    let dropped = ml.dropout(final_pred, 0.5, false)
     if tensor.len(dropped) != 4 {
-        return tensor.len(dropped);
+        return tensor.len(dropped)
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

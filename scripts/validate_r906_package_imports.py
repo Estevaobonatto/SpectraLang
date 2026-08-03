@@ -63,13 +63,7 @@ def make_workspace(root: Path) -> None:
     write(root / "spectra.toml", package_manifest("consumer", ["lib", "base"]))
     write(
         root / "src/main.spectra",
-        """module consumer.main;
-import { public_value } from lib.core;
-
-pub fn main() -> int {
-    return public_value();
-}
-""",
+        'module consumer.main\nfrom lib.core import public_value\n\npublic func main() returns int {\n    return public_value()\n}\n',
     )
     write(
         root / "lib/spectra.toml",
@@ -77,30 +71,14 @@ pub fn main() -> int {
     )
     write(
         root / "lib/src/core.spectra",
-        """module lib.core;
-import { base_value } from base.core;
-
-internal fn secret() -> int {
-    return base_value();
-}
-
-pub fn public_value() -> int {
-    return secret();
-}
-""",
+        'module lib.core\nfrom base.core import base_value\n\ninternal func secret() returns int {\n    return base_value()\n}\n\npublic func public_value() returns int {\n    return secret()\n}\n',
     )
     write(
         root / "lib/src/helper.spectra",
-        """module lib.helper;
-import { secret } from lib.core;
-
-pub fn same_package_value() -> int {
-    return secret();
-}
-""",
+        'module lib.helper\nfrom lib.core import secret\n\npublic func same_package_value() returns int {\n    return secret()\n}\n',
     )
     write(root / "base/spectra.toml", package_manifest("base"))
-    write(root / "base/src/core.spectra", "module base.core;\npub fn base_value() -> int { return 41; }\n")
+    write(root / "base/src/core.spectra", 'module base.core\npublic func base_value() returns int { return 41\n }\n')
 
 
 def main() -> int:
@@ -125,7 +103,7 @@ def main() -> int:
             shutil.copytree(workspace, missing)
             write(
                 missing / "src/main.spectra",
-                "module consumer.main;\nimport lib.missing;\n\nfn main() -> int { return 0; }\n",
+                'module consumer.main\nimport lib.missing\n\nfunc main() returns int { return 0\n }\n',
             )
             output = run(binary, ["package", "check", "--root", str(missing)], missing, expect=74)
             require("lib.missing" in output, "missing import diagnostic omitted module")
@@ -136,18 +114,18 @@ def main() -> int:
             shutil.copytree(workspace, unknown)
             write(
                 unknown / "src/main.spectra",
-                "module consumer.main;\nimport nowhere.missing;\n\nfn main() -> int { return 0; }\n",
+                'module consumer.main\nimport nowhere.missing\n\nfunc main() returns int { return 0\n }\n',
             )
             output = run(binary, ["package", "check", "--root", str(unknown)], unknown, expect=74)
             require("nowhere.missing" in output, "unknown import diagnostic omitted module")
 
             duplicate = work / "duplicate"
             write(duplicate / "spectra.toml", package_manifest("consumer", ["left", "right"]))
-            write(duplicate / "src/main.spectra", "module consumer.main;\n")
+            write(duplicate / "src/main.spectra", 'module consumer.main\n')
             write(duplicate / "left/spectra.toml", package_manifest("left"))
-            write(duplicate / "left/src/shared.spectra", "module shared.same;\n")
+            write(duplicate / "left/src/shared.spectra", 'module shared.same\n')
             write(duplicate / "right/spectra.toml", package_manifest("right"))
-            write(duplicate / "right/src/shared.spectra", "module shared.same;\n")
+            write(duplicate / "right/src/shared.spectra", 'module shared.same\n')
             output = run(binary, ["package", "check", "--root", str(duplicate)], duplicate, expect=74)
             require("shared.same" in output, "duplicate diagnostic omitted module")
             require("left" in output and "right" in output, "duplicate diagnostic omitted package names")
@@ -157,11 +135,7 @@ def main() -> int:
             shutil.copytree(workspace, cross)
             write(
                 cross / "src/main.spectra",
-                """module consumer.main;
-import { secret } from lib.core;
-
-fn main() -> int { return secret(); }
-""",
+                'module consumer.main\nfrom lib.core import secret\n\nfunc main() returns int { return secret()\n }\n',
             )
             output = run(binary, ["package", "check", "--root", str(cross)], cross, expect=65)
             require("internal" in output and "different package" in output, "cross-package internal diagnostic missing")

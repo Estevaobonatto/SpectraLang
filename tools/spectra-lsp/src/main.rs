@@ -19,10 +19,10 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 const COMMAND_RUN_DIAGNOSTICS: &str = "spectra.diagnostics.run";
 const COMMAND_LINT_WORKSPACE: &str = "spectra.lintWorkspace";
 const KEYWORDS: &[&str] = &[
-    "module", "import", "export", "fn", "async", "await", "struct", "enum", "impl", "class",
-    "trait", "let", "pub", "internal", "mut", "Self", "self", "match", "switch", "case", "cond",
-    "if", "else", "elif", "elseif", "unless", "while", "do", "for", "foreach", "in", "of",
-    "repeat", "until", "loop", "return", "break", "continue", "yield", "goto", "true", "false",
+    "module", "import", "from", "export", "func", "async", "await", "record", "enum", "impl",
+    "class", "trait", "let", "public", "internal", "mut", "Self", "self", "match", "switch",
+    "case", "cond", "if", "else", "when", "then", "otherwise", "while", "do", "for", "in",
+    "loop", "return", "break", "continue", "yield", "goto", "and", "or", "not", "true", "false",
     "type", "const", "static", "as", "dyn",
 ];
 
@@ -1802,7 +1802,9 @@ fn api_call_hover(document: &DocumentState, call_site: &CallSite) -> Option<Hove
 }
 
 fn signature_return_type(signature: &str) -> Option<&str> {
-    signature.rsplit_once("->").map(|(_, ty)| ty.trim())
+    signature
+        .rsplit_once(" returns ")
+        .map(|(_, ty)| ty.trim())
 }
 
 fn expression_at_span(
@@ -2075,7 +2077,7 @@ fn item_to_completion_items(item: &spectra_compiler::ast::Item) -> Vec<Completio
             let mut items = vec![CompletionItem {
                 label: struct_def.name.clone(),
                 kind: Some(CompletionItemKind::STRUCT),
-                detail: Some(format!("struct {}", struct_def.name)),
+                detail: Some(format!("record {}", struct_def.name)),
                 ..Default::default()
             }];
 
@@ -2212,7 +2214,7 @@ fn item_to_document_symbol(item: &spectra_compiler::ast::Item) -> DocumentSymbol
         ),
         spectra_compiler::ast::Item::Struct(struct_def) => document_symbol_node(
             struct_def.name.clone(),
-            Some(format!("struct {}", struct_def.name)),
+            Some(format!("record {}", struct_def.name)),
             SymbolKind::STRUCT,
             struct_def.span,
             Some(
@@ -2399,9 +2401,9 @@ fn format_function_signature(function: &spectra_compiler::ast::Function) -> Stri
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    let prefix = if function.is_async { "async fn" } else { "fn" };
+    let prefix = if function.is_async { "async func" } else { "func" };
     format!(
-        "{} {}({}) -> {}",
+        "{} {}({}) returns {}",
         prefix, function.name, params, return_type
     )
 }
@@ -2418,9 +2420,9 @@ fn format_method_signature(type_name: &str, method: &spectra_compiler::ast::Meth
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    let prefix = if method.is_async { "async fn" } else { "fn" };
+    let prefix = if method.is_async { "async func" } else { "func" };
     format!(
-        "{} {}::{}({}) -> {}",
+        "{} {}::{}({}) returns {}",
         prefix, type_name, method.name, params, return_type
     )
 }
@@ -2437,8 +2439,8 @@ fn format_trait_method_signature(method: &spectra_compiler::ast::TraitMethod) ->
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    let prefix = if method.is_async { "async fn" } else { "fn" };
-    format!("{} {}({}) -> {}", prefix, method.name, params, return_type)
+    let prefix = if method.is_async { "async func" } else { "func" };
+    format!("{} {}({}) returns {}", prefix, method.name, params, return_type)
 }
 
 fn format_parameter_signature(param: &spectra_compiler::ast::Parameter) -> String {
@@ -2496,7 +2498,7 @@ fn format_type_annotation(ty: &spectra_compiler::ast::TypeAnnotation) -> String 
             params,
             return_type,
         } => format!(
-            "fn({}) -> {}",
+            "func({}) returns {}",
             params
                 .iter()
                 .map(format_type_annotation)
@@ -3058,13 +3060,13 @@ fn reference_key_for_resolved_symbol(
 
 fn definition_key(label: &str) -> String {
     let trimmed = label.trim();
-    if let Some(rest) = trimmed.strip_prefix("async fn ") {
+    if let Some(rest) = trimmed.strip_prefix("async func ") {
         return rest.split('(').next().unwrap_or(rest).trim().to_string();
     }
-    if let Some(rest) = trimmed.strip_prefix("fn ") {
+    if let Some(rest) = trimmed.strip_prefix("func ") {
         return rest.split('(').next().unwrap_or(rest).trim().to_string();
     }
-    if let Some(rest) = trimmed.strip_prefix("struct ") {
+    if let Some(rest) = trimmed.strip_prefix("record ") {
         return rest.trim().to_string();
     }
     if let Some(rest) = trimmed.strip_prefix("enum ") {
@@ -3356,7 +3358,7 @@ fn collect_workspace_symbol_entries(
             if let Some(name_span) = named_subspan(text, struct_def.span, &struct_def.name) {
                 output.push(CachedWorkspaceSymbol {
                     name: struct_def.name.clone(),
-                    detail: Some("struct".to_string()),
+                    detail: Some("record".to_string()),
                     kind: SymbolKind::STRUCT,
                     span: name_span,
                     container_name: None,
@@ -3541,9 +3543,15 @@ fn semantic_declaration_tokens(
                 }
                 if let Some(names) = &import.names {
                     for imported_name in names {
-                        if let Some(span) = named_subspan(text, import.span, imported_name) {
-                            let token_type = imported_symbol_token_type(module, imported_name);
+                        let token_type =
+                            imported_symbol_token_type(module, &imported_name.name);
+                        if let Some(span) = named_subspan(text, import.span, &imported_name.name) {
                             tokens.push((span, token_type));
+                        }
+                        if let Some(alias) = &imported_name.alias {
+                            if let Some(span) = named_subspan(text, imported_name.span, alias) {
+                                tokens.push((span, token_type));
+                            }
                         }
                     }
                 }
@@ -4285,7 +4293,7 @@ mod tests {
         assert!(is_valid_rename_identifier("_hidden1"));
         assert!(!is_valid_rename_identifier("1bad"));
         assert!(!is_valid_rename_identifier("two words"));
-        assert!(!is_valid_rename_identifier("fn"));
+        assert!(!is_valid_rename_identifier("func"));
         assert!(!is_valid_rename_identifier("module"));
     }
 
@@ -4301,7 +4309,7 @@ mod tests {
         assert!(items.iter().any(|item| {
             item.label == "std.api.routing.get"
                 && item.kind == Some(CompletionItemKind::FUNCTION)
-                && item.detail.as_deref().unwrap_or("").contains("fn(Router")
+                && item.detail.as_deref().unwrap_or("").contains("func(Router")
         }));
         assert!(items.iter().any(|item| {
             item.label == "std.api.cors.middleware"
@@ -4316,8 +4324,8 @@ mod tests {
     #[test]
     fn keyword_completion_items_cover_current_language_surface() {
         for keyword in [
-            "async", "await", "export", "mut", "unless", "foreach", "repeat", "until", "yield",
-            "goto",
+            "async", "await", "export", "from", "public", "record", "when", "then",
+            "otherwise", "and", "or", "not", "yield", "goto",
         ] {
             assert!(KEYWORDS.contains(&keyword), "missing keyword {keyword}");
         }
@@ -4326,12 +4334,12 @@ mod tests {
     #[test]
     fn route_completion_items_cover_detected_api_routes() {
         let source = r#"
-module api_routes;
+module api_routes
 
-pub fn build() {
-    let router = std.api.routing.router();
-    let users = std.api.routing.get(router, "/users");
-    let created = std.api.routing.post(router, "/users");
+public func build() {
+    let router = std.api.routing.router()
+    let users = std.api.routing.get(router, "/users")
+    let created = std.api.routing.post(router, "/users")
 }
 "#;
         let document = analyzed_document(source);
@@ -4349,11 +4357,11 @@ pub fn build() {
     #[test]
     fn api_route_hover_shows_signature_method_and_path() {
         let source = r#"
-module api_routes;
+module api_routes
 
-pub fn build() {
-    let router = std.api.routing.router();
-    let users = std.api.routing.get(router, "/users");
+public func build() {
+    let router = std.api.routing.router()
+    let users = std.api.routing.get(router, "/users")
 }
 "#;
         let document = analyzed_document(source);
@@ -4372,11 +4380,11 @@ pub fn build() {
     #[test]
     fn async_handler_definition_keys_support_workspace_references() {
         assert_eq!(
-            definition_key("async fn handle(request: Request) -> Response"),
+            definition_key("async func handle(request: Request) returns Response"),
             "handle"
         );
         assert_eq!(
-            definition_key("async fn Api::handle(&self, request: Request) -> Response"),
+            definition_key("async func Api::handle(&self, request: Request) returns Response"),
             "Api::handle"
         );
     }
@@ -4384,10 +4392,10 @@ pub fn build() {
     #[test]
     fn workspace_definition_locations_resolve_async_handler_across_files() {
         let handler_source = r#"
-module handlers;
+module handlers
 
-pub async fn handle(request: std.api.http.Request) -> std.api.http.Response {
-    return std.api.handler.json("{}");
+public async func handle(request: std.api.http.Request)  returns  std.api.http.Response {
+    return std.api.handler.json("{}")
 }
 "#;
         let handler_analysis = analyzed_document(handler_source);
@@ -4424,7 +4432,7 @@ pub async fn handle(request: std.api.http.Request) -> std.api.http.Response {
 
     #[test]
     fn rename_edits_cover_local_definition_and_uses() {
-        let source = "module rename_test;\n\npub fn main() -> int {\n    let value = 1;\n    let next = value + value;\n    return next;\n}\n";
+        let source = "module rename_test\n\npublic func main() returns int {\n    let value = 1\n    let next = value + value\n    return next\n}\n";
         let document = analyzed_document(source);
         let symbol = document
             .analysis
@@ -4434,14 +4442,14 @@ pub async fn handle(request: std.api.http.Request) -> std.api.http.Response {
         let result = apply_text_edits(source, &edits);
 
         assert_eq!(edits.len(), 3);
-        assert!(result.contains("let renamed = 1;"));
-        assert!(result.contains("let next = renamed + renamed;"));
+        assert!(result.contains("let renamed = 1"));
+        assert!(result.contains("let next = renamed + renamed"));
         assert!(!result.contains("value"));
     }
 
     #[test]
     fn rename_edits_do_not_touch_identifier_substrings() {
-        let source = "module rename_test;\n\npub fn main() -> int {\n    let value = 1;\n    let value_extra = 2;\n    return value + value_extra;\n}\n";
+        let source = "module rename_test\n\npublic func main() returns int {\n    let value = 1\n    let value_extra = 2\n    return value + value_extra\n}\n";
         let document = analyzed_document(source);
         let symbol = document
             .analysis
@@ -4450,9 +4458,9 @@ pub async fn handle(request: std.api.http.Request) -> std.api.http.Response {
         let edits = rename_edits_for_document(&document, &symbol, "value", "renamed");
         let result = apply_text_edits(source, &edits);
 
-        assert!(result.contains("let renamed = 1;"));
-        assert!(result.contains("let value_extra = 2;"));
-        assert!(result.contains("return renamed + value_extra;"));
+        assert!(result.contains("let renamed = 1"));
+        assert!(result.contains("let value_extra = 2"));
+        assert!(result.contains("return renamed + value_extra"));
     }
 }
 

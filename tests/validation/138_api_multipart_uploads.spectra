@@ -1,100 +1,81 @@
-module api_multipart_uploads;
+module api_multipart_uploads
 
-import std.string as str;
+import std.string as str
 
-import {
-    Multipart,
-    MultipartPart,
-    parse,
-    part_count,
-    field_count,
-    file_count,
-    text,
-    part,
-    part_name,
-    part_filename,
-    part_content_type,
-    part_size,
-    part_is_file,
-    file_path,
-    file_read,
-    file_spool_to,
-    error_code,
-    error_message,
-} from std.api.multipart;
+from std.api.multipart import Multipart, MultipartPart, parse, part_count, field_count, file_count, text, part, part_name, part_filename, part_content_type, part_size, part_is_file, file_path, file_read, file_spool_to, error_code, error_message
 
-pub fn main() -> int {
-    let body = "--BOUNDARY\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello upload\r\n--BOUNDARY\r\nContent-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\nContent-Type: text/plain\r\n\r\nabcdef\r\n--BOUNDARY\r\nContent-Disposition: form-data; name=\"file\"; filename=\"second.txt\"\r\nContent-Type: text/plain\r\n\r\nxyz\r\n--BOUNDARY--\r\n";
-    let form: Multipart = parse(body, "BOUNDARY", 4096, 8, 1024);
+public func main() returns int {
+    let body = "--BOUNDARY\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello upload\r\n--BOUNDARY\r\nContent-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\nContent-Type: text/plain\r\n\r\nabcdef\r\n--BOUNDARY\r\nContent-Disposition: form-data; name=\"file\"; filename=\"second.txt\"\r\nContent-Type: text/plain\r\n\r\nxyz\r\n--BOUNDARY--\r\n"
+    let form: Multipart = parse(body, "BOUNDARY", 4096, 8, 1024)
 
     if part_count(form) != 3 {
-        return 10;
+        return 10
     }
     if field_count(form) != 1 {
-        return 11;
+        return 11
     }
     if file_count(form) != 2 {
-        return 12;
+        return 12
     }
     if str.contains(text(form, "title", 0), "Hello upload") != true {
-        return 13;
+        return 13
     }
 
-    let title: MultipartPart = part(form, 0);
-    let first_file: MultipartPart = part(form, 1);
-    let second_file: MultipartPart = part(form, 2);
+    let title: MultipartPart       = part(form, 0)
+    let first_file: MultipartPart  = part(form, 1)
+    let second_file: MultipartPart = part(form, 2)
 
     if part_is_file(title) != false {
-        return 20;
+        return 20
     }
     if part_is_file(first_file) != true {
-        return 21;
+        return 21
     }
     if str.contains(part_name(first_file), "file") != true {
-        return 22;
+        return 22
     }
     if str.contains(part_filename(first_file), "hello.txt") != true {
-        return 23;
+        return 23
     }
     if str.contains(part_content_type(first_file), "text/plain") != true {
-        return 24;
+        return 24
     }
     if part_size(first_file) != 6 {
-        return 25;
+        return 25
     }
     if str.contains(file_read(first_file, 1, 3), "bcd") != true {
-        return 26;
+        return 26
     }
     if str.contains(file_path(first_file), "spectra-api-multipart") != true {
-        return 27;
+        return 27
     }
     if str.contains(file_read(second_file, 0, 8), "xyz") != true {
-        return 28;
+        return 28
     }
 
-    let copied = file_spool_to(first_file, "target/r2214/hello-upload.txt");
+    let copied = file_spool_to(first_file, "target/r2214/hello-upload.txt")
     if copied != true {
-        return 30;
+        return 30
     }
 
-    let too_many: Multipart = parse(body, "BOUNDARY", 4096, 2, 1024);
+    let too_many: Multipart = parse(body, "BOUNDARY", 4096, 2, 1024)
     if part_count(too_many) != 0 {
-        return 40;
+        return 40
     }
     if error_code() == 0 {
-        return 41;
+        return 41
     }
     if str.contains(error_message(), "part count") != true {
-        return 42;
+        return 42
     }
 
-    let too_big: Multipart = parse(body, "BOUNDARY", 4096, 8, 4);
+    let too_big: Multipart = parse(body, "BOUNDARY", 4096, 8, 4)
     if part_count(too_big) != 0 {
-        return 50;
+        return 50
     }
     if str.contains(error_message(), "per-part size") != true {
-        return 51;
+        return 51
     }
 
-    return 0;
+    return 0
 }

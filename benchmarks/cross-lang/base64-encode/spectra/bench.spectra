@@ -3,28 +3,28 @@
 // an array of ASCII codes, then compute a weighted checksum.
 // Expected per-iter checksum: 690549
 
-module bench_base64_encode;
+module bench_base64_encode
 
-fn alphabet_code(idx: int) -> int {
+func alphabet_code(idx: int) returns int {
     if idx < 26 {
-        return 65 + idx;
+        return 65 + idx
     }
     if idx < 52 {
-        return 97 + (idx - 26);
+        return 97 + (idx - 26)
     }
     if idx < 62 {
-        return 48 + (idx - 52);
+        return 48 + (idx - 52)
     }
     if idx == 62 {
-        return 43;
+        return 43
     }
-    return 47;
+    return 47
 }
 
-pub fn main() -> int {
-    let iters = 50000;
-    let total = 0;
-    let it = 0;
+public func main() returns int {
+    let iters = 50000
+    let total = 0
+    let it    = 0
     while it < iters {
         let out = [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -35,45 +35,45 @@ pub fn main() -> int {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        ];
+        ]
         // Encode 96 bytes in groups of 3 -> 4 chars
-        let mut_g = 0;
-        let mut_i = 0;
+        let mut_g = 0
+        let mut_i = 0
         while mut_i < 96 {
-            let b0 = mut_i;
-            let b1 = mut_i + 1;
-            let b2 = mut_i + 2;
-            let v0 = b0;
-            let v1 = b1;
-            let v2 = b2;
-            let n = (v0 * 65536) + (v1 * 256) + v2;
-            out[mut_g]     = alphabet_code((n / 262144) % 64);
-            out[mut_g + 1] = alphabet_code((n / 4096) % 64);
+            let b0 = mut_i
+            let b1 = mut_i + 1
+            let b2 = mut_i + 2
+            let v0 = b0
+            let v1 = b1
+            let v2 = b2
+            let n  = (v0 * 65536) + (v1 * 256) + v2
+            out[mut_g] = alphabet_code((n / 262144) % 64)
+            out[mut_g + 1] = alphabet_code((n / 4096) % 64)
             if b1 < 96 {
-                out[mut_g + 2] = alphabet_code((n / 64) % 64);
+                out[mut_g + 2] = alphabet_code((n / 64) % 64)
             } else {
-                out[mut_g + 2] = 61;
+                out[mut_g + 2] = 61
             }
             if b2 < 96 {
-                out[mut_g + 3] = alphabet_code(n % 64);
+                out[mut_g + 3] = alphabet_code(n % 64)
             } else {
-                out[mut_g + 3] = 61;
+                out[mut_g + 3] = 61
             }
-            mut_g = mut_g + 4;
-            mut_i = mut_i + 3;
+            mut_g = mut_g + 4
+            mut_i = mut_i + 3
         }
         // Compute weighted checksum
-        let checksum = 0;
-        let k = 0;
+        let checksum = 0
+        let k        = 0
         while k < 128 {
-            checksum = checksum + out[k] * (k + 1);
-            k = k + 1;
+            checksum = checksum + out[k] * (k + 1)
+            k = k + 1
         }
-        total = total + checksum;
-        it = it + 1;
+        total = total + checksum
+        it = it + 1
     }
     if total == 690549 * iters {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

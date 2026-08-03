@@ -1,19 +1,21 @@
 // Extended validation: typed differentiable block over direct tensor math.
-module tensor_diff_block_gradient;
+module tensor_diff_block_gradient
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
-    let base: Tensor<float, rank1, dim2, row_major, cpu> = [2.0, 2.0];
-    let input: Tensor<float, rank1, dim2, row_major, cpu> = tensor.requires_grad(base, true);
-    let loss: Tensor<float, rank0> = diff {
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
+    let base: Tensor<float, rank1, dim2, row_major, cpu>  = [2.0, 2.0]
+    let input: Tensor<float, rank1, dim2, row_major, cpu> = tensor.requires_grad(base, true)
+    let loss: Tensor<float, rank0>                        = diff {
         tensor.sum_t(tensor.mul(input, input))
-    };
-    if tensor.len(loss) != 1 { return 1; }
-    let gradient: Tensor<float, rank1> = tensor.grad(input);
-    if tensor.sum_f(gradient) as int != 8 { return 2; }
-    tensor.free_all();
-    return 0;
+    }
+    if tensor.len(loss) != 1 { return 1
+    }
+    let gradient: Tensor<float, rank1> = tensor.grad(input)
+    if tensor.sum_f(gradient) as int != 8 { return 2
+    }
+    tensor.free_all()
+    return 0
 }

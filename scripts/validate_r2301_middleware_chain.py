@@ -165,10 +165,10 @@ def validate_fixture_and_docs() -> None:
 
     snapshot = read("compiler/tests/snapshots/std_api_public_function_table.snap")
     for term in [
-        "module std.api.middleware",
+        'module std.api.middleware',
         "type std.api.middleware.MiddlewareChain",
-        "fn std.api.middleware.execute_sync",
-        "fn std.api.middleware.trace_event",
+        "func std.api.middleware.execute_sync",
+        "func std.api.middleware.trace_event",
     ]:
         require(term in snapshot, f"std.api snapshot missing {term}")
 
@@ -183,7 +183,7 @@ def validate_planning() -> None:
     require(r2301.get("dependencies") == ["R-2215"], "R-2301 dependencies changed")
     acceptance = "\n".join(r2301.get("acceptance", []))
     for term in [
-        "async fn",
+        "async func",
         "synchronous middleware",
         "book chapter",
         "reverse order",

@@ -1,33 +1,33 @@
 // Test: Complete struct with impl block and method calls
-module struct_methods_test;
+module struct_methods_test
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Point {
-    fn new(x: int, y: int) -> Point {
+    func new(x: int, y: int) returns Point {
         Point { x: x, y: y }
     }
-    
-    fn get_x(&self) -> int {
+
+    func get_x( & self) returns int {
         // TODO: self.x quando field access estiver pronto
         42
     }
-    
-    fn add_static(a: int, b: int) -> int {
+
+    func add_static(a: int, b: int) returns int {
         a + b
     }
 }
 
-fn main() -> int {
+func main() returns int {
     // Construir um Point (usando syntax de struct literal)
-    let p = Point { x: 10, y: 20 };
-    
+    let p = Point { x: 10, y: 20 }
+
     // Chamar método de instância
-    let x_value = p.get_x();
-    
+    let x_value = p.get_x()
+
     // Retornar o valor
-    x_value  // 42
+    x_value // 42
 }

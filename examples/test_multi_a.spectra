@@ -1,9 +1,9 @@
-module mathutils;
+module mathutils
 
-pub fn square(n: int) -> int {
-    return n * n;
+public func square(n: int) returns int {
+    return n * n
 }
 
-internal fn helper() -> int {
-    return 42;
+internal func helper() returns int {
+    return 42
 }

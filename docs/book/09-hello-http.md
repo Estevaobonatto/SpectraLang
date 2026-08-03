@@ -26,56 +26,48 @@ below uses four of them:
 The checked-in example is `examples/api/00_hello_http.spectra`:
 
 ```spectra
-module hello_http;
+module hello_http
 
-import { Server, new, listen, serve, shutdown, local_port, state } from std.api.server;
-import { Router, Route, router, get, route_id } from std.api.routing;
-import { HandlerHandle, text, with_header, register_sync, dispatch_sync } from std.api.handler;
-import {
-    Request,
-    Response,
-    method_get,
-    request,
-    response_status,
-    response_header,
-    response_body_len,
-} from std.api.http;
+from std.api.server import Server, new, listen, serve, shutdown, local_port, state
+from std.api.routing import Router, Route, router, get, route_id
+from std.api.handler import HandlerHandle, text, with_header, register_sync, dispatch_sync
+from std.api.http import Request, Response, method_get, request, response_status, response_header, response_body_len
 
-pub fn main() -> int {
-    let routes: Router = router();
-    let route: Route = get(routes, "/hello");
-    let response: Response = with_header(text("Hello HTTP from Spectra"), "Content-Type", "text/plain");
-    let handler: HandlerHandle = register_sync(route_id(route), response);
-    let request_value: Request = request(method_get(), "/hello");
-    let dispatched: Response = dispatch_sync(handler, request_value);
+public func main() returns int {
+    let routes: Router = router()
+    let route: Route = get(routes, "/hello")
+    let response: Response = with_header(text("Hello HTTP from Spectra"), "Content-Type", "text/plain")
+    let handler: HandlerHandle = register_sync(route_id(route), response)
+    let request_value: Request = request(method_get(), "/hello")
+    let dispatched: Response = dispatch_sync(handler, request_value)
 
     if response_status(dispatched) != 200 {
-        return 5;
+        return 5
     }
     if response_header(response, "content-type") != "text/plain" {
-        return 3;
+        return 3
     }
     if response_body_len(response) <= 0 {
-        return 4;
+        return 4
     }
 
-    let server: Server = new();
+    let server: Server = new()
     if listen(server, 0) != true {
-        return 6;
+        return 6
     }
     if block_on(serve(server, routes)) != 1 {
-        return 7;
+        return 7
     }
     if local_port(server) <= 0 {
-        return 9;
+        return 9
     }
     if shutdown(server) != true {
-        return 10;
+        return 10
     }
     if state(server) != 3 {
-        return 11;
+        return 11
     }
-    return 0;
+    return 0
 }
 ```
 

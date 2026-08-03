@@ -18,10 +18,10 @@ These types are represented by runtime handles in the midend/backend. They can
 be used in Spectra function signatures such as:
 
 ```spectra
-import { Request, Response, response, status_ok } from std.api.http;
+from std.api.http import Request, Response, response, status_ok
 
-fn handler(req: Request) -> Response {
-    return response(status_ok());
+func handler(req: Request) returns Response {
+    return response(status_ok())
 }
 ```
 

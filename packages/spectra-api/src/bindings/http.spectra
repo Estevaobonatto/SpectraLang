@@ -4,47 +4,47 @@
 // built-in module, and the native implementation is registered under the
 // `spectra.api.http.*` host-call namespace.
 
-module std.api.http;
+module std.api.http
 
-pub struct Request {
-    pub method: int,
-    pub path: string,
-    pub headers: Headers,
-    pub body: Body,
+public record Request {
+    public method: int,
+    public path: string,
+    public headers: Headers,
+    public body: Body,
 }
 
-pub struct Response {
-    pub status: int,
-    pub headers: Headers,
-    pub body: Body,
+public record Response {
+    public status: int,
+    public headers: Headers,
+    public body: Body,
 }
 
-pub struct Method {
-    pub code: int,
-    pub name: string,
+public record Method {
+    public code: int,
+    public name: string,
 }
 
-pub struct Status {
-    pub code: int,
-    pub reason: string,
+public record Status {
+    public code: int,
+    public reason: string,
 }
 
-pub struct Header {
-    pub name: string,
-    pub value: string,
+public record Header {
+    public name: string,
+    public value: string,
 }
 
-pub struct Headers {
-    pub len: int,
+public record Headers {
+    public len: int,
 }
 
-pub struct Cookie {
-    pub name: string,
-    pub value: string,
+public record Cookie {
+    public name: string,
+    public value: string,
 }
 
-pub struct Body {
-    pub len: int,
+public record Body {
+    public len: int,
 }
 
 // Native function declarations are represented in

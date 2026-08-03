@@ -1,13 +1,13 @@
-module test_loop_simple;
+module test_loop_simple
 
-fn test_loop() -> int {
-    let arr = [1, 2, 3];
-    let i = 0;
-    
+func test_loop() returns int {
+    let arr = [1, 2, 3]
+    let i   = 0
+
     while i < 3 {
-        let x = arr[i];
-        i = i + 1;
+        let x = arr[i]
+        i = i + 1
     }
-    
-    return 42;
+
+    return 42
 }

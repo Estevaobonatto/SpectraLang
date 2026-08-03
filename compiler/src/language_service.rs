@@ -152,7 +152,7 @@ pub fn type_to_string(ty: &Type) -> String {
             params,
             return_type,
         } => format!(
-            "fn({}) -> {}",
+            "func({}) returns {}",
             params
                 .iter()
                 .map(type_to_string)
@@ -391,9 +391,9 @@ fn format_function(function: &Function) -> String {
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    let prefix = if function.is_async { "async fn" } else { "fn" };
+    let prefix = if function.is_async { "async func" } else { "func" };
     format!(
-        "{} {}({}) -> {}",
+        "{} {}({}) returns {}",
         prefix, function.name, params, return_type
     )
 }
@@ -410,9 +410,9 @@ fn format_method(type_name: &str, method: &Method) -> String {
         .as_ref()
         .map(format_type_annotation)
         .unwrap_or_else(|| "unit".to_string());
-    let prefix = if method.is_async { "async fn" } else { "fn" };
+    let prefix = if method.is_async { "async func" } else { "func" };
     format!(
-        "{} {}::{}({}) -> {}",
+        "{} {}::{}({}) returns {}",
         prefix, type_name, method.name, params, return_type
     )
 }
@@ -458,7 +458,7 @@ fn format_type_annotation(annotation: &TypeAnnotation) -> String {
             params,
             return_type,
         } => format!(
-            "fn({}) -> {}",
+            "func({}) returns {}",
             params
                 .iter()
                 .map(format_type_annotation)
@@ -581,14 +581,14 @@ mod tests {
     #[test]
     fn definition_labels_preserve_async_markers() {
         let source = r#"
-            module labels;
+            module labels
 
-            async fn fetch() {}
+            async func fetch() {}
 
-            struct Service {}
+            record Service {}
 
             impl Service {
-                async fn handle(&self) {}
+                async func handle(&self) {}
             }
         "#;
 
@@ -605,7 +605,7 @@ mod tests {
             .map(|definition| definition.label.as_str())
             .collect::<Vec<_>>();
 
-        assert!(labels.contains(&"async fn fetch() -> unit"));
-        assert!(labels.contains(&"async fn Service::handle(&self) -> unit"));
+        assert!(labels.contains(&"async func fetch() returns unit"));
+        assert!(labels.contains(&"async func Service::handle(&self) returns unit"));
     }
 }

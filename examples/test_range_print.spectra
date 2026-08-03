@@ -1,14 +1,14 @@
-module test_range_print;
-import std.io;
+module test_range_print
+import std.io
 
-pub fn main() -> int {
-    for i in 0..5 {
-        println(i);
+public func main() returns int {
+    for i in 0 .. 5 {
+        println(i)
     }
-    let sum = 0;
-    for j in 1..=4 {
-        sum = sum + j;
+    let sum = 0
+    for j in 1 ..= 4 {
+        sum = sum + j
     }
-    println(sum);
-    return 0;
+    println(sum)
+    return 0
 }

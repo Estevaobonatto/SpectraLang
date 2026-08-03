@@ -1,48 +1,48 @@
 // AI reference example: tiny CNN-style classifier training + text export.
-module ai_cnn_image_classifier;
+module ai_cnn_image_classifier
 
-import std.tensor as tensor;
-import std.ml as ml;
-import std.fs as fs;
+import std.tensor as tensor
+import std.ml as ml
+import std.fs as fs
 
-fn train_step(input: int, target: int, kernel: int, bias: int, m: int, v: int, step: int) -> int {
-    let prediction = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
-    let loss = ml.mse_loss(prediction, target);
-    tensor.backward(loss);
-    ml.adamw_step(kernel, m, v, 0.05, 0.9, 0.999, 0.00000001, step, 0.0);
-    ml.sgd_step(bias, 0.05);
-    return 0;
+func train_step(input: int, target: int, kernel: int, bias: int, m: int, v: int, step: int) returns int {
+    let prediction = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1)
+    let loss       = ml.mse_loss(prediction, target)
+    tensor.backward(loss)
+    ml.adamw_step(kernel, m, v, 0.05, 0.9, 0.999, 0.00000001, step, 0.0)
+    ml.sgd_step(bias, 0.05)
+    return 0
 }
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let input = tensor.full_f(4, 1.0);
-    let target = tensor.full_f(4, 1.0);
-    let kernel = tensor.requires_grad(tensor.full_f(1, 0.0), true);
-    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
-    let m = tensor.full_f(1, 0.0);
-    let v = tensor.full_f(1, 0.0);
+    let input  = tensor.full_f(4, 1.0)
+    let target = tensor.full_f(4, 1.0)
+    let kernel = tensor.requires_grad(tensor.full_f(1, 0.0), true)
+    let bias   = tensor.requires_grad(tensor.full_f(1, 0.0), true)
+    let m      = tensor.full_f(1, 0.0)
+    let v      = tensor.full_f(1, 0.0)
 
-    train_step(input, target, kernel, bias, m, v, 1);
-    train_step(input, target, kernel, bias, m, v, 2);
-    train_step(input, target, kernel, bias, m, v, 3);
-    train_step(input, target, kernel, bias, m, v, 4);
-    train_step(input, target, kernel, bias, m, v, 5);
-    train_step(input, target, kernel, bias, m, v, 6);
+    train_step(input, target, kernel, bias, m, v, 1)
+    train_step(input, target, kernel, bias, m, v, 2)
+    train_step(input, target, kernel, bias, m, v, 3)
+    train_step(input, target, kernel, bias, m, v, 4)
+    train_step(input, target, kernel, bias, m, v, 5)
+    train_step(input, target, kernel, bias, m, v, 6)
 
-    let prediction = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
+    let prediction = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1)
     if tensor.len(prediction) != 4 {
-        return 1;
+        return 1
     }
-    let pooled = ml.max_pool2d(input, 1, 1, 2, 2, 2, 2);
+    let pooled = ml.max_pool2d(input, 1, 1, 2, 2, 2, 2)
     if tensor.len(pooled) != 1 {
-        return 2;
+        return 2
     }
 
-    fs.fs_write("target/ai-examples/cnn_image_classifier_model.txt", "spectralang cnn image classifier model\nkernel=1x1\ninput=2x2\n");
+    fs.fs_write("target/ai-examples/cnn_image_classifier_model.txt", "spectralang cnn image classifier model\nkernel=1x1\ninput=2x2\n")
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

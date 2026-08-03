@@ -12,232 +12,232 @@ module std.api.handler
 module std.api.cors
 module std.api.middleware
 module std.api.errors
-type std.api.http.Request: struct Request
-type std.api.http.Response: struct Response
-type std.api.http.Method: struct Method
-type std.api.http.Status: struct Status
-type std.api.http.Header: struct Header
-type std.api.http.Headers: struct Headers
-type std.api.http.Cookie: struct Cookie
-type std.api.http.Body: struct Body
-type std.api.server.Server: struct Server
-type std.api.client.Client: struct Client
-type std.api.json.JsonValue: struct JsonValue
-type std.api.tls.TlsConfig: struct TlsConfig
-type std.api.routing.Route: struct Route
-type std.api.routing.Router: struct Router
-type std.api.routing.RouteMatch: struct RouteMatch
-type std.api.query.Query: struct Query
-type std.api.query.QuerySchema: struct QuerySchema
-type std.api.query.QueryBinding: struct QueryBinding
-type std.api.form.Form: struct Form
-type std.api.form.FormSchema: struct FormSchema
-type std.api.form.FormBinding: struct FormBinding
-type std.api.multipart.Multipart: struct Multipart
-type std.api.multipart.MultipartPart: struct MultipartPart
-type std.api.handler.HandlerHandle: struct HandlerHandle
-type std.api.handler.AsyncHandlerHandle: struct AsyncHandlerHandle
-type std.api.handler.HandlerError: struct HandlerError
-type std.api.middleware.MiddlewareChain: struct MiddlewareChain
-type std.api.middleware.MiddlewareHandle: struct MiddlewareHandle
-type std.api.middleware.AsyncMiddlewareHandle: struct AsyncMiddlewareHandle
-type std.api.middleware.MiddlewareTrace: struct MiddlewareTrace
-type std.api.cors.CorsPolicy: struct CorsPolicy
-type std.api.errors.ApiError: struct ApiError
-fn std.api.http.method_name: fn(int) -> string
-fn std.api.http.method_allows_body: fn(int) -> bool
-fn std.api.http.method_is_safe: fn(int) -> bool
-fn std.api.http.method_get: fn() -> int
-fn std.api.http.method_head: fn() -> int
-fn std.api.http.method_post: fn() -> int
-fn std.api.http.method_put: fn() -> int
-fn std.api.http.method_patch: fn() -> int
-fn std.api.http.method_delete: fn() -> int
-fn std.api.http.method_options: fn() -> int
-fn std.api.http.status_reason: fn(int) -> string
-fn std.api.http.status_class: fn(int) -> int
-fn std.api.http.status_is_success: fn(int) -> bool
-fn std.api.http.status_continue: fn() -> int
-fn std.api.http.status_switching_protocols: fn() -> int
-fn std.api.http.status_ok: fn() -> int
-fn std.api.http.status_created: fn() -> int
-fn std.api.http.status_accepted: fn() -> int
-fn std.api.http.status_no_content: fn() -> int
-fn std.api.http.status_moved_permanently: fn() -> int
-fn std.api.http.status_found: fn() -> int
-fn std.api.http.status_not_modified: fn() -> int
-fn std.api.http.status_bad_request: fn() -> int
-fn std.api.http.status_unauthorized: fn() -> int
-fn std.api.http.status_forbidden: fn() -> int
-fn std.api.http.status_not_found: fn() -> int
-fn std.api.http.status_method_not_allowed: fn() -> int
-fn std.api.http.status_conflict: fn() -> int
-fn std.api.http.status_unsupported_media_type: fn() -> int
-fn std.api.http.status_unprocessable_content: fn() -> int
-fn std.api.http.status_too_many_requests: fn() -> int
-fn std.api.http.status_internal_server_error: fn() -> int
-fn std.api.http.status_bad_gateway: fn() -> int
-fn std.api.http.status_service_unavailable: fn() -> int
-fn std.api.http.status_gateway_timeout: fn() -> int
-fn std.api.http.header_name_is_valid: fn(string) -> bool
-fn std.api.http.header_value_is_valid: fn(string) -> bool
-fn std.api.http.request: fn(int, string) -> Request
-fn std.api.http.request_new: fn(int) -> Request
-fn std.api.http.request_method: fn(Request) -> int
-fn std.api.http.request_path: fn(Request) -> string
-fn std.api.http.request_header: fn(Request, string) -> string
-fn std.api.http.request_with_header: fn(Request, string, string) -> Request
-fn std.api.http.request_cookie: fn(Request, string) -> string
-fn std.api.http.response: fn(int) -> Response
-fn std.api.http.response_new: fn(int) -> Response
-fn std.api.http.response_status: fn(Response) -> int
-fn std.api.http.response_header: fn(Response, string) -> string
-fn std.api.http.response_body_len: fn(Response) -> int
-fn std.api.http.header: fn(string, string) -> Header
-fn std.api.http.header_name: fn(Header) -> string
-fn std.api.http.header_value: fn(Header) -> string
-fn std.api.http.cookie: fn(string, string) -> Cookie
-fn std.api.http.cookie_name: fn(Cookie) -> string
-fn std.api.http.cookie_value: fn(Cookie) -> string
-fn std.api.http.status: fn(int) -> Status
-fn std.api.server.new: fn() -> Server
-fn std.api.server.listen: fn(Server, int) -> bool
-fn std.api.server.serve: fn(Server, Router) -> task<int>
-fn std.api.server.state: fn(Server) -> int
-fn std.api.server.shutdown: fn(Server) -> bool
-fn std.api.server.local_port: fn(Server) -> int
-fn std.api.server.signal: fn(Server, int) -> bool
-fn std.api.server.stats: fn(Server, int) -> int
-fn std.api.client.new: fn() -> Client
-fn std.api.client.request: fn(Client, Request) -> task<Response>
-fn std.api.client.timeout_ms: fn(Client) -> int
-fn std.api.json.validate: fn(string) -> bool
-fn std.api.json.kind: fn(string) -> int
-fn std.api.json.encode: fn(unknown) -> string
-fn std.api.json.decode: fn(string) -> JsonValue
-fn std.api.tls.config_new: fn(int) -> TlsConfig
-fn std.api.tls.config_mode: fn(TlsConfig) -> int
-fn std.api.tls.server_config: fn(string, string) -> TlsConfig
-fn std.api.tls.client_config: fn() -> TlsConfig
-fn std.api.routing.router: fn() -> Router
-fn std.api.routing.router_new: fn() -> Router
-fn std.api.routing.route_count: fn(Router) -> int
-fn std.api.routing.route_id: fn(Route) -> int
-fn std.api.routing.route_add: fn(Router, int, string) -> Route
-fn std.api.routing.route_match: fn(Router, int, string) -> RouteMatch
-fn std.api.routing.match_route_id: fn(RouteMatch) -> int
-fn std.api.routing.match_param: fn(RouteMatch, string) -> string
-fn std.api.routing.match_param_int: fn(RouteMatch, string) -> int
-fn std.api.routing.last_conflict: fn() -> string
-fn std.api.routing.get: fn(Router, string) -> Route
-fn std.api.routing.post: fn(Router, string) -> Route
-fn std.api.routing.put: fn(Router, string) -> Route
-fn std.api.routing.patch: fn(Router, string) -> Route
-fn std.api.routing.delete: fn(Router, string) -> Route
-fn std.api.query.type_string: fn() -> int
-fn std.api.query.type_int: fn() -> int
-fn std.api.query.type_bool: fn() -> int
-fn std.api.query.parse: fn(string) -> Query
-fn std.api.query.len: fn(Query) -> int
-fn std.api.query.has: fn(Query, string) -> bool
-fn std.api.query.count: fn(Query, string) -> int
-fn std.api.query.first: fn(Query, string) -> string
-fn std.api.query.value: fn(Query, string, int) -> string
-fn std.api.query.int: fn(Query, string, int) -> int
-fn std.api.query.bool: fn(Query, string, int) -> bool
-fn std.api.query.schema: fn() -> QuerySchema
-fn std.api.query.schema_field: fn(QuerySchema, string, int, bool, bool) -> QuerySchema
-fn std.api.query.bind: fn(Query, QuerySchema) -> QueryBinding
-fn std.api.query.binding_ok: fn(QueryBinding) -> bool
-fn std.api.query.binding_error: fn(QueryBinding) -> string
-fn std.api.query.binding_count: fn(QueryBinding, string) -> int
-fn std.api.query.binding_value: fn(QueryBinding, string, int) -> string
-fn std.api.query.binding_int: fn(QueryBinding, string, int) -> int
-fn std.api.query.binding_bool: fn(QueryBinding, string, int) -> bool
-fn std.api.query.error_code: fn() -> int
-fn std.api.query.error_message: fn() -> string
-fn std.api.form.type_string: fn() -> int
-fn std.api.form.type_int: fn() -> int
-fn std.api.form.type_bool: fn() -> int
-fn std.api.form.parse: fn(string) -> Form
-fn std.api.form.len: fn(Form) -> int
-fn std.api.form.has: fn(Form, string) -> bool
-fn std.api.form.count: fn(Form, string) -> int
-fn std.api.form.first: fn(Form, string) -> string
-fn std.api.form.value: fn(Form, string, int) -> string
-fn std.api.form.int: fn(Form, string, int) -> int
-fn std.api.form.bool: fn(Form, string, int) -> bool
-fn std.api.form.schema: fn() -> FormSchema
-fn std.api.form.schema_field: fn(FormSchema, string, int, bool, bool) -> FormSchema
-fn std.api.form.bind: fn(Form, FormSchema) -> FormBinding
-fn std.api.form.binding_ok: fn(FormBinding) -> bool
-fn std.api.form.binding_error: fn(FormBinding) -> string
-fn std.api.form.binding_count: fn(FormBinding, string) -> int
-fn std.api.form.binding_value: fn(FormBinding, string, int) -> string
-fn std.api.form.binding_int: fn(FormBinding, string, int) -> int
-fn std.api.form.binding_bool: fn(FormBinding, string, int) -> bool
-fn std.api.form.error_code: fn() -> int
-fn std.api.form.error_message: fn() -> string
-fn std.api.multipart.parse: fn(string, string, int, int, int) -> Multipart
-fn std.api.multipart.part_count: fn(Multipart) -> int
-fn std.api.multipart.field_count: fn(Multipart) -> int
-fn std.api.multipart.file_count: fn(Multipart) -> int
-fn std.api.multipart.text: fn(Multipart, string, int) -> string
-fn std.api.multipart.part: fn(Multipart, int) -> MultipartPart
-fn std.api.multipart.part_name: fn(MultipartPart) -> string
-fn std.api.multipart.part_filename: fn(MultipartPart) -> string
-fn std.api.multipart.part_content_type: fn(MultipartPart) -> string
-fn std.api.multipart.part_size: fn(MultipartPart) -> int
-fn std.api.multipart.part_is_file: fn(MultipartPart) -> bool
-fn std.api.multipart.file_path: fn(MultipartPart) -> string
-fn std.api.multipart.file_read: fn(MultipartPart, int, int) -> string
-fn std.api.multipart.file_spool_to: fn(MultipartPart, string) -> bool
-fn std.api.multipart.error_code: fn() -> int
-fn std.api.multipart.error_message: fn() -> string
-fn std.api.handler.text: fn(string) -> Response
-fn std.api.handler.json: fn(string) -> Response
-fn std.api.handler.bytes: fn(string) -> Response
-fn std.api.handler.status: fn(int) -> Response
-fn std.api.handler.with_header: fn(Response, string, string) -> Response
-fn std.api.handler.into_response: fn(Response) -> Response
-fn std.api.handler.into_text_response: fn(string) -> Response
-fn std.api.handler.into_status_response: fn(int) -> Response
-fn std.api.handler.error: fn(int, string) -> HandlerError
-fn std.api.handler.error_response: fn(HandlerError) -> Response
-fn std.api.handler.error_code: fn(HandlerError) -> int
-fn std.api.handler.error_message: fn(HandlerError) -> string
-fn std.api.handler.last_error_message: fn() -> string
-fn std.api.handler.register_sync: fn(int, Response) -> HandlerHandle
-fn std.api.handler.register_async: fn(int, Response) -> AsyncHandlerHandle
-fn std.api.handler.dispatch_sync: fn(HandlerHandle, Request) -> Response
-fn std.api.handler.dispatch_async: fn(AsyncHandlerHandle, Request) -> Response
-fn std.api.cors.policy: fn() -> CorsPolicy
-fn std.api.cors.permissive: fn() -> CorsPolicy
-fn std.api.cors.allow_origin: fn(CorsPolicy, string) -> CorsPolicy
-fn std.api.cors.allow_method: fn(CorsPolicy, int) -> CorsPolicy
-fn std.api.cors.allow_header: fn(CorsPolicy, string) -> CorsPolicy
-fn std.api.cors.expose_header: fn(CorsPolicy, string) -> CorsPolicy
-fn std.api.cors.allow_credentials: fn(CorsPolicy, bool) -> CorsPolicy
-fn std.api.cors.max_age: fn(CorsPolicy, int) -> CorsPolicy
-fn std.api.cors.middleware: fn(CorsPolicy) -> MiddlewareHandle
-fn std.api.cors.is_preflight: fn(Request) -> bool
-fn std.api.cors.preflight: fn(CorsPolicy, Request) -> Response
-fn std.api.cors.apply: fn(CorsPolicy, Request, Response) -> Response
-fn std.api.cors.allowed_origin: fn(CorsPolicy, string) -> string
-fn std.api.middleware.chain: fn() -> MiddlewareChain
-fn std.api.middleware.chain_new: fn() -> MiddlewareChain
-fn std.api.middleware.chain_len: fn(MiddlewareChain) -> int
-fn std.api.middleware.register_sync: fn(string, string) -> MiddlewareHandle
-fn std.api.middleware.register_sync_short_circuit: fn(string, string, Response) -> MiddlewareHandle
-fn std.api.middleware.register_async: fn(string, string) -> AsyncMiddlewareHandle
-fn std.api.middleware.register_async_short_circuit: fn(string, string, Response) -> AsyncMiddlewareHandle
-fn std.api.middleware.use_sync: fn(MiddlewareChain, MiddlewareHandle) -> MiddlewareChain
-fn std.api.middleware.use_async: fn(MiddlewareChain, AsyncMiddlewareHandle) -> MiddlewareChain
-fn std.api.middleware.execute_sync: fn(MiddlewareChain, Request, Response) -> Response
-fn std.api.middleware.execute_async: fn(MiddlewareChain, Request, Response) -> Response
-fn std.api.middleware.last_trace: fn() -> MiddlewareTrace
-fn std.api.middleware.trace_len: fn(MiddlewareTrace) -> int
-fn std.api.middleware.trace_event: fn(MiddlewareTrace, int) -> string
-fn std.api.middleware.trace_short_circuited: fn(MiddlewareTrace) -> bool
-fn std.api.errors.last_code: fn() -> int
-fn std.api.errors.last_message: fn() -> string
+type std.api.http.Request: record Request
+type std.api.http.Response: record Response
+type std.api.http.Method: record Method
+type std.api.http.Status: record Status
+type std.api.http.Header: record Header
+type std.api.http.Headers: record Headers
+type std.api.http.Cookie: record Cookie
+type std.api.http.Body: record Body
+type std.api.server.Server: record Server
+type std.api.client.Client: record Client
+type std.api.json.JsonValue: record JsonValue
+type std.api.tls.TlsConfig: record TlsConfig
+type std.api.routing.Route: record Route
+type std.api.routing.Router: record Router
+type std.api.routing.RouteMatch: record RouteMatch
+type std.api.query.Query: record Query
+type std.api.query.QuerySchema: record QuerySchema
+type std.api.query.QueryBinding: record QueryBinding
+type std.api.form.Form: record Form
+type std.api.form.FormSchema: record FormSchema
+type std.api.form.FormBinding: record FormBinding
+type std.api.multipart.Multipart: record Multipart
+type std.api.multipart.MultipartPart: record MultipartPart
+type std.api.handler.HandlerHandle: record HandlerHandle
+type std.api.handler.AsyncHandlerHandle: record AsyncHandlerHandle
+type std.api.handler.HandlerError: record HandlerError
+type std.api.middleware.MiddlewareChain: record MiddlewareChain
+type std.api.middleware.MiddlewareHandle: record MiddlewareHandle
+type std.api.middleware.AsyncMiddlewareHandle: record AsyncMiddlewareHandle
+type std.api.middleware.MiddlewareTrace: record MiddlewareTrace
+type std.api.cors.CorsPolicy: record CorsPolicy
+type std.api.errors.ApiError: record ApiError
+func std.api.http.method_name: func(int) returns string
+func std.api.http.method_allows_body: func(int) returns bool
+func std.api.http.method_is_safe: func(int) returns bool
+func std.api.http.method_get: func() returns int
+func std.api.http.method_head: func() returns int
+func std.api.http.method_post: func() returns int
+func std.api.http.method_put: func() returns int
+func std.api.http.method_patch: func() returns int
+func std.api.http.method_delete: func() returns int
+func std.api.http.method_options: func() returns int
+func std.api.http.status_reason: func(int) returns string
+func std.api.http.status_class: func(int) returns int
+func std.api.http.status_is_success: func(int) returns bool
+func std.api.http.status_continue: func() returns int
+func std.api.http.status_switching_protocols: func() returns int
+func std.api.http.status_ok: func() returns int
+func std.api.http.status_created: func() returns int
+func std.api.http.status_accepted: func() returns int
+func std.api.http.status_no_content: func() returns int
+func std.api.http.status_moved_permanently: func() returns int
+func std.api.http.status_found: func() returns int
+func std.api.http.status_not_modified: func() returns int
+func std.api.http.status_bad_request: func() returns int
+func std.api.http.status_unauthorized: func() returns int
+func std.api.http.status_forbidden: func() returns int
+func std.api.http.status_not_found: func() returns int
+func std.api.http.status_method_not_allowed: func() returns int
+func std.api.http.status_conflict: func() returns int
+func std.api.http.status_unsupported_media_type: func() returns int
+func std.api.http.status_unprocessable_content: func() returns int
+func std.api.http.status_too_many_requests: func() returns int
+func std.api.http.status_internal_server_error: func() returns int
+func std.api.http.status_bad_gateway: func() returns int
+func std.api.http.status_service_unavailable: func() returns int
+func std.api.http.status_gateway_timeout: func() returns int
+func std.api.http.header_name_is_valid: func(string) returns bool
+func std.api.http.header_value_is_valid: func(string) returns bool
+func std.api.http.request: func(int, string) returns Request
+func std.api.http.request_new: func(int) returns Request
+func std.api.http.request_method: func(Request) returns int
+func std.api.http.request_path: func(Request) returns string
+func std.api.http.request_header: func(Request, string) returns string
+func std.api.http.request_with_header: func(Request, string, string) returns Request
+func std.api.http.request_cookie: func(Request, string) returns string
+func std.api.http.response: func(int) returns Response
+func std.api.http.response_new: func(int) returns Response
+func std.api.http.response_status: func(Response) returns int
+func std.api.http.response_header: func(Response, string) returns string
+func std.api.http.response_body_len: func(Response) returns int
+func std.api.http.header: func(string, string) returns Header
+func std.api.http.header_name: func(Header) returns string
+func std.api.http.header_value: func(Header) returns string
+func std.api.http.cookie: func(string, string) returns Cookie
+func std.api.http.cookie_name: func(Cookie) returns string
+func std.api.http.cookie_value: func(Cookie) returns string
+func std.api.http.status: func(int) returns Status
+func std.api.server.new: func() returns Server
+func std.api.server.listen: func(Server, int) returns bool
+func std.api.server.serve: func(Server, Router) returns task<int>
+func std.api.server.state: func(Server) returns int
+func std.api.server.shutdown: func(Server) returns bool
+func std.api.server.local_port: func(Server) returns int
+func std.api.server.signal: func(Server, int) returns bool
+func std.api.server.stats: func(Server, int) returns int
+func std.api.client.new: func() returns Client
+func std.api.client.request: func(Client, Request) returns task<Response>
+func std.api.client.timeout_ms: func(Client) returns int
+func std.api.json.validate: func(string) returns bool
+func std.api.json.kind: func(string) returns int
+func std.api.json.encode: func(unknown) returns string
+func std.api.json.decode: func(string) returns JsonValue
+func std.api.tls.config_new: func(int) returns TlsConfig
+func std.api.tls.config_mode: func(TlsConfig) returns int
+func std.api.tls.server_config: func(string, string) returns TlsConfig
+func std.api.tls.client_config: func() returns TlsConfig
+func std.api.routing.router: func() returns Router
+func std.api.routing.router_new: func() returns Router
+func std.api.routing.route_count: func(Router) returns int
+func std.api.routing.route_id: func(Route) returns int
+func std.api.routing.route_add: func(Router, int, string) returns Route
+func std.api.routing.route_match: func(Router, int, string) returns RouteMatch
+func std.api.routing.match_route_id: func(RouteMatch) returns int
+func std.api.routing.match_param: func(RouteMatch, string) returns string
+func std.api.routing.match_param_int: func(RouteMatch, string) returns int
+func std.api.routing.last_conflict: func() returns string
+func std.api.routing.get: func(Router, string) returns Route
+func std.api.routing.post: func(Router, string) returns Route
+func std.api.routing.put: func(Router, string) returns Route
+func std.api.routing.patch: func(Router, string) returns Route
+func std.api.routing.delete: func(Router, string) returns Route
+func std.api.query.type_string: func() returns int
+func std.api.query.type_int: func() returns int
+func std.api.query.type_bool: func() returns int
+func std.api.query.parse: func(string) returns Query
+func std.api.query.len: func(Query) returns int
+func std.api.query.has: func(Query, string) returns bool
+func std.api.query.count: func(Query, string) returns int
+func std.api.query.first: func(Query, string) returns string
+func std.api.query.value: func(Query, string, int) returns string
+func std.api.query.int: func(Query, string, int) returns int
+func std.api.query.bool: func(Query, string, int) returns bool
+func std.api.query.schema: func() returns QuerySchema
+func std.api.query.schema_field: func(QuerySchema, string, int, bool, bool) returns QuerySchema
+func std.api.query.bind: func(Query, QuerySchema) returns QueryBinding
+func std.api.query.binding_ok: func(QueryBinding) returns bool
+func std.api.query.binding_error: func(QueryBinding) returns string
+func std.api.query.binding_count: func(QueryBinding, string) returns int
+func std.api.query.binding_value: func(QueryBinding, string, int) returns string
+func std.api.query.binding_int: func(QueryBinding, string, int) returns int
+func std.api.query.binding_bool: func(QueryBinding, string, int) returns bool
+func std.api.query.error_code: func() returns int
+func std.api.query.error_message: func() returns string
+func std.api.form.type_string: func() returns int
+func std.api.form.type_int: func() returns int
+func std.api.form.type_bool: func() returns int
+func std.api.form.parse: func(string) returns Form
+func std.api.form.len: func(Form) returns int
+func std.api.form.has: func(Form, string) returns bool
+func std.api.form.count: func(Form, string) returns int
+func std.api.form.first: func(Form, string) returns string
+func std.api.form.value: func(Form, string, int) returns string
+func std.api.form.int: func(Form, string, int) returns int
+func std.api.form.bool: func(Form, string, int) returns bool
+func std.api.form.schema: func() returns FormSchema
+func std.api.form.schema_field: func(FormSchema, string, int, bool, bool) returns FormSchema
+func std.api.form.bind: func(Form, FormSchema) returns FormBinding
+func std.api.form.binding_ok: func(FormBinding) returns bool
+func std.api.form.binding_error: func(FormBinding) returns string
+func std.api.form.binding_count: func(FormBinding, string) returns int
+func std.api.form.binding_value: func(FormBinding, string, int) returns string
+func std.api.form.binding_int: func(FormBinding, string, int) returns int
+func std.api.form.binding_bool: func(FormBinding, string, int) returns bool
+func std.api.form.error_code: func() returns int
+func std.api.form.error_message: func() returns string
+func std.api.multipart.parse: func(string, string, int, int, int) returns Multipart
+func std.api.multipart.part_count: func(Multipart) returns int
+func std.api.multipart.field_count: func(Multipart) returns int
+func std.api.multipart.file_count: func(Multipart) returns int
+func std.api.multipart.text: func(Multipart, string, int) returns string
+func std.api.multipart.part: func(Multipart, int) returns MultipartPart
+func std.api.multipart.part_name: func(MultipartPart) returns string
+func std.api.multipart.part_filename: func(MultipartPart) returns string
+func std.api.multipart.part_content_type: func(MultipartPart) returns string
+func std.api.multipart.part_size: func(MultipartPart) returns int
+func std.api.multipart.part_is_file: func(MultipartPart) returns bool
+func std.api.multipart.file_path: func(MultipartPart) returns string
+func std.api.multipart.file_read: func(MultipartPart, int, int) returns string
+func std.api.multipart.file_spool_to: func(MultipartPart, string) returns bool
+func std.api.multipart.error_code: func() returns int
+func std.api.multipart.error_message: func() returns string
+func std.api.handler.text: func(string) returns Response
+func std.api.handler.json: func(string) returns Response
+func std.api.handler.bytes: func(string) returns Response
+func std.api.handler.status: func(int) returns Response
+func std.api.handler.with_header: func(Response, string, string) returns Response
+func std.api.handler.into_response: func(Response) returns Response
+func std.api.handler.into_text_response: func(string) returns Response
+func std.api.handler.into_status_response: func(int) returns Response
+func std.api.handler.error: func(int, string) returns HandlerError
+func std.api.handler.error_response: func(HandlerError) returns Response
+func std.api.handler.error_code: func(HandlerError) returns int
+func std.api.handler.error_message: func(HandlerError) returns string
+func std.api.handler.last_error_message: func() returns string
+func std.api.handler.register_sync: func(int, Response) returns HandlerHandle
+func std.api.handler.register_async: func(int, Response) returns AsyncHandlerHandle
+func std.api.handler.dispatch_sync: func(HandlerHandle, Request) returns Response
+func std.api.handler.dispatch_async: func(AsyncHandlerHandle, Request) returns Response
+func std.api.cors.policy: func() returns CorsPolicy
+func std.api.cors.permissive: func() returns CorsPolicy
+func std.api.cors.allow_origin: func(CorsPolicy, string) returns CorsPolicy
+func std.api.cors.allow_method: func(CorsPolicy, int) returns CorsPolicy
+func std.api.cors.allow_header: func(CorsPolicy, string) returns CorsPolicy
+func std.api.cors.expose_header: func(CorsPolicy, string) returns CorsPolicy
+func std.api.cors.allow_credentials: func(CorsPolicy, bool) returns CorsPolicy
+func std.api.cors.max_age: func(CorsPolicy, int) returns CorsPolicy
+func std.api.cors.middleware: func(CorsPolicy) returns MiddlewareHandle
+func std.api.cors.is_preflight: func(Request) returns bool
+func std.api.cors.preflight: func(CorsPolicy, Request) returns Response
+func std.api.cors.apply: func(CorsPolicy, Request, Response) returns Response
+func std.api.cors.allowed_origin: func(CorsPolicy, string) returns string
+func std.api.middleware.chain: func() returns MiddlewareChain
+func std.api.middleware.chain_new: func() returns MiddlewareChain
+func std.api.middleware.chain_len: func(MiddlewareChain) returns int
+func std.api.middleware.register_sync: func(string, string) returns MiddlewareHandle
+func std.api.middleware.register_sync_short_circuit: func(string, string, Response) returns MiddlewareHandle
+func std.api.middleware.register_async: func(string, string) returns AsyncMiddlewareHandle
+func std.api.middleware.register_async_short_circuit: func(string, string, Response) returns AsyncMiddlewareHandle
+func std.api.middleware.use_sync: func(MiddlewareChain, MiddlewareHandle) returns MiddlewareChain
+func std.api.middleware.use_async: func(MiddlewareChain, AsyncMiddlewareHandle) returns MiddlewareChain
+func std.api.middleware.execute_sync: func(MiddlewareChain, Request, Response) returns Response
+func std.api.middleware.execute_async: func(MiddlewareChain, Request, Response) returns Response
+func std.api.middleware.last_trace: func() returns MiddlewareTrace
+func std.api.middleware.trace_len: func(MiddlewareTrace) returns int
+func std.api.middleware.trace_event: func(MiddlewareTrace, int) returns string
+func std.api.middleware.trace_short_circuited: func(MiddlewareTrace) returns bool
+func std.api.errors.last_code: func() returns int
+func std.api.errors.last_message: func() returns string

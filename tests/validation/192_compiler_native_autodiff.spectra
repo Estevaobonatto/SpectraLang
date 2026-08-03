@@ -1,55 +1,55 @@
 // R-3004: compiler-visible autodiff contract and runtime equivalence.
-module compiler_native_autodiff;
+module compiler_native_autodiff
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let x0 = tensor.full_f(3, 3.0);
-    let x = tensor.requires_grad(x0, true);
-    let y = tensor.mul(x, x);
+    let x0   = tensor.full_f(3, 3.0)
+    let x    = tensor.requires_grad(x0, true)
+    let y    = tensor.mul(x, x)
     let loss = diff {
         tensor.sum_t(y)
-    };
-    let grad = tensor.grad(x);
+    }
+    let grad = tensor.grad(x)
     if tensor.sum_f(grad) as int != 18 {
-        return tensor.sum_f(grad) as int;
+        return tensor.sum_f(grad) as int
     }
 
-    let left0 = tensor.full2_f(2, 2, 1.0);
-    let right0 = tensor.full2_f(2, 2, 2.0);
-    let left = tensor.requires_grad(left0, true);
-    let right = tensor.requires_grad(right0, true);
-    let product = tensor.matmul(left, right);
+    let left0        = tensor.full2_f(2, 2, 1.0)
+    let right0       = tensor.full2_f(2, 2, 2.0)
+    let left         = tensor.requires_grad(left0, true)
+    let right        = tensor.requires_grad(right0, true)
+    let product      = tensor.matmul(left, right)
     let product_loss = diff {
         tensor.sum_t(product)
-    };
+    }
     if tensor.len(product_loss) != 1 {
-        return tensor.len(product_loss);
+        return tensor.len(product_loss)
     }
     if tensor.rank(tensor.grad(left)) != 2 {
-        return tensor.rank(tensor.grad(left));
+        return tensor.rank(tensor.grad(left))
     }
 
-    let input = tensor.full2_f(1, 2, 1.0);
-    let weight0 = tensor.full2_f(2, 1, 1.0);
-    let bias0 = tensor.full_f(1, 0.0);
-    let weight = tensor.requires_grad(weight0, true);
-    let bias = tensor.requires_grad(bias0, true);
-    let target = tensor.full2_f(1, 1, 2.0);
+    let input      = tensor.full2_f(1, 2, 1.0)
+    let weight0    = tensor.full2_f(2, 1, 1.0)
+    let bias0      = tensor.full_f(1, 0.0)
+    let weight     = tensor.requires_grad(weight0, true)
+    let bias       = tensor.requires_grad(bias0, true)
+    let target     = tensor.full2_f(1, 1, 2.0)
     let model_loss = diff {
         ml.mse_loss(ml.linear(input, weight, bias), target)
-    };
+    }
     if tensor.len(model_loss) != 1 {
-        return tensor.len(model_loss);
+        return tensor.len(model_loss)
     }
     if tensor.rank(tensor.grad(weight)) != 2 {
-        return tensor.rank(tensor.grad(weight));
+        return tensor.rank(tensor.grad(weight))
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

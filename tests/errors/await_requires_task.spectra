@@ -1,10 +1,10 @@
-module await_requires_task;
+module await_requires_task
 
-async fn fetch() -> int {
-    let value = await work();
-    return value;
+async func fetch() returns int {
+    let value = await work()
+    return value
 }
 
-fn work() -> int {
-    return 1;
+func work() returns int {
+    return 1
 }

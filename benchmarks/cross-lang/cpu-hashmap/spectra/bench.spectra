@@ -3,39 +3,39 @@
 // Workload: 200 inserts + 200 contains + 1 len check + 1 free per iter,
 // repeated 30 times. Total expected: 30 * 200 = 6000.
 
-module bench_cpu_hashmap;
+module bench_cpu_hashmap
 
-import std.collections as col;
+import std.collections as col
 
-pub fn main() -> int {
-    let n = 200;
-    let iters = 30;
-    let total = 0;
-    let it = 0;
+public func main() returns int {
+    let n     = 200
+    let iters = 30
+    let total = 0
+    let it    = 0
     while it < iters {
-        let m = col.map_new();
-        let i = 0;
+        let m = col.map_new()
+        let i = 0
         while i < n {
-            col.map_set(m, i * 7, i);
-            i = i + 1;
+            col.map_set(m, i * 7, i)
+            i = i + 1
         }
-        let found = 0;
-        let k = 0;
+        let found = 0
+        let k     = 0
         while k < n {
             if col.map_contains(m, k * 7) == 1 {
-                found = found + 1;
+                found = found + 1
             }
-            k = k + 1;
+            k = k + 1
         }
         if col.map_len(m) != n {
-            return 2;
+            return 2
         }
-        col.map_free(m);
-        total = total + found;
-        it = it + 1;
+        col.map_free(m)
+        total = total + found
+        it = it + 1
     }
     if total == 6000 {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

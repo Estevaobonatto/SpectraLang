@@ -1,3 +1,5 @@
-module sqlite_invalid_sql;
-import { prepare } from std.api.db.sqlite;
-pub fn main() -> int { prepare(); return 0; }
+module sqlite_invalid_sql
+from std.api.db.sqlite import prepare
+public func main() returns int { prepare()
+    return 0
+}

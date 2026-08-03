@@ -1,83 +1,83 @@
-module ml_phase19_evaluation_metrics;
+module ml_phase19_evaluation_metrics
 
-import std.ml as ml;
-import std.string as str;
-import std.tensor as tensor;
+import std.ml as ml
+import std.string as str
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
+public func main() returns int {
+    tensor.free_all()
 
-    let labels = tensor.arange(0, 4, 1);
-    let predicted = tensor.arange(0, 4, 1);
-    let classification = ml.metrics_classification(labels, predicted);
+    let labels         = tensor.arange(0, 4, 1)
+    let predicted      = tensor.arange(0, 4, 1)
+    let classification = ml.metrics_classification(labels, predicted)
     if str.contains(classification, "\"accuracy\":1.000000") {
-        let ok_classification = 1;
+        let ok_classification = 1
         if ok_classification != 1 {
-            return 1;
+            return 1
         }
     } else {
-        return 1;
+        return 1
     }
     if str.contains(classification, "\"roc_auc_baseline\"") {
-        let ok_auc = 1;
+        let ok_auc = 1
         if ok_auc != 1 {
-            return 2;
+            return 2
         }
     } else {
-        return 2;
+        return 2
     }
 
-    let expected = tensor.full_f(4, 1.0);
-    let regression_predicted = tensor.full_f(4, 1.0);
-    let regression = ml.metrics_regression(expected, regression_predicted);
+    let expected             = tensor.full_f(4, 1.0)
+    let regression_predicted = tensor.full_f(4, 1.0)
+    let regression           = ml.metrics_regression(expected, regression_predicted)
     if str.contains(regression, "\"mse\":0.000000") {
-        let ok_mse = 1;
+        let ok_mse = 1
         if ok_mse != 1 {
-            return 3;
+            return 3
         }
     } else {
-        return 3;
+        return 3
     }
     if str.contains(regression, "\"mae\":0.000000") {
-        let ok_mae = 1;
+        let ok_mae = 1
         if ok_mae != 1 {
-            return 4;
+            return 4
         }
     } else {
-        return 4;
+        return 4
     }
 
-    let relevance = tensor.arange(0, 4, 1);
-    let scores = tensor.full_f(4, 1.0);
-    let ranking = ml.metrics_ranking(relevance, scores, 3);
+    let relevance = tensor.arange(0, 4, 1)
+    let scores    = tensor.full_f(4, 1.0)
+    let ranking   = ml.metrics_ranking(relevance, scores, 3)
     if str.contains(ranking, "\"ndcg_at_k\"") {
-        let ok_ndcg = 1;
+        let ok_ndcg = 1
         if ok_ndcg != 1 {
-            return 5;
+            return 5
         }
     } else {
-        return 5;
+        return 5
     }
 
-    let generation = ml.metrics_generation("the answer uses indexed retrieval", "answer uses retrieval");
+    let generation = ml.metrics_generation("the answer uses indexed retrieval", "answer uses retrieval")
     if str.contains(generation, "\"perplexity\"") {
-        let ok_generation = 1;
+        let ok_generation = 1
         if ok_generation != 1 {
-            return 6;
+            return 6
         }
     } else {
-        return 6;
+        return 6
     }
 
-    let latencies = tensor.arange(10, 50, 10);
-    let serving = ml.serving_metrics(latencies, 4, 0);
+    let latencies = tensor.arange(10, 50, 10)
+    let serving   = ml.serving_metrics(latencies, 4, 0)
     if str.contains(serving, "\"throughput_per_second\"") {
-        let ok_serving = 1;
+        let ok_serving = 1
         if ok_serving != 1 {
-            return 7;
+            return 7
         }
     } else {
-        return 7;
+        return 7
     }
 
     let report_path = ml.evaluation_report(
@@ -88,16 +88,16 @@ pub fn main() -> int {
         ranking,
         generation,
         serving
-    );
+    )
     if str.contains(report_path, "evaluation-report.json") {
-        let ok_report = 1;
+        let ok_report = 1
         if ok_report != 1 {
-            return 8;
+            return 8
         }
     } else {
-        return 8;
+        return 8
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

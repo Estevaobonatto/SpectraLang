@@ -1,43 +1,43 @@
-module components;
+module components
 
-pub enum Step {
+public enum Step {
     Some(int),
     Done,
 }
 
-pub struct Invoice {
-    pub subtotal: int,
-    pub tax: int,
+public record Invoice {
+    public subtotal: int,
+    public tax: int,
 }
 
 impl Invoice {
-    pub fn total(&self) -> int {
-        return self.subtotal + self.tax;
+    public func total( & self) returns int {
+        return self.subtotal + self.tax
     }
 }
 
-pub fn next(value: int) -> Step {
+public func next(value: int) returns Step {
     if value > 0 {
-        return Step::Some(value);
+        return Step::Some(value)
     }
-    return Step::Done;
+    return Step::Done
 }
 
-pub fn control_total(start: int) -> int {
-    let cursor = start;
-    let sum = 0;
+public func control_total(start: int) returns int {
+    let cursor = start
+    let sum    = 0
 
     while let Step::Some(value) = next(cursor) {
-        sum = sum + value;
-        cursor = cursor - 1;
+        sum = sum + value
+        cursor = cursor - 1
     }
 
     match sum {
-        10 => {
-            return sum + 7;
+        when 10 then {
+            return sum + 7
         }
-        _ => {
-            return sum;
+        otherwise then {
+            return sum
         }
-    };
+    }
 }

@@ -1,7 +1,7 @@
-module json_derive_missing_field;
+module json_derive_missing_field
 
 #[derive(Serialize, Deserialize)]
-struct Profile {
+record Profile {
     #[json(rename = "user_id")]
     id: int,
     name: string,
@@ -9,7 +9,7 @@ struct Profile {
     nickname: string,
 }
 
-pub fn main() -> int {
-    let decoded: Profile = Profile::from_json("{\"user_id\":7}");
-    return decoded.id;
+public func main() returns int {
+    let decoded: Profile = Profile::from_json("{\"user_id\":7}")
+    return decoded.id
 }

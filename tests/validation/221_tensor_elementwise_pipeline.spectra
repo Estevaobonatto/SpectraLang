@@ -1,22 +1,27 @@
 // Extended validation: integer elementwise pipeline and reduction invariants.
-module tensor_elementwise_pipeline;
+module tensor_elementwise_pipeline
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    let left = tensor.arange(1, 5, 1);
-    let offset = tensor.full(4, 2);
-    let shifted = tensor.add(left, offset);
-    if tensor.len(shifted) != 4 { return 1; }
-    if tensor.sum(shifted) != 18 { return 2; }
+public func main() returns int {
+    tensor.free_all()
+    let left    = tensor.arange(1, 5, 1)
+    let offset  = tensor.full(4, 2)
+    let shifted = tensor.add(left, offset)
+    if tensor.len(shifted) != 4 { return 1
+    }
+    if tensor.sum(shifted) != 18 { return 2
+    }
 
-    let scaled = tensor.mul(shifted, offset);
-    if tensor.get(scaled, 0) != 6 { return 3; }
-    if tensor.sum(scaled) != 36 { return 4; }
+    let scaled = tensor.mul(shifted, offset)
+    if tensor.get(scaled, 0) != 6 { return 3
+    }
+    if tensor.sum(scaled) != 36 { return 4
+    }
 
-    let restored = tensor.sub(shifted, offset);
-    if tensor.get(restored, 3) != 4 { return 5; }
-    tensor.free_all();
-    return 0;
+    let restored = tensor.sub(shifted, offset)
+    if tensor.get(restored, 3) != 4 { return 5
+    }
+    tensor.free_all()
+    return 0
 }

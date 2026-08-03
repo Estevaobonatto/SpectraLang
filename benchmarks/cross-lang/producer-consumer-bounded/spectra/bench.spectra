@@ -2,45 +2,45 @@
 // Producer pushes 500 items (0..499), consumer receives and computes
 // (n*n*n) % 1000, totals the results. Per-iter total = 228500.
 
-module bench_producer_consumer_bounded;
+module bench_producer_consumer_bounded
 
-import std.concurrent as concurrent;
+import std.concurrent as concurrent
 
-pub fn process(n: int) -> int {
-    let v = n * n * n;
-    return v - (v / 1000) * 1000;
+public func process(n: int) returns int {
+    let v = n * n * n
+    return v - (v / 1000) * 1000
 }
 
-pub fn main() -> int {
-    let iters = 200;
-    let total = 0;
-    let it = 0;
+public func main() returns int {
+    let iters = 200
+    let total = 0
+    let it    = 0
     while it < iters {
-        concurrent.reset();
-        let ch = concurrent.channel_new();
+        concurrent.reset()
+        let ch = concurrent.channel_new()
         // Producer: push 500 items
-        let i = 0;
+        let i = 0
         while i < 500 {
-            concurrent.channel_send(ch, i);
-            i = i + 1;
+            concurrent.channel_send(ch, i)
+            i = i + 1
         }
-        concurrent.channel_close(ch);
+        concurrent.channel_close(ch)
         // Consumer: drain and process
-        let acc = 0;
-        let done = 0;
+        let acc  = 0
+        let done = 0
         while done == 0 {
-            let v = concurrent.channel_recv(ch);
+            let v = concurrent.channel_recv(ch)
             if v == -1 {
-                done = 1;
+                done = 1
             } else {
-                acc = acc + process(v);
+                acc = acc + process(v)
             }
         }
-        total = total + acc;
-        it = it + 1;
+        total = total + acc
+        it = it + 1
     }
     if total == 228500 * iters {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

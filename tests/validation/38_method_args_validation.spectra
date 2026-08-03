@@ -1,28 +1,28 @@
 // Test: Method argument validation
-module method_args_test;
+module method_args_test
 
-struct Calculator {
+record Calculator {
     value: int
 }
 
 impl Calculator {
-    fn add(&self, x: int, y: int) -> int {
+    func add( & self, x: int, y: int) returns int {
         x + y
     }
-    
-    fn multiply(&self, x: int) -> int {
+
+    func multiply( & self, x: int) returns int {
         x * 2
     }
 }
 
-fn main() -> int {
-    let calc = Calculator { value: 0 };
-    
+func main() returns int {
+    let calc = Calculator { value: 0 }
+
     // Correto: 2 argumentos
-    let sum = calc.add(5, 3);
-    
+    let sum = calc.add(5, 3)
+
     // Correto: 1 argumento
-    let product = calc.multiply(7);
-    
+    let product = calc.multiply(7)
+
     sum + product
 }

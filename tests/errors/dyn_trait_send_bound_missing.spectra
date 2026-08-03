@@ -1,21 +1,21 @@
-module dyn_trait_send_bound_missing;
+module dyn_trait_send_bound_missing
 
 trait Worker {
-    async fn run(&self) -> int;
+    async func run( & self) returns int
 }
 
-struct NonSend {
+record NonSend {
     value: int
 }
 
 impl Worker for NonSend {
-    async fn run(&self) -> int {
-        return self.value;
+    async func run( & self) returns int {
+        return self.value
     }
 }
 
-async fn bad() -> int {
-    let local = NonSend { value: 9 };
-    let worker = local as dyn Worker + Send;
-    return await worker.run();
+async func bad() returns int {
+    let local  = NonSend { value: 9 }
+    let worker = local as dyn Worker + Send
+    return await worker.run()
 }

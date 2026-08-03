@@ -1,13 +1,13 @@
-module diff_block_unsupported_serving_call;
+module diff_block_unsupported_serving_call
 
-import std.serve as serve;
-import std.tensor as tensor;
+import std.serve as serve
+import std.tensor as tensor
 
-pub fn main() -> int {
-    serve.reset();
-    let server = serve.server_new(2);
+public func main() returns int {
+    serve.reset()
+    let server                     = serve.server_new(2)
     let loss: Tensor<float, rank0> = diff {
         serve.server_monitoring_snapshot(server)
-    };
-    return tensor.len(loss);
+    }
+    return tensor.len(loss)
 }

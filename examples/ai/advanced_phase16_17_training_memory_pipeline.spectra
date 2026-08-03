@@ -1,102 +1,102 @@
 // Advanced AI example: tensor graph-style math, memory planning, data loading,
 // autodiff training, and experiment reproducibility in one flow.
-module advanced_phase16_17_training_memory_pipeline;
+module advanced_phase16_17_training_memory_pipeline
 
-import std.fs as fs;
-import std.ml as ml;
-import std.string as str;
-import std.tensor as tensor;
+import std.fs as fs
+import std.ml as ml
+import std.string as str
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
+    tensor.set_grad_enabled( true)
 
     let run_a = ml.experiment_start(
         "advanced-phase16-17",
         "target/advanced-phase16-17-run-a",
         2026
-    );
-    fs.fs_write("target/advanced-phase16-17-lock.txt", "spectralang advanced pipeline lock\n");
-    fs.fs_write("target/advanced-phase16-17-model.txt", "advanced model artifact\n");
-    fs.fs_write("target/advanced-phase16-17-artifact.txt", "memory planner and graph pipeline evidence\n");
-    ml.experiment_set_config(run_a, "pipeline", "phase16-phase17-advanced");
-    ml.experiment_set_config(run_a, "optimizer", "sgd");
-    ml.experiment_set_lockfile(run_a, "target/advanced-phase16-17-lock.txt");
+    )
+    fs.fs_write("target/advanced-phase16-17-lock.txt", "spectralang advanced pipeline lock\n")
+    fs.fs_write("target/advanced-phase16-17-model.txt", "advanced model artifact\n")
+    fs.fs_write("target/advanced-phase16-17-artifact.txt", "memory planner and graph pipeline evidence\n")
+    ml.experiment_set_config(run_a, "pipeline", "phase16-phase17-advanced")
+    ml.experiment_set_config(run_a, "optimizer", "sgd")
+    ml.experiment_set_lockfile(run_a, "target/advanced-phase16-17-lock.txt")
 
-    let features_a = tensor.reshape(tensor.full_f(6, 1.0), 3, 2);
-    let labels_a = tensor.reshape(tensor.full_f(3, 2.0), 3, 1);
-    let dataset_a = ml.dataset_from_tensors(features_a, labels_a, 3);
-    let loader_a = ml.dataloader_new(dataset_a, 3, 2026);
-    let batch_x_a = tensor.reshape(ml.dataloader_batch_features(loader_a, 0), 3, 2);
-    let batch_y_a = tensor.reshape(ml.dataloader_batch_labels(loader_a, 0), 3, 1);
-    let w_a = tensor.reshape(tensor.requires_grad(tensor.full_f(2, 0.5), true), 2, 1);
-    let b_a = tensor.requires_grad(tensor.full_f(1, 0.0), true);
-    let prediction_a = ml.linear(batch_x_a, w_a, b_a);
-    let loss_a = ml.mse_loss(prediction_a, batch_y_a);
-    tensor.backward(loss_a);
-    ml.sgd_step(w_a, 0.01);
-    ml.sgd_step(b_a, 0.01);
-    let normalized_a = tensor.tanh_f(tensor.sqrt_f(tensor.relu(prediction_a)));
+    let features_a   = tensor.reshape(tensor.full_f(6, 1.0), 3, 2)
+    let labels_a     = tensor.reshape(tensor.full_f(3, 2.0), 3, 1)
+    let dataset_a    = ml.dataset_from_tensors(features_a, labels_a, 3)
+    let loader_a     = ml.dataloader_new(dataset_a, 3, 2026)
+    let batch_x_a    = tensor.reshape(ml.dataloader_batch_features(loader_a, 0), 3, 2)
+    let batch_y_a    = tensor.reshape(ml.dataloader_batch_labels(loader_a, 0), 3, 1)
+    let w_a          = tensor.reshape(tensor.requires_grad(tensor.full_f(2, 0.5), true), 2, 1)
+    let b_a          = tensor.requires_grad(tensor.full_f(1, 0.0), true)
+    let prediction_a = ml.linear(batch_x_a, w_a, b_a)
+    let loss_a       = ml.mse_loss(prediction_a, batch_y_a)
+    tensor.backward(loss_a)
+    ml.sgd_step(w_a, 0.01)
+    ml.sgd_step(b_a, 0.01)
+    let normalized_a = tensor.tanh_f(tensor.sqrt_f(tensor.relu(prediction_a)))
     if tensor.len(normalized_a) != 3 {
-        return 1;
+        return 1
     }
-    ml.experiment_log_metric(run_a, "loss", 0.125, 1);
-    ml.experiment_set_model_output(run_a, "target/advanced-phase16-17-model.txt");
-    ml.experiment_log_artifact(run_a, "target/advanced-phase16-17-artifact.txt");
-    ml.experiment_finish(run_a);
+    ml.experiment_log_metric(run_a, "loss", 0.125, 1)
+    ml.experiment_set_model_output(run_a, "target/advanced-phase16-17-model.txt")
+    ml.experiment_log_artifact(run_a, "target/advanced-phase16-17-artifact.txt")
+    ml.experiment_finish(run_a)
 
     let run_b = ml.experiment_start(
         "advanced-phase16-17",
         "target/advanced-phase16-17-run-b",
         2026
-    );
-    fs.fs_write("target/advanced-phase16-17-lock.txt", "spectralang advanced pipeline lock\n");
-    fs.fs_write("target/advanced-phase16-17-model.txt", "advanced model artifact\n");
-    fs.fs_write("target/advanced-phase16-17-artifact.txt", "memory planner and graph pipeline evidence\n");
-    ml.experiment_set_config(run_b, "pipeline", "phase16-phase17-advanced");
-    ml.experiment_set_config(run_b, "optimizer", "sgd");
-    ml.experiment_set_lockfile(run_b, "target/advanced-phase16-17-lock.txt");
-    ml.experiment_log_metric(run_b, "loss", 0.125, 1);
-    ml.experiment_set_model_output(run_b, "target/advanced-phase16-17-model.txt");
-    ml.experiment_log_artifact(run_b, "target/advanced-phase16-17-artifact.txt");
-    ml.experiment_finish(run_b);
+    )
+    fs.fs_write("target/advanced-phase16-17-lock.txt", "spectralang advanced pipeline lock\n")
+    fs.fs_write("target/advanced-phase16-17-model.txt", "advanced model artifact\n")
+    fs.fs_write("target/advanced-phase16-17-artifact.txt", "memory planner and graph pipeline evidence\n")
+    ml.experiment_set_config(run_b, "pipeline", "phase16-phase17-advanced")
+    ml.experiment_set_config(run_b, "optimizer", "sgd")
+    ml.experiment_set_lockfile(run_b, "target/advanced-phase16-17-lock.txt")
+    ml.experiment_log_metric(run_b, "loss", 0.125, 1)
+    ml.experiment_set_model_output(run_b, "target/advanced-phase16-17-model.txt")
+    ml.experiment_log_artifact(run_b, "target/advanced-phase16-17-artifact.txt")
+    ml.experiment_finish(run_b)
 
-    let manifest_a = ml.experiment_manifest_path(run_a);
-    let manifest_b = ml.experiment_manifest_path(run_b);
+    let manifest_a = ml.experiment_manifest_path(run_a)
+    let manifest_b = ml.experiment_manifest_path(run_b)
     if ml.experiment_compare_manifests(manifest_a, manifest_b) != 1 {
-        return 2;
+        return 2
     }
     if str.contains(ml.experiment_repro_command(run_a), "spectralang run") {
-        let ok_repro = 1;
+        let ok_repro = 1
         if ok_repro != 1 {
-            return 3;
+            return 3
         }
     } else {
-        return 3;
+        return 3
     }
     if tensor.stats_kernel_ops() < 3 {
-        return 4;
+        return 4
     }
     if tensor.stats_lifetime_records() < 6 {
-        return 5;
+        return 5
     }
 
-    let report = tensor.memory_report();
+    let report = tensor.memory_report()
     if str.contains(report, "spectra.tensor.memory_report.v1") {
-        let ok_memory_report = 1;
+        let ok_memory_report = 1
         if ok_memory_report != 1 {
-            return 6;
+            return 6
         }
     } else {
-        return 6;
+        return 6
     }
 
     fs.fs_write(
         "target/advanced-phase16-17-summary.txt",
         "advanced_phase16_17_training_memory_pipeline=pass\n"
-    );
+    )
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

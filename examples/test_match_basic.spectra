@@ -1,14 +1,14 @@
-module test;
+module test
 
 enum Color {
     Red,
     Green
 }
 
-fn main() -> int {
-    let c = Color::Red;
+func main() returns int {
+    let c      = Color::Red
     let result = match c {
-        Color::Red => 1
-    };
+        when Color::Red then 1
+    }
     result
 }

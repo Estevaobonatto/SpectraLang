@@ -133,6 +133,34 @@ impl Parser {
         matches!(&self.current().kind, TokenKind::Keyword(k) if *k == keyword)
     }
 
+    pub(super) fn check_function_keyword(&self) -> bool {
+        self.check_keyword(Keyword::Func)
+    }
+
+    pub(super) fn consume_function_keyword(&mut self, error_message: &str) -> Result<Span, ()> {
+        if self.check_keyword(Keyword::Func) {
+            let span = self.current().span;
+            self.advance();
+            Ok(span)
+        } else {
+            let span = self.current().span;
+            self.push_error_coded("P001", error_message, span, None, None);
+            Err(())
+        }
+    }
+
+    pub(super) fn consume_record_keyword(&mut self, error_message: &str) -> Result<Span, ()> {
+        if self.check_keyword(Keyword::Record) {
+            let span = self.current().span;
+            self.advance();
+            Ok(span)
+        } else {
+            let span = self.current().span;
+            self.push_error_coded("P001", error_message, span, None, None);
+            Err(())
+        }
+    }
+
     fn check_symbol(&self, symbol: char) -> bool {
         matches!(&self.current().kind, TokenKind::Symbol(s) if *s == symbol)
     }
@@ -188,6 +216,61 @@ impl Parser {
             self.push_error_coded("P002", error_message, span, hint, Some(context));
             Err(())
         }
+    }
+
+    /// Consume the canonical statement terminator.
+    ///
+    /// Spectra's readable surface terminates statements with a line break (or
+    /// the end of a block/file). Semicolons are rejected after the migration.
+    pub(super) fn consume_statement_terminator(
+        &mut self,
+        error_message: &str,
+    ) -> Result<Span, ()> {
+        if self.check_symbol(';') {
+            let span = self.current().span;
+            self.push_error_coded(
+                "P012",
+                "Semicolons are not valid statement terminators in Spectra",
+                span,
+                Some("Remove the semicolon and end the statement with a line break instead.".to_string()),
+                Some("legacy semicolon terminator".to_string()),
+            );
+            self.advance();
+            return Err(());
+        }
+
+        if self.is_at_end() || self.check_symbol('}') || self.line_break_before_current() {
+            return Ok(self.synthetic_span_before_current());
+        }
+
+        let span = self.current().span;
+        self.push_error_coded(
+            "P011",
+            error_message,
+            span,
+            Some("End the statement with a line break or close the surrounding block.".to_string()),
+            Some("a statement continued on the same line without a separator".to_string()),
+        );
+        Err(())
+    }
+
+    /// Whether the current token starts on a later source line than the token
+    /// most recently consumed.  Newlines are deliberately not emitted as
+    /// tokens: spans already carry the exact source location and this keeps
+    /// delimiter parsing and tooling token streams stable during migration.
+    fn line_break_before_current(&self) -> bool {
+        if self.position == 0 {
+            return false;
+        }
+        let previous = self.tokens[self.position - 1].span;
+        self.current().span.start_location.line > previous.end_location.line
+    }
+
+    pub(super) fn statement_ends_before_current(&self) -> bool {
+        self.check_symbol(';')
+            || self.is_at_end()
+            || self.check_symbol('}')
+            || self.line_break_before_current()
     }
 
     fn consume_identifier(&mut self, error_message: &str) -> Result<(String, Span), ()> {
@@ -264,15 +347,16 @@ impl Parser {
             &self.current().kind,
             TokenKind::Keyword(Keyword::Module)
                 | TokenKind::Keyword(Keyword::Import)
+                | TokenKind::Keyword(Keyword::From)
                 | TokenKind::Keyword(Keyword::Async)
-                | TokenKind::Keyword(Keyword::Fn)
+                | TokenKind::Keyword(Keyword::Func)
+                | TokenKind::Keyword(Keyword::Record)
+                | TokenKind::Keyword(Keyword::Public)
                 | TokenKind::Keyword(Keyword::Class)
                 | TokenKind::Keyword(Keyword::Trait)
                 | TokenKind::Keyword(Keyword::Let)
                 | TokenKind::Keyword(Keyword::Return)
                 | TokenKind::Keyword(Keyword::Else)
-                | TokenKind::Keyword(Keyword::Elif)
-                | TokenKind::Keyword(Keyword::ElseIf)
                 | TokenKind::Keyword(Keyword::Case)
                 | TokenKind::Keyword(Keyword::Switch)
         )
@@ -349,7 +433,7 @@ impl Parser {
                 Keyword::Let
                     | Keyword::Return
                     | Keyword::If
-                    | Keyword::Unless
+                    | Keyword::NotWord
                     | Keyword::Match
                     | Keyword::While
                     | Keyword::Do
@@ -358,8 +442,8 @@ impl Parser {
                     | Keyword::Switch
                     | Keyword::Break
                     | Keyword::Continue
-                    | Keyword::Fn
-                    | Keyword::Struct
+                    | Keyword::Func
+                    | Keyword::Record
                     | Keyword::Enum
                     | Keyword::Impl
                     | Keyword::Trait
@@ -367,11 +451,10 @@ impl Parser {
                     | Keyword::Module
                     | Keyword::Import
                     | Keyword::Async
-                    | Keyword::Pub
+                    | Keyword::Public
                     | Keyword::Case
                     | Keyword::Else
-                    | Keyword::Elif
-                    | Keyword::ElseIf
+                    | Keyword::From
             ),
             TokenKind::Identifier(_) | TokenKind::Number(_) | TokenKind::StringLiteral(_) => true,
             TokenKind::Symbol('(') | TokenKind::Symbol('{') => true,
@@ -386,11 +469,10 @@ impl Parser {
 
         match &self.current().kind {
             TokenKind::Keyword(Keyword::Else)
-            | TokenKind::Keyword(Keyword::Elif)
-            | TokenKind::Keyword(Keyword::ElseIf)
+            | TokenKind::Keyword(Keyword::From)
             | TokenKind::Keyword(Keyword::Case)
-            | TokenKind::Keyword(Keyword::Fn)
-            | TokenKind::Keyword(Keyword::Struct)
+            | TokenKind::Keyword(Keyword::Func)
+            | TokenKind::Keyword(Keyword::Record)
             | TokenKind::Keyword(Keyword::Enum)
             | TokenKind::Keyword(Keyword::Trait)
             | TokenKind::Keyword(Keyword::Impl)
@@ -410,7 +492,6 @@ impl Parser {
 
         match &self.current().kind {
             TokenKind::Symbol('{') | TokenKind::Symbol(')') => true,
-            TokenKind::Operator(crate::token::Operator::Arrow) => true,
             _ => false,
         }
     }
@@ -473,22 +554,22 @@ impl Parser {
 
     fn keyword_hint(&self, keyword: Keyword) -> Option<String> {
         match keyword {
-            Keyword::Module => Some("Start the file with `module <name>;`.".to_string()),
+            Keyword::Module => Some("Start the file with `module <name>` on its own line.".to_string()),
             Keyword::Import => {
-                Some("Use `import path.to.module;` to bring other modules into scope.".to_string())
+                Some("Use `from path.to.module import name` or `import path.to.module` on its own line.".to_string())
             }
-            Keyword::Fn => Some("Function declarations start with `fn name(...)`.".to_string()),
+            Keyword::Func => Some("Function declarations start with `func name(...)`.".to_string()),
             Keyword::Async => Some(
-                "`async` must be followed by `fn`, `{ ... }`, or a closure parameter list."
+                "`async` must be followed by `func`, `{ ... }`, or a closure parameter list."
                     .to_string(),
             ),
             Keyword::Trait => {
                 Some("Traits are declared with `trait TraitName { ... }`.".to_string())
             }
             Keyword::Impl => Some("Use `impl Type` to provide trait implementations.".to_string()),
-            Keyword::Let => Some("Introduce bindings with `let name = expression;`.".to_string()),
+            Keyword::Let => Some("Introduce bindings with `let name = expression` on its own line.".to_string()),
             Keyword::Return => {
-                Some("Use `return expression;` to exit a function early.".to_string())
+                Some("Use `return expression` to exit a function early.".to_string())
             }
             Keyword::While | Keyword::For | Keyword::Loop => Some(
                 "Loops require a control keyword such as `while`, `for`, or `loop`.".to_string(),
@@ -499,7 +580,7 @@ impl Parser {
 
     fn symbol_hint(&self, symbol: char) -> Option<String> {
         match symbol {
-            ';' => Some("Add a `;` to terminate the previous statement.".to_string()),
+            ';' => Some("Remove the semicolon and end the statement with a line break.".to_string()),
             ')' => Some("Close the parenthesis with `)`.".to_string()),
             '}' => Some("Close the block with `}`.".to_string()),
             ']' => Some("Close the bracket with `]`.".to_string()),
@@ -543,11 +624,11 @@ mod tests {
     #[test]
     fn loop_parses_without_feature_flag() {
         let source = r#"
-            module demo;
+            module demo
 
-            fn main() {
+            func main() {
                 loop {
-                    break;
+                    break
                 }
             }
         "#;
@@ -557,28 +638,28 @@ mod tests {
     }
 
     #[test]
-    fn unless_parses_without_feature_flag() {
+    fn negated_condition_parses_without_feature_flag() {
         let source = r#"
-            module demo;
+            module demo
 
-            fn main() {
-                let value = unless false { 1 };
+            func main() {
+                let value = if not false { 1 }
             }
         "#;
 
         assert!(parse_with_features(source, &[]).is_ok());
-        assert!(parse_with_features(source, &["unless"]).is_ok());
+        assert!(parse_with_features(source, &["legacy-syntax"]).is_ok());
     }
 
     #[test]
     fn parses_import_forms() {
         let source = r#"
-            module demo;
+            module demo
 
-            import std.io;
-            import std.math as math;
-            import { println, print } from std.io;
-            pub import { println } from std.io;
+            import std.io
+            import std.math as math
+            from std.io import println, print
+            public from std.io import println
         "#;
 
         let module = parse_with_features(source, &[]).expect("imports should parse");
@@ -604,15 +685,27 @@ mod tests {
 
         assert_eq!(imports[2].path, vec!["std".to_string(), "io".to_string()]);
         assert_eq!(
-            imports[2].names.as_ref().map(|names| names.as_slice()),
-            Some(&["println".to_string(), "print".to_string()][..])
+            imports[2]
+                .names
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.alias.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![("println", None), ("print", None)]
         );
         assert!(!imports[2].is_reexport);
 
         assert_eq!(imports[3].path, vec!["std".to_string(), "io".to_string()]);
         assert_eq!(
-            imports[3].names.as_ref().map(|names| names.as_slice()),
-            Some(&["println".to_string()][..])
+            imports[3]
+                .names
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.alias.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![("println", None)]
         );
         assert!(imports[3].is_reexport);
     }
@@ -620,17 +713,17 @@ mod tests {
     #[test]
     fn parses_struct_literal_field_shorthand() {
         let source = r#"
-            module demo;
+            module demo
 
-            struct Point {
+            record Point {
                 x: int,
                 y: int,
             }
 
-            fn main() -> int {
-                let x = 1;
-                let point = Point { x, y: 2 };
-                return point.x;
+            func main()  returns  int {
+                let x = 1
+                let point = Point { x, y: 2 }
+                return point.x
             }
         "#;
 
@@ -640,18 +733,18 @@ mod tests {
     #[test]
     fn match_expression_is_not_misclassified_as_struct_literal_shorthand() {
         let source = r#"
-            module demo;
+            module demo
 
             enum OptionInt {
                 Some(int),
                 None,
             }
 
-            fn main(value: OptionInt) -> int {
+            func main(value: OptionInt)  returns  int {
                 return match value {
-                    OptionInt::Some(x) => x,
-                    OptionInt::None => 0,
-                };
+                    when OptionInt::Some(x) then x,
+                    when OptionInt::None then 0,
+                }
             }
         "#;
 
@@ -661,24 +754,24 @@ mod tests {
     #[test]
     fn async_frontend_surface_preserves_ast_markers() {
         let source = r#"
-            module demo;
+            module demo
 
-            async fn fetch() {
-                let task = async { 1 };
-                let work = async |value: int| { value };
-                let empty = async || 1;
+            async func fetch() {
+                let task = async { 1 }
+                let work = async |value: int| { value }
+                let empty = async || 1
             }
 
-            struct Service {}
+            record Service {}
 
             impl Service {
-                pub async fn handle(&self) {
-                    let value = async { 2 };
+                public async func handle(&self) {
+                    let value = async { 2 }
                 }
             }
 
             trait Handler {
-                async fn call(&self);
+                async func call(&self)
             }
         "#;
 
@@ -718,10 +811,10 @@ mod tests {
     #[test]
     fn async_and_await_misuse_produce_actionable_diagnostics() {
         let misplaced_async = r#"
-            module demo;
+            module demo
 
-            fn main() {
-                let value = async 1;
+            func main() {
+                let value = async 1
             }
         "#;
         let errors =
@@ -735,10 +828,10 @@ mod tests {
         }));
 
         let await_outside_async = r#"
-            module demo;
+            module demo
 
-            fn main() {
-                let value = await work();
+            func main() {
+                let value = await work()
             }
         "#;
         let errors = parse_with_features(await_outside_async, &[])
@@ -748,14 +841,14 @@ mod tests {
                 && error
                     .hint
                     .as_deref()
-                    .is_some_and(|hint| hint.contains("async fn"))
+                    .is_some_and(|hint| hint.contains("async func"))
         }));
 
         let await_inside_async = r#"
-            module demo;
+            module demo
 
-            async fn main() {
-                let value = await work();
+            async func main() {
+                let value = await work()
             }
         "#;
         let module =

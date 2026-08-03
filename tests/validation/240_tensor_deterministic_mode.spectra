@@ -1,22 +1,25 @@
 // Extended validation: deterministic mode and repeatable kernel output.
-module tensor_deterministic_mode;
+module tensor_deterministic_mode
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    if tensor.set_deterministic_mode(1) != 0 { return 1; }
-    if tensor.deterministic_mode() != 1 { return 2; }
-    tensor.seed(20260802);
-    let first = tensor.uniform(6, 0, 100);
-    tensor.seed(20260802);
-    let second = tensor.uniform(6, 0, 100);
-    let index = 0;
-    while index < 6 {
-        if tensor.get(first, index) != tensor.get(second, index) { return 3; }
-        index = index + 1;
+public func main() returns int {
+    tensor.free_all()
+    if tensor.set_deterministic_mode(1) != 0 { return 1
     }
-    tensor.set_deterministic_mode(0);
-    tensor.free_all();
-    return 0;
+    if tensor.deterministic_mode() != 1 { return 2
+    }
+    tensor.seed(20260802)
+    let first = tensor.uniform(6, 0, 100)
+    tensor.seed(20260802)
+    let second = tensor.uniform(6, 0, 100)
+    let index  = 0
+    while index < 6 {
+        if tensor.get(first, index) != tensor.get(second, index) { return 3
+        }
+        index = index + 1
+    }
+    tensor.set_deterministic_mode(0)
+    tensor.free_all()
+    return 0
 }

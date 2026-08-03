@@ -82,7 +82,7 @@ impl ProjectPlan {
                 error,
             })?;
             let module = extract_module_name(&source).unwrap_or_else(|| {
-                // No explicit `module <name>;` declaration — derive the name
+                // No explicit `module <name>` declaration — derive the name
                 // from the file stem so that single-file scripts and simple
                 // projects work without a boilerplate header.
                 path.file_stem()
@@ -186,7 +186,7 @@ impl fmt::Display for ProjectError {
                 write!(
                     f,
                     "file '{}' is missing a module declaration\n\
-                     help: add 'module <name>;' as the first non-comment line of the file",
+                     help: add 'module <name>' as the first non-comment line of the file",
                     path.display()
                 )
             }
@@ -235,14 +235,14 @@ impl fmt::Display for ProjectError {
                             .unwrap_or_default();
                         writeln!(
                             f,
-                            "  - module '{}'{} imports '{}', but no file declaring 'module {};' was found{}",
+                            "  - module '{}'{} imports '{}', but no file declaring 'module {}' was found{}",
                             item.module, package_context, missing, missing, requested_context
                         )?;
                     }
                 }
                 write!(
                     f,
-                    "help: create a source file with 'module <name>;' for each missing module"
+                    "help: create a source file with 'module <name>' for each missing module"
                 )
             }
             ProjectError::CyclicDependency(cycle) => {
@@ -354,8 +354,23 @@ fn extract_imports(source: &str) -> Vec<String> {
     for line in source.lines() {
         let trimmed = line.trim();
 
-        // Strip `pub` prefix (re-exports: `pub import path`)
+        // Strip the public visibility prefix used by re-exports. The canonical
+        // form is `public from path import name`; the legacy `pub` spelling is
+        // intentionally still recognized here so project diagnostics can point
+        // at the parser's migration error instead of mis-ordering modules.
+        let trimmed = trimmed.strip_prefix("public ").unwrap_or(trimmed);
         let trimmed = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
+
+        if let Some(rest) = trimmed.strip_prefix("from ") {
+            // `from path.to.module import name, other as alias`
+            if let Some((module_name, _)) = rest.split_once(" import ") {
+                let module_name = module_name.trim();
+                if !module_name.is_empty() {
+                    imports.push(module_name.to_string());
+                }
+            }
+            continue;
+        }
 
         if !trimmed.starts_with("import ") {
             continue;
@@ -567,9 +582,9 @@ mod tests {
         let app = temp.source(
             "app",
             "main.spectra",
-            "module app.main;\nimport lib.core;\n",
+            "module app.main\nimport lib.core\n",
         );
-        let lib = temp.source("lib", "core.spectra", "module lib.core;\n");
+        let lib = temp.source("lib", "core.spectra", "module lib.core\n");
 
         let plan = ProjectPlan::build_with_sources(vec![app, lib]).expect("build plan");
         assert_eq!(plan.modules()[0].name, "lib.core");
@@ -578,10 +593,35 @@ mod tests {
     }
 
     #[test]
+    fn canonical_named_imports_and_reexports_are_dependencies() {
+        let temp = TempProject::new("named-imports");
+        let app = temp.source(
+            "app",
+            "main.spectra",
+            "module app.main\nfrom app.prelude import total\n",
+        );
+        let prelude = temp.source(
+            "app",
+            "prelude.spectra",
+            "module app.prelude\npublic from app.support import answer\n",
+        );
+        let support = temp.source(
+            "app",
+            "support.spectra",
+            "module app.support\npublic func answer() returns int {\n return 42\n}\n",
+        );
+
+        let plan = ProjectPlan::build_with_sources(vec![app, prelude, support])
+            .expect("build plan");
+        let names: Vec<_> = plan.modules().iter().map(|module| module.name.as_str()).collect();
+        assert_eq!(names, vec!["app.support", "app.prelude", "app.main"]);
+    }
+
+    #[test]
     fn duplicate_module_diagnostic_contains_both_packages_and_roots() {
         let temp = TempProject::new("duplicate");
-        let first = temp.source("alpha", "same.spectra", "module shared.same;\n");
-        let second = temp.source("beta", "same.spectra", "module shared.same;\n");
+        let first = temp.source("alpha", "same.spectra", "module shared.same\n");
+        let second = temp.source("beta", "same.spectra", "module shared.same\n");
 
         let error = ProjectPlan::build_with_sources(vec![first, second])
             .expect_err("duplicate module must fail");
@@ -598,9 +638,9 @@ mod tests {
         let app = temp.source(
             "app",
             "main.spectra",
-            "module app.main;\nimport lib.missing;\n",
+            "module app.main\nimport lib.missing\n",
         );
-        let lib = temp.source("lib", "core.spectra", "module lib.core;\n");
+        let lib = temp.source("lib", "core.spectra", "module lib.core\n");
 
         let error = ProjectPlan::build_with_sources(vec![app, lib])
             .expect_err("missing package module must fail");

@@ -1,27 +1,27 @@
-module control;
+module control
 
-pub enum Step {
+public enum Step {
     More(int),
     Done,
 }
 
-pub fn next(value: int) -> Step {
+public func next(value: int) returns Step {
     if value > 0 {
-        return Step::More(value);
+        return Step::More(value)
     }
-    return Step::Done;
+    return Step::Done
 }
 
-pub fn sum_window(start: int) -> int {
-    let cursor = start;
-    let sum = 0;
+public func sum_window(start: int) returns int {
+    let cursor = start
+    let sum    = 0
 
     while let Step::More(value) = next(cursor) {
-        unless value == 2 {
-            sum = sum + value;
+        if not value == 2 {
+            sum = sum + value
         }
-        cursor = cursor - 1;
+        cursor = cursor - 1
     }
 
-    return sum;
+    return sum
 }

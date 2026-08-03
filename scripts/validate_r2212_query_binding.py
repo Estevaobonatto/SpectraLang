@@ -116,7 +116,7 @@ def validate_implementation() -> None:
 def validate_fixture_and_docs() -> None:
     fixture = read("tests/validation/136_api_query_binding.spectra")
     for term in [
-        "struct SearchQuery",
+        "record SearchQuery",
         "parse(\"/search?page=2",
         "count(query, \"tag\")",
         "schema_field",

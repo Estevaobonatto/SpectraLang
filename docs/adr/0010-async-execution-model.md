@@ -27,8 +27,8 @@ scheduler integrated with a platform reactor.
 
 The accepted model is:
 
-- `async fn` declares a function that starts no work when called.
-- Calling an `async fn` returns a `Task<T>` future handle.
+- `async func` declares a function that starts no work when called.
+- Calling an `async func` returns a `Task<T>` future handle.
 - `async { ... }` creates an async block and returns `Task<T>`.
 - `await expr` is an expression that suspends the current async state machine
   until `expr` is ready, then yields its output value.
@@ -48,28 +48,28 @@ APIs, but they are not the semantic foundation of async execution.
 The Phase 21 syntax surface is:
 
 ```spectra
-async fn fetch_user(id: int) -> User {
-    let response = await http_get("/users/" + id.to_string());
-    return decode_user(response);
+async func fetch_user(id: int) returns User {
+    let response = await http_get("/users/" + id.to_string())
+    return decode_user(response)
 }
 
-fn handler(id: int) -> Task<User> {
-    return fetch_user(id);
+func handler(id: int) returns Task<User> {
+    return fetch_user(id)
 }
 
 let task: Task<int> = async {
-    let left = await read_left();
-    let right = await read_right();
-    return left + right;
-};
+    let left = await read_left()
+    let right = await read_right()
+    return left + right
+}
 ```
 
 Rules:
 
-- `async` is valid before `fn` and before a block expression.
+- `async` is valid before `func` and before a block expression.
 - `await` is valid only inside an async context.
 - `await` binds to the following expression.
-- `async fn f(...) -> T` has call type `fn(...) -> Task<T>`.
+- `async func f(...) returns T` has call type `func(...) returns Task<T>`.
 - `async { ... }` has type `Task<T>`, where `T` is inferred from block returns.
 - `Stream<T>` exposes async pull semantics through `next(stream) -> Task<Option<T>>`.
 - Synchronous functions may create and pass tasks but may not use `await`.
@@ -191,7 +191,7 @@ Rules:
 Timeouts are defined as cancellation sources layered on top of timers:
 
 ```spectra
-let value = await with_timeout(seconds(5), fetch_user(id));
+let value = await with_timeout(seconds(5), fetch_user(id))
 ```
 
 `with_timeout` is implemented in R-2105 and must use the same cancellation
@@ -283,7 +283,7 @@ implemented Send/Sync gates are:
 
 ## Consequences
 
-- R-2102 must implement parser and AST support for `async fn` and `async {}` as
+- R-2102 must implement parser and AST support for `async func` and `async {}` as
   specified here.
 - R-2103 must lower async constructs to explicit state-machine SSA rather than
   backend-specific callback code.
@@ -321,7 +321,7 @@ before fan-in, and never creates one OS thread per task. This scheduler evidence
 does not replace the language-level stackless state-machine lowering defined by
 this ADR.
 
-- This ADR fixes the Phase 21 syntax surface for `async fn`, `async {}`,
+- This ADR fixes the Phase 21 syntax surface for `async func`, `async {}`,
   `await`, `Task<T>`, `Stream<T>`, and the absence of public `Pin<T>`.
 - This ADR defines stackless state-machine SSA lowering and the scheduler
   polling interface.

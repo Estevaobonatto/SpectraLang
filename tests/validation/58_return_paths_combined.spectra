@@ -1,53 +1,53 @@
 // Teste 58: Combinações de if/match/loop assegurando retornos válidos
-module validation_return_paths;
+module validation_return_paths
 
-fn evaluate(flag: bool, value: int) -> int {
+func evaluate(flag: bool, value: int) returns int {
     if flag {
         match value % 3 {
-            0 => value,
-            _ => value + 1,
+            when 0 then value,
+            otherwise then value + 1,
         }
     } else {
-        let temp = value;
+        let temp = value
         loop {
             if temp > 5 {
-                break;
+                break
             }
 
             if temp == 5 {
-                return temp * 2;
+                return temp * 2
             }
 
-            temp = temp + 1;
+            temp = temp + 1
         }
 
         match temp > 10 {
-            true => temp,
-            false => temp + 2,
+            when true then temp,
+            when false then temp + 2,
         }
     }
 }
 
-fn analyze(choice: bool, depth: int) -> int {
+func analyze(choice: bool, depth: int) returns int {
     match choice {
-        true => {
-            let mut_depth = depth + 1;
+        when true then {
+            let mut_depth = depth + 1
             if mut_depth > 3 {
-                return mut_depth * 3;
+                return mut_depth * 3
             }
 
             loop {
                 if mut_depth % 2 == 0 {
-                    return mut_depth + 7;
+                    return mut_depth + 7
                 }
-                mut_depth = mut_depth + 1;
+                mut_depth = mut_depth + 1
             }
         },
-        false => {
-            let value = depth * 2;
+        when false then {
+            let value = depth * 2
             match value {
-                0 => 10,
-                _ => {
+                when 0 then 10,
+                otherwise then {
                     if value > 10 {
                         value
                     } else {
@@ -59,40 +59,40 @@ fn analyze(choice: bool, depth: int) -> int {
     }
 }
 
-fn branch_with_unless(flag: bool, start: int) -> int {
-    let counter = start;
+func branch_with_unless(flag: bool, start: int) returns int {
+    let counter = start
 
-    unless flag {
+    if not flag {
         loop {
             if counter > 8 {
-                return counter;
+                return counter
             }
 
             match counter % 4 {
-                0 => {
-                    counter = counter + 3;
+                when 0 then {
+                    counter = counter + 3
                 }
-                _ => {
-                    counter = counter + 2;
+                otherwise then {
+                    counter = counter + 2
                 }
             }
         }
     }
 
     match flag {
-        true => start + 1,
-        false => counter,
+        when true then start + 1,
+        when false then counter,
     }
 }
 
-pub fn main() -> int {
-    let a = evaluate(true, 4);
-    let b = evaluate(false, 3);
-    let c = analyze(true, 2);
-    let d = analyze(false, 6);
-    let e = branch_with_unless(false, 1);
+public func main() returns int {
+    let a = evaluate( true, 4)
+    let b = evaluate( false, 3)
+    let c = analyze( true, 2)
+    let d = analyze( false, 6)
+    let e = branch_with_unless( false, 1)
 
-    let total = a + b + c + d + e;
+    let total = a + b + c + d + e
     if total == 47 {
         0
     } else {

@@ -1,3 +1,5 @@
-module sqlite_transaction_state;
-import { commit } from std.api.db.sqlite;
-pub fn main() -> int { commit(); return 0; }
+module sqlite_transaction_state
+from std.api.db.sqlite import commit
+public func main() returns int { commit()
+    return 0
+}

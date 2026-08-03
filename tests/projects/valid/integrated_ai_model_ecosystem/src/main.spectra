@@ -1,17 +1,17 @@
-module main;
+module main
 
-import onnx_boundary;
-import rag_pipeline;
-import serving_contract;
+import onnx_boundary
+import rag_pipeline
+import serving_contract
 
-pub fn main() -> int {
-    let onnx = validate_onnx_boundary();
+public func main() returns int {
+    let onnx = validate_onnx_boundary()
     if onnx != 0 {
-        return onnx;
+        return onnx
     }
-    let rag = validate_rag_pipeline();
+    let rag = validate_rag_pipeline()
     if rag != 0 {
-        return rag;
+        return rag
     }
-    return validate_serving_contract();
+    return validate_serving_contract()
 }

@@ -1,6 +1,6 @@
-module exact_width_float_nonfinite;
-pub fn main() -> int {
-    let value: f64 = 1.0 / 0.0;
-    let invalid: i8 = value as i8;
-    return invalid as int;
+module exact_width_float_nonfinite
+public func main() returns int {
+    let value: f64  = 1.0 / 0.0
+    let invalid: i8 = value as i8
+    return invalid as int
 }

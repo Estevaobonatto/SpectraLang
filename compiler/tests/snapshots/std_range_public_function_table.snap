@@ -1,9 +1,9 @@
 module std.range
-type std.range.Range: struct Range
-fn std.range.create: fn(int, int, bool) -> Range
-fn std.range.len: fn(Range) -> int
-fn std.range.at: fn(Range, int) -> int
-fn std.range.eq: fn(Range, Range) -> bool
-fn std.range.start: fn(Range) -> int
-fn std.range.end: fn(Range) -> int
-fn std.range.is_inclusive: fn(Range) -> bool
+type std.range.Range: record Range
+func std.range.create: func(int, int, bool) returns Range
+func std.range.len: func(Range) returns int
+func std.range.at: func(Range, int) returns int
+func std.range.eq: func(Range, Range) returns bool
+func std.range.start: func(Range) returns int
+func std.range.end: func(Range) returns int
+func std.range.is_inclusive: func(Range) returns bool

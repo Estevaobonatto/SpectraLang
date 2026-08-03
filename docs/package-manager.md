@@ -287,7 +287,7 @@ Installed Git package modules are included in normal package command source
 resolution, so code can use normal imports after install:
 
 ```spectra
-import { double_plus_seed } from gitmath.core;
+from gitmath.core import double_plus_seed
 ```
 
 ## Validation

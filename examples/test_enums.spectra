@@ -1,4 +1,4 @@
-module test;
+module test
 
 // Enum simples (C-style)
 enum Color {
@@ -18,37 +18,37 @@ enum Result<T> {
     Err(T)
 }
 
-fn test_simple_enum() -> int {
-    let c = Color::Red;
+func test_simple_enum() returns int {
+    let c = Color::Red
     // Por enquanto, apenas retornar valor fixo
     42
 }
 
-fn test_option_enum() -> int {
-    let opt = Option::Some(10);
+func test_option_enum() returns int {
+    let opt = Option::Some(10)
     match opt {
-        Option::Some(value) => value,
-        Option::None => 0
+        when Option::Some(value) then value,
+        when Option::None then 0
     }
 }
 
-fn test_result_enum() -> int {
-    let ok = Result::Ok(21);
-    let err = Result::Err(-4);
+func test_result_enum() returns int {
+    let ok  = Result::Ok(21)
+    let err = Result::Err(-4)
 
     let ok_value = match ok {
-        Result::Ok(value) => value,
-        Result::Err(code) => code,
-    };
+        when Result::Ok(value) then value,
+        when Result::Err(code) then code,
+    }
 
     let err_value = match err {
-        Result::Ok(value) => value,
-        Result::Err(code) => code * -1,
-    };
+        when Result::Ok(value) then value,
+        when Result::Err(code) then code * -1,
+    }
 
     ok_value + err_value
 }
 
-fn main() -> int {
+func main() returns int {
     test_simple_enum() + test_option_enum() + test_result_enum()
 }

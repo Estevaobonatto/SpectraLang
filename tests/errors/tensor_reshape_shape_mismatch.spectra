@@ -1,10 +1,10 @@
 // Negative: reshape static target element count must match source element count.
-module tensor_reshape_shape_mismatch;
+module tensor_reshape_shape_mismatch
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let source: Tensor<float, rank1, dim6, row_major, cpu> = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let result = tensor.reshape(source, 4, 2);
-    return tensor.rank(result);
+public func main() returns int {
+    let source: Tensor<float, rank1, dim6, row_major, cpu> = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    let result                                             = tensor.reshape(source, 4, 2)
+    return tensor.rank(result)
 }

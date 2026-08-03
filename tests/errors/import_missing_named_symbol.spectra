@@ -1,7 +1,7 @@
-module import_missing_named_symbol;
+module import_missing_named_symbol
 
-import { definitely_missing_symbol } from std.math;
+from std.math import definitely_missing_symbol
 
-pub fn main() -> int {
-    return definitely_missing_symbol(1);
+public func main() returns int {
+    return definitely_missing_symbol(1)
 }

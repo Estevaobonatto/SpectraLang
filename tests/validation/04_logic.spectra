@@ -1,19 +1,19 @@
 // Teste 4: Operações lógicas
-module logic;
+module logic
 
-fn test_logic() -> bool {
-    let a = true;
-    let b = false;
-    
-    let and_result = a && b;
-    let or_result = a || b;
-    let not_a = !a;
-    let not_b = !b;
-    
-    return or_result;
+func test_logic() returns bool {
+    let a = true
+    let b = false
+
+    let and_result = a and b
+    let or_result  = a or b
+    let not_a      = not a
+    let not_b      = not b
+
+    return or_result
 }
 
-fn main() -> int {
-    let result = test_logic();
-    return 0;
+func main() returns int {
+    let result = test_logic()
+    return 0
 }

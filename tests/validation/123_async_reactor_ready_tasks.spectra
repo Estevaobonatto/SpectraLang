@@ -1,16 +1,16 @@
-module async_reactor_ready_tasks;
+module async_reactor_ready_tasks
 
-async fn ready_value(value: int) -> int {
-    return value;
+async func ready_value(value: int) returns int {
+    return value
 }
 
-async fn combine() -> int {
-    let left = await ready_value(20);
-    let right = await ready_value(22);
-    return left + right;
+async func combine() returns int {
+    let left  = await ready_value(20)
+    let right = await ready_value(22)
+    return left + right
 }
 
-fn main() -> int {
-    let task = combine();
-    return 0;
+func main() returns int {
+    let task = combine()
+    return 0
 }

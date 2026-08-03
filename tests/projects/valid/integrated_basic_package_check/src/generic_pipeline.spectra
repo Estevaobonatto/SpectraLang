@@ -1,24 +1,24 @@
-module generic_pipeline;
+module generic_pipeline
 
-pub trait Score {
-    fn score(&self) -> int;
+public trait Score {
+    func score( & self) returns int
 }
 
-pub struct Sample {
-    pub value: int,
-    pub weight: int,
+public record Sample {
+    public value: int,
+    public weight: int,
 }
 
 impl Score for Sample {
-    fn score(&self) -> int {
-        return self.value + self.weight;
+    func score( & self) returns int {
+        return self.value + self.weight
     }
 }
 
-pub fn evaluate<T: Score>(item: T) -> int {
-    return item.score();
+public func evaluate<T: Score>(item: T) returns int {
+    return item.score()
 }
 
-pub fn evaluate_sample(item: Sample) -> int {
-    return item.score();
+public func evaluate_sample(item: Sample) returns int {
+    return item.score()
 }

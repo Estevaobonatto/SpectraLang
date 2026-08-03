@@ -1,8 +1,8 @@
-module deep_components_package_tests;
+module deep_components_package_tests
 
-import workflow;
+import workflow
 
 #[spectra_async_test]
-async fn deep_components_workflow_passes() -> int {
-    return run_workflow();
+async func deep_components_workflow_passes() returns int {
+    return run_workflow()
 }

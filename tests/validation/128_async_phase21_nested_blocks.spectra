@@ -1,26 +1,26 @@
-module async_phase21_nested_blocks;
+module async_phase21_nested_blocks
 
-async fn base(value: int) -> int {
-    return value;
+async func base(value: int) returns int {
+    return value
 }
 
-async fn nested(flag: bool) -> int {
-    let first = await base(10);
+async func nested(flag: bool) returns int {
+    let first = await base(10)
     if flag {
-        let second = await base(20);
-        return first + second;
+        let second = await base(20)
+        return first + second
     }
-    let fallback = await base(3);
-    return first - fallback;
+    let fallback = await base(3)
+    return first - fallback
 }
 
-async fn entry() -> int {
-    let yes = await nested(true);
-    let no = await nested(false);
-    return yes + no;
+async func entry() returns int {
+    let yes = await nested( true)
+    let no  = await nested( false)
+    return yes + no
 }
 
-fn main() -> int {
-    let task = entry();
-    return 0;
+func main() returns int {
+    let task = entry()
+    return 0
 }

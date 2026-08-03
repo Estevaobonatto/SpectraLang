@@ -1,81 +1,57 @@
-module api_form_binding;
+module api_form_binding
 
-import std.string as str;
+import std.string as str
 
-import {
-    Form,
-    FormSchema,
-    FormBinding,
-    type_string,
-    type_int,
-    type_bool,
-    parse,
-    len,
-    has,
-    count,
-    first,
-    value,
-    schema,
-    schema_field,
-    bind,
-    binding_ok,
-    binding_error,
-    binding_count,
-    binding_value,
-    binding_int,
-    binding_bool,
-    error_code,
-    error_message,
-} from std.api.form;
+from std.api.form import Form, FormSchema, FormBinding, type_string, type_int, type_bool, parse, len, has, count, first, value, schema, schema_field, bind, binding_ok, binding_error, binding_count, binding_value, binding_int, binding_bool, error_code, error_message
 
-struct SignupForm {
+record SignupForm {
     name_len: int,
     age: int,
     active_flag: int,
     tag_count: int,
 }
 
-pub fn main() -> int {
-    let form: Form = parse("name=Ada+Lovelace&age=36&active=on&tags[]=math&tags[]=api&profile[city]=London");
+public func main() returns int {
+    let form: Form = parse("name=Ada+Lovelace&age=36&active=on&tags[]=math&tags[]=api&profile[city]=London")
 
     if len(form) != 5 {
-        return 10;
+        return 10
     }
     if has(form, "profile.city") != true {
-        return 11;
+        return 11
     }
     if count(form, "tags") != 2 {
-        return 12;
+        return 12
     }
     if str.contains(first(form, "name"), "Ada Lovelace") != true {
-        return 13;
+        return 13
     }
     if str.contains(value(form, "profile.city", 0), "London") != true {
-        return 14;
+        return 14
     }
 
-    let s0: FormSchema = schema();
-    let s1: FormSchema = schema_field(s0, "name", type_string(), true, false);
-    let s2: FormSchema = schema_field(s1, "age", type_int(), true, false);
-    let s3: FormSchema = schema_field(s2, "active", type_bool(), true, false);
-    let s4: FormSchema = schema_field(s3, "tags", type_string(), false, true);
-    let s5: FormSchema = schema_field(s4, "profile.city", type_string(), true, false);
-    let binding: FormBinding = bind(form, s5);
+    let s0: FormSchema       = schema()
+    let s1: FormSchema       = schema_field(s0, "name", type_string(), true, false)
+    let s2: FormSchema       = schema_field(s1, "age", type_int(), true, false)
+    let s3: FormSchema       = schema_field(s2, "active", type_bool(), true, false)
+    let s4: FormSchema       = schema_field(s3, "tags", type_string(), false, true)
+    let s5: FormSchema       = schema_field(s4, "profile.city", type_string(), true, false)
+    let binding: FormBinding = bind(form, s5)
 
     if binding_ok(binding) != true {
-        return 20;
+        return 20
     }
     if binding_int(binding, "age", 0) != 36 {
-        return 21;
+        return 21
     }
     if binding_bool(binding, "active", 0) != true {
-        return 22;
+        return 22
     }
     if binding_count(binding, "tags") != 2 {
-        return 23;
+        return 23
     }
     if str.contains(binding_value(binding, "tags", 1), "api") != true {
-        return 24;
+        return 24
     }
 
     let typed: SignupForm = SignupForm {
@@ -83,54 +59,54 @@ pub fn main() -> int {
         age: binding_int(binding, "age", 0),
         active_flag: 1,
         tag_count: binding_count(binding, "tags"),
-    };
+    }
 
     if typed.age != 36 {
-        return 30;
+        return 30
     }
     if typed.active_flag != 1 {
-        return 31;
+        return 31
     }
     if typed.tag_count != 2 {
-        return 32;
+        return 32
     }
 
-    let duplicate: Form = parse("name=Ada&name=Grace&age=36&active=true&profile[city]=London");
-    let duplicate_binding: FormBinding = bind(duplicate, s5);
+    let duplicate: Form = parse("name=Ada&name=Grace&age=36&active=true&profile[city]=London")
+    let duplicate_binding: FormBinding = bind(duplicate, s5)
     if binding_ok(duplicate_binding) == true {
-        return 40;
+        return 40
     }
     if str.contains(binding_error(duplicate_binding), "name") != true {
-        return 41;
+        return 41
     }
 
-    let missing: Form = parse("name=Ada&age=36&active=true");
-    let missing_binding: FormBinding = bind(missing, s5);
+    let missing: Form                = parse("name=Ada&age=36&active=true")
+    let missing_binding: FormBinding = bind(missing, s5)
     if binding_ok(missing_binding) == true {
-        return 50;
+        return 50
     }
     if str.contains(binding_error(missing_binding), "profile.city") != true {
-        return 51;
+        return 51
     }
 
-    let malformed: Form = parse("profile[name=Ada");
+    let malformed: Form = parse("profile[name=Ada")
     if len(malformed) != 0 {
-        return 60;
+        return 60
     }
     if error_code() == 0 {
-        return 61;
+        return 61
     }
     if str.contains(error_message(), "bracket") != true {
-        return 62;
+        return 62
     }
 
-    let bad_percent: Form = parse("name=%GG");
+    let bad_percent: Form = parse("name=%GG")
     if len(bad_percent) != 0 {
-        return 70;
+        return 70
     }
     if str.contains(error_message(), "percent") != true {
-        return 71;
+        return 71
     }
 
-    return 0;
+    return 0
 }

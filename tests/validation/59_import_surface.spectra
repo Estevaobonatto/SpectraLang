@@ -1,20 +1,20 @@
 // Teste 59: imports qualificados, alias e named imports
-module import_surface;
+module import_surface
 
-import std.io;
-import std.math as math;
-import { abs } from std.math;
+import std.io
+import std.math as math
+from std.math import abs
 
-fn compute() -> int {
-    let floor = math.floor_f(9.9);
-    let ceil = math.ceil_f(1.1);
-    return (floor as int) + (ceil as int);
+func compute() returns int {
+    let floor = math.floor_f(9.9)
+    let ceil  = math.ceil_f(1.1)
+    return(floor as int) + (ceil as int)
 }
 
-pub fn main() -> int {
-    let total = compute();
-    let distance = abs(-3);
-    std.io.println(distance);
-    std.io.println(total);
-    return 0;
+public func main() returns int {
+    let total    = compute()
+    let distance = abs(-3)
+    std.io.println(distance)
+    std.io.println(total)
+    return 0
 }

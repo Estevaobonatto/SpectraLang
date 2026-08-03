@@ -1,19 +1,24 @@
 // Extended validation: transpose and shape metadata remain coherent.
-module tensor_transpose_shape;
+module tensor_transpose_shape
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    let matrix = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
-    let transposed = tensor.transpose(matrix);
-    if tensor.rank(transposed) != 2 { return 1; }
-    if tensor.rows(transposed) != 3 || tensor.cols(transposed) != 2 { return 2; }
-    if tensor.get2(transposed, 0, 1) != 4 { return 3; }
-    if tensor.get2(transposed, 2, 0) != 3 { return 4; }
+public func main() returns int {
+    tensor.free_all()
+    let matrix     = tensor.reshape(tensor.arange(1, 7, 1), 2, 3)
+    let transposed = tensor.transpose(matrix)
+    if tensor.rank(transposed) != 2 { return 1
+    }
+    if tensor.rows(transposed) != 3 or tensor.cols(transposed) != 2 { return 2
+    }
+    if tensor.get2(transposed, 0, 1) != 4 { return 3
+    }
+    if tensor.get2(transposed, 2, 0) != 3 { return 4
+    }
 
-    let row_major_view = tensor.flatten(matrix);
-    if tensor.get(row_major_view, 5) != 6 { return 5; }
-    tensor.free_all();
-    return 0;
+    let row_major_view = tensor.flatten(matrix)
+    if tensor.get(row_major_view, 5) != 6 { return 5
+    }
+    tensor.free_all()
+    return 0
 }

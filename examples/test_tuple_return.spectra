@@ -1,12 +1,12 @@
-module test_tuple_return;
+module test_tuple_return
 
-fn get_pair() -> (int, int) {
-    return (10, 20);
+func get_pair() returns(int, int) {
+    return(10, 20)
 }
 
-fn main() -> int {
-    let result = get_pair();
-    let x = result.0;
-    let y = result.1;
+func main() returns int {
+    let result = get_pair()
+    let x      = result.0
+    let y      = result.1
     x + y
 }
