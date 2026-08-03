@@ -1,0 +1,1294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="SpectraLang Language Guide">
+  <meta name="version" content="0.2.7">
+  <meta name="language" content="SpectraLang">
+  <meta name="description" content="The standalone SpectraLang 0.2.7 language reference and beginner handbook.">
+  <meta name="pdf-conversion" content="A4 print-first; convert this standalone HTML to PDF with a browser print dialog.">
+  <title>SpectraLang Language Guide — Reference &amp; Beginner Handbook</title>
+  <style>
+    :root {
+      --ink: #20202a;
+      --muted: #656575;
+      --paper: #fffdfb;
+      --panel: #ffffff;
+      --line: #e8e3ef;
+      --purple: #7d4fcd;
+      --purple-dark: #563098;
+      --purple-soft: #f1ebfb;
+      --blue: #3172b8;
+      --green: #2c7a5a;
+      --amber: #a96d13;
+      --red: #a54155;
+      --code-bg: #211d2b;
+      --code-ink: #f5f0ff;
+      --shadow: 0 16px 48px rgba(52, 33, 85, 0.10);
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 5% 0%, rgba(125, 79, 205, 0.08), transparent 28rem),
+        var(--paper);
+      font: 16px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--purple-dark); }
+    a:hover { color: var(--purple); }
+    code, pre, kbd {
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    code {
+      padding: 0.08em 0.32em;
+      border: 1px solid #e5dff0;
+      border-radius: 0.3em;
+      background: #f6f1fc;
+      color: #4d2c86;
+      font-size: 0.92em;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+      gap: 2rem;
+      width: min(1500px, 100%);
+      margin: 0 auto;
+      padding: 1.25rem;
+    }
+    .sidebar {
+      position: sticky;
+      top: 1rem;
+      align-self: start;
+      max-height: calc(100vh - 2rem);
+      overflow: auto;
+      padding: 1.15rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      margin-bottom: 1rem;
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .brand img { width: 42px; height: 42px; object-fit: contain; }
+    .brand small {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .search {
+      width: 100%;
+      margin: 0.5rem 0 1rem;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+    .search:focus { outline: 3px solid rgba(125, 79, 205, 0.2); border-color: var(--purple); }
+    .toc, .toc ol { margin: 0; padding: 0; list-style: none; }
+    .toc li + li { margin-top: 0.16rem; }
+    .toc a {
+      display: block;
+      padding: 0.28rem 0.45rem;
+      border-radius: 7px;
+      color: #4d4a5b;
+      font-size: 0.88rem;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+    .toc a:hover, .toc a.active { background: var(--purple-soft); color: var(--purple-dark); }
+    .toc .toc-sub { padding-left: 0.75rem; }
+    .sidebar-note {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+    main {
+      min-width: 0;
+      max-width: 980px;
+      padding-bottom: 5rem;
+    }
+    .toolbar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.55rem;
+      margin-bottom: 0.7rem;
+    }
+    .toolbar a, .toolbar button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--purple-dark);
+      font: inherit;
+      font-size: 0.82rem;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(1.5rem, 4vw, 3.2rem);
+      border-radius: 22px;
+      background: linear-gradient(135deg, #251c36 0%, #4f2e78 68%, #7d4fcd 100%);
+      color: #fff;
+      box-shadow: 0 22px 60px rgba(54, 29, 90, 0.24);
+    }
+    .hero::after {
+      position: absolute;
+      right: -5rem;
+      bottom: -8rem;
+      width: 22rem;
+      height: 22rem;
+      border: 2px solid rgba(255, 255, 255, 0.14);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2rem rgba(255, 255, 255, 0.05), 0 0 0 5rem rgba(255, 255, 255, 0.03);
+      content: "";
+    }
+    .hero-content { position: relative; z-index: 1; max-width: 700px; }
+    .hero-logo {
+      width: 92px;
+      height: 92px;
+      margin-bottom: 1.1rem;
+      padding: 0.6rem;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.96);
+    }
+    .eyebrow {
+      margin: 0 0 0.45rem;
+      color: #ded0ff;
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, h4 {
+      color: var(--ink);
+      line-height: 1.16;
+      letter-spacing: -0.025em;
+    }
+    h1 { margin: 0 0 0.9rem; font-size: clamp(2rem, 5vw, 4rem); }
+    .hero h1 { color: #fff; }
+    h2 {
+      margin: 3.3rem 0 1rem;
+      padding-top: 0.4rem;
+      border-top: 2px solid var(--line);
+      font-size: clamp(1.55rem, 3vw, 2.3rem);
+      scroll-margin-top: 1rem;
+    }
+    h3 { margin: 2rem 0 0.65rem; font-size: 1.35rem; scroll-margin-top: 1rem; }
+    h4 { margin: 1.25rem 0 0.35rem; font-size: 1.05rem; }
+    p { margin: 0.65rem 0 1rem; }
+    .hero p { color: #f0eafe; font-size: clamp(1rem, 2vw, 1.2rem); }
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1.3rem;
+    }
+    .pill, .status {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 0.22rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .pill { border: 1px solid rgba(255, 255, 255, 0.26); color: #fff; }
+    .status { border: 1px solid currentColor; }
+    .stable { color: var(--green); background: #eaf7f0; }
+    .beta { color: var(--amber); background: #fff5df; }
+    .experimental { color: var(--red); background: #fff0f3; }
+    .deferred { color: #6d617e; background: #f2eef6; }
+    .intro-grid, .card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      margin: 1.4rem 0;
+    }
+    .card, .scope-note, .tip, .warning, .fixture {
+      padding: 1rem 1.1rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 8px 25px rgba(43, 30, 63, 0.05);
+    }
+    .card h3, .card h4 { margin-top: 0; }
+    .scope-note { border-left: 5px solid var(--purple); background: var(--purple-soft); }
+    .tip { border-left: 5px solid var(--blue); background: #eef6ff; }
+    .warning { border-left: 5px solid var(--amber); background: #fff8e9; }
+    .fixture { border-left: 5px solid var(--green); }
+    .fixture p:last-child, .card p:last-child, .tip p:last-child, .warning p:last-child { margin-bottom: 0; }
+    .chapter-kicker {
+      margin: 3rem 0 -2.5rem;
+      color: var(--purple);
+      font-size: 0.76rem;
+      font-weight: 900;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+    ul, ol { padding-left: 1.35rem; }
+    li + li { margin-top: 0.25rem; }
+    .inline-list { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0; list-style: none; }
+    .inline-list li { margin: 0; }
+    .inline-list code { display: inline-block; }
+    .table-wrap { overflow-x: auto; margin: 1rem 0 1.3rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      font-size: 0.9rem;
+    }
+    th, td {
+      padding: 0.56rem 0.65rem;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--purple-soft); color: var(--purple-dark); font-size: 0.78rem; letter-spacing: 0.03em; text-transform: uppercase; }
+    tr:nth-child(even) td { background: #fcfbfe; }
+    .code-shell {
+      position: relative;
+      overflow: hidden;
+      margin: 1rem 0 1.35rem;
+      border: 1px solid #3e354d;
+      border-radius: 10px;
+      background: var(--code-bg);
+      box-shadow: 0 10px 24px rgba(33, 29, 43, 0.12);
+      break-inside: avoid;
+    }
+    .code-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.43rem 0.7rem;
+      border-bottom: 1px solid #443b50;
+      color: #cfc2e4;
+      font: 0.72rem/1.2 "Cascadia Code", Consolas, monospace;
+    }
+    .copy-button {
+      padding: 0.26rem 0.52rem;
+      border: 1px solid #76618d;
+      border-radius: 6px;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+    }
+    .copy-button:hover { background: #4a3d59; }
+    pre {
+      overflow-x: auto;
+      margin: 0;
+      padding: 0.9rem 1rem 1.05rem;
+      color: var(--code-ink);
+      font-size: 0.84rem;
+      line-height: 1.55;
+      tab-size: 4;
+      white-space: pre;
+    }
+    .code-caption {
+      margin-top: -0.75rem;
+      color: var(--muted);
+      font-size: 0.83rem;
+    }
+    .command {
+      color: #d7f6e5;
+    }
+    .command::before { color: #8ee0b1; content: "$ "; }
+    .toc-title {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .chapter-break { break-before: page; }
+    .avoid-break { break-inside: avoid; }
+    .back-to-top {
+      display: inline-block;
+      margin-top: 0.75rem;
+      font-size: 0.84rem;
+    }
+    footer {
+      margin-top: 4rem;
+      padding-top: 1.3rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    @page {
+      size: A4;
+      margin: 16mm 15mm 18mm;
+    }
+    @media (max-width: 940px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        max-height: none;
+      }
+      .toc {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.1rem 0.7rem;
+      }
+    }
+    @media (max-width: 620px) {
+      body { font-size: 15px; }
+      .layout { padding: 0.65rem; }
+      .intro-grid, .card-grid, .toc { grid-template-columns: 1fr; }
+      .hero { border-radius: 15px; padding: 1.35rem; }
+      .toolbar { justify-content: stretch; }
+      .toolbar > * { flex: 1; justify-content: center; }
+      th, td { padding: 0.45rem; }
+    }
+    @media print {
+      :root { --ink: #111; --muted: #444; --line: #c8c8c8; --paper: #fff; }
+      html { scroll-behavior: auto; }
+      body { background: #fff; color: #111; font-size: 9.5pt; line-height: 1.42; }
+      .layout { display: block; width: auto; margin: 0; padding: 0; }
+      .sidebar, .toolbar, .copy-button, .search, .back-to-top { display: none !important; }
+      main { max-width: none; padding: 0; }
+      .hero {
+        min-height: 92mm;
+        padding: 18mm;
+        color: #111;
+        background: #fff;
+        border: 2px solid #563098;
+        box-shadow: none;
+      }
+      .hero::after { display: none; }
+      .hero h1, .hero p { color: #111; }
+      .eyebrow { color: #563098; }
+      .hero-logo { border: 1px solid #c8c8c8; }
+      h1 { font-size: 28pt; }
+      h2 { margin-top: 14mm; padding-top: 3mm; font-size: 18pt; break-before: page; }
+      h2:first-of-type { break-before: auto; }
+      h3 { margin-top: 7mm; font-size: 13pt; }
+      p { orphans: 3; widows: 3; }
+      .intro-grid, .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4mm; }
+      .card, .scope-note, .tip, .warning, .fixture { box-shadow: none; }
+      .code-shell, table, figure, .card, .scope-note, .tip, .warning, .fixture { break-inside: avoid; }
+      .code-shell { border-color: #777; background: #f3f3f3; color: #111; }
+      .code-head { border-color: #aaa; color: #333; }
+      pre { color: #111; font-size: 8.2pt; line-height: 1.3; white-space: pre-wrap; overflow: visible; }
+      .code-shell .command, .code-shell .command::before { color: #111; }
+      code { border-color: #d0d0d0; background: #f3f3f3; color: #222; }
+      table { font-size: 8.5pt; }
+      th { background: #eee; color: #111; }
+      tr:nth-child(even) td { background: #fafafa; }
+      .chapter-kicker { margin-top: 8mm; }
+      footer { margin-top: 10mm; }
+    }
+  </style>
+</head>
+<body id="top">
+  <div class="layout">
+    <aside class="sidebar" aria-label="Guide navigation">
+      <a class="brand" href="#top">
+        <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+PCFET0NUWVBFIHN2ZyBQVUJMSUMgIi0vL1czQy8vRFREIFNWRyAxLjEvL0VOIiAiaHR0cDovL3d3dy53My5vcmcvR3JhcGhpY3MvU1ZHLzEuMS9EVEQvc3ZnMTEuZHRkIj48c3ZnIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIHZpZXdCb3g9IjAgMCAxMjU0IDEyNTQiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgeG1sbnM6c2VyaWY9Imh0dHA6Ly93d3cuc2VyaWYuY29tLyIgc3R5bGU9ImZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2UtbWl0ZXJsaW1pdDoyOyI+PGcgaWQ9IkZ1bmRvIj48cGF0aCBkPSJNOTcyLjQ3OCw0MDIuNTA3YzEzLjE5Niw1My45ODYgNjYuOTI4LDI1Ny42NDcgLTEwNi42MzcsNDg0LjQ0MWMtMTcuNDgsMjIuODQxIC05LjkyOSwyNS41NTMgLTUuMjA4LDMwLjczOWMxNC44MjcsMTYuMjkgLTkuNjY3LDgyLjEzMSAtMTEyLjA0NiwxNTEuNDQzYy0xNC41OSw5Ljg3OCAxLjgyNywxMC4zOTMgNC43NSwxMy45NDFjMTkuMjk3LDIzLjQyNCAtMTAzLjkzMSwxNDguOTM0IC0yMTguNTcyLDE1OC41NDRjLTM2LjIyNywzLjAzNyAzMC4zNDEsLTMxLjY1IDM0LjEyNSwtMTAwLjk3N2M1LjY4OCwtMTA0LjIyOCAtMTQyLjU5MiwtOTQuODcgLTEwOC4yMjIsLTIwMi4wMTVjNy42OTEsLTIzLjk3NSAtNjAuMDk0LC05LjI0MiAtMTM5LjE3LC0xNTMuNTA3Yy03Mi4zODcsLTEzMi4wNjEgLTExNC43NzIsLTQzMy4wNDggMTA2LjY1NiwtNTg5Ljg5MWM4NC41MzMsLTU5Ljg3NyAxOTIuOTcsLTY4LjA4MiAxOTkuMTkzLC02MC4wMTVjMi4zMDEsMi45ODMgMzMuOTE1LDU1LjczNCAxNjQuMTY4LDExNS4xNjhjNTcuOTA5LDI2LjQyNCAxMTUuNTE4LDMzLjkzNSAxMjUuODksMzUuMjg4YzMuMjM0LDAuNDIyIDYuMTAxLDAuNzk2IDIyLjg5MiwzMy43MzZjMTkuMzQ1LDM3Ljk1MiAyNC45MzIsNTguNjIzIDMyLjE4MSw4My4xMDVaIiBzdHlsZT0iZmlsbDojN2Q0ZmNkOyIvPjxwYXRoIGQ9Ik05NDYuMTM0LDEwMS44NjVjOC4zMjksMjcuMDIgNy45NjIsMzUuOTAyIC0xMS43ODgsODEuMjMzYy0zLjAwNSw2Ljg5OSAtOC4xNzgsMTguNzcyIC05Mi44NCwtMTUuMTAzYy01NC4yNjEsLTIxLjcxMSAtMTM2LjkyMywtNzAuODA1IC0xMjkuMjMzLC04Ny4yNTljNi4xNTUsLTEzLjE2OSAyOC42NjgsLTk0LjYxNCAxMzMuMDUyLC02MC4wNjZjNzQuNTM2LDI0LjY2OSA5Ni40NDQsNzEuODA0IDEwMC44MDksODEuMTk0WiIgc3R5bGU9ImZpbGw6IzdlNTBjZTsiLz48cGF0aCBkPSJNNjY0LjkxOCw4NS41NzljOS4xNzUsMS4xMjIgMzUuNTk2LDEuODU1IDMxLjYyNCwxMC41NzNjLTkuNzE3LDIxLjMyNiAtNy4zNywyNi41NjYgMzUuNzE4LDU2LjkyNmM1OC4yODEsNDEuMDY0IDE4MS4wOTIsOTAuODggMTk0LjQ1Niw2NS4wMDdjNS4wNjgsLTkuODExIDQuMzkyLC0xNi45NTQgMTMuMzY3LC0xMC42MjljNDQuMDM0LDMxLjAyOSA0MC44OTMsNjUuMDY4IC0xMy4wMDEsNjQuMzE3Yy0xMTkuNzI0LC0xLjY2OSAtMzUyLjg3NSwtMTUwLjA4NCAtMjgzLjIwNCwtMTgyLjg5NmM2LjI2NCwtMi45NSAxOS4zMzcsLTMuMjU4IDIxLjA0LC0zLjI5OFoiIHN0eWxlPSJmaWxsOiM3ZTUwY2U7Ii8+PHBhdGggZD0iTTc1OC4xNzcsNTQyLjQwNmMtNC41MjYsLTIuNjA0IC0zMi43NzgsLTE4Ljg2IC0zOS4xMTUsLTUyLjI0OGMtMTQuMDksLTc0LjIzNCA1My41NDQsLTExMi4yOTQgOTQuODYxLC04Ni41NzNjNzQuOTgzLDQ2LjY3OSAyMi41NTQsMTc0Ljc5NiAtNTUuNzQ2LDEzOC44MjFaIi8+PHBhdGggZD0iTTQxMC4yMjksNTA3LjczM2MtMzguOTAyLC0xMDEuMTEzIDc5LjY3MiwtMTUwLjM0MSAxMTYuMTk2LC03NS42MDRjNDEuMTAzLDg0LjEwNyAtNjMuODY1LDE3MC4yMjIgLTExNi4xOTYsNzUuNjA0WiIvPjxlbGxpcHNlIGN4PSI0ODkuNjAxIiBjeT0iNDQyLjU0NSIgcng9IjIwLjE4NSIgcnk9IjIxLjAwNSIgc3R5bGU9ImZpbGw6IzdlNGZjZTsiLz48ZWxsaXBzZSBjeD0iODAyLjk2NyIgY3k9IjQ0Mi40MDEiIHJ4PSIyMC4xODUiIHJ5PSIyMS4wMDUiIHN0eWxlPSJmaWxsOiM3ZTRmY2U7Ii8+PHBhdGggZD0iTTU4My4xNzEsNjIwLjM5MWMtNC41NDMsLTQuNTkzIC0zMC41MzEsLTMwLjg3MSAtMzIuNDAyLC03My45N2MtMi40MDEsLTU1LjMzMyAyOC40NzMsLTI3LjU0NSAzOC42MjUsLTIzLjkzNWM3Mi41NzksMjUuODAzIDEwMS44NDMsLTMzLjgyMyAxMTAuODEsMC41NTljMTYuMTIsNjEuODA2IC01MC4wNTMsMTUyLjI0MyAtMTE3LjAzMyw5Ny4zNDZaIi8+PHBhdGggZD0iTTY0MS41MjgsNTY4LjA2NmM3MS41MDksMTkuNTcgLTE4LjcwMSw4OS4xMTkgLTU0LjEwNywzNC41NjJjLTMuMTMyLC00LjgyNyAtNi42MzksLTE2LjEzNiAyLjIxOCwtMjQuNTYxYzE0LjQ5NSwtMTMuNzg5IDQ3LjY4MywtMTAuNDI3IDUxLjg4OSwtMTAuMDAxWiIgc3R5bGU9ImZpbGw6IzdlNGZjZTsiLz48L2c+PC9zdmc+" alt="SpectraLang logo">
+        <span>SpectraLang<small>Language Guide 0.2.7</small></span>
+      </a>
+      <input class="search" id="guide-search" type="search" placeholder="Search this guide" aria-label="Search this guide">
+      <p class="toc-title">Contents</p>
+      <nav aria-label="Table of contents">
+        <ol class="toc">
+          <li><a href="#what-is-spectralang">1. What SpectraLang is</a></li>
+          <li><a href="#first-program">2. First program and CLI</a></li>
+          <li><a href="#modules">3. Files and modules</a></li>
+          <li><a href="#core-syntax">4. Core syntax and types</a></li>
+          <li><a href="#functions">5. Functions and closures</a></li>
+          <li><a href="#control-flow">6. Conditions and loops</a></li>
+          <li><a href="#composite-types">7. Composite types</a></li>
+          <li><a href="#traits">8. Traits and generics</a></li>
+          <li><a href="#errors">9. Option, Result, and errors</a></li>
+          <li><a href="#async">10. Async and concurrency <span class="status beta">beta</span></a></li>
+          <li><a href="#stdlib">11. Standard library</a></li>
+          <li><a href="#ai-ml">12. Tensor and AI/ML</a></li>
+          <li><a href="#interop">13. Interoperability</a></li>
+          <li><a href="#packages">14. Packages and workspaces</a></li>
+          <li><a href="#tooling">15. Tooling and testing</a></li>
+          <li><a href="#maturity">16. Feature maturity</a></li>
+          <li><a href="#quick-reference">17. Quick reference</a></li>
+        </ol>
+      </nav>
+      <div class="sidebar-note">
+        This is an offline, print-first reference. The source material remains in the repository under <code>docs/reference</code>, <code>docs/book</code>, and the linked reports.
+      </div>
+    </aside>
+
+    <main>
+      <div class="toolbar">
+        <a href="#quick-reference">Jump to quick reference</a>
+        <button type="button" id="print-guide">Print / save PDF</button>
+      </div>
+
+      <header class="hero">
+        <div class="hero-content">
+          <img class="hero-logo" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+PCFET0NUWVBFIHN2ZyBQVUJMSUMgIi0vL1czQy8vRFREIFNWRyAxLjEvL0VOIiAiaHR0cDovL3d3dy53My5vcmcvR3JhcGhpY3MvU1ZHLzEuMS9EVEQvc3ZnMTEuZHRkIj48c3ZnIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIHZpZXdCb3g9IjAgMCAxMjU0IDEyNTQiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgeG1sbnM6c2VyaWY9Imh0dHA6Ly93d3cuc2VyaWYuY29tLyIgc3R5bGU9ImZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2UtbWl0ZXJsaW1pdDoyOyI+PGcgaWQ9IkZ1bmRvIj48cGF0aCBkPSJNOTcyLjQ3OCw0MDIuNTA3YzEzLjE5Niw1My45ODYgNjYuOTI4LDI1Ny42NDcgLTEwNi42MzcsNDg0LjQ0MWMtMTcuNDgsMjIuODQxIC05LjkyOSwyNS41NTMgLTUuMjA4LDMwLjczOWMxNC44MjcsMTYuMjkgLTkuNjY3LDgyLjEzMSAtMTEyLjA0NiwxNTEuNDQzYy0xNC41OSw5Ljg3OCAxLjgyNywxMC4zOTMgNC43NSwxMy45NDFjMTkuMjk3LDIzLjQyNCAtMTAzLjkzMSwxNDguOTM0IC0yMTguNTcyLDE1OC41NDRjLTM2LjIyNywzLjAzNyAzMC4zNDEsLTMxLjY1IDM0LjEyNSwtMTAwLjk3N2M1LjY4OCwtMTA0LjIyOCAtMTQyLjU5MiwtOTQuODcgLTEwOC4yMjIsLTIwMi4wMTVjNy42OTEsLTIzLjk3NSAtNjAuMDk0LC05LjI0MiAtMTM5LjE3LC0xNTMuNTA3Yy03Mi4zODcsLTEzMi4wNjEgLTExNC43NzIsLTQzMy4wNDggMTA2LjY1NiwtNTg5Ljg5MWM4NC41MzMsLTU5Ljg3NyAxOTIuOTcsLTY4LjA4MiAxOTkuMTkzLC02MC4wMTVjMi4zMDEsMi45ODMgMzMuOTE1LDU1LjczNCAxNjQuMTY4LDExNS4xNjhjNTcuOTA5LDI2LjQyNCAxMTUuNTE4LDMzLjkzNSAxMjUuODksMzUuMjg4YzMuMjM0LDAuNDIyIDYuMTAxLDAuNzk2IDIyLjg5MiwzMy43MzZjMTkuMzQ1LDM3Ljk1MiAyNC45MzIsNTguNjIzIDMyLjE4MSw4My4xMDVaIiBzdHlsZT0iZmlsbDojN2Q0ZmNkOyIvPjxwYXRoIGQ9Ik05NDYuMTM0LDEwMS44NjVjOC4zMjksMjcuMDIgNy45NjIsMzUuOTAyIC0xMS43ODgsODEuMjMzYy0zLjAwNSw2Ljg5OSAtOC4xNzgsMTguNzcyIC05Mi44NCwtMTUuMTAzYy01NC4yNjEsLTIxLjcxMSAtMTM2LjkyMywtNzAuODA1IC0xMjkuMjMzLC04Ny4yNTljNi4xNTUsLTEzLjE2OSAyOC42NjgsLTk0LjYxNCAxMzMuMDUyLC02MC4wNjZjNzQuNTM2LDI0LjY2OSA5Ni40NDQsNzEuODA0IDEwMC44MDksODEuMTk0WiIgc3R5bGU9ImZpbGw6IzdlNTBjZTsiLz48cGF0aCBkPSJNNjY0LjkxOCw4NS41NzljOS4xNzUsMS4xMjIgMzUuNTk2LDEuODU1IDMxLjYyNCwxMC41NzNjLTkuNzE3LDIxLjMyNiAtNy4zNywyNi41NjYgMzUuNzE4LDU2LjkyNmM1OC4yODEsNDEuMDY0IDE4MS4wOTIsOTAuODggMTk0LjQ1Niw2NS4wMDdjNS4wNjgsLTkuODExIDQuMzkyLC0xNi45NTQgMTMuMzY3LC0xMC42MjljNDQuMDM0LDMxLjAyOSA0MC44OTMsNjUuMDY4IC0xMy4wMDEsNjQuMzE3Yy0xMTkuNzI0LC0xLjY2OSAtMzUyLjg3NSwtMTUwLjA4NCAtMjgzLjIwNCwtMTgyLjg5NmM2LjI2NCwtMi45NSAxOS4zMzcsLTMuMjU4IDIxLjA0LC0zLjI5OFoiIHN0eWxlPSJmaWxsOiM3ZTUwY2U7Ii8+PHBhdGggZD0iTTc1OC4xNzcsNTQyLjQwNmMtNC41MjYsLTIuNjA0IC0zMi43NzgsLTE4Ljg2IC0zOS4xMTUsLTUyLjI0OGMtMTQuMDksLTc0LjIzNCA1My41NDQsLTExMi4yOTQgOTQuODYxLC04Ni41NzNjNzQuOTgzLDQ2LjY3OSAyMi41NTQsMTc0Ljc5NiAtNTUuNzQ2LDEzOC44MjFaIi8+PHBhdGggZD0iTTQxMC4yMjksNTA3LjczM2MtMzguOTAyLC0xMDEuMTEzIDc5LjY3MiwtMTUwLjM0MSAxMTYuMTk2LC03NS42MDRjNDEuMTAzLDg0LjEwNyAtNjMuODY1LDE3MC4yMjIgLTExNi4xOTYsNzUuNjA0WiIvPjxlbGxpcHNlIGN4PSI0ODkuNjAxIiBjeT0iNDQyLjU0NSIgcng9IjIwLjE4NSIgcnk9IjIxLjAwNSIgc3R5bGU9ImZpbGw6IzdlNGZjZTsiLz48ZWxsaXBzZSBjeD0iODAyLjk2NyIgY3k9IjQ0Mi40MDEiIHJ4PSIyMC4xODUiIHJ5PSIyMS4wMDUiIHN0eWxlPSJmaWxsOiM3ZTRmY2U7Ii8+PHBhdGggZD0iTTU4My4xNzEsNjIwLjM5MWMtNC41NDMsLTQuNTkzIC0zMC41MzEsLTMwLjg3MSAtMzIuNDAyLC03My45N2MtMi40MDEsLTU1LjMzMyAyOC40NzMsLTI3LjU0NSAzOC42MjUsLTIzLjkzNWM3Mi41NzksMjUuODAzIDEwMS44NDMsLTMzLjgyMyAxMTAuODEsMC41NTljMTYuMTIsNjEuODA2IC01MC4wNTMsMTUyLjI0MyAtMTE3LjAzMyw5Ny4zNDZaIi8+PHBhdGggZD0iTTY0MS41MjgsNTY4LjA2NmM3MS41MDksMTkuNTcgLTE4LjcwMSw4OS4xMTkgLTU0LjEwNywzNC41NjJjLTMuMTMyLC00LjgyNyAtNi42MzksLTE2LjEzNiAyLjIxOCwtMjQuNTYxYzE0LjQ5NSwtMTMuNzg5IDQ3LjY4MywtMTAuNDI3IDUxLjg4OSwtMTAuMDAxWiIgc3R5bGU9ImZpbGw6IzdlNGZjZTsiLz48L2c+PC9zdmc+" alt="SpectraLang logo">
+          <p class="eyebrow">Standalone reference and beginner handbook</p>
+          <h1>SpectraLang Language Guide</h1>
+          <p>Learn the current language surface, understand the toolchain, and keep the complete reference close while you build. This edition describes SpectraLang <strong>0.2.7</strong>.</p>
+          <div class="hero-meta">
+            <span class="pill">English</span>
+            <span class="pill">Offline HTML5</span>
+            <span class="pill">A4 print-first</span>
+            <span class="pill">Canonical syntax</span>
+          </div>
+        </div>
+      </header>
+
+      <section id="reading-paths" data-guide-section data-search="reading paths beginner reference">
+        <div class="intro-grid">
+          <div class="card">
+            <h3>Beginner path</h3>
+            <p>Read chapters 1–6 in order. Run the quickstart, then use chapters 7–10 as your programs grow. The status labels show which ideas are ready for production use.</p>
+          </div>
+          <div class="card">
+            <h3>Reference path</h3>
+            <p>Use the sidebar, search box, and chapter anchors to jump directly to syntax, standard-library modules, AI/ML, packages, interoperability, or tooling.</p>
+          </div>
+        </div>
+        <div class="scope-note" id="api-scope">
+          <strong>Scope note:</strong> <code>spectra.api</code> is intentionally outside this guide. Its HTTP/API contract is not complete enough to describe as part of the completed language surface. The guide covers the current language, runtime, AI/ML, package, interop, concurrency, and tooling baselines without presenting that API as stable.
+        </div>
+      </section>
+
+      <p class="chapter-kicker">Chapter 1</p>
+      <section id="what-is-spectralang" data-guide-section data-search="what is spectralang install compiler runtime">
+        <h2>1. What SpectraLang is and how to install it</h2>
+        <p>SpectraLang is a statically typed language and toolchain for readable general-purpose programs, numerical work, tensor workloads, and production-oriented AI/ML experiments. A source file uses the <code>.spectra</code> extension. The compiler pipeline includes lexical analysis, parsing, semantic validation, IR lowering, and a Cranelift-based execution path.</p>
+        <p>The language favors explicit types at boundaries, familiar control flow, qualified standard-library imports, and error values that can be inspected through patterns. The runtime includes ordinary I/O, collections, filesystem and environment helpers, tensor and ML facilities, a local serving baseline, and concurrency primitives.</p>
+        <div class="card-grid">
+          <div class="card">
+            <h3>Install from a checkout</h3>
+            <p>On Windows, install Rust and Cargo, clone the repository, then build the CLI in debug mode. The repository-local executable is the most reliable binary while developing the language.</p>
+            <div class="code-shell" data-spectra-code data-kind="command">
+              <div class="code-head"><span>PowerShell</span><button class="copy-button" type="button" data-copy-target="cmd-install">Copy</button></div>
+              <pre id="cmd-install"><code class="command">cargo build -p spectra-cli
+target\debug\spectralang.exe --version</code></pre>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Version and maturity</h3>
+            <p>This guide targets version <code>0.2.7</code>. Stable features are validated through the normal CLI path. Beta features are implemented but may have execution or API boundaries. Deferred items are not promises of the current release.</p>
+            <p><span class="status stable">stable</span> is safe to learn first. <span class="status beta">beta</span> needs extra validation. <span class="status deferred">deferred</span> is deliberately outside the current surface.</p>
+          </div>
+        </div>
+        <h3>Installation checklist</h3>
+        <ol>
+          <li>Install Rust with the stable toolchain and ensure <code>cargo</code> is on <code>PATH</code>.</li>
+          <li>From the repository root, build <code>spectra-cli</code> and use <code>target/debug/spectralang.exe</code> on Windows.</li>
+          <li>Run <code>spectralang --help</code>, <code>spectralang --list-experimental</code>, and a small <code>check</code> command.</li>
+          <li>Keep the compiler, standard library, examples, and tests from the same checkout when validating a language change.</li>
+        </ol>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 2</p>
+      <section id="first-program" class="chapter-break" data-guide-section data-search="first program hello cli workflow check run fmt">
+        <h2>2. Your first program and the CLI workflow</h2>
+        <p>A SpectraLang program normally has a module declaration and a public <code>main</code> function. A successful integer return value is the process exit code. The following is the canonical 20-line quickstart shipped in <code>examples/syntax_quickstart.spectra</code>.</p>
+        <div class="code-shell" data-spectra-code data-kind="runnable" data-source="examples/syntax_quickstart.spectra">
+          <div class="code-head"><span>examples/syntax_quickstart.spectra</span><button class="copy-button" type="button" data-copy-target="quickstart-code">Copy</button></div>
+          <pre id="quickstart-code"><code class="language-spectra">module syntax_quickstart
+from std.io import println
+func welcome(name: string) returns string {
+    return f"Ola, {name}!"
+}
+public func main() returns int {
+    let name    = "SpectraLang"
+    let message = welcome(name)
+    println(message)
+    let total = 0
+    for item in [1, 2, 3] {
+        total = total + item
+    }
+    if total &gt; 5 and not total == 0 {
+        println("sintaxe clara")
+    } else {
+        println("continue explorando")
+    }
+    return 0
+}</code></pre>
+        </div>
+        <p class="code-caption">The block demonstrates a module, named import, function with <code>returns</code>, f-string, mutable local, array iteration, boolean operators, and an explicit exit code.</p>
+        <div class="code-shell" data-spectra-code data-kind="command">
+          <div class="code-head"><span>PowerShell — inspect, format, check, run</span><button class="copy-button" type="button" data-copy-target="cli-workflow">Copy</button></div>
+          <pre id="cli-workflow"><code class="command">spectralang fmt --check examples\syntax_quickstart.spectra
+spectralang check examples\syntax_quickstart.spectra
+spectralang run examples\syntax_quickstart.spectra
+spectralang lint examples\syntax_quickstart.spectra</code></pre>
+        </div>
+        <h3>The smallest useful workflow</h3>
+        <table>
+          <thead><tr><th>Command</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>spectralang check file.spectra</code></td><td>Parse, bind, type-check, and validate without running the program.</td></tr>
+            <tr><td><code>spectralang run file.spectra</code></td><td>Compile and execute the program through the normal CLI path.</td></tr>
+            <tr><td><code>spectralang compile file.spectra</code></td><td>Compile without requiring an execution result.</td></tr>
+            <tr><td><code>spectralang fmt file.spectra</code></td><td>Format a source file; use <code>--check</code> in CI.</td></tr>
+            <tr><td><code>spectralang lint file.spectra</code></td><td>Run static diagnostics; <code>--json</code> and <code>--sarif</code> support automation.</td></tr>
+            <tr><td><code>spectralang repl</code></td><td>Open an interactive session for small experiments.</td></tr>
+          </tbody>
+        </table>
+        <div class="fixture" data-validate-source="examples/spectra_showcase.spectra" data-validate-mode="run">
+          <strong>Complete showcase fixture.</strong>
+          <p>The repository also contains <code>examples/spectra_showcase.spectra</code>, a validated presentation program using records, enums, methods, <code>match</code>, <code>for</code>, and readable boolean rules. Validate and run it with:</p>
+          <div class="code-shell" data-spectra-code data-kind="command">
+            <div class="code-head"><span>PowerShell</span><button class="copy-button" type="button" data-copy-target="showcase-command">Copy</button></div>
+            <pre id="showcase-command"><code class="command">spectralang check examples\spectra_showcase.spectra
+spectralang run examples\spectra_showcase.spectra</code></pre>
+          </div>
+        </div>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 3</p>
+      <section id="modules" class="chapter-break" data-guide-section data-search="source files modules imports visibility public internal project layout">
+        <h2>3. Source files, modules, imports, visibility, and project layout</h2>
+        <p>A source file is a module when it begins with <code>module name</code>. A project may contain one entry file or a directory tree described by <code>spectra.toml</code>. Keep each module focused, expose a small public surface, and use imports to make dependencies visible.</p>
+        <h3>Module forms</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Module and import forms</span><button class="copy-button" type="button" data-copy-target="modules-code">Copy</button></div>
+          <pre id="modules-code"><code class="language-spectra">module app.main
+
+from std.io import println
+from app.geometry import Point, distance
+import std.math as math
+
+public func main() returns int {
+    let origin = Point { x: 0 y: 0 }
+    println(math.float_to_string(distance(origin, origin)))
+    return 0
+}</code></pre>
+        </div>
+        <p>Use <code>from package.module import Name</code> for named imports, <code>import package.module</code> for a qualified module, and <code>as</code> for an alias. Keep qualification when it improves clarity, especially for large standard-library modules.</p>
+        <h3>Visibility</h3>
+        <table>
+          <thead><tr><th>Form</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>public</code></td><td>Exports a function, record, enum, trait, constant, or other supported declaration to importing modules.</td></tr>
+            <tr><td>No visibility keyword</td><td>Module-internal declaration. It is available to the defining module and its implementation details.</td></tr>
+            <tr><td><code>public from module import Name</code></td><td>Re-exports an imported name from the current module.</td></tr>
+            <tr><td>Public record fields</td><td>Fields intended for construction or access outside the defining module must be marked public where the declaration requires it.</td></tr>
+          </tbody>
+        </table>
+        <h3>Recommended project layout</h3>
+        <div class="code-shell" data-spectra-code data-kind="directory">
+          <div class="code-head"><span>Project tree</span><button class="copy-button" type="button" data-copy-target="project-tree">Copy</button></div>
+          <pre id="project-tree"><code>my_app/
+  spectra.toml
+  spectra.lock
+  src/
+    main.spectra
+    model.spectra
+    io.spectra
+  tests/
+    smoke.spectra
+  packages/
+    shared/
+      spectra.toml
+      src/</code></pre>
+        </div>
+        <p>Declarations are resolved from the project source directories and workspace members. Avoid relying on implicit file order. The manifest and lockfile are the source of truth for package builds.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 4</p>
+      <section id="core-syntax" class="chapter-break" data-guide-section data-search="variables mutability primitive types literals strings f strings operators">
+        <h2>4. Variables, mutability, primitive types, literals, strings, and operators</h2>
+        <p>Local bindings use <code>let</code>. A binding is immutable by default; use <code>let mut</code> when the value will be assigned again. Type annotations are written after a name with a colon. Type inference is useful for local expressions, while public APIs should state their types.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Bindings and literals</span><button class="copy-button" type="button" data-copy-target="bindings-code">Copy</button></div>
+          <pre id="bindings-code"><code class="language-spectra">let count: int = 3
+let mut total = 0
+total = total + count
+
+let enabled: bool = true
+let ratio: float = 0.75
+let letter: char = 'S'
+let title: string = "SpectraLang"
+let nothing = null
+let message = f"{title} has {count} items"</code></pre>
+        </div>
+        <h3>Primitive types and aliases</h3>
+        <table>
+          <thead><tr><th>Type</th><th>Values and use</th></tr></thead>
+          <tbody>
+            <tr><td><code>bool</code></td><td><code>true</code> or <code>false</code>.</td></tr>
+            <tr><td><code>int</code></td><td>Signed integer used by ordinary counters and indexes.</td></tr>
+            <tr><td><code>float</code></td><td>Floating-point value for numerical computations.</td></tr>
+            <tr><td><code>char</code></td><td>A character literal such as <code>'a'</code>.</td></tr>
+            <tr><td><code>string</code></td><td>UTF-8 text value with standard string helpers and f-string interpolation.</td></tr>
+            <tr><td><code>unit</code></td><td>The no-value result of a procedure-like function without a declared return.</td></tr>
+            <tr><td>Numeric aliases</td><td>The compiler also exposes validated numeric aliases used by tensor, ABI, and interop surfaces. Prefer the documented alias at an external boundary.</td></tr>
+          </tbody>
+        </table>
+        <h3>Strings and interpolation</h3>
+        <p>Use double quotes for strings and single quotes for characters. An f-string begins with <code>f</code> and evaluates expressions inside braces. Keep interpolation expressions small; move domain logic into a named function.</p>
+        <h3>Operators</h3>
+        <table>
+          <thead><tr><th>Family</th><th>Operators</th></tr></thead>
+          <tbody>
+            <tr><td>Arithmetic</td><td><code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code></td></tr>
+            <tr><td>Comparison</td><td><code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td></tr>
+            <tr><td>Boolean</td><td><code>and</code>, <code>or</code>, <code>not</code></td></tr>
+            <tr><td>Bitwise</td><td><code>&amp;</code>, <code>|</code>, <code>^</code>, shifts, and complement where supported by the operand type.</td></tr>
+            <tr><td>Assignment</td><td><code>=</code> assigns to a mutable binding; compound assignment forms are available for supported numeric values.</td></tr>
+            <tr><td>Access</td><td><code>.</code> accesses a field or method; <code>::</code> qualifies an enum variant or associated name.</td></tr>
+          </tbody>
+        </table>
+        <div class="tip"><strong>Readability rule:</strong> write <code>if not ready</code>, <code>left and right</code>, and <code>first or fallback</code>. These words are part of the canonical surface and are easier to scan than punctuation-heavy alternatives.</div>
+        <div class="warning"><strong>Migration warning:</strong> older reports or source files may use <code>fn</code>, <code>struct</code>, <code>pub</code>, <code>elif</code>, <code>unless</code>, arrow return types, fat-arrow expressions, or statement semicolons. New code in this guide uses <code>func</code>, <code>record</code>, <code>public</code>, <code>else if</code>, <code>if not</code>, <code>returns</code>, <code>when ... then</code>, and semicolon-free blocks.</div>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 5</p>
+      <section id="functions" class="chapter-break" data-guide-section data-search="functions return types implicit returns closures function types callbacks">
+        <h2>5. Functions, return types, implicit returns, closures, and function types</h2>
+        <p>Declare a function with <code>func</code>. Parameters have <code>name: type</code> form. Use <code>returns type</code> for the return type. A function with no explicit return type is procedure-like and returns <code>unit</code>. Explicit <code>return</code> statements are best at early exits; a final expression may be used as the value of a block where the grammar permits it.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Functions and closures</span><button class="copy-button" type="button" data-copy-target="functions-code">Copy</button></div>
+          <pre id="functions-code"><code class="language-spectra">func square(value: int) returns int {
+    value * value
+}
+
+func apply_twice(operation: (int) returns int, value: int) returns int {
+    operation(operation(value))
+}
+
+public func main() returns int {
+    let offset = 4
+    let add_offset = |value: int| value + offset
+    return apply_twice(add_offset, 3)
+}</code></pre>
+        </div>
+        <p>Closures use pipe parameters and may capture values by value. Mutable or reference captures are part of the beta closure surface and should be checked against the current maturity policy before use in production code. Function types can be passed as arguments, stored in records, and returned from functions.</p>
+        <h3>Return-path rules</h3>
+        <ul>
+          <li>A function declared with a non-unit return type must produce that type on every reachable path.</li>
+          <li><code>return value</code> exits the current function; it does not silently exit an enclosing closure.</li>
+          <li>A match expression can produce a value when every arm produces a compatible type.</li>
+          <li>Use explicit annotations when inference would hide a public contract or a tensor shape.</li>
+        </ul>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 6</p>
+      <section id="control-flow" class="chapter-break" data-guide-section data-search="conditions loops ranges break continue switch match if not else if">
+        <h2>6. Conditions, loops, ranges, <code>break</code>, <code>continue</code>, <code>switch</code>, and <code>match</code></h2>
+        <p>Blocks are delimited by braces and statements do not require semicolons. Conditions use <code>if</code>, <code>else if</code>, and <code>else</code>. The readable negation form is <code>if not condition</code>.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Control flow surface</span><button class="copy-button" type="button" data-copy-target="control-code">Copy</button></div>
+          <pre id="control-code"><code class="language-spectra">func describe(value: int) returns int {
+    if value &lt; 0 {
+        return -1
+    } else if value == 0 {
+        return 0
+    } else {
+        return 1
+    }
+}
+
+func sum_until(limit: int) returns int {
+    let mut total = 0
+    for value in 0..limit {
+        if value == 3 {
+            continue
+        }
+        if value &gt; 8 {
+            break
+        }
+        total = total + value
+    }
+    return total
+}</code></pre>
+        </div>
+        <h3>Loop forms</h3>
+        <table>
+          <thead><tr><th>Form</th><th>Use</th></tr></thead>
+          <tbody>
+            <tr><td><code>for item in collection</code></td><td>Iterate through an array, range, or supported iterable.</td></tr>
+            <tr><td><code>while condition</code></td><td>Repeat while a boolean condition remains true.</td></tr>
+            <tr><td><code>while let pattern = expression</code></td><td>Repeat while a pattern continues to match.</td></tr>
+            <tr><td><code>loop</code></td><td>Repeat until an explicit <code>break</code>.</td></tr>
+            <tr><td><code>do { ... } while condition</code></td><td>Execute the body once, then test the condition.</td></tr>
+          </tbody>
+        </table>
+        <p>Ranges use the range standard-library model and can be used directly with <code>for</code>. Confirm endpoint behavior for a range constructor before relying on it for indexes; prefer collection length and checked access at external boundaries.</p>
+        <h3><code>switch</code> for statement-oriented branching</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Switch cases</span><button class="copy-button" type="button" data-copy-target="switch-code">Copy</button></div>
+          <pre id="switch-code"><code class="language-spectra">switch day {
+    case 1: {
+        println("Monday")
+    }
+    case 2: {
+        println("Tuesday")
+    }
+}</code></pre>
+        </div>
+        <h3><code>match</code> for value-producing patterns</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Match arms</span><button class="copy-button" type="button" data-copy-target="match-code">Copy</button></div>
+          <pre id="match-code"><code class="language-spectra">let label = match score {
+    when 100 then "perfect",
+    when 80 | 90 then "ready",
+    otherwise then "keep practicing"
+}</code></pre>
+        </div>
+        <p>Patterns can match literals, enum variants, tuples, records, nested structures, and OR alternatives. An exhaustive match is easier to maintain than a chain of unchecked conditions.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 7</p>
+      <section id="composite-types" class="chapter-break" data-guide-section data-search="arrays tuples records enums patterns destructuring">
+        <h2>7. Arrays, tuples, records, enums, pattern matching, and destructuring</h2>
+        <h3>Arrays and tuples</h3>
+        <p>Array literals use square brackets and hold a sequence of compatible values. Tuple literals use parentheses and can hold a fixed group of values with different types.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Arrays, tuples, and destructuring</span><button class="copy-button" type="button" data-copy-target="composite-code">Copy</button></div>
+          <pre id="composite-code"><code class="language-spectra">let scores = [10, 20, 30]
+let pair = ("SpectraLang", 0.2)
+let(name, version) = pair
+let first = scores[0]</code></pre>
+        </div>
+        <h3>Records</h3>
+        <p>A record names fields and is useful for data with stable structure. Construct it with the record name followed by a field initializer block. Use <code>public record</code> for a record exported by a module.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Record declaration and construction</span><button class="copy-button" type="button" data-copy-target="record-code">Copy</button></div>
+          <pre id="record-code"><code class="language-spectra">public record User {
+    public name: string
+    public active: bool
+}
+
+let user = User {
+    name: "Ada"
+    active: true
+}
+let is_active = user.active</code></pre>
+        </div>
+        <h3>Enums and variants</h3>
+        <p>Enums model a closed set of variants. Variants may be unit-like, tuple-like, or record-like. Qualify a variant with <code>EnumName::Variant</code> when ambiguity would otherwise be possible.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Enum variants and matching</span><button class="copy-button" type="button" data-copy-target="enum-code">Copy</button></div>
+          <pre id="enum-code"><code class="language-spectra">enum Message {
+    Quit
+    Move { x: int y: int }
+    Write(string)
+}
+
+func weight(message: Message) returns int {
+    match message {
+        when Message::Quit then 0,
+        when Message::Move { x y } then x + y,
+        when Message::Write(text) then std.string.len(text)
+    }
+}</code></pre>
+        </div>
+        <p>Destructuring binds the contents of a tuple, record, or variant to local names. Rename a field in a pattern when the local name would otherwise collide. Pattern syntax is available in <code>let</code>, <code>if let</code>, <code>while let</code>, and <code>match</code>.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 8</p>
+      <section id="traits" class="chapter-break" data-guide-section data-search="traits impl generics dyn trait operator overloading">
+        <h2>8. Traits, <code>impl</code>, generics, <code>dyn Trait</code>, and operator overloading</h2>
+        <p>Traits describe behavior shared by multiple types. An <code>impl</code> block supplies methods for a type or implements a trait for a type. Generic parameters express reusable algorithms without erasing the type contract.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Trait and implementation</span><button class="copy-button" type="button" data-copy-target="traits-code">Copy</button></div>
+          <pre id="traits-code"><code class="language-spectra">trait Summarize {
+    func summary(self) returns string
+}
+
+record Report {
+    title: string
+    score: int
+}
+
+impl Summarize for Report {
+    public func summary(self) returns string {
+        return f"{self.title}: {self.score}"
+    }
+}</code></pre>
+        </div>
+        <h3>Generic functions and types</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Generic function</span><button class="copy-button" type="button" data-copy-target="generic-code">Copy</button></div>
+          <pre id="generic-code"><code class="language-spectra">func first&lt;T&gt;(items: [T]) returns T {
+    return items[0]
+}
+
+func show(value: dyn Summarize) returns string {
+    return value.summary()
+}</code></pre>
+        </div>
+        <p>Use <code>dyn Trait</code> for a trait object when dynamic dispatch is the right boundary. Generic dispatch is usually preferable when the concrete type can remain known to the compiler. Current generic validation includes type parameters, constraints, generic records and enums, and trait-object calls.</p>
+        <h3>Operator overloading</h3>
+        <p>Supported operators can be provided through the corresponding trait or operator implementation surface. Keep overloads unsurprising: addition should be additive, comparisons should be stable, and domain-specific transformations should normally remain named methods.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 9</p>
+      <section id="errors" class="chapter-break" data-guide-section data-search="option result if let while let error propagation">
+        <h2>9. <code>Option</code>, <code>Result</code>, <code>if let</code>, <code>while let</code>, and error propagation</h2>
+        <p>Use <code>Option</code> when a value may be absent and <code>Result</code> when an operation may succeed or fail. Both are enum-style values and are meant to be inspected with patterns rather than hidden behind null checks.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Option and Result patterns</span><button class="copy-button" type="button" data-copy-target="errors-code">Copy</button></div>
+          <pre id="errors-code"><code class="language-spectra">func find_score(value: int) returns Option&lt;int&gt; {
+    if value &gt; 0 {
+        return Option::Some(value * 10)
+    }
+    return Option::None
+}
+
+func read_score(value: int) returns Result&lt;int, string&gt; {
+    if value &gt;= 0 {
+        return Result::Ok(value)
+    }
+    return Result::Err("score must not be negative")
+}
+
+func use_score(value: int) returns int {
+    if let Option::Some(score) = find_score(value) {
+        return score
+    }
+    return 0
+}</code></pre>
+        </div>
+        <h3>Pattern-oriented control</h3>
+        <ul>
+          <li><code>if let pattern = expression</code> executes a branch when the pattern matches.</li>
+          <li><code>while let pattern = expression</code> repeats while values keep matching.</li>
+          <li><code>match</code> can transform either type into a value or handle every variant.</li>
+          <li>Return a <code>Result</code> from a helper when its caller needs to decide whether to retry, report, or recover.</li>
+        </ul>
+        <p>The current language baseline favors explicit pattern handling. Use the standard-library <code>std.option</code> and <code>std.result</code> helpers for construction and common transformations. Error codes from the compiler and CLI are described in the quick reference; runtime failures should carry a meaningful message at the boundary where they are detected.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 10</p>
+      <section id="async" class="chapter-break" data-guide-section data-search="async await structured concurrency beta reactor streams">
+        <h2>10. Async/await and structured concurrency <span class="status beta">beta</span></h2>
+        <div class="warning"><strong>Beta boundary:</strong> async functions, <code>await</code>, the reactor, structured task surfaces, streams, async standard-library integration, async trait objects, and formal <code>Send</code>/<code>Sync</code> diagnostics are implemented validation tracks but remain beta. Validate the target platform and fixture before treating an async workflow as a production contract.</div>
+        <p>Declare an async function with <code>async func</code>. Await an async result with <code>await</code>. Structured concurrency keeps child work associated with a parent scope so cancellation and completion can be reasoned about together.</p>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Async surface</span><button class="copy-button" type="button" data-copy-target="async-code">Copy</button></div>
+          <pre id="async-code"><code class="language-spectra">async func read_value(value: int) returns int {
+    return value
+}
+
+async func combine() returns int {
+    let left = await read_value(17)
+    let right = await read_value(25)
+    return left + right
+}</code></pre>
+        </div>
+        <div class="fixture" data-validate-source="tests/validation/126_async_stdlib_surface.spectra" data-validate-mode="check">
+          <strong>Validation fixture:</strong> <code>tests/validation/126_async_stdlib_surface.spectra</code> checks the current async standard-library surface. Related fixtures cover lowering, early return, nested blocks, streams, structured concurrency, async trait objects, and runtime block-on behavior.
+        </div>
+        <p>For deterministic local concurrency that does not require the beta async language model, use the stable <code>std.concurrent</code> task, channel, counter, and pipeline helpers described in chapter 11. The local <code>std.serve</code> baseline is also separate from HTTP and is not the incomplete <code>spectra.api</code> surface.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 11</p>
+      <section id="stdlib" class="chapter-break" data-guide-section data-search="standard library std io string math convert collections random fs env option result char time range concurrent serve tensor ml">
+        <h2>11. Standard library reference</h2>
+        <p>Standard-library modules are qualified by module name or imported by name. The lists below focus on the current public baseline. Function signatures are representative; use <code>spectralang check</code> and the detailed Markdown reference when an overload or tensor shape matters.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Module</th><th>Purpose and principal operations</th><th>Maturity</th></tr></thead>
+            <tbody>
+              <tr><td><code>std.io</code></td><td><code>print</code>, <code>println</code>, <code>eprint</code>, <code>eprintln</code>, <code>flush</code>, <code>read_line</code>, <code>input</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.string</code></td><td>Text size and search: <code>len</code>, <code>contains</code>, <code>starts_with</code>, <code>ends_with</code>, <code>index_of</code>, <code>count_occurrences</code>; transforms: <code>to_upper</code>, <code>to_lower</code>, <code>trim</code>, <code>reverse_str</code>, <code>replace</code>; construction: <code>concat</code>, <code>repeat_str</code>, <code>substring</code>, <code>split_first</code>, <code>split_last</code>, <code>pad_left</code>, <code>pad_right</code>, <code>is_empty</code>, <code>char_at</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.math</code></td><td>Integer helpers <code>abs</code>, <code>min</code>, <code>max</code>, <code>clamp</code>, <code>sign</code>, <code>gcd</code>, <code>lcm</code>; floating helpers <code>abs_f</code>, <code>sqrt_f</code>, <code>pow_f</code>, <code>floor_f</code>, <code>ceil_f</code>, <code>round_f</code>, <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>log</code>, <code>log2</code>, <code>log10</code>, <code>atan2</code>, <code>is_nan</code>, <code>is_infinite</code>, <code>pi</code>, <code>e_const</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.convert</code></td><td><code>int_to_string</code>, <code>float_to_string</code>, <code>bool_to_string</code>, <code>string_to_int</code>, <code>string_to_float</code>, <code>int_to_float</code>, <code>float_to_int</code>, optional conversions, and <code>bool_to_int</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.collections</code></td><td>Lists: <code>list_new</code>, <code>push</code>, <code>len</code>, <code>get</code>, <code>set</code>, <code>pop</code>, <code>pop_front</code>, <code>insert</code>, <code>remove</code>, <code>contains</code>, <code>index_of</code>, <code>sort</code>, <code>clear</code>, <code>free</code>, <code>free_all</code>; higher-order helpers: <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>sort_by</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.random</code></td><td>Seeded deterministic random values, integer and float sampling, distributions, and categorical sampling.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.fs</code></td><td>Filesystem reads, writes, existence checks, directory helpers, and controlled path operations. Validate errors before using external data.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.env</code></td><td>Read environment variables, inspect the current directory, and expose process configuration at an explicit boundary.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.option</code></td><td>Construct and inspect optional values, map present values, and provide fallback behavior for <code>Option</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.result</code></td><td>Construct success/error values and apply explicit success or failure handling for <code>Result</code>.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.char</code></td><td>Character classification, conversion, and Unicode-aware helper operations supported by the current baseline.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.time</code></td><td>Clock, duration, timestamp, and formatting primitives for deterministic timing boundaries.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.range</code></td><td>Range construction and iteration helpers used by <code>for</code> and collection code.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.concurrent</code></td><td>Task handles, FIFO nonblocking channels, counters, joins, and deterministic pipeline helpers.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.serve</code></td><td>Local in-process serving handles, warmup, batching, cancellation, timeout, resident models, and serving benchmarks. It does not provide HTTP, gRPC, sockets, or distributed deployment.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.tensor</code></td><td>Tensor construction, shape and dtype operations, elementwise kernels, reductions, matrix operations, device placement, gradients, persistence, and lifecycle management.</td><td><span class="status stable">stable</span></td></tr>
+              <tr><td><code>std.ml</code></td><td>Model primitives, losses, optimizers, datasets, training/evaluation helpers, export and AI support contracts built on tensors.</td><td><span class="status stable">stable</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Frequently used calls</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Qualified standard-library calls</span><button class="copy-button" type="button" data-copy-target="stdlib-code">Copy</button></div>
+          <pre id="stdlib-code"><code class="language-spectra">from std.io import println
+import std.math as math
+import std.string as text
+
+func describe(value: float) returns string {
+    let rounded = math.round_f(value)
+    return text.concat("value=", std.convert.float_to_string(rounded))
+}
+
+public func main() returns int {
+    println(describe(3.14))
+    return 0
+}</code></pre>
+        </div>
+        <p>The long-form function reference is maintained in <code>docs/reference/05-stdlib.md</code>. Keep lifecycle calls such as tensor and collection release operations visible at the end of an owning scope.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 12</p>
+      <section id="ai-ml" class="chapter-break" data-guide-section data-search="tensor programming autodiff diff datasets training export onnx transformer rag evaluation guardrails monitoring">
+        <h2>12. Tensor programming, autodiff, and AI/ML</h2>
+        <p>SpectraLang's AI/ML baseline is built around explicit tensor handles, validated operations, deterministic execution options, automatic differentiation, model helpers, export paths, and runtime observability. The stable baseline is intentionally explicit: use standard-library tensor calls today and treat broader first-class tensor syntax as beta.</p>
+        <h3>Tensor lifecycle and shapes</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Tensor construction and cleanup</span><button class="copy-button" type="button" data-copy-target="tensor-code">Copy</button></div>
+          <pre id="tensor-code"><code class="language-spectra">import std.tensor as tensor
+
+public func main() returns int {
+    tensor.free_all()
+    let features = tensor.reshape(tensor.full_f(4, 1.0), 4, 1)
+    let labels = tensor.full_f(4, 2.0)
+    let prediction = tensor.add(features, labels)
+    let count = tensor.len(prediction)
+    tensor.free_all()
+    return count
+}</code></pre>
+        </div>
+        <p>Tensor operations validate rank, shape, dtype, layout, and device compatibility where the current operation contract requires it. Device placement includes CPU and an optional <code>wgpu</code> path when the feature and host support it. Track allocations with tensor lifecycle helpers and the runtime memory report.</p>
+        <h3>Autodiff and <code>diff</code> blocks</h3>
+        <div class="code-shell" data-spectra-code data-kind="snippet">
+          <div class="code-head"><span>Differentiable region</span><button class="copy-button" type="button" data-copy-target="diff-code">Copy</button></div>
+          <pre id="diff-code"><code class="language-spectra">let loss: Tensor&lt;float, rank0&gt; = diff {
+    let prediction = tensor.mul(weight, input)
+    tensor.mean_t(tensor.sub(prediction, target))
+}</code></pre>
+        </div>
+        <p>A <code>diff { ... }</code> expression marks a differentiable region and produces a scalar tensor loss for the current baseline. Keep I/O, metadata, and lifecycle operations outside the block. Unsupported graph operations produce stable diagnostics instead of silently creating a partial gradient.</p>
+        <h3>Datasets, training, and export</h3>
+        <ul>
+          <li>Represent features and labels as tensors with explicit shapes and dtypes.</li>
+          <li>Use deterministic seeds and record preprocessing decisions for reproducibility.</li>
+          <li>Compose model calls with losses and optimizer steps such as the validated <code>std.ml.linear</code>, <code>mse_loss</code>, and <code>sgd_step</code> path.</li>
+          <li>Export a text or model artifact only after evaluation and lifecycle cleanup have completed.</li>
+          <li>Use the checked-in examples under <code>examples/ai/</code> for linear and logistic regression, transformer inference, ONNX export, RAG retrieval, evaluation reports, and graph fusion.</li>
+        </ul>
+        <div class="fixture" data-validate-source="examples/ai/linear_regression_train_export.spectra" data-validate-mode="check">
+          <strong>AI validation fixture:</strong> <code>examples/ai/linear_regression_train_export.spectra</code> is checked as part of this guide's validation. A full project validation is available under <code>tests/projects/valid/integrated_ai_tensor_autodiff</code>.
+        </div>
+        <h3>ONNX, transformer primitives, RAG, evaluation, guardrails, and monitoring</h3>
+        <p>ONNX export and transformer primitives are supported through validated AI examples, not as a promise that every external model format or backend is interchangeable. RAG examples separate retrieval, context assembly, and generation boundaries. Evaluation examples record metrics and reports. Guardrails cover input/output checks and policy decisions. Monitoring should expose latency, errors, memory pressure, device transfers, drift signals, and reproducibility metadata.</p>
+        <table>
+          <thead><tr><th>Concern</th><th>Recommended baseline</th></tr></thead>
+          <tbody>
+            <tr><td>Numerical correctness</td><td>Use deterministic seeds, tensor correctness fixtures, shape checks, and tolerance-aware comparisons.</td></tr>
+            <tr><td>Training</td><td>Keep data loading, loss, backward step, optimizer, evaluation, and cleanup visible in the program.</td></tr>
+            <tr><td>Export</td><td>Validate the exported artifact and record the source model, dtype, device, and version.</td></tr>
+            <tr><td>RAG</td><td>Log retrieval inputs, selected documents, context limits, and answer evaluation separately.</td></tr>
+            <tr><td>Guardrails</td><td>Reject invalid inputs before model execution and validate outputs before they cross a user-facing boundary.</td></tr>
+            <tr><td>Monitoring</td><td>Measure latency, allocations, kernel activity, fallback paths, errors, and drift; do not infer health from a single score.</td></tr>
+          </tbody>
+        </table>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 13</p>
+      <section id="interop" class="chapter-break" data-guide-section data-search="python rust c abi npy interoperability">
+        <h2>13. Python, Rust, C ABI, and <code>.npy</code> interoperability</h2>
+        <p>The interop baseline is deliberately small and deterministic. Python can invoke a Spectra program through the CLI/JIT boundary. Rust can use the <code>spectra-interop</code> crate. A stable C ABI header and sample are provided. Tensor exchange uses NumPy <code>.npy</code> version 1.0 for one-dimensional little-endian <code>f64</code> arrays in C order.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Boundary</th><th>Repository surface</th><th>Validation</th></tr></thead>
+            <tbody>
+              <tr><td>Python</td><td><code>python/spectra_bridge.py</code> and <code>python/demo_phase8.py</code></td><td><code>python python\demo_phase8.py</code></td></tr>
+              <tr><td>Rust</td><td><code>tools/spectra-interop</code>, <code>TensorF64</code>, and the Rust FFI sample</td><td><code>cargo test -p spectra-interop</code>; <code>cargo run -p spectra-interop --example rust_ffi_sample</code></td></tr>
+              <tr><td>C</td><td><code>tools/spectra-interop/include/spectra_interop.h</code> and <code>examples/c_ffi_sample.c</code></td><td>Build the release library and compile with LLVM <code>clang</code>.</td></tr>
+              <tr><td>NumPy</td><td>Portable <code>.npy</code> v1 round-trip for little-endian <code>f64</code>, one dimension, C order</td><td>Use the Python demo and Rust interop tests.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Free memory using the allocator that owns it. C callers must use <code>spectra_interop_f64_array_free</code> for arrays returned by Spectra. Paths cross the ABI as UTF-8 byte pointers with explicit lengths. Broader formats such as <code>.npz</code>, safetensors, checkpoints, and generalized model interchange are outside this current baseline.</p>
+        <div class="code-shell" data-spectra-code data-kind="command">
+          <div class="code-head"><span>Interop checks</span><button class="copy-button" type="button" data-copy-target="interop-command">Copy</button></div>
+          <pre id="interop-command"><code class="command">cargo test -p spectra-interop
+cargo run -p spectra-interop --example rust_ffi_sample
+python python\demo_phase8.py</code></pre>
+        </div>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 14</p>
+      <section id="packages" class="chapter-break" data-guide-section data-search="packages spectra toml workspace lockfile registry git catalog reproducible offline">
+        <h2>14. Packages, manifests, workspaces, lockfiles, registries, and offline workflows</h2>
+        <p>A package project is described by <code>spectra.toml</code>. The manifest declares the project name, exact version, entry source, source directories, workspace members, and dependencies. A generated <code>spectra.lock</code> records the resolved graph, source, revision, checksums, and manifest hashes.</p>
+        <div class="code-shell" data-spectra-code data-kind="toml">
+          <div class="code-head"><span>spectra.toml</span><button class="copy-button" type="button" data-copy-target="manifest-code">Copy</button></div>
+          <pre id="manifest-code"><code>[project]
+name = "my_app"
+version = "0.1.0"
+entry = "src/main.spectra"
+src_dirs = ["src"]
+
+[workspace]
+members = ["packages/core"]
+
+[dependencies]
+core = { version = "0.1.0" path = "packages/core" }</code></pre>
+        </div>
+        <h3>Dependency sources</h3>
+        <ul>
+          <li><strong>Path:</strong> local packages in the workspace or a nearby checkout.</li>
+          <li><strong>Registry:</strong> packages installed into the local Spectra package cache.</li>
+          <li><strong>Git:</strong> a repository, tag or revision, and a checksum recorded in the lockfile.</li>
+          <li><strong>Catalog:</strong> a project-configured package index used by explicit catalog commands.</li>
+        </ul>
+        <p>Versions use exact semantic version triples in the current baseline. Do not assume range solving, hosted registry authentication, or implicit remote catalog synchronization. Package compatibility is checked before installation or compilation.</p>
+        <h3>Reproducible and offline builds</h3>
+        <div class="code-shell" data-spectra-code data-kind="command">
+          <div class="code-head"><span>Locked offline workflow</span><button class="copy-button" type="button" data-copy-target="package-command">Copy</button></div>
+          <pre id="package-command"><code class="command">spectralang package lock --root .
+spectralang package fetch --offline --locked --root .
+spectralang package check --offline --locked --root .
+spectralang package test --offline --locked --root .</code></pre>
+        </div>
+        <p>Restore <code>spectra.lock</code>, <code>.spectra/git</code>, and <code>.spectra/packages</code> as one cache unit. <code>--locked</code> rejects a missing or changed graph. <code>--offline</code> forbids network resolution and reports a package-aware cache diagnostic when a required revision or payload is absent.</p>
+        <h3>Package command family</h3>
+        <p>Use <code>package build</code>, <code>check</code>, <code>run</code>, <code>test</code>, <code>bench</code>, <code>doc</code>, <code>add</code>, <code>update</code>, and <code>fetch</code>. Catalog operations include <code>catalog add</code>, <code>list</code>, <code>sync</code>, and <code>remove</code>. The package author tutorial and package-manager reference remain further reading.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 15</p>
+      <section id="tooling" class="chapter-break" data-guide-section data-search="cli formatter lint diagnostics lsp vscode extension benchmarks testing">
+        <h2>15. CLI, formatter, lint, diagnostics, LSP, VS Code, benchmarks, and testing</h2>
+        <h3>CLI commands and diagnostic formats</h3>
+        <p>The CLI is the stable front door to the compiler and runtime. Use <code>--json</code> for machine-readable diagnostics, <code>--sarif</code> for code-scanning integrations, and <code>--summary</code> or <code>--timings</code> when investigating a build.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Command or flag</th><th>Use</th></tr></thead>
+            <tbody>
+              <tr><td><code>compile</code>, <code>check</code>, <code>run</code></td><td>Compile-only, validation-only, or compile-and-execute workflow.</td></tr>
+              <tr><td><code>fmt</code></td><td>Format sources; <code>fmt --check</code> detects drift without editing.</td></tr>
+              <tr><td><code>lint</code></td><td>Run lint diagnostics; use <code>--allow</code> or <code>--deny</code> to configure policy.</td></tr>
+              <tr><td><code>bench</code></td><td>Run benchmark targets; <code>--bench-json</code> emits machine-readable results.</td></tr>
+              <tr><td><code>--dump-ast</code>, <code>--dump-ir</code></td><td>Inspect frontend or midend representations while debugging a compiler behavior.</td></tr>
+              <tr><td><code>-O0</code> through <code>-O3</code></td><td>Choose optimization level; <code>-O0</code> is useful for diagnosis.</td></tr>
+              <tr><td><code>--enable-experimental</code></td><td>Compatibility no-op in this release; there are no active experimental syntax gates.</td></tr>
+              <tr><td><code>--list-experimental</code></td><td>Reports the active experimental list, which is empty under the current policy.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Editor integration</h3>
+        <p>The VS Code extension provides SpectraLang file recognition, syntax highlighting, diagnostics, formatting commands, and language-server integration. Open the repository's extension package when debugging editor behavior and keep its grammar synchronized with the canonical forms in this guide: <code>func</code>, <code>record</code>, <code>public</code>, <code>returns</code>, <code>from ... import</code>, <code>else if</code>, <code>if not</code>, <code>and</code>, <code>or</code>, <code>not</code>, and <code>when ... then</code>.</p>
+        <h3>Tests and evidence</h3>
+        <p>Use focused validation for the construct you changed, then run the normal project test suite. Language examples live under <code>tests/validation</code>; expected failures live under <code>tests/errors</code>; complete project fixtures live under <code>tests/projects/valid</code>. The guide validator itself is a standard-library Python script and does not need a browser or network.</p>
+        <div class="code-shell" data-spectra-code data-kind="command">
+          <div class="code-head"><span>Documentation and project gates</span><button class="copy-button" type="button" data-copy-target="tooling-command">Copy</button></div>
+          <pre id="tooling-command"><code class="command">python scripts\validate_language_guide.py --root .
+python scripts\validate_feature_maturity.py --root .
+git diff --check
+.\run_tests.ps1</code></pre>
+        </div>
+        <p>Benchmark claims require checked-in evidence. Use release builds for performance comparisons and record the command, target, options, and environment alongside the result.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 16</p>
+      <section id="maturity" class="chapter-break" data-guide-section data-search="stable beta experimental deferred feature matrix">
+        <h2>16. Stable, beta, experimental, and deferred feature matrix</h2>
+        <p>The maturity policy distinguishes what can be relied on from what is still being hardened. A label describes the current contract, not the quality of a particular program.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Status</th><th>Current surface</th><th>Guidance</th></tr></thead>
+            <tbody>
+              <tr><td><span class="status stable">stable</span></td><td>Modules and imports; visibility; functions and methods; records, enums, traits, impl, generics and <code>dyn Trait</code>; primitive, tuple, array, function, and numeric types; control flow and patterns; qualified standard library; tensor/autodiff/device baseline; <code>std.ml</code>; package manager; Python/Rust/C ABI and <code>.npy</code> interop baseline; tooling, concurrency, local serving, AI examples, ONNX/transformer/RAG/evaluation/guardrail/monitoring contracts.</td><td>Use normally, while still checking the exact operation and target.</td></tr>
+              <tr><td><span class="status beta">beta</span></td><td>Class footprint and static members; mutable or reference closure captures; async/await execution, reactor, structured concurrency, streams, async standard library, async trait objects and formal <code>Send</code>/<code>Sync</code> diagnostics; first-class tensor language beyond the handle API; native debug stepping; future HTTP/gRPC serving work.</td><td>Use with a fixture, platform check, and an explicit product decision.</td></tr>
+              <tr><td><span class="status experimental">experimental</span></td><td>None in version 0.2.7. The experimental CLI switches remain compatibility interfaces until a future feature is documented and gated.</td><td>Do not invent an experimental syntax gate.</td></tr>
+              <tr><td><span class="status deferred">deferred</span></td><td>Unicode identifiers; advanced numeric literals; exact-width storage and overflow policy; repeat/foreach/goto/yield; raw strings; production tensor syntax and static-shape language; native GPU backends beyond optional <code>wgpu</code>; formats beyond current <code>.npy</code>; hosted registry/auth/provenance/range solving; async test macros.</td><td>Do not document as available current syntax.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>When the maturity policy changes, update the source policy and its validator before relabeling a feature in user-facing material. The authoritative local source is <code>docs/language-feature-maturity.md</code>.</p>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <p class="chapter-kicker">Chapter 17</p>
+      <section id="quick-reference" class="chapter-break" data-guide-section data-search="quick reference keywords operators types module cli exit codes common errors">
+        <h2>17. Quick reference</h2>
+        <h3 id="keywords">Keywords and declaration forms</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Area</th><th>Forms</th></tr></thead>
+            <tbody>
+              <tr><td>Declarations</td><td><code>module</code>, <code>import</code>, <code>from</code>, <code>public</code>, <code>const</code>, <code>record</code>, <code>enum</code>, <code>trait</code>, <code>impl</code>, <code>class</code></td></tr>
+              <tr><td>Functions</td><td><code>func</code>, <code>returns</code>, <code>async</code>, <code>await</code>, closure pipes</td></tr>
+              <tr><td>Bindings</td><td><code>let</code>, <code>mut</code>, type annotations, destructuring patterns</td></tr>
+              <tr><td>Branching</td><td><code>if</code>, <code>else if</code>, <code>else</code>, <code>match</code>, <code>when</code>, <code>then</code>, <code>otherwise</code>, <code>switch</code>, <code>case</code></td></tr>
+              <tr><td>Loops</td><td><code>for</code>, <code>in</code>, <code>while</code>, <code>loop</code>, <code>do</code>, <code>break</code>, <code>continue</code></td></tr>
+              <tr><td>Values and types</td><td><code>true</code>, <code>false</code>, <code>null</code>, <code>bool</code>, <code>int</code>, <code>float</code>, <code>char</code>, <code>string</code>, <code>unit</code>, <code>Option</code>, <code>Result</code>, <code>Tensor</code>, <code>dyn</code></td></tr>
+              <tr><td>Other</td><td><code>return</code>, <code>diff</code>, <code>where</code>, <code>self</code>, <code>Self</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="operators">Operators at a glance</h3>
+        <p><code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>%</code> · <code>==</code> <code>!=</code> <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code> · <code>and</code> <code>or</code> <code>not</code> · <code>=</code> · <code>.</code> <code>::</code> · collection indexing with <code>[]</code> · grouping with <code>()</code>.</p>
+        <h3 id="types">Type forms</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Form</th><th>Example</th></tr></thead>
+            <tbody>
+              <tr><td>Primitive</td><td><code>int</code>, <code>float</code>, <code>bool</code>, <code>char</code>, <code>string</code></td></tr>
+              <tr><td>Array</td><td><code>[int]</code></td></tr>
+              <tr><td>Tuple</td><td><code>(string, int)</code></td></tr>
+              <tr><td>Function</td><td><code>(int) returns int</code></td></tr>
+              <tr><td>Generic</td><td><code>Option&lt;int&gt;</code>, <code>Result&lt;int, string&gt;</code>, <code>Box&lt;T&gt;</code></td></tr>
+              <tr><td>Trait object</td><td><code>dyn Summarize</code></td></tr>
+              <tr><td>Tensor</td><td><code>Tensor&lt;float, rank0&gt;</code> and the validated shape/layout/device annotations</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="module-forms">Module forms</h3>
+        <ul class="inline-list">
+          <li><code>module app.main</code></li>
+          <li><code>import std.io</code></li>
+          <li><code>import std.math as math</code></li>
+          <li><code>from std.io import println</code></li>
+          <li><code>public from app.core import Engine</code></li>
+        </ul>
+        <h3 id="cli-commands">CLI commands and process exit codes</h3>
+        <p>Primary commands are <code>compile</code>, <code>check</code>, <code>run</code>, <code>lint</code>, <code>bench</code>, <code>repl</code>, <code>new</code>, <code>release-info</code>, <code>package</code>, <code>db</code>, and <code>fmt</code>. A successful program returns <code>0</code> by convention. A nonzero explicit <code>int</code> from <code>main</code> is the program's failure or application-specific status. CLI parse, compilation, and runtime failures are reported by the CLI with a nonzero process status and a diagnostic; use JSON or SARIF output when a calling tool must classify them.</p>
+        <h3 id="common-errors">Common errors and fixes</h3>
+        <table>
+          <thead><tr><th>Symptom</th><th>Likely fix</th></tr></thead>
+          <tbody>
+            <tr><td>Unknown name or import</td><td>Check the module path, named import, visibility, and workspace source directories.</td></tr>
+            <tr><td>Assignment to immutable binding</td><td>Declare the local with <code>let mut</code> when reassignment is intentional.</td></tr>
+            <tr><td>Missing return path</td><td>Make every reachable branch return the declared type or use an explicit final expression.</td></tr>
+            <tr><td>Non-exhaustive match</td><td>Add the missing variant, literal, or <code>otherwise</code> arm.</td></tr>
+            <tr><td>Type or shape mismatch</td><td>Add an annotation, convert at the boundary, or align tensor dtype/rank/shape/device.</td></tr>
+            <tr><td>Package graph mismatch</td><td>Regenerate <code>spectra.lock</code>, or use <code>--locked</code> with the exact restored cache.</td></tr>
+            <tr><td>Offline dependency unavailable</td><td>Restore the matching <code>.spectra/git</code> or <code>.spectra/packages</code> cache; offline mode never fetches it.</td></tr>
+            <tr><td>Beta feature behaves differently by target</td><td>Run its checked-in fixture on the target platform and keep the feature labeled beta.</td></tr>
+          </tbody>
+        </table>
+        <h3 id="further-reading">Further reading</h3>
+        <ul>
+          <li><code>docs/reference/01-introducao.md</code> through <code>06-referencia-rapida.md</code> for the detailed repository references.</li>
+          <li><code>docs/book/</code> for the numerical, tensor, autodiff, model, export, package, and benchmark chapters.</li>
+          <li><code>docs/syntax-human-high-level-report.html</code> and <code>docs/syntax-readability-report.html</code> for the readability rationale and migration notes.</li>
+          <li><code>docs/language-feature-maturity.md</code> for the current maturity policy.</li>
+          <li><code>docs/package-manager.md</code>, <code>docs/interop.md</code>, and <code>docs/concurrency-serving.md</code> for subsystem contracts.</li>
+        </ul>
+        <div class="scope-note"><strong>Remember:</strong> the current guide intentionally stops before <code>spectra.api</code>. Treat it as a future or separately tracked surface until its contract is complete.</div>
+        <a class="back-to-top" href="#top">Back to top</a>
+      </section>
+
+      <footer>
+        <p><strong>SpectraLang Language Guide 0.2.7</strong> · Standalone HTML reference prepared for offline reading and A4 PDF conversion.</p>
+        <p>The guide is generated as repository documentation. Validate it with <code>python scripts/validate_language_guide.py --root .</code> after changing examples, headings, metadata, or print styles.</p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    (function () {
+      "use strict";
+      var search = document.getElementById("guide-search");
+      var sections = Array.prototype.slice.call(document.querySelectorAll("[data-guide-section]"));
+      var links = Array.prototype.slice.call(document.querySelectorAll(".toc a"));
+      var printButton = document.getElementById("print-guide");
+
+      function copyText(targetId, button) {
+        var target = document.getElementById(targetId);
+        if (!target) return;
+        var value = target.innerText || target.textContent || "";
+        function done() {
+          var old = button.textContent;
+          button.textContent = "Copied";
+          window.setTimeout(function () { button.textContent = old; }, 1200);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(value).then(done).catch(function () {
+            fallbackCopy(value, done);
+          });
+        } else {
+          fallbackCopy(value, done);
+        }
+      }
+
+      function fallbackCopy(value, done) {
+        var area = document.createElement("textarea");
+        area.value = value;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand("copy"); } finally {
+          document.body.removeChild(area);
+        }
+        done();
+      }
+
+      Array.prototype.forEach.call(document.querySelectorAll("[data-copy-target]"), function (button) {
+        button.addEventListener("click", function () {
+          copyText(button.getAttribute("data-copy-target"), button);
+        });
+      });
+
+      if (printButton) printButton.addEventListener("click", function () { window.print(); });
+
+      if (search) {
+        search.addEventListener("input", function () {
+          var query = search.value.toLowerCase().trim();
+          sections.forEach(function (section) {
+            var haystack = (section.getAttribute("data-search") || "") + " " + section.textContent;
+            section.hidden = query.length > 0 && haystack.toLowerCase().indexOf(query) === -1;
+          });
+        });
+      }
+
+      if ("IntersectionObserver" in window) {
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            links.forEach(function (link) {
+              link.classList.toggle("active", link.getAttribute("href") === "#" + entry.target.id);
+            });
+          });
+        }, { rootMargin: "-12% 0px -72% 0px" });
+        sections.forEach(function (section) { observer.observe(section); });
+      }
+    }());
+  </script>
+</body>
+</html>
